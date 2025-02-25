@@ -62,10 +62,7 @@ fn test_try_parse_request() {
         )
         .unwrap();
 
-    assert_eq!(
-        handler.contract_identifier,
-        Some(contract_identifier.clone())
-    );
+    assert_eq!(handler.contract_identifier, Some(contract_identifier));
     assert_eq!(handler.slot_id, Some(0));
     assert_eq!(handler.slot_version, Some(32));
 
@@ -132,21 +129,13 @@ fn test_try_make_response() {
     requests.push(request);
 
     // no chunk
-    let request = StacksHttpRequest::new_get_stackerdb_chunk(
-        addr.into(),
-        contract_identifier.clone(),
-        4093,
-        None,
-    );
+    let request =
+        StacksHttpRequest::new_get_stackerdb_chunk(addr.into(), contract_identifier, 4093, None);
     requests.push(request);
 
     // no contract
-    let request = StacksHttpRequest::new_get_stackerdb_chunk(
-        addr.into(),
-        none_contract_identifier.clone(),
-        0,
-        None,
-    );
+    let request =
+        StacksHttpRequest::new_get_stackerdb_chunk(addr.into(), none_contract_identifier, 0, None);
     requests.push(request);
 
     let mut responses = test_rpc(function_name!(), requests);
@@ -193,7 +182,7 @@ fn test_try_make_response() {
     );
 
     let resp = response.decode_stackerdb_chunk().unwrap();
-    assert_eq!(resp.len(), 0);
+    assert!(resp.is_empty());
 
     let response = responses.remove(0);
     debug!(

@@ -286,13 +286,11 @@ impl AtlasDB {
             } else {
                 return Err(db_error::NoDBError);
             }
-        } else {
+        } else if readwrite {
             // can just open
-            if readwrite {
-                OpenFlags::SQLITE_OPEN_READ_WRITE
-            } else {
-                OpenFlags::SQLITE_OPEN_READ_ONLY
-            }
+            OpenFlags::SQLITE_OPEN_READ_WRITE
+        } else {
+            OpenFlags::SQLITE_OPEN_READ_ONLY
         };
         let conn = sqlite_open(path, open_flags, false)?;
         Self::check_instantiate_db(atlas_config, conn, readwrite, create_flag)
@@ -376,7 +374,7 @@ impl AtlasDB {
     // Open an atlas database in memory (used for testing)
     #[cfg(test)]
     pub fn connect_memory(atlas_config: AtlasConfig) -> Result<AtlasDB, db_error> {
-        let conn = Connection::open_in_memory().map_err(|e| db_error::SqliteError(e))?;
+        let conn = Connection::open_in_memory().map_err(db_error::SqliteError)?;
         let mut db = AtlasDB {
             atlas_config,
             conn,
@@ -462,7 +460,7 @@ impl AtlasDB {
         let max = (page_index + 1) * AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
         let qry = "SELECT MIN(block_height) as min, MAX(block_height) as max FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2";
         let args = params![min, max];
-        let mut stmt = self.conn.prepare(&qry)?;
+        let mut stmt = self.conn.prepare(qry)?;
         let mut rows = stmt.query(args)?;
 
         match rows.next() {
@@ -502,7 +500,7 @@ impl AtlasDB {
             .ok_or(db_error::Overflow)?;
         let qry = "SELECT attachment_index, is_available FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2 AND index_block_hash = ?3 ORDER BY attachment_index ASC";
         let args = params![min, max, block_id,];
-        let rows = query_rows::<(u32, u32), _>(&self.conn, &qry, args)?;
+        let rows = query_rows::<(u32, u32), _>(&self.conn, qry, args)?;
 
         let mut bool_vector = vec![true; AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE as usize];
         for (attachment_index, is_available) in rows.into_iter() {

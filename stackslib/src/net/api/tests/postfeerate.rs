@@ -15,23 +15,29 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::Arc;
 
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::{ClarityName, ContractName, Value};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::Address;
-use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::{to_hex, Sha256Sum};
 
 use super::test_rpc;
 use crate::chainstate::stacks::TransactionPayload;
 use crate::core::BLOCK_LIMIT_MAINNET_21;
+use crate::cost_estimates::metrics::UnitMetric;
+use crate::cost_estimates::tests::fee_rate_fuzzer::ConstantFeeEstimator;
+use crate::cost_estimates::UnitEstimator;
+use crate::net::api::tests::TestRPC;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
     HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
 };
-use crate::net::{ProtocolFamily, TipRequest};
+use crate::net::test::RPCHandlerArgsType;
+use crate::net::{ProtocolFamily, RPCHandlerArgs, TipRequest};
 
 #[test]
 fn test_try_parse_request() {
@@ -66,7 +72,7 @@ fn test_try_parse_request() {
         .unwrap();
 
     assert_eq!(handler.estimated_len, Some(123));
-    assert_eq!(handler.transaction_payload, Some(tx_payload.clone()));
+    assert_eq!(handler.transaction_payload, Some(tx_payload));
 
     // parsed request consumes headers that would not be in a constructed reqeuest
     parsed_request.clear_headers();
@@ -89,9 +95,10 @@ fn test_try_make_response() {
         TransactionPayload::new_contract_call(sender_addr, "hello-world", "add-unit", vec![])
             .unwrap();
 
+    // case 1: no fee estimates
     let mut requests = vec![];
     let request = StacksHttpRequest::new_post_fee_rate(
-        addr.into(),
+        addr.clone().into(),
         postfeerate::FeeRateEstimateRequestBody {
             estimated_len: Some(123),
             transaction_payload: to_hex(&tx_payload.serialize_to_vec()),
@@ -99,7 +106,8 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
-    let mut responses = test_rpc(function_name!(), requests);
+    let test_rpc = TestRPC::setup(function_name!());
+    let mut responses = test_rpc.run(requests);
 
     let response = responses.remove(0);
     debug!(
@@ -108,5 +116,77 @@ fn test_try_make_response() {
     );
 
     let (preamble, body) = response.destruct();
+    let body_json: serde_json::Value = body.try_into().unwrap();
+
+    // get back a JSON string and a 400
     assert_eq!(preamble.status_code, 400);
+    debug!("Response JSON no estimator: {}", &body_json);
+
+    // case 2: no estimate available
+    let mut requests = vec![];
+    let request = StacksHttpRequest::new_post_fee_rate(
+        addr.clone().into(),
+        postfeerate::FeeRateEstimateRequestBody {
+            estimated_len: Some(123),
+            transaction_payload: to_hex(&tx_payload.serialize_to_vec()),
+        },
+    );
+    requests.push(request);
+
+    let test_rpc = TestRPC::setup_with_rpc_args(
+        function_name!(),
+        Some(RPCHandlerArgsType::Null),
+        Some(RPCHandlerArgsType::Null),
+    );
+    let mut responses = test_rpc.run(requests);
+
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    let (preamble, body) = response.destruct();
+    let body_json: serde_json::Value = body.try_into().unwrap();
+
+    // get back a JSON object and a 400
+    assert_eq!(preamble.status_code, 400);
+    debug!("Response JSON no estimate fee: {}", &body_json);
+    assert_eq!(
+        body_json.get("reason").unwrap().as_str().unwrap(),
+        "NoEstimateAvailable"
+    );
+    assert!(body_json.get("error").is_some());
+    assert!(body_json.get("reason_data").is_some());
+
+    // case 3: get an estimate
+    let mut requests = vec![];
+    let request = StacksHttpRequest::new_post_fee_rate(
+        addr.clone().into(),
+        postfeerate::FeeRateEstimateRequestBody {
+            estimated_len: Some(123),
+            transaction_payload: to_hex(&tx_payload.serialize_to_vec()),
+        },
+    );
+    requests.push(request);
+
+    let test_rpc = TestRPC::setup_with_rpc_args(
+        function_name!(),
+        Some(RPCHandlerArgsType::Unit),
+        Some(RPCHandlerArgsType::Unit),
+    );
+    let mut responses = test_rpc.run(requests);
+
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    let (preamble, body) = response.destruct();
+    let body_json: serde_json::Value = body.try_into().unwrap();
+
+    // get back a JSON object and a 200
+    assert_eq!(preamble.status_code, 200);
+    debug!("Response JSON success: {}", &body_json);
 }

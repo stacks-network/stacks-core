@@ -14,14 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::mem::replace;
 
 use hashbrown::{HashMap, HashSet};
 use serde::Serialize;
 use serde_json::json;
-use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 #[cfg(feature = "clarity-wasm")]
@@ -29,16 +28,13 @@ use wasmtime::Engine;
 
 use super::analysis::{self, ContractAnalysis};
 #[cfg(feature = "clarity-wasm")]
-use super::clarity_wasm::{call_function, ClarityWasmContext};
+use super::clarity_wasm::call_function;
 use super::EvalHook;
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{
-    cost_functions, runtime_cost, ClarityCostFunctionReference, CostErrors, CostTracker,
-    ExecutionCost, LimitedCostTracker,
-};
+use crate::vm::costs::{runtime_cost, CostErrors, CostTracker, ExecutionCost, LimitedCostTracker};
 use crate::vm::database::{
     ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
     NonFungibleTokenMetadata,
@@ -47,11 +43,11 @@ use crate::vm::errors::{
     CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::events::*;
-use crate::vm::representations::{ClarityName, ContractName, SymbolicExpression};
+use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
-    AssetIdentifier, BuffData, CallableData, OptionalData, PrincipalData,
-    QualifiedContractIdentifier, TraitIdentifier, TypeSignature, Value,
+    AssetIdentifier, BuffData, CallableData, PrincipalData, QualifiedContractIdentifier,
+    TraitIdentifier, TypeSignature, Value,
 };
 use crate::vm::version::ClarityVersion;
 use crate::vm::{ast, eval, is_reserved, stx_transfer_consolidated};
@@ -508,7 +504,7 @@ impl<'a> OwnedEnvironment<'a> {
         OwnedEnvironment {
             context: GlobalContext::new(
                 false,
-                CHAIN_ID_TESTNET,
+                stacks_common::consts::CHAIN_ID_TESTNET,
                 database,
                 LimitedCostTracker::new_free(),
                 epoch,
@@ -531,7 +527,7 @@ impl<'a> OwnedEnvironment<'a> {
         OwnedEnvironment {
             context: GlobalContext::new(
                 false,
-                CHAIN_ID_TESTNET,
+                stacks_common::consts::CHAIN_ID_TESTNET,
                 database,
                 LimitedCostTracker::new_free(),
                 epoch,
@@ -592,7 +588,7 @@ impl<'a> OwnedEnvironment<'a> {
         &'b mut self,
         sender: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
-        context: &'b mut ContractContext,
+        context: &'b ContractContext,
     ) -> Environment<'b, 'a> {
         Environment::new(
             &mut self.context,
@@ -2107,11 +2103,9 @@ mod test {
 
     use super::*;
     use crate::vm::callables::DefineType;
-    use crate::vm::tests::{
-        test_epochs, tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
-    };
+    use crate::vm::tests::{test_epochs, tl_env_factory, TopLevelMemoryEnvironmentGenerator};
     use crate::vm::types::signatures::CallableSubtype;
-    use crate::vm::types::{FixedFunction, FunctionArg, FunctionType, StandardPrincipalData};
+    use crate::vm::types::StandardPrincipalData;
 
     #[test]
     fn test_asset_map_abort() {
@@ -2273,14 +2267,8 @@ mod test {
         mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
     ) {
         let mut env = tl_env_factory.get_env(epoch);
-        let u1 = StacksAddress {
-            version: 0,
-            bytes: Hash160([1; 20]),
-        };
-        let u2 = StacksAddress {
-            version: 0,
-            bytes: Hash160([2; 20]),
-        };
+        let u1 = StacksAddress::new(0, Hash160([1; 20])).unwrap();
+        let u2 = StacksAddress::new(0, Hash160([2; 20])).unwrap();
         // insufficient balance must be a non-includable transaction. it must error here,
         //  not simply rollback the tx and squelch the error as includable.
         let e = env

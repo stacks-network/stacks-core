@@ -440,13 +440,12 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
 
         if new_extension {
             self.set_block_heights(chain_tip, next_chain_tip, block_height)
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     self.open_chain_tip.take();
-                    e
                 })?;
         }
 
-        debug!("Opened {} to {}", chain_tip, next_chain_tip);
+        debug!("Opened {chain_tip} to {next_chain_tip}");
         Ok(())
     }
 
@@ -932,9 +931,8 @@ impl<T: MarfTrieId> MARF<T> {
         let mut cursor = TrieCursor::new(path, storage.root_trieptr());
 
         // walk to insertion point
-        let mut node = Trie::read_root_nohash(storage).map_err(|e| {
-            test_debug!("Failed to read root of {:?}: {:?}", block_hash, &e);
-            e
+        let mut node = Trie::read_root_nohash(storage).inspect_err(|_e| {
+            test_debug!("Failed to read root of {block_hash:?}: {_e:?}");
         })?;
 
         for _ in 0..(cursor.path.len() + 1) {
@@ -956,7 +954,7 @@ impl<T: MarfTrieId> MARF<T> {
                                 ));
                             }
 
-                            trace!("Cursor reached leaf {:?}", &node);
+                            trace!("Cursor reached leaf {node:?}");
                             storage.bench_mut().marf_walk_from_finish();
                             return Ok((cursor, node));
                         }
@@ -1035,23 +1033,16 @@ impl<T: MarfTrieId> MARF<T> {
         block_hash: &T,
         path: &TrieHash,
     ) -> Result<Option<TrieLeaf>, Error> {
-        trace!("MARF::get_path({:?}) {:?}", block_hash, path);
+        trace!("MARF::get_path({block_hash:?}) {path:?}");
 
         // a NotFoundError _here_ means that a block didn't exist
-        storage.open_block(block_hash).map_err(|e| {
-            test_debug!("Failed to open block {:?}: {:?}", block_hash, &e);
-            e
+        storage.open_block(block_hash).inspect_err(|_e| {
+            test_debug!("Failed to open block {block_hash:?}: {_e:?}");
         })?;
 
         // a NotFoundError _here_ means that the key doesn't exist in this view
-        let (cursor, node) = MARF::walk(storage, block_hash, path).map_err(|e| {
-            trace!(
-                "Failed to look up key {:?} {:?}: {:?}",
-                &block_hash,
-                path,
-                &e
-            );
-            e
+        let (cursor, node) = MARF::walk(storage, block_hash, path).inspect_err(|e| {
+            trace!("Failed to look up key {block_hash:?} {path:?}: {e:?}");
         })?;
 
         // both of these get caught by get_by_key and turned into Ok(None)
@@ -1061,7 +1052,7 @@ impl<T: MarfTrieId> MARF<T> {
         if cursor.block_hashes.len() + 1 != cursor.node_ptrs.len() {
             trace!("cursor.block_hashes = {:?}", &cursor.block_hashes);
             trace!("cursor.node_ptrs = {:?}", cursor.node_ptrs);
-            assert!(false);
+            panic!();
         }
 
         assert!(cursor.eop());
@@ -1094,12 +1085,12 @@ impl<T: MarfTrieId> MARF<T> {
         if cursor.block_hashes.len() + 1 != cursor.node_ptrs.len() {
             trace!("c.block_hashes = {:?}", &cursor.block_hashes);
             trace!("c.node_ptrs = {:?}", cursor.node_ptrs);
-            assert!(false);
+            panic!();
         }
 
         debug!(
-            "MARF Insert in {}: '{}' = '{}' (...{:?})",
-            block_hash, path, leaf_value.data, &leaf_value.path
+            "MARF Insert in {block_hash}: '{path}' = '{}' (...{:?})",
+            leaf_value.data, &leaf_value.path
         );
 
         Trie::add_value(storage, &mut cursor, &mut value)?;
@@ -1169,7 +1160,7 @@ impl<T: MarfTrieId> MARF<T> {
     ) -> Result<Option<MARFValue>, Error> {
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
 
-        let result = MARF::get_path(storage, block_hash, &path).or_else(|e| match e {
+        let result = MARF::get_path(storage, block_hash, path).or_else(|e| match e {
             Error::NotFoundError => Ok(None),
             _ => Err(e),
         });
@@ -1177,13 +1168,9 @@ impl<T: MarfTrieId> MARF<T> {
         // restore
         storage
             .open_block_maybe_id(&cur_block_hash, cur_block_id)
-            .map_err(|e| {
-                warn!(
-                    "Failed to re-open {} {:?}: {:?}",
-                    &cur_block_hash, cur_block_id, &e
-                );
-                warn!("Result of failed path lookup '{}': {:?}", path, &result);
-                e
+            .inspect_err(|e| {
+                warn!("Failed to re-open {cur_block_hash} {cur_block_id:?}: {e:?}");
+                warn!("Result of failed path lookup '{path}': {result:?}");
             })?;
 
         result.map(|option_result| option_result.map(|leaf| leaf.data))
@@ -1208,13 +1195,9 @@ impl<T: MarfTrieId> MARF<T> {
         // restore
         storage
             .open_block_maybe_id(&cur_block_hash, cur_block_id)
-            .map_err(|e| {
-                warn!(
-                    "Failed to re-open {} {:?}: {:?}",
-                    &cur_block_hash, cur_block_id, &e
-                );
-                warn!("Result of failed key lookup '{}': {:?}", key, &result);
-                e
+            .inspect_err(|e| {
+                warn!("Failed to re-open {cur_block_hash} {cur_block_id:?}: {e:?}");
+                warn!("Result of failed key lookup '{key}': {result:?}");
             })?;
 
         result.map(|option_result| option_result.map(|leaf| leaf.data))
@@ -1229,7 +1212,7 @@ impl<T: MarfTrieId> MARF<T> {
     ) -> Result<Option<MARFValue>, Error> {
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
 
-        let result = MARF::get_path(storage, block_hash, &path).or_else(|e| match e {
+        let result = MARF::get_path(storage, block_hash, path).or_else(|e| match e {
             Error::NotFoundError => Ok(None),
             _ => Err(e),
         });
@@ -1237,13 +1220,9 @@ impl<T: MarfTrieId> MARF<T> {
         // restore
         storage
             .open_block_maybe_id(&cur_block_hash, cur_block_id)
-            .map_err(|e| {
-                warn!(
-                    "Failed to re-open {} {:?}: {:?}",
-                    &cur_block_hash, cur_block_id, &e
-                );
-                warn!("Result of failed hash lookup '{}': {:?}", path, &result);
-                e
+            .inspect_err(|e| {
+                warn!("Failed to re-open {cur_block_hash} {cur_block_id:?}: {e:?}");
+                warn!("Result of failed hash lookup '{path}': {result:?}");
             })?;
 
         result.map(|option_result| option_result.map(|leaf| leaf.data))
@@ -1291,9 +1270,8 @@ impl<T: MarfTrieId> MARF<T> {
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
             if height == 0 {
-                match storage.test_genesis_block {
-                    Some(ref s) => return Ok(Some(s.clone())),
-                    _ => {}
+                if let Some(ref s) = storage.test_genesis_block {
+                    return Ok(Some(s.clone()));
                 }
             }
         }
@@ -1423,11 +1401,11 @@ impl<T: MarfTrieId> MARF<T> {
         path: &TrieHash,
     ) -> Result<Option<(MARFValue, TrieMerkleProof<T>)>, Error> {
         let mut conn = self.storage.connection();
-        let marf_value = match MARF::get_by_path(&mut conn, block_hash, &path)? {
+        let marf_value = match MARF::get_by_path(&mut conn, block_hash, path)? {
             None => return Ok(None),
             Some(x) => x,
         };
-        let proof = TrieMerkleProof::from_path(&mut conn, &path, &marf_value, block_hash)?;
+        let proof = TrieMerkleProof::from_path(&mut conn, path, &marf_value, block_hash)?;
         Ok(Some((marf_value, proof)))
     }
 

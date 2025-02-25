@@ -22,6 +22,7 @@ use std::sync::mpsc::{
     sync_channel, Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError,
 };
 
+use p2p::DropSource;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, RngCore};
 use stacks_common::types::chainstate::{BlockHeaderHash, PoxId, SortitionId, StacksBlockId};
@@ -233,7 +234,7 @@ pub struct BlockDownloader {
     /// statistics on peers' data-plane endpoints
     pub(crate) dead_peers: Vec<usize>,
     pub(crate) broken_peers: Vec<usize>,
-    broken_neighbors: Vec<NeighborKey>, // disconnect peers who report invalid block inventories too
+    broken_neighbors: Vec<DropNeighbor>, // disconnect peers who report invalid block inventories too
 
     pub(crate) blocked_urls: HashMap<UrlString, u64>, // URLs that chronically don't work, and when we can try them again
 
@@ -455,7 +456,7 @@ impl BlockDownloader {
                             self.requested_blocks.remove(&block_key.index_block_hash);
 
                             let is_always_allowed = match PeerDB::get_peer(
-                                &network.peerdb.conn(),
+                                network.peerdb.conn(),
                                 block_key.neighbor.network_id,
                                 &block_key.neighbor.addrbytes,
                                 block_key.neighbor.port,
@@ -500,7 +501,13 @@ impl BlockDownloader {
                                         {
                                             info!("Invalid block from {:?} ({:?}): did not ask for block {}/{}", &block_key.neighbor, &block_key.data_url, block_key.consensus_hash, block.block_hash());
                                             self.broken_peers.push(event_id);
-                                            self.broken_neighbors.push(block_key.neighbor.clone());
+                                            self.broken_neighbors.push(DropNeighbor {
+                                                key: block_key.neighbor.clone(),
+                                                reason: DropReason::BrokenConnection(
+                                                    "Remote neighbor sent an invalid block".into(),
+                                                ),
+                                                source: DropSource::BlockDownloaderGetBlocks,
+                                            });
                                         } else {
                                             // got the block
                                             debug!(
@@ -519,14 +526,25 @@ impl BlockDownloader {
                                         // the fact that we asked this peer means that it's block inv indicated
                                         // it was present, so the absence is the mark of a broken peer
                                         self.broken_peers.push(event_id);
-                                        self.broken_neighbors.push(block_key.neighbor.clone());
+                                        self.broken_neighbors.push(DropNeighbor {
+                                            key: block_key.neighbor.clone(),
+                                            reason: DropReason::BrokenConnection(
+                                                "Remote neighbor was missing an expected block"
+                                                    .into(),
+                                            ),
+                                            source: DropSource::BlockDownloaderGetBlocks,
+                                        });
                                     }
                                     Err(e) => {
                                         info!("Error decoding response from remote neighbor {:?} (at {}): {:?}", &block_key.neighbor, &block_key.data_url, &e;
                                             "consensus_hash" => %block_key.consensus_hash
                                         );
                                         self.broken_peers.push(event_id);
-                                        self.broken_neighbors.push(block_key.neighbor.clone());
+                                        self.broken_neighbors.push(DropNeighbor {
+                                            key: block_key.neighbor.clone(),
+                                            reason: DropReason::BrokenConnection(format!("Error occurred decoding block response from neighbor: {e}")),
+                                            source: DropSource::BlockDownloaderGetBlocks
+                                        });
                                     }
                                 }
                             }
@@ -582,7 +600,7 @@ impl BlockDownloader {
                                 .remove(&block_key.index_block_hash);
 
                             let is_always_allowed = match PeerDB::get_peer(
-                                &network.peerdb.conn(),
+                                network.peerdb.conn(),
                                 block_key.neighbor.network_id,
                                 &block_key.neighbor.addrbytes,
                                 block_key.neighbor.port,
@@ -632,7 +650,11 @@ impl BlockDownloader {
                                                 "consensus_hash" => %block_key.consensus_hash
                                             );
                                             self.broken_peers.push(event_id);
-                                            self.broken_neighbors.push(block_key.neighbor.clone());
+                                            self.broken_neighbors.push(DropNeighbor {
+                                                key: block_key.neighbor.clone(),
+                                                reason: DropReason::BrokenConnection("Remote neighbor sent an unexpected zero-length microblock stream".into()),
+                                                source: DropSource::BlockDownloaderGetMicroblocks
+                                            });
                                         } else {
                                             // have microblocks (but we don't know yet if they're well-formed)
                                             debug!(
@@ -664,7 +686,11 @@ impl BlockDownloader {
                                             "consensus_hash" => %block_key.consensus_hash
                                         );
                                         self.broken_peers.push(event_id);
-                                        self.broken_neighbors.push(block_key.neighbor.clone());
+                                        self.broken_neighbors.push(DropNeighbor {
+                                            key: block_key.neighbor.clone(),
+                                            reason: DropReason::BrokenConnection(format!("Error occurred decoding microblock response from neighbor: {e}")),
+                                            source: DropSource::BlockDownloaderGetMicroblocks
+                                        });
                                     }
                                 }
                             }
@@ -890,7 +916,7 @@ impl BlockDownloader {
     }
 
     /// Clear out broken peers that told us they had blocks, but didn't serve them.
-    fn clear_broken_peers(&mut self) -> (Vec<usize>, Vec<NeighborKey>) {
+    fn clear_broken_peers(&mut self) -> (Vec<usize>, Vec<DropNeighbor>) {
         // remove dead/broken peers
         let mut disconnect = vec![];
         let mut disconnect_neighbors = vec![];
@@ -997,10 +1023,8 @@ impl BlockDownloader {
         if microblocks {
             // being requested now?
             for (_, reqs) in self.microblocks_to_try.iter() {
-                if !reqs.is_empty() {
-                    if reqs[0].index_block_hash == *index_hash {
-                        return true;
-                    }
+                if !reqs.is_empty() && reqs[0].index_block_hash == *index_hash {
+                    return true;
                 }
             }
 
@@ -1012,10 +1036,8 @@ impl BlockDownloader {
             }
         } else {
             for (_, reqs) in self.blocks_to_try.iter() {
-                if !reqs.is_empty() {
-                    if reqs[0].index_block_hash == *index_hash {
-                        return true;
-                    }
+                if !reqs.is_empty() && reqs[0].index_block_hash == *index_hash {
+                    return true;
                 }
             }
 
@@ -1049,17 +1071,16 @@ impl PeerNetwork {
 
     /// Pass a hint to the downloader to re-scan
     pub fn hint_download_rescan(&mut self, target_height: u64, ibd: bool) {
-        match self.block_downloader {
-            Some(ref mut dl) => dl.hint_download_rescan(target_height, ibd),
-            None => {}
+        if let Some(ref mut dl) = self.block_downloader {
+            dl.hint_download_rescan(target_height, ibd)
         }
     }
 
     /// Get the data URL for a neighbor
     pub fn get_data_url(&self, neighbor_key: &NeighborKey) -> Option<UrlString> {
         match self.events.get(neighbor_key) {
-            Some(ref event_id) => match self.peers.get(event_id) {
-                Some(ref convo) => {
+            Some(event_id) => match self.peers.get(event_id) {
+                Some(convo) => {
                     if convo.data_url.is_empty() {
                         None
                     } else {
@@ -1107,9 +1128,9 @@ impl PeerNetwork {
         // if the child is processed, then we have all the microblocks we need.
         // this is the overwhelmingly likely case.
         if let Ok(Some(true)) = StacksChainState::get_staging_block_status(
-            &chainstate.db(),
-            &child_consensus_hash,
-            &child_block_hash,
+            chainstate.db(),
+            child_consensus_hash,
+            child_block_hash,
         ) {
             test_debug!(
                 "{:?}: Already processed block {}/{}, so must have stream between it and {}/{}",
@@ -1167,7 +1188,7 @@ impl PeerNetwork {
         // try and load the connecting stream.  If we have it, then we're good to go.
         // SLOW
         match StacksChainState::load_microblock_stream_fork(
-            &chainstate.db(),
+            chainstate.db(),
             parent_consensus_hash,
             parent_block_hash,
             &child_header.parent_microblock,
@@ -1337,7 +1358,7 @@ impl PeerNetwork {
                 // does this anchor block _confirm_ a microblock stream that we don't know about?
                 let parent_header_opt = {
                     let child_block_info = match StacksChainState::load_staging_block_info(
-                        &chainstate.db(),
+                        chainstate.db(),
                         &index_block_hash,
                     )? {
                         Some(hdr) => hdr,
@@ -1444,7 +1465,7 @@ impl PeerNetwork {
                 neighbors.len()
             );
 
-            (&mut neighbors[..]).shuffle(&mut thread_rng());
+            neighbors[..].shuffle(&mut thread_rng());
 
             let mut requests = VecDeque::new();
             for nk in neighbors.into_iter() {
@@ -1731,7 +1752,7 @@ impl PeerNetwork {
                             &requests.front().as_ref().unwrap().consensus_hash,
                             &requests.front().as_ref().unwrap().anchor_block_hash,
                             &index_block_hash,
-                            requests.iter().map(|ref r| &r.data_url).collect::<Vec<_>>()
+                            requests.iter().map(|r| &r.data_url).collect::<Vec<_>>()
                         );
 
                         downloader.blocks_to_try.insert(height, requests);
@@ -1795,7 +1816,7 @@ impl PeerNetwork {
 
                         debug!("{:?}: will request microblock stream confirmed by sortition {}: {}/{} ({}) from {:?}", 
                                &network.local_peer, mblock_height, &requests.front().as_ref().unwrap().consensus_hash, &requests.front().as_ref().unwrap().anchor_block_hash, &index_block_hash,
-                                requests.iter().map(|ref r| &r.data_url).collect::<Vec<_>>()
+                                requests.iter().map(|r| &r.data_url).collect::<Vec<_>>()
                                );
 
                         downloader
@@ -1845,8 +1866,8 @@ impl PeerNetwork {
 
                 if downloader.blocks_to_try.is_empty() {
                     // nothing in this range, so advance sortition range to try for next time
-                    next_block_sortition_height = next_block_sortition_height
-                        + (network.burnchain.pox_constants.reward_cycle_length as u64);
+                    next_block_sortition_height +=
+                        network.burnchain.pox_constants.reward_cycle_length as u64;
                     debug!(
                         "{:?}: Pessimistically increase block sortition height to ({})",
                         &network.local_peer, next_block_sortition_height
@@ -1854,8 +1875,8 @@ impl PeerNetwork {
                 }
                 if downloader.microblocks_to_try.is_empty() {
                     // nothing in this range, so advance sortition range to try for next time
-                    next_microblock_sortition_height = next_microblock_sortition_height
-                        + (network.burnchain.pox_constants.reward_cycle_length as u64);
+                    next_microblock_sortition_height +=
+                        network.burnchain.pox_constants.reward_cycle_length as u64;
                     debug!(
                         "{:?}: Pessimistically increase microblock sortition height to ({})",
                         &network.local_peer, next_microblock_sortition_height
@@ -1982,11 +2003,10 @@ impl PeerNetwork {
             for sortition_height in priority.into_iter() {
                 match downloader.blocks_to_try.get_mut(&sortition_height) {
                     Some(ref mut keys) => {
-                        match PeerNetwork::begin_request(network, &downloader.dns_lookups, keys) {
-                            Some((key, handle)) => {
-                                requests.insert(key.clone(), handle);
-                            }
-                            None => {}
+                        if let Some((key, handle)) =
+                            PeerNetwork::begin_request(network, &downloader.dns_lookups, keys)
+                        {
+                            requests.insert(key.clone(), handle);
                         }
                     }
                     None => {
@@ -2020,11 +2040,10 @@ impl PeerNetwork {
             for sortition_height in priority.into_iter() {
                 match downloader.microblocks_to_try.get_mut(&sortition_height) {
                     Some(ref mut keys) => {
-                        match PeerNetwork::begin_request(network, &downloader.dns_lookups, keys) {
-                            Some((key, handle)) => {
-                                requests.insert(key.clone(), handle);
-                            }
-                            None => {}
+                        if let Some((key, handle)) =
+                            PeerNetwork::begin_request(network, &downloader.dns_lookups, keys)
+                        {
+                            requests.insert(key.clone(), handle);
                         }
                     }
                     None => {
@@ -2348,7 +2367,7 @@ impl PeerNetwork {
             Vec<(ConsensusHash, StacksBlock, u64)>,
             Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>,
             Vec<usize>,
-            Vec<NeighborKey>,
+            Vec<DropNeighbor>,
         ),
         net_error,
     > {
@@ -2484,9 +2503,8 @@ impl PeerNetwork {
 
         if done {
             // reset state if we're done
-            match self.block_downloader {
-                Some(ref mut downloader) => downloader.reset(),
-                None => {}
+            if let Some(ref mut downloader) = self.block_downloader {
+                downloader.reset()
             }
         }
 

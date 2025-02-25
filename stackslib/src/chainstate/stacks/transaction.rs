@@ -20,7 +20,10 @@ use std::io::{Read, Write};
 
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::serialization::SerializationError as clarity_serialization_error;
-use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
+use clarity::vm::types::{
+    QualifiedContractIdentifier, SequenceData, SequencedValue, StandardPrincipalData,
+    MAX_TYPE_DEPTH,
+};
 use clarity::vm::{ClarityVersion, SymbolicExpression, SymbolicExpressionType, Value};
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksAddress;
@@ -193,7 +196,7 @@ impl StacksMessageCodec for TransactionPayload {
                 if let Some(version) = version_opt {
                     // caller requests a specific Clarity version
                     write_next(fd, &(TransactionPayloadID::VersionedSmartContract as u8))?;
-                    ClarityVersion_consensus_serialize(&version, fd)?;
+                    ClarityVersion_consensus_serialize(version, fd)?;
                     sc.consensus_serialize(fd)?;
                 } else {
                     // caller requests to use whatever the current clarity version is
@@ -979,19 +982,19 @@ impl StacksTransaction {
     /// Get the origin account's address
     pub fn origin_address(&self) -> StacksAddress {
         match (&self.version, &self.auth) {
-            (&TransactionVersion::Mainnet, &TransactionAuth::Standard(ref origin_condition)) => {
+            (TransactionVersion::Mainnet, TransactionAuth::Standard(origin_condition)) => {
                 origin_condition.address_mainnet()
             }
-            (&TransactionVersion::Testnet, &TransactionAuth::Standard(ref origin_condition)) => {
+            (TransactionVersion::Testnet, TransactionAuth::Standard(origin_condition)) => {
                 origin_condition.address_testnet()
             }
             (
-                &TransactionVersion::Mainnet,
-                &TransactionAuth::Sponsored(ref origin_condition, ref _unused),
+                TransactionVersion::Mainnet,
+                TransactionAuth::Sponsored(origin_condition, _unused),
             ) => origin_condition.address_mainnet(),
             (
-                &TransactionVersion::Testnet,
-                &TransactionAuth::Sponsored(ref origin_condition, ref _unused),
+                TransactionVersion::Testnet,
+                TransactionAuth::Sponsored(origin_condition, _unused),
             ) => origin_condition.address_testnet(),
         }
     }
@@ -999,15 +1002,15 @@ impl StacksTransaction {
     /// Get the sponsor account's address, if this transaction is sponsored
     pub fn sponsor_address(&self) -> Option<StacksAddress> {
         match (&self.version, &self.auth) {
-            (&TransactionVersion::Mainnet, &TransactionAuth::Standard(ref _unused)) => None,
-            (&TransactionVersion::Testnet, &TransactionAuth::Standard(ref _unused)) => None,
+            (TransactionVersion::Mainnet, TransactionAuth::Standard(_unused)) => None,
+            (TransactionVersion::Testnet, TransactionAuth::Standard(_unused)) => None,
             (
-                &TransactionVersion::Mainnet,
-                &TransactionAuth::Sponsored(ref _unused, ref sponsor_condition),
+                TransactionVersion::Mainnet,
+                TransactionAuth::Sponsored(_unused, sponsor_condition),
             ) => Some(sponsor_condition.address_mainnet()),
             (
-                &TransactionVersion::Testnet,
-                &TransactionAuth::Sponsored(ref _unused, ref sponsor_condition),
+                TransactionVersion::Testnet,
+                TransactionAuth::Sponsored(_unused, sponsor_condition),
             ) => Some(sponsor_condition.address_testnet()),
         }
     }
@@ -1020,17 +1023,14 @@ impl StacksTransaction {
     /// Get a copy of the sending condition that will pay the tx fee
     pub fn get_payer(&self) -> TransactionSpendingCondition {
         match self.auth.sponsor() {
-            Some(ref tsc) => (*tsc).clone(),
+            Some(tsc) => tsc.clone(),
             None => self.auth.origin().clone(),
         }
     }
 
     /// Is this a mainnet transaction?  false means 'testnet'
     pub fn is_mainnet(&self) -> bool {
-        match self.version {
-            TransactionVersion::Mainnet => true,
-            _ => false,
-        }
+        self.version == TransactionVersion::Mainnet
     }
 
     /// Is this a phantom transaction?
@@ -1130,17 +1130,14 @@ impl StacksTransactionSigner {
     }
 
     pub fn sign_sponsor(&mut self, privk: &StacksPrivateKey) -> Result<(), net_error> {
-        match self.tx.auth {
-            TransactionAuth::Sponsored(_, ref sponsor_condition) => {
-                if self.check_oversign
-                    && sponsor_condition.num_signatures() >= sponsor_condition.signatures_required()
-                {
-                    return Err(net_error::SigningError(
-                        "Sponsor would have too many signatures".to_string(),
-                    ));
-                }
+        if let TransactionAuth::Sponsored(_, ref sponsor_condition) = self.tx.auth {
+            if self.check_oversign
+                && sponsor_condition.num_signatures() >= sponsor_condition.signatures_required()
+            {
+                return Err(net_error::SigningError(
+                    "Sponsor would have too many signatures".to_string(),
+                ));
             }
-            _ => {}
         }
 
         let next_sighash = self.tx.sign_next_sponsor(&self.sighash, privk)?;
@@ -1711,7 +1708,7 @@ mod test {
 
         // corrupt a signature
         let mut corrupt_tx_signature = signed_tx.clone();
-        let corrupt_auth_signature = corrupt_tx_signature.auth.clone();
+        let corrupt_auth_signature = corrupt_tx_signature.auth;
         corrupt_tx_signature.auth =
             corrupt_auth_field_signature(&corrupt_auth_signature, corrupt_origin, corrupt_sponsor);
 
@@ -1851,10 +1848,7 @@ mod test {
             ),
             TransactionPayload::SmartContract(..) => {
                 TransactionPayload::ContractCall(TransactionContractCall {
-                    address: StacksAddress {
-                        version: 1,
-                        bytes: Hash160([0xff; 20]),
-                    },
+                    address: StacksAddress::new(1, Hash160([0xff; 20])).unwrap(),
                     contract_name: ContractName::try_from("hello-world").unwrap(),
                     function_name: ClarityName::try_from("hello-function").unwrap(),
                     function_args: vec![Value::Int(0)],
@@ -1894,7 +1888,7 @@ mod test {
         let mut corrupt_transactions = vec![
             corrupt_tx_hash_mode,
             corrupt_tx_nonce,
-            corrupt_tx_signature.clone(), // needed below
+            corrupt_tx_signature,
             corrupt_tx_public_key,
             corrupt_tx_version,
             corrupt_tx_chain_id,
@@ -1905,21 +1899,15 @@ mod test {
             corrupt_tx_payload,
         ];
         if is_multisig_origin || is_multisig_sponsor {
-            corrupt_transactions.push(corrupt_tx_signatures_required.clone());
+            corrupt_transactions.push(corrupt_tx_signatures_required);
         }
 
         // make sure all corrupted transactions fail
         for corrupt_tx in corrupt_transactions.iter() {
-            match corrupt_tx.verify() {
-                Ok(_) => {
-                    eprintln!("{:?}", &corrupt_tx);
-                    assert!(false);
-                }
-                Err(e) => match e {
-                    net_error::VerifyingError(msg) => {}
-                    _ => assert!(false),
-                },
-            }
+            assert!(
+                matches!(corrupt_tx.verify(), Err(net_error::VerifyingError(msg))),
+                "corrupt_tx: {corrupt_tx:#?}"
+            );
         }
 
         // exhaustive test -- mutate each byte
@@ -1933,26 +1921,20 @@ mod test {
             // test_debug!("mutate byte {}", &i);
             let mut cursor = io::Cursor::new(&tx_bytes);
             let mut reader = LogReader::from_reader(&mut cursor);
-            match StacksTransaction::consensus_deserialize(&mut reader) {
-                Ok(corrupt_tx) => {
-                    let mut corrupt_tx_bytes = vec![];
-                    corrupt_tx
-                        .consensus_serialize(&mut corrupt_tx_bytes)
-                        .unwrap();
-                    if corrupt_tx_bytes.len() < tx_bytes.len() {
-                        // didn't parse fully; the block-parsing logic would reject this block.
-                        tx_bytes[i] = next_byte as u8;
-                        continue;
-                    }
-                    if corrupt_tx.verify().is_ok() {
-                        if corrupt_tx != *signed_tx {
-                            eprintln!("corrupt tx: {:#?}", &corrupt_tx);
-                            eprintln!("signed tx:  {:#?}", &signed_tx);
-                            assert!(false);
-                        }
-                    }
+            if let Ok(corrupt_tx) = StacksTransaction::consensus_deserialize(&mut reader) {
+                let mut corrupt_tx_bytes = vec![];
+                corrupt_tx
+                    .consensus_serialize(&mut corrupt_tx_bytes)
+                    .unwrap();
+                if corrupt_tx_bytes.len() < tx_bytes.len() {
+                    // didn't parse fully; the block-parsing logic would reject this block.
+                    tx_bytes[i] = next_byte as u8;
+                    continue;
                 }
-                Err(_) => {}
+                assert!(
+                    corrupt_tx.verify().is_err() || corrupt_tx == *signed_tx,
+                    "corrupt tx: {corrupt_tx:#?}\n signed_tx: {signed_tx:#?}"
+                );
             }
             // restore
             tx_bytes[i] = next_byte as u8;
@@ -1961,10 +1943,7 @@ mod test {
 
     #[test]
     fn tx_stacks_transaction_payload_tokens() {
-        let addr = PrincipalData::from(StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        });
+        let addr = PrincipalData::from(StacksAddress::new(1, Hash160([0xff; 20])).unwrap());
 
         let tt_stx =
             TransactionPayload::TokenTransfer(addr.clone(), 123, TokenTransferMemo([1u8; 34]));
@@ -1979,11 +1958,7 @@ mod test {
         check_codec_and_corruption::<TransactionPayload>(&tt_stx, &tt_stx_bytes);
 
         let addr = PrincipalData::from(QualifiedContractIdentifier {
-            issuer: StacksAddress {
-                version: 1,
-                bytes: Hash160([0xff; 20]),
-            }
-            .into(),
+            issuer: StacksAddress::new(1, Hash160([0xff; 20])).unwrap().into(),
             name: "foo-contract".into(),
         });
 
@@ -2008,10 +1983,7 @@ mod test {
         let hello_contract_body = "hello contract code body";
 
         let contract_call = TransactionContractCall {
-            address: StacksAddress {
-                version: 1,
-                bytes: Hash160([0xff; 20]),
-            },
+            address: StacksAddress::new(1, Hash160([0xff; 20])).unwrap(),
             contract_name: ContractName::try_from(hello_contract_name).unwrap(),
             function_name: ClarityName::try_from(hello_function_name).unwrap(),
             function_args: vec![Value::Int(0)],
@@ -2172,7 +2144,7 @@ mod test {
     #[test]
     fn tx_stacks_transaction_payload_nakamoto_coinbase() {
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let coinbase_payload =
             TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof));
@@ -2303,14 +2275,10 @@ mod test {
     #[test]
     fn tx_stacks_transaction_payload_nakamoto_coinbase_alt_recipient() {
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
         let recipient = PrincipalData::from(QualifiedContractIdentifier {
-            issuer: StacksAddress {
-                version: 1,
-                bytes: Hash160([0xff; 20]),
-            }
-            .into(),
+            issuer: StacksAddress::new(1, Hash160([0xff; 20])).unwrap().into(),
             name: "foo-contract".into(),
         });
 
@@ -3368,10 +3336,7 @@ mod test {
         let hello_function_name = "hello-function-name";
 
         let contract_call = TransactionContractCall {
-            address: StacksAddress {
-                version: 1,
-                bytes: Hash160([0xff; 20]),
-            },
+            address: StacksAddress::new(1, Hash160([0xff; 20])).unwrap(),
             contract_name: ContractName::try_from(hello_contract_name).unwrap(),
             function_name: ClarityName::try_from(hello_function_name).unwrap(),
             function_args: vec![Value::Int(0)],
@@ -3410,16 +3375,10 @@ mod test {
     #[test]
     fn tx_stacks_transaction_payload_invalid_contract_name() {
         // test invalid contract name
-        let address = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
+        let address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
         let contract_name = "hello\x00contract-name";
         let function_name = ClarityName::try_from("hello-function-name").unwrap();
         let function_args = vec![Value::Int(0)];
-
-        let mut contract_name_bytes = vec![contract_name.len() as u8];
-        contract_name_bytes.extend_from_slice(contract_name.as_bytes());
 
         let mut contract_call_bytes = vec![];
         address
@@ -3449,10 +3408,7 @@ mod test {
     #[test]
     fn tx_stacks_transaction_payload_invalid_function_name() {
         // test invalid contract name
-        let address = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
+        let address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
         let contract_name = ContractName::try_from("hello-contract-name").unwrap();
         let hello_function_name = "hello\x00function-name";
         let mut hello_function_name_bytes = vec![hello_function_name.len() as u8];
@@ -3486,10 +3442,7 @@ mod test {
 
     #[test]
     fn tx_stacks_asset() {
-        let addr = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
+        let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
         let addr_bytes = [
             // version
             0x01, // bytes
@@ -3502,19 +3455,19 @@ mod test {
             // length
             asset_name.len(),
         ];
-        asset_name_bytes.extend_from_slice(&asset_name.to_string().as_str().as_bytes());
+        asset_name_bytes.extend_from_slice(asset_name.to_string().as_str().as_bytes());
 
         let contract_name = ContractName::try_from("hello-world").unwrap();
         let mut contract_name_bytes = vec![
             // length
             contract_name.len(),
         ];
-        contract_name_bytes.extend_from_slice(&contract_name.to_string().as_str().as_bytes());
+        contract_name_bytes.extend_from_slice(contract_name.to_string().as_str().as_bytes());
 
         let asset_info = AssetInfo {
             contract_address: addr.clone(),
-            contract_name: contract_name.clone(),
-            asset_name: asset_name.clone(),
+            contract_name,
+            asset_name,
         };
 
         let mut asset_info_bytes = vec![];
@@ -3538,24 +3491,15 @@ mod test {
     fn tx_stacks_postcondition() {
         let tx_post_condition_principals = vec![
             PostConditionPrincipal::Origin,
-            PostConditionPrincipal::Standard(StacksAddress {
-                version: 1,
-                bytes: Hash160([1u8; 20]),
-            }),
+            PostConditionPrincipal::Standard(StacksAddress::new(1, Hash160([1u8; 20])).unwrap()),
             PostConditionPrincipal::Contract(
-                StacksAddress {
-                    version: 2,
-                    bytes: Hash160([2u8; 20]),
-                },
+                StacksAddress::new(2, Hash160([2u8; 20])).unwrap(),
                 ContractName::try_from("hello-world").unwrap(),
             ),
         ];
 
         for tx_pcp in tx_post_condition_principals {
-            let addr = StacksAddress {
-                version: 1,
-                bytes: Hash160([0xff; 20]),
-            };
+            let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
             let asset_name = ClarityName::try_from("hello-asset").unwrap();
             let contract_name = ContractName::try_from("contract-name").unwrap();
 
@@ -3661,10 +3605,7 @@ mod test {
 
     #[test]
     fn tx_stacks_postcondition_invalid() {
-        let addr = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
+        let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
         let asset_name = ClarityName::try_from("hello-asset").unwrap();
         let contract_name = ContractName::try_from("hello-world").unwrap();
 
@@ -3804,8 +3745,8 @@ mod test {
         nonfungible_pc_bytes_bad_principal.append(&mut vec![0xff]);
         AssetInfo {
             contract_address: addr.clone(),
-            contract_name: contract_name.clone(),
-            asset_name: asset_name.clone(),
+            contract_name,
+            asset_name,
         }
         .consensus_serialize(&mut nonfungible_pc_bytes_bad_principal)
         .unwrap();
@@ -3863,7 +3804,7 @@ mod test {
             test_debug!("---------");
             test_debug!("text tx bytes:\n{}", &to_hex(&tx_bytes));
 
-            check_codec_and_corruption::<StacksTransaction>(&tx, &tx_bytes);
+            check_codec_and_corruption::<StacksTransaction>(tx, &tx_bytes);
         }
     }
 
@@ -3894,21 +3835,15 @@ mod test {
 
         let asset_value = StacksString::from_str("asset-value").unwrap();
 
-        let contract_addr = StacksAddress {
-            version: 2,
-            bytes: Hash160([0xfe; 20]),
-        };
+        let contract_addr = StacksAddress::new(2, Hash160([0xfe; 20])).unwrap();
 
         let asset_info = AssetInfo {
             contract_address: contract_addr.clone(),
-            contract_name: contract_name.clone(),
-            asset_name: asset_name.clone(),
+            contract_name,
+            asset_name,
         };
 
-        let stx_address = StacksAddress {
-            version: 1,
-            bytes: Hash160([0xff; 20]),
-        };
+        let stx_address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
 
         let tx_contract_call = StacksTransaction::new(
             TransactionVersion::Mainnet,
@@ -3925,12 +3860,8 @@ mod test {
         let tx_smart_contract = StacksTransaction::new(
             TransactionVersion::Mainnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract(
-                &"name-contract".to_string(),
-                &"hello smart contract".to_string(),
-                None,
-            )
-            .unwrap(),
+            TransactionPayload::new_smart_contract("name-contract", "hello smart contract", None)
+                .unwrap(),
         );
 
         let tx_coinbase = StacksTransaction::new(
@@ -3982,20 +3913,16 @@ mod test {
 
     fn check_oversign_origin_singlesig(signed_tx: &mut StacksTransaction) {
         let txid_before = signed_tx.txid();
-        match signed_tx.append_next_origin(
+        if let Err(net_error::SigningError(msg)) = signed_tx.append_next_origin(
             &StacksPublicKey::from_hex(
                 "03442a63b6d312710b1d6b24d803120dc6f5714352ba57907863b78de55974123c",
             )
             .unwrap(),
         ) {
-            Ok(_) => assert!(false),
-            Err(e) => match e {
-                net_error::SigningError(msg) => {
-                    assert_eq!(&msg, "Not a multisig condition");
-                }
-                _ => assert!(false),
-            },
-        };
+            assert_eq!(&msg, "Not a multisig condition");
+        } else {
+            panic!("Expexcted a signing error");
+        }
 
         // no change affected
         assert_eq!(txid_before, signed_tx.txid());
@@ -4003,37 +3930,33 @@ mod test {
 
     fn check_sign_no_sponsor(signed_tx: &mut StacksTransaction) {
         let txid_before = signed_tx.txid();
-        match signed_tx.append_next_sponsor(
+        if let Err(net_error::SigningError(msg)) = signed_tx.append_next_sponsor(
             &StacksPublicKey::from_hex(
                 "03442a63b6d312710b1d6b24d803120dc6f5714352ba57907863b78de55974123c",
             )
             .unwrap(),
         ) {
-            Ok(_) => assert!(false),
-            Err(e) => match e {
-                net_error::SigningError(msg) => assert_eq!(
-                    &msg,
-                    "Cannot appned a public key to the sponsor of a standard auth condition"
-                ),
-                _ => assert!(false),
-            },
+            assert_eq!(
+                &msg,
+                "Cannot appned a public key to the sponsor of a standard auth condition"
+            );
+        } else {
+            panic!("Expected a signing error");
         }
         assert_eq!(txid_before, signed_tx.txid());
     }
 
     fn check_oversign_sponsor_singlesig(signed_tx: &mut StacksTransaction) {
         let txid_before = signed_tx.txid();
-        match signed_tx.append_next_sponsor(
+        if let Err(net_error::SigningError(msg)) = signed_tx.append_next_sponsor(
             &StacksPublicKey::from_hex(
                 "03442a63b6d312710b1d6b24d803120dc6f5714352ba57907863b78de55974123c",
             )
             .unwrap(),
         ) {
-            Ok(_) => assert!(false),
-            Err(e) => match e {
-                net_error::SigningError(msg) => assert_eq!(&msg, "Not a multisig condition"),
-                _ => assert!(false),
-            },
+            assert_eq!(&msg, "Not a multisig condition");
+        } else {
+            panic!("Expected a signing error");
         }
         assert_eq!(txid_before, signed_tx.txid());
     }
@@ -4043,10 +3966,10 @@ mod test {
             TransactionAuth::Standard(origin) => origin,
             TransactionAuth::Sponsored(_, sponsor) => sponsor,
         };
-        match spending_condition {
-            TransactionSpendingCondition::OrderIndependentMultisig(..) => true,
-            _ => false,
-        }
+        matches!(
+            spending_condition,
+            TransactionSpendingCondition::OrderIndependentMultisig(..)
+        )
     }
 
     fn check_oversign_origin_multisig(signed_tx: &StacksTransaction) {
@@ -4061,21 +3984,16 @@ mod test {
         tx_signer.sign_origin(&privk).unwrap();
         let oversigned_tx = tx_signer.get_tx().unwrap();
 
-        match oversigned_tx.verify() {
-            Ok(_) => assert!(false),
-            Err(e) => match e {
-                net_error::VerifyingError(msg) => {
-                    if is_order_independent_multisig(&oversigned_tx) {
-                        assert!(
-                            msg.contains("Signer hash does not equal hash of public key(s)"),
-                            "{msg}"
-                        )
-                    } else {
-                        assert_eq!(&msg, "Incorrect number of signatures")
-                    }
-                }
-                _ => assert!(false),
-            },
+        let Err(net_error::VerifyingError(msg)) = oversigned_tx.verify() else {
+            panic!("Expected a verifying error");
+        };
+        if is_order_independent_multisig(&oversigned_tx) {
+            assert!(
+                msg.contains("Signer hash does not equal hash of public key(s)"),
+                "{msg}"
+            )
+        } else {
+            assert_eq!(&msg, "Incorrect number of signatures")
         }
     }
 
@@ -4102,15 +4020,10 @@ mod test {
 
         let oversigned_tx = tx_signer.get_tx().unwrap();
 
-        match oversigned_tx.verify() {
-            Ok(_) => assert!(false),
-            Err(e) => match e {
-                net_error::VerifyingError(msg) => {
-                    assert_eq!(&msg, "Uncompressed keys are not allowed in this hash mode");
-                }
-                _ => assert!(false),
-            },
-        }
+        let Err(net_error::VerifyingError(msg)) = oversigned_tx.verify() else {
+            panic!("Expected a verifying error");
+        };
+        assert_eq!(&msg, "Uncompressed keys are not allowed in this hash mode");
     }
 
     fn check_oversign_sponsor_multisig(signed_tx: &StacksTransaction) {
@@ -4125,21 +4038,16 @@ mod test {
         tx_signer.sign_sponsor(&privk).unwrap();
         let oversigned_tx = tx_signer.get_tx().unwrap();
 
-        match oversigned_tx.verify() {
-            Ok(_) => assert!(false),
-            Err(e) => match e {
-                net_error::VerifyingError(msg) => {
-                    if is_order_independent_multisig(&oversigned_tx) {
-                        assert!(
-                            msg.contains("Signer hash does not equal hash of public key(s)"),
-                            "{msg}"
-                        )
-                    } else {
-                        assert_eq!(&msg, "Incorrect number of signatures")
-                    }
-                }
-                _ => assert!(false),
-            },
+        let Err(net_error::VerifyingError(msg)) = oversigned_tx.verify() else {
+            panic!("Expected a verifying error");
+        };
+        if is_order_independent_multisig(&oversigned_tx) {
+            assert!(
+                msg.contains("Signer hash does not equal hash of public key(s)"),
+                "{msg}"
+            )
+        } else {
+            assert_eq!(&msg, "Incorrect number of signatures")
         }
     }
 
@@ -4166,15 +4074,10 @@ mod test {
 
         let oversigned_tx = tx_signer.get_tx().unwrap();
 
-        match oversigned_tx.verify() {
-            Ok(_) => assert!(false),
-            Err(e) => match e {
-                net_error::VerifyingError(msg) => {
-                    assert_eq!(&msg, "Uncompressed keys are not allowed in this hash mode");
-                }
-                _ => assert!(false),
-            },
-        }
+        let Err(net_error::VerifyingError(msg)) = oversigned_tx.verify() else {
+            panic!("Expected a verifying error");
+        };
+        assert_eq!(&msg, "Uncompressed keys are not allowed in this hash mode");
     }
 
     #[test]
@@ -4193,10 +4096,11 @@ mod test {
         let origin_address = origin_auth.origin().address_mainnet();
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("143e543243dfcd8c02a12ad7ea371bd07bc91df9").unwrap()
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("143e543243dfcd8c02a12ad7ea371bd07bc91df9").unwrap()
+            )
+            .unwrap(),
         );
 
         let txs = tx_stacks_transaction_test_txs(&origin_auth);
@@ -4225,16 +4129,14 @@ mod test {
             assert_eq!(tx.payload, signed_tx.payload);
 
             // auth is standard and public key is compressed
-            match signed_tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::Singlesig(ref data) => {
-                        assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                        assert_eq!(data.signer, origin_address.bytes);
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+            if let TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(ref data)) =
+                signed_tx.auth
+            {
+                assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
+                assert_eq!(data.signer, *origin_address.bytes());
+            } else {
+                panic!("Expected a standard singlesig auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
         }
@@ -4269,25 +4171,28 @@ mod test {
         let origin_address = auth.origin().address_mainnet();
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("143e543243dfcd8c02a12ad7ea371bd07bc91df9").unwrap()
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("143e543243dfcd8c02a12ad7ea371bd07bc91df9").unwrap()
+            )
+            .unwrap(),
         );
 
         let sponsor_address = auth.sponsor().unwrap().address_mainnet();
         assert_eq!(
             sponsor_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
+            )
+            .unwrap(),
         );
 
-        let diff_sponsor_address = StacksAddress {
-            version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-            bytes: Hash160::from_hex("a139de6733cef9e4663c4a093c1a7390a1dcc297").unwrap(),
-        };
+        let diff_sponsor_address = StacksAddress::new(
+            C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+            Hash160::from_hex("a139de6733cef9e4663c4a093c1a7390a1dcc297").unwrap(),
+        )
+        .unwrap();
 
         let txs = tx_stacks_transaction_test_txs(&auth);
 
@@ -4343,29 +4248,26 @@ mod test {
 
             // auth is a sponsor and public key is compressed.
             // auth sponsor is privk_diff_sponsor
-            match signed_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(
-                                data.key_encoding,
-                                TransactionPublicKeyEncoding::Uncompressed
-                            ); // not what the origin would have seen
-                            assert_eq!(data.signer, diff_sponsor_address.bytes);
-                            // not what the origin would have seen
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::Singlesig(sponsor_data),
+            ) = &signed_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
+
+                assert_eq!(
+                    sponsor_data.key_encoding,
+                    TransactionPublicKeyEncoding::Uncompressed
+                ); // not what the origin would have seen
+                assert_eq!(sponsor_data.signer, *diff_sponsor_address.bytes());
+                // not what the origin would have seen
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
             test_signature_and_corruption(&signed_tx, false, true);
@@ -4388,10 +4290,11 @@ mod test {
         let origin_address = origin_auth.origin().address_mainnet();
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("693cd53eb47d4749762d7cfaf46902bda5be5f97").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("693cd53eb47d4749762d7cfaf46902bda5be5f97").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&origin_auth);
@@ -4420,19 +4323,17 @@ mod test {
             assert_eq!(tx.payload, signed_tx.payload);
 
             // auth is standard and public key is uncompressed
-            match signed_tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::Singlesig(ref data) => {
-                        assert_eq!(
-                            data.key_encoding,
-                            TransactionPublicKeyEncoding::Uncompressed
-                        );
-                        assert_eq!(data.signer, origin_address.bytes);
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+            if let TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(data)) =
+                &signed_tx.auth
+            {
+                assert_eq!(
+                    data.key_encoding,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+                assert_eq!(data.signer, *origin_address.bytes());
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
         }
@@ -4449,7 +4350,7 @@ mod test {
         )
         .unwrap();
 
-        let mut random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let mut random_sponsor = StacksPrivateKey::random(); // what the origin sees
         random_sponsor.set_compress_public(true);
 
         let auth = TransactionAuth::Sponsored(
@@ -4473,17 +4374,19 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
+            )
+            .unwrap()
         );
         assert_eq!(
             sponsor_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("693cd53eb47d4749762d7cfaf46902bda5be5f97").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("693cd53eb47d4749762d7cfaf46902bda5be5f97").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&auth);
@@ -4530,28 +4433,25 @@ mod test {
             assert_eq!(tx.payload, signed_tx.payload);
 
             // auth is standard and public key is uncompressed
-            match signed_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(
-                                data.key_encoding,
-                                TransactionPublicKeyEncoding::Uncompressed
-                            );
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::Singlesig(sponsor_data),
+            ) = &signed_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
+
+                assert_eq!(
+                    sponsor_data.key_encoding,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
             test_signature_and_corruption(&signed_tx, false, true);
@@ -4588,10 +4488,11 @@ mod test {
         let origin_address = origin_auth.origin().address_mainnet();
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&origin_auth);
@@ -4605,7 +4506,7 @@ mod test {
             tx_signer.append_origin(&pubk_3).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
-            check_oversign_origin_multisig(&mut signed_tx);
+            check_oversign_origin_multisig(&signed_tx);
             check_sign_no_sponsor(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
@@ -4622,30 +4523,27 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match signed_tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::Multisig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.fields.len(), 3);
-                        assert!(data.fields[0].is_signature());
-                        assert!(data.fields[1].is_signature());
-                        assert!(data.fields[2].is_public_key());
+            if let TransactionAuth::Standard(TransactionSpendingCondition::Multisig(data)) =
+                &signed_tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.fields.len(), 3);
+                assert!(data.fields[0].is_signature());
+                assert!(data.fields[1].is_signature());
+                assert!(data.fields[2].is_public_key());
 
-                        assert_eq!(
-                            data.fields[0].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(
-                            data.fields[1].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
-
+                assert_eq!(
+                    data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
+            } else {
+                panic!("Unexpected auth condition");
+            }
             test_signature_and_corruption(&signed_tx, true, false);
         }
     }
@@ -4674,7 +4572,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -4698,17 +4596,19 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
+            )
+            .unwrap()
         );
         assert_eq!(
             sponsor_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&auth);
@@ -4739,7 +4639,7 @@ mod test {
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
             check_oversign_origin_singlesig(&mut signed_tx);
-            check_oversign_sponsor_multisig(&mut signed_tx);
+            check_oversign_sponsor_multisig(&signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -4757,38 +4657,35 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match signed_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::Multisig(ref data) => {
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                            assert_eq!(data.fields.len(), 3);
-                            assert!(data.fields[0].is_signature());
-                            assert!(data.fields[1].is_signature());
-                            assert!(data.fields[2].is_public_key());
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::Multisig(sponsor_data),
+            ) = &signed_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
 
-                            assert_eq!(
-                                data.fields[0].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(
-                                data.fields[1].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+                assert_eq!(sponsor_data.fields.len(), 3);
+                assert!(sponsor_data.fields[0].is_signature());
+                assert!(sponsor_data.fields[1].is_signature());
+                assert!(sponsor_data.fields[2].is_public_key());
+
+                assert_eq!(
+                    sponsor_data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
             test_signature_and_corruption(&signed_tx, false, true);
@@ -4826,10 +4723,11 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("73a8b4a751a678fe83e9d35ce301371bb3d397f7").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("73a8b4a751a678fe83e9d35ce301371bb3d397f7").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&auth);
@@ -4845,7 +4743,7 @@ mod test {
 
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
-            check_oversign_origin_multisig(&mut signed_tx);
+            check_oversign_origin_multisig(&signed_tx);
             check_sign_no_sponsor(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
@@ -4863,29 +4761,27 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for uncompressed keys.
             // third field is the third public key
-            match signed_tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::Multisig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.fields.len(), 3);
-                        assert!(data.fields[0].is_signature());
-                        assert!(data.fields[1].is_signature());
-                        assert!(data.fields[2].is_public_key());
+            if let TransactionAuth::Standard(TransactionSpendingCondition::Multisig(data)) =
+                &signed_tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.fields.len(), 3);
+                assert!(data.fields[0].is_signature());
+                assert!(data.fields[1].is_signature());
+                assert!(data.fields[2].is_public_key());
 
-                        assert_eq!(
-                            data.fields[0].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Uncompressed
-                        );
-                        assert_eq!(
-                            data.fields[1].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Uncompressed
-                        );
-                        assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+                assert_eq!(
+                    data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+                assert_eq!(
+                    data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+                assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
         }
@@ -4915,7 +4811,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -4939,17 +4835,19 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
+            )
+            .unwrap()
         );
         assert_eq!(
             sponsor_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("73a8b4a751a678fe83e9d35ce301371bb3d397f7").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("73a8b4a751a678fe83e9d35ce301371bb3d397f7").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&auth);
@@ -4980,7 +4878,7 @@ mod test {
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
             check_oversign_origin_singlesig(&mut signed_tx);
-            check_oversign_sponsor_multisig(&mut signed_tx);
+            check_oversign_sponsor_multisig(&signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -4997,38 +4895,35 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for uncompressed keys.
             // third field is the third public key
-            match signed_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::Multisig(ref data) => {
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                            assert_eq!(data.fields.len(), 3);
-                            assert!(data.fields[0].is_signature());
-                            assert!(data.fields[1].is_signature());
-                            assert!(data.fields[2].is_public_key());
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::Multisig(sponsor_data),
+            ) = &signed_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
 
-                            assert_eq!(
-                                data.fields[0].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Uncompressed
-                            );
-                            assert_eq!(
-                                data.fields[1].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Uncompressed
-                            );
-                            assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+                assert_eq!(sponsor_data.fields.len(), 3);
+                assert!(sponsor_data.fields[0].is_signature());
+                assert!(sponsor_data.fields[1].is_signature());
+                assert!(sponsor_data.fields[2].is_public_key());
+
+                assert_eq!(
+                    sponsor_data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+                assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
             test_signature_and_corruption(&signed_tx, false, true);
@@ -5065,10 +4960,11 @@ mod test {
         let origin_address = origin_auth.origin().address_mainnet();
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("2136367c9c740e7dbed8795afdf8a6d273096718").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("2136367c9c740e7dbed8795afdf8a6d273096718").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&origin_auth);
@@ -5082,7 +4978,7 @@ mod test {
             tx_signer.sign_origin(&privk_3).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
-            check_oversign_origin_multisig(&mut signed_tx);
+            check_oversign_origin_multisig(&signed_tx);
             check_sign_no_sponsor(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
@@ -5099,29 +4995,27 @@ mod test {
 
             // auth is standard and first & third auth fields are signatures for (un)compressed keys.
             // 2nd field is the 2nd public key
-            match signed_tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::Multisig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.fields.len(), 3);
-                        assert!(data.fields[0].is_signature());
-                        assert!(data.fields[1].is_public_key());
-                        assert!(data.fields[2].is_signature());
+            if let TransactionAuth::Standard(TransactionSpendingCondition::Multisig(data)) =
+                &signed_tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.fields.len(), 3);
+                assert!(data.fields[0].is_signature());
+                assert!(data.fields[1].is_public_key());
+                assert!(data.fields[2].is_signature());
 
-                        assert_eq!(
-                            data.fields[0].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(data.fields[1].as_public_key().unwrap(), pubk_2);
-                        assert_eq!(
-                            data.fields[2].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Uncompressed
-                        );
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+                assert_eq!(
+                    data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(data.fields[1].as_public_key().unwrap(), pubk_2);
+                assert_eq!(
+                    data.fields[2].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
         }
@@ -5151,7 +5045,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -5175,17 +5069,19 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
+            )
+            .unwrap()
         );
         assert_eq!(
             sponsor_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("2136367c9c740e7dbed8795afdf8a6d273096718").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("2136367c9c740e7dbed8795afdf8a6d273096718").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&auth);
@@ -5216,7 +5112,7 @@ mod test {
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
             check_oversign_origin_singlesig(&mut signed_tx);
-            check_oversign_sponsor_multisig(&mut signed_tx);
+            check_oversign_sponsor_multisig(&signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -5234,38 +5130,35 @@ mod test {
 
             // auth is standard and first & third auth fields are signatures for (un)compressed keys.
             // 2nd field is the 2nd public key
-            match signed_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::Multisig(ref data) => {
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                            assert_eq!(data.fields.len(), 3);
-                            assert!(data.fields[0].is_signature());
-                            assert!(data.fields[1].is_public_key());
-                            assert!(data.fields[2].is_signature());
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::Multisig(sponsor_data),
+            ) = &signed_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
 
-                            assert_eq!(
-                                data.fields[0].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(data.fields[1].as_public_key().unwrap(), pubk_2);
-                            assert_eq!(
-                                data.fields[2].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Uncompressed
-                            );
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+                assert_eq!(sponsor_data.fields.len(), 3);
+                assert!(sponsor_data.fields[0].is_signature());
+                assert!(sponsor_data.fields[1].is_public_key());
+                assert!(sponsor_data.fields[2].is_signature());
+
+                assert_eq!(
+                    sponsor_data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(sponsor_data.fields[1].as_public_key().unwrap(), pubk_2);
+                assert_eq!(
+                    sponsor_data.fields[2].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
             test_signature_and_corruption(&signed_tx, false, true);
@@ -5288,10 +5181,11 @@ mod test {
         let origin_address = origin_auth.origin().address_mainnet();
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("f15fa5c59d14ffcb615fa6153851cd802bb312d2").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("f15fa5c59d14ffcb615fa6153851cd802bb312d2").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&origin_auth);
@@ -5320,16 +5214,14 @@ mod test {
             assert_eq!(tx.payload, signed_tx.payload);
 
             // auth is standard and public key is compressed
-            match signed_tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::Singlesig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+            if let TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(data)) =
+                &signed_tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
         }
@@ -5346,7 +5238,7 @@ mod test {
         )
         .unwrap();
 
-        let random_sponsor = StacksPrivateKey::new();
+        let random_sponsor = StacksPrivateKey::random();
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -5369,17 +5261,19 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
+            )
+            .unwrap()
         );
         assert_eq!(
             sponsor_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("f15fa5c59d14ffcb615fa6153851cd802bb312d2").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("f15fa5c59d14ffcb615fa6153851cd802bb312d2").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&auth);
@@ -5425,25 +5319,25 @@ mod test {
             assert_eq!(tx.payload, signed_tx.payload);
 
             // auth is standard and public key is compressed
-            match signed_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::Singlesig(sponsor_data),
+            ) = &signed_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
+
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+                assert_eq!(
+                    sponsor_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
             test_signature_and_corruption(&signed_tx, false, true);
@@ -5480,10 +5374,11 @@ mod test {
         let origin_address = origin_auth.origin().address_mainnet();
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("f5cfb61a07fb41a32197da01ce033888f0fe94a7").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("f5cfb61a07fb41a32197da01ce033888f0fe94a7").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&origin_auth);
@@ -5497,8 +5392,8 @@ mod test {
             tx_signer.append_origin(&pubk_3).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
-            check_oversign_origin_multisig(&mut signed_tx);
-            check_oversign_origin_multisig_uncompressed(&mut signed_tx);
+            check_oversign_origin_multisig(&signed_tx);
+            check_oversign_origin_multisig_uncompressed(&signed_tx);
             check_sign_no_sponsor(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
@@ -5515,29 +5410,27 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match signed_tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::Multisig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.fields.len(), 3);
-                        assert!(data.fields[0].is_signature());
-                        assert!(data.fields[1].is_signature());
-                        assert!(data.fields[2].is_public_key());
+            if let TransactionAuth::Standard(TransactionSpendingCondition::Multisig(data)) =
+                &signed_tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.fields.len(), 3);
+                assert!(data.fields[0].is_signature());
+                assert!(data.fields[1].is_signature());
+                assert!(data.fields[2].is_public_key());
 
-                        assert_eq!(
-                            data.fields[0].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(
-                            data.fields[1].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+                assert_eq!(
+                    data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
         }
@@ -5567,7 +5460,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new();
+        let random_sponsor = StacksPrivateKey::random();
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -5591,17 +5484,19 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
+            )
+            .unwrap()
         );
         assert_eq!(
             sponsor_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("f5cfb61a07fb41a32197da01ce033888f0fe94a7").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("f5cfb61a07fb41a32197da01ce033888f0fe94a7").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&auth);
@@ -5632,8 +5527,8 @@ mod test {
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
             check_oversign_origin_singlesig(&mut signed_tx);
-            check_oversign_sponsor_multisig(&mut signed_tx);
-            check_oversign_sponsor_multisig_uncompressed(&mut signed_tx);
+            check_oversign_sponsor_multisig(&signed_tx);
+            check_oversign_sponsor_multisig_uncompressed(&signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -5651,38 +5546,35 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match signed_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::Multisig(ref data) => {
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                            assert_eq!(data.fields.len(), 3);
-                            assert!(data.fields[0].is_signature());
-                            assert!(data.fields[1].is_signature());
-                            assert!(data.fields[2].is_public_key());
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::Multisig(sponsor_data),
+            ) = &signed_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
 
-                            assert_eq!(
-                                data.fields[0].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(
-                                data.fields[1].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+                assert_eq!(sponsor_data.fields.len(), 3);
+                assert!(sponsor_data.fields[0].is_signature());
+                assert!(sponsor_data.fields[1].is_signature());
+                assert!(sponsor_data.fields[2].is_public_key());
+
+                assert_eq!(
+                    sponsor_data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
             test_signature_and_corruption(&signed_tx, false, true);
@@ -5719,10 +5611,11 @@ mod test {
         let origin_address = origin_auth.origin().address_mainnet();
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&origin_auth);
@@ -5742,36 +5635,35 @@ mod test {
             let _ = tx.append_origin_signature(sig2, TransactionPublicKeyEncoding::Compressed);
             let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
 
-            check_oversign_origin_multisig(&mut tx);
+            check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.fields.len(), 3);
-                        assert!(data.fields[0].is_public_key());
-                        assert!(data.fields[1].is_signature());
-                        assert!(data.fields[2].is_signature());
+            if let TransactionAuth::Standard(
+                TransactionSpendingCondition::OrderIndependentMultisig(data),
+            ) = &tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.fields.len(), 3);
+                assert!(data.fields[0].is_public_key());
+                assert!(data.fields[1].is_signature());
+                assert!(data.fields[2].is_signature());
 
-                        assert_eq!(data.fields[0].as_public_key().unwrap(), pubk_1);
-                        assert_eq!(
-                            data.fields[1].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(
-                            data.fields[2].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+                assert_eq!(data.fields[0].as_public_key().unwrap(), pubk_1);
+                assert_eq!(
+                    data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    data.fields[2].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&tx, true, false);
         }
@@ -5807,10 +5699,11 @@ mod test {
         let origin_address = origin_auth.origin().address_mainnet();
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&origin_auth);
@@ -5833,39 +5726,38 @@ mod test {
             let _ = tx.append_origin_signature(sig2, TransactionPublicKeyEncoding::Compressed);
             let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
 
-            //check_oversign_origin_multisig(&mut tx);
+            //check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 3);
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.fields.len(), 3);
-                        assert!(data.fields[0].is_signature());
-                        assert!(data.fields[1].is_signature());
-                        assert!(data.fields[2].is_signature());
+            if let TransactionAuth::Standard(
+                TransactionSpendingCondition::OrderIndependentMultisig(data),
+            ) = &tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.fields.len(), 3);
+                assert!(data.fields[0].is_signature());
+                assert!(data.fields[1].is_signature());
+                assert!(data.fields[2].is_signature());
 
-                        assert_eq!(
-                            data.fields[0].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(
-                            data.fields[1].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(
-                            data.fields[2].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+                assert_eq!(
+                    data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    data.fields[2].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&tx, true, false);
         }
@@ -5895,7 +5787,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -5919,17 +5811,19 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
+            )
+            .unwrap()
         );
         assert_eq!(
             sponsor_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&auth);
@@ -5968,7 +5862,7 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -5986,38 +5880,35 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match origin_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                            assert_eq!(data.fields.len(), 3);
-                            assert!(data.fields[0].is_signature());
-                            assert!(data.fields[1].is_signature());
-                            assert!(data.fields[2].is_public_key());
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::OrderIndependentMultisig(sponsor_data),
+            ) = &origin_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
 
-                            assert_eq!(
-                                data.fields[0].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(
-                                data.fields[1].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+                assert_eq!(sponsor_data.fields.len(), 3);
+                assert!(sponsor_data.fields[0].is_signature());
+                assert!(sponsor_data.fields[1].is_signature());
+                assert!(sponsor_data.fields[2].is_public_key());
+
+                assert_eq!(
+                    sponsor_data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&origin_tx, true, false);
             test_signature_and_corruption(&origin_tx, false, true);
@@ -6054,10 +5945,11 @@ mod test {
         let origin_address = origin_auth.origin().address_mainnet();
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("73a8b4a751a678fe83e9d35ce301371bb3d397f7").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("73a8b4a751a678fe83e9d35ce301371bb3d397f7").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&origin_auth);
@@ -6079,36 +5971,35 @@ mod test {
             let _ = tx.append_origin_signature(sig2, TransactionPublicKeyEncoding::Uncompressed);
             let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Uncompressed);
 
-            check_oversign_origin_multisig(&mut tx);
+            check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.fields.len(), 3);
-                        assert!(data.fields[0].is_public_key());
-                        assert!(data.fields[1].is_signature());
-                        assert!(data.fields[2].is_signature());
+            if let TransactionAuth::Standard(
+                TransactionSpendingCondition::OrderIndependentMultisig(data),
+            ) = &tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.fields.len(), 3);
+                assert!(data.fields[0].is_public_key());
+                assert!(data.fields[1].is_signature());
+                assert!(data.fields[2].is_signature());
 
-                        assert_eq!(data.fields[0].as_public_key().unwrap(), pubk_1);
-                        assert_eq!(
-                            data.fields[1].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Uncompressed
-                        );
-                        assert_eq!(
-                            data.fields[2].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Uncompressed
-                        );
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+                assert_eq!(data.fields[0].as_public_key().unwrap(), pubk_1);
+                assert_eq!(
+                    data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+                assert_eq!(
+                    data.fields[2].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&tx, true, false);
         }
@@ -6138,7 +6029,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -6162,17 +6053,19 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
+            )
+            .unwrap()
         );
         assert_eq!(
             sponsor_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("73a8b4a751a678fe83e9d35ce301371bb3d397f7").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("73a8b4a751a678fe83e9d35ce301371bb3d397f7").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&auth);
@@ -6211,7 +6104,7 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -6229,38 +6122,35 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match origin_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                            assert_eq!(data.fields.len(), 3);
-                            assert!(data.fields[0].is_signature());
-                            assert!(data.fields[1].is_signature());
-                            assert!(data.fields[2].is_public_key());
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::OrderIndependentMultisig(sponsor_data),
+            ) = &origin_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
 
-                            assert_eq!(
-                                data.fields[0].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Uncompressed
-                            );
-                            assert_eq!(
-                                data.fields[1].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Uncompressed
-                            );
-                            assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+                assert_eq!(sponsor_data.fields.len(), 3);
+                assert!(sponsor_data.fields[0].is_signature());
+                assert!(sponsor_data.fields[1].is_signature());
+                assert!(sponsor_data.fields[2].is_public_key());
+
+                assert_eq!(
+                    sponsor_data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+                assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&origin_tx, true, false);
             test_signature_and_corruption(&origin_tx, false, true);
@@ -6297,10 +6187,11 @@ mod test {
         let origin_address = origin_auth.origin().address_mainnet();
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&origin_auth);
@@ -6322,36 +6213,35 @@ mod test {
             let _ = tx.append_next_origin(&pubk_2);
             let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
 
-            check_oversign_origin_multisig(&mut tx);
+            check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.fields.len(), 3);
-                        assert!(data.fields[0].is_signature());
-                        assert!(data.fields[1].is_public_key());
-                        assert!(data.fields[2].is_signature());
+            if let TransactionAuth::Standard(
+                TransactionSpendingCondition::OrderIndependentMultisig(data),
+            ) = &tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.fields.len(), 3);
+                assert!(data.fields[0].is_signature());
+                assert!(data.fields[1].is_public_key());
+                assert!(data.fields[2].is_signature());
 
-                        assert_eq!(data.fields[1].as_public_key().unwrap(), pubk_2);
-                        assert_eq!(
-                            data.fields[0].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(
-                            data.fields[2].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+                assert_eq!(data.fields[1].as_public_key().unwrap(), pubk_2);
+                assert_eq!(
+                    data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    data.fields[2].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&tx, true, false);
         }
@@ -6427,10 +6317,11 @@ mod test {
         let origin_address = origin_auth.origin().address_mainnet();
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("315d672961ef2583faf4107ab4ec5566014c867c").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("315d672961ef2583faf4107ab4ec5566014c867c").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&origin_auth);
@@ -6461,51 +6352,50 @@ mod test {
             let _ = tx.append_next_origin(&pubk_8);
             let _ = tx.append_origin_signature(sig9, TransactionPublicKeyEncoding::Compressed);
 
-            check_oversign_origin_multisig(&mut tx);
+            check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 3);
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.fields.len(), 9);
-                        assert!(data.fields[0].is_signature());
-                        assert!(data.fields[1].is_public_key());
-                        assert!(data.fields[2].is_signature());
-                        assert!(data.fields[3].is_public_key());
-                        assert!(data.fields[4].is_public_key());
-                        assert!(data.fields[5].is_public_key());
-                        assert!(data.fields[6].is_public_key());
-                        assert!(data.fields[7].is_public_key());
-                        assert!(data.fields[8].is_signature());
+            if let TransactionAuth::Standard(
+                TransactionSpendingCondition::OrderIndependentMultisig(data),
+            ) = &tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.fields.len(), 9);
+                assert!(data.fields[0].is_signature());
+                assert!(data.fields[1].is_public_key());
+                assert!(data.fields[2].is_signature());
+                assert!(data.fields[3].is_public_key());
+                assert!(data.fields[4].is_public_key());
+                assert!(data.fields[5].is_public_key());
+                assert!(data.fields[6].is_public_key());
+                assert!(data.fields[7].is_public_key());
+                assert!(data.fields[8].is_signature());
 
-                        assert_eq!(data.fields[1].as_public_key().unwrap(), pubk_2);
-                        assert_eq!(data.fields[3].as_public_key().unwrap(), pubk_4);
-                        assert_eq!(data.fields[4].as_public_key().unwrap(), pubk_5);
-                        assert_eq!(data.fields[5].as_public_key().unwrap(), pubk_6);
-                        assert_eq!(data.fields[6].as_public_key().unwrap(), pubk_7);
-                        assert_eq!(data.fields[7].as_public_key().unwrap(), pubk_8);
-                        assert_eq!(
-                            data.fields[0].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(
-                            data.fields[2].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(
-                            data.fields[8].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+                assert_eq!(data.fields[1].as_public_key().unwrap(), pubk_2);
+                assert_eq!(data.fields[3].as_public_key().unwrap(), pubk_4);
+                assert_eq!(data.fields[4].as_public_key().unwrap(), pubk_5);
+                assert_eq!(data.fields[5].as_public_key().unwrap(), pubk_6);
+                assert_eq!(data.fields[6].as_public_key().unwrap(), pubk_7);
+                assert_eq!(data.fields[7].as_public_key().unwrap(), pubk_8);
+                assert_eq!(
+                    data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    data.fields[2].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    data.fields[8].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&tx, true, false);
         }
@@ -6535,7 +6425,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -6559,17 +6449,19 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
+            )
+            .unwrap()
         );
         assert_eq!(
             sponsor_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&auth);
@@ -6608,7 +6500,7 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -6626,38 +6518,35 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match origin_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                            assert_eq!(data.fields.len(), 3);
-                            assert!(data.fields[0].is_signature());
-                            assert!(data.fields[1].is_public_key());
-                            assert!(data.fields[2].is_signature());
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::OrderIndependentMultisig(sponsor_data),
+            ) = &origin_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
 
-                            assert_eq!(
-                                data.fields[0].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(
-                                data.fields[2].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(data.fields[1].as_public_key().unwrap(), pubk_2);
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+                assert_eq!(sponsor_data.fields.len(), 3);
+                assert!(sponsor_data.fields[0].is_signature());
+                assert!(sponsor_data.fields[1].is_public_key());
+                assert!(sponsor_data.fields[2].is_signature());
+
+                assert_eq!(
+                    sponsor_data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[2].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(sponsor_data.fields[1].as_public_key().unwrap(), pubk_2);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&origin_tx, true, false);
             test_signature_and_corruption(&origin_tx, false, true);
@@ -6698,7 +6587,7 @@ mod test {
         let pubk_4 = StacksPublicKey::from_private(&privk_4);
         let pubk_5 = StacksPublicKey::from_private(&privk_5);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -6728,17 +6617,19 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
+            )
+            .unwrap()
         );
         assert_eq!(
             sponsor_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("fc29d14be615b0f72a66b920040c2b5b8124990b").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("fc29d14be615b0f72a66b920040c2b5b8124990b").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&auth);
@@ -6791,7 +6682,7 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 5);
@@ -6809,51 +6700,48 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match origin_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                            assert_eq!(data.fields.len(), 5);
-                            assert!(data.fields[0].is_signature());
-                            assert!(data.fields[1].is_signature());
-                            assert!(data.fields[2].is_signature());
-                            assert!(data.fields[3].is_signature());
-                            assert!(data.fields[4].is_signature());
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::OrderIndependentMultisig(sponsor_data),
+            ) = &origin_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
 
-                            assert_eq!(
-                                data.fields[0].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(
-                                data.fields[1].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(
-                                data.fields[2].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(
-                                data.fields[3].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(
-                                data.fields[4].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+                assert_eq!(sponsor_data.fields.len(), 5);
+                assert!(sponsor_data.fields[0].is_signature());
+                assert!(sponsor_data.fields[1].is_signature());
+                assert!(sponsor_data.fields[2].is_signature());
+                assert!(sponsor_data.fields[3].is_signature());
+                assert!(sponsor_data.fields[4].is_signature());
+
+                assert_eq!(
+                    sponsor_data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[2].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[3].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[4].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&origin_tx, true, false);
             test_signature_and_corruption(&origin_tx, false, true);
@@ -6890,10 +6778,11 @@ mod test {
         let origin_address = origin_auth.origin().address_mainnet();
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("f5cfb61a07fb41a32197da01ce033888f0fe94a7").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("f5cfb61a07fb41a32197da01ce033888f0fe94a7").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&origin_auth);
@@ -6915,37 +6804,36 @@ mod test {
             let _ = tx.append_next_origin(&pubk_2);
             let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
 
-            check_oversign_origin_multisig(&mut tx);
-            check_oversign_origin_multisig_uncompressed(&mut tx);
+            check_oversign_origin_multisig(&tx);
+            check_oversign_origin_multisig_uncompressed(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.fields.len(), 3);
-                        assert!(data.fields[0].is_signature());
-                        assert!(data.fields[1].is_public_key());
-                        assert!(data.fields[2].is_signature());
+            if let TransactionAuth::Standard(
+                TransactionSpendingCondition::OrderIndependentMultisig(data),
+            ) = &tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.fields.len(), 3);
+                assert!(data.fields[0].is_signature());
+                assert!(data.fields[1].is_public_key());
+                assert!(data.fields[2].is_signature());
 
-                        assert_eq!(data.fields[1].as_public_key().unwrap(), pubk_2);
-                        assert_eq!(
-                            data.fields[0].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(
-                            data.fields[2].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+                assert_eq!(data.fields[1].as_public_key().unwrap(), pubk_2);
+                assert_eq!(
+                    data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    data.fields[2].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&tx, true, false);
         }
@@ -7003,10 +6891,11 @@ mod test {
         let origin_address = origin_auth.origin().address_mainnet();
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("e2a4ae14ffb0a4a0982a06d07b97d57268d2bf94").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("e2a4ae14ffb0a4a0982a06d07b97d57268d2bf94").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&origin_auth);
@@ -7037,49 +6926,48 @@ mod test {
             let _ = tx.append_origin_signature(sig5, TransactionPublicKeyEncoding::Compressed);
             let _ = tx.append_origin_signature(sig6, TransactionPublicKeyEncoding::Compressed);
 
-            check_oversign_origin_multisig(&mut tx);
-            check_oversign_origin_multisig_uncompressed(&mut tx);
+            check_oversign_origin_multisig(&tx);
+            check_oversign_origin_multisig_uncompressed(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 4);
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.fields.len(), 6);
-                        assert!(data.fields[0].is_signature());
-                        assert!(data.fields[1].is_public_key());
-                        assert!(data.fields[2].is_signature());
-                        assert!(data.fields[3].is_public_key());
-                        assert!(data.fields[4].is_signature());
-                        assert!(data.fields[5].is_signature());
+            if let TransactionAuth::Standard(
+                TransactionSpendingCondition::OrderIndependentMultisig(data),
+            ) = &tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.fields.len(), 6);
+                assert!(data.fields[0].is_signature());
+                assert!(data.fields[1].is_public_key());
+                assert!(data.fields[2].is_signature());
+                assert!(data.fields[3].is_public_key());
+                assert!(data.fields[4].is_signature());
+                assert!(data.fields[5].is_signature());
 
-                        assert_eq!(data.fields[1].as_public_key().unwrap(), pubk_2);
-                        assert_eq!(data.fields[3].as_public_key().unwrap(), pubk_4);
-                        assert_eq!(
-                            data.fields[0].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(
-                            data.fields[2].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(
-                            data.fields[4].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(
-                            data.fields[5].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+                assert_eq!(data.fields[1].as_public_key().unwrap(), pubk_2);
+                assert_eq!(data.fields[3].as_public_key().unwrap(), pubk_4);
+                assert_eq!(
+                    data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    data.fields[2].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    data.fields[4].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    data.fields[5].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&tx, true, false);
         }
@@ -7109,7 +6997,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -7133,17 +7021,19 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
+            )
+            .unwrap()
         );
         assert_eq!(
             sponsor_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("f5cfb61a07fb41a32197da01ce033888f0fe94a7").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("f5cfb61a07fb41a32197da01ce033888f0fe94a7").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&auth);
@@ -7182,8 +7072,8 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
-            check_oversign_sponsor_multisig_uncompressed(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
+            check_oversign_sponsor_multisig_uncompressed(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -7201,38 +7091,35 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match origin_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                            assert_eq!(data.fields.len(), 3);
-                            assert!(data.fields[0].is_signature());
-                            assert!(data.fields[1].is_public_key());
-                            assert!(data.fields[2].is_signature());
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::OrderIndependentMultisig(sponsor_data),
+            ) = &origin_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
 
-                            assert_eq!(
-                                data.fields[0].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(
-                                data.fields[2].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(data.fields[1].as_public_key().unwrap(), pubk_2);
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+                assert_eq!(sponsor_data.fields.len(), 3);
+                assert!(sponsor_data.fields[0].is_signature());
+                assert!(sponsor_data.fields[1].is_public_key());
+                assert!(sponsor_data.fields[2].is_signature());
+
+                assert_eq!(
+                    sponsor_data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[2].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(sponsor_data.fields[1].as_public_key().unwrap(), pubk_2);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&origin_tx, true, false);
             test_signature_and_corruption(&origin_tx, false, true);
@@ -7283,7 +7170,7 @@ mod test {
         let pubk_6 = StacksPublicKey::from_private(&privk_6);
         let pubk_7 = StacksPublicKey::from_private(&privk_7);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -7315,17 +7202,19 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
+            )
+            .unwrap()
         );
         assert_eq!(
             sponsor_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("e3001c2b12f24ba279116d7001e3bd82b2b5eab4").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("e3001c2b12f24ba279116d7001e3bd82b2b5eab4").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&auth);
@@ -7368,8 +7257,8 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
-            check_oversign_sponsor_multisig_uncompressed(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
+            check_oversign_sponsor_multisig_uncompressed(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -7387,46 +7276,43 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match origin_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                            assert_eq!(data.fields.len(), 7);
-                            assert!(data.fields[0].is_signature());
-                            assert!(data.fields[1].is_public_key());
-                            assert!(data.fields[2].is_public_key());
-                            assert!(data.fields[3].is_public_key());
-                            assert!(data.fields[4].is_public_key());
-                            assert!(data.fields[5].is_public_key());
-                            assert!(data.fields[6].is_signature());
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::OrderIndependentMultisig(sponsor_data),
+            ) = &origin_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
 
-                            assert_eq!(
-                                data.fields[0].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(
-                                data.fields[6].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(data.fields[1].as_public_key().unwrap(), pubk_2);
-                            assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
-                            assert_eq!(data.fields[3].as_public_key().unwrap(), pubk_4);
-                            assert_eq!(data.fields[4].as_public_key().unwrap(), pubk_5);
-                            assert_eq!(data.fields[5].as_public_key().unwrap(), pubk_6);
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+                assert_eq!(sponsor_data.fields.len(), 7);
+                assert!(sponsor_data.fields[0].is_signature());
+                assert!(sponsor_data.fields[1].is_public_key());
+                assert!(sponsor_data.fields[2].is_public_key());
+                assert!(sponsor_data.fields[3].is_public_key());
+                assert!(sponsor_data.fields[4].is_public_key());
+                assert!(sponsor_data.fields[5].is_public_key());
+                assert!(sponsor_data.fields[6].is_signature());
+
+                assert_eq!(
+                    sponsor_data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[6].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(sponsor_data.fields[1].as_public_key().unwrap(), pubk_2);
+                assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
+                assert_eq!(sponsor_data.fields[3].as_public_key().unwrap(), pubk_4);
+                assert_eq!(sponsor_data.fields[4].as_public_key().unwrap(), pubk_5);
+                assert_eq!(sponsor_data.fields[5].as_public_key().unwrap(), pubk_6);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&origin_tx, true, false);
             test_signature_and_corruption(&origin_tx, false, true);
@@ -7475,10 +7361,11 @@ mod test {
         assert_eq!(origin_address, order_independent_origin_address);
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&origin_auth);
@@ -7496,7 +7383,7 @@ mod test {
             let mut signed_tx = tx_signer.get_tx().unwrap();
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
 
-            check_oversign_origin_multisig(&mut signed_tx);
+            check_oversign_origin_multisig(&signed_tx);
             check_sign_no_sponsor(&mut signed_tx);
 
             // tx and signed_tx are otherwise equal
@@ -7509,29 +7396,27 @@ mod test {
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
-            match signed_tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::Multisig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.fields.len(), 3);
-                        assert!(data.fields[0].is_signature());
-                        assert!(data.fields[1].is_signature());
-                        assert!(data.fields[2].is_public_key());
+            if let TransactionAuth::Standard(TransactionSpendingCondition::Multisig(data)) =
+                &signed_tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.fields.len(), 3);
+                assert!(data.fields[0].is_signature());
+                assert!(data.fields[1].is_signature());
+                assert!(data.fields[2].is_public_key());
 
-                        assert_eq!(
-                            data.fields[0].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(
-                            data.fields[1].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+                assert_eq!(
+                    data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
         }
@@ -7553,34 +7438,33 @@ mod test {
             let _ = order_independent_tx
                 .append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
 
-            check_oversign_origin_multisig(&mut order_independent_tx);
+            check_oversign_origin_multisig(&order_independent_tx);
             check_sign_no_sponsor(&mut order_independent_tx);
 
             assert_eq!(order_independent_tx.auth().origin().num_signatures(), 2);
 
-            match order_independent_tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.fields.len(), 3);
-                        assert!(data.fields[0].is_public_key());
-                        assert!(data.fields[1].is_signature());
-                        assert!(data.fields[2].is_signature());
+            if let TransactionAuth::Standard(
+                TransactionSpendingCondition::OrderIndependentMultisig(data),
+            ) = &order_independent_tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.fields.len(), 3);
+                assert!(data.fields[0].is_public_key());
+                assert!(data.fields[1].is_signature());
+                assert!(data.fields[2].is_signature());
 
-                        assert_eq!(data.fields[0].as_public_key().unwrap(), pubk_1);
-                        assert_eq!(
-                            data.fields[1].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(
-                            data.fields[2].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+                assert_eq!(data.fields[0].as_public_key().unwrap(), pubk_1);
+                assert_eq!(
+                    data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    data.fields[2].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&order_independent_tx, true, false);
         }
@@ -7628,10 +7512,11 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("73a8b4a751a678fe83e9d35ce301371bb3d397f7").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("73a8b4a751a678fe83e9d35ce301371bb3d397f7").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&origin_auth);
@@ -7650,7 +7535,7 @@ mod test {
 
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
-            check_oversign_origin_multisig(&mut signed_tx);
+            check_oversign_origin_multisig(&signed_tx);
             check_sign_no_sponsor(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
@@ -7668,29 +7553,27 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for uncompressed keys.
             // third field is the third public key
-            match signed_tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::Multisig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.fields.len(), 3);
-                        assert!(data.fields[0].is_signature());
-                        assert!(data.fields[1].is_signature());
-                        assert!(data.fields[2].is_public_key());
+            if let TransactionAuth::Standard(TransactionSpendingCondition::Multisig(data)) =
+                &signed_tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.fields.len(), 3);
+                assert!(data.fields[0].is_signature());
+                assert!(data.fields[1].is_signature());
+                assert!(data.fields[2].is_public_key());
 
-                        assert_eq!(
-                            data.fields[0].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Uncompressed
-                        );
-                        assert_eq!(
-                            data.fields[1].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Uncompressed
-                        );
-                        assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+                assert_eq!(
+                    data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+                assert_eq!(
+                    data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+                assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
         }
@@ -7712,36 +7595,35 @@ mod test {
             let _ = tx.append_origin_signature(sig2, TransactionPublicKeyEncoding::Uncompressed);
             let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Uncompressed);
 
-            check_oversign_origin_multisig(&mut tx);
+            check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.fields.len(), 3);
-                        assert!(data.fields[0].is_public_key());
-                        assert!(data.fields[1].is_signature());
-                        assert!(data.fields[2].is_signature());
+            if let TransactionAuth::Standard(
+                TransactionSpendingCondition::OrderIndependentMultisig(data),
+            ) = &tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.fields.len(), 3);
+                assert!(data.fields[0].is_public_key());
+                assert!(data.fields[1].is_signature());
+                assert!(data.fields[2].is_signature());
 
-                        assert_eq!(data.fields[0].as_public_key().unwrap(), pubk_1);
-                        assert_eq!(
-                            data.fields[1].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Uncompressed
-                        );
-                        assert_eq!(
-                            data.fields[2].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Uncompressed
-                        );
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+                assert_eq!(data.fields[0].as_public_key().unwrap(), pubk_1);
+                assert_eq!(
+                    data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+                assert_eq!(
+                    data.fields[2].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&tx, true, false);
         }
@@ -7789,10 +7671,11 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("f5cfb61a07fb41a32197da01ce033888f0fe94a7").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("f5cfb61a07fb41a32197da01ce033888f0fe94a7").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&origin_auth);
@@ -7807,8 +7690,8 @@ mod test {
             tx_signer.append_origin(&pubk_3).unwrap();
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
-            check_oversign_origin_multisig(&mut signed_tx);
-            check_oversign_origin_multisig_uncompressed(&mut signed_tx);
+            check_oversign_origin_multisig(&signed_tx);
+            check_oversign_origin_multisig_uncompressed(&signed_tx);
             check_sign_no_sponsor(&mut signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 2);
@@ -7825,29 +7708,27 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match signed_tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::Multisig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.fields.len(), 3);
-                        assert!(data.fields[0].is_signature());
-                        assert!(data.fields[1].is_signature());
-                        assert!(data.fields[2].is_public_key());
+            if let TransactionAuth::Standard(TransactionSpendingCondition::Multisig(data)) =
+                &signed_tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.fields.len(), 3);
+                assert!(data.fields[0].is_signature());
+                assert!(data.fields[1].is_signature());
+                assert!(data.fields[2].is_public_key());
 
-                        assert_eq!(
-                            data.fields[0].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(
-                            data.fields[1].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+                assert_eq!(
+                    data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
         }
@@ -7869,37 +7750,36 @@ mod test {
             let _ = tx.append_next_origin(&pubk_2);
             let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
 
-            check_oversign_origin_multisig(&mut tx);
-            check_oversign_origin_multisig_uncompressed(&mut tx);
+            check_oversign_origin_multisig(&tx);
+            check_oversign_origin_multisig_uncompressed(&tx);
             check_sign_no_sponsor(&mut tx);
 
             assert_eq!(tx.auth().origin().num_signatures(), 2);
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match tx.auth {
-                TransactionAuth::Standard(ref origin) => match origin {
-                    TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                        assert_eq!(data.signer, origin_address.bytes);
-                        assert_eq!(data.fields.len(), 3);
-                        assert!(data.fields[0].is_signature());
-                        assert!(data.fields[1].is_public_key());
-                        assert!(data.fields[2].is_signature());
+            if let TransactionAuth::Standard(
+                TransactionSpendingCondition::OrderIndependentMultisig(data),
+            ) = &tx.auth
+            {
+                assert_eq!(data.signer, *origin_address.bytes());
+                assert_eq!(data.fields.len(), 3);
+                assert!(data.fields[0].is_signature());
+                assert!(data.fields[1].is_public_key());
+                assert!(data.fields[2].is_signature());
 
-                        assert_eq!(data.fields[1].as_public_key().unwrap(), pubk_2);
-                        assert_eq!(
-                            data.fields[0].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                        assert_eq!(
-                            data.fields[2].as_signature().unwrap().0,
-                            TransactionPublicKeyEncoding::Compressed
-                        );
-                    }
-                    _ => assert!(false),
-                },
-                _ => assert!(false),
-            };
+                assert_eq!(data.fields[1].as_public_key().unwrap(), pubk_2);
+                assert_eq!(
+                    data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    data.fields[2].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&tx, true, false);
         }
@@ -7929,7 +7809,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -7961,18 +7841,20 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
+            )
+            .unwrap()
         );
         assert_eq!(sponsor_address, order_independent_sponsor_address);
         assert_eq!(
             sponsor_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("a23ea89d6529ac48ac766f720e480beec7f19273").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&auth);
@@ -8004,7 +7886,7 @@ mod test {
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
             check_oversign_origin_singlesig(&mut signed_tx);
-            check_oversign_sponsor_multisig(&mut signed_tx);
+            check_oversign_sponsor_multisig(&signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -8022,38 +7904,35 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match signed_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::Multisig(ref data) => {
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                            assert_eq!(data.fields.len(), 3);
-                            assert!(data.fields[0].is_signature());
-                            assert!(data.fields[1].is_signature());
-                            assert!(data.fields[2].is_public_key());
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::Multisig(sponsor_data),
+            ) = &signed_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
 
-                            assert_eq!(
-                                data.fields[0].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(
-                                data.fields[1].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+                assert_eq!(sponsor_data.fields.len(), 3);
+                assert!(sponsor_data.fields[0].is_signature());
+                assert!(sponsor_data.fields[1].is_signature());
+                assert!(sponsor_data.fields[2].is_public_key());
+
+                assert_eq!(
+                    sponsor_data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
             test_signature_and_corruption(&signed_tx, false, true);
@@ -8096,7 +7975,7 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -8114,38 +7993,35 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match origin_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                            assert_eq!(data.fields.len(), 3);
-                            assert!(data.fields[0].is_signature());
-                            assert!(data.fields[1].is_signature());
-                            assert!(data.fields[2].is_public_key());
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::OrderIndependentMultisig(sponsor_data),
+            ) = &origin_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
 
-                            assert_eq!(
-                                data.fields[0].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(
-                                data.fields[1].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+                assert_eq!(sponsor_data.fields.len(), 3);
+                assert!(sponsor_data.fields[0].is_signature());
+                assert!(sponsor_data.fields[1].is_signature());
+                assert!(sponsor_data.fields[2].is_public_key());
+
+                assert_eq!(
+                    sponsor_data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&origin_tx, true, false);
             test_signature_and_corruption(&origin_tx, false, true);
@@ -8176,7 +8052,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -8208,19 +8084,21 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
+            )
+            .unwrap()
         );
         assert_eq!(sponsor_address, order_independent_sponsor_address);
 
         assert_eq!(
             sponsor_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("73a8b4a751a678fe83e9d35ce301371bb3d397f7").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("73a8b4a751a678fe83e9d35ce301371bb3d397f7").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&auth);
@@ -8260,7 +8138,7 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -8278,38 +8156,35 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match origin_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                            assert_eq!(data.fields.len(), 3);
-                            assert!(data.fields[0].is_signature());
-                            assert!(data.fields[1].is_signature());
-                            assert!(data.fields[2].is_public_key());
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::OrderIndependentMultisig(sponsor_data),
+            ) = &origin_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
 
-                            assert_eq!(
-                                data.fields[0].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Uncompressed
-                            );
-                            assert_eq!(
-                                data.fields[1].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Uncompressed
-                            );
-                            assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+                assert_eq!(sponsor_data.fields.len(), 3);
+                assert!(sponsor_data.fields[0].is_signature());
+                assert!(sponsor_data.fields[1].is_signature());
+                assert!(sponsor_data.fields[2].is_public_key());
+
+                assert_eq!(
+                    sponsor_data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+                assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&origin_tx, true, false);
             test_signature_and_corruption(&origin_tx, false, true);
@@ -8352,7 +8227,7 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -8370,38 +8245,35 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match origin_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                            assert_eq!(data.fields.len(), 3);
-                            assert!(data.fields[0].is_signature());
-                            assert!(data.fields[1].is_signature());
-                            assert!(data.fields[2].is_public_key());
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::OrderIndependentMultisig(sponsor_data),
+            ) = &origin_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
 
-                            assert_eq!(
-                                data.fields[0].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Uncompressed
-                            );
-                            assert_eq!(
-                                data.fields[1].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Uncompressed
-                            );
-                            assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+                assert_eq!(sponsor_data.fields.len(), 3);
+                assert!(sponsor_data.fields[0].is_signature());
+                assert!(sponsor_data.fields[1].is_signature());
+                assert!(sponsor_data.fields[2].is_public_key());
+
+                assert_eq!(
+                    sponsor_data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Uncompressed
+                );
+                assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&origin_tx, true, false);
             test_signature_and_corruption(&origin_tx, false, true);
@@ -8432,7 +8304,7 @@ mod test {
         let pubk_2 = StacksPublicKey::from_private(&privk_2);
         let pubk_3 = StacksPublicKey::from_private(&privk_3);
 
-        let random_sponsor = StacksPrivateKey::new(); // what the origin sees
+        let random_sponsor = StacksPrivateKey::random(); // what the origin sees
 
         let auth = TransactionAuth::Sponsored(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -8464,19 +8336,21 @@ mod test {
 
         assert_eq!(
             origin_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-                bytes: Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+                Hash160::from_hex("3597aaa4bde720be93e3829aae24e76e7fcdfd3e").unwrap(),
+            )
+            .unwrap()
         );
         assert_eq!(sponsor_address, order_independent_sponsor_address);
 
         assert_eq!(
             sponsor_address,
-            StacksAddress {
-                version: C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                bytes: Hash160::from_hex("f5cfb61a07fb41a32197da01ce033888f0fe94a7").unwrap(),
-            }
+            StacksAddress::new(
+                C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+                Hash160::from_hex("f5cfb61a07fb41a32197da01ce033888f0fe94a7").unwrap(),
+            )
+            .unwrap()
         );
 
         let txs = tx_stacks_transaction_test_txs(&auth);
@@ -8508,8 +8382,8 @@ mod test {
             let mut signed_tx = tx_signer.get_tx().unwrap();
 
             check_oversign_origin_singlesig(&mut signed_tx);
-            check_oversign_sponsor_multisig(&mut signed_tx);
-            check_oversign_sponsor_multisig_uncompressed(&mut signed_tx);
+            check_oversign_sponsor_multisig(&signed_tx);
+            check_oversign_sponsor_multisig_uncompressed(&signed_tx);
 
             assert_eq!(signed_tx.auth().origin().num_signatures(), 1);
             assert_eq!(signed_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -8527,38 +8401,35 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match signed_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::Multisig(ref data) => {
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                            assert_eq!(data.fields.len(), 3);
-                            assert!(data.fields[0].is_signature());
-                            assert!(data.fields[1].is_signature());
-                            assert!(data.fields[2].is_public_key());
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::Multisig(sponsor_data),
+            ) = &signed_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
 
-                            assert_eq!(
-                                data.fields[0].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(
-                                data.fields[1].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(data.fields[2].as_public_key().unwrap(), pubk_3);
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+                assert_eq!(sponsor_data.fields.len(), 3);
+                assert!(sponsor_data.fields[0].is_signature());
+                assert!(sponsor_data.fields[1].is_signature());
+                assert!(sponsor_data.fields[2].is_public_key());
+
+                assert_eq!(
+                    sponsor_data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[1].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(sponsor_data.fields[2].as_public_key().unwrap(), pubk_3);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&signed_tx, true, false);
             test_signature_and_corruption(&signed_tx, false, true);
@@ -8601,8 +8472,8 @@ mod test {
             tx.set_sponsor_nonce(789).unwrap();
 
             check_oversign_origin_singlesig(&mut origin_tx);
-            check_oversign_sponsor_multisig(&mut origin_tx);
-            check_oversign_sponsor_multisig_uncompressed(&mut origin_tx);
+            check_oversign_sponsor_multisig(&origin_tx);
+            check_oversign_sponsor_multisig_uncompressed(&origin_tx);
 
             assert_eq!(origin_tx.auth().origin().num_signatures(), 1);
             assert_eq!(origin_tx.auth().sponsor().unwrap().num_signatures(), 2);
@@ -8620,38 +8491,35 @@ mod test {
 
             // auth is standard and first two auth fields are signatures for compressed keys.
             // third field is the third public key
-            match origin_tx.auth {
-                TransactionAuth::Sponsored(ref origin, ref sponsor) => {
-                    match origin {
-                        TransactionSpendingCondition::Singlesig(ref data) => {
-                            assert_eq!(data.key_encoding, TransactionPublicKeyEncoding::Compressed);
-                            assert_eq!(data.signer, origin_address.bytes);
-                        }
-                        _ => assert!(false),
-                    }
-                    match sponsor {
-                        TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                            assert_eq!(data.signer, sponsor_address.bytes);
-                            assert_eq!(data.fields.len(), 3);
-                            assert!(data.fields[0].is_signature());
-                            assert!(data.fields[1].is_public_key());
-                            assert!(data.fields[2].is_signature());
+            if let TransactionAuth::Sponsored(
+                TransactionSpendingCondition::Singlesig(origin_data),
+                TransactionSpendingCondition::OrderIndependentMultisig(sponsor_data),
+            ) = &origin_tx.auth
+            {
+                assert_eq!(
+                    origin_data.key_encoding,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(origin_data.signer, *origin_address.bytes());
 
-                            assert_eq!(
-                                data.fields[0].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(
-                                data.fields[2].as_signature().unwrap().0,
-                                TransactionPublicKeyEncoding::Compressed
-                            );
-                            assert_eq!(data.fields[1].as_public_key().unwrap(), pubk_2);
-                        }
-                        _ => assert!(false),
-                    }
-                }
-                _ => assert!(false),
-            };
+                assert_eq!(sponsor_data.signer, *sponsor_address.bytes());
+                assert_eq!(sponsor_data.fields.len(), 3);
+                assert!(sponsor_data.fields[0].is_signature());
+                assert!(sponsor_data.fields[1].is_public_key());
+                assert!(sponsor_data.fields[2].is_signature());
+
+                assert_eq!(
+                    sponsor_data.fields[0].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(
+                    sponsor_data.fields[2].as_signature().unwrap().0,
+                    TransactionPublicKeyEncoding::Compressed
+                );
+                assert_eq!(sponsor_data.fields[1].as_public_key().unwrap(), pubk_2);
+            } else {
+                panic!("Unexpected auth condition");
+            }
 
             test_signature_and_corruption(&origin_tx, true, false);
             test_signature_and_corruption(&origin_tx, false, true);

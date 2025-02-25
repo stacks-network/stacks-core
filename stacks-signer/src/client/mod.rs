@@ -144,7 +144,7 @@ pub(crate) mod tests {
     use stacks_common::util::hash::{Hash160, Sha256Sum};
 
     use super::*;
-    use crate::config::{GlobalConfig, SignerConfig};
+    use crate::config::{GlobalConfig, SignerConfig, SignerConfigMode};
 
     pub struct MockServerClient {
         pub server: TcpListener,
@@ -302,7 +302,7 @@ pub(crate) mod tests {
         pox_consensus_hash: Option<ConsensusHash>,
     ) -> (String, RPCPeerInfoData) {
         // Generate some random info
-        let private_key = StacksPrivateKey::new();
+        let private_key = StacksPrivateKey::random();
         let public_key = StacksPublicKey::from_private(&private_key);
         let public_key_buf = StacksPublicKeyBuffer::from_public_key(&public_key);
         let public_key_hash = Hash160::from_node_public_key(&public_key);
@@ -376,7 +376,7 @@ pub(crate) mod tests {
             let private_key = if signer_id == 0 {
                 config.stacks_private_key
             } else {
-                StacksPrivateKey::new()
+                StacksPrivateKey::random()
             };
             let public_key = StacksPublicKey::from_private(&private_key);
 
@@ -393,8 +393,10 @@ pub(crate) mod tests {
         }
         SignerConfig {
             reward_cycle,
-            signer_id: 0,
-            signer_slot_id: SignerSlotID(rand::thread_rng().gen_range(0..num_signers)), // Give a random signer slot id between 0 and num_signers
+            signer_mode: SignerConfigMode::Normal {
+                signer_id: 0,
+                signer_slot_id: SignerSlotID(rand::thread_rng().gen_range(0..num_signers)), // Give a random signer slot id between 0 and num_signers
+            },
             signer_entries: SignerEntries {
                 signer_addr_to_id,
                 signer_id_to_pk,
@@ -414,7 +416,9 @@ pub(crate) mod tests {
             tenure_last_block_proposal_timeout: config.tenure_last_block_proposal_timeout,
             block_proposal_validation_timeout: config.block_proposal_validation_timeout,
             tenure_idle_timeout: config.tenure_idle_timeout,
+            tenure_idle_timeout_buffer: config.tenure_idle_timeout_buffer,
             block_proposal_max_age_secs: config.block_proposal_max_age_secs,
+            reorg_attempts_activity_timeout: config.reorg_attempts_activity_timeout,
         }
     }
 

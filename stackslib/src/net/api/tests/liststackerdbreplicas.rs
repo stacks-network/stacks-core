@@ -59,10 +59,7 @@ fn test_try_parse_request() {
         )
         .unwrap();
 
-    assert_eq!(
-        handler.contract_identifier,
-        Some(contract_identifier.clone())
-    );
+    assert_eq!(handler.contract_identifier, Some(contract_identifier));
 
     // parsed request consumes headers that would not be in a constructed reqeuest
     parsed_request.clear_headers();
@@ -88,15 +85,12 @@ fn test_try_make_response() {
     )
     .unwrap();
 
-    let request =
-        StacksHttpRequest::new_list_stackerdb_replicas(addr.into(), contract_identifier.clone());
+    let request = StacksHttpRequest::new_list_stackerdb_replicas(addr.into(), contract_identifier);
     requests.push(request);
 
     // no contract
-    let request = StacksHttpRequest::new_list_stackerdb_replicas(
-        addr.into(),
-        none_contract_identifier.clone(),
-    );
+    let request =
+        StacksHttpRequest::new_list_stackerdb_replicas(addr.into(), none_contract_identifier);
     requests.push(request);
 
     let mut responses = test_rpc(function_name!(), requests);
@@ -127,5 +121,5 @@ fn test_try_make_response() {
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
     let resp = response.decode_stackerdb_replicas().unwrap();
-    assert_eq!(resp.len(), 0);
+    assert!(resp.is_empty());
 }

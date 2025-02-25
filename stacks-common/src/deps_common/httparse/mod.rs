@@ -30,7 +30,7 @@
 //! Originally written by Sean McArthur.
 //!
 //! Modified by Jude Nelson to remove all unsafe code.
-use std::{error, fmt, mem, result, str};
+use std::{fmt, mem, result, str};
 
 macro_rules! next {
     ($bytes:ident) => {{
@@ -939,7 +939,7 @@ mod tests {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/");
             assert_eq!(req.version.unwrap(), 1);
-            assert_eq!(req.headers.len(), 0);
+            assert!(req.headers.is_empty());
         }
     }
 
@@ -950,7 +950,7 @@ mod tests {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/thing?data=a");
             assert_eq!(req.version.unwrap(), 1);
-            assert_eq!(req.headers.len(), 0);
+            assert!(req.headers.is_empty());
         }
     }
 
@@ -961,7 +961,7 @@ mod tests {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/thing?data=a^");
             assert_eq!(req.version.unwrap(), 1);
-            assert_eq!(req.headers.len(), 0);
+            assert!(req.headers.is_empty());
         }
     }
 
@@ -1084,7 +1084,7 @@ mod tests {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/");
             assert_eq!(req.version.unwrap(), 1);
-            assert_eq!(req.headers.len(), 0);
+            assert!(req.headers.is_empty());
         }
     }
 
@@ -1095,7 +1095,7 @@ mod tests {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/");
             assert_eq!(req.version.unwrap(), 1);
-            assert_eq!(req.headers.len(), 0);
+            assert!(req.headers.is_empty());
         }
     }
 
@@ -1106,7 +1106,7 @@ mod tests {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/\\?wayne\\=5");
             assert_eq!(req.version.unwrap(), 1);
-            assert_eq!(req.headers.len(), 0);
+            assert!(req.headers.is_empty());
         }
     }
 
@@ -1282,8 +1282,6 @@ mod tests {
 
     #[test]
     fn test_std_error() {
-        use std::error::Error as StdError;
-
         use super::Error;
         let err = Error::HeaderName;
         assert_eq!(err.to_string(), err.description_str());

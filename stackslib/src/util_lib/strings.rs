@@ -74,13 +74,13 @@ impl<T: fmt::Display> fmt::Display for VecDisplay<'_, T> {
 
 impl fmt::Display for StacksString {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(String::from_utf8_lossy(&self).into_owned().as_str())
+        f.write_str(String::from_utf8_lossy(self).into_owned().as_str())
     }
 }
 
 impl fmt::Debug for StacksString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(String::from_utf8_lossy(&self).into_owned().as_str())
+        f.write_str(String::from_utf8_lossy(self).into_owned().as_str())
     }
 }
 
@@ -330,13 +330,13 @@ mod test {
     #[test]
     fn tx_stacks_strings_codec() {
         let s = "hello-world";
-        let stacks_str = StacksString::from_str(&s).unwrap();
+        let stacks_str = StacksString::from_str(s).unwrap();
         let clarity_str = ClarityName::try_from(s).unwrap();
         let contract_str = ContractName::try_from(s).unwrap();
 
         assert_eq!(stacks_str[..], s.as_bytes().to_vec()[..]);
         let s2 = stacks_str.to_string();
-        assert_eq!(s2.to_string(), s.to_string());
+        assert_eq!(s2, s.to_string());
 
         // stacks strings have a 4-byte length prefix
         let mut b = vec![];
@@ -353,16 +353,16 @@ mod test {
 
         let mut contract_bytes = vec![s.len() as u8];
         contract_bytes.extend_from_slice(contract_str.as_bytes());
-        check_codec_and_corruption::<ContractName>(&contract_str, &clarity_bytes);
+        check_codec_and_corruption::<ContractName>(&contract_str, &contract_bytes);
     }
 
     #[test]
     fn tx_stacks_string_invalid() {
         let s = "hello\rworld";
-        assert!(StacksString::from_str(&s).is_none());
+        assert!(StacksString::from_str(s).is_none());
 
         let s = "hello\x01world";
-        assert!(StacksString::from_str(&s).is_none());
+        assert!(StacksString::from_str(s).is_none());
     }
 
     #[test]

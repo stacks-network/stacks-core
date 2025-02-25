@@ -119,7 +119,7 @@ impl MinerStats {
             );
 
             assert_eq!(windowed_block_commits.len(), 1);
-            assert_eq!(windowed_missed_commits.len(), 0);
+            assert!(windowed_missed_commits.is_empty());
         }
 
         // reverse vecs so that windows are in ascending block height order
@@ -794,13 +794,14 @@ EOF
                     ]
                 ),
                 PoxAddress::Standard(
-                    StacksAddress {
-                        version: 20,
-                        bytes: Hash160([
+                    StacksAddress::new(
+                        20,
+                        Hash160([
                             0x18, 0xc4, 0x20, 0x80, 0xa1, 0xe8, 0x7f, 0xd0, 0x2d, 0xd3, 0xfc, 0xa9,
                             0x4c, 0x45, 0x13, 0xf9, 0xec, 0xfe, 0x74, 0x14
                         ])
-                    },
+                    )
+                    .unwrap(),
                     None
                 )
             ]

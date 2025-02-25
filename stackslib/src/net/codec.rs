@@ -774,7 +774,7 @@ fn contract_id_consensus_serialize<W: Write>(
 ) -> Result<(), codec_error> {
     let addr = &cid.issuer;
     let name = &cid.name;
-    write_next(fd, &addr.0)?;
+    write_next(fd, &addr.version())?;
     write_next(fd, &addr.1)?;
     write_next(fd, name)?;
     Ok(())
@@ -787,11 +787,13 @@ fn contract_id_consensus_deserialize<R: Read>(
     let bytes: [u8; 20] = read_next(fd)?;
     let name: ContractName = read_next(fd)?;
     let qn = QualifiedContractIdentifier::new(
-        StacksAddress {
-            version,
-            bytes: Hash160(bytes),
-        }
-        .into(),
+        StacksAddress::new(version, Hash160(bytes))
+            .map_err(|_| {
+                codec_error::DeserializeError(
+                    "Failed to make StacksAddress with given version".into(),
+                )
+            })?
+            .into(),
         name,
     );
     Ok(qn)
@@ -855,7 +857,7 @@ impl StacksMessageCodec for StackerDBChunkInvData {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StackerDBChunkInvData, codec_error> {
-        let slot_versions: Vec<u32> = read_next_at_most(fd, stackerdb::STACKERDB_INV_MAX.into())?;
+        let slot_versions: Vec<u32> = read_next_at_most(fd, stackerdb::STACKERDB_INV_MAX)?;
         let num_outbound_replicas: u32 = read_next(fd)?;
         Ok(StackerDBChunkInvData {
             slot_versions,
@@ -1639,13 +1641,10 @@ pub mod test {
     fn check_deserialize<T: std::fmt::Debug>(r: Result<T, codec_error>) -> bool {
         match r {
             Ok(m) => {
-                test_debug!("deserialized {:?}", &m);
+                test_debug!("deserialized {m:?}");
                 false
             }
-            Err(e) => match e {
-                codec_error::DeserializeError(_) => true,
-                _ => false,
-            },
+            Err(e) => matches!(e, codec_error::DeserializeError(_)),
         }
     }
 
@@ -1674,9 +1673,7 @@ pub mod test {
                 assert_eq!(out, *obj);
             }
             Err(e) => {
-                test_debug!("\nFailed to parse to {:?}: {:?}", obj, bytes);
-                test_debug!("error: {:?}", &e);
-                assert!(false);
+                panic!("Failed to parse to {obj:?}: {bytes:?}\nerror: {e:?}");
             }
         }
 
@@ -1690,21 +1687,18 @@ pub mod test {
             match underflow_res {
                 Ok(oops) => {
                     test_debug!(
-                        "\nMissing Underflow: Parsed {:?}\nFrom {:?}\n",
-                        &oops,
+                        "\nMissing Underflow: Parsed {oops:?}\nFrom {:?}\n",
                         &write_buf[0..short_len].to_vec()
                     );
                 }
                 Err(codec_error::ReadError(io_error)) => match io_error.kind() {
                     io::ErrorKind::UnexpectedEof => {}
                     _ => {
-                        test_debug!("Got unexpected I/O error: {:?}", &io_error);
-                        assert!(false);
+                        panic!("Got unexpected I/O error: {io_error:?}");
                     }
                 },
                 Err(e) => {
-                    test_debug!("Got unexpected Net error: {:?}", &e);
-                    assert!(false);
+                    panic!("Got unexpected Net error: {e:?}");
                 }
             };
         }
@@ -1887,7 +1881,7 @@ pub mod test {
         // pox bitvec
         maximal_poxinvdata_bytes
             .append(&mut ((GETPOXINV_MAX_BITLEN / 8) as u32).to_be_bytes().to_vec());
-        maximal_poxinvdata_bytes.append(&mut maximal_bitvec.clone());
+        maximal_poxinvdata_bytes.extend_from_slice(&maximal_bitvec);
 
         assert!((maximal_poxinvdata_bytes.len() as u32) < MAX_MESSAGE_LEN);
 
@@ -1960,10 +1954,10 @@ pub mod test {
         maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen as u16).to_be_bytes().to_vec());
         // block bitvec
         maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen / 8).to_be_bytes().to_vec());
-        maximal_blocksinvdata_bytes.append(&mut maximal_bitvec.clone());
+        maximal_blocksinvdata_bytes.extend_from_slice(&maximal_bitvec);
         // microblock bitvec
         maximal_blocksinvdata_bytes.append(&mut (blocks_bitlen / 8).to_be_bytes().to_vec());
-        maximal_blocksinvdata_bytes.append(&mut maximal_bitvec.clone());
+        maximal_blocksinvdata_bytes.extend_from_slice(&maximal_bitvec);
 
         assert!((maximal_blocksinvdata_bytes.len() as u32) < MAX_MESSAGE_LEN);
 
@@ -2774,7 +2768,7 @@ pub mod test {
 
     #[test]
     fn codec_sign_and_verify() {
-        let privkey = Secp256k1PrivateKey::new();
+        let privkey = Secp256k1PrivateKey::random();
         let pubkey_buf =
             StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&privkey));
 
@@ -2795,7 +2789,7 @@ pub mod test {
     #[test]
     fn codec_stacks_public_key_roundtrip() {
         for i in 0..100 {
-            let privkey = Secp256k1PrivateKey::new();
+            let privkey = Secp256k1PrivateKey::random();
             let pubkey = Secp256k1PublicKey::from_private(&privkey);
 
             let pubkey_buf = StacksPublicKeyBuffer::from_public_key(&pubkey);

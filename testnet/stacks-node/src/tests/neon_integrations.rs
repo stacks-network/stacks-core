@@ -53,6 +53,7 @@ use stacks::net::api::getaccount::AccountEntryResponse;
 use stacks::net::api::getcontractsrc::ContractSrcResponse;
 use stacks::net::api::getinfo::RPCPeerInfoData;
 use stacks::net::api::getpoxinfo::RPCPoxInfoData;
+use stacks::net::api::getsortition::SortitionInfo;
 use stacks::net::api::gettransaction_unconfirmed::UnconfirmedTransactionResponse;
 use stacks::net::api::postblock::StacksBlockAcceptedData;
 use stacks::net::api::postfeerate::RPCFeeEstimateResponse;
@@ -265,7 +266,7 @@ pub mod test_observer {
         );
         let event: StackerDBChunksEvent = serde_json::from_value(chunks).unwrap();
         let mut stackerdb_chunks = NEW_STACKERDB_CHUNKS.lock().unwrap();
-        stackerdb_chunks.push(event.clone());
+        stackerdb_chunks.push(event);
 
         Ok(warp::http::StatusCode::OK)
     }
@@ -607,7 +608,9 @@ pub mod test_observer {
             .collect()
     }
 
-    pub fn contains_burn_block_range(range: impl RangeBounds<u64>) -> Result<(), String> {
+    /// Get missing burn blocks for a given height range
+    /// Returns Ok(..) if lookup is sucessful, whether there are missing blocks or not
+    pub fn get_missing_burn_blocks(range: impl RangeBounds<u64>) -> Result<Vec<u64>, String> {
         // Get set of all burn block heights
         let burn_block_heights = get_blocks()
             .into_iter()
@@ -629,12 +632,23 @@ pub mod test_observer {
         // Find indexes in range for which we don't have burn block in set
         let missing = (start..=end)
             .filter(|i| !burn_block_heights.contains(i))
-            .collect::<Vec<_>>();
+            .collect();
+
+        Ok(missing)
+    }
+
+    /// Similar to `missing_burn_blocks()` but returns `Err(..)` if blocks are missing
+    pub fn contains_burn_block_range(range: impl RangeBounds<u64> + Clone) -> Result<(), String> {
+        let missing = self::get_missing_burn_blocks(range.clone())?;
 
         if missing.is_empty() {
             Ok(())
         } else {
-            Err(format!("Missing the following burn blocks: {missing:?}"))
+            Err(format!(
+                "Missing the following burn blocks from {:?} to {:?}: {missing:?}",
+                range.start_bound(),
+                range.end_bound()
+            ))
         }
     }
 
@@ -1037,7 +1051,6 @@ fn bitcoind_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -1146,7 +1159,6 @@ fn confirm_unparsed_ongoing_ops() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -1229,7 +1241,6 @@ fn most_recent_utxo_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -1257,7 +1268,7 @@ fn most_recent_utxo_integration_test() {
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
+    let mut miner_signer = Keychain::default(conf.node.seed).generate_op_signer();
     let pubkey = miner_signer.get_public_key();
     let utxos_before = btc_regtest_controller.get_all_utxos(&pubkey);
 
@@ -1351,7 +1362,7 @@ pub fn get_account_result<F: std::fmt::Display>(
     let client = reqwest::blocking::Client::new();
     let path = format!("{http_origin}/v2/accounts/{account}?proof=0");
     let res = client.get(&path).send()?.json::<AccountEntryResponse>()?;
-    info!("Account response: {res:#?}");
+    debug!("Account response: {res:#?}");
     Ok(Account {
         balance: u128::from_str_radix(&res.balance[2..], 16).unwrap(),
         locked: u128::from_str_radix(&res.locked[2..], 16).unwrap(),
@@ -1361,6 +1372,22 @@ pub fn get_account_result<F: std::fmt::Display>(
 
 pub fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Account {
     get_account_result(http_origin, account).unwrap()
+}
+
+pub fn get_sortition_info(conf: &Config) -> SortitionInfo {
+    let client = reqwest::blocking::Client::new();
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let path = format!("{http_origin}/v3/sortitions");
+    let mut resp: Vec<_> = client.get(&path).send().unwrap().json().unwrap();
+    resp.pop().unwrap()
+}
+
+pub fn get_sortition_info_ch(conf: &Config, ch: &ConsensusHash) -> SortitionInfo {
+    let client = reqwest::blocking::Client::new();
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let path = format!("{http_origin}/v3/sortitions/consensus/{ch}");
+    let mut resp: Vec<_> = client.get(&path).send().unwrap().json().unwrap();
+    resp.pop().unwrap()
 }
 
 pub fn get_neighbors(conf: &Config) -> Option<serde_json::Value> {
@@ -1449,7 +1476,7 @@ fn deep_contract() {
         ")".repeat(stack_limit + 1)
     );
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
     let spender_princ: PrincipalData = spender_addr.into();
 
@@ -1458,17 +1485,16 @@ fn deep_contract() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let spender_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let spender_bal = 10_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_princ.clone(),
+        address: spender_princ,
         amount: spender_bal,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -1562,7 +1588,6 @@ fn bad_microblock_pubkey() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -1631,7 +1656,7 @@ fn liquid_ustx_integration() {
        (ok stx-liquid-supply))
     ";
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
     let spender_princ: PrincipalData = spender_addr.into();
 
@@ -1640,17 +1665,16 @@ fn liquid_ustx_integration() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let spender_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let spender_bal = 10_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_princ.clone(),
+        address: spender_princ,
         amount: spender_bal,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -1782,7 +1806,6 @@ fn lockup_integration() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -1879,7 +1902,7 @@ fn stx_transfer_btc_integration_test() {
     let _spender_btc_addr = BitcoinAddress::from_bytes_legacy(
         BitcoinNetworkType::Regtest,
         LegacyBitcoinAddressType::PublicKeyHash,
-        &spender_stx_addr.bytes.0,
+        &spender_stx_addr.bytes().0,
     )
     .unwrap();
 
@@ -1905,7 +1928,6 @@ fn stx_transfer_btc_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -1965,7 +1987,7 @@ fn stx_transfer_btc_integration_test() {
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // let's fire off our transfer op.
-    let recipient_sk = StacksPrivateKey::new();
+    let recipient_sk = StacksPrivateKey::random();
     let recipient_addr = to_addr(&recipient_sk);
     let transfer_stx_op = TransferStxOp {
         sender: spender_stx_addr,
@@ -2106,7 +2128,7 @@ fn stx_delegate_btc_integration_test() {
     let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
     let spender_addr: PrincipalData = spender_stx_addr.into();
 
-    let recipient_sk = StacksPrivateKey::new();
+    let recipient_sk = StacksPrivateKey::random();
     let recipient_addr = to_addr(&recipient_sk);
     let pox_pubkey = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
@@ -2157,7 +2179,6 @@ fn stx_delegate_btc_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -2178,14 +2199,10 @@ fn stx_delegate_btc_integration_test() {
         u32::MAX,
         u32::MAX,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
-    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
-        conf.clone(),
-        None,
-        Some(burnchain_config.clone()),
-        None,
-    );
+    let mut btc_regtest_controller =
+        BitcoinRegtestController::with_burnchain(conf.clone(), None, Some(burnchain_config), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -2284,7 +2301,7 @@ fn stx_delegate_btc_integration_test() {
         "pox-2",
         "delegate-stack-stx",
         &[
-            Value::Principal(spender_addr.clone()),
+            Value::Principal(spender_addr),
             Value::UInt(100_000),
             execute(
                 &format!("{{ hashbytes: 0x{pox_pubkey_hash}, version: 0x00 }}"),
@@ -2366,16 +2383,16 @@ fn stack_stx_burn_op_test() {
     let spender_sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
     let spender_stx_addr_2: StacksAddress = to_addr(&spender_sk_2);
 
-    let recipient_sk = StacksPrivateKey::new();
+    let recipient_sk = StacksPrivateKey::random();
     let recipient_addr = to_addr(&recipient_sk);
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
-    let first_bal = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let second_bal = 2_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let first_bal = 6_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
+    let second_bal = 2_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr_1.clone(),
+        address: spender_addr_1,
         amount: first_bal,
     });
     conf.initial_balances.push(InitialBalance {
@@ -2443,7 +2460,6 @@ fn stack_stx_burn_op_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -2464,7 +2480,7 @@ fn stack_stx_burn_op_test() {
         u32::MAX,
         u32::MAX,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
@@ -2598,7 +2614,7 @@ fn stack_stx_burn_op_test() {
         .block_height_to_reward_cycle(block_height)
         .unwrap();
 
-    let signer_key: StacksPublicKeyBuffer = signer_pk_bytes.clone().as_slice().into();
+    let signer_key: StacksPublicKeyBuffer = signer_pk_bytes.as_slice().into();
 
     info!(
         "Submitting stack stx op";
@@ -2637,7 +2653,7 @@ fn stack_stx_burn_op_test() {
 
     let stack_stx_op_with_no_signer_key = BlockstackOperationType::StackStx(StackStxOp {
         sender: spender_stx_addr_2,
-        reward_addr: pox_addr.clone(),
+        reward_addr: pox_addr,
         stacked_ustx: 10000000000000,
         num_cycles: 6,
         signer_key: None,
@@ -2774,11 +2790,11 @@ fn vote_for_aggregate_key_burn_op_test() {
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
-    let first_bal = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let stacked_bal = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
+    let first_bal = 6_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
+    let stacked_bal = 1_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr.clone(),
+        address: spender_addr,
         amount: first_bal,
     });
 
@@ -2842,7 +2858,6 @@ fn vote_for_aggregate_key_burn_op_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -2863,7 +2878,7 @@ fn vote_for_aggregate_key_burn_op_test() {
         u32::MAX,
         u32::MAX,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
@@ -2979,7 +2994,7 @@ fn vote_for_aggregate_key_burn_op_test() {
         .block_height_to_reward_cycle(block_height)
         .unwrap();
 
-    let signer_key: StacksPublicKeyBuffer = signer_pk_bytes.clone().as_slice().into();
+    let signer_key: StacksPublicKeyBuffer = signer_pk_bytes.as_slice().into();
 
     let aggregate_pk = Secp256k1PublicKey::new();
     let aggregate_key: StacksPublicKeyBuffer = aggregate_pk.to_bytes_compressed().as_slice().into();
@@ -3083,14 +3098,13 @@ fn bitcoind_resubmission_test() {
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr.clone(),
+        address: spender_addr,
         amount: 100300,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -3209,7 +3223,6 @@ fn bitcoind_forking_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -3314,7 +3327,6 @@ fn should_fix_2771() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -3442,7 +3454,6 @@ fn microblock_fork_poison_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -3554,7 +3565,7 @@ fn microblock_fork_poison_integration_test() {
             &mut chainstate,
             &iconn,
             consensus_hash,
-            stacks_block.clone(),
+            stacks_block,
             vec![unconfirmed_tx],
         );
 
@@ -3616,7 +3627,7 @@ fn microblock_fork_poison_integration_test() {
 
     // resume mining
     eprintln!("Enable miner");
-    signal_mining_ready(miner_status.clone());
+    signal_mining_ready(miner_status);
     sleep_ms(10_000);
 
     eprintln!("Attempt to mine poison-microblock");
@@ -3689,7 +3700,6 @@ fn microblock_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -3832,7 +3842,7 @@ fn microblock_integration_test() {
             &mut chainstate,
             &iconn,
             consensus_hash,
-            stacks_block.clone(),
+            stacks_block,
             vec![unconfirmed_tx],
         );
 
@@ -4183,7 +4193,7 @@ fn filter_low_fee_tx_integration_test() {
         return;
     }
 
-    let spender_sks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let spender_sks: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
     let (mut conf, _) = neon_integration_test_conf();
@@ -4227,7 +4237,6 @@ fn filter_low_fee_tx_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -4283,7 +4292,7 @@ fn filter_long_runtime_tx_integration_test() {
         return;
     }
 
-    let spender_sks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let spender_sks: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
     let (mut conf, _) = neon_integration_test_conf();
@@ -4317,7 +4326,6 @@ fn filter_long_runtime_tx_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -4371,7 +4379,7 @@ fn miner_submit_twice() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
     let contract_content = "
        (define-public (foo (a int))
@@ -4423,7 +4431,6 @@ fn miner_submit_twice() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -4480,7 +4487,7 @@ fn size_check_integration_test() {
         giant_contract.push(' ');
     }
 
-    let spender_sks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let spender_sks: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
@@ -4533,7 +4540,6 @@ fn size_check_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -4650,7 +4656,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
         small_contract.push(' ');
     }
 
-    let spender_sks: Vec<_> = (0..5).map(|_| StacksPrivateKey::new()).collect();
+    let spender_sks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
@@ -4708,7 +4714,6 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -4855,7 +4860,7 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
         small_contract.push(' ');
     }
 
-    let spender_sks: Vec<_> = (0..20).map(|_| StacksPrivateKey::new()).collect();
+    let spender_sks: Vec<_> = (0..20).map(|_| StacksPrivateKey::random()).collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
@@ -4897,7 +4902,6 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -5038,7 +5042,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
         small_contract.push(' ');
     }
 
-    let spender_sks: Vec<_> = (0..25).map(|_| StacksPrivateKey::new()).collect();
+    let spender_sks: Vec<_> = (0..25).map(|_| StacksPrivateKey::random()).collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
@@ -5084,7 +5088,6 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -5195,7 +5198,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
         return;
     }
 
-    let spender_sks: Vec<_> = (0..4).map(|_| StacksPrivateKey::new()).collect();
+    let spender_sks: Vec<_> = (0..4).map(|_| StacksPrivateKey::random()).collect();
     let spender_addrs: Vec<PrincipalData> = spender_sks.iter().map(|x| to_addr(x).into()).collect();
     let spender_addrs_c32: Vec<StacksAddress> = spender_sks.iter().map(to_addr).collect();
 
@@ -5344,7 +5347,6 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -5510,7 +5512,6 @@ fn block_replay_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -5625,7 +5626,7 @@ fn cost_voting_integration() {
         (ok proposal-id)))
     ";
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
     let spender_princ: PrincipalData = spender_addr.into();
 
@@ -5642,7 +5643,7 @@ fn cost_voting_integration() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let spender_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let spender_bal = 10_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_princ.clone(),
@@ -5652,7 +5653,6 @@ fn cost_voting_integration() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -6012,7 +6012,6 @@ fn mining_events_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -6222,11 +6221,11 @@ fn block_limit_hit_integration_test() {
             .join(" "),
     );
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let addr = to_addr(&spender_sk);
-    let second_spender_sk = StacksPrivateKey::new();
+    let second_spender_sk = StacksPrivateKey::random();
     let second_spender_addr: PrincipalData = to_addr(&second_spender_sk).into();
-    let third_spender_sk = StacksPrivateKey::new();
+    let third_spender_sk = StacksPrivateKey::random();
     let third_spender_addr: PrincipalData = to_addr(&third_spender_sk).into();
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
@@ -6294,7 +6293,6 @@ fn block_limit_hit_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -6434,11 +6432,11 @@ fn microblock_limit_hit_integration_test() {
             .join(" "),
     );
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let addr = to_addr(&spender_sk);
-    let second_spender_sk = StacksPrivateKey::new();
+    let second_spender_sk = StacksPrivateKey::random();
     let second_spender_addr: PrincipalData = to_addr(&second_spender_sk).into();
-    let third_spender_sk = StacksPrivateKey::new();
+    let third_spender_sk = StacksPrivateKey::random();
     let third_spender_addr: PrincipalData = to_addr(&third_spender_sk).into();
 
     let (mut conf, _) = neon_integration_test_conf();
@@ -6549,7 +6547,6 @@ fn microblock_limit_hit_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -6678,7 +6675,7 @@ fn block_large_tx_integration_test() {
             .join(" ")
     );
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
 
     let (mut conf, miner_account) = neon_integration_test_conf();
@@ -6722,7 +6719,6 @@ fn block_large_tx_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -6811,7 +6807,7 @@ fn microblock_large_tx_integration_test_FLAKY() {
             .join(" ")
     );
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let addr = to_addr(&spender_sk);
 
     let (mut conf, miner_account) = neon_integration_test_conf();
@@ -6856,7 +6852,6 @@ fn microblock_large_tx_integration_test_FLAKY() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -6929,13 +6924,13 @@ fn pox_integration_test() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
-    let spender_2_sk = StacksPrivateKey::new();
+    let spender_2_sk = StacksPrivateKey::random();
     let spender_2_addr: PrincipalData = to_addr(&spender_2_sk).into();
 
-    let spender_3_sk = StacksPrivateKey::new();
+    let spender_3_sk = StacksPrivateKey::random();
     let spender_3_addr: PrincipalData = to_addr(&spender_3_sk).into();
 
     let pox_pubkey = Secp256k1PublicKey::from_hex(
@@ -6944,7 +6939,7 @@ fn pox_integration_test() {
     .unwrap();
     let pox_pubkey_hash = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey).to_bytes());
 
-    let pox_2_pubkey = Secp256k1PublicKey::from_private(&StacksPrivateKey::new());
+    let pox_2_pubkey = Secp256k1PublicKey::from_private(&StacksPrivateKey::random());
     let pox_2_pubkey_hash = bytes_to_hex(&Hash160::from_node_public_key(&pox_2_pubkey).to_bytes());
 
     let pox_2_address = BitcoinAddress::from_bytes_legacy(
@@ -6962,10 +6957,10 @@ fn pox_integration_test() {
     // required for testing post-sunset behavior
     conf.node.always_use_affirmation_maps = false;
 
-    let first_bal = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let second_bal = 2_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let third_bal = 2_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let stacked_bal = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
+    let first_bal = 6_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
+    let second_bal = 2_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
+    let third_bal = 2_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
+    let stacked_bal = 1_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
@@ -6973,12 +6968,12 @@ fn pox_integration_test() {
     });
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_2_addr.clone(),
+        address: spender_2_addr,
         amount: second_bal,
     });
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_3_addr.clone(),
+        address: spender_3_addr,
         amount: third_bal,
     });
 
@@ -6991,7 +6986,6 @@ fn pox_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -7455,10 +7449,10 @@ fn atlas_integration_test() {
         return;
     }
 
-    let user_1 = StacksPrivateKey::new();
+    let user_1 = StacksPrivateKey::random();
     let initial_balance_user_1 = InitialBalance {
         address: to_addr(&user_1).into(),
-        amount: 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64),
+        amount: 1_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS),
     };
 
     // Prepare the config of the bootstrap node
@@ -7504,7 +7498,6 @@ fn atlas_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf_bootstrap_node.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let (bootstrap_node_tx, bootstrap_node_rx) = mpsc::channel();
@@ -7872,7 +7865,7 @@ fn atlas_integration_test() {
     // executing the transactions, once mined.
     let namespace = "passport";
     for i in 1..10 {
-        let user = StacksPrivateKey::new();
+        let user = StacksPrivateKey::random();
         let zonefile_hex = format!("facade0{i}");
         let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
         let name = format!("johndoe{i}");
@@ -7975,10 +7968,10 @@ fn antientropy_integration_test() {
         return;
     }
 
-    let user_1 = StacksPrivateKey::new();
+    let user_1 = StacksPrivateKey::random();
     let initial_balance_user_1 = InitialBalance {
         address: to_addr(&user_1).into(),
-        amount: 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64),
+        amount: 1_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS),
     };
 
     // Prepare the config of the bootstrap node
@@ -8023,7 +8016,7 @@ fn antientropy_integration_test() {
     conf_follower_node.node.miner = false;
     conf_follower_node
         .initial_balances
-        .push(initial_balance_user_1.clone());
+        .push(initial_balance_user_1);
     conf_follower_node
         .events_observers
         .insert(EventObserverConfig {
@@ -8047,7 +8040,6 @@ fn antientropy_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf_bootstrap_node.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let (bootstrap_node_tx, bootstrap_node_rx) = mpsc::channel();
@@ -8103,12 +8095,10 @@ fn antientropy_integration_test() {
                 println!("Follower has finished");
             }
             Ok(x) => {
-                println!("Follower gave a bad signal: {x:?}");
-                panic!();
+                panic!("Follower gave a bad signal: {x:?}");
             }
             Err(e) => {
-                println!("Failed to recv: {e:?}");
-                panic!();
+                panic!("Failed to recv: {e:?}");
             }
         };
 
@@ -8163,7 +8153,7 @@ fn antientropy_integration_test() {
     let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf_follower_node.clone(),
         None,
-        Some(burnchain_config.clone()),
+        Some(burnchain_config),
         None,
     );
 
@@ -8235,10 +8225,9 @@ fn wait_for_mined(
         }
     }
     if !all_mined {
-        eprintln!(
+        panic!(
             "Failed to mine all transactions: nonces = {account_after_nonces:?}, expected {account_before_nonces:?} + {batch_size}"
         );
-        panic!();
     }
 }
 
@@ -8256,10 +8245,10 @@ fn atlas_stress_integration_test() {
     let batch_size = 20;
 
     for _i in 0..(2 * batches * batch_size + 1) {
-        let user = StacksPrivateKey::new();
+        let user = StacksPrivateKey::random();
         let initial_balance_user = InitialBalance {
             address: to_addr(&user).into(),
-            amount: 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64),
+            amount: 1_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS),
         };
         users.push(user);
         initial_balances.push(initial_balance_user);
@@ -8294,7 +8283,6 @@ fn atlas_stress_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf_bootstrap_node.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let burnchain_config = Burnchain::regtest(&conf_bootstrap_node.get_burn_db_path());
@@ -8431,7 +8419,7 @@ fn atlas_stress_integration_test() {
             Value::UInt(1),
             Value::UInt(1),
             Value::UInt(1000),
-            Value::Principal(initial_balance_user_1.address.clone()),
+            Value::Principal(initial_balance_user_1.address),
         ],
     );
 
@@ -8468,12 +8456,10 @@ fn atlas_stress_integration_test() {
             break;
         }
     }
-    if !mined_namespace_reveal {
-        eprintln!("Did not mine namespace preorder or reveal");
-        panic!();
-    }
-
-    let mut all_zonefiles = vec![];
+    assert!(
+        mined_namespace_reveal,
+        "Did not mine namespace preorder or reveal"
+    );
 
     // make a _ton_ of name-imports
     for i in 0..batches {
@@ -8485,8 +8471,6 @@ fn atlas_stress_integration_test() {
             //                             (zonefile-hash (buff 20)))
             let zonefile_hex = format!("facade00{:04x}{:04x}{:04x}", batch_size * i + j, i, j);
             let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
-
-            all_zonefiles.push(zonefile_hex.clone());
 
             let tx_3 = make_contract_call(
                 &user_1,
@@ -8545,13 +8529,11 @@ fn atlas_stress_integration_test() {
                 break;
             }
         }
-        if !all_mined {
-            eprintln!(
-                "Failed to mine all transactions: nonce = {account_after_nonce}, expected {}",
-                account_before.nonce + (batch_size as u64)
-            );
-            panic!();
-        }
+        assert!(
+            all_mined,
+            "Failed to mine all transactions: nonce = {account_after_nonce}, expected {}",
+            account_before.nonce + (batch_size as u64)
+        );
     }
 
     // launch namespace
@@ -8572,7 +8554,7 @@ fn atlas_stress_integration_test() {
     let res = client
         .post(&path)
         .header("Content-Type", "application/octet-stream")
-        .body(tx_4.clone())
+        .body(tx_4)
         .send()
         .unwrap();
     eprintln!("{res:#?}");
@@ -8596,10 +8578,7 @@ fn atlas_stress_integration_test() {
             break;
         }
     }
-    if !mined_namespace_ready {
-        eprintln!("Did not mine namespace ready");
-        panic!();
-    }
+    assert!(mined_namespace_ready, "Did not mine namespace ready");
 
     // make a _ton_ of preorders
     {
@@ -8675,8 +8654,6 @@ fn atlas_stress_integration_test() {
             let zonefile_hex = format!("facade01{j:04x}");
             let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
 
-            all_zonefiles.push(zonefile_hex.clone());
-
             let tx_6 = make_contract_call(
                 &users[batches * batch_size + j],
                 1,
@@ -8739,8 +8716,6 @@ fn atlas_stress_integration_test() {
             let zonefile_hex = format!("facade02{j:04x}");
             let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
 
-            all_zonefiles.push(zonefile_hex.clone());
-
             let tx_7 = make_contract_call(
                 &users[batches * batch_size + j],
                 2,
@@ -8801,8 +8776,6 @@ fn atlas_stress_integration_test() {
             let name = format!("janedoe{j}");
             let zonefile_hex = format!("facade03{j:04x}");
             let hashed_zonefile = Hash160::from_data(&hex_bytes(&zonefile_hex).unwrap());
-
-            all_zonefiles.push(zonefile_hex.clone());
 
             let tx_8 = make_contract_call(
                 &users[batches * batch_size + j],
@@ -8914,14 +8887,13 @@ fn atlas_stress_integration_test() {
             let ts_begin = get_epoch_time_ms();
             for _ in 0..attempts {
                 let res = client.get(&path).send().unwrap();
-
-                if res.status().is_success() {
-                    let attachment_inv_response: GetAttachmentsInvResponse = res.json().unwrap();
-                    eprintln!("attachment inv response for {path}: {attachment_inv_response:?}");
-                } else {
-                    eprintln!("Bad response for `{path}`: `{:?}`", res.text().unwrap());
-                    panic!();
-                }
+                assert!(
+                    res.status().is_success(),
+                    "Bad response for `{path}`: `{:?}`",
+                    res.text().unwrap()
+                );
+                let attachment_inv_response: GetAttachmentsInvResponse = res.json().unwrap();
+                eprintln!("attachment inv response for {path}: {attachment_inv_response:?}");
             }
             let ts_end = get_epoch_time_ms();
             let total_time = ts_end.saturating_sub(ts_begin);
@@ -8950,14 +8922,13 @@ fn atlas_stress_integration_test() {
             let ts_begin = get_epoch_time_ms();
             for _ in 0..attempts {
                 let res = client.get(&path).send().unwrap();
-
-                if res.status().is_success() {
-                    let attachment_response: GetAttachmentResponse = res.json().unwrap();
-                    eprintln!("attachment response for {path}: {attachment_response:?}");
-                } else {
-                    eprintln!("Bad response for `{path}`: `{:?}`", res.text().unwrap());
-                    panic!();
-                }
+                assert!(
+                    res.status().is_success(),
+                    "Bad response for `{path}`: `{:?}`",
+                    res.text().unwrap()
+                );
+                let attachment_response: GetAttachmentResponse = res.json().unwrap();
+                eprintln!("attachment response for {path}: {attachment_response:?}");
             }
             let ts_end = get_epoch_time_ms();
             let total_time = ts_end.saturating_sub(ts_begin);
@@ -9002,7 +8973,7 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
       (ok (var-get counter))))
     "#;
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
 
     let (mut conf, _) = neon_integration_test_conf();
@@ -9023,7 +8994,6 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -9201,7 +9171,6 @@ fn use_latest_tip_integration_test() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -9299,7 +9268,7 @@ fn use_latest_tip_integration_test() {
         &mut chainstate,
         &iconn,
         consensus_hash,
-        stacks_block.clone(),
+        stacks_block,
         vec_tx,
     );
     let mut mblock_bytes = vec![];
@@ -9433,7 +9402,6 @@ fn test_flash_block_skip_tenure() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -9497,7 +9465,6 @@ fn test_chainwork_first_intervals() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -9525,7 +9492,6 @@ fn test_chainwork_partial_interval() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -9614,7 +9580,6 @@ fn test_problematic_txs_are_not_stored() {
 
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -9811,15 +9776,15 @@ fn test_problematic_blocks_are_not_mined() {
     let (mut conf, _) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr_1.clone(),
+        address: spender_addr_1,
         amount: 1_000_000_000_000,
     });
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr_2.clone(),
+        address: spender_addr_2,
         amount: 1_000_000_000_000,
     });
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr_3.clone(),
+        address: spender_addr_3,
         amount: 1_000_000_000_000,
     });
 
@@ -9858,7 +9823,6 @@ fn test_problematic_blocks_are_not_mined() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -10148,15 +10112,15 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
     let (mut conf, _) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr_1.clone(),
+        address: spender_addr_1,
         amount: 1_000_000_000_000,
     });
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr_2.clone(),
+        address: spender_addr_2,
         amount: 1_000_000_000_000,
     });
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr_3.clone(),
+        address: spender_addr_3,
         amount: 1_000_000_000_000,
     });
 
@@ -10195,7 +10159,6 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -10284,7 +10247,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         old_tip_info.stacks_tip_height + 5
     );
     // no blocks considered problematic
-    assert_eq!(all_new_files.len(), 0);
+    assert!(all_new_files.is_empty());
 
     // one block contained tx_exceeds
     let blocks = test_observer::get_blocks();
@@ -10521,15 +10484,15 @@ fn test_problematic_microblocks_are_not_mined() {
     let (mut conf, _) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr_1.clone(),
+        address: spender_addr_1,
         amount: 1_000_000_000_000,
     });
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr_2.clone(),
+        address: spender_addr_2,
         amount: 1_000_000_000_000,
     });
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr_3.clone(),
+        address: spender_addr_3,
         amount: 1_000_000_000_000,
     });
 
@@ -10574,7 +10537,6 @@ fn test_problematic_microblocks_are_not_mined() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -10873,15 +10835,15 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
     let (mut conf, _) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr_1.clone(),
+        address: spender_addr_1,
         amount: 1_000_000_000_000,
     });
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr_2.clone(),
+        address: spender_addr_2,
         amount: 1_000_000_000_000,
     });
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr_3.clone(),
+        address: spender_addr_3,
         amount: 1_000_000_000_000,
     });
 
@@ -10928,7 +10890,6 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -11258,7 +11219,6 @@ fn push_boot_receipts() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -11304,7 +11264,6 @@ fn run_with_custom_wallet() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -11542,7 +11501,7 @@ fn test_competing_miners_build_on_same_chain(
         return;
     }
 
-    let privks: Vec<_> = (0..100).map(|_| StacksPrivateKey::new()).collect();
+    let privks: Vec<_> = (0..100).map(|_| StacksPrivateKey::random()).collect();
     let balances: Vec<_> = privks
         .iter()
         .map(|privk| {
@@ -11559,7 +11518,7 @@ fn test_competing_miners_build_on_same_chain(
     let mut blocks_processed = vec![];
 
     for _i in 0..num_miners {
-        let seed = StacksPrivateKey::new().to_bytes();
+        let seed = StacksPrivateKey::random().to_bytes();
         let (mut conf, _) = neon_integration_test_conf_with_seed(seed);
 
         conf.initial_balances.append(&mut balances.clone());
@@ -11623,7 +11582,6 @@ fn test_competing_miners_build_on_same_chain(
     let mut btcd_controller = BitcoinCoreController::new(confs[0].clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
@@ -11799,7 +11757,7 @@ fn microblock_miner_multiple_attempts() {
     conf.burnchain.max_rbf = 1000000;
     conf.node.wait_time_for_blocks = 1_000;
 
-    let privks: Vec<_> = (0..100).map(|_| StacksPrivateKey::new()).collect();
+    let privks: Vec<_> = (0..100).map(|_| StacksPrivateKey::random()).collect();
     let balances: Vec<_> = privks
         .iter()
         .map(|privk| {
@@ -11816,7 +11774,6 @@ fn microblock_miner_multiple_attempts() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -11882,7 +11839,7 @@ fn min_txs() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
     let spender_princ: PrincipalData = spender_addr.into();
 
@@ -11900,17 +11857,16 @@ fn min_txs() {
         fs::remove_file(path).unwrap();
     }
 
-    let spender_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let spender_bal = 10_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_princ.clone(),
+        address: spender_princ,
         amount: spender_bal,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -11986,7 +11942,7 @@ fn filter_txs_by_type() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
     let spender_princ: PrincipalData = spender_addr.into();
 
@@ -12005,17 +11961,16 @@ fn filter_txs_by_type() {
         fs::remove_file(path).unwrap();
     }
 
-    let spender_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let spender_bal = 10_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_princ.clone(),
+        address: spender_princ,
         amount: spender_bal,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -12100,7 +12055,7 @@ fn filter_txs_by_origin() {
         return;
     }
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
     let spender_princ: PrincipalData = spender_addr.into();
 
@@ -12116,17 +12071,16 @@ fn filter_txs_by_origin() {
             .into_iter()
             .collect();
 
-    let spender_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let spender_bal = 10_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_princ.clone(),
+        address: spender_princ,
         amount: spender_bal,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -12295,7 +12249,7 @@ fn bitcoin_reorg_flap() {
 
     // carry out the flap to fork B -- new_conf's state was the same as before the reorg
     let mut btcd_controller = BitcoinCoreController::new(new_conf.clone());
-    let btc_regtest_controller = BitcoinRegtestController::new(new_conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(new_conf, None);
 
     btcd_controller
         .start_bitcoind()
@@ -12311,7 +12265,7 @@ fn bitcoin_reorg_flap() {
     info!("\n\nBegin reorg flap from B to A\n\n");
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
-    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf, None);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -12506,7 +12460,7 @@ fn bitcoin_reorg_flap_with_follower() {
 
     // carry out the flap to fork B -- new_conf's state was the same as before the reorg
     let mut btcd_controller = BitcoinCoreController::new(new_conf.clone());
-    let btc_regtest_controller = BitcoinRegtestController::new(new_conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(new_conf, None);
 
     btcd_controller
         .start_bitcoind()
@@ -12522,7 +12476,7 @@ fn bitcoin_reorg_flap_with_follower() {
     info!("\n\nBegin reorg flap from B to A\n\n");
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
-    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf, None);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -12568,12 +12522,8 @@ fn mock_miner_replay() {
         .expect("Failed starting bitcoind");
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
-    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
-        conf.clone(),
-        None,
-        Some(burnchain_config.clone()),
-        None,
-    );
+    let mut btc_regtest_controller =
+        BitcoinRegtestController::with_burnchain(conf.clone(), None, Some(burnchain_config), None);
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -12717,7 +12667,7 @@ fn listunspent_max_utxos() {
     let prom_port = gen_random_port();
     let localhost = "127.0.0.1";
     let prom_bind = format!("{localhost}:{prom_port}");
-    conf.node.prometheus_bind = Some(prom_bind.clone());
+    conf.node.prometheus_bind = Some(prom_bind);
 
     conf.burnchain.max_rbf = 1000000;
     conf.burnchain.max_unspent_utxos = Some(10);
@@ -12725,7 +12675,6 @@ fn listunspent_max_utxos() {
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
@@ -12765,17 +12714,16 @@ fn start_stop_bitcoind() {
     let prom_port = gen_random_port();
     let localhost = "127.0.0.1";
     let prom_bind = format!("{localhost}:{prom_port}");
-    conf.node.prometheus_bind = Some(prom_bind.clone());
+    conf.node.prometheus_bind = Some(prom_bind);
 
     conf.burnchain.max_rbf = 1000000;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
-        .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf, None);
 
     btc_regtest_controller.bootstrap_chain(201);
 

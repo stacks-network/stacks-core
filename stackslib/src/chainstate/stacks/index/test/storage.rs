@@ -87,14 +87,8 @@ fn trie_cmp<T: MarfTrieId>(
     let (n1_data, n1_hash) = t1.data()[0].clone();
     let (n2_data, n2_hash) = t2.data()[0].clone();
 
-    if let TrieNodeType::Node256(_) = n1_data {
-    } else {
-        assert!(false)
-    }
-    if let TrieNodeType::Node256(_) = n2_data {
-    } else {
-        assert!(false)
-    }
+    assert!(matches!(n1_data, TrieNodeType::Node256(_)));
+    assert!(matches!(n2_data, TrieNodeType::Node256(_)));
 
     frontier_1.push_back((n1_data, n1_hash));
     frontier_2.push_back((n2_data, n2_hash));
@@ -109,25 +103,25 @@ fn trie_cmp<T: MarfTrieId>(
         let (n2_data, n2_hash) = frontier_2.pop_front().unwrap();
 
         if n1_hash != n2_hash {
-            debug!("root hash mismatch: {} != {}", &n1_hash, &n2_hash);
+            debug!("root hash mismatch: {n1_hash} != {n2_hash}");
             return false;
         }
 
         if !node_cmp(&n1_data, &n2_data) {
-            debug!("root node mismatch: {:?} != {:?}", &n1_data, &n2_data);
+            debug!("root node mismatch: {n1_data:?} != {n2_data:?}");
             return false;
         }
 
         // search children
         for ptr in n1_data.ptrs() {
             if ptr.id != TrieNodeID::Empty as u8 && !is_backptr(ptr.id) {
-                let (child_data, child_hash) = t1.read_nodetype(&ptr).unwrap();
+                let (child_data, child_hash) = t1.read_nodetype(ptr).unwrap();
                 frontier_1.push_back((child_data, child_hash))
             }
         }
         for ptr in n2_data.ptrs() {
             if ptr.id != TrieNodeID::Empty as u8 && !is_backptr(ptr.id) {
-                let (child_data, child_hash) = t2.read_nodetype(&ptr).unwrap();
+                let (child_data, child_hash) = t2.read_nodetype(ptr).unwrap();
                 frontier_2.push_back((child_data, child_hash))
             }
         }
@@ -254,7 +248,7 @@ fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
 
         // verify that all new keys are there, off the unconfirmed tip
         for (path, expected_value) in new_inserted.iter() {
-            let value = MARF::get_path(&mut marf.borrow_storage_backend(), &unconfirmed_tip, &path)
+            let value = MARF::get_path(&mut marf.borrow_storage_backend(), &unconfirmed_tip, path)
                 .unwrap()
                 .unwrap();
             assert_eq!(expected_value.data, value.data);
@@ -280,9 +274,9 @@ fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
 
     // test rollback
     for path in all_new_paths.iter() {
-        eprintln!("path present? {:?}", &path);
+        eprintln!("path present? {path:?}");
         assert!(
-            MARF::get_path(&mut marf.borrow_storage_backend(), &unconfirmed_tip, &path)
+            MARF::get_path(&mut marf.borrow_storage_backend(), &unconfirmed_tip, path)
                 .unwrap()
                 .is_some()
         );
@@ -291,8 +285,8 @@ fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
     marf.drop_unconfirmed();
 
     for path in all_new_paths.iter() {
-        eprintln!("path absent?  {:?}", &path);
-        assert!(MARF::get_path(&mut marf.borrow_storage_backend(), &confirmed_tip, &path).is_err());
+        eprintln!("path absent?  {path:?}");
+        assert!(MARF::get_path(&mut marf.borrow_storage_backend(), &confirmed_tip, path).is_err());
     }
 }
 

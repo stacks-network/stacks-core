@@ -74,7 +74,7 @@ fn test_try_parse_request() {
 
     // try to decode a bad microblock
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
-    let mut bad_mblock = mblock.clone();
+    let mut bad_mblock = mblock;
     bad_mblock.txs.clear();
     let request = StacksHttpRequest::new_post_microblock(
         addr.into(),
@@ -102,7 +102,7 @@ fn test_try_parse_request() {
 fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
 
-    let test_rpc = TestRPC::setup_ex(function_name!(), false);
+    let test_rpc = TestRPC::setup_ex(function_name!(), false, None, None);
     let mblock = test_rpc.next_microblock.clone().unwrap();
 
     let mut requests = vec![];

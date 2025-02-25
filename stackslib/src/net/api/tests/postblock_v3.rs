@@ -53,7 +53,7 @@ fn parse_request() {
         )
         .unwrap();
 
-    assert_eq!(handler.block, Some(block.clone()));
+    assert_eq!(handler.block, Some(block));
 
     // parsed request consumes headers that would not be in a constructed reqeuest
     parsed_request.clear_headers();
@@ -178,19 +178,12 @@ fn handle_req_accepted() {
         |_| true,
     );
     let next_block_id = next_block.block_id();
-    let mut requests = vec![];
-
-    // post the block
-    requests.push(StacksHttpRequest::new_post_block_v3(
-        addr.into(),
-        &next_block,
-    ));
-
-    // idempotent
-    requests.push(StacksHttpRequest::new_post_block_v3(
-        addr.into(),
-        &next_block,
-    ));
+    let requests = vec![
+        // post the block
+        StacksHttpRequest::new_post_block_v3(addr.into(), &next_block),
+        // idempotent
+        StacksHttpRequest::new_post_block_v3(addr.into(), &next_block),
+    ];
 
     let mut responses = rpc_test.run(requests);
 
@@ -201,7 +194,7 @@ fn handle_req_accepted() {
     );
 
     let resp = response.decode_stacks_block_accepted().unwrap();
-    assert_eq!(resp.accepted, true);
+    assert!(resp.accepted);
     assert_eq!(resp.stacks_block_id, next_block_id);
 
     let response = responses.remove(0);
@@ -210,7 +203,7 @@ fn handle_req_accepted() {
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
     let resp = response.decode_stacks_block_accepted().unwrap();
-    assert_eq!(resp.accepted, false);
+    assert!(!resp.accepted);
     assert_eq!(resp.stacks_block_id, next_block_id);
 }
 
@@ -229,10 +222,8 @@ fn handle_req_without_trailing_accepted() {
         |_| true,
     );
     let next_block_id = next_block.block_id();
-    let mut requests = vec![];
-
-    // post the block
-    requests.push(
+    let requests = vec![
+        // post the block
         StacksHttpRequest::new_for_peer(
             addr.into(),
             "POST".into(),
@@ -240,10 +231,7 @@ fn handle_req_without_trailing_accepted() {
             HttpRequestContents::new().payload_stacks(&next_block),
         )
         .unwrap(),
-    );
-
-    // idempotent
-    requests.push(
+        // idempotent
         StacksHttpRequest::new_for_peer(
             addr.into(),
             "POST".into(),
@@ -251,7 +239,7 @@ fn handle_req_without_trailing_accepted() {
             HttpRequestContents::new().payload_stacks(&next_block),
         )
         .unwrap(),
-    );
+    ];
     let mut responses = rpc_test.run(requests);
 
     let response = responses.remove(0);
@@ -261,7 +249,7 @@ fn handle_req_without_trailing_accepted() {
     );
 
     let resp = response.decode_stacks_block_accepted().unwrap();
-    assert_eq!(resp.accepted, true);
+    assert!(resp.accepted);
     assert_eq!(resp.stacks_block_id, next_block_id);
 
     let response = responses.remove(0);
@@ -270,7 +258,7 @@ fn handle_req_without_trailing_accepted() {
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
     let resp = response.decode_stacks_block_accepted().unwrap();
-    assert_eq!(resp.accepted, false);
+    assert!(!resp.accepted);
     assert_eq!(resp.stacks_block_id, next_block_id);
 }
 

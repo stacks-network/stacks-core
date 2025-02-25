@@ -31,11 +31,11 @@ use crate::net::neighbors::{
     NeighborComms, NeighborReplacements, NeighborWalkDB, ToNeighborKey, MAX_NEIGHBOR_BLOCK_DELAY,
     NEIGHBOR_MINIMUM_CONTACT_INTERVAL,
 };
-use crate::net::p2p::PeerNetwork;
+use crate::net::p2p::{DropReason, DropSource, PeerNetwork};
 use crate::net::{
-    Error as net_error, HandshakeAcceptData, HandshakeData, MessageSequence, Neighbor,
-    NeighborAddress, NeighborKey, PeerAddress, Preamble, StackerDBHandshakeData, StacksMessage,
-    StacksMessageType, NUM_NEIGHBORS,
+    DropNeighbor, Error as net_error, HandshakeAcceptData, HandshakeData, MessageSequence,
+    Neighbor, NeighborAddress, NeighborKey, PeerAddress, Preamble, StackerDBHandshakeData,
+    StacksMessage, StacksMessageType, NUM_NEIGHBORS,
 };
 
 /// This struct records information from an inbound peer that has authenticated to this node.  As
@@ -60,12 +60,12 @@ pub struct NeighborWalkResult {
     /// Newly-added node neighbors
     pub new_connections: HashSet<NeighborKey>,
     /// Dead connections discovered (so we can close their sockets)
-    pub dead_connections: HashSet<NeighborKey>,
+    pub dead_connections: HashSet<DropNeighbor>,
     /// Connections to misbehaving peers (so we can close their sockets and ban them)
-    pub broken_connections: HashSet<NeighborKey>,
+    pub broken_connections: HashSet<DropNeighbor>,
     /// Neighbors who got replaced in the PeerDB because they were offline, but mapped to a new
     /// peer that was online and had the same slot locations
-    pub replaced_neighbors: HashSet<NeighborKey>,
+    pub replaced_neighbors: HashSet<DropNeighbor>,
 }
 
 impl NeighborWalkResult {
@@ -82,16 +82,16 @@ impl NeighborWalkResult {
         self.new_connections.insert(nk);
     }
 
-    pub fn add_broken(&mut self, nk: NeighborKey) {
-        self.broken_connections.insert(nk);
+    pub fn add_broken(&mut self, dn: DropNeighbor) {
+        self.broken_connections.insert(dn);
     }
 
-    pub fn add_dead(&mut self, nk: NeighborKey) {
-        self.dead_connections.insert(nk);
+    pub fn add_dead(&mut self, dn: DropNeighbor) {
+        self.dead_connections.insert(dn);
     }
 
-    pub fn add_replaced(&mut self, nk: NeighborKey) {
-        self.replaced_neighbors.insert(nk);
+    pub fn add_replaced(&mut self, dn: DropNeighbor) {
+        self.replaced_neighbors.insert(dn);
     }
 
     pub fn clear(&mut self) {
@@ -275,7 +275,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             &first_neighbor,
             true,
             network.get_walk_pingbacks().clone(),
-            &network.get_connection_opts(),
+            network.get_connection_opts(),
         );
 
         debug!(
@@ -326,7 +326,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             &allowed_peer,
             true,
             network.get_walk_pingbacks().clone(),
-            &network.get_connection_opts(),
+            network.get_connection_opts(),
         );
 
         debug!(
@@ -397,7 +397,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                 &empty_neighbor,
                 false,
                 network.get_walk_pingbacks().clone(),
-                &network.get_connection_opts(),
+                network.get_connection_opts(),
             );
 
             debug!(
@@ -454,7 +454,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         let nk = NeighborKey::from_neighbor_address(
             pingback_peer.peer_version,
             pingback_peer.network_id,
-            &addr,
+            addr,
         );
 
         // don't proceed if denied
@@ -469,7 +469,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             &empty_neighbor,
             false,
             network.get_walk_pingbacks().clone(),
-            &network.get_connection_opts(),
+            network.get_connection_opts(),
         );
 
         debug!(
@@ -777,8 +777,12 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                     network.get_local_peer(),
                     &self.cur_neighbor.addr
                 );
-                self.comms
-                    .add_broken(network, &self.cur_neighbor.addr.clone());
+                self.comms.add_broken(
+                    network,
+                    &self.cur_neighbor.addr.clone(),
+                    DropReason::BrokenConnection("Out of sequence message".into()),
+                    DropSource::NeighborWalkHandshake,
+                );
                 return Err(net_error::InvalidMessage);
             }
         };
@@ -884,8 +888,15 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                     &self.cur_neighbor.addr,
                     data.error_code
                 );
-                self.comms
-                    .add_broken(network, &self.cur_neighbor.addr.clone());
+                self.comms.add_broken(
+                    network,
+                    &self.cur_neighbor.addr.clone(),
+                    DropReason::BrokenConnection(format!(
+                        "NACK'ed with error code: {}",
+                        data.error_code
+                    )),
+                    DropSource::NeighborWalkGetNeighbors,
+                );
                 return Err(net_error::ConnectionBroken);
             }
             _ => {
@@ -895,8 +906,12 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                     network.get_local_peer(),
                     &self.cur_neighbor.addr
                 );
-                self.comms
-                    .add_broken(network, &self.cur_neighbor.addr.clone());
+                self.comms.add_broken(
+                    network,
+                    &self.cur_neighbor.addr.clone(),
+                    DropReason::BrokenConnection("Out-of-sequence message".into()),
+                    DropSource::NeighborWalkGetNeighbors,
+                );
                 return Err(net_error::InvalidMessage);
             }
         };
@@ -909,7 +924,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             debug!(
                 "{:?}: will handshake with {} neighbors out of {} reported by {:?}",
                 network.get_local_peer(),
-                &network.get_connection_opts().max_neighbors_of_neighbor,
+                network.get_connection_opts().max_neighbors_of_neighbor,
                 neighbor_addrs_to_resolve.len(),
                 &self.cur_neighbor.addr
             );
@@ -1078,7 +1093,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         // Do we know about this peer already?
         let (new, neighbor) = self.neighbor_db.add_or_schedule_replace_neighbor(
             network,
-            &preamble,
+            preamble,
             &data.handshake,
             db_data,
             &mut self.neighbor_replacements,
@@ -1140,6 +1155,8 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                             message.preamble.network_id,
                             &naddr,
                         ),
+                        DropReason::DeadConnection("Handshake rejected".into()),
+                        DropSource::NeighborWalkHandshake,
                     );
                     continue;
                 }
@@ -1158,6 +1175,11 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                             message.preamble.network_id,
                             &naddr,
                         ),
+                        DropReason::DeadConnection(format!(
+                            "NACK'ed with error code: {}",
+                            data.error_code
+                        )),
+                        DropSource::NeighborWalkHandshake,
                     );
                     continue;
                 }
@@ -1175,6 +1197,8 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                             message.preamble.network_id,
                             &naddr,
                         ),
+                        DropReason::BrokenConnection("Out-of-sequence message".into()),
+                        DropSource::NeighborWalkHandshake,
                     );
                     continue;
                 }
@@ -1326,7 +1350,12 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                 _ => {
                     // unexpected reply
                     debug!("{:?}: Neighbor {:?} replied an out-of-sequence message (type {}); assuming broken", network.get_local_peer(), &nkey, message.get_message_name());
-                    self.comms.add_broken(network, &nkey);
+                    self.comms.add_broken(
+                        network,
+                        &nkey,
+                        DropReason::BrokenConnection("Out-of-sequence message".into()),
+                        DropSource::NeighborWalkGetNeighbors,
+                    );
                 }
             }
         }
@@ -1477,7 +1506,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                 // won the coin toss; will take a step.
                 // take care not to step back to the neighbor from which we
                 // stepped previously
-                if let Some(ref prev_neighbor) = self.prev_neighbor.as_ref() {
+                if let Some(prev_neighbor) = self.prev_neighbor.as_ref() {
                     if prev_neighbor.addr == next_neighbor.addr {
                         // oops, backtracked.  Try to pick a different neighbor, if possible.
                         if self.frontier.len() == 1 {
@@ -1488,14 +1517,14 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                             // acceptance by probabilistically deciding to step to an alternative
                             // instead of backtracking.
                             let alt_next_neighbor =
-                                Self::pick_random_neighbor(&self.frontier, Some(&prev_neighbor))
+                                Self::pick_random_neighbor(&self.frontier, Some(prev_neighbor))
                                     .expect("BUG: empty frontier size");
                             let alt_prob: f64 = rnd.gen();
 
                             let cur_to_alt =
                                 self.degree_ratio(network, &self.cur_neighbor, &alt_next_neighbor);
                             let prev_to_cur =
-                                self.degree_ratio(network, &prev_neighbor, &self.cur_neighbor);
+                                self.degree_ratio(network, prev_neighbor, &self.cur_neighbor);
                             let trans_prob = fmin!(
                                 fmin!(1.0, cur_to_alt * cur_to_alt),
                                 fmax!(1.0, prev_to_cur * prev_to_cur)
@@ -1722,7 +1751,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
 
             if let Err(e) = self.comms.neighbor_send(
                 network,
-                &naddr,
+                naddr,
                 StacksMessageType::Handshake(HandshakeData::from_local_peer(
                     network.get_local_peer(),
                 )),
@@ -1807,21 +1836,30 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                         nkey,
                         data.error_code
                     );
-                    self.comms.add_broken(network, &nkey);
+                    self.comms.add_broken(
+                        network,
+                        &nkey,
+                        DropReason::DeadConnection("NACK'ed Handshake".into()),
+                        DropSource::NeighborWalkPing,
+                    );
                     continue;
                 }
                 _ => {
                     // unexpected reply -- this peer is misbehaving and should be replaced
-                    debug!("{:?}: Neighbor {:?} replied an out-of-sequence message (type {}); will replace", network.get_local_peer(), &nkey, message.get_message_name());
-                    self.comms.add_broken(network, &nkey);
+                    debug!("{:?}: Neighbor {nkey:?} replied an out-of-sequence message (type {}); will replace", network.get_local_peer(), message.get_message_name());
+                    self.comms.add_broken(
+                        network,
+                        &nkey,
+                        DropReason::BrokenConnection("Out-of-sequence message".into()),
+                        DropSource::NeighborWalkPing,
+                    );
                     continue;
                 }
             };
 
             debug!(
-                "{:?}: Got HandshakeAccept on pingback from {:?}",
-                network.get_local_peer(),
-                &nkey;
+                "{:?}: Got HandshakeAccept on pingback from {nkey:?}",
+                network.get_local_peer();
                 "handshake_data" => ?data,
                 "stackerdb_data" => ?db_data
             );

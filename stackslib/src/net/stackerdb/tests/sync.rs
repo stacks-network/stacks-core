@@ -69,10 +69,11 @@ impl StackerDBConfig {
 /// `setup_stackerdb()`
 fn add_stackerdb(config: &mut TestPeerConfig, stackerdb_config: Option<StackerDBConfig>) -> usize {
     let name = ContractName::try_from(format!("db-{}", config.stacker_dbs.len())).unwrap();
-    let addr = StacksAddress {
-        version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-        bytes: Hash160::from_data(&config.stacker_dbs.len().to_be_bytes()),
-    };
+    let addr = StacksAddress::new(
+        C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+        Hash160::from_data(&config.stacker_dbs.len().to_be_bytes()),
+    )
+    .unwrap();
 
     let stackerdb_config = stackerdb_config.unwrap_or(StackerDBConfig::noop());
 
@@ -110,10 +111,11 @@ fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool, num_slots: usize
             }
         };
         let pubk = StacksPublicKey::from_private(&pk);
-        let addr = StacksAddress {
-            version: C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-            bytes: Hash160::from_node_public_key(&pubk),
-        };
+        let addr = StacksAddress::new(
+            C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+            Hash160::from_node_public_key(&pubk),
+        )
+        .unwrap();
 
         pks.push(pk);
         slots.push((addr, 1u32));
@@ -175,7 +177,7 @@ fn load_stackerdb(peer: &TestPeer, idx: usize) -> Vec<(SlotMetadata, Vec<u8>)> {
             .stackerdbs
             .get_latest_chunk(&peer.config.stacker_dbs[idx], i)
             .unwrap()
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
         ret.push((chunk_metadata, chunk));
     }
     ret
@@ -403,7 +405,7 @@ fn test_stackerdb_replica_2_neighbors_1_chunk_stale_view() {
             if let Ok(res) = res_1 {
                 check_sync_results(&res);
                 for sync_res in res.stacker_db_sync_results.iter() {
-                    assert_eq!(sync_res.chunks_to_store.len(), 0);
+                    assert!(sync_res.chunks_to_store.is_empty());
                     if !sync_res.stale.is_empty() {
                         peer_1_stale = true;
                     }
@@ -432,7 +434,7 @@ fn test_stackerdb_replica_2_neighbors_1_chunk_stale_view() {
             if let Ok(res) = res_2 {
                 check_sync_results(&res);
                 for sync_res in res.stacker_db_sync_results.iter() {
-                    assert_eq!(sync_res.chunks_to_store.len(), 0);
+                    assert!(sync_res.chunks_to_store.is_empty());
                     if !sync_res.stale.is_empty() {
                         peer_2_stale = true;
                     }

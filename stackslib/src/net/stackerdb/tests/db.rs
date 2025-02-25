@@ -62,67 +62,37 @@ fn test_stackerdb_create_list_delete() {
     let mut db = StackerDBs::connect(path, true).unwrap();
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
 
-    let slots = [(
-        StacksAddress {
-            version: 0x02,
-            bytes: Hash160([0x02; 20]),
-        },
-        1,
-    )];
+    let slots = [(StacksAddress::new(0x02, Hash160([0x02; 20])).unwrap(), 1)];
 
     // databases with one chunk
     tx.create_stackerdb(
         &QualifiedContractIdentifier::new(
-            StacksAddress {
-                version: 0x01,
-                bytes: Hash160([0x01; 20]),
-            }
-            .into(),
+            StacksAddress::new(0x01, Hash160([0x01; 20]))
+                .unwrap()
+                .into(),
             ContractName::try_from("db1").unwrap(),
         ),
-        &[(
-            StacksAddress {
-                version: 0x01,
-                bytes: Hash160([0x01; 20]),
-            },
-            1,
-        )],
+        &[(StacksAddress::new(0x01, Hash160([0x01; 20])).unwrap(), 1)],
     )
     .unwrap();
     tx.create_stackerdb(
         &QualifiedContractIdentifier::new(
-            StacksAddress {
-                version: 0x02,
-                bytes: Hash160([0x02; 20]),
-            }
-            .into(),
+            StacksAddress::new(0x02, Hash160([0x02; 20]))
+                .unwrap()
+                .into(),
             ContractName::try_from("db2").unwrap(),
         ),
-        &[(
-            StacksAddress {
-                version: 0x02,
-                bytes: Hash160([0x02; 20]),
-            },
-            1,
-        )],
+        &[(StacksAddress::new(0x02, Hash160([0x02; 20])).unwrap(), 1)],
     )
     .unwrap();
     tx.create_stackerdb(
         &QualifiedContractIdentifier::new(
-            StacksAddress {
-                version: 0x03,
-                bytes: Hash160([0x03; 20]),
-            }
-            .into(),
+            StacksAddress::new(0x03, Hash160([0x03; 20]))
+                .unwrap()
+                .into(),
             ContractName::try_from("db3").unwrap(),
         ),
-        &[(
-            StacksAddress {
-                version: 0x03,
-                bytes: Hash160([0x03; 20]),
-            },
-            1,
-        )],
+        &[(StacksAddress::new(0x03, Hash160([0x03; 20])).unwrap(), 1)],
     )
     .unwrap();
 
@@ -135,27 +105,21 @@ fn test_stackerdb_create_list_delete() {
         dbs,
         vec![
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x01,
-                    bytes: Hash160([0x01; 20])
-                }
-                .into(),
+                StacksAddress::new(0x01, Hash160([0x01; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db1").unwrap()
             ),
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x02,
-                    bytes: Hash160([0x02; 20])
-                }
-                .into(),
+                StacksAddress::new(0x02, Hash160([0x02; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db2").unwrap()
             ),
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x03,
-                    bytes: Hash160([0x03; 20])
-                }
-                .into(),
+                StacksAddress::new(0x03, Hash160([0x03; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db3").unwrap()
             ),
         ]
@@ -166,11 +130,9 @@ fn test_stackerdb_create_list_delete() {
     if let net_error::StackerDBExists(..) = tx
         .create_stackerdb(
             &QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x01,
-                    bytes: Hash160([0x01; 20]),
-                }
-                .into(),
+                StacksAddress::new(0x01, Hash160([0x01; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db1").unwrap(),
             ),
             &[],
@@ -189,27 +151,21 @@ fn test_stackerdb_create_list_delete() {
         dbs,
         vec![
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x01,
-                    bytes: Hash160([0x01; 20])
-                }
-                .into(),
+                StacksAddress::new(0x01, Hash160([0x01; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db1").unwrap()
             ),
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x02,
-                    bytes: Hash160([0x02; 20])
-                }
-                .into(),
+                StacksAddress::new(0x02, Hash160([0x02; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db2").unwrap()
             ),
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x03,
-                    bytes: Hash160([0x03; 20])
-                }
-                .into(),
+                StacksAddress::new(0x03, Hash160([0x03; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db3").unwrap()
             ),
         ]
@@ -217,17 +173,15 @@ fn test_stackerdb_create_list_delete() {
 
     // each DB's single chunk exists
     for sc in dbs.iter() {
-        db.get_latest_chunk(&sc, 0).unwrap().expect("missing chunk");
+        db.get_latest_chunk(sc, 0).unwrap().expect("missing chunk");
     }
 
     // remove a db
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
     tx.delete_stackerdb(&QualifiedContractIdentifier::new(
-        StacksAddress {
-            version: 0x01,
-            bytes: Hash160([0x01; 20]),
-        }
-        .into(),
+        StacksAddress::new(0x01, Hash160([0x01; 20]))
+            .unwrap()
+            .into(),
         ContractName::try_from("db1").unwrap(),
     ))
     .unwrap();
@@ -240,19 +194,15 @@ fn test_stackerdb_create_list_delete() {
         dbs,
         vec![
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x02,
-                    bytes: Hash160([0x02; 20])
-                }
-                .into(),
+                StacksAddress::new(0x02, Hash160([0x02; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db2").unwrap()
             ),
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x03,
-                    bytes: Hash160([0x03; 20])
-                }
-                .into(),
+                StacksAddress::new(0x03, Hash160([0x03; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db3").unwrap()
             ),
         ]
@@ -260,17 +210,15 @@ fn test_stackerdb_create_list_delete() {
 
     // only existing DBs still have chunks
     for sc in dbs.iter() {
-        db.get_latest_chunk(&sc, 0).unwrap().expect("missing chunk");
+        db.get_latest_chunk(sc, 0).unwrap().expect("missing chunk");
     }
 
     // deletion is idempotent
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
     tx.delete_stackerdb(&QualifiedContractIdentifier::new(
-        StacksAddress {
-            version: 0x01,
-            bytes: Hash160([0x01; 20]),
-        }
-        .into(),
+        StacksAddress::new(0x01, Hash160([0x01; 20]))
+            .unwrap()
+            .into(),
         ContractName::try_from("db1").unwrap(),
     ))
     .unwrap();
@@ -283,26 +231,22 @@ fn test_stackerdb_create_list_delete() {
         dbs,
         vec![
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x02,
-                    bytes: Hash160([0x02; 20])
-                }
-                .into(),
+                StacksAddress::new(0x02, Hash160([0x02; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db2").unwrap()
             ),
             QualifiedContractIdentifier::new(
-                StacksAddress {
-                    version: 0x03,
-                    bytes: Hash160([0x03; 20])
-                }
-                .into(),
+                StacksAddress::new(0x03, Hash160([0x03; 20]))
+                    .unwrap()
+                    .into(),
                 ContractName::try_from("db3").unwrap()
             ),
         ]
     );
     // only existing DBs still have chunks
     for sc in dbs.iter() {
-        db.get_latest_chunk(&sc, 0).unwrap().expect("missing chunk");
+        db.get_latest_chunk(sc, 0).unwrap().expect("missing chunk");
     }
 }
 
@@ -313,11 +257,9 @@ fn test_stackerdb_prepare_clear_slots() {
     setup_test_path(path);
 
     let sc = QualifiedContractIdentifier::new(
-        StacksAddress {
-            version: 0x01,
-            bytes: Hash160([0x01; 20]),
-        }
-        .into(),
+        StacksAddress::new(0x01, Hash160([0x01; 20]))
+            .unwrap()
+            .into(),
         ContractName::try_from("db1").unwrap(),
     );
 
@@ -327,27 +269,9 @@ fn test_stackerdb_prepare_clear_slots() {
     tx.create_stackerdb(
         &sc,
         &[
-            (
-                StacksAddress {
-                    version: 0x02,
-                    bytes: Hash160([0x02; 20]),
-                },
-                2,
-            ),
-            (
-                StacksAddress {
-                    version: 0x03,
-                    bytes: Hash160([0x03; 20]),
-                },
-                3,
-            ),
-            (
-                StacksAddress {
-                    version: 0x04,
-                    bytes: Hash160([0x04; 20]),
-                },
-                4,
-            ),
+            (StacksAddress::new(0x02, Hash160([0x02; 20])).unwrap(), 2),
+            (StacksAddress::new(0x03, Hash160([0x03; 20])).unwrap(), 3),
+            (StacksAddress::new(0x04, Hash160([0x04; 20])).unwrap(), 4),
         ],
     )
     .unwrap();
@@ -363,28 +287,19 @@ fn test_stackerdb_prepare_clear_slots() {
             // belongs to 0x02
             assert_eq!(
                 slot_validation.signer,
-                StacksAddress {
-                    version: 0x02,
-                    bytes: Hash160([0x02; 20])
-                }
+                StacksAddress::new(0x02, Hash160([0x02; 20])).unwrap()
             );
         } else if slot_id >= 2 && slot_id < 2 + 3 {
             // belongs to 0x03
             assert_eq!(
                 slot_validation.signer,
-                StacksAddress {
-                    version: 0x03,
-                    bytes: Hash160([0x03; 20])
-                }
+                StacksAddress::new(0x03, Hash160([0x03; 20])).unwrap()
             );
         } else if slot_id >= 2 + 3 && slot_id < 2 + 3 + 4 {
             // belongs to 0x03
             assert_eq!(
                 slot_validation.signer,
-                StacksAddress {
-                    version: 0x04,
-                    bytes: Hash160([0x04; 20])
-                }
+                StacksAddress::new(0x04, Hash160([0x04; 20])).unwrap()
             );
         } else {
             unreachable!()
@@ -424,11 +339,9 @@ fn test_stackerdb_insert_query_chunks() {
     setup_test_path(path);
 
     let sc = QualifiedContractIdentifier::new(
-        StacksAddress {
-            version: 0x01,
-            bytes: Hash160([0x01; 20]),
-        }
-        .into(),
+        StacksAddress::new(0x01, Hash160([0x01; 20]))
+            .unwrap()
+            .into(),
         ContractName::try_from("db1").unwrap(),
     );
 
@@ -440,7 +353,7 @@ fn test_stackerdb_insert_query_chunks() {
 
     let tx = db.tx_begin(db_config.clone()).unwrap();
 
-    let pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks
         .iter()
         .map(|pk| {
@@ -448,7 +361,7 @@ fn test_stackerdb_insert_query_chunks() {
                 C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
                 &AddressHashMode::SerializeP2PKH,
                 1,
-                &vec![StacksPublicKey::from_private(&pk)],
+                &vec![StacksPublicKey::from_private(pk)],
             )
             .unwrap()
         })
@@ -473,7 +386,7 @@ fn test_stackerdb_insert_query_chunks() {
             data: vec![i as u8; 128],
         };
 
-        chunk_data.sign(&pk).unwrap();
+        chunk_data.sign(pk).unwrap();
 
         let slot_metadata = tx.get_slot_metadata(&sc, i as u32).unwrap().unwrap();
         assert_eq!(slot_metadata.slot_id, i as u32);
@@ -505,7 +418,7 @@ fn test_stackerdb_insert_query_chunks() {
 
         // should fail -- too many writes version
         chunk_data.slot_version = db_config.max_writes + 1;
-        chunk_data.sign(&pk).unwrap();
+        chunk_data.sign(pk).unwrap();
         if let Err(net_error::TooManySlotWrites {
             supplied_version,
             max_writes,
@@ -549,7 +462,7 @@ fn test_stackerdb_insert_query_chunks() {
         assert_eq!(chunk.data, vec![i as u8; 128]);
         assert_eq!(chunk.slot_version, 1);
         assert_eq!(chunk.slot_id, i as u32);
-        assert!(chunk.verify(&addr).unwrap());
+        assert!(chunk.verify(addr).unwrap());
 
         // incorrect version
         let chunk = db.get_chunk(&sc, i as u32, 0).unwrap();
@@ -560,7 +473,7 @@ fn test_stackerdb_insert_query_chunks() {
         assert!(chunk.is_none());
 
         let slot_metadata = db.get_slot_metadata(&sc, i as u32).unwrap().unwrap();
-        assert!(slot_metadata.verify(&addr).unwrap());
+        assert!(slot_metadata.verify(addr).unwrap());
     }
 
     let versions = db.get_slot_versions(&sc).unwrap();
@@ -579,11 +492,9 @@ fn test_reconfigure_stackerdb() {
     setup_test_path(path);
 
     let sc = QualifiedContractIdentifier::new(
-        StacksAddress {
-            version: 0x01,
-            bytes: Hash160([0x01; 20]),
-        }
-        .into(),
+        StacksAddress::new(0x01, Hash160([0x01; 20]))
+            .unwrap()
+            .into(),
         ContractName::try_from("db1").unwrap(),
     );
 
@@ -593,9 +504,9 @@ fn test_reconfigure_stackerdb() {
     db_config.max_writes = 3;
     db_config.write_freq = 120;
 
-    let tx = db.tx_begin(db_config.clone()).unwrap();
+    let tx = db.tx_begin(db_config).unwrap();
 
-    let pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks
         .iter()
         .map(|pk| {
@@ -603,7 +514,7 @@ fn test_reconfigure_stackerdb() {
                 C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
                 &AddressHashMode::SerializeP2PKH,
                 1,
-                &vec![StacksPublicKey::from_private(&pk)],
+                &vec![StacksPublicKey::from_private(pk)],
             )
             .unwrap()
         })
@@ -611,11 +522,7 @@ fn test_reconfigure_stackerdb() {
 
     tx.create_stackerdb(
         &sc,
-        &addrs
-            .clone()
-            .into_iter()
-            .map(|addr| (addr, 1))
-            .collect::<Vec<_>>(),
+        &addrs.into_iter().map(|addr| (addr, 1)).collect::<Vec<_>>(),
     )
     .unwrap();
 
@@ -629,7 +536,7 @@ fn test_reconfigure_stackerdb() {
             data: vec![i as u8; 128],
         };
 
-        chunk_data.sign(&pk).unwrap();
+        chunk_data.sign(pk).unwrap();
 
         let slot_metadata = tx.get_slot_metadata(&sc, i as u32).unwrap().unwrap();
         assert_eq!(slot_metadata.slot_id, i as u32);
@@ -660,7 +567,7 @@ fn test_reconfigure_stackerdb() {
     }
 
     let tx = db.tx_begin(StackerDBConfig::noop()).unwrap();
-    let new_pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let new_pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let reconfigured_pks = vec![
         // first five slots are unchanged
         pks[0], pks[1], pks[2], pks[3], pks[4],
@@ -677,7 +584,7 @@ fn test_reconfigure_stackerdb() {
                 C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
                 &AddressHashMode::SerializeP2PKH,
                 1,
-                &vec![StacksPublicKey::from_private(&pk)],
+                &vec![StacksPublicKey::from_private(pk)],
             )
             .unwrap()
         })
@@ -687,7 +594,6 @@ fn test_reconfigure_stackerdb() {
     tx.reconfigure_stackerdb(
         &sc,
         &reconfigured_addrs
-            .clone()
             .into_iter()
             .map(|addr| (addr, 1))
             .collect::<Vec<_>>(),
@@ -720,7 +626,7 @@ fn test_reconfigure_stackerdb() {
             assert_eq!(slot_metadata.signature, MessageSignature::empty());
 
             let chunk = db.get_latest_chunk(&sc, i as u32).unwrap().unwrap();
-            assert_eq!(chunk.len(), 0);
+            assert!(chunk.is_empty());
         } else {
             // final five are new
             let slot_metadata = db.get_slot_metadata(&sc, i as u32).unwrap().unwrap();
@@ -730,7 +636,7 @@ fn test_reconfigure_stackerdb() {
             assert_eq!(slot_metadata.signature, MessageSignature::empty());
 
             let chunk = db.get_latest_chunk(&sc, i as u32).unwrap().unwrap();
-            assert_eq!(chunk.len(), 0);
+            assert!(chunk.is_empty());
         }
     }
 
@@ -742,7 +648,7 @@ fn test_reconfigure_stackerdb() {
     }
 
     // reconfigure with fewer slots
-    let new_pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
+    let new_pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let reconfigured_pks = vec![
         // first five slots are unchanged
         pks[0], pks[1], pks[2], pks[3], pks[4],
@@ -759,7 +665,7 @@ fn test_reconfigure_stackerdb() {
                 C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
                 &AddressHashMode::SerializeP2PKH,
                 1,
-                &vec![StacksPublicKey::from_private(&pk)],
+                &vec![StacksPublicKey::from_private(pk)],
             )
             .unwrap()
         })
@@ -771,7 +677,6 @@ fn test_reconfigure_stackerdb() {
     tx.reconfigure_stackerdb(
         &sc,
         &reconfigured_addrs
-            .clone()
             .into_iter()
             .map(|addr| (addr, 1))
             .collect::<Vec<_>>(),
@@ -804,7 +709,7 @@ fn test_reconfigure_stackerdb() {
             assert_eq!(slot_metadata.signature, MessageSignature::empty());
 
             let chunk = db.get_latest_chunk(&sc, i as u32).unwrap().unwrap();
-            assert_eq!(chunk.len(), 0);
+            assert!(chunk.is_empty());
         } else {
             // final five are gone
             let slot_metadata_opt = db.get_slot_metadata(&sc, i as u32).unwrap();
