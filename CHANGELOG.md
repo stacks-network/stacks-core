@@ -14,6 +14,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 
+- Implement faster cost tracker for default cost functions in Clarity
 - Miner will stop waiting for signatures on a block if the Stacks tip advances (causing the block it had proposed to be invalid).
 - By default, miners will wait for a new tenure to start for a configurable amount of time after receiving a burn block before 
   submitting a block commit. This will reduce the amount of RBF transactions miners are expected to need.

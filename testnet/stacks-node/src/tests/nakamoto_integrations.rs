@@ -51,6 +51,7 @@ use stacks::chainstate::stacks::boot::{
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionEvent, TransactionResult, TransactionSuccessEvent,
+    TEST_TX_STALL,
 };
 use stacks::chainstate::stacks::{
     SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction, TenureChangeCause,
@@ -9771,8 +9772,6 @@ fn skip_mining_long_tx() {
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // submit a long running TX and the transfer TX
-    let input_list: Vec<_> = (1..100u64).map(|x| x.to_string()).collect();
-    let input_list = input_list.join(" ");
 
     // Mine a few nakamoto tenures with some interim blocks in them
     for i in 0..5 {
@@ -9792,26 +9791,22 @@ fn skip_mining_long_tx() {
             .unwrap();
 
             TEST_P2P_BROADCAST_SKIP.set(true);
+            TEST_TX_STALL.set(true);
             let tx = make_contract_publish(
                 &sender_2_sk,
                 0,
                 9_000,
                 naka_conf.burnchain.chain_id,
                 "large_contract",
-                &format!(
-                    "(define-constant INP_LIST (list {input_list}))
-                        (define-private (mapping-fn (input int))
-                                (begin (sha256 (sha256 (sha256 (sha256 (sha256 (sha256 (sha256 (sha256 (sha256 input)))))))))
-                                       0))
-
-                        (define-private (mapping-fn-2 (input int))
-                                (begin (map mapping-fn INP_LIST) (map mapping-fn INP_LIST) (map mapping-fn INP_LIST) (map mapping-fn INP_LIST) 0))
-
-                        (begin
-                            (map mapping-fn-2 INP_LIST))"
-                ),
+                "(print \"hello world\")",
             );
             submit_tx(&http_origin, &tx);
+
+            // Sleep for longer than the miner's attempt time, so that the miner will
+            // mark this tx as long-running and skip it in the next attempt
+            sleep_ms(naka_conf.miner.nakamoto_attempt_time_ms + 1000);
+
+            TEST_TX_STALL.set(false);
 
             wait_for(90, || {
                 Ok(mined_naka_blocks.load(Ordering::SeqCst) > mined_before + 1)
