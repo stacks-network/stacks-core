@@ -398,6 +398,10 @@ impl SignerTest<SpawnedSigner> {
         }
     }
 
+    fn get_miner_key(&self) -> &Secp256k1PrivateKey {
+        self.running_nodes.conf.miner.mining_key.as_ref().unwrap()
+    }
+
     /// Propose a block to the signers
     fn propose_block(&mut self, block: NakamotoBlock, timeout: Duration) {
         let miners_contract_id = boot_code_id(MINERS_NAME, false);
@@ -409,6 +413,9 @@ impl SignerTest<SpawnedSigner> {
             .get_headers_height();
         let reward_cycle = self.get_current_reward_cycle();
         let signer_signature_hash = block.header.signer_signature_hash();
+        let signed_by = block.header.recover_miner_pk().expect(
+            "FATAL: signer tests should only propose blocks that have been signed by the signer test miner. Otherwise, signers won't even consider them via this channel."
+        );
         let message = SignerMessage::BlockProposal(BlockProposal {
             block,
             burn_height,
@@ -421,6 +428,9 @@ impl SignerTest<SpawnedSigner> {
             .miner
             .mining_key
             .expect("No mining key");
+        assert_eq!(signed_by, Secp256k1PublicKey::from_private(&miner_sk),
+                   "signer tests should only propose blocks that have been signed by the signer test miner. Otherwise, signers won't even consider them via this channel.");
+
         // Submit the block proposal to the miner's slot
         let mut accepted = false;
         let mut version = 0;
@@ -1258,6 +1268,10 @@ fn block_proposal_rejection() {
 
     // First propose a block to the signers that does not have the correct consensus hash or BitVec. This should be rejected BEFORE
     // the block is submitted to the node for validation.
+    block
+        .header
+        .sign_miner(signer_test.get_miner_key())
+        .unwrap();
     let block_signer_signature_hash_1 = block.header.signer_signature_hash();
     signer_test.propose_block(block.clone(), short_timeout);
 
@@ -1270,6 +1284,10 @@ fn block_proposal_rejection() {
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
     block.header.chain_length = 35; // We have mined 35 blocks so far.
 
+    block
+        .header
+        .sign_miner(signer_test.get_miner_key())
+        .unwrap();
     let block_signer_signature_hash_2 = block.header.signer_signature_hash();
     signer_test.propose_block(block, short_timeout);
 
@@ -7193,6 +7211,10 @@ fn block_validation_response_timeout() {
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
     block.header.chain_length = info_before.stacks_tip_height + 1;
 
+    block
+        .header
+        .sign_miner(signer_test.get_miner_key())
+        .unwrap();
     let block_signer_signature_hash_1 = block.header.signer_signature_hash();
     signer_test.propose_block(block, timeout);
 
@@ -7478,6 +7500,10 @@ fn block_validation_pending_table() {
     block.header.pox_treatment = BitVec::ones(1).unwrap();
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
     block.header.chain_length = peer_info.stacks_tip_height + 1;
+    block
+        .header
+        .sign_miner(signer_test.get_miner_key())
+        .unwrap();
     let block_signer_signature_hash = block.header.signer_signature_hash();
     signer_test.propose_block(block.clone(), short_timeout);
 
@@ -8135,11 +8161,19 @@ fn block_proposal_max_age_rejections() {
             .block_proposal_max_age_secs
             .saturating_add(1),
     );
+    block
+        .header
+        .sign_miner(signer_test.get_miner_key())
+        .unwrap();
     let block_signer_signature_hash_1 = block.header.signer_signature_hash();
     signer_test.propose_block(block.clone(), short_timeout);
 
     // Next propose a recent invalid block
     block.header.timestamp = get_epoch_time_secs();
+    block
+        .header
+        .sign_miner(signer_test.get_miner_key())
+        .unwrap();
     let block_signer_signature_hash_2 = block.header.signer_signature_hash();
     signer_test.propose_block(block, short_timeout);
 
@@ -8740,6 +8774,10 @@ fn incoming_signers_ignore_block_proposals() {
         txs: vec![],
     };
     block.header.timestamp = get_epoch_time_secs();
+    block
+        .header
+        .sign_miner(signer_test.get_miner_key())
+        .unwrap();
     let signer_signature_hash_1 = block.header.signer_signature_hash();
 
     info!("------------------------- Test Attempt to Mine Invalid Block {signer_signature_hash_1} -------------------------");
@@ -8758,6 +8796,10 @@ fn incoming_signers_ignore_block_proposals() {
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
     block.header.chain_length =
         get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height + 1;
+    block
+        .header
+        .sign_miner(signer_test.get_miner_key())
+        .unwrap();
     let signer_signature_hash_2 = block.header.signer_signature_hash();
 
     info!("------------------------- Test Attempt to Mine Invalid Block {signer_signature_hash_2} -------------------------");
@@ -8926,6 +8968,10 @@ fn outgoing_signers_ignore_block_proposals() {
     block.header.consensus_hash = view.cur_sortition.consensus_hash;
     block.header.chain_length =
         get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height + 1;
+    block
+        .header
+        .sign_miner(signer_test.get_miner_key())
+        .unwrap();
     let signer_signature_hash = block.header.signer_signature_hash();
 
     info!("------------------------- Test Attempt to Mine Invalid Block {signer_signature_hash} -------------------------");
