@@ -2429,7 +2429,9 @@ fn miner_forking() {
         |config| {
             config.miner.block_commit_delay = Duration::from_secs(0);
         },
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
 
     let (conf_1, conf_2) = miners.get_node_configs();
@@ -6319,7 +6321,17 @@ fn continue_after_fast_block_no_sortition() {
     let num_signers = 5;
     let num_txs = 1;
 
-    let mut miners = MultipleMinerTest::new(num_signers, num_txs);
+    let mut miners = MultipleMinerTest::new_with_config_modifications(
+        num_signers,
+        num_txs,
+        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+    );
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
     let (_, miner_pk_2) = miners.get_miner_public_keys();
@@ -7587,8 +7599,11 @@ fn tenure_extend_after_failed_miner() {
         },
         |config| {
             config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
+            config.miner.block_commit_delay = Duration::from_secs(0);
         },
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
 
     let (conf_1, _) = miners.get_node_configs();
@@ -7691,8 +7706,12 @@ fn tenure_extend_after_bad_commit() {
             signer_config.block_proposal_timeout = block_proposal_timeout;
             signer_config.first_proposal_burn_block_timing = first_proposal_burn_block_timing;
         },
-        |_| {},
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
     let rl1_skip_commit_op = miners
         .signer_test
@@ -10050,8 +10069,12 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
             signer_config.tenure_last_block_proposal_timeout = Duration::from_secs(1800);
             signer_config.first_proposal_burn_block_timing = Duration::from_secs(1800);
         },
-        |_| {},
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
     let rl1_skip_commit_op = miners
         .signer_test
@@ -10319,9 +10342,12 @@ fn interrupt_miner_on_new_stacks_tip() {
             signer_config.first_proposal_burn_block_timing = Duration::from_secs(60);
         },
         |config| {
-            config.miner.block_rejection_timeout_steps = [(0, Duration::from_secs(1200))].into()
+            config.miner.block_rejection_timeout_steps = [(0, Duration::from_secs(1200))].into();
+            config.miner.block_commit_delay = Duration::from_secs(0);
         },
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
 
     let skip_commit_op_rl1 = miners
@@ -10584,8 +10610,11 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
         },
         |config| {
             config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
+            config.miner.block_commit_delay = Duration::from_secs(0);
         },
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
 
     let rl1_skip_commit_op = miners
@@ -10750,8 +10779,11 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
         },
         |config| {
             config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
+            config.miner.block_commit_delay = Duration::from_secs(0);
         },
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
 
     let (conf_1, _) = miners.get_node_configs();
@@ -10947,8 +10979,11 @@ fn prev_miner_will_not_attempt_to_extend_if_incoming_miner_produces_a_block() {
         },
         |config| {
             config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
+            config.miner.block_commit_delay = Duration::from_secs(0);
         },
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
 
     let (conf_1, _) = miners.get_node_configs();
@@ -11107,8 +11142,11 @@ fn non_blocking_minority_configured_to_favour_incoming_miner() {
         },
         |config| {
             config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
+            config.miner.block_commit_delay = Duration::from_secs(0);
         },
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
 
     let (conf_1, _) = miners.get_node_configs();
@@ -11334,8 +11372,11 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
         },
         |config| {
             config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
+            config.miner.block_commit_delay = Duration::from_secs(0);
         },
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
 
     let (conf_1, _) = miners.get_node_configs();
@@ -11544,8 +11585,12 @@ fn mark_miner_as_invalid_if_reorg_is_rejected() {
                 signer_config.first_proposal_burn_block_timing = Duration::from_secs(0);
             }
         },
-        |_| {},
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
     let all_signers = miners
         .signer_test
