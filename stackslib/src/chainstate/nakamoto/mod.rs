@@ -2578,6 +2578,18 @@ impl NakamotoChainState {
             .map_err(ChainstateError::from)
     }
 
+    /// Return the ExecutionCost of `block`
+    pub fn get_block_cost(
+        chainstate_conn: &Connection,
+        block: &StacksBlockId,
+    ) -> Result<Option<ExecutionCost>, ChainstateError> {
+        let qry = "SELECT total_tenure_cost FROM nakamoto_block_headers WHERE index_block_hash = ?";
+        chainstate_conn
+            .query_row(qry, &[block], |row| row.get(0))
+            .optional()
+            .map_err(ChainstateError::from)
+    }
+
     /// Return the total transactions fees during the tenure up to and including
     ///  `block`
     pub fn get_total_tenure_tx_fees_at(
