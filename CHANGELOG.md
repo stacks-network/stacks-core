@@ -17,6 +17,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - By default, miners will wait for a new tenure to start for a configurable amount of time after receiving a burn block before
   submitting a block commit. This will reduce the amount of RBF transactions miners are expected to need.
 - Add weight threshold and percentages to `StackerDBListener` logs
+- Signer will not allow reorg if more than one block in the current tenure has already been globally approved
 
 ## [3.1.0.0.6]
 
