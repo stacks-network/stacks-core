@@ -11153,7 +11153,6 @@ fn reload_miner_config() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
 
@@ -11173,7 +11172,7 @@ fn reload_miner_config() {
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
-    blind_signer(&conf, &signers, proposals_submitted);
+    blind_signer(&conf, &signers, &counters);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
