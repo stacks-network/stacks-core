@@ -47,6 +47,7 @@ use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, St
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::{Error as ChainstateError, *};
 use crate::clarity_vm::clarity::ClarityInstance;
+use crate::clarity_vm::database::GetTenureStartId;
 use crate::config::{Config, ConfigFile, DEFAULT_MAINNET_CONFIG};
 use crate::core::*;
 use crate::cost_estimates::metrics::UnitMetric;
@@ -727,6 +728,13 @@ fn replay_block(
     };
     let parent_block_hash = parent_block_header.block_hash();
 
+    let Some(cost) =
+        StacksChainState::get_stacks_block_anchored_cost(chainstate_tx.conn(), block_id).unwrap()
+    else {
+        println!("No header info found for {block_id}");
+        return;
+    };
+
     let Some(next_microblocks) = StacksChainState::inner_find_parent_microblock_stream(
         &chainstate_tx.tx,
         block_hash,
@@ -822,7 +830,13 @@ fn replay_block(
         block_am.weight(),
         true,
     ) {
-        Ok((_receipt, _, _)) => {
+        Ok((receipt, _, _)) => {
+            if receipt.anchored_block_cost != cost {
+                println!("Failed processing block! block = {block_id}. Unexpected cost. expected = {cost}, evaluated = {}",
+                         receipt.anchored_block_cost);
+                process::exit(1);
+            }
+
             info!("Block processed successfully! block = {block_id}");
         }
         Err(e) => {
@@ -891,6 +905,33 @@ fn replay_block_nakamoto(
            "stacks_block_id" => %block.header.block_id(),
            "burn_block_hash" => %next_ready_block_snapshot.burn_header_hash
     );
+
+    let Some(mut expected_total_tenure_cost) = NakamotoChainState::get_total_tenure_cost_at(
+        stacks_chain_state.db(),
+        &block.header.block_id(),
+    )
+    .unwrap() else {
+        println!("Failed to find cost for block {}", block.header.block_id());
+        return Ok(());
+    };
+
+    let expected_cost = if block.get_tenure_tx_payload().is_some() {
+        expected_total_tenure_cost
+    } else {
+        let Some(expected_parent_total_tenure_cost) = NakamotoChainState::get_total_tenure_cost_at(
+            stacks_chain_state.db(),
+            &block.header.parent_block_id,
+        )
+        .unwrap() else {
+            println!(
+                "Failed to find cost for parent of block {}",
+                block.header.block_id()
+            );
+            return Ok(());
+        };
+        expected_total_tenure_cost.sub(&expected_parent_total_tenure_cost).expect("FATAL: failed to subtract parent total cost from self total cost in non-tenure-changing block");
+        expected_total_tenure_cost
+    };
 
     let elected_height = sort_db
         .get_consensus_hash_height(&block.header.consensus_hash)?
@@ -1079,7 +1120,7 @@ fn replay_block_nakamoto(
     // though it will always be None), which gets the borrow-checker to believe that it's safe
     // to access `stacks_chain_state` again.  In the `Ok(..)` case, it's instead sufficient so
     // simply commit the block before beginning the second transaction to mark it processed.
-
+    let block_id = block.block_id();
     let mut burn_view_handle = sort_db.index_handle(&burnchain_view_sn.sortition_id);
     let (ok_opt, err_opt) = match NakamotoChainState::append_block(
         &mut chainstate_tx,
@@ -1101,13 +1142,21 @@ fn replay_block_nakamoto(
         &active_reward_set,
         true,
     ) {
-        Ok(next_chain_tip_info) => (Some(next_chain_tip_info), None),
+        Ok((receipt, _, _, _)) => (Some(receipt), None),
         Err(e) => (None, Some(e)),
     };
 
+    if let Some(receipt) = ok_opt {
+        // check the cost
+        let evaluated_cost = receipt.anchored_block_cost.clone();
+        if evaluated_cost != expected_cost {
+            println!("Failed processing block! block = {block_id}. Unexpected cost. expected = {expected_cost}, evaluated = {evaluated_cost}");
+            process::exit(1);
+        }
+    }
+
     if let Some(e) = err_opt {
         // force rollback
-        drop(ok_opt);
         drop(chainstate_tx);
 
         warn!(
