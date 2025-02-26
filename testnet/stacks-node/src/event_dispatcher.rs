@@ -82,14 +82,14 @@ lazy_static! {
 }
 
 #[derive(Debug, Clone)]
-struct EventObserver {
+pub struct EventObserver {
     /// Path to the database where pending payloads are stored. If `None`, then
     /// the database is not used and events are not recoverable across restarts.
-    db_path: Option<PathBuf>,
+    pub db_path: Option<PathBuf>,
     /// URL to which events will be sent
-    endpoint: String,
+    pub endpoint: String,
     /// Timeout for sending events to this observer
-    timeout: Duration,
+    pub timeout: Duration,
 }
 
 struct ReceiptPayloadInfo<'a> {
@@ -770,7 +770,7 @@ impl EventObserver {
         self.send_payload(payload, PATH_MINED_NAKAMOTO_BLOCK);
     }
 
-    fn send_stackerdb_chunks(&self, payload: &serde_json::Value) {
+    pub fn send_stackerdb_chunks(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_STACKERDB_CHUNKS);
     }
 
