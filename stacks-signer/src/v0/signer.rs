@@ -184,7 +184,7 @@ impl SignerTrait<SignerMessage> for Signer {
                     self.handle_block_response(stacks_client, block_response, sortition_state);
                 }
             }
-            SignerEvent::MinerMessages(messages, miner_pubkey) => {
+            SignerEvent::MinerMessages(messages) => {
                 debug!(
                     "{self}: Received {} messages from the miner",
                     messages.len();
@@ -196,11 +196,19 @@ impl SignerTrait<SignerMessage> for Signer {
                             if self.test_ignore_all_block_proposals(block_proposal) {
                                 continue;
                             }
+                            let Some(miner_pubkey) = block_proposal.block.header.recover_miner_pk()
+                            else {
+                                warn!("{self}: Failed to recover miner pubkey";
+                                      "signer_sighash" => %block_proposal.block.header.signer_signature_hash(),
+                                      "consensus_hash" => %block_proposal.block.header.consensus_hash);
+                                continue;
+                            };
+
                             self.handle_block_proposal(
                                 stacks_client,
                                 sortition_state,
                                 block_proposal,
-                                miner_pubkey,
+                                &miner_pubkey,
                             );
                         }
                         SignerMessage::BlockPushed(b) => {
