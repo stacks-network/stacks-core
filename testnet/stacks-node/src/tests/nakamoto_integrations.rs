@@ -11187,19 +11187,17 @@ fn reload_miner_config() {
         .unwrap()
         .as_array()
         .unwrap()
-        .get(0)
-        .unwrap()
-        .get("amt")
-        .unwrap()
-        .as_u64()
-        .unwrap();
+        .iter()
+        .map(|r| r.get("amt").unwrap().as_u64().unwrap())
+        .sum::<u64>();
 
     assert_eq!(reward_amount, 200000);
 
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
 
     info!("---- Updating config ----");
-    update_config(100010, 55);
+    let new_amount = 150000;
+    update_config(new_amount, 55);
 
     // Due to timing of commits, just mine two blocks
 
@@ -11215,14 +11213,11 @@ fn reload_miner_config() {
         .unwrap()
         .as_array()
         .unwrap()
-        .get(0)
-        .unwrap()
-        .get("amt")
-        .unwrap()
-        .as_u64()
-        .unwrap();
+        .iter()
+        .map(|r| r.get("amt").unwrap().as_u64().unwrap())
+        .sum::<u64>();
 
-    assert_eq!(reward_amount, 100010);
+    assert_eq!(reward_amount, new_amount);
 
     coord_channel
         .lock()
