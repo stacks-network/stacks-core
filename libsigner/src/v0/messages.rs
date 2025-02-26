@@ -615,7 +615,6 @@ impl From<&RejectReason> for RejectCode {
             RejectReason::RejectedInPriorRound => RejectCode::RejectedInPriorRound,
             RejectReason::SortitionViewMismatch => RejectCode::SortitionViewMismatch,
             RejectReason::TestingDirective => RejectCode::TestingDirective,
-            RejectReason::ReorgNotAllowed => RejectCode::SortitionViewMismatch,
             // Newer reject reasons were expanded from SortitionViewMismatch
             _ => RejectCode::SortitionViewMismatch,
         }

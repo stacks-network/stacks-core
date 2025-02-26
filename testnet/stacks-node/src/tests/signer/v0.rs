@@ -1064,12 +1064,12 @@ fn wait_for_block_global_rejection(
 }
 
 /// Waits for >30% of num_signers block rejection to be observed in the test_observer stackerdb chunks for a block
-/// with the provided signer signature hash and the specified reject_code
-fn wait_for_block_global_rejection_with_reject_code(
+/// with the provided signer signature hash and the specified reject_reason
+fn wait_for_block_global_rejection_with_reject_reason(
     timeout_secs: u64,
     block_signer_signature_hash: Sha512Trunc256Sum,
     num_signers: usize,
-    reject_code: RejectCode,
+    reject_reason: RejectReason,
 ) -> Result<(), String> {
     let mut found_rejections = HashSet::new();
     wait_for(timeout_secs, || {
@@ -1082,12 +1082,12 @@ fn wait_for_block_global_rejection_with_reject_code(
             if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 signer_signature_hash,
                 signature,
-                reason_code,
+                response_data,
                 ..
             })) = message
             {
                 if signer_signature_hash == block_signer_signature_hash
-                    && reason_code == reject_code
+                    && response_data.reject_reason == reject_reason
                 {
                     found_rejections.insert(signature);
                 }
@@ -10316,11 +10316,11 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
     let proposed_block = wait_for_block_proposal(30, block_n_height + 1, &miner_pk_1)
         .expect("Timed out waiting for block proposal");
     // check it has been rejected
-    wait_for_block_global_rejection_with_reject_code(
+    wait_for_block_global_rejection_with_reject_reason(
         30,
         proposed_block.header.signer_signature_hash(),
         num_signers,
-        RejectCode::SortitionViewMismatch,
+        RejectReason::ReorgNotAllowed,
     )
     .expect("Timed out waiting for a block proposal to be rejected due to invalid reorg");
 
