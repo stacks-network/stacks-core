@@ -1859,6 +1859,10 @@ fn forked_tenure_testing(
         },
         |config| {
             config.miner.tenure_cost_limit_per_block_percentage = None;
+            // this test relies on the miner submitting these timed out commits.
+            // the test still passes without this override, but the default timeout
+            // makes the test take longer than strictly necessary
+            config.miner.block_commit_delay = Duration::from_secs(10);
         },
         None,
         None,
@@ -2096,8 +2100,6 @@ fn forked_tenure_testing(
         (None, None)
     } else {
         // Now let's produce a second block for tenure C and ensure it builds off of block C.
-        let blocks_before = mined_blocks.load(Ordering::SeqCst);
-        let start_time = Instant::now();
         // submit a tx so that the miner will mine an extra block
         let sender_nonce = 0;
         let transfer_tx = make_stacks_transfer(
@@ -2110,16 +2112,10 @@ fn forked_tenure_testing(
         );
         let tx = submit_tx(&http_origin, &transfer_tx);
         info!("Submitted tx {tx} in Tenure C to mine a second block");
-        while mined_blocks.load(Ordering::SeqCst) <= blocks_before {
-            assert!(
-                start_time.elapsed() < Duration::from_secs(30),
-                "FAIL: Test timed out while waiting for block production",
-            );
-            thread::sleep(Duration::from_secs(1));
-        }
-
-        // give C's second block a moment to process
-        sleep_ms(1000);
+        wait_for(60, || {
+            Ok(get_account(&http_origin, &sender_addr).nonce > sender_nonce)
+        })
+        .unwrap();
 
         info!("Tenure C produced a second block!");
 
@@ -2132,27 +2128,22 @@ fn forked_tenure_testing(
         (Some(block_2_tenure_c), Some(block_2_c))
     };
 
-    // allow block C2 to be processed
-    sleep_ms(1000);
+    // make sure that a block commit has been submitted
+    let burn_ht = signer_test.get_peer_info().burn_block_height;
+    wait_for(60, || {
+        let submitted_ht = signer_test
+            .running_nodes
+            .counters
+            .naka_submitted_commit_last_burn_height
+            .load(Ordering::SeqCst);
+        Ok(submitted_ht >= burn_ht)
+    })
+    .unwrap();
 
     info!("Starting Tenure D.");
 
-    // Submit a block commit op for tenure D and mine a stacks block
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
-    let blocks_before = mined_blocks.load(Ordering::SeqCst);
-    next_block_and(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || {
-            let commits_count = commits_submitted.load(Ordering::SeqCst);
-            let blocks_count = mined_blocks.load(Ordering::SeqCst);
-            Ok(commits_count > commits_before && blocks_count > blocks_before)
-        },
-    )
-    .unwrap();
-
-    // allow block D to be processed
-    sleep_ms(1000);
+    // Mine tenure D
+    signer_test.mine_nakamoto_block(Duration::from_secs(60), false);
 
     let tip_d = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
         .unwrap()
@@ -2582,8 +2573,12 @@ fn miner_forking() {
             signer_config.first_proposal_burn_block_timing =
                 Duration::from_secs(first_proposal_burn_block_timing);
         },
-        |_| {},
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
 
     let (conf_1, conf_2) = miners.get_node_configs();
@@ -6473,7 +6468,17 @@ fn continue_after_fast_block_no_sortition() {
     let num_signers = 5;
     let num_txs = 1;
 
-    let mut miners = MultipleMinerTest::new(num_signers, num_txs);
+    let mut miners = MultipleMinerTest::new_with_config_modifications(
+        num_signers,
+        num_txs,
+        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+    );
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
     let (_, miner_pk_2) = miners.get_miner_public_keys();
@@ -7749,8 +7754,11 @@ fn tenure_extend_after_failed_miner() {
         },
         |config| {
             config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
+            config.miner.block_commit_delay = Duration::from_secs(0);
         },
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
 
     let (conf_1, _) = miners.get_node_configs();
@@ -7853,8 +7861,12 @@ fn tenure_extend_after_bad_commit() {
             signer_config.block_proposal_timeout = block_proposal_timeout;
             signer_config.first_proposal_burn_block_timing = first_proposal_burn_block_timing;
         },
-        |_| {},
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
     let rl1_skip_commit_op = miners
         .signer_test
@@ -8458,8 +8470,18 @@ fn no_reorg_due_to_successive_block_validation_ok() {
             signer_config.tenure_last_block_proposal_timeout = Duration::from_secs(u64::MAX);
             signer_config.first_proposal_burn_block_timing = Duration::from_secs(u64::MAX);
         },
-        |_| {},
-        |_| {},
+        |config| {
+            // Override this option, because this test depends on a block commit being submitted
+            //  without a tenure change being detected. The default option would work, but it would
+            //  make the test take unnecessarily long (and could be close to test failing timeouts)
+            config.miner.block_commit_delay = Duration::from_secs(5);
+        },
+        |config| {
+            // Override this option, because this test depends on a block commit being submitted
+            //  without a tenure change being detected. The default option would work, but it would
+            //  make the test take unnecessarily long (and could be close to test failing timeouts)
+            config.miner.block_commit_delay = Duration::from_secs(5);
+        },
     );
 
     let (conf_1, _) = miners.get_node_configs();
@@ -8543,7 +8565,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
 
     info!("------------------------- Start Miner 2's Tenure-------------------------");
     miners
-        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 30)
+        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
         .expect("Failed to Start Miner 2's Tenure");
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
@@ -10222,8 +10244,12 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
             signer_config.tenure_last_block_proposal_timeout = Duration::from_secs(1800);
             signer_config.first_proposal_burn_block_timing = Duration::from_secs(1800);
         },
-        |_| {},
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
     let rl1_skip_commit_op = miners
         .signer_test
@@ -10491,9 +10517,12 @@ fn interrupt_miner_on_new_stacks_tip() {
             signer_config.first_proposal_burn_block_timing = Duration::from_secs(60);
         },
         |config| {
-            config.miner.block_rejection_timeout_steps = [(0, Duration::from_secs(1200))].into()
+            config.miner.block_rejection_timeout_steps = [(0, Duration::from_secs(1200))].into();
+            config.miner.block_commit_delay = Duration::from_secs(0);
         },
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
 
     let skip_commit_op_rl1 = miners
@@ -10756,8 +10785,11 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
         },
         |config| {
             config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
+            config.miner.block_commit_delay = Duration::from_secs(0);
         },
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
 
     let rl1_skip_commit_op = miners
@@ -10922,8 +10954,11 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
         },
         |config| {
             config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
+            config.miner.block_commit_delay = Duration::from_secs(0);
         },
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
 
     let (conf_1, _) = miners.get_node_configs();
@@ -11119,8 +11154,11 @@ fn prev_miner_will_not_attempt_to_extend_if_incoming_miner_produces_a_block() {
         },
         |config| {
             config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
+            config.miner.block_commit_delay = Duration::from_secs(0);
         },
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
 
     let (conf_1, _) = miners.get_node_configs();
@@ -11279,8 +11317,11 @@ fn non_blocking_minority_configured_to_favour_incoming_miner() {
         },
         |config| {
             config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
+            config.miner.block_commit_delay = Duration::from_secs(0);
         },
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
 
     let (conf_1, _) = miners.get_node_configs();
@@ -11506,8 +11547,11 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
         },
         |config| {
             config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
+            config.miner.block_commit_delay = Duration::from_secs(0);
         },
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
 
     let (conf_1, _) = miners.get_node_configs();
@@ -11716,8 +11760,12 @@ fn mark_miner_as_invalid_if_reorg_is_rejected() {
                 signer_config.first_proposal_burn_block_timing = Duration::from_secs(0);
             }
         },
-        |_| {},
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
     let all_signers = miners
         .signer_test
