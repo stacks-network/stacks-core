@@ -92,7 +92,7 @@ pub struct EventObserver {
     pub timeout: Duration,
     /// If true, the stacks-node will not retry if event delivery fails for any reason.
     /// WARNING: This should not be set on observers that require successful delivery of all events.
-    disable_retries: bool,
+    pub disable_retries: bool,
 }
 
 struct ReceiptPayloadInfo<'a> {

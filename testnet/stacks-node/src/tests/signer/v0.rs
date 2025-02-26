@@ -1518,6 +1518,7 @@ fn regr_use_block_header_pk() {
             endpoint,
             db_path: None,
             timeout: Duration::from_secs(120),
+            disable_retries: false,
         })
         .collect();
 
