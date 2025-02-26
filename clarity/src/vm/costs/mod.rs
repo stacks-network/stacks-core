@@ -217,8 +217,7 @@ impl DefaultVersion {
             };
 
             CostErrors::CostComputationFailed(format!(
-                "Error evaluating result of cost function {}: {e}",
-                &cost_function_ref.function_name
+                "Error evaluating result of cost function {cost_function_ref}: {e}",
             ))
         })
     }

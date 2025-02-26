@@ -892,7 +892,12 @@ fn eval_cost_fn(
         .eval_read_only(&boot_costs_id, &exec)
         .map(|(value, _, _)| Some(value));
 
-    parse_cost(cost_fn_name, exec_result)
+    let clarity_cost_fn_ref = ClarityCostFunctionReference {
+        contract_id: boot_costs_id,
+        function_name: cost_fn_name.to_string(),
+    };
+
+    parse_cost(&clarity_cost_fn_ref.to_string(), exec_result)
 }
 
 fn eval_replaced_cost_fn(
