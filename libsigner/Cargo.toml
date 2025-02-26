@@ -16,35 +16,29 @@ name = "libsigner"
 path = "./src/libsigner.rs"
 
 [dependencies]
-clarity = { path = "../clarity" }
+clarity = { workspace = true }
 hashbrown = { workspace = true }
-lazy_static = "1.4.0"
-libc = "0.2"
-libstackerdb = { path = "../libstackerdb" }
-prometheus = { version = "0.9", optional = true }
-serde = "1"
-serde_derive = "1"
-serde_stacker = "0.1"
-slog = { version = "2.5.2", features = [ "max_level_trace" ] }
-slog-term = "2.6.0"
-slog-json = { version = "2.3.0", optional = true }
-stacks-common = { path = "../stacks-common" }
-stackslib = { path = "../stackslib"}
+lazy_static = { workspace = true }
+libc = { workspace = true }
+libstackerdb = { workspace = true }
+prometheus = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_derive = { workspace = true }
+serde_stacker = { workspace = true }
+slog = { workspace = true, features = ["max_level_trace"] }
+slog-term = { workspace = true }
+slog-json = { workspace = true, optional = true }
+stacks-common = { workspace = true }
+stackslib = { workspace = true }
 thiserror = { workspace = true }
-tiny_http = "0.12"
+tiny_http = { workspace = true }
+serde_json= { workspace = true, features = ["arbitrary_precision", "unbounded_depth"] }
+secp256k1= { workspace = true, features = ["serde", "recovery"] }
 
 [dev-dependencies]
-mutants = "0.0.3"
+mutants = { workspace = true }
 rand_core = { workspace = true }
 rand = { workspace = true }
-
-[dependencies.serde_json]
-version = "1.0"
-features = ["arbitrary_precision", "unbounded_depth"]
-
-[dependencies.secp256k1]
-version = "0.24.3"
-features = ["serde", "recovery"]
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }

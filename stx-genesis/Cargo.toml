@@ -6,12 +6,12 @@ edition = "2018"
 resolver = "2"
 
 [dependencies]
-libflate = "1.0.3"
+libflate = { workspace = true }
 
 [lib]
 name = "stx_genesis"
 path = "src/lib.rs"
 
 [build-dependencies]
-libflate = "1.0.3"
-sha2 = { version = "0.10" }
+libflate = { workspace = true }
+sha2 = { workspace = true }

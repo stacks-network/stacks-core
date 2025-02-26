@@ -23,6 +23,64 @@ tikv-jemallocator = "0.5.4"
 rusqlite = { version = "0.31.0", features = ["blob", "serde_json", "i128_blob", "bundled", "trace"] }
 thiserror = "1.0.65"
 toml = "0.5.6"
+assert-json-diff = "1.0.0"
+async-h1 = "2.3.2"
+async-std = "1.6"
+backoff = "0.4"
+backtrace = "0.3.50"
+base64 = "0.12.0"
+chrono = "0.4.19"
+clap = "4.1.1"
+clarity = { path = "clarity" }
+curve25519-dalek = "=2.0.0"
+http-types = "2.12"
+integer-sqrt = "0.1.3"
+lazy_static = "1.4.0"
+libc = "0.2.151"
+libflate = "1.0.3"
+libsigner = { path = "libsigner" }
+libstackerdb = { path = "libstackerdb" }
+mio = "0.6"
+mockito = "1.5"
+mutants = "0.0.3"
+num-traits = "0.2.18"
+percent-encoding = "2.1.0"
+pico-args = "0.5.0"
+pox-locking = { path = "pox-locking" }
+prometheus = "0.9"
+regex = "1"
+reqwest = { version = "0.11.22", default-features = false }
+ripemd = "0.1.1"
+rlimit = "0.10.2"
+rstest = "0.17.0"
+rstest_reuse = "0.5.0"
+secp256k1 = "0.24.3"
+serde = "1.0"
+serde_derive = "1"
+serde_json = "1.0"
+serde_stacker = "0.1"
+serial_test = "3.2.0"
+sha2 = "0.10"
+sha3 = "0.10.1"
+siphasher = "0.3.7"
+slog = "2.5.2"
+slog-json = "2.3.0"
+slog-term = "2.6.0"
+stacks = { path = "stackslib" }
+stacks-common = { path = "stacks-common" }
+stacks-signer = { path = "stacks-signer" }
+stacks_common = { path = "stacks-common", default-features = false }
+stackslib = { path = "stackslib" }
+stdext = "0.3.1"
+stx-genesis = { path = "stx-genesis" }
+tempfile = "3.3"
+time = "0.2.23"
+tiny_http = "0.12.0"
+tokio = "1.15"
+tracing = "0.1.37"
+tracing-subscriber = "0.3.17"
+url = "2.1.0"
+warp = "0.3.5"
 
 # Use a bit more than default optimization for
 #  dev builds to speed up test execution
