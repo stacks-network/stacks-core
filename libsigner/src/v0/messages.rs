@@ -1330,7 +1330,9 @@ impl StacksMessageCodec for RejectReason {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let type_prefix_byte = read_next::<u8, _>(fd)?;
+        let Ok(type_prefix_byte) = read_next::<u8, _>(fd) else {
+            return Ok(RejectReason::NotRejected);
+        };
         let type_prefix = RejectReasonPrefix::from(type_prefix_byte);
         let code = match type_prefix {
             RejectReasonPrefix::ValidationFailed => RejectReason::ValidationFailed(
