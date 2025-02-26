@@ -858,18 +858,12 @@ impl SignerDb {
         &self,
         tenure: &ConsensusHash,
     ) -> Result<u64, DBError> {
-        let query = "SELECT COALESCE((MAX(stacks_height) - MIN(stacks_height) + 1), 0), (SELECT COUNT(consensus_hash) FROM blocks WHERE consensus_hash = ?1) FROM blocks WHERE consensus_hash = ?1 AND state = ?2";
+        let query = "SELECT COALESCE((MAX(stacks_height) - MIN(stacks_height) + 1), 0) as block_count FROM blocks WHERE consensus_hash = ?1 AND state = ?2";
         let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
-        let block_count_opt: Option<(u64, u64)> = query_row(&self.db, query, args)?;
+        let block_count_opt: Option<u64> = query_row(&self.db, query, args)?;
         match block_count_opt {
-            Some((block_count, tenure_count)) => {
-                if tenure_count == 0 {
-                    Err(DBError::NotFoundError)
-                } else {
-                    Ok(block_count)
-                }
-            }
-            None => Err(DBError::NotFoundError),
+            Some(block_count) => Ok(block_count),
+            None => Ok(0),
         }
     }
 
@@ -2076,11 +2070,11 @@ mod tests {
 
         assert!(matches!(
             db.get_globally_accepted_block_count_in_tenure(&consensus_hash_1)
-                .unwrap_err(),
-            DBError::NotFoundError
+                .unwrap(),
+            0
         ));
 
-        // locally accepted will return 0 (instead of DBError::NotFoundError) as the tenure is valid
+        // locally accepted still returns 0
         block_info.signed_over = true;
         block_info.state = BlockState::LocallyAccepted;
         block_info.block.header.chain_length = 1;
