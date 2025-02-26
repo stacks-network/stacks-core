@@ -858,7 +858,7 @@ impl SignerDb {
         &self,
         tenure: &ConsensusHash,
     ) -> Result<u64, DBError> {
-        let query = "SELECT COALESCE((MAX(stacks_height) - MIN(stacks_height) + 1), 0) as block_count FROM blocks WHERE consensus_hash = ?1 AND state = ?2";
+        let query = "SELECT COALESCE((MAX(stacks_height) - MIN(stacks_height) + 1), 0) AS block_count FROM blocks WHERE consensus_hash = ?1 AND state = ?2";
         let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
         let block_count_opt: Option<u64> = query_row(&self.db, query, args)?;
         match block_count_opt {
