@@ -1978,7 +1978,7 @@ mod test {
         };
         assert_eq!(
             accepted.response_data.reject_reason,
-            RejectReason::NotRejected
+            RejectReason::Unknown(RejectReasonPrefix::Unknown as u8)
         );
     }
 }
