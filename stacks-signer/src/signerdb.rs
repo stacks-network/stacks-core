@@ -2074,11 +2074,11 @@ mod tests {
             b.block.header.consensus_hash = consensus_hash_1;
         });
 
-        assert_eq!(
+        assert!(matches!(
             db.get_globally_accepted_block_count_in_tenure(&consensus_hash_1)
-                .unwrap(),
-            0
-        );
+                .unwrap_err(),
+            DBError::NotFoundError
+        ));
 
         block_info.signed_over = true;
         block_info.state = BlockState::GloballyAccepted;
