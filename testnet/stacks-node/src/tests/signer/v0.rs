@@ -1552,6 +1552,7 @@ fn regr_use_block_header_pk() {
             endpoint,
             db_path: None,
             timeout: Duration::from_secs(120),
+            disable_retries: false,
         })
         .collect();
 
@@ -4623,6 +4624,7 @@ fn signer_set_rollover() {
                         EventKeyType::BurnchainBlocks,
                     ],
                     timeout_ms: 1000,
+                    disable_retries: false,
                 });
             }
             naka_conf.node.rpc_bind = rpc_bind.clone();
@@ -9149,6 +9151,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
                     EventKeyType::BurnchainBlocks,
                 ],
                 timeout_ms: 1000,
+                disable_retries: false,
             });
             naka_conf.node.rpc_bind = rpc_bind.clone();
         },

@@ -90,6 +90,9 @@ pub struct EventObserver {
     pub endpoint: String,
     /// Timeout for sending events to this observer
     pub timeout: Duration,
+    /// If true, the stacks-node will not retry if event delivery fails for any reason.
+    /// WARNING: This should not be set on observers that require successful delivery of all events.
+    pub disable_retries: bool,
 }
 
 struct ReceiptPayloadInfo<'a> {
@@ -439,7 +442,7 @@ impl EventObserver {
 
         for (id, url, payload, timeout_ms) in pending_payloads {
             let timeout = Duration::from_millis(timeout_ms);
-            Self::send_payload_directly(&payload, &url, timeout);
+            Self::send_payload_directly(&payload, &url, timeout, false);
 
             #[cfg(test)]
             if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
@@ -456,7 +459,12 @@ impl EventObserver {
         }
     }
 
-    fn send_payload_directly(payload: &serde_json::Value, full_url: &str, timeout: Duration) {
+    fn send_payload_directly(
+        payload: &serde_json::Value,
+        full_url: &str,
+        timeout: Duration,
+        disable_retries: bool,
+    ) {
         debug!(
             "Event dispatcher: Sending payload"; "url" => %full_url, "payload" => ?payload
         );
@@ -506,6 +514,11 @@ impl EventObserver {
                 }
             }
 
+            if disable_retries {
+                warn!("Observer is configured in disable_retries mode: skipping retry of payload");
+                return;
+            }
+
             #[cfg(test)]
             if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
                 warn!("Fault injection: skipping retry of payload");
@@ -522,7 +535,12 @@ impl EventObserver {
         }
     }
 
-    fn new(working_dir: Option<PathBuf>, endpoint: String, timeout: Duration) -> Self {
+    fn new(
+        working_dir: Option<PathBuf>,
+        endpoint: String,
+        timeout: Duration,
+        disable_retries: bool,
+    ) -> Self {
         let db_path = if let Some(mut db_path) = working_dir {
             db_path.push("event_observers.sqlite");
 
@@ -541,6 +559,7 @@ impl EventObserver {
             db_path,
             endpoint,
             timeout,
+            disable_retries,
         }
     }
 
@@ -555,7 +574,10 @@ impl EventObserver {
         };
         let full_url = format!("http://{url_str}");
 
-        if let Some(db_path) = &self.db_path {
+        // if the observer is in "disable_retries" mode quickly send the payload without checking for the db
+        if self.disable_retries {
+            Self::send_payload_directly(payload, &full_url, self.timeout, true);
+        } else if let Some(db_path) = &self.db_path {
             let conn =
                 Connection::open(db_path).expect("Failed to open database for event observer");
 
@@ -566,7 +588,7 @@ impl EventObserver {
             Self::process_pending_payloads(&conn);
         } else {
             // No database, just send the payload
-            Self::send_payload_directly(payload, &full_url, self.timeout);
+            Self::send_payload_directly(payload, &full_url, self.timeout, false);
         }
     }
 
@@ -1666,7 +1688,12 @@ impl EventDispatcher {
             Some(working_dir),
             conf.endpoint.clone(),
             Duration::from_millis(conf.timeout_ms),
+            conf.disable_retries,
         );
+
+        if conf.disable_retries {
+            warn!("Observer {} is configured in \"disable_retries\" mode: events are not guaranteed to be delivered", conf.endpoint);
+        }
 
         let observer_index = self.registered_observers.len() as u16;
 
@@ -1770,7 +1797,8 @@ mod test {
 
     #[test]
     fn build_block_processed_event() {
-        let observer = EventObserver::new(None, "nowhere".to_string(), Duration::from_secs(3));
+        let observer =
+            EventObserver::new(None, "nowhere".to_string(), Duration::from_secs(3), false);
 
         let filtered_events = vec![];
         let block = StacksBlock::genesis_block();
@@ -1830,7 +1858,8 @@ mod test {
 
     #[test]
     fn test_block_processed_event_nakamoto() {
-        let observer = EventObserver::new(None, "nowhere".to_string(), Duration::from_secs(3));
+        let observer =
+            EventObserver::new(None, "nowhere".to_string(), Duration::from_secs(3), false);
 
         let filtered_events = vec![];
         let mut block_header = NakamotoBlockHeader::empty();
@@ -2087,7 +2116,8 @@ mod test {
         let endpoint = "http://example.com".to_string();
         let timeout = Duration::from_secs(5);
 
-        let observer = EventObserver::new(Some(working_dir.clone()), endpoint.clone(), timeout);
+        let observer =
+            EventObserver::new(Some(working_dir.clone()), endpoint.clone(), timeout, false);
 
         // Verify fields
         assert_eq!(observer.endpoint, endpoint);
@@ -2104,7 +2134,7 @@ mod test {
         let endpoint = "http://example.com".to_string();
         let timeout = Duration::from_secs(5);
 
-        let observer = EventObserver::new(None, endpoint.clone(), timeout);
+        let observer = EventObserver::new(None, endpoint.clone(), timeout, false);
 
         // Verify fields
         assert_eq!(observer.endpoint, endpoint);
@@ -2133,7 +2163,7 @@ mod test {
         let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
         let timeout = Duration::from_secs(5);
 
-        let observer = EventObserver::new(Some(working_dir), endpoint, timeout);
+        let observer = EventObserver::new(Some(working_dir), endpoint, timeout, false);
 
         TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
@@ -2170,7 +2200,7 @@ mod test {
 
         let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
 
-        let observer = EventObserver::new(None, endpoint, timeout);
+        let observer = EventObserver::new(None, endpoint, timeout, false);
 
         // Call send_payload
         observer.send_payload(&payload, "/test");
@@ -2201,8 +2231,12 @@ mod test {
             tx.send(()).unwrap();
         });
 
-        let observer =
-            EventObserver::new(None, format!("127.0.0.1:{port}"), Duration::from_secs(3));
+        let observer = EventObserver::new(
+            None,
+            format!("127.0.0.1:{port}"),
+            Duration::from_secs(3),
+            false,
+        );
 
         let payload = json!({"key": "value"});
 
@@ -2250,8 +2284,12 @@ mod test {
             }
         });
 
-        let observer =
-            EventObserver::new(None, format!("127.0.0.1:{port}"), Duration::from_secs(3));
+        let observer = EventObserver::new(
+            None,
+            format!("127.0.0.1:{port}"),
+            Duration::from_secs(3),
+            false,
+        );
 
         let payload = json!({"key": "value"});
 
@@ -2298,7 +2336,7 @@ mod test {
             }
         });
 
-        let observer = EventObserver::new(None, format!("127.0.0.1:{port}"), timeout);
+        let observer = EventObserver::new(None, format!("127.0.0.1:{port}"), timeout, false);
 
         let payload = json!({"key": "value"});
 
@@ -2391,7 +2429,12 @@ mod test {
             }
         });
 
-        let observer = EventObserver::new(Some(working_dir), format!("127.0.0.1:{port}"), timeout);
+        let observer = EventObserver::new(
+            Some(working_dir),
+            format!("127.0.0.1:{port}"),
+            timeout,
+            false,
+        );
 
         let payload = json!({"key": "value"});
         let payload2 = json!({"key": "value2"});
@@ -2416,5 +2459,71 @@ mod test {
         // Wait for the server to process the requests
         rx.recv_timeout(Duration::from_secs(5))
             .expect("Server did not receive request in time");
+    }
+
+    #[test]
+    fn test_event_dispatcher_disable_retries() {
+        let timeout = Duration::from_secs(5);
+        let payload = json!({"key": "value"});
+
+        // Create a mock server returning error 500
+        let mut server = mockito::Server::new();
+        let _m = server.mock("POST", "/test").with_status(500).create();
+
+        let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
+
+        let observer = EventObserver::new(None, endpoint, timeout, true);
+
+        // in non "disable_retries" mode this will run forever
+        observer.send_payload(&payload, "/test");
+
+        // Verify that the payload was sent
+        _m.assert();
+    }
+
+    #[test]
+    fn test_event_dispatcher_disable_retries_invalid_url() {
+        let timeout = Duration::from_secs(5);
+        let payload = json!({"key": "value"});
+
+        let endpoint = String::from("255.255.255.255");
+
+        let observer = EventObserver::new(None, endpoint, timeout, true);
+
+        // in non "disable_retries" mode this will run forever
+        observer.send_payload(&payload, "/test");
+    }
+
+    #[test]
+    #[ignore]
+    /// This test generates a new block and ensures the "disable_retries" events_observer will not block.
+    fn block_event_with_disable_retries_observer() {
+        let dir = tempdir().unwrap();
+        let working_dir = dir.path().to_path_buf();
+
+        let mut event_dispatcher = EventDispatcher::new();
+        let config = EventObserverConfig {
+            endpoint: String::from("255.255.255.255"),
+            events_keys: vec![EventKeyType::MinedBlocks],
+            timeout_ms: 1000,
+            disable_retries: true,
+        };
+        event_dispatcher.register_observer(&config, working_dir);
+
+        let nakamoto_block = NakamotoBlock {
+            header: NakamotoBlockHeader::empty(),
+            txs: vec![],
+        };
+
+        // this will block forever in non "disable_retries" mode
+        event_dispatcher.process_mined_nakamoto_block_event(
+            0,
+            &nakamoto_block,
+            0,
+            &ExecutionCost::max_value(),
+            vec![],
+        );
+
+        assert_eq!(event_dispatcher.registered_observers.len(), 1);
     }
 }
