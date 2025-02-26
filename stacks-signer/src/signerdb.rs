@@ -857,13 +857,19 @@ impl SignerDb {
     pub fn get_globally_accepted_block_count_in_tenure(
         &self,
         tenure: &ConsensusHash,
-    ) -> Result<i64, DBError> {
+    ) -> Result<u64, DBError> {
         let query = "SELECT COALESCE((MAX(stacks_height) - MIN(stacks_height) + 1), 0) AS block_count FROM blocks WHERE consensus_hash = ?1 AND state = ?2";
         let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
-        let block_count_opt: Option<i64> = query_row(&self.db, query, args)?;
+        let block_count_opt: Option<u64> = query_row(&self.db, query, args)?;
         match block_count_opt {
-            Some(block_count) => Ok(block_count),
-            None => Ok(0),
+            Some(block_count) => {
+                if block_count > 0 {
+                    Ok(block_count)
+                } else {
+                    Err(DBError::NotFoundError)
+                }
+            }
+            None => Err(DBError::NotFoundError),
         }
     }
 
