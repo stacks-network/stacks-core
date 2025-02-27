@@ -4,7 +4,7 @@ A rudimentary set of tools for testing multiple Stacks nodes at once, locally.
 Relevant files:
 
 * `bin/start.sh` -- start up a master node, a miner node, or a follower node, as
-  well as ancilliary processes.
+  well as ancillary processes.
 * `bin/faucet.sh` -- a rudimentary Bitcoin faucet.
 * `bin/txload.sh` -- a rudimentary Stacks transaction generator and load-tester.
 * `etc/*.in` -- templates that `bin/start.sh` uses to create configuration
