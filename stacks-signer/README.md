@@ -72,7 +72,7 @@ Generate a signature for stacking.
 - `--config`: The path to the signer configuration file.
 - `--pox-address`: The BTC address used to receive rewards
 - `--reward-cycle`: The reward cycle during which this signature is used
-- `--method`: Stacking metod that can be used
+- `--method`: Stacking method that can be used
 - `--period`: Number of cycles used as a lock period. Use `1` for stack-aggregation-commit method
 - `--max-amount`: The max amount of uSTX that can be used in this unique transaction
 - `--auth-id`: A unique identifier to prevent re-using this authorization
@@ -146,7 +146,7 @@ Upload a chunk to the StackerDB instance.
 ```
 - `--host`: The stacks node host to connect to.
 - `--contract`: The contract ID of the StackerDB instance.
-- `--private_key`: The Stacks private key to use in hexademical format.
+- `--private_key`: The Stacks private key to use in hexadecimal format.
 - `--slot-id`: The slot ID to get.
 - `--slot-version`: The slot version to get.
 - `--data`: The data to upload. If you wish to pipe data using STDIN, use with '-'.

@@ -16,7 +16,7 @@ Learn more here: [https://bounty.stacks.org](https://bounty.stacks.org)
 
 Please visit [https://stacks.org/security](https://stacks.org/security) for the most up-to-date information on our security policy.
 
-You may also contact us with any questions or to report a vulnerabilty using the following key(s):
+You may also contact us with any questions or to report a vulnerability using the following key(s):
 
 
 | Name | Fingerprint          |
