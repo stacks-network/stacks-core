@@ -5,11 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
+## [3.1.0.0.6.0]
 
-### Added
+## Added
+
+- Introduced the `reorg_attempts_activity_timeout_ms` configuration option for signers which is used to determine the length of time after the last block of a tenure is confirmed that an incoming miner's attempts to reorg it are considered valid miner activity.
+- Add signer configuration option `tenure_idle_timeout_buffer_secs` to specify the number of seconds of buffer the signer will add to its tenure extend time that it sends to miners. The idea is to allow for some clock skew between the miner and signers, preventing the case where the miner attempts to tenure extend too early.
 
 ### Changed
+
+- Increase default `block_proposal_timeout_ms` from 10 minutes to 4 hours. Until #5729 is implemented, there is no value in rejecting a late block from a miner, since a late block is better than no block at all.
+- Signers no longer view any block proposal by a miner in their DB as indicative of valid miner activity.
+- Various index improvements to the signer's database to improve performance.
 
 ## [3.1.0.0.5.0]
 
@@ -20,6 +27,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   `StackerDB` messages, it logs `INFO` messages. Other interactions with the `stacks-node`
   behave normally (e.g., submitting validation requests, submitting finished blocks). A
   dry run signer will error out if the supplied key is actually a registered signer.
+- Reduce default value of `block_proposal_timeout_ms` to 120_000
 
 ## [3.1.0.0.4.0]
 

@@ -23,6 +23,7 @@ keywords = [
 readme = "README.md"
 resolver = "2"
 edition = "2021"
+build = "build.rs"
 
 [lib]
 name = "stacks_common"
@@ -43,11 +44,6 @@ chrono = "0.4.19"
 libc = "0.2.82"
 hashbrown = { workspace = true }
 rusqlite = { workspace = true, optional = true }
-
-[build-dependencies]
-serde = "1"
-serde_derive = "1"
-serde_yaml = "0.9"
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
@@ -94,6 +90,9 @@ testing = ["canonical"]
 serde = []
 bech32_std = []
 bech32_strict = []
+
+[build-dependencies]
+toml = "0.5.6"
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }

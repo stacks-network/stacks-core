@@ -45,6 +45,7 @@ extern crate stacks_common;
 #[macro_use]
 pub extern crate clarity;
 
+use stacks_common::versions::{GIT_BRANCH, GIT_COMMIT, GIT_TREE_CLEAN, STACKS_NODE_VERSION};
 pub use stacks_common::{address, codec, types, util};
 
 #[macro_use]
@@ -70,25 +71,26 @@ pub mod deps;
 pub mod monitoring;
 
 // set via _compile-time_ envars
-const GIT_BRANCH: Option<&str> = option_env!("GIT_BRANCH");
-const GIT_COMMIT: Option<&str> = option_env!("GIT_COMMIT");
-const GIT_TREE_CLEAN: Option<&str> = option_env!("GIT_TREE_CLEAN");
+const GIT_BRANCH_ENV: Option<&'static str> = option_env!("GIT_BRANCH");
+const GIT_COMMIT_ENV: Option<&'static str> = option_env!("GIT_COMMIT");
+const GIT_TREE_CLEAN_ENV: Option<&'static str> = option_env!("GIT_TREE_CLEAN");
 
 #[cfg(debug_assertions)]
 const BUILD_TYPE: &str = "debug";
 #[cfg(not(debug_assertions))]
 const BUILD_TYPE: &str = "release";
 
-pub fn version_string(pkg_name: &str, pkg_version: &str) -> String {
-    let git_branch = GIT_BRANCH.map(String::from).unwrap_or("".to_string());
-    let git_commit = GIT_COMMIT.unwrap_or("");
-    let git_tree_clean = GIT_TREE_CLEAN.unwrap_or("");
+pub fn version_string(pkg_name: &str, pkg_version: Option<&str>) -> String {
+    let pkg_version = pkg_version.unwrap_or(STACKS_NODE_VERSION);
+    let git_branch = GIT_BRANCH_ENV.unwrap_or_else(|| GIT_BRANCH.unwrap_or(""));
+    let git_commit = GIT_COMMIT_ENV.unwrap_or_else(|| GIT_COMMIT.unwrap_or(""));
+    let git_tree_clean = GIT_TREE_CLEAN_ENV.unwrap_or_else(|| GIT_TREE_CLEAN.unwrap_or(""));
 
     format!(
         "{} {} ({}:{}{}, {} build, {} [{}])",
         pkg_name,
         pkg_version,
-        &git_branch,
+        git_branch,
         git_commit,
         git_tree_clean,
         BUILD_TYPE,

@@ -52,19 +52,10 @@ use crate::net::{
 use crate::util_lib::db::{DBConn, Error as db_error};
 
 // did we or did we not successfully send a message?
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct NeighborHealthPoint {
     pub success: bool,
     pub time: u64,
-}
-
-impl Default for NeighborHealthPoint {
-    fn default() -> NeighborHealthPoint {
-        NeighborHealthPoint {
-            success: false,
-            time: 0,
-        }
-    }
 }
 
 pub const NUM_HEALTH_POINTS: usize = 32;

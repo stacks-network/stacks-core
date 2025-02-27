@@ -21,7 +21,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use libsigner::v0::messages::{MinerSlotID, SignerMessage as SignerMessageV0};
-use libsigner::{BlockProposal, SignerSession, StackerDBSession};
+use libsigner::{BlockProposal, BlockProposalData, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
@@ -250,6 +250,7 @@ impl SignerCoordinator {
             block: block.clone(),
             burn_height: election_sortition.block_height,
             reward_cycle: reward_cycle_id,
+            block_proposal_data: BlockProposalData::from_current_version(),
         };
 
         let block_proposal_message = SignerMessageV0::BlockProposal(block_proposal);
@@ -288,6 +289,7 @@ impl SignerCoordinator {
         self.get_block_status(
             &block.header.signer_signature_hash(),
             &block.block_id(),
+            block.header.parent_block_id,
             chain_state,
             sortdb,
             counters,
@@ -303,6 +305,7 @@ impl SignerCoordinator {
         &self,
         block_signer_sighash: &Sha512Trunc256Sum,
         block_id: &StacksBlockId,
+        parent_block_id: StacksBlockId,
         chain_state: &mut StacksChainState,
         sortdb: &SortitionDB,
         counters: &Counters,
@@ -318,6 +321,10 @@ impl SignerCoordinator {
                     "Invalid rejection timeout step function definition".into(),
                 )
             })?;
+
+        let parent_tenure_header =
+            NakamotoChainState::get_block_header(chain_state.db(), &parent_block_id)?
+                .ok_or(NakamotoNodeError::UnexpectedChainState)?;
 
         // this is used to track the start of the waiting cycle
         let rejections_timer = Instant::now();
@@ -382,6 +389,18 @@ impl SignerCoordinator {
                         return Err(NakamotoNodeError::SigningCoordinatorFailure(
                             "Timed out while waiting for signatures".into(),
                         ));
+                    }
+
+                    // Check if a new Stacks block has arrived in the parent tenure
+                    let highest_in_tenure =
+                        NakamotoChainState::get_highest_known_block_header_in_tenure(
+                            &mut chain_state.index_conn(),
+                            &parent_tenure_header.consensus_hash,
+                        )?
+                        .ok_or(NakamotoNodeError::UnexpectedChainState)?;
+                    if highest_in_tenure.index_block_hash() != parent_block_id {
+                        debug!("SignCoordinator: Exiting due to new stacks tip");
+                        return Err(NakamotoNodeError::StacksTipChanged);
                     }
 
                     continue;
