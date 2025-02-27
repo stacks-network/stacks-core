@@ -188,8 +188,7 @@ impl StacksMessageCodec for BlockProposalData {
 pub enum SignerEvent<T: SignerEventTrait> {
     /// A miner sent a message over .miners
     /// The `Vec<T>` will contain any signer messages made by the miner.
-    /// The `StacksPublicKey` is the message sender's public key.
-    MinerMessages(Vec<T>, StacksPublicKey),
+    MinerMessages(Vec<T>),
     /// The signer messages for other signers and miners to observe
     /// The u32 is the signer set to which the message belongs (either 0 or 1)
     SignerMessages(u32, Vec<T>),
@@ -513,20 +512,13 @@ impl<T: SignerEventTrait> TryFrom<StackerDBChunksEvent> for SignerEvent<T> {
             && event.contract_id.is_boot()
         {
             let mut messages = vec![];
-            let mut miner_pk = None;
             for chunk in event.modified_slots {
                 let Ok(msg) = T::consensus_deserialize(&mut chunk.data.as_slice()) else {
                     continue;
                 };
-
-                miner_pk = Some(chunk.recover_pk().map_err(|e| {
-                    EventError::MalformedRequest(format!(
-                        "Failed to recover PK from StackerDB chunk: {e}"
-                    ))
-                })?);
                 messages.push(msg);
             }
-            SignerEvent::MinerMessages(messages, miner_pk.ok_or(EventError::EmptyChunksEvent)?)
+            SignerEvent::MinerMessages(messages)
         } else if event.contract_id.name.starts_with(SIGNERS_NAME) && event.contract_id.is_boot() {
             let Some((signer_set, _)) =
                 get_signers_db_signer_set_message_id(event.contract_id.name.as_str())
