@@ -42,6 +42,8 @@ cd stacks-core
 ### 3. Build the project
 
 ```bash
+# Make sure you have necessary build tools installed ie. GCC or Clang
+sudo apt-get install build-essential
 # Fully optimized release build
 cargo build --release
 # Faster but less optimized build. Necessary if < 16 GB RAM
