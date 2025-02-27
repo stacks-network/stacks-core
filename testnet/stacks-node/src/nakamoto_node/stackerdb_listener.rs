@@ -384,11 +384,13 @@ impl StackerDBListener {
                                 continue;
                             }
                         };
-                        block.responded_signers.insert(rejected_pubkey);
-                        block.total_weight_rejected = block
-                            .total_weight_rejected
-                            .checked_add(signer_entry.weight)
-                            .expect("FATAL: total weight rejected exceeds u32::MAX");
+
+                        if block.responded_signers.insert(rejected_pubkey) {
+                            block.total_weight_rejected = block
+                                .total_weight_rejected
+                                .checked_add(signer_entry.weight)
+                                .expect("FATAL: total weight rejected exceeds u32::MAX");
+                        }
 
                         info!("StackerDBListener: Signer rejected block";
                             "block_signer_sighash" => %rejected_data.signer_signature_hash,
