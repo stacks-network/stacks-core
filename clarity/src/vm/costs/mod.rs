@@ -331,7 +331,7 @@ pub struct TrackerData {
     /// if the cost tracker is non-free, this holds the StacksEpochId that should be used to evaluate
     ///  the Clarity cost functions. If the tracker *is* free, then those functions do not need to be
     ///  evaluated, so no epoch identifier is necessary.
-    epoch: StacksEpochId,
+    pub epoch: StacksEpochId,
     mainnet: bool,
     chain_id: u32,
 }
@@ -1053,7 +1053,7 @@ pub fn parse_cost(
 
 // TODO: add tests from mutation testing results #4832
 #[cfg_attr(test, mutants::skip)]
-fn compute_cost(
+pub fn compute_cost(
     cost_tracker: &TrackerData,
     cost_function_reference: ClarityCostFunctionReference,
     input_sizes: &[u64],
