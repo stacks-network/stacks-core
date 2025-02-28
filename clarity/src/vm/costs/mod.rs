@@ -16,11 +16,16 @@
 
 use std::{cmp, fmt};
 
+use costs_1::Costs1;
+use costs_2::Costs2;
+use costs_2_testnet::Costs2Testnet;
+use costs_3::Costs3;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
+use super::errors::{CheckErrors, RuntimeErrorType};
 use crate::boot_util::boot_code_id;
 use crate::vm::contexts::{ContractContext, GlobalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -37,6 +42,14 @@ use crate::vm::{eval_all, ClarityName, SymbolicExpression, Value};
 
 pub mod constants;
 pub mod cost_functions;
+#[allow(unused_variables)]
+pub mod costs_1;
+#[allow(unused_variables)]
+pub mod costs_2;
+#[allow(unused_variables)]
+pub mod costs_2_testnet;
+#[allow(unused_variables)]
+pub mod costs_3;
 
 type Result<T> = std::result::Result<T, CostErrors>;
 
@@ -171,6 +184,79 @@ impl ::std::fmt::Display for ClarityCostFunctionReference {
     }
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, Copy)]
+pub enum DefaultVersion {
+    Costs1,
+    Costs2,
+    Costs2Testnet,
+    Costs3,
+}
+
+impl DefaultVersion {
+    pub fn evaluate(
+        &self,
+        cost_function_ref: &ClarityCostFunctionReference,
+        f: &ClarityCostFunction,
+        input: &[u64],
+    ) -> Result<ExecutionCost> {
+        let n = input.first().ok_or_else(|| {
+            CostErrors::Expect("Default cost function supplied with 0 args".into())
+        })?;
+        let r = match self {
+            DefaultVersion::Costs1 => f.eval::<Costs1>(*n),
+            DefaultVersion::Costs2 => f.eval::<Costs2>(*n),
+            DefaultVersion::Costs2Testnet => f.eval::<Costs2Testnet>(*n),
+            DefaultVersion::Costs3 => f.eval::<Costs3>(*n),
+        };
+        r.map_err(|e| {
+            let e = match e {
+                crate::vm::errors::Error::Runtime(RuntimeErrorType::NotImplemented, _) => {
+                    CheckErrors::UndefinedFunction(cost_function_ref.function_name.clone()).into()
+                }
+                other => other,
+            };
+
+            CostErrors::CostComputationFailed(format!(
+                "Error evaluating result of cost function {cost_function_ref}: {e}",
+            ))
+        })
+    }
+}
+
+impl DefaultVersion {
+    pub fn try_from(
+        mainnet: bool,
+        value: &QualifiedContractIdentifier,
+    ) -> std::result::Result<Self, String> {
+        if !value.is_boot() {
+            return Err("Not a boot contract".into());
+        }
+        if value.name.as_str() == COSTS_1_NAME {
+            Ok(Self::Costs1)
+        } else if value.name.as_str() == COSTS_2_NAME {
+            if mainnet {
+                Ok(Self::Costs2)
+            } else {
+                Ok(Self::Costs2Testnet)
+            }
+        } else if value.name.as_str() == COSTS_3_NAME {
+            Ok(Self::Costs3)
+        } else {
+            Err(format!("Unknown default contract {}", &value.name))
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+pub enum ClarityCostFunctionEvaluator {
+    Default(
+        ClarityCostFunctionReference,
+        ClarityCostFunction,
+        DefaultVersion,
+    ),
+    Clarity(ClarityCostFunctionReference),
+}
+
 impl ClarityCostFunctionReference {
     fn new(id: QualifiedContractIdentifier, name: String) -> ClarityCostFunctionReference {
         ClarityCostFunctionReference {
@@ -234,7 +320,7 @@ impl CostStateSummary {
 #[derive(Clone)]
 /// This struct holds all of the data required for non-free LimitedCostTracker instances
 pub struct TrackerData {
-    cost_function_references: HashMap<&'static ClarityCostFunction, ClarityCostFunctionReference>,
+    cost_function_references: HashMap<&'static ClarityCostFunction, ClarityCostFunctionEvaluator>,
     cost_contracts: HashMap<QualifiedContractIdentifier, ContractContext>,
     contract_call_circuits:
         HashMap<(QualifiedContractIdentifier, ClarityName), ClarityCostFunctionReference>,
@@ -272,7 +358,7 @@ impl LimitedCostTracker {
     }
     pub fn cost_function_references(
         &self,
-    ) -> HashMap<&'static ClarityCostFunction, ClarityCostFunctionReference> {
+    ) -> HashMap<&'static ClarityCostFunction, ClarityCostFunctionEvaluator> {
         match self {
             Self::Free => panic!("Cannot get cost function references on free tracker"),
             Self::Limited(TrackerData {
@@ -757,7 +843,7 @@ impl LimitedCostTracker {
         Self::Free
     }
 
-    fn default_cost_contract_for_epoch(epoch_id: StacksEpochId) -> Result<String> {
+    pub fn default_cost_contract_for_epoch(epoch_id: StacksEpochId) -> Result<String> {
         let result = match epoch_id {
             StacksEpochId::Epoch10 => {
                 return Err(CostErrors::Expect("Attempted to get default cost functions for Epoch 1.0 where Clarity does not exist".into()));
@@ -792,6 +878,12 @@ impl TrackerData {
             self.mainnet,
         );
 
+        let v = DefaultVersion::try_from(self.mainnet, &boot_costs_id).map_err(|e| {
+            CostErrors::Expect(format!(
+                "Failed to get version of default costs contract {e}"
+            ))
+        })?;
+
         let CostStateSummary {
             contract_call_circuits,
             mut cost_function_references,
@@ -811,6 +903,7 @@ impl TrackerData {
         let iter_len = iter.len();
         let mut cost_contracts = HashMap::with_capacity(iter_len);
         let mut m = HashMap::with_capacity(iter_len);
+
         for f in iter {
             let cost_function_ref = cost_function_references.remove(f).unwrap_or_else(|| {
                 ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name())
@@ -832,7 +925,14 @@ impl TrackerData {
                 cost_contracts.insert(cost_function_ref.contract_id.clone(), contract_context);
             }
 
-            m.insert(f, cost_function_ref);
+            if cost_function_ref.contract_id == boot_costs_id {
+                m.insert(
+                    f,
+                    ClarityCostFunctionEvaluator::Default(cost_function_ref, *f, v),
+                );
+            } else {
+                m.insert(f, ClarityCostFunctionEvaluator::Clarity(cost_function_ref));
+            }
         }
 
         for (_, circuit_target) in self.contract_call_circuits.iter() {
@@ -906,7 +1006,7 @@ impl LimitedCostTracker {
     }
 }
 
-fn parse_cost(
+pub fn parse_cost(
     cost_function_name: &str,
     eval_result: InterpreterResult<Option<Value>>,
 ) -> Result<ExecutionCost> {
@@ -928,11 +1028,11 @@ fn parse_cost(
                     Some(UInt(read_length)),
                     Some(UInt(read_count)),
                 ) => Ok(ExecutionCost {
-                    write_length: (*write_length as u64),
-                    write_count: (*write_count as u64),
-                    runtime: (*runtime as u64),
-                    read_length: (*read_length as u64),
-                    read_count: (*read_count as u64),
+                    write_length: (*write_length).try_into().unwrap_or(u64::MAX),
+                    write_count: (*write_count).try_into().unwrap_or(u64::MAX),
+                    runtime: (*runtime).try_into().unwrap_or(u64::MAX),
+                    read_length: (*read_length).try_into().unwrap_or(u64::MAX),
+                    read_count: (*read_count).try_into().unwrap_or(u64::MAX),
                 }),
                 _ => Err(CostErrors::CostComputationFailed(
                     "Execution Cost tuple does not contain only UInts".to_string(),
@@ -946,8 +1046,7 @@ fn parse_cost(
             "Clarity cost function returned nothing".to_string(),
         )),
         Err(e) => Err(CostErrors::CostComputationFailed(format!(
-            "Error evaluating result of cost function {}: {}",
-            cost_function_name, e
+            "Error evaluating result of cost function {cost_function_name}: {e}"
         ))),
     }
 }
@@ -1051,15 +1150,22 @@ impl CostTracker for LimitedCostTracker {
                         "Used unimplemented cost function".into(),
                     ));
                 }
-                let cost_function_ref = data
-                    .cost_function_references
-                    .get(&cost_function)
-                    .ok_or(CostErrors::CostComputationFailed(format!(
+                let cost_function_ref = data.cost_function_references.get(&cost_function).ok_or(
+                    CostErrors::CostComputationFailed(format!(
                         "CostFunction not defined: {cost_function}"
-                    )))?
-                    .clone();
+                    )),
+                )?;
 
-                compute_cost(data, cost_function_ref, input, data.epoch)
+                match cost_function_ref {
+                    ClarityCostFunctionEvaluator::Default(
+                        cost_function_ref,
+                        clarity_cost_function,
+                        default_version,
+                    ) => default_version.evaluate(cost_function_ref, clarity_cost_function, input),
+                    ClarityCostFunctionEvaluator::Clarity(cost_function_ref) => {
+                        compute_cost(data, cost_function_ref.clone(), input, data.epoch)
+                    }
+                }
             }
         }
     }
@@ -1227,10 +1333,7 @@ impl ExecutionCost {
                 * 1_f64.min(self.write_length as f64 / 1_f64.max(block_limit.write_length as f64)),
         ]
         .iter()
-        .fold(0, |acc, dim| {
-            acc.checked_add(cmp::max(*dim as u64, 1))
-                .unwrap_or(u64::MAX)
-        })
+        .fold(0, |acc, dim| acc.saturating_add(cmp::max(*dim as u64, 1)))
     }
 
     pub fn max_value() -> ExecutionCost {

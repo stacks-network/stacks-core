@@ -5,12 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
+## [3.1.0.0.7]
+
+## Added
+
+- Add `disable_retries` mode for events_observer disabling automatic retry on error
+
+## Changed
+
+- Implement faster cost tracker for default cost functions in Clarity
+- By default, miners will wait for a new tenure to start for a configurable amount of time after receiving a burn block before
+  submitting a block commit. This will reduce the amount of RBF transactions miners are expected to need.
+- Add weight threshold and percentages to `StackerDBListener` logs
+- Signer will not allow reorg if more than one block in the current tenure has already been globally approved
+
+## [3.1.0.0.6]
 
 ## Added
 
 - The `BlockProposal` StackerDB message serialization struct now includes a `server_version` string, which represents the version of the node that the miner is using. ([#5803](https://github.com/stacks-network/stacks-core/pull/5803))
 - Add `vrf_seed` to the `/v3/sortitions` rpc endpoint
+- Added hot-reloading of `burnchain.burn_fee_cap` from a miner's config file ([#5857](https://github.com/stacks-network/stacks-core/pull/5857))
 
 ### Changed
 

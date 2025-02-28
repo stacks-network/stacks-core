@@ -5,7 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
+## [3.1.0.0.7.0]
+
+## Changed
+
+- Add new reject codes to the signer response for better visibility into why a block was rejected.
+- When allowing a reorg within the `reorg_attempts_activity_timeout_ms`, the signer will now watch the responses from other signers and if >30% of them reject this reorg attempt, then the signer will mark the miner as invalid, reject further attempts to reorg and allow the previous miner to extend their tenure.
+
+### Fixed
+
+- The signer runloop no longer relies on pubkey reports from the SignerDB event system. This previously led to improper proposal rejections via #5858.
+
+## [3.1.0.0.6.0]
 
 ## Added
 
