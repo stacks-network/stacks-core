@@ -434,7 +434,7 @@ pub fn initialize_contract(
         .map_err(|e| {
             error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version)
         })?;
-
+        println!("TOP_LEVEL");
     // Save the compiled Wasm module into the contract context
     store.data_mut().contract_context_mut()?.set_wasm_module(
         module
