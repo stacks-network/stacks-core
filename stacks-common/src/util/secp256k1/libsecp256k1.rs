@@ -23,7 +23,6 @@ use ::libsecp256k1::{
 };
 use rand::RngCore;
 use serde::de::{Deserialize, Error as de_Error};
-use serde::ser::Error as ser_Error;
 use serde::Serialize;
 
 use super::MessageSignature;
