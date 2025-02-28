@@ -39,12 +39,12 @@
 
         inherit (pkgs) lib;
 
-        toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain;
+        toolchain = pkgs.rust-bin.fromRustupToolchainFile ../../rust-toolchain;
         craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
 
         name = "stacks-core";
 
-        versions = (builtins.fromTOML (builtins.readFile ./versions.toml));
+        versions = (builtins.fromTOML (builtins.readFile ../../versions.toml));
         version = versions.stacks_node_version;
 
         # Common arguments can be set here to avoid repeating them later
@@ -68,7 +68,7 @@
           // {
             inherit version;
             pname = name;
-            src = fileSetForCrate ./.;
+            src = fileSetForCrate ../..;
           }
         );
 
@@ -83,35 +83,35 @@
         fileSetForCrate =
           crate:
           lib.fileset.toSource {
-            root = ./.;
+            root = ../..;
             fileset = lib.fileset.unions [
-              ./Cargo.toml
-              ./Cargo.lock
+              ../../Cargo.toml
+              ../../Cargo.lock
               #
-              ./versions.toml
+              ../../versions.toml
               #
-              ./stx-genesis/name_zonefiles.txt
-              ./stx-genesis/name_zonefiles.txt.sha256
-              ./stx-genesis/name_zonefiles-test.txt
-              ./stx-genesis/name_zonefiles-test.txt.sha256
-              ./stx-genesis/chainstate.txt
-              ./stx-genesis/chainstate.txt.sha256
-              ./stx-genesis/chainstate-test.txt
-              ./stx-genesis/chainstate-test.txt.sha256
+              ../../stx-genesis/name_zonefiles.txt
+              ../../stx-genesis/name_zonefiles.txt.sha256
+              ../../stx-genesis/name_zonefiles-test.txt
+              ../../stx-genesis/name_zonefiles-test.txt.sha256
+              ../../stx-genesis/chainstate.txt
+              ../../stx-genesis/chainstate.txt.sha256
+              ../../stx-genesis/chainstate-test.txt
+              ../../stx-genesis/chainstate-test.txt.sha256
               #
               (craneLib.fileset.commonCargoSources crate)
               #
-              (lib.fileset.fileFilter (file: file.hasExt "clar") ./.)
+              (lib.fileset.fileFilter (file: file.hasExt "clar") ../..)
               #
-              (craneLib.fileset.commonCargoSources ./clarity)
-              (craneLib.fileset.commonCargoSources ./contrib/tools/relay-server)
-              (craneLib.fileset.commonCargoSources ./libsigner)
-              (craneLib.fileset.commonCargoSources ./libstackerdb)
-              (craneLib.fileset.commonCargoSources ./pox-locking)
-              (craneLib.fileset.commonCargoSources ./stacks-common)
-              (craneLib.fileset.commonCargoSources ./stackslib)
-              (craneLib.fileset.commonCargoSources ./stx-genesis)
-              (craneLib.fileset.commonCargoSources ./testnet/stacks-node)
+              (craneLib.fileset.commonCargoSources ../../clarity)
+              (craneLib.fileset.commonCargoSources ../../contrib/tools/relay-server)
+              (craneLib.fileset.commonCargoSources ../../libsigner)
+              (craneLib.fileset.commonCargoSources ../../libstackerdb)
+              (craneLib.fileset.commonCargoSources ../../pox-locking)
+              (craneLib.fileset.commonCargoSources ../../stacks-common)
+              (craneLib.fileset.commonCargoSources ../../stackslib)
+              (craneLib.fileset.commonCargoSources ../../stx-genesis)
+              (craneLib.fileset.commonCargoSources ../../testnet/stacks-node)
             ];
           };
 
@@ -122,7 +122,7 @@
             pname = "stacks-signer";
             cargoFeatures = "--features monitoring_prom";
             cargoExtraArgs = "${cargoFeatures} -p ${pname}";
-            src = fileSetForCrate ./stacks-signer;
+            src = fileSetForCrate ../../stacks-signer;
           }
         );
 
@@ -136,7 +136,7 @@
             pname = name;
             cargoFeatures = "--features monitoring_prom,slog_json";
             cargoExtraArgs = "${cargoFeatures}";
-            src = fileSetForCrate ./.;
+            src = fileSetForCrate ../..;
           }
         );
       in
