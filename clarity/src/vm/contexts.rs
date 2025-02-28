@@ -1905,6 +1905,7 @@ impl ContractContext {
 
     #[cfg(feature = "clarity-wasm")]
     pub fn with_wasm_module<T>(&self, f: impl Fn(&[u8]) -> Result<T>) -> Result<T> {
+        println!("WITHIN WITH_WASM_MODULE");
         let wasm_module = self
             .wasm_module
             .as_ref()

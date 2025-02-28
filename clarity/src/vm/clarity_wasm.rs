@@ -383,6 +383,7 @@ pub fn initialize_contract(
     sponsor: Option<PrincipalData>,
     contract_analysis: &ContractAnalysis,
 ) -> Result<Option<Value>, Error> {
+    println!("CLARITY-WASM ENABLED!");
     let publisher: PrincipalData = contract_context.contract_identifier.issuer.clone().into();
 
     let mut call_stack = CallStack::new();

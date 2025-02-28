@@ -45,6 +45,7 @@ impl Contract {
         let mut contract_context = ContractContext::new(contract_identifier, version);
 
         #[cfg(feature = "clarity-wasm")]
+        println!("INSIDE INITIALIZE_FROM_AST");
         if let Some(wasm_module) = contract.wasm_module.take() {
             contract_context.set_wasm_module(wasm_module);
 
