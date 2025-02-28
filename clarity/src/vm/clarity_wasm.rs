@@ -405,21 +405,35 @@ pub fn initialize_contract(
             Module::from_binary(&engine, wasm_module)
                 .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))
         })?;
+
+    println!("TOP_LEVEL_0");
+
     let mut store = Store::new(&engine, init_context);
+
+    println!("TOP_LEVEL_00");
+
     let mut linker = Linker::new(&engine);
+
+    println!("TOP_LEVEL_000");
 
     // Link in the host interface functions.
     link_host_functions(&mut linker)?;
 
+    println!("TOP_LEVEL_0000");
+
     let instance = linker
         .instantiate(&mut store, &module)
         .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))?;
+
+    println!("TOP_LEVEL_00000");
 
     // Call the `.top-level` function, which contains all top-level expressions
     // from the contract.
     let top_level = instance
         .get_func(&mut store, ".top-level")
         .ok_or(Error::Wasm(WasmError::DefinesNotFound))?;
+
+    println!("TOP_LEVEL_000000");
 
     // Get the return type of the top-level expressions function
     let ty = top_level.ty(&mut store);
@@ -428,6 +442,8 @@ pub fn initialize_contract(
     for result_ty in results_iter {
         results.push(placeholder_for_type(result_ty));
     }
+
+    println!("TOP_LEVEL_0000000");
 
     top_level
         .call(&mut store, &[], results.as_mut_slice())
