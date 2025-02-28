@@ -167,6 +167,8 @@ pub struct BlockInfo {
     pub validation_time_ms: Option<u64>,
     /// Extra data specific to v0, v1, etc.
     pub ext: ExtraBlockInfo,
+    /// If this signer rejected this block, what was the reason
+    pub reject_reason: Option<RejectReason>,
 }
 
 impl From<BlockProposal> for BlockInfo {
@@ -184,6 +186,7 @@ impl From<BlockProposal> for BlockInfo {
             ext: ExtraBlockInfo::default(),
             state: BlockState::Unprocessed,
             validation_time_ms: None,
+            reject_reason: None,
         }
     }
 }

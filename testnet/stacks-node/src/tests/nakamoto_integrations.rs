@@ -6642,6 +6642,7 @@ fn signer_chainstate() {
                 ext: ExtraBlockInfo::None,
                 state: BlockState::Unprocessed,
                 validation_time_ms: None,
+                reject_reason: None,
             })
             .unwrap();
 
@@ -6722,6 +6723,7 @@ fn signer_chainstate() {
                 ext: ExtraBlockInfo::None,
                 state: BlockState::GloballyAccepted,
                 validation_time_ms: Some(1000),
+                reject_reason: None,
             })
             .unwrap();
 
