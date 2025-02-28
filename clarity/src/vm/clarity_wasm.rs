@@ -434,14 +434,15 @@ pub fn initialize_contract(
         .map_err(|e| {
             error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version)
         })?;
-        println!("TOP_LEVEL");
+    println!("TOP_LEVEL");
+
     // Save the compiled Wasm module into the contract context
     store.data_mut().contract_context_mut()?.set_wasm_module(
         module
             .serialize()
             .map_err(|e| Error::Wasm(WasmError::WasmCompileFailed(e)))?,
     );
-
+    println!("TOP_LEVEL_2");
     // Get the type of the last top-level expression with a return value
     // or default to `None`.
     let return_type = contract_analysis.expressions.iter().rev().find_map(|expr| {
@@ -450,7 +451,7 @@ pub fn initialize_contract(
             .as_ref()
             .and_then(|type_map| type_map.get_type_expected(expr))
     });
-
+    println!("TOP_LEVEL_3");
     if let Some(return_type) = return_type {
         let memory = instance
             .get_memory(&mut store, "memory")
