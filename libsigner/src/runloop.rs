@@ -22,7 +22,7 @@ use std::net::SocketAddr;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use clarity::codec::StacksMessageCodec;
 use stacks_common::deps_common::ctrlc as termination;
@@ -65,6 +65,10 @@ pub trait SignerRunLoop<R: Send, T: SignerEventTrait> {
         mut event_stop_signaler: EVST,
     ) -> Option<R> {
         info!("Signer runloop begin");
+        let mut block_inactivity_timer = Instant::now();
+        let mut last_block_inactivity_notified = Instant::now();
+        let mut burnblock_inactivity_timer = Instant::now();
+        let mut last_burnblock_inactivity_notified = Instant::now();
         loop {
             let poll_timeout = self.get_event_timeout();
             let next_event_opt = match event_recv.recv_timeout(poll_timeout) {
@@ -75,6 +79,42 @@ pub trait SignerRunLoop<R: Send, T: SignerEventTrait> {
                     return None;
                 }
             };
+
+            if let Some(next_event) = &next_event_opt {
+                match next_event {
+                    SignerEvent::NewBlock {
+                        block_hash: _,
+                        block_height: _,
+                    } => block_inactivity_timer = Instant::now(),
+                    SignerEvent::NewBurnBlock {
+                        burn_height: _,
+                        burn_header_hash: _,
+                        received_time: _,
+                    } => burnblock_inactivity_timer = Instant::now(),
+                    _ => (),
+                }
+            }
+
+            if block_inactivity_timer.elapsed() > Duration::from_secs(30)
+                && last_block_inactivity_notified.elapsed() > Duration::from_secs(10)
+            {
+                warn!(
+                    "No block proposal for {:?}",
+                    block_inactivity_timer.elapsed()
+                );
+                last_block_inactivity_notified = Instant::now();
+            }
+
+            if burnblock_inactivity_timer.elapsed() > Duration::from_secs(600)
+                && last_burnblock_inactivity_notified.elapsed() > Duration::from_secs(10)
+            {
+                warn!(
+                    "No burnblock received for {:?}",
+                    burnblock_inactivity_timer.elapsed()
+                );
+                last_burnblock_inactivity_notified = Instant::now();
+            }
+
             if let Some(final_state) = self.run_one_pass(next_event_opt, &result_send) {
                 info!("Runloop exit; signaling event-receiver to stop");
                 event_stop_signaler.send();

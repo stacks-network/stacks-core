@@ -10552,6 +10552,43 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
     miners.shutdown();
 }
 
+/*
+#[test]
+#[ignore]
+fn useless_signer() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let num_txs = 3;
+
+    let mut miners = MultipleMinerTest::new_with_config_modifications(
+        num_signers,
+        num_txs,
+        |signer_config| {
+            // Lets make sure we never time out since we need to stall some things to force our scenario
+            signer_config.block_proposal_validation_timeout = Duration::from_secs(1800);
+            signer_config.tenure_last_block_proposal_timeout = Duration::from_secs(1800);
+            signer_config.first_proposal_burn_block_timing = Duration::from_secs(1800);
+        },
+        |_| {},
+        |_| {},
+    );
+
+    miners.boot_to_epoch_3();
+
+    TEST_MINE_STALL.set(true);
+
+    thread::sleep(Duration::from_secs(300));
+
+    TEST_MINE_STALL.set(false);
+
+    info!("------------------------- Shutdown -------------------------");
+    miners.shutdown();
+}
+*/
+
 #[test]
 #[ignore]
 /// This test verifies that a miner will produce a TenureExtend transaction
