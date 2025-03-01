@@ -1667,6 +1667,7 @@ impl<'a> GlobalContext<'a> {
     }
 
     pub fn is_top_level(&self) -> bool {
+        println!("ASSET_MAPS: {:?}", self.asset_maps);
         self.asset_maps.is_empty()
     }
 
