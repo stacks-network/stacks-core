@@ -1420,6 +1420,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                 Ok(())
             }
             Err(e) => {
+                println!("RESULT ERROR");
                 self.global_context.roll_back()?;
                 Err(e)
             }
@@ -1820,17 +1821,18 @@ impl<'a> GlobalContext<'a> {
 
     pub fn roll_back(&mut self) -> Result<()> {
         let popped = self.asset_maps.pop();
-        println!("POPPED: {:?}", popped);
-        dbg!(popped.clone());
         if popped.is_none() {
+            println!("POPPED-1: {:?}", popped);
             return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
         }
         let popped = self.read_only.pop();
         if popped.is_none() {
+            println!("POPPED-2: {:?}", popped);
             return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
         }
         let popped = self.event_batches.pop();
         if popped.is_none() {
+            println!("POPPED-3: {:?}", popped);
             return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
         }
 
