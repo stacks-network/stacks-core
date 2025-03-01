@@ -350,6 +350,7 @@ pub trait TransactionConnection: ClarityConnection {
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
     {
+        println!("INSIDE INITIALIZE_SMART_CONTRACT");
         let (_, asset_map, events, aborted) = self.with_abort_callback(
             |vm_env| {
                 vm_env
@@ -366,8 +367,10 @@ pub trait TransactionConnection: ClarityConnection {
             abort_call_back,
         )?;
         if aborted {
+            println!("ABORTED");
             Err(Error::AbortedByCallback(None, asset_map, events))
         } else {
+            println!("NOT ABORTED");
             Ok((asset_map, events))
         }
     }
