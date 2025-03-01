@@ -1820,6 +1820,8 @@ impl<'a> GlobalContext<'a> {
 
     pub fn roll_back(&mut self) -> Result<()> {
         let popped = self.asset_maps.pop();
+        println!("POPPED: {:?}", popped);
+        dbg!(popped.clone());
         if popped.is_none() {
             return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
         }
