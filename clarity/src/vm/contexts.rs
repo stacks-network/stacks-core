@@ -1400,10 +1400,12 @@ impl<'a, 'b> Environment<'a, 'b> {
                 self.global_context,
                 contract_version,
             );
+            println!("BEFORE DROP_MEMORY");
             self.drop_memory(memory_use)?;
+            println!("AFTER DROP_MEMORY");
             result
         })();
-
+        println!("GOT RESULT");
         match result {
             Ok(contract) => {
                 let data_size = contract.contract_context.data_size;
