@@ -15,6 +15,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::mpsc::Sender;
+#[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
@@ -23,11 +24,15 @@ use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse, TOO_MANY_REQUESTS_STATUS,
 };
 use blockstack_lib::util_lib::db::Error as DBError;
-use clarity::types::chainstate::{StacksPrivateKey, StacksPublicKey};
+use clarity::types::chainstate::StacksPrivateKey;
+#[cfg(any(test, feature = "testing"))]
+use clarity::types::chainstate::StacksPublicKey;
 use clarity::types::{PrivateKey, StacksEpochId};
 use clarity::util::hash::{MerkleHashFunc, Sha512Trunc256Sum};
 use clarity::util::secp256k1::Secp256k1PublicKey;
+#[cfg(any(test, feature = "testing"))]
 use clarity::util::sleep_ms;
+#[cfg(any(test, feature = "testing"))]
 use clarity::util::tests::TestFlag;
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
@@ -49,6 +54,7 @@ use crate::Signer as SignerTrait;
 
 /// A global variable that can be used to make signers repeat their proposal
 /// response if their public key is in the provided list
+#[cfg(any(test, feature = "testing"))]
 pub static TEST_REPEAT_PROPOSAL_RESPONSE: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
     LazyLock::new(TestFlag::default);
 
