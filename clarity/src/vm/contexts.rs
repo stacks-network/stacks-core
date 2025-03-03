@@ -1821,19 +1821,18 @@ impl<'a> GlobalContext<'a> {
     }
 
     pub fn roll_back(&mut self) -> Result<()> {
+        println!("ASSET_MAPS LEN BEFORE: {}", self.asset_maps.len());
         let popped = self.asset_maps.pop();
+        println!("ASSET_MAPS LEN AFTER: {}", self.asset_maps.len());
         if popped.is_none() {
-            println!("POPPED-1: {:?}", popped);
             return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
         }
         let popped = self.read_only.pop();
         if popped.is_none() {
-            println!("POPPED-2: {:?}", popped);
             return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
         }
         let popped = self.event_batches.pop();
         if popped.is_none() {
-            println!("POPPED-3: {:?}", popped);
             return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
         }
 
