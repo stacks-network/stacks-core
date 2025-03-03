@@ -2206,7 +2206,7 @@ mod test {
             let res = PeerDB::try_insert_peer(&tx, &neighbor, &[]).unwrap();
             tx.commit().unwrap();
 
-            assert_eq!(res, true);
+            assert!(res);
         }
 
         let neighbor_opt = PeerDB::get_peer(
@@ -2227,7 +2227,7 @@ mod test {
             let res = PeerDB::try_insert_peer(&tx, &neighbor, &[]).unwrap();
             tx.commit().unwrap();
 
-            assert_eq!(res, true);
+            assert!(res);
         }
 
         // put a peer in all the slots
@@ -2252,7 +2252,7 @@ mod test {
             let res = PeerDB::try_insert_peer(&tx, &neighbor, &[]).unwrap();
             tx.commit().unwrap();
 
-            assert_eq!(res, true);
+            assert!(res);
         }
 
         // put neighbor at new_neighbor's slots
@@ -2275,7 +2275,7 @@ mod test {
             let res = PeerDB::try_insert_peer(&tx, &new_neighbor, &[]).unwrap();
             tx.commit().unwrap();
 
-            assert_eq!(res, false);
+            assert!(!res);
         }
     }
 
@@ -2346,7 +2346,7 @@ mod test {
             let res = PeerDB::try_insert_peer(&tx, &neighbor, &stackerdbs).unwrap();
             tx.commit().unwrap();
 
-            assert_eq!(res, true);
+            assert!(res);
         }
 
         let neighbor_opt = PeerDB::get_peer(
@@ -2384,7 +2384,7 @@ mod test {
             tx.commit().unwrap();
 
             // peer already present
-            assert_eq!(res, true);
+            assert!(res);
         }
 
         let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
@@ -2398,7 +2398,7 @@ mod test {
             tx.commit().unwrap();
 
             // peer already present
-            assert_eq!(res, true);
+            assert!(res);
         }
 
         let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
@@ -2424,7 +2424,7 @@ mod test {
             tx.commit().unwrap();
 
             // peer already present
-            assert_eq!(res, true);
+            assert!(res);
         }
 
         let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
@@ -2452,7 +2452,7 @@ mod test {
                 tx.commit().unwrap();
 
                 // peer already present
-                assert_eq!(res, true);
+                assert!(res);
             }
 
             let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
@@ -2477,7 +2477,7 @@ mod test {
         }
 
         let deleted_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
-        assert_eq!(deleted_stackerdbs.len(), 0);
+        assert!(deleted_stackerdbs.is_empty());
     }
 
     /// Test PeerDB::find_stacker_db_replicas().  Verifies that we can find a list of neighbors
@@ -2547,7 +2547,7 @@ mod test {
             let res = PeerDB::try_insert_peer(&tx, &neighbor, &stackerdbs).unwrap();
             tx.commit().unwrap();
 
-            assert_eq!(res, true);
+            assert!(res);
         }
 
         let replicas =
@@ -2562,11 +2562,11 @@ mod test {
 
         let replicas =
             PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[0], 0, 0).unwrap();
-        assert_eq!(replicas.len(), 0);
+        assert!(replicas.is_empty());
 
         let replicas =
             PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef1, &stackerdbs[0], 0, 1).unwrap();
-        assert_eq!(replicas.len(), 0);
+        assert!(replicas.is_empty());
 
         // insert new stacker DBs -- keep one the same, and add a different one
         let mut changed_stackerdbs = vec![
@@ -2587,7 +2587,7 @@ mod test {
             tx.commit().unwrap();
 
             // peer already present, and we were able to update
-            assert_eq!(res, true);
+            assert!(res);
         }
 
         let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
@@ -2637,7 +2637,7 @@ mod test {
             1,
         )
         .unwrap();
-        assert_eq!(replicas.len(), 0);
+        assert!(replicas.is_empty());
 
         // clear stacker DBs
         {
@@ -2646,7 +2646,7 @@ mod test {
             tx.commit().unwrap();
 
             // peer already present, and we were able to update
-            assert_eq!(res, true);
+            assert!(res);
         }
 
         let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
@@ -2656,12 +2656,12 @@ mod test {
         let replicas =
             PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[0], 0, 1)
                 .unwrap();
-        assert_eq!(replicas.len(), 0);
+        assert!(replicas.is_empty());
 
         let replicas =
             PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[1], 0, 1)
                 .unwrap();
-        assert_eq!(replicas.len(), 0);
+        assert!(replicas.is_empty());
 
         let mut replace_stackerdbs = vec![
             QualifiedContractIdentifier::new(
@@ -2684,7 +2684,7 @@ mod test {
                 tx.commit().unwrap();
 
                 // peer already present and we were able to update
-                assert_eq!(res, true);
+                assert!(res);
             }
 
             let mut neighbor_stackerdbs = db.get_peer_stacker_dbs(&neighbor).unwrap();
@@ -2694,12 +2694,12 @@ mod test {
             let replicas =
                 PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdee0, &stackerdbs[0], 0, 1)
                     .unwrap();
-            assert_eq!(replicas.len(), 0);
+            assert!(replicas.is_empty());
 
             let replicas =
                 PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdee0, &stackerdbs[1], 0, 1)
                     .unwrap();
-            assert_eq!(replicas.len(), 0);
+            assert!(replicas.is_empty());
 
             let replicas = PeerDB::find_stacker_db_replicas(
                 &db.conn,
@@ -2709,7 +2709,7 @@ mod test {
                 1,
             )
             .unwrap();
-            assert_eq!(replicas.len(), 0);
+            assert!(replicas.is_empty());
 
             let replicas = PeerDB::find_stacker_db_replicas(
                 &db.conn,
@@ -2719,7 +2719,7 @@ mod test {
                 1,
             )
             .unwrap();
-            assert_eq!(replicas.len(), 0);
+            assert!(replicas.is_empty());
 
             let replicas = PeerDB::find_stacker_db_replicas(
                 &db.conn,
@@ -2759,31 +2759,31 @@ mod test {
 
         let replicas =
             PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[0], 0, 1).unwrap();
-        assert_eq!(replicas.len(), 0);
+        assert!(replicas.is_empty());
 
         let replicas =
             PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[1], 0, 1).unwrap();
-        assert_eq!(replicas.len(), 0);
+        assert!(replicas.is_empty());
 
         let replicas =
             PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[0], 0, 1)
                 .unwrap();
-        assert_eq!(replicas.len(), 0);
+        assert!(replicas.is_empty());
 
         let replicas =
             PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[1], 0, 1)
                 .unwrap();
-        assert_eq!(replicas.len(), 0);
+        assert!(replicas.is_empty());
 
         let replicas =
             PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &replace_stackerdbs[0], 0, 1)
                 .unwrap();
-        assert_eq!(replicas.len(), 0);
+        assert!(replicas.is_empty());
 
         let replicas =
             PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &replace_stackerdbs[1], 0, 1)
                 .unwrap();
-        assert_eq!(replicas.len(), 0);
+        assert!(replicas.is_empty());
     }
 
     /// Tests DB instantiation with initial neighbors. Verifies that initial neighbors are present in the
@@ -3005,7 +3005,7 @@ mod test {
         // post epoch 2.05 -- no such neighbors
         let n20 =
             PeerDB::get_random_neighbors(db.conn(), 0x9abcdef0, 0x06, 20, 23455, false).unwrap();
-        assert_eq!(n20.len(), 0);
+        assert!(n20.is_empty());
     }
 
     /// Verifies that PeerDB::asn4_lookup() correctly classifies IPv4 address into their AS numbers
@@ -3084,11 +3084,7 @@ mod test {
             0x13, 0x10,
         ]);
         let asn_invalid_opt = PeerDB::asn4_lookup(db.conn(), &asn4_invalid_addr);
-        match asn_invalid_opt {
-            Ok(_) => assert!(false),
-            Err(db_error::TypeError) => assert!(true),
-            Err(_) => assert!(false),
-        }
+        assert!(matches!(asn_invalid_opt, Err(db_error::TypeError)));
 
         // not present
         let asn4_missing_addr = PeerAddress([
@@ -3096,7 +3092,7 @@ mod test {
             0x13, 0x10,
         ]);
         let asn_missing_opt = PeerDB::asn4_lookup(db.conn(), &asn4_missing_addr).unwrap();
-        assert_eq!(asn_missing_opt, None);
+        assert!(asn_missing_opt.is_none());
     }
 
     /// Verifies that PeerDB::set_deny_peer() and PeerDB::set_allow_peer() will mark peers'

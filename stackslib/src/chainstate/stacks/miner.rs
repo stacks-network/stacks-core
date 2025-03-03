@@ -16,6 +16,8 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(any(test, feature = "testing"))]
+use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 use std::time::Instant;
@@ -37,6 +39,8 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::util::tests::TestFlag;
 use stacks_common::util::vrf::*;
 
 use crate::burnchains::{Burnchain, PrivateKey, PublicKey};
@@ -66,6 +70,26 @@ use crate::monitoring::{
 };
 use crate::net::relay::Relayer;
 use crate::net::Error as net_error;
+
+#[cfg(any(test, feature = "testing"))]
+/// Test flag to stall transaction execution
+pub static TEST_TX_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+
+/// Stall transaction processing for testing
+#[cfg(any(test, feature = "testing"))]
+fn fault_injection_stall_tx() {
+    if TEST_TX_STALL.get() {
+        // Do an extra check just so we don't log EVERY time.
+        warn!("Tx is stalled due to testing directive");
+        while TEST_TX_STALL.get() {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        warn!("Tx is no longer stalled due to testing directive. Continuing...");
+    }
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+fn fault_injection_stall_tx() {}
 
 /// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
 /// linked to the burnchain and what view(s) the miner had of the burnchain before and after
@@ -2374,6 +2398,9 @@ impl StacksBlockBuilder {
                         num_considered += 1;
 
                         let tx_start = Instant::now();
+
+                        fault_injection_stall_tx();
+
                         let tx_result = builder.try_mine_tx_with_len(
                             epoch_tx,
                             &txinfo.tx,

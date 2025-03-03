@@ -657,6 +657,7 @@ pub mod test_observer {
             endpoint: format!("localhost:{EVENT_OBSERVER_PORT}"),
             events_keys: event_keys.to_vec(),
             timeout_ms: 1000,
+            disable_retries: false,
         });
     }
 
@@ -7490,6 +7491,7 @@ fn atlas_integration_test() {
             endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
             events_keys: vec![EventKeyType::AnyEvent],
             timeout_ms: 1000,
+            disable_retries: false,
         });
 
     conf_follower_node.node.always_use_affirmation_maps = false;
@@ -8023,6 +8025,7 @@ fn antientropy_integration_test() {
             endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
             events_keys: vec![EventKeyType::AnyEvent],
             timeout_ms: 1000,
+            disable_retries: false,
         });
 
     conf_follower_node.node.mine_microblocks = true;
@@ -8095,12 +8098,10 @@ fn antientropy_integration_test() {
                 println!("Follower has finished");
             }
             Ok(x) => {
-                println!("Follower gave a bad signal: {x:?}");
-                panic!();
+                panic!("Follower gave a bad signal: {x:?}");
             }
             Err(e) => {
-                println!("Failed to recv: {e:?}");
-                panic!();
+                panic!("Failed to recv: {e:?}");
             }
         };
 
@@ -8227,10 +8228,9 @@ fn wait_for_mined(
         }
     }
     if !all_mined {
-        eprintln!(
+        panic!(
             "Failed to mine all transactions: nonces = {account_after_nonces:?}, expected {account_before_nonces:?} + {batch_size}"
         );
-        panic!();
     }
 }
 
@@ -8459,10 +8459,10 @@ fn atlas_stress_integration_test() {
             break;
         }
     }
-    if !mined_namespace_reveal {
-        eprintln!("Did not mine namespace preorder or reveal");
-        panic!();
-    }
+    assert!(
+        mined_namespace_reveal,
+        "Did not mine namespace preorder or reveal"
+    );
 
     // make a _ton_ of name-imports
     for i in 0..batches {
@@ -8532,13 +8532,11 @@ fn atlas_stress_integration_test() {
                 break;
             }
         }
-        if !all_mined {
-            eprintln!(
-                "Failed to mine all transactions: nonce = {account_after_nonce}, expected {}",
-                account_before.nonce + (batch_size as u64)
-            );
-            panic!();
-        }
+        assert!(
+            all_mined,
+            "Failed to mine all transactions: nonce = {account_after_nonce}, expected {}",
+            account_before.nonce + (batch_size as u64)
+        );
     }
 
     // launch namespace
@@ -8583,10 +8581,7 @@ fn atlas_stress_integration_test() {
             break;
         }
     }
-    if !mined_namespace_ready {
-        eprintln!("Did not mine namespace ready");
-        panic!();
-    }
+    assert!(mined_namespace_ready, "Did not mine namespace ready");
 
     // make a _ton_ of preorders
     {
@@ -8895,14 +8890,13 @@ fn atlas_stress_integration_test() {
             let ts_begin = get_epoch_time_ms();
             for _ in 0..attempts {
                 let res = client.get(&path).send().unwrap();
-
-                if res.status().is_success() {
-                    let attachment_inv_response: GetAttachmentsInvResponse = res.json().unwrap();
-                    eprintln!("attachment inv response for {path}: {attachment_inv_response:?}");
-                } else {
-                    eprintln!("Bad response for `{path}`: `{:?}`", res.text().unwrap());
-                    panic!();
-                }
+                assert!(
+                    res.status().is_success(),
+                    "Bad response for `{path}`: `{:?}`",
+                    res.text().unwrap()
+                );
+                let attachment_inv_response: GetAttachmentsInvResponse = res.json().unwrap();
+                eprintln!("attachment inv response for {path}: {attachment_inv_response:?}");
             }
             let ts_end = get_epoch_time_ms();
             let total_time = ts_end.saturating_sub(ts_begin);
@@ -8931,14 +8925,13 @@ fn atlas_stress_integration_test() {
             let ts_begin = get_epoch_time_ms();
             for _ in 0..attempts {
                 let res = client.get(&path).send().unwrap();
-
-                if res.status().is_success() {
-                    let attachment_response: GetAttachmentResponse = res.json().unwrap();
-                    eprintln!("attachment response for {path}: {attachment_response:?}");
-                } else {
-                    eprintln!("Bad response for `{path}`: `{:?}`", res.text().unwrap());
-                    panic!();
-                }
+                assert!(
+                    res.status().is_success(),
+                    "Bad response for `{path}`: `{:?}`",
+                    res.text().unwrap()
+                );
+                let attachment_response: GetAttachmentResponse = res.json().unwrap();
+                eprintln!("attachment response for {path}: {attachment_response:?}");
             }
             let ts_end = get_epoch_time_ms();
             let total_time = ts_end.saturating_sub(ts_begin);
@@ -10257,7 +10250,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         old_tip_info.stacks_tip_height + 5
     );
     // no blocks considered problematic
-    assert_eq!(all_new_files.len(), 0);
+    assert!(all_new_files.is_empty());
 
     // one block contained tx_exceeds
     let blocks = test_observer::get_blocks();

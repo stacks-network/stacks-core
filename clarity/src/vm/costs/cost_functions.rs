@@ -14,6 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use super::ExecutionCost;
+use crate::vm::errors::{InterpreterResult, RuntimeErrorType};
+
 define_named_enum!(ClarityCostFunction {
     AnalysisTypeAnnotate("cost_analysis_type_annotate"),
     AnalysisTypeCheck("cost_analysis_type_check"),
@@ -156,3 +159,326 @@ define_named_enum!(ClarityCostFunction {
     BitwiseRShift("cost_bitwise_right_shift"),
     Unimplemented("cost_unimplemented"),
 });
+
+// Helper functions used by `CostValues` implementations
+
+pub fn linear(n: u64, a: u64, b: u64) -> u64 {
+    a.saturating_mul(n).saturating_add(b)
+}
+pub fn logn(n: u64, a: u64, b: u64) -> InterpreterResult<u64> {
+    if n < 1 {
+        return Err(crate::vm::errors::Error::Runtime(
+            RuntimeErrorType::Arithmetic("log2 must be passed a positive integer".to_string()),
+            Some(vec![]),
+        ));
+    }
+    let nlog2 = u64::from(64 - 1 - n.leading_zeros());
+    Ok(a.saturating_mul(nlog2).saturating_add(b))
+}
+pub fn nlogn(n: u64, a: u64, b: u64) -> InterpreterResult<u64> {
+    if n < 1 {
+        return Err(crate::vm::errors::Error::Runtime(
+            RuntimeErrorType::Arithmetic("log2 must be passed a positive integer".to_string()),
+            Some(vec![]),
+        ));
+    }
+    let nlog2 = u64::from(64 - 1 - n.leading_zeros());
+    Ok(a.saturating_mul(nlog2.saturating_mul(n)).saturating_add(b))
+}
+
+pub trait CostValues {
+    fn cost_analysis_type_annotate(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_type_check(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_type_lookup(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_visit(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_iterable_func(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_option_cons(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_option_check(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_bind_name(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_list_items_check(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_check_tuple_get(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_check_tuple_merge(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_check_tuple_cons(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_tuple_items_check(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_check_let(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_lookup_function(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_lookup_function_types(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_lookup_variable_const(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_lookup_variable_depth(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_ast_parse(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_ast_cycle_detection(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_storage(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_use_trait_entry(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_get_function_entry(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_analysis_fetch_contract_entry(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_lookup_variable_depth(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_lookup_variable_size(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_lookup_function(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_bind_name(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_inner_type_check_cost(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_user_function_application(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_let(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_if(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_asserts(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_map(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_filter(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_len(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_element_at(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_index_of(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_fold(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_list_cons(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_type_parse_step(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_tuple_get(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_tuple_merge(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_tuple_cons(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_add(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_sub(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_mul(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_div(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_geq(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_leq(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_le(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_ge(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_int_cast(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_mod(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_pow(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_sqrti(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_log2(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_xor(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_not(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_eq(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_begin(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_hash160(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_sha256(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_sha512(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_sha512t256(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_keccak256(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_secp256k1recover(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_secp256k1verify(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_print(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_some_cons(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_ok_cons(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_err_cons(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_default_to(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_unwrap_ret(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_unwrap_err_or_ret(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_is_okay(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_is_none(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_is_err(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_is_some(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_unwrap(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_unwrap_err(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_try_ret(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_match(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_or(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_and(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_append(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_concat(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_as_max_len(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_contract_call(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_contract_of(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_principal_of(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_at_block(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_load_contract(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_create_map(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_create_var(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_create_nft(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_create_ft(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_fetch_entry(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_set_entry(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_fetch_var(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_set_var(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_contract_storage(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_block_info(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_stx_balance(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_stx_transfer(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_ft_mint(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_ft_transfer(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_ft_balance(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_ft_get_supply(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_ft_burn(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_nft_mint(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_nft_transfer(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_nft_owner(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_nft_burn(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn poison_microblock(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_buff_to_int_le(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_buff_to_uint_le(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_buff_to_int_be(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_buff_to_uint_be(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_is_standard(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_principal_destruct(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_principal_construct(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_string_to_int(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_string_to_uint(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_int_to_ascii(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_int_to_utf8(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_burn_block_info(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_stx_account(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_slice(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_to_consensus_buff(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_from_consensus_buff(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_stx_transfer_memo(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_replace_at(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_as_contract(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_bitwise_and(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_bitwise_or(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_bitwise_not(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_bitwise_left_shift(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_bitwise_right_shift(n: u64) -> InterpreterResult<ExecutionCost>;
+}
+
+impl ClarityCostFunction {
+    pub fn eval<C: CostValues>(&self, n: u64) -> InterpreterResult<ExecutionCost> {
+        match self {
+            ClarityCostFunction::AnalysisTypeAnnotate => C::cost_analysis_type_annotate(n),
+            ClarityCostFunction::AnalysisTypeCheck => C::cost_analysis_type_check(n),
+            ClarityCostFunction::AnalysisTypeLookup => C::cost_analysis_type_lookup(n),
+            ClarityCostFunction::AnalysisVisit => C::cost_analysis_visit(n),
+            ClarityCostFunction::AnalysisIterableFunc => C::cost_analysis_iterable_func(n),
+            ClarityCostFunction::AnalysisOptionCons => C::cost_analysis_option_cons(n),
+            ClarityCostFunction::AnalysisOptionCheck => C::cost_analysis_option_check(n),
+            ClarityCostFunction::AnalysisBindName => C::cost_analysis_bind_name(n),
+            ClarityCostFunction::AnalysisListItemsCheck => C::cost_analysis_list_items_check(n),
+            ClarityCostFunction::AnalysisCheckTupleGet => C::cost_analysis_check_tuple_get(n),
+            ClarityCostFunction::AnalysisCheckTupleMerge => C::cost_analysis_check_tuple_merge(n),
+            ClarityCostFunction::AnalysisCheckTupleCons => C::cost_analysis_check_tuple_cons(n),
+            ClarityCostFunction::AnalysisTupleItemsCheck => C::cost_analysis_tuple_items_check(n),
+            ClarityCostFunction::AnalysisCheckLet => C::cost_analysis_check_let(n),
+            ClarityCostFunction::AnalysisLookupFunction => C::cost_analysis_lookup_function(n),
+            ClarityCostFunction::AnalysisLookupFunctionTypes => {
+                C::cost_analysis_lookup_function_types(n)
+            }
+            ClarityCostFunction::AnalysisLookupVariableConst => {
+                C::cost_analysis_lookup_variable_const(n)
+            }
+            ClarityCostFunction::AnalysisLookupVariableDepth => {
+                C::cost_analysis_lookup_variable_depth(n)
+            }
+            ClarityCostFunction::AstParse => C::cost_ast_parse(n),
+            ClarityCostFunction::AstCycleDetection => C::cost_ast_cycle_detection(n),
+            ClarityCostFunction::AnalysisStorage => C::cost_analysis_storage(n),
+            ClarityCostFunction::AnalysisUseTraitEntry => C::cost_analysis_use_trait_entry(n),
+            ClarityCostFunction::AnalysisGetFunctionEntry => C::cost_analysis_get_function_entry(n),
+            ClarityCostFunction::AnalysisFetchContractEntry => {
+                C::cost_analysis_fetch_contract_entry(n)
+            }
+            ClarityCostFunction::LookupVariableDepth => C::cost_lookup_variable_depth(n),
+            ClarityCostFunction::LookupVariableSize => C::cost_lookup_variable_size(n),
+            ClarityCostFunction::LookupFunction => C::cost_lookup_function(n),
+            ClarityCostFunction::BindName => C::cost_bind_name(n),
+            ClarityCostFunction::InnerTypeCheckCost => C::cost_inner_type_check_cost(n),
+            ClarityCostFunction::UserFunctionApplication => C::cost_user_function_application(n),
+            ClarityCostFunction::Let => C::cost_let(n),
+            ClarityCostFunction::If => C::cost_if(n),
+            ClarityCostFunction::Asserts => C::cost_asserts(n),
+            ClarityCostFunction::Map => C::cost_map(n),
+            ClarityCostFunction::Filter => C::cost_filter(n),
+            ClarityCostFunction::Len => C::cost_len(n),
+            ClarityCostFunction::ElementAt => C::cost_element_at(n),
+            ClarityCostFunction::IndexOf => C::cost_index_of(n),
+            ClarityCostFunction::Fold => C::cost_fold(n),
+            ClarityCostFunction::ListCons => C::cost_list_cons(n),
+            ClarityCostFunction::TypeParseStep => C::cost_type_parse_step(n),
+            ClarityCostFunction::TupleGet => C::cost_tuple_get(n),
+            ClarityCostFunction::TupleMerge => C::cost_tuple_merge(n),
+            ClarityCostFunction::TupleCons => C::cost_tuple_cons(n),
+            ClarityCostFunction::Add => C::cost_add(n),
+            ClarityCostFunction::Sub => C::cost_sub(n),
+            ClarityCostFunction::Mul => C::cost_mul(n),
+            ClarityCostFunction::Div => C::cost_div(n),
+            ClarityCostFunction::Geq => C::cost_geq(n),
+            ClarityCostFunction::Leq => C::cost_leq(n),
+            ClarityCostFunction::Le => C::cost_le(n),
+            ClarityCostFunction::Ge => C::cost_ge(n),
+            ClarityCostFunction::IntCast => C::cost_int_cast(n),
+            ClarityCostFunction::Mod => C::cost_mod(n),
+            ClarityCostFunction::Pow => C::cost_pow(n),
+            ClarityCostFunction::Sqrti => C::cost_sqrti(n),
+            ClarityCostFunction::Log2 => C::cost_log2(n),
+            ClarityCostFunction::Xor => C::cost_xor(n),
+            ClarityCostFunction::Not => C::cost_not(n),
+            ClarityCostFunction::Eq => C::cost_eq(n),
+            ClarityCostFunction::Begin => C::cost_begin(n),
+            ClarityCostFunction::Hash160 => C::cost_hash160(n),
+            ClarityCostFunction::Sha256 => C::cost_sha256(n),
+            ClarityCostFunction::Sha512 => C::cost_sha512(n),
+            ClarityCostFunction::Sha512t256 => C::cost_sha512t256(n),
+            ClarityCostFunction::Keccak256 => C::cost_keccak256(n),
+            ClarityCostFunction::Secp256k1recover => C::cost_secp256k1recover(n),
+            ClarityCostFunction::Secp256k1verify => C::cost_secp256k1verify(n),
+            ClarityCostFunction::Print => C::cost_print(n),
+            ClarityCostFunction::SomeCons => C::cost_some_cons(n),
+            ClarityCostFunction::OkCons => C::cost_ok_cons(n),
+            ClarityCostFunction::ErrCons => C::cost_err_cons(n),
+            ClarityCostFunction::DefaultTo => C::cost_default_to(n),
+            ClarityCostFunction::UnwrapRet => C::cost_unwrap_ret(n),
+            ClarityCostFunction::UnwrapErrOrRet => C::cost_unwrap_err_or_ret(n),
+            ClarityCostFunction::IsOkay => C::cost_is_okay(n),
+            ClarityCostFunction::IsNone => C::cost_is_none(n),
+            ClarityCostFunction::IsErr => C::cost_is_err(n),
+            ClarityCostFunction::IsSome => C::cost_is_some(n),
+            ClarityCostFunction::Unwrap => C::cost_unwrap(n),
+            ClarityCostFunction::UnwrapErr => C::cost_unwrap_err(n),
+            ClarityCostFunction::TryRet => C::cost_try_ret(n),
+            ClarityCostFunction::Match => C::cost_match(n),
+            ClarityCostFunction::Or => C::cost_or(n),
+            ClarityCostFunction::And => C::cost_and(n),
+            ClarityCostFunction::Append => C::cost_append(n),
+            ClarityCostFunction::Concat => C::cost_concat(n),
+            ClarityCostFunction::AsMaxLen => C::cost_as_max_len(n),
+            ClarityCostFunction::ContractCall => C::cost_contract_call(n),
+            ClarityCostFunction::ContractOf => C::cost_contract_of(n),
+            ClarityCostFunction::PrincipalOf => C::cost_principal_of(n),
+            ClarityCostFunction::AtBlock => C::cost_at_block(n),
+            ClarityCostFunction::LoadContract => C::cost_load_contract(n),
+            ClarityCostFunction::CreateMap => C::cost_create_map(n),
+            ClarityCostFunction::CreateVar => C::cost_create_var(n),
+            ClarityCostFunction::CreateNft => C::cost_create_nft(n),
+            ClarityCostFunction::CreateFt => C::cost_create_ft(n),
+            ClarityCostFunction::FetchEntry => C::cost_fetch_entry(n),
+            ClarityCostFunction::SetEntry => C::cost_set_entry(n),
+            ClarityCostFunction::FetchVar => C::cost_fetch_var(n),
+            ClarityCostFunction::SetVar => C::cost_set_var(n),
+            ClarityCostFunction::ContractStorage => C::cost_contract_storage(n),
+            ClarityCostFunction::BlockInfo => C::cost_block_info(n),
+            ClarityCostFunction::StxBalance => C::cost_stx_balance(n),
+            ClarityCostFunction::StxTransfer => C::cost_stx_transfer(n),
+            ClarityCostFunction::FtMint => C::cost_ft_mint(n),
+            ClarityCostFunction::FtTransfer => C::cost_ft_transfer(n),
+            ClarityCostFunction::FtBalance => C::cost_ft_balance(n),
+            ClarityCostFunction::FtSupply => C::cost_ft_get_supply(n),
+            ClarityCostFunction::FtBurn => C::cost_ft_burn(n),
+            ClarityCostFunction::NftMint => C::cost_nft_mint(n),
+            ClarityCostFunction::NftTransfer => C::cost_nft_transfer(n),
+            ClarityCostFunction::NftOwner => C::cost_nft_owner(n),
+            ClarityCostFunction::NftBurn => C::cost_nft_burn(n),
+            ClarityCostFunction::PoisonMicroblock => C::poison_microblock(n),
+            ClarityCostFunction::BuffToIntLe => C::cost_buff_to_int_le(n),
+            ClarityCostFunction::BuffToUIntLe => C::cost_buff_to_uint_le(n),
+            ClarityCostFunction::BuffToIntBe => C::cost_buff_to_int_be(n),
+            ClarityCostFunction::BuffToUIntBe => C::cost_buff_to_uint_be(n),
+            ClarityCostFunction::IsStandard => C::cost_is_standard(n),
+            ClarityCostFunction::PrincipalDestruct => C::cost_principal_destruct(n),
+            ClarityCostFunction::PrincipalConstruct => C::cost_principal_construct(n),
+            ClarityCostFunction::StringToInt => C::cost_string_to_int(n),
+            ClarityCostFunction::StringToUInt => C::cost_string_to_uint(n),
+            ClarityCostFunction::IntToAscii => C::cost_int_to_ascii(n),
+            ClarityCostFunction::IntToUtf8 => C::cost_int_to_utf8(n),
+            ClarityCostFunction::GetBurnBlockInfo => C::cost_burn_block_info(n),
+            ClarityCostFunction::StxGetAccount => C::cost_stx_account(n),
+            ClarityCostFunction::Slice => C::cost_slice(n),
+            ClarityCostFunction::ToConsensusBuff => C::cost_to_consensus_buff(n),
+            ClarityCostFunction::FromConsensusBuff => C::cost_from_consensus_buff(n),
+            ClarityCostFunction::StxTransferMemo => C::cost_stx_transfer_memo(n),
+            ClarityCostFunction::ReplaceAt => C::cost_replace_at(n),
+            ClarityCostFunction::AsContract => C::cost_as_contract(n),
+            ClarityCostFunction::BitwiseAnd => C::cost_bitwise_and(n),
+            ClarityCostFunction::BitwiseOr => C::cost_bitwise_or(n),
+            ClarityCostFunction::BitwiseNot => C::cost_bitwise_not(n),
+            ClarityCostFunction::BitwiseLShift => C::cost_bitwise_left_shift(n),
+            ClarityCostFunction::BitwiseRShift => C::cost_bitwise_right_shift(n),
+            ClarityCostFunction::Unimplemented => Err(RuntimeErrorType::NotImplemented.into()),
+        }
+    }
+}

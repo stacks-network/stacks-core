@@ -932,11 +932,7 @@ impl TestStacksNode {
                     ) {
                         Ok(accepted) => accepted,
                         Err(e) => {
-                            error!(
-                                "Failed to process nakamoto block: {:?}\n{:?}",
-                                &e, &nakamoto_block
-                            );
-                            panic!();
+                            panic!("Failed to process nakamoto block: {e:?}\n{nakamoto_block:?}");
                         }
                     }
                 } else {
