@@ -45,3 +45,7 @@ lto = "fat"
 [profile.release-lite]
 inherits = "release"
 lto = "thin"
+
+[node]
+miner = true
+mock_mining = true
