@@ -1820,9 +1820,7 @@ impl<'a> GlobalContext<'a> {
     }
 
     pub fn roll_back(&mut self) -> Result<()> {
-        println!("ASSET_MAPS LEN BEFORE: {}", self.asset_maps.len());
         let popped = self.asset_maps.pop();
-        println!("ASSET_MAPS LEN AFTER: {}", self.asset_maps.len());
         if popped.is_none() {
             return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
         }
