@@ -6524,6 +6524,7 @@ fn link_begin_public_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
             "clarity",
             "begin_public_call",
             |mut caller: Caller<'_, ClarityWasmContext>| {
+                println!("INSIDE LINKER");
                 caller.data_mut().global_context.begin();
                 Ok(())
             },
