@@ -12165,6 +12165,20 @@ fn repeated_rejection() {
     signer_test.shutdown();
 }
 
+fn transfers_in_block(block: &serde_json::Value) -> usize {
+    let transactions = block["transactions"].as_array().unwrap();
+    let mut count = 0;
+    for tx in transactions {
+        let raw_tx = tx["raw_tx"].as_str().unwrap();
+        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+        if let TransactionPayload::TokenTransfer(..) = &parsed.payload {
+            count += 1;
+        }
+    }
+    count
+}
+
 #[test]
 #[ignore]
 /// This test verifies that a miner will re-propose the same block if it times
@@ -12270,13 +12284,14 @@ fn retry_proposal() {
     submit_tx(&http_origin, &transfer_tx);
 
     info!("Disable signer 1 from ignoring proposals");
-    test_observer::clear();
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![]);
 
     info!("Waiting for the block to be approved");
     wait_for(60, || {
-        let info = get_chain_info(&signer_test.running_nodes.conf);
-        if info.stacks_tip_height > block_height_before {
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().expect("No blocks found");
+        let height = last_block["block_height"].as_u64().unwrap();
+        if height > block_height_before {
             return Ok(true);
         }
         Ok(false)
@@ -12285,9 +12300,8 @@ fn retry_proposal() {
 
     // Ensure that the block was the original block with just 1 transfer
     let blocks = test_observer::get_blocks();
-    let block = blocks.first().expect("No blocks found");
-    let transactions = block["transactions"].as_array().unwrap();
-    assert_eq!(transactions.len(), 1);
+    let block = blocks.last().expect("No blocks found");
+    assert_eq!(transfers_in_block(block), 1);
 
     signer_test.shutdown();
 }
