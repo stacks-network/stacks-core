@@ -1362,6 +1362,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         contract_analysis: &ContractAnalysis,
         contract_string: &str,
     ) -> Result<()> {
+        println!("INITIALIZING GLOBAL_CONTEXT");
         self.global_context.begin();
 
         // wrap in a closure so that `?` can be caught and the global_context can roll_back()
@@ -1400,9 +1401,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                 self.global_context,
                 contract_version,
             );
-            println!("BEFORE DROP_MEMORY");
             self.drop_memory(memory_use)?;
-            println!("AFTER DROP_MEMORY");
             result
         })();
         println!("GOT RESULT");

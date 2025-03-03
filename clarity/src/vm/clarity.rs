@@ -367,10 +367,8 @@ pub trait TransactionConnection: ClarityConnection {
             abort_call_back,
         )?;
         if aborted {
-            println!("ABORTED");
             Err(Error::AbortedByCallback(None, asset_map, events))
         } else {
-            println!("NOT ABORTED");
             Ok((asset_map, events))
         }
     }
