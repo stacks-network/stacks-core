@@ -1362,7 +1362,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         contract_analysis: &ContractAnalysis,
         contract_string: &str,
     ) -> Result<()> {
-        println!("INITIALIZING GLOBAL_CONTEXT");
+        println!("1 - (contexts.rs) initialize_contract_from_ast");
         self.global_context.begin();
 
         // wrap in a closure so that `?` can be caught and the global_context can roll_back()
@@ -1404,9 +1404,9 @@ impl<'a, 'b> Environment<'a, 'b> {
             self.drop_memory(memory_use)?;
             result
         })();
-        println!("GOT RESULT");
         match result {
             Ok(contract) => {
+                println!("1.1 - (contexts.rs) result ok");
                 let data_size = contract.contract_context.data_size;
                 self.global_context
                     .database
@@ -1419,7 +1419,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                 Ok(())
             }
             Err(e) => {
-                println!("RESULT ERROR");
+                println!("1.2 - (contexts.rs) result not ok");
                 self.global_context.roll_back()?;
                 Err(e)
             }

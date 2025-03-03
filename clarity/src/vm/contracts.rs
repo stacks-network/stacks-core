@@ -43,10 +43,10 @@ impl Contract {
         version: ClarityVersion,
     ) -> Result<Contract> {
         let mut contract_context = ContractContext::new(contract_identifier, version);
-
+        println!("2 - (contract.rs) initialize_from_ast");
         #[cfg(feature = "clarity-wasm")]
-        println!("INSIDE INITIALIZE_FROM_AST");
         if let Some(wasm_module) = contract.wasm_module.take() {
+            println!("2.1 - (contract.rs) got a wasm module");
             contract_context.set_wasm_module(wasm_module);
 
             // Initialize the contract via the compiled Wasm module
@@ -59,6 +59,7 @@ impl Contract {
                 )
             })?;
         } else {
+            println!("2.2 - (contract.rs) do not have a wasm module");
             // Interpret the contract
             eval_all(
                 &contract.expressions,

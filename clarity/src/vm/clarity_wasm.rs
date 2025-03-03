@@ -383,7 +383,7 @@ pub fn initialize_contract(
     sponsor: Option<PrincipalData>,
     contract_analysis: &ContractAnalysis,
 ) -> Result<Option<Value>, Error> {
-    println!("CLARITY-WASM ENABLED!");
+    println!("3 - (clarity_wasm.rs) initialize_contract");
     let publisher: PrincipalData = contract_context.contract_identifier.issuer.clone().into();
 
     let mut call_stack = CallStack::new();
@@ -406,34 +406,22 @@ pub fn initialize_contract(
                 .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))
         })?;
 
-    println!("TOP_LEVEL_0");
-
     let mut store = Store::new(&engine, init_context);
 
-    println!("TOP_LEVEL_00");
-
     let mut linker = Linker::new(&engine);
-
-    println!("TOP_LEVEL_000");
 
     // Link in the host interface functions.
     link_host_functions(&mut linker)?;
 
-    println!("TOP_LEVEL_0000");
-
     let instance = linker
         .instantiate(&mut store, &module)
         .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))?;
-
-    println!("TOP_LEVEL_00000");
 
     // Call the `.top-level` function, which contains all top-level expressions
     // from the contract.
     let top_level = instance
         .get_func(&mut store, ".top-level")
         .ok_or(Error::Wasm(WasmError::DefinesNotFound))?;
-
-    println!("TOP_LEVEL_000000");
 
     // Get the return type of the top-level expressions function
     let ty = top_level.ty(&mut store);
@@ -443,14 +431,13 @@ pub fn initialize_contract(
         results.push(placeholder_for_type(result_ty));
     }
 
-    println!("TOP_LEVEL_0000000");
-
     top_level
         .call(&mut store, &[], results.as_mut_slice())
         .map_err(|e| {
             error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version)
         })?;
-    println!("TOP_LEVEL");
+
+    println!("AFTER CALLING TOP_LEVEL");
 
     // Save the compiled Wasm module into the contract context
     store.data_mut().contract_context_mut()?.set_wasm_module(
@@ -458,7 +445,7 @@ pub fn initialize_contract(
             .serialize()
             .map_err(|e| Error::Wasm(WasmError::WasmCompileFailed(e)))?,
     );
-    println!("TOP_LEVEL_2");
+
     // Get the type of the last top-level expression with a return value
     // or default to `None`.
     let return_type = contract_analysis.expressions.iter().rev().find_map(|expr| {
@@ -467,7 +454,7 @@ pub fn initialize_contract(
             .as_ref()
             .and_then(|type_map| type_map.get_type_expected(expr))
     });
-    println!("TOP_LEVEL_3");
+
     if let Some(return_type) = return_type {
         let memory = instance
             .get_memory(&mut store, "memory")
