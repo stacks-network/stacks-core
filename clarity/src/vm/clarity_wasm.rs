@@ -6524,8 +6524,8 @@ fn link_begin_public_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
             "clarity",
             "begin_public_call",
             |mut caller: Caller<'_, ClarityWasmContext>| {
-                println!("INITIALIZING GLOBAL CONTEXT INSIDE LINKER");
-                // caller.data_mut().global_context.begin();
+                println!("INITIALIZING GLOBAL CONTEXT INSIDE BEGIN_PUBLIC_CALL");
+                caller.data_mut().global_context.begin();
                 Ok(())
             },
         )
@@ -6546,6 +6546,7 @@ fn link_begin_read_only_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Resu
             "clarity",
             "begin_read_only_call",
             |mut caller: Caller<'_, ClarityWasmContext>| {
+                println!("INITIALIZING GLOBAL CONTEXT INSIDE BEGIN_READ_ONLY_CALL");
                 caller.data_mut().global_context.begin_read_only();
                 Ok(())
             },
@@ -6591,6 +6592,7 @@ fn link_roll_back_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
             "clarity",
             "roll_back_call",
             |mut caller: Caller<'_, ClarityWasmContext>| {
+                println!("CALLING ROLL_BACK INSIDE LINKED FUNCTION");
                 caller.data_mut().global_context.roll_back()?;
                 Ok(())
             },

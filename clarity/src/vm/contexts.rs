@@ -1363,6 +1363,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         contract_string: &str,
     ) -> Result<()> {
         println!("INITIALIZING GLOBAL_CONTEXT");
+        #[cfg(not(feature = "clarity-wasm"))]
         self.global_context.begin();
 
         // wrap in a closure so that `?` can be caught and the global_context can roll_back()
