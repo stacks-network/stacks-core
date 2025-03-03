@@ -8421,28 +8421,22 @@ fn global_acceptance_depends_on_block_announcement() {
     );
 
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(Vec::new());
-    TEST_SKIP_BLOCK_ANNOUNCEMENT.set(false);
     TEST_IGNORE_SIGNERS.set(false);
-    TEST_SKIP_BLOCK_BROADCAST.set(false);
     test_observer::clear();
-    let info_before = signer_test.get_peer_info();
-    next_block_and(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || {
-            let info = signer_test
-                .stacks_client
-                .get_peer_info()
-                .expect("Failed to get peer info");
-            Ok(info.stacks_tip_height > info_before.stacks_tip_height
-                && info_before.stacks_tip_consensus_hash != info.stacks_tip_consensus_hash)
-        },
-    )
-    .expect("Stacks miner failed to produce new blocks during the newest burn block's tenure");
 
-    let sister_block =
-        wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
-            .expect("Timed out waiting for block N+1' to be mined");
+    signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .build_next_block(1);
+
+    let sister_block = wait_for_block_proposal(30, info_before.stacks_tip_height + 1, &miner_pk)
+        .expect("Timed out waiting for block N+1' to be proposed");
+
+    TEST_SKIP_BLOCK_ANNOUNCEMENT.set(false);
+    TEST_SKIP_BLOCK_BROADCAST.set(false);
+
+    wait_for_block_pushed(30, sister_block.header.signer_signature_hash())
+        .expect("Timed out waiting for block N+1' to be mined");
     assert_ne!(
         sister_block.header.signer_signature_hash(),
         block_n_1.header.signer_signature_hash()
