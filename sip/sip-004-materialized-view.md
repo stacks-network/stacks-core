@@ -1,4 +1,4 @@
-# SIP-004 Cryptographic Committment to Materialized Views
+# SIP-004 Cryptographic Commitment to Materialized Views
 
 This document formerly contained SIP-004 before the Stacks 2.0 mainnet launched.
 

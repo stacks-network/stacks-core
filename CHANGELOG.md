@@ -874,7 +874,7 @@ to reset their chain states.
 
 - `clarity-cli` will now also print a serialized version of the resulting
   output from `eval` and `execute` commands. This serialization is in
-  hexademical string format and supports integration with other tools. (#2684)
+  hexadecimal string format and supports integration with other tools. (#2684)
 - The creation of a Bitcoin wallet with BTC version `> 0.19` is now supported
   on a private testnet. (#2647)
 - `lcov`-compatible coverage reporting has been added to `clarity-cli` for
