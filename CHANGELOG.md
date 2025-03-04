@@ -7,6 +7,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+## [3.1.0.0.7]
+
 ## Added
 
 - Add `disable_retries` mode for events_observer disabling automatic retry on error
