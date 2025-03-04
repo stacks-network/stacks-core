@@ -48,6 +48,8 @@ use crate::vm::types::{
 use crate::vm::version::ClarityVersion;
 use crate::vm::{ast, eval, is_reserved, stx_transfer_consolidated};
 
+use std::time::Duration;
+
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
 // TODO:
@@ -201,6 +203,7 @@ pub struct GlobalContext<'a, 'hooks> {
     pub chain_id: u32,
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
     pub execution_time_tracker: Instant,
+    pub max_execution_time: Option<Duration>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -1551,11 +1554,16 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             chain_id,
             eval_hooks: None,
             execution_time_tracker: Instant::now(),
+            max_execution_time: None,
         }
     }
 
     pub fn is_top_level(&self) -> bool {
         self.asset_maps.is_empty()
+    }
+
+    pub fn set_max_execution_time(&mut self, max_execution_time: Option<Duration>) {
+        self.max_execution_time = max_execution_time
     }
 
     fn get_asset_map(&mut self) -> Result<&mut AssetMap> {
