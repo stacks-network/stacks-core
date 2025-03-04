@@ -25,7 +25,7 @@ jobs:
       ## Setup Docker for the builds
       - name: Docker setup
         id: docker_setup
-        uses: wileyj/actions/docker@main
+        uses: stacks-network/actions/docker@main
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
