@@ -10,6 +10,7 @@ COPY . .
 
 RUN mkdir /out
 
+RUN rustup toolchain install stable
 RUN cargo build --features monitoring_prom,slog_json --release
 
 RUN cp target/release/stacks-node /out
