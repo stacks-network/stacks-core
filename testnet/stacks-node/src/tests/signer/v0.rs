@@ -12355,13 +12355,10 @@ fn signer_can_accept_rejected_block() {
         None,
     );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
-    signer_test.boot_to_epoch_3();
+    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_pk = StacksPublicKey::from_private(&miner_sk);
 
-    let proposed_blocks = signer_test
-        .running_nodes
-        .counters
-        .naka_proposed_blocks
-        .clone();
+    signer_test.boot_to_epoch_3();
 
     signer_test.mine_nakamoto_block(Duration::from_secs(60), true);
 
@@ -12377,7 +12374,8 @@ fn signer_can_accept_rejected_block() {
     let ignoring_signer = StacksPublicKey::from_private(&signer_test.signer_stacks_private_keys[1]);
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![ignoring_signer]);
 
-    let proposals_before = proposed_blocks.load(Ordering::SeqCst);
+    // Stall block validation so we can ensure the timing we want to test
+    TEST_VALIDATE_STALL.set(true);
 
     // submit a tx so that the miner will mine a block
     let transfer_tx = make_stacks_transfer(
@@ -12391,13 +12389,19 @@ fn signer_can_accept_rejected_block() {
     submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted transfer tx and waiting for block proposal");
-    wait_for(60, || {
-        if proposed_blocks.load(Ordering::SeqCst) > proposals_before {
-            return Ok(true);
-        }
-        Ok(false)
-    })
-    .expect("Timed out waiting for block proposal");
+    let block = wait_for_block_proposal(30, block_height_before + 1, &miner_pk)
+        .expect("Timed out waiting for block proposal");
+
+    // Wait for signer[0] to reject the block
+    wait_for_block_rejections(30, block.header.signer_signature_hash(), 1)
+        .expect("Failed to get expected rejections for Miner 1's block");
+
+    info!("Disable signer 0 from rejecting proposals");
+    test_observer::clear();
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![]);
+
+    // Unstall the other signers
+    TEST_VALIDATE_STALL.set(false);
 
     info!(
         "Block proposed, submitting another transaction that should not get included in the block"
@@ -12412,26 +12416,25 @@ fn signer_can_accept_rejected_block() {
     );
     submit_tx(&http_origin, &transfer_tx);
 
-    info!("Disable signer 0 from rejecting proposals");
-    test_observer::clear();
-    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![]);
-
     info!("Waiting for the block to be approved");
     wait_for(60, || {
         let blocks = test_observer::get_blocks();
-        let last_block = blocks.last().expect("No blocks found");
-        let height = last_block["block_height"].as_u64().unwrap();
-        if height > block_height_before {
-            return Ok(true);
+
+        // Look for a block with height `block_height_before + 1`
+        if let Some(block) = blocks
+            .iter()
+            .find(|block| block["block_height"].as_u64() == Some(block_height_before + 1))
+        {
+            if transfers_in_block(block) == 1 {
+                Ok(true) // Success: found the block with exactly 1 transfer
+            } else {
+                Err("Transfer included in block".into()) // Found the block, but it has the wrong number of transfers
+            }
+        } else {
+            Ok(false) // Keep waiting if the block hasn't appeared yet
         }
-        Ok(false)
     })
     .expect("Timed out waiting for block");
-
-    // Ensure that the block was the original block with just 1 transfer
-    let blocks = test_observer::get_blocks();
-    let block = blocks.last().expect("No blocks found");
-    assert_eq!(transfers_in_block(block), 1);
 
     signer_test.shutdown();
 }
