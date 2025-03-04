@@ -1591,24 +1591,15 @@ impl<'a> ClarityBlockConnection<'a, '_> {
     }
 
     pub fn start_transaction_processing(&mut self) -> ClarityTransactionConnection {
-        let store = &mut self.datastore;
-        let cost_track = &mut self.cost_track;
-        let header_db = self.header_db;
-        let burn_state_db = self.burn_state_db;
-        let mainnet = self.mainnet;
-        let chain_id = self.chain_id;
-        let mut log = RollbackWrapperPersistedLog::new();
-        log.nest();
-        ClarityTransactionConnection {
-            store,
-            cost_track,
-            header_db,
-            burn_state_db,
-            log: Some(log),
-            mainnet,
-            chain_id,
-            epoch: self.epoch,
-        }
+        ClarityTransactionConnection::new(
+            &mut self.datastore,
+            self.header_db,
+            self.burn_state_db,
+            &mut self.cost_track,
+            self.mainnet,
+            self.chain_id,
+            self.epoch,
+        )
     }
 
     /// Execute `todo` as a transaction in this block. The execution
