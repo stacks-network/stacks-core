@@ -1,4 +1,4 @@
-FROM rust:1.84-bookworm AS build
+FROM rust:bookworm AS build
 
 ARG STACKS_NODE_VERSION="No Version Info"
 ARG GIT_BRANCH='No Branch Info'
@@ -10,6 +10,7 @@ COPY . .
 
 RUN mkdir /out
 
+RUN rustup toolchain install
 RUN cargo build --features monitoring_prom,slog_json --release
 
 RUN cp target/release/stacks-node /out
