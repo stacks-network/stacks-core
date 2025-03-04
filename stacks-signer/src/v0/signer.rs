@@ -478,36 +478,9 @@ impl Signer {
         }
     }
 
-    #[cfg(any(test, feature = "testing"))]
-    fn send_block_response(&mut self, block_response: BlockResponse) {
-        const NUM_REPEATS: usize = 1;
-        let mut count = 0;
-        let public_keys = TEST_REPEAT_PROPOSAL_RESPONSE.get();
-        if !public_keys.contains(
-            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
-        ) {
-            count = NUM_REPEATS;
-        }
-        while count <= NUM_REPEATS {
-            let res = self
-                .stackerdb
-                .send_message_with_retry::<SignerMessage>(block_response.clone().into());
-            match res {
-                Err(e) => warn!("{self}: Failed to send block rejection to stacker-db: {e:?}"),
-                Ok(ack) if !ack.accepted => warn!(
-                    "{self}: Block rejection not accepted by stacker-db: {:?}",
-                    ack.reason
-                ),
-                Ok(_) => debug!("{self}: Block rejection accepted by stacker-db"),
-            }
-
-            count += 1;
-            sleep_ms(1000);
-        }
-    }
-
-    #[cfg(not(any(test, feature = "testing")))]
-    fn send_block_response(&mut self, block_response: BlockResponse) {
+    /// The actual `send_block_response` implementation. Declared so that we do
+    /// not need to duplicate in testing.
+    fn impl_send_block_response(&mut self, block_response: BlockResponse) {
         let res = self
             .stackerdb
             .send_message_with_retry::<SignerMessage>(block_response.clone().into());
@@ -519,6 +492,29 @@ impl Signer {
             ),
             Ok(_) => debug!("{self}: Block rejection accepted by stacker-db"),
         }
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    fn send_block_response(&mut self, block_response: BlockResponse) {
+        const NUM_REPEATS: usize = 1;
+        let mut count = 0;
+        let public_keys = TEST_REPEAT_PROPOSAL_RESPONSE.get();
+        if !public_keys.contains(
+            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
+        ) {
+            count = NUM_REPEATS;
+        }
+        while count <= NUM_REPEATS {
+            self.impl_send_block_response(block_response.clone());
+
+            count += 1;
+            sleep_ms(1000);
+        }
+    }
+
+    #[cfg(not(any(test, feature = "testing")))]
+    fn send_block_response(&mut self, block_response: BlockResponse) {
+        self.impl_send_block_response(block_response)
     }
 
     /// Handle block proposal messages submitted to signers stackerdb
