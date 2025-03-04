@@ -143,6 +143,8 @@ pub enum Error {
     /// NetError wrapper
     #[error("NetError: {0}")]
     NetError(#[from] NetError),
+    #[error("Timed out waiting for signatures")]
+    SignatureTimeout,
 }
 
 impl StacksNode {
