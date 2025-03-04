@@ -3606,7 +3606,7 @@ fn idle_tenure_extend_active_mining() {
     let amount =
         deploy_fee + tx_fee * num_txs * tenure_count * num_naka_blocks * 100 + 100 * tenure_count;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let idle_timeout = Duration::from_secs(60);
+    let idle_timeout = Duration::from_secs(30);
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr, amount), (deployer_addr, amount)],
@@ -3793,7 +3793,7 @@ fn idle_tenure_extend_active_mining() {
         );
 
         // Now, wait for the idle timeout to trigger
-        wait_for(extend_diff + 30, || {
+        wait_for(idle_timeout.as_secs() * 2, || {
             Ok(last_block_contains_tenure_change_tx(
                 TenureChangeCause::Extended,
             ))
