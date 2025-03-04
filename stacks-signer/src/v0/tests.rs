@@ -92,6 +92,9 @@ impl Signer {
                     warn!("{self}: Failed to mark block as locally rejected: {e:?}");
                 }
             };
+
+            block_info.reject_reason = Some(RejectReason::TestingDirective);
+
             // We must insert the block into the DB to prevent subsequent repeat proposals being accepted (should reject
             // as invalid since we rejected in a prior round if this crops up again)
             // in case this is the first time we saw this block. Safe to do since this is testing case only.
