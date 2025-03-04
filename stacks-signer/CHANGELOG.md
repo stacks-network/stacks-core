@@ -7,6 +7,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+## [3.1.0.0.7.0]
+
 ## Changed
 
 - Add new reject codes to the signer response for better visibility into why a block was rejected.
