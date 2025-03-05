@@ -657,7 +657,7 @@ impl Signer {
     }
 
     fn handle_prior_proposal_eval(&mut self, block_info: &BlockInfo) {
-        let Some(block_response) = self.determine_response(&block_info) else {
+        let Some(block_response) = self.determine_response(block_info) else {
             // We are still waiting for a response for this block. Do nothing.
             debug!(
                 "{self}: Received a block proposal for a block we are already validating.";
