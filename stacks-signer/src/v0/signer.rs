@@ -15,6 +15,8 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::mpsc::Sender;
+#[cfg(any(test, feature = "testing"))]
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
@@ -23,9 +25,15 @@ use blockstack_lib::net::api::postblock_proposal::{
 };
 use blockstack_lib::util_lib::db::Error as DBError;
 use clarity::types::chainstate::StacksPrivateKey;
+#[cfg(any(test, feature = "testing"))]
+use clarity::types::chainstate::StacksPublicKey;
 use clarity::types::{PrivateKey, StacksEpochId};
 use clarity::util::hash::{MerkleHashFunc, Sha512Trunc256Sum};
 use clarity::util::secp256k1::Secp256k1PublicKey;
+#[cfg(any(test, feature = "testing"))]
+use clarity::util::sleep_ms;
+#[cfg(any(test, feature = "testing"))]
+use clarity::util::tests::TestFlag;
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
     RejectReason, RejectReasonPrefix, SignerMessage,
@@ -43,6 +51,12 @@ use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
 use crate::Signer as SignerTrait;
+
+/// A global variable that can be used to make signers repeat their proposal
+/// response if their public key is in the provided list
+#[cfg(any(test, feature = "testing"))]
+pub static TEST_REPEAT_PROPOSAL_RESPONSE: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
+    LazyLock::new(TestFlag::default);
 
 /// Signer running mode (whether dry-run or real)
 #[derive(Debug)]
@@ -464,6 +478,45 @@ impl Signer {
         }
     }
 
+    /// The actual `send_block_response` implementation. Declared so that we do
+    /// not need to duplicate in testing.
+    fn impl_send_block_response(&mut self, block_response: BlockResponse) {
+        let res = self
+            .stackerdb
+            .send_message_with_retry::<SignerMessage>(block_response.clone().into());
+        match res {
+            Err(e) => warn!("{self}: Failed to send block rejection to stacker-db: {e:?}"),
+            Ok(ack) if !ack.accepted => warn!(
+                "{self}: Block rejection not accepted by stacker-db: {:?}",
+                ack.reason
+            ),
+            Ok(_) => debug!("{self}: Block rejection accepted by stacker-db"),
+        }
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    fn send_block_response(&mut self, block_response: BlockResponse) {
+        const NUM_REPEATS: usize = 1;
+        let mut count = 0;
+        let public_keys = TEST_REPEAT_PROPOSAL_RESPONSE.get();
+        if !public_keys.contains(
+            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
+        ) {
+            count = NUM_REPEATS;
+        }
+        while count <= NUM_REPEATS {
+            self.impl_send_block_response(block_response.clone());
+
+            count += 1;
+            sleep_ms(1000);
+        }
+    }
+
+    #[cfg(not(any(test, feature = "testing")))]
+    fn send_block_response(&mut self, block_response: BlockResponse) {
+        self.impl_send_block_response(block_response)
+    }
+
     /// Handle block proposal messages submitted to signers stackerdb
     fn handle_block_proposal(
         &mut self,
@@ -575,18 +628,7 @@ impl Signer {
         if let Some(block_response) = block_response {
             // We know proposal is invalid. Send rejection message, do not do further validation and do not store it.
             debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
-            let res = self
-                .stackerdb
-                .send_message_with_retry::<SignerMessage>(block_response.into());
-
-            match res {
-                Err(e) => warn!("{self}: Failed to send block rejection to stacker-db: {e:?}"),
-                Ok(ack) if !ack.accepted => warn!(
-                    "{self}: Block rejection not accepted by stacker-db: {:?}",
-                    ack.reason
-                ),
-                Ok(_) => debug!("{self}: Block rejection accepted by stacker-db"),
-            }
+            self.send_block_response(block_response);
         } else {
             // Just in case check if the last block validation submission timed out.
             self.check_submitted_block_proposal();
