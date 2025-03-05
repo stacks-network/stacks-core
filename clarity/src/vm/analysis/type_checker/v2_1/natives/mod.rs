@@ -20,19 +20,14 @@ use super::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most,
     compute_typecheck_cost, no_type, TypeChecker, TypeResult, TypingContext,
 };
-use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use crate::vm::analysis::errors::{CheckError, CheckErrors};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{
-    analysis_typecheck_cost, cost_functions, runtime_cost, CostErrors, CostOverflowingMath,
-    CostTracker,
-};
-use crate::vm::errors::{Error as InterpError, RuntimeErrorType};
+use crate::vm::costs::{analysis_typecheck_cost, runtime_cost, CostErrors, CostTracker};
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::signatures::{
     CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype, ASCII_40,
     UTF8_40,
 };
-use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
     BlockInfoProperty, BufferLength, BurnBlockInfoProperty, FixedFunction, FunctionArg,
     FunctionSignature, FunctionType, PrincipalData, StacksBlockInfoProperty, TenureInfoProperty,
@@ -79,7 +74,7 @@ fn check_special_list_cons(
         });
         costs.push(cost);
 
-        if let Some(cur_size) = entries_size.clone() {
+        if let Some(cur_size) = entries_size {
             entries_size = cur_size.checked_add(checked.size()?);
         }
         if let Some(cur_size) = entries_size {
@@ -263,6 +258,7 @@ pub fn check_special_tuple_cons(
     Ok(TypeSignature::TupleType(tuple_signature))
 }
 
+#[allow(clippy::unnecessary_lazy_evaluations)]
 fn check_special_let(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -1016,7 +1012,7 @@ impl TypedNativeFunction {
                     /// The return type of `principal-destruct` is a Response, in which the success
                     /// and error types are the same.
                     fn parse_principal_basic_type() -> Result<TupleTypeSignature, CheckErrors> {
-                        Ok(TupleTypeSignature::try_from(vec![
+                        TupleTypeSignature::try_from(vec![
                             ("version".into(), BUFF_1.clone()),
                             ("hash-bytes".into(), BUFF_20.clone()),
                             (
@@ -1032,7 +1028,7 @@ impl TypedNativeFunction {
                                 "FAIL: PrincipalDestruct failed to initialize type signature"
                                     .into(),
                             )
-                        })?)
+                        })
                     }
                     TypeSignature::ResponseType(Box::new((
                         parse_principal_basic_type()?.into(),

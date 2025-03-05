@@ -79,8 +79,8 @@ pub const ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 111;
 pub const ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 196;
 
 // segwit hrps
-pub const SEGWIT_MAINNET_HRP: &'static str = "bc";
-pub const SEGWIT_TESTNET_HRP: &'static str = "tb";
+pub const SEGWIT_MAINNET_HRP: &str = "bc";
+pub const SEGWIT_TESTNET_HRP: &str = "tb";
 
 // segwit witnes versions
 pub const SEGWIT_V0: u8 = 0;
@@ -234,8 +234,8 @@ impl LegacyBitcoinAddress {
         payload_bytes.copy_from_slice(b);
 
         Ok(LegacyBitcoinAddress {
-            network_id: network_id,
-            addrtype: addrtype,
+            network_id,
+            addrtype,
             bytes: Hash160(payload_bytes),
         })
     }
@@ -290,7 +290,7 @@ impl SegwitBitcoinAddress {
         let mut bytes_u5: Vec<u5> = vec![u5::try_from_u8(self.witness_version())
             .expect("FATAL: bad witness version does not fit into a u5")];
         bytes_u5.extend_from_slice(&bytes.to_base32());
-        let addr = bech32::encode(&hrp, bytes_u5, self.bech32_variant())
+        let addr = bech32::encode(hrp, bytes_u5, self.bech32_variant())
             .expect("FATAL: could not encode segwit address");
         addr
     }
@@ -302,9 +302,8 @@ impl SegwitBitcoinAddress {
 
     pub fn from_bech32(s: &str) -> Option<SegwitBitcoinAddress> {
         let (hrp, quintets, variant) = bech32::decode(s)
-            .map_err(|e| {
-                test_debug!("Failed to decode '{}': {:?}", s, &e);
-                e
+            .inspect_err(|_e| {
+                test_debug!("Failed to decode '{s}': {_e:?}");
             })
             .ok()?;
 
@@ -317,7 +316,7 @@ impl SegwitBitcoinAddress {
             None
         }?;
 
-        if quintets.len() == 0 || quintets.len() > 65 {
+        if quintets.is_empty() || quintets.len() > 65 {
             test_debug!("Invalid prog length: {}", quintets.len());
             return None;
         }
@@ -327,9 +326,8 @@ impl SegwitBitcoinAddress {
         prog.append(&mut quintets[1..].to_vec());
 
         let bytes = Vec::from_base32(&prog)
-            .map_err(|e| {
-                test_debug!("Failed to decode quintets: {:?}", &e);
-                e
+            .inspect_err(|_e| {
+                test_debug!("Failed to decode quintets: {_e:?}");
             })
             .ok()?;
 
@@ -396,27 +394,15 @@ impl SegwitBitcoinAddress {
     }
 
     pub fn is_p2wpkh(&self) -> bool {
-        if let SegwitBitcoinAddress::P2WPKH(..) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, SegwitBitcoinAddress::P2WPKH(..))
     }
 
     pub fn is_p2wsh(&self) -> bool {
-        if let SegwitBitcoinAddress::P2WSH(..) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, SegwitBitcoinAddress::P2WSH(..))
     }
 
     pub fn is_p2tr(&self) -> bool {
-        if let SegwitBitcoinAddress::P2TR(..) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, SegwitBitcoinAddress::P2TR(..))
     }
 }
 
@@ -436,8 +422,8 @@ impl BitcoinAddress {
         my_bytes.copy_from_slice(b);
 
         Ok(BitcoinAddress::Legacy(LegacyBitcoinAddress {
-            network_id: network_id,
-            addrtype: addrtype,
+            network_id,
+            addrtype,
             bytes: Hash160(my_bytes),
         }))
     }
@@ -478,7 +464,7 @@ impl BitcoinAddress {
             my_bytes.copy_from_slice(b);
 
             Some(BitcoinAddress::Legacy(LegacyBitcoinAddress {
-                network_id: network_id,
+                network_id,
                 addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                 bytes: Hash160(my_bytes),
             }))
@@ -492,7 +478,7 @@ impl BitcoinAddress {
             my_bytes.copy_from_slice(b);
 
             Some(BitcoinAddress::Legacy(LegacyBitcoinAddress {
-                network_id: network_id,
+                network_id,
                 addrtype: LegacyBitcoinAddressType::ScriptHash,
                 bytes: Hash160(my_bytes),
             }))
@@ -591,10 +577,10 @@ impl BitcoinAddress {
         } else {
             BitcoinNetworkType::Testnet
         };
-        if let Some(addr) = BitcoinAddress::from_scriptpubkey(network_id, scriptpubkey) {
-            if let BitcoinAddress::Segwit(sw) = addr {
-                return Some(BitcoinAddress::Segwit(sw));
-            }
+        if let Some(BitcoinAddress::Segwit(sw)) =
+            BitcoinAddress::from_scriptpubkey(network_id, scriptpubkey)
+        {
+            return Some(BitcoinAddress::Segwit(sw));
         }
         return None;
     }
@@ -781,12 +767,10 @@ mod tests {
                 (Ok(addr), Some(res)) => assert_eq!(BitcoinAddress::Legacy(addr), res),
                 (Err(_e), None) => {}
                 (Ok(_a), None) => {
-                    test_debug!("Decoded an address when we should not have");
-                    assert!(false);
+                    panic!("Decoded an address when we should not have");
                 }
                 (Err(_e), Some(_res)) => {
-                    test_debug!("Failed to decode when we should have: {}", fixture.addr);
-                    assert!(false);
+                    panic!("Failed to decode when we should have: {}", fixture.addr);
                 }
             }
         }
@@ -905,17 +889,15 @@ mod tests {
                 (Some(addr), Some(res)) => assert_eq!(addr, *res),
                 (None, None) => {}
                 (None, Some(_r)) => {
-                    test_debug!("Failed to decode an address when we should have");
-                    assert!(false);
+                    panic!("Failed to decode an address when we should have");
                 }
                 (Some(_a), None) => {
-                    test_debug!("Decoded an address when we should not have");
-                    assert!(false);
+                    panic!("Decoded an address when we should not have");
                 }
             }
             if let Some(addr) = &fixture.result {
                 assert_eq!(
-                    format!("{}", &addr).to_lowercase(),
+                    format!("{addr}").to_lowercase(),
                     fixture.addr.to_lowercase()
                 );
             }
@@ -1091,16 +1073,13 @@ mod tests {
                 (Some(addr), Some(res)) => assert_eq!(addr, res),
                 (None, None) => {}
                 (None, Some(_r)) => {
-                    test_debug!(
-                        "Failed to decode an address when we should have: {:?}, {:?}",
+                    panic!(
+                        "Failed to decode an address when we should have: {:?}, {_r:?}",
                         &fixture.scriptpubkey,
-                        &_r
                     );
-                    assert!(false);
                 }
                 (Some(_a), None) => {
-                    test_debug!("Decoded an address when we should not have");
-                    assert!(false);
+                    panic!("Decoded an address when we should not have");
                 }
             }
         }

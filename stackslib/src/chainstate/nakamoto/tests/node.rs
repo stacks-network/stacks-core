@@ -149,7 +149,7 @@ impl TestStacker {
                 let pox_key = StacksPrivateKey::from_seed(&[*key_seed, *key_seed]);
                 let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&pox_key));
                 let pox_addr =
-                    PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone());
+                    PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
 
                 TestStacker {
                     signer_private_key: signing_key.clone(),
@@ -291,7 +291,7 @@ impl TestMiner {
     }
 }
 
-impl<'a> NakamotoStagingBlocksConnRef<'a> {
+impl NakamotoStagingBlocksConnRef<'_> {
     pub fn get_any_normal_tenure(&self) -> Result<Option<ConsensusHash>, ChainstateError> {
         let qry = "SELECT consensus_hash FROM nakamoto_staging_blocks WHERE obtain_method != ?1 ORDER BY RANDOM() LIMIT 1";
         let args = params![&NakamotoBlockObtainMethod::Shadow.to_string()];
@@ -410,7 +410,7 @@ impl TestStacksNode {
             sortdb,
             burn_block,
             miner,
-            &last_tenure_id,
+            last_tenure_id,
             burn_amount,
             miner_key,
             parent_block_snapshot_opt,
@@ -444,7 +444,7 @@ impl TestStacksNode {
     /// Record the nakamoto blocks as a new tenure
     pub fn add_nakamoto_tenure_blocks(&mut self, tenure_blocks: Vec<NakamotoBlock>) {
         if let Some(last_tenure) = self.nakamoto_blocks.last_mut() {
-            if tenure_blocks.len() > 0 {
+            if !tenure_blocks.is_empty() {
                 // this tenure is overwriting the last tenure
                 if last_tenure.first().unwrap().header.consensus_hash
                     == tenure_blocks.first().unwrap().header.consensus_hash
@@ -510,7 +510,7 @@ impl TestStacksNode {
                 let mut cursor = first_parent.header.consensus_hash;
                 let parent_sortition = loop {
                     let parent_sortition =
-                        SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &cursor)
+                        SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &cursor)
                             .unwrap()
                             .unwrap();
 
@@ -618,7 +618,7 @@ impl TestStacksNode {
                 )
             } else {
                 let hdr =
-                    NakamotoChainState::get_canonical_block_header(self.chainstate.db(), &sortdb)
+                    NakamotoChainState::get_canonical_block_header(self.chainstate.db(), sortdb)
                         .unwrap()
                         .unwrap();
                 if hdr.anchored_header.as_stacks_nakamoto().is_some() {
@@ -743,7 +743,7 @@ impl TestStacksNode {
             let mut next_block_txs = block_builder(miner, chainstate, sortdb, &blocks);
             txs.append(&mut next_block_txs);
 
-            if txs.len() == 0 {
+            if txs.is_empty() {
                 break;
             }
 
@@ -766,7 +766,7 @@ impl TestStacksNode {
                     Some(nakamoto_parent)
                 } else {
                     warn!("Produced Tenure change transaction does not point to a real block");
-                    NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)?
+                    NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)?
                 }
             } else if let Some(tenure_change) = tenure_change.as_ref() {
                 // make sure parent tip is consistent with a tenure change
@@ -782,13 +782,13 @@ impl TestStacksNode {
                         Some(nakamoto_parent)
                     } else {
                         debug!("Use parent tip identified by canonical tip pointer (no parent block {})", &payload.previous_tenure_end);
-                        NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)?
+                        NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)?
                     }
                 } else {
                     panic!("Tenure change transaction does not have a TenureChange payload");
                 }
             } else {
-                NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)?
+                NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)?
             };
 
             let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
@@ -932,11 +932,7 @@ impl TestStacksNode {
                     ) {
                         Ok(accepted) => accepted,
                         Err(e) => {
-                            error!(
-                                "Failed to process nakamoto block: {:?}\n{:?}",
-                                &e, &nakamoto_block
-                            );
-                            panic!();
+                            panic!("Failed to process nakamoto block: {e:?}\n{nakamoto_block:?}");
                         }
                     }
                 } else {
@@ -952,7 +948,7 @@ impl TestStacksNode {
                         // canonical tip
                         let stacks_chain_tip = NakamotoChainState::get_canonical_block_header(
                             chainstate.db(),
-                            &sortdb,
+                            sortdb,
                         )?
                         .ok_or_else(|| ChainstateError::NoSuchBlockError)?;
                         let nakamoto_chain_tip = stacks_chain_tip
@@ -961,19 +957,17 @@ impl TestStacksNode {
                             .expect("FATAL: chain tip is not a Nakamoto block");
                         assert_eq!(nakamoto_chain_tip, &nakamoto_block.header);
                     }
+                } else if try_to_process {
+                    test_debug!(
+                        "Did NOT accept Nakamoto block {}",
+                        &block_to_store.block_id()
+                    );
+                    break;
                 } else {
-                    if try_to_process {
-                        test_debug!(
-                            "Did NOT accept Nakamoto block {}",
-                            &block_to_store.block_id()
-                        );
-                        break;
-                    } else {
-                        test_debug!(
-                            "Test will NOT process Nakamoto block {}",
-                            &block_to_store.block_id()
-                        );
-                    }
+                    test_debug!(
+                        "Test will NOT process Nakamoto block {}",
+                        &block_to_store.block_id()
+                    );
                 }
 
                 if !malleablize {
@@ -1007,7 +1001,7 @@ impl TestStacksNode {
         }
         Ok(blocks
             .into_iter()
-            .zip(all_malleablized_blocks.into_iter())
+            .zip(all_malleablized_blocks)
             .map(|((blk, sz, cost), mals)| (blk, sz, cost, mals))
             .collect())
     }
@@ -1016,7 +1010,7 @@ impl TestStacksNode {
         mut builder: NakamotoBlockBuilder,
         chainstate_handle: &StacksChainState,
         burn_dbconn: &SortitionHandleConn,
-        mut txs: Vec<StacksTransaction>,
+        txs: Vec<StacksTransaction>,
     ) -> Result<(NakamotoBlock, u64, ExecutionCost), ChainstateError> {
         use clarity::vm::ast::ASTRules;
 
@@ -1035,7 +1029,7 @@ impl TestStacksNode {
         let mut miner_tenure_info =
             builder.load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?;
         let mut tenure_tx = builder.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
-        for tx in txs.drain(..) {
+        for tx in txs.into_iter() {
             let tx_len = tx.tx_len();
             match builder.try_mine_tx_with_len(
                 &mut tenure_tx,
@@ -1088,7 +1082,7 @@ impl TestStacksNode {
     }
 }
 
-impl<'a> TestPeer<'a> {
+impl TestPeer<'_> {
     /// Get the Nakamoto parent linkage data for building atop the last-produced tenure or
     /// Stacks 2.x block.
     /// Returns (last-tenure-id, epoch2-parent, nakamoto-parent-tenure, parent-sortition)
@@ -1346,7 +1340,7 @@ impl<'a> TestPeer<'a> {
                 );
             }
             Err(e) => {
-                panic!("Failure fetching recipient set: {:?}", e);
+                panic!("Failure fetching recipient set: {e:?}");
             }
         };
 
@@ -1370,16 +1364,11 @@ impl<'a> TestPeer<'a> {
         let proof = self
             .miner
             .make_proof(&miner_key.public_key, &tip.sortition_hash)
-            .expect(&format!(
-                "FATAL: no private key for {}",
-                miner_key.public_key.to_hex()
-            ));
+            .unwrap_or_else(|| panic!("FATAL: no private key for {:?}", miner_key.public_key));
         self.sortdb = Some(sortdb);
         debug!(
-            "VRF proof made from {} over {}: {}",
-            &miner_key.public_key.to_hex(),
-            &tip.sortition_hash,
-            &proof.to_hex()
+            "VRF proof made from {:?} over {}: {proof:?}",
+            miner_key.public_key, &tip.sortition_hash
         );
         proof
     }
@@ -1509,14 +1498,12 @@ impl<'a> TestPeer<'a> {
             let mut malleablized_blocks: Vec<NakamotoBlock> = blocks
                 .clone()
                 .into_iter()
-                .map(|(_, _, _, malleablized)| malleablized)
-                .flatten()
+                .flat_map(|(_, _, _, malleablized)| malleablized)
                 .collect();
 
             peer.malleablized_blocks.append(&mut malleablized_blocks);
 
             let block_data = blocks
-                .clone()
                 .into_iter()
                 .map(|(blk, sz, cost, _)| (blk, sz, cost))
                 .collect();
@@ -1600,14 +1587,12 @@ impl<'a> TestPeer<'a> {
         let mut malleablized_blocks: Vec<NakamotoBlock> = blocks
             .clone()
             .into_iter()
-            .map(|(_, _, _, malleablized)| malleablized)
-            .flatten()
+            .flat_map(|(_, _, _, malleablized)| malleablized)
             .collect();
 
         self.malleablized_blocks.append(&mut malleablized_blocks);
 
         let block_data = blocks
-            .clone()
             .into_iter()
             .map(|(blk, sz, cost, _)| (blk, sz, cost))
             .collect();
@@ -1628,7 +1613,7 @@ impl<'a> TestPeer<'a> {
         let tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
 
         node.add_nakamoto_tenure_blocks(blocks.clone());
-        for block in blocks.into_iter() {
+        for block in blocks.iter() {
             let mut sort_handle = sortdb.index_handle(&tip);
             let block_id = block.block_id();
             debug!("Process Nakamoto block {} ({:?}", &block_id, &block.header);
@@ -1638,7 +1623,7 @@ impl<'a> TestPeer<'a> {
                 &mut sort_handle,
                 &mut node.chainstate,
                 &self.network.stacks_tip.block_id(),
-                &block,
+                block,
                 None,
                 NakamotoBlockObtainMethod::Pushed,
             )
@@ -1648,7 +1633,7 @@ impl<'a> TestPeer<'a> {
                 self.coord.handle_new_nakamoto_stacks_block().unwrap();
 
                 debug!("Begin check Nakamoto block {}", &block.block_id());
-                TestPeer::check_processed_nakamoto_block(&mut sortdb, &mut node.chainstate, &block);
+                TestPeer::check_processed_nakamoto_block(&mut sortdb, &mut node.chainstate, block);
                 debug!("Eegin check Nakamoto block {}", &block.block_id());
             } else {
                 test_debug!("Did NOT accept Nakamoto block {}", &block_id);
@@ -1668,7 +1653,7 @@ impl<'a> TestPeer<'a> {
     ) -> StacksHeaderInfo {
         let Ok(Some(tenure_start_header)) = NakamotoChainState::get_tenure_start_block_header(
             &mut chainstate.index_conn(),
-            &tip_block_id,
+            tip_block_id,
             tenure_id_consensus_hash,
         ) else {
             panic!(
@@ -1699,7 +1684,7 @@ impl<'a> TestPeer<'a> {
         // get the tenure-start block of the last tenure
         let Ok(Some(prev_tenure_start_header)) = NakamotoChainState::get_tenure_start_block_header(
             &mut chainstate.index_conn(),
-            &tip_block_id,
+            tip_block_id,
             prev_tenure_consensus_hash,
         ) else {
             panic!(
@@ -1960,7 +1945,7 @@ impl<'a> TestPeer<'a> {
         let parent_vrf_proof = NakamotoChainState::get_parent_vrf_proof(
             &mut chainstate.index_conn(),
             &block.header.parent_block_id,
-            &sortdb.conn(),
+            sortdb.conn(),
             &block.header.consensus_hash,
             &tenure_block_commit.txid,
         )
@@ -2029,34 +2014,32 @@ impl<'a> TestPeer<'a> {
                 .unwrap()
                 .is_none());
             }
-        } else {
-            if parent_block_header
-                .anchored_header
-                .as_stacks_nakamoto()
-                .is_some()
-            {
-                assert_eq!(
-                    NakamotoChainState::get_ongoing_tenure(
-                        &mut chainstate.index_conn(),
-                        &block.block_id()
-                    )
-                    .unwrap()
-                    .unwrap(),
-                    NakamotoChainState::get_ongoing_tenure(
-                        &mut chainstate.index_conn(),
-                        &parent_block_header.index_block_hash()
-                    )
-                    .unwrap()
-                    .unwrap()
-                );
-            } else {
-                assert!(NakamotoChainState::get_ongoing_tenure(
+        } else if parent_block_header
+            .anchored_header
+            .as_stacks_nakamoto()
+            .is_some()
+        {
+            assert_eq!(
+                NakamotoChainState::get_ongoing_tenure(
+                    &mut chainstate.index_conn(),
+                    &block.block_id()
+                )
+                .unwrap()
+                .unwrap(),
+                NakamotoChainState::get_ongoing_tenure(
                     &mut chainstate.index_conn(),
                     &parent_block_header.index_block_hash()
                 )
                 .unwrap()
-                .is_none());
-            }
+                .unwrap()
+            );
+        } else {
+            assert!(NakamotoChainState::get_ongoing_tenure(
+                &mut chainstate.index_conn(),
+                &parent_block_header.index_block_hash()
+            )
+            .unwrap()
+            .is_none());
         }
 
         // get_block_found_tenure
@@ -2093,43 +2076,41 @@ impl<'a> TestPeer<'a> {
                 .unwrap()
                 .is_none());
             }
-        } else {
-            if parent_block_header
-                .anchored_header
-                .as_stacks_nakamoto()
-                .is_some()
-            {
-                assert_eq!(
-                    NakamotoChainState::get_block_found_tenure(
-                        &mut chainstate.index_conn(),
-                        &block.block_id(),
-                        &block.header.consensus_hash
-                    )
-                    .unwrap()
-                    .unwrap(),
-                    NakamotoChainState::get_block_found_tenure(
-                        &mut chainstate.index_conn(),
-                        &block.block_id(),
-                        &parent_block_header.consensus_hash
-                    )
-                    .unwrap()
-                    .unwrap()
-                );
-            } else {
-                assert!(NakamotoChainState::get_block_found_tenure(
+        } else if parent_block_header
+            .anchored_header
+            .as_stacks_nakamoto()
+            .is_some()
+        {
+            assert_eq!(
+                NakamotoChainState::get_block_found_tenure(
+                    &mut chainstate.index_conn(),
+                    &block.block_id(),
+                    &block.header.consensus_hash
+                )
+                .unwrap()
+                .unwrap(),
+                NakamotoChainState::get_block_found_tenure(
                     &mut chainstate.index_conn(),
                     &block.block_id(),
                     &parent_block_header.consensus_hash
                 )
                 .unwrap()
-                .is_none());
-            }
+                .unwrap()
+            );
+        } else {
+            assert!(NakamotoChainState::get_block_found_tenure(
+                &mut chainstate.index_conn(),
+                &block.block_id(),
+                &parent_block_header.consensus_hash
+            )
+            .unwrap()
+            .is_none());
         }
 
         // get_nakamoto_tenure_length
         // compare the DB to the block's ancestors
         let ancestors = Self::load_nakamoto_tenure(chainstate, &block.block_id());
-        assert!(ancestors.len() > 0);
+        assert!(!ancestors.is_empty());
         assert_eq!(
             ancestors.len(),
             NakamotoChainState::get_nakamoto_tenure_length(chainstate.db(), &block.block_id())
@@ -2186,7 +2167,7 @@ impl<'a> TestPeer<'a> {
         assert!(NakamotoChainState::check_block_commit_vrf_seed(
             &mut chainstate.index_conn(),
             sortdb.conn(),
-            &block
+            block
         )
         .is_ok());
 
@@ -2412,7 +2393,7 @@ impl<'a> TestPeer<'a> {
                 chainstate.nakamoto_blocks_db(),
                 &sortdb.index_handle_at_tip(),
                 None,
-                &block,
+                block,
                 false,
                 0x80000000,
             )
@@ -2423,7 +2404,7 @@ impl<'a> TestPeer<'a> {
                 chainstate.nakamoto_blocks_db(),
                 &sortdb.index_handle_at_tip(),
                 Some(block.header.burn_spent),
-                &block,
+                block,
                 false,
                 0x80000000,
             )
@@ -2435,7 +2416,7 @@ impl<'a> TestPeer<'a> {
                     chainstate.nakamoto_blocks_db(),
                     &sortdb.index_handle_at_tip(),
                     Some(block.header.burn_spent + 1),
-                    &block,
+                    block,
                     false,
                     0x80000000,
                 )

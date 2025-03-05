@@ -347,14 +347,13 @@ impl NakamotoChainState {
         let vrf_proof =
             Self::get_block_vrf_proof(chainstate_conn, tip_block_id, &tenure_consensus_hash)?
                 .ok_or_else(|| {
-                    warn!("No VRF proof for {}", &tenure_consensus_hash);
+                    warn!("No VRF proof for {tenure_consensus_hash}");
                     ChainstateError::NoSuchBlockError
                 })
-                .map_err(|e| {
+                .inspect_err(|_e| {
                     warn!("Could not find shadow tenure VRF proof";
                       "tip_block_id" => %tip_block_id,
                       "shadow consensus_hash" => %tenure_consensus_hash);
-                    e
                 })?;
 
         return Ok(Some(vrf_proof));
@@ -484,7 +483,7 @@ impl NakamotoBlockBuilder {
         tip: &StacksHeaderInfo,
     ) -> Result<StacksAccount, Error> {
         let snapshot =
-            SortitionDB::get_block_snapshot_consensus(&sortdb.conn(), &tip.consensus_hash)?
+            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &tip.consensus_hash)?
                 .ok_or_else(|| Error::NoSuchBlockError)?;
 
         let account = chainstate
@@ -506,7 +505,7 @@ impl NakamotoBlockBuilder {
         chainstate_handle: &StacksChainState,
         burn_dbconn: &SortitionHandleConn,
         tenure_id_consensus_hash: &ConsensusHash,
-        mut txs: Vec<StacksTransaction>,
+        txs: Vec<StacksTransaction>,
     ) -> Result<(NakamotoBlock, u64, ExecutionCost), Error> {
         use clarity::vm::ast::ASTRules;
 
@@ -532,7 +531,7 @@ impl NakamotoBlockBuilder {
             &mut miner_tenure_info,
             tenure_id_consensus_hash,
         )?;
-        for tx in txs.drain(..) {
+        for tx in txs.into_iter() {
             let tx_len = tx.tx_len();
             match builder.try_mine_tx_with_len(
                 &mut tenure_tx,
@@ -632,8 +631,8 @@ impl NakamotoBlockBuilder {
             ))
         })?;
 
-        if naka_tip_header.anchored_header.height() + 1
-            <= naka_tip_tenure_start_header.anchored_header.height()
+        if naka_tip_header.anchored_header.height()
+            < naka_tip_tenure_start_header.anchored_header.height()
         {
             return Err(Error::InvalidStacksBlock(
                 "Nakamoto tip is lower than its tenure-start block".into(),
@@ -643,7 +642,7 @@ impl NakamotoBlockBuilder {
         let coinbase_payload = CoinbasePayload(naka_tip_tenure_start_header.index_block_hash().0);
 
         // the miner key is irrelevant
-        let miner_key = StacksPrivateKey::new();
+        let miner_key = StacksPrivateKey::random();
         let miner_addr = StacksAddress::p2pkh(mainnet, &StacksPublicKey::from_private(&miner_key));
         let miner_tx_auth = TransactionAuth::from_p2pkh(&miner_key).ok_or_else(|| {
             Error::InvalidStacksBlock(
@@ -694,7 +693,7 @@ impl NakamotoBlockBuilder {
         let coinbase_tx = {
             let mut tx_coinbase = StacksTransaction::new(
                 tx_version.clone(),
-                miner_tx_auth.clone(),
+                miner_tx_auth,
                 TransactionPayload::Coinbase(coinbase_payload, Some(recipient), Some(vrf_proof)),
             );
             tx_coinbase.chain_id = chain_id;
@@ -734,7 +733,7 @@ impl NakamotoBlockBuilder {
         block_txs.append(&mut txs);
         let (mut shadow_block, _size, _cost) = Self::make_shadow_block_from_txs(
             builder,
-            &chainstate,
+            chainstate,
             &sortdb.index_handle(&burn_tip.sortition_id),
             &tenure_id_consensus_hash,
             block_txs,
@@ -750,7 +749,7 @@ impl NakamotoBlockBuilder {
     }
 }
 
-impl<'a> NakamotoStagingBlocksConnRef<'a> {
+impl NakamotoStagingBlocksConnRef<'_> {
     /// Determine if we have a particular block with the given index hash.
     /// Returns Ok(true) if so
     /// Returns Ok(false) if not
@@ -812,7 +811,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
     }
 }
 
-impl<'a> NakamotoStagingBlocksTx<'a> {
+impl NakamotoStagingBlocksTx<'_> {
     /// Add a shadow block.
     /// Fails if there are any non-shadow blocks present in the tenure.
     pub fn add_shadow_block(&self, shadow_block: &NakamotoBlock) -> Result<(), ChainstateError> {
@@ -901,17 +900,17 @@ pub fn process_shadow_block(
         ) {
             Ok(receipt_opt) => receipt_opt,
             Err(ChainstateError::InvalidStacksBlock(msg)) => {
-                warn!("Encountered invalid block: {}", &msg);
+                warn!("Encountered invalid block: {msg}");
                 continue;
             }
             Err(ChainstateError::NetError(NetError::DeserializeError(msg))) => {
                 // happens if we load a zero-sized block (i.e. an invalid block)
-                warn!("Encountered invalid block (codec error): {}", &msg);
+                warn!("Encountered invalid block (codec error): {msg}");
                 continue;
             }
             Err(e) => {
                 // something else happened
-                return Err(e.into());
+                return Err(e);
             }
         };
 
@@ -968,7 +967,7 @@ pub fn shadow_chainstate_repair(
 ) -> Result<Vec<NakamotoBlock>, ChainstateError> {
     let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())?;
 
-    let header = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)?
+    let header = NakamotoChainState::get_canonical_block_header(chain_state.db(), sort_db)?
         .ok_or_else(|| ChainstateError::NoSuchBlockError)?;
 
     let header_sn =
@@ -987,7 +986,7 @@ pub fn shadow_chainstate_repair(
             .get_block_snapshot_by_height(burn_height)?
             .ok_or_else(|| ChainstateError::InvalidStacksBlock("No sortition at height".into()))?;
 
-        let header = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)?
+        let header = NakamotoChainState::get_canonical_block_header(chain_state.db(), sort_db)?
             .ok_or_else(|| ChainstateError::NoSuchBlockError)?;
 
         let chain_tip = header.index_block_hash();

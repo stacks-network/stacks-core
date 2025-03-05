@@ -135,6 +135,12 @@ pub struct StackerDBChunkAckData {
     pub code: Option<u32>,
 }
 
+impl fmt::Display for StackerDBChunkAckData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl SlotMetadata {
     /// Make a new unsigned slot metadata
     pub fn new_unsigned(
@@ -180,7 +186,7 @@ impl SlotMetadata {
             .map_err(|ve| Error::VerifyingError(ve.to_string()))?;
 
         let pubkh = Hash160::from_node_public_key(&pubk);
-        Ok(pubkh == principal.bytes)
+        Ok(pubkh == *principal.bytes())
     }
 }
 

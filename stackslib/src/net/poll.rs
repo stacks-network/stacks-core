@@ -74,9 +74,9 @@ impl NetworkState {
         let events = mio::Events::with_capacity(event_capacity);
 
         Ok(NetworkState {
-            poll: poll,
-            events: events,
-            event_capacity: event_capacity,
+            poll,
+            events,
+            event_capacity,
             servers: vec![],
             count: 1,
             event_map: HashMap::new(),
@@ -621,7 +621,7 @@ mod test {
             in_use.insert(next_eid);
         }
 
-        assert_eq!(ns.event_map.len(), 0);
+        assert!(ns.event_map.is_empty());
 
         for _ in 0..20 {
             assert!(ns.make_next_event_id(count, &in_use).is_none());

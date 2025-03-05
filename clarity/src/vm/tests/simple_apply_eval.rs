@@ -73,7 +73,7 @@ fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId
                              (+ z y))
                         x))";
     let contract_id = QualifiedContractIdentifier::transient();
-    let mut placeholder_context =
+    let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
     if let Ok(parsed_program) = parse(&contract_id, program, version, epoch) {
         let context = LocalContext::new();
@@ -84,7 +84,7 @@ fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId
             Ok(Value::Int(7)),
             eval(
                 &parsed_program[0],
-                &mut env.get_exec_environment(None, None, &mut placeholder_context),
+                &mut env.get_exec_environment(None, None, &placeholder_context),
                 &context
             )
         );
@@ -430,7 +430,7 @@ fn test_secp256k1() {
     )
     .unwrap();
     eprintln!("addr from privk {:?}", &addr);
-    let principal = addr.to_account_principal();
+    let principal = addr.into();
     if let PrincipalData::Standard(data) = principal {
         eprintln!("test_secp256k1 principal {:?}", data.to_address());
     }
@@ -446,7 +446,7 @@ fn test_secp256k1() {
     )
     .unwrap();
     eprintln!("addr from hex {:?}", addr);
-    let principal = addr.to_account_principal();
+    let principal: PrincipalData = addr.into();
     if let PrincipalData::Standard(data) = principal.clone() {
         eprintln!("test_secp256k1 principal {:?}", data.to_address());
     }
@@ -491,8 +491,8 @@ fn test_principal_of_fix() {
         .unwrap()],
     )
     .unwrap()
-    .to_account_principal();
-    let testnet_principal = StacksAddress::from_public_keys(
+    .into();
+    let testnet_principal: PrincipalData = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
         1,
@@ -502,7 +502,7 @@ fn test_principal_of_fix() {
         .unwrap()],
     )
     .unwrap()
-    .to_account_principal();
+    .into();
 
     // Clarity2, mainnet, should have a mainnet principal.
     assert_eq!(

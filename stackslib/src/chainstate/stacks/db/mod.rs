@@ -252,7 +252,7 @@ fn ExtendedStacksHeader_StacksBlockHeader_serialize<S: serde::Serializer>(
 ) -> Result<S::Ok, S::Error> {
     let bytes = header.serialize_to_vec();
     let header_hex = to_hex(&bytes);
-    s.serialize_str(&header_hex.as_str())
+    s.serialize_str(header_hex.as_str())
 }
 
 /// In ExtendedStacksHeader, encode the StacksBlockHeader as a hex string
@@ -413,7 +413,7 @@ impl StacksHeaderInfo {
 }
 
 impl FromRow<DBConfig> for DBConfig {
-    fn from_row<'a>(row: &'a Row) -> Result<DBConfig, db_error> {
+    fn from_row(row: &Row) -> Result<DBConfig, db_error> {
         let version: String = row.get_unwrap("version");
         let mainnet_i64: i64 = row.get_unwrap("mainnet");
         let chain_id_i64: i64 = row.get_unwrap("chain_id");
@@ -430,7 +430,7 @@ impl FromRow<DBConfig> for DBConfig {
 }
 
 impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
-    fn from_row<'a>(row: &'a Row) -> Result<StacksHeaderInfo, db_error> {
+    fn from_row(row: &Row) -> Result<StacksHeaderInfo, db_error> {
         let block_height: u64 = u64::from_column(row, "block_height")?;
         let index_root = TrieHash::from_column(row, "index_root")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
@@ -442,9 +442,8 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             .parse::<u64>()
             .map_err(|_| db_error::ParseError)?;
 
-        let header_type: HeaderTypeNames = row
-            .get("header_type")
-            .unwrap_or_else(|_e| HeaderTypeNames::Epoch2);
+        let header_type: HeaderTypeNames =
+            row.get("header_type").unwrap_or(HeaderTypeNames::Epoch2);
         let stacks_header: StacksBlockHeaderTypes = {
             match header_type {
                 HeaderTypeNames::Epoch2 => StacksBlockHeader::from_row(row)?.into(),
@@ -485,7 +484,7 @@ pub struct ClarityTx<'a, 'b> {
     pub config: DBConfig,
 }
 
-impl<'a, 'b> ClarityConnection for ClarityTx<'a, 'b> {
+impl ClarityConnection for ClarityTx<'_, '_> {
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
@@ -546,7 +545,7 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
     }
 
     #[cfg(test)]
-    pub fn commit_block(self) -> () {
+    pub fn commit_block(self) {
         self.block.commit_block();
     }
 
@@ -557,11 +556,7 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
         Ok(self.block.commit_mined_block(block_hash)?.get_total())
     }
 
-    pub fn commit_to_block(
-        self,
-        consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash,
-    ) -> () {
+    pub fn commit_to_block(self, consensus_hash: &ConsensusHash, block_hash: &BlockHeaderHash) {
         let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         self.block.commit_to_block(&index_block_hash);
     }
@@ -575,19 +570,19 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
         self.block.precommit_to_block(index_block_hash)
     }
 
-    pub fn commit_unconfirmed(self) -> () {
+    pub fn commit_unconfirmed(self) {
         self.block.commit_unconfirmed();
     }
 
-    pub fn rollback_block(self) -> () {
+    pub fn rollback_block(self) {
         self.block.rollback_block()
     }
 
-    pub fn rollback_unconfirmed(self) -> () {
+    pub fn rollback_unconfirmed(self) {
         self.block.rollback_unconfirmed()
     }
 
-    pub fn reset_cost(&mut self, cost: ExecutionCost) -> () {
+    pub fn reset_cost(&mut self, cost: ExecutionCost) {
         self.block.reset_block_cost(cost);
     }
 
@@ -681,9 +676,9 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "8";
+pub const CHAINSTATE_VERSION: &str = "8";
 
-const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
+const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
     r#"
     -- Anchored stacks block headers
@@ -815,7 +810,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     );"#,
 ];
 
-const CHAINSTATE_SCHEMA_2: &'static [&'static str] = &[
+const CHAINSTATE_SCHEMA_2: &[&str] = &[
     // new in epoch 2.05 (schema version 2)
     // table of blocks that applied an epoch transition
     r#"
@@ -827,7 +822,7 @@ const CHAINSTATE_SCHEMA_2: &'static [&'static str] = &[
     "#,
 ];
 
-const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
+const CHAINSTATE_SCHEMA_3: &[&str] = &[
     // new in epoch 2.1 (schema version 3)
     // track mature miner rewards paid out, so we can report them in Clarity.
     r#"
@@ -880,7 +875,7 @@ const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
     "#,
 ];
 
-const CHAINSTATE_INDEXES: &'static [&'static str] = &[
+const CHAINSTATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
     "CREATE INDEX IF NOT EXISTS block_headers_hash_index ON block_headers(block_hash,block_height);",
     "CREATE INDEX IF NOT EXISTS block_index_hash_index ON block_headers(index_block_hash,consensus_hash,block_hash);",
@@ -959,7 +954,7 @@ pub struct ChainStateBootData {
     pub first_burnchain_block_timestamp: u32,
     pub initial_balances: Vec<(PrincipalData, u64)>,
     pub pox_constants: PoxConstants,
-    pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+    pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
     pub get_bulk_initial_lockups:
         Option<Box<dyn FnOnce() -> Box<dyn Iterator<Item = ChainstateAccountLockup>>>>,
     pub get_bulk_initial_balances:
@@ -974,7 +969,7 @@ impl ChainStateBootData {
     pub fn new(
         burnchain: &Burnchain,
         initial_balances: Vec<(PrincipalData, u64)>,
-        post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
+        post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
     ) -> ChainStateBootData {
         ChainStateBootData {
             first_burnchain_block_hash: burnchain.first_block_hash.clone(),
@@ -1013,10 +1008,10 @@ impl StacksChainState {
             )?;
 
             if migrate {
-                StacksChainState::apply_schema_migrations(&tx, mainnet, chain_id)?;
+                StacksChainState::apply_schema_migrations(tx, mainnet, chain_id)?;
             }
 
-            StacksChainState::add_indexes(&tx)?;
+            StacksChainState::add_indexes(tx)?;
         }
 
         dbtx.instantiate_index()?;
@@ -1073,11 +1068,7 @@ impl StacksChainState {
         Ok(db_config.version != CHAINSTATE_VERSION)
     }
 
-    fn apply_schema_migrations<'a>(
-        tx: &DBTx<'a>,
-        mainnet: bool,
-        chain_id: u32,
-    ) -> Result<(), Error> {
+    fn apply_schema_migrations(tx: &DBTx<'_>, mainnet: bool, chain_id: u32) -> Result<(), Error> {
         if !Self::need_schema_migrations(tx, mainnet, chain_id)? {
             return Ok(());
         }
@@ -1149,7 +1140,7 @@ impl StacksChainState {
         Ok(())
     }
 
-    fn add_indexes<'a>(tx: &DBTx<'a>) -> Result<(), Error> {
+    fn add_indexes(tx: &DBTx<'_>) -> Result<(), Error> {
         for cmd in CHAINSTATE_INDEXES {
             tx.execute_batch(cmd)?;
         }
@@ -1210,7 +1201,7 @@ impl StacksChainState {
         test_debug!("Open MARF index at {}", marf_path);
         let mut open_opts = MARFOpenOpts::default();
         open_opts.external_blobs = true;
-        let marf = MARF::from_path(marf_path, open_opts).map_err(|e| db_error::IndexError(e))?;
+        let marf = MARF::from_path(marf_path, open_opts).map_err(db_error::IndexError)?;
         Ok(marf)
     }
 
@@ -1235,30 +1226,35 @@ impl StacksChainState {
 
     fn parse_genesis_address(addr: &str, mainnet: bool) -> PrincipalData {
         // Typical entries are BTC encoded addresses that need converted to STX
-        let mut stacks_address = match LegacyBitcoinAddress::from_b58(&addr) {
+        let stacks_address = match LegacyBitcoinAddress::from_b58(addr) {
             Ok(addr) => StacksAddress::from_legacy_bitcoin_address(&addr),
             // A few addresses (from legacy placeholder accounts) are already STX addresses
             _ => match StacksAddress::from_string(addr) {
                 Some(addr) => addr,
-                None => panic!("Failed to parsed genesis address {}", addr),
+                None => panic!("Failed to parsed genesis address {addr}"),
             },
         };
         // Convert a given address to the currently running network mode (mainnet vs testnet).
         // All addresses from the Stacks 1.0 import data should be mainnet, but we'll handle either case.
-        stacks_address.version = if mainnet {
-            match stacks_address.version {
+        let converted_version = if mainnet {
+            match stacks_address.version() {
                 C32_ADDRESS_VERSION_TESTNET_SINGLESIG => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
                 C32_ADDRESS_VERSION_TESTNET_MULTISIG => C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-                _ => stacks_address.version,
+                _ => stacks_address.version(),
             }
         } else {
-            match stacks_address.version {
+            match stacks_address.version() {
                 C32_ADDRESS_VERSION_MAINNET_SINGLESIG => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                 C32_ADDRESS_VERSION_MAINNET_MULTISIG => C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-                _ => stacks_address.version,
+                _ => stacks_address.version(),
             }
         };
-        let principal: PrincipalData = stacks_address.into();
+
+        let (_, bytes) = stacks_address.destruct();
+        let principal: PrincipalData = StandardPrincipalData::new(converted_version, bytes.0)
+            .expect("FATAL: infallible constant version byte is not valid")
+            .into();
+
         return principal;
     }
 
@@ -1335,7 +1331,7 @@ impl StacksChainState {
             }
 
             let mut allocation_events: Vec<StacksTransactionEvent> = vec![];
-            if boot_data.initial_balances.len() > 0 {
+            if !boot_data.initial_balances.is_empty() {
                 warn!(
                     "Seeding {} balances coming from the config",
                     boot_data.initial_balances.len()
@@ -1364,7 +1360,7 @@ impl StacksChainState {
                     let mut balances_count = 0;
                     let initial_balances = get_balances();
                     for balance in initial_balances {
-                        balances_count = balances_count + 1;
+                        balances_count += 1;
                         let stx_address =
                             StacksChainState::parse_genesis_address(&balance.address, mainnet);
                         StacksChainState::account_genesis_credit(
@@ -1526,7 +1522,7 @@ impl StacksChainState {
 
                                 let namespace = {
                                     let namespace_str = components[1];
-                                    if !BNS_CHARS_REGEX.is_match(&namespace_str) {
+                                    if !BNS_CHARS_REGEX.is_match(namespace_str) {
                                         panic!("Invalid namespace characters");
                                     }
                                     let buffer = namespace_str.as_bytes();
@@ -1554,7 +1550,7 @@ impl StacksChainState {
                                     StacksChainState::parse_genesis_address(&entry.owner, mainnet);
 
                                 let zonefile_hash = {
-                                    if entry.zonefile_hash.len() == 0 {
+                                    if entry.zonefile_hash.is_empty() {
                                         Value::buff_from(vec![]).unwrap()
                                     } else {
                                         let buffer = Hash160::from_hex(&entry.zonefile_hash)
@@ -1705,8 +1701,7 @@ impl StacksChainState {
                 &first_index_hash
             );
 
-            let first_root_hash =
-                tx.put_indexed_all(&parent_hash, &first_index_hash, &vec![], &vec![])?;
+            let first_root_hash = tx.put_indexed_all(&parent_hash, &first_index_hash, &[], &[])?;
 
             test_debug!(
                 "Boot code headers index_commit {}-{}",
@@ -1722,7 +1717,7 @@ impl StacksChainState {
             );
 
             StacksChainState::insert_stacks_block_header(
-                &mut tx,
+                &tx,
                 &parent_hash,
                 &first_tip_info,
                 &ExecutionCost::ZERO,
@@ -1804,7 +1799,7 @@ impl StacksChainState {
         let blocks_path = StacksChainState::blocks_path(path.clone());
         StacksChainState::mkdirs(&blocks_path)?;
 
-        let vm_state_path = StacksChainState::vm_state_path(path.clone());
+        let vm_state_path = StacksChainState::vm_state_path(path);
         StacksChainState::mkdirs(&vm_state_path)?;
         Ok(())
     }
@@ -1845,14 +1840,11 @@ impl StacksChainState {
             .to_string();
 
         let nakamoto_staging_blocks_path =
-            StacksChainState::static_get_nakamoto_staging_blocks_path(path.clone())?;
+            StacksChainState::static_get_nakamoto_staging_blocks_path(path)?;
         let nakamoto_staging_blocks_conn =
             StacksChainState::open_nakamoto_staging_blocks(&nakamoto_staging_blocks_path, true)?;
 
-        let init_required = match fs::metadata(&clarity_state_index_marf) {
-            Ok(_) => false,
-            Err(_) => true,
-        };
+        let init_required = fs::metadata(&clarity_state_index_marf).is_err();
 
         let state_index = StacksChainState::open_db(mainnet, chain_id, &header_index_root)?;
 
@@ -1869,18 +1861,18 @@ impl StacksChainState {
         let clarity_state = ClarityInstance::new(mainnet, chain_id, vm_state);
 
         let mut chainstate = StacksChainState {
-            mainnet: mainnet,
-            chain_id: chain_id,
-            clarity_state: clarity_state,
+            mainnet,
+            chain_id,
+            clarity_state,
             nakamoto_staging_blocks_conn,
-            state_index: state_index,
+            state_index,
             blocks_path: blocks_path_root,
             clarity_state_index_path: clarity_state_index_marf,
-            clarity_state_index_root: clarity_state_index_root,
+            clarity_state_index_root,
             root_path: path_str.to_string(),
             unconfirmed_state: None,
             fault_injection: StacksChainStateFaults::new(),
-            marf_opts: marf_opts,
+            marf_opts,
         };
 
         let mut receipts = vec![];
@@ -1911,25 +1903,25 @@ impl StacksChainState {
 
     /// Begin a transaction against the (indexed) stacks chainstate DB.
     /// Does not create a Clarity instance.
-    pub fn index_tx_begin<'a>(&'a mut self) -> StacksDBTx<'a> {
+    pub fn index_tx_begin(&mut self) -> StacksDBTx<'_> {
         StacksDBTx::new(&mut self.state_index, ())
     }
 
-    pub fn index_conn<'a>(&'a self) -> StacksDBConn<'a> {
+    pub fn index_conn(&self) -> StacksDBConn<'_> {
         StacksDBConn::new(&self.state_index, ())
     }
 
     /// Begin a transaction against the underlying DB
     /// Does not create a Clarity instance, and does not affect the MARF.
-    pub fn db_tx_begin<'a>(&'a mut self) -> Result<DBTx<'a>, Error> {
+    pub fn db_tx_begin(&mut self) -> Result<DBTx<'_>, Error> {
         self.state_index.storage_tx().map_err(Error::DBError)
     }
 
     /// Simultaneously begin a transaction against both the headers and blocks.
     /// Used when considering a new block to append the chain state.
-    pub fn chainstate_tx_begin<'a>(
-        &'a mut self,
-    ) -> Result<(ChainstateTx<'a>, &'a mut ClarityInstance), Error> {
+    pub fn chainstate_tx_begin(
+        &mut self,
+    ) -> Result<(ChainstateTx<'_>, &mut ClarityInstance), Error> {
         let config = self.config();
         let blocks_path = self.blocks_path.clone();
         let clarity_instance = &mut self.clarity_state;
@@ -2180,7 +2172,7 @@ impl StacksChainState {
     where
         F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
     {
-        if let Some(ref unconfirmed) = self.unconfirmed_state.as_ref() {
+        if let Some(unconfirmed) = self.unconfirmed_state.as_ref() {
             if !unconfirmed.is_readable() {
                 return Ok(None);
             }
@@ -2516,7 +2508,7 @@ impl StacksChainState {
                 Ok(txids)
             })
             .optional()?
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
 
         Ok(txids)
     }
@@ -2596,8 +2588,8 @@ impl StacksChainState {
 
     /// Append a Stacks block to an existing Stacks block, and grant the miner the block reward.
     /// Return the new Stacks header info.
-    pub fn advance_tip<'a>(
-        headers_tx: &mut StacksDBTx<'a>,
+    pub fn advance_tip(
+        headers_tx: &mut StacksDBTx<'_>,
         parent_tip: &StacksBlockHeader,
         parent_consensus_hash: &ConsensusHash,
         new_tip: &StacksBlockHeader,
@@ -2643,10 +2635,10 @@ impl StacksChainState {
         let root_hash = headers_tx.put_indexed_all(
             &parent_hash,
             &new_tip.index_block_hash(new_consensus_hash),
-            &vec![],
-            &vec![],
+            &[],
+            &[],
         )?;
-        let index_block_hash = new_tip.index_block_hash(&new_consensus_hash);
+        let index_block_hash = new_tip.index_block_hash(new_consensus_hash);
         test_debug!(
             "Headers index_indexed_all finished {}-{}",
             &parent_hash,
@@ -2759,11 +2751,8 @@ pub mod test {
         balances: Vec<(StacksAddress, u64)>,
     ) -> StacksChainState {
         let path = chainstate_path(test_name);
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            }
-            Err(_) => {}
+        if fs::metadata(&path).is_ok() {
+            fs::remove_dir_all(&path).unwrap();
         };
 
         let initial_balances = balances
@@ -2879,11 +2868,8 @@ pub mod test {
         };
 
         let path = chainstate_path(function_name!());
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            }
-            Err(_) => {}
+        if fs::metadata(&path).is_ok() {
+            fs::remove_dir_all(&path).unwrap();
         };
 
         let mut chainstate =
@@ -2903,7 +2889,7 @@ pub mod test {
         // Just update the expected value
         assert_eq!(
             genesis_root_hash.to_string(),
-            "c771616ff6acb710051238c9f4a3c48020a6d70cda637d34b89f2311a7e27886"
+            "0eb3076f0635ccdfcdc048afb8dea9048c5180a2e2b2952874af1d18f06321e8"
         );
     }
 
@@ -2969,11 +2955,8 @@ pub mod test {
         };
 
         let path = chainstate_path(function_name!());
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            }
-            Err(_) => {}
+        if fs::metadata(&path).is_ok() {
+            fs::remove_dir_all(&path).unwrap();
         };
 
         let mut chainstate =

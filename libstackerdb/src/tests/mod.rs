@@ -24,7 +24,7 @@ use crate::*;
 
 #[test]
 fn test_stackerdb_slot_metadata_sign_verify() {
-    let pk = StacksPrivateKey::new();
+    let pk = StacksPrivateKey::random();
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -32,10 +32,7 @@ fn test_stackerdb_slot_metadata_sign_verify() {
         &vec![StacksPublicKey::from_private(&pk)],
     )
     .unwrap();
-    let bad_addr = StacksAddress {
-        version: 0x01,
-        bytes: Hash160([0x01; 20]),
-    };
+    let bad_addr = StacksAddress::new(0x01, Hash160([0x01; 20])).unwrap();
 
     let chunk_data = StackerDBChunkData {
         slot_id: 0,

@@ -96,7 +96,7 @@ fn test_try_make_response() {
 
     let test_rpc = TestRPC::setup(function_name!());
     let mempool_txids = test_rpc.mempool_txids.clone();
-    let mempool_txids: HashSet<_> = mempool_txids.iter().map(|txid| txid.clone()).collect();
+    let mempool_txids: HashSet<_> = mempool_txids.iter().copied().collect();
 
     let sync_data = test_rpc
         .peer_1
@@ -131,17 +131,14 @@ fn test_stream_mempool_txs() {
     let chainstate_path = chainstate_path(function_name!());
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
-    let addr = StacksAddress {
-        version: 1,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
     let mut txs = vec![];
     let block_height = 10;
     let mut total_len = 0;
 
     let mut mempool_tx = mempool.tx_begin().unwrap();
     for i in 0..10 {
-        let pk = StacksPrivateKey::new();
+        let pk = StacksPrivateKey::random();
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
@@ -178,7 +175,7 @@ fn test_stream_mempool_txs() {
             txid.clone(),
             tx_bytes,
             tx_fee,
-            block_height as u64,
+            block_height,
             &origin_addr,
             origin_nonce,
             &sponsor_addr,
@@ -275,7 +272,7 @@ fn test_stream_mempool_txs() {
         decoded_txs.append(&mut next_txs);
 
         // for fun, use a page ID that is actually a well-formed prefix of a transaction
-        if let Some(ref tx) = decoded_txs.last() {
+        if let Some(tx) = decoded_txs.last() {
             let mut evil_buf = tx.serialize_to_vec();
             let mut evil_page_id = [0u8; 32];
             evil_page_id.copy_from_slice(&evil_buf[0..32]);
@@ -339,7 +336,7 @@ fn test_stream_mempool_txs() {
         test_debug!("Decode {}", to_hex(ptr));
         let (next_txs, next_page) = decode_tx_stream(&mut ptr).unwrap();
 
-        assert_eq!(next_txs.len(), 0);
+        assert!(next_txs.is_empty());
 
         if let Some(next_page) = next_page {
             page_id = next_page;
@@ -351,13 +348,10 @@ fn test_stream_mempool_txs() {
 
 #[test]
 fn test_decode_tx_stream() {
-    let addr = StacksAddress {
-        version: 1,
-        bytes: Hash160([0xff; 20]),
-    };
+    let addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
     let mut txs = vec![];
     for _i in 0..10 {
-        let pk = StacksPrivateKey::new();
+        let pk = StacksPrivateKey::random();
         let mut tx = StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
@@ -379,7 +373,7 @@ fn test_decode_tx_stream() {
     // valid empty tx stream
     let empty_stream = [0x11u8; 32];
     let (next_txs, next_page) = decode_tx_stream(&mut empty_stream.as_ref()).unwrap();
-    assert_eq!(next_txs.len(), 0);
+    assert!(next_txs.is_empty());
     assert_eq!(next_page, Some(Txid([0x11; 32])));
 
     // valid tx stream with a page id at the end
@@ -404,24 +398,18 @@ fn test_decode_tx_stream() {
     // garbage tx stream
     let garbage_stream = [0xff; 256];
     let err = decode_tx_stream(&mut garbage_stream.as_ref());
-    match err {
-        Err(NetError::ExpectedEndOfStream) => {}
-        x => {
-            error!("did not fail: {:?}", &x);
-            panic!();
-        }
-    }
+    assert!(
+        matches!(err, Err(NetError::ExpectedEndOfStream)),
+        "did not fail with correct error"
+    );
 
     // tx stream that is too short
     let short_stream = [0x33u8; 33];
     let err = decode_tx_stream(&mut short_stream.as_ref());
-    match err {
-        Err(NetError::ExpectedEndOfStream) => {}
-        x => {
-            error!("did not fail: {:?}", &x);
-            panic!();
-        }
-    }
+    assert!(
+        matches!(err, Err(NetError::ExpectedEndOfStream)),
+        "did not fail with correct error"
+    );
 
     // tx stream has a tx, a page ID, and then another tx
     let mut interrupted_stream = vec![];
@@ -430,11 +418,8 @@ fn test_decode_tx_stream() {
     txs[1].consensus_serialize(&mut interrupted_stream).unwrap();
 
     let err = decode_tx_stream(&mut &interrupted_stream[..]);
-    match err {
-        Err(NetError::ExpectedEndOfStream) => {}
-        x => {
-            error!("did not fail: {:?}", &x);
-            panic!();
-        }
-    }
+    assert!(
+        matches!(err, Err(NetError::ExpectedEndOfStream)),
+        "did not fail with correct error"
+    );
 }

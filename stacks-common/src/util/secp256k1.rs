@@ -13,7 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use rand::{thread_rng, RngCore};
+use rand::RngCore;
 use secp256k1;
 use secp256k1::ecdsa::{
     RecoverableSignature as LibSecp256k1RecoverableSignature, RecoveryId as LibSecp256k1RecoveryID,
@@ -24,11 +24,9 @@ use secp256k1::{
     PublicKey as LibSecp256k1PublicKey, Secp256k1, SecretKey as LibSecp256k1PrivateKey,
 };
 use serde::de::{Deserialize, Error as de_Error};
-use serde::ser::Error as ser_Error;
 use serde::Serialize;
 
 use super::hash::Sha256Sum;
-use crate::impl_byte_array_message_codec;
 use crate::types::{PrivateKey, PublicKey};
 use crate::util::hash::{hex_bytes, to_hex};
 
@@ -72,10 +70,10 @@ impl MessageSignature {
 
     #[cfg(any(test, feature = "testing"))]
     // test method for generating place-holder data
-    pub fn from_raw(sig: &Vec<u8>) -> MessageSignature {
+    pub fn from_raw(sig: &[u8]) -> MessageSignature {
         let mut buf = [0u8; 65];
         if sig.len() < 65 {
-            buf.copy_from_slice(&sig[..]);
+            buf.copy_from_slice(sig);
         } else {
             buf.copy_from_slice(&sig[..65]);
         }
@@ -123,7 +121,7 @@ impl Default for Secp256k1PublicKey {
 impl Secp256k1PublicKey {
     #[cfg(any(test, feature = "testing"))]
     pub fn new() -> Secp256k1PublicKey {
-        Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new())
+        Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random())
     }
 
     pub fn from_hex(hex_string: &str) -> Result<Secp256k1PublicKey, &'static str> {
@@ -249,14 +247,8 @@ impl PublicKey for Secp256k1PublicKey {
     }
 }
 
-impl Default for Secp256k1PrivateKey {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Secp256k1PrivateKey {
-    pub fn new() -> Secp256k1PrivateKey {
+    pub fn random() -> Secp256k1PrivateKey {
         let mut rng = rand::thread_rng();
         loop {
             // keep trying to generate valid bytes
@@ -442,8 +434,8 @@ mod tests {
     use secp256k1::{PublicKey as LibSecp256k1PublicKey, Secp256k1};
 
     use super::*;
+    use crate::util::get_epoch_time_ms;
     use crate::util::hash::hex_bytes;
-    use crate::util::{get_epoch_time_ms, log};
 
     struct KeyFixture<I, R> {
         input: I,
@@ -460,7 +452,7 @@ mod tests {
 
     #[test]
     fn test_parse_serialize_compressed() {
-        let mut t1 = Secp256k1PrivateKey::new();
+        let mut t1 = Secp256k1PrivateKey::random();
         t1.set_compress_public(true);
         let h_comp = t1.to_hex();
         t1.set_compress_public(false);
@@ -558,7 +550,7 @@ mod tests {
                 (_, _) => {
                     // either got a key when we didn't expect one, or didn't get a key when we did
                     // expect one.
-                    assert!(false, "Unexpected result: we either got a key when we didn't expect one, or didn't get a key when we did expect one.");
+                    panic!("Unexpected result: we either got a key when we didn't expect one, or didn't get a key when we did expect one.");
                 }
             }
         }
@@ -654,7 +646,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         for i in 0..100 {
-            let privk = Secp256k1PrivateKey::new();
+            let privk = Secp256k1PrivateKey::random();
             let pubk = Secp256k1PublicKey::from_private(&privk);
 
             let mut msg = [0u8; 32];

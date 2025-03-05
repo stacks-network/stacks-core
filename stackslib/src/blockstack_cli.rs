@@ -374,7 +374,7 @@ fn handle_contract_publish(
 ) -> Result<String, CliError> {
     let mut args = args_slice.to_vec();
 
-    if args.len() >= 1 && args[0] == "-h" {
+    if !args.is_empty() && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", PUBLISH_USAGE)));
     }
     if args.len() != 5 {
@@ -432,7 +432,7 @@ fn handle_contract_call(
     clarity_version: ClarityVersion,
 ) -> Result<String, CliError> {
     let mut args = args_slice.to_vec();
-    if args.len() >= 1 && args[0] == "-h" {
+    if !args.is_empty() && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", CALL_USAGE)));
     }
     if args.len() < 6 {
@@ -517,7 +517,7 @@ fn handle_token_transfer(
     chain_id: u32,
 ) -> Result<String, CliError> {
     let mut args = args_slice.to_vec();
-    if args.len() >= 1 && args[0] == "-h" {
+    if !args.is_empty() && args[0] == "-h" {
         return Err(CliError::Message(format!(
             "USAGE:\n {}",
             TOKEN_TRANSFER_USAGE
@@ -574,11 +574,11 @@ fn handle_token_transfer(
 }
 
 fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
-    if args.len() >= 1 && args[0] == "-h" {
+    if !args.is_empty() && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", GENERATE_USAGE)));
     }
 
-    let sk = StacksPrivateKey::new();
+    let sk = StacksPrivateKey::random();
     let pk = StacksPublicKey::from_private(&sk);
     let version = match version {
         TransactionVersion::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
@@ -605,7 +605,7 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<S
 }
 
 fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
-    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+    if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!("USAGE:\n {}", ADDRESSES_USAGE)));
     }
 
@@ -632,7 +632,7 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
 
     let mut b58_addr_slice = [0u8; 21];
     b58_addr_slice[0] = b58_version;
-    b58_addr_slice[1..].copy_from_slice(&stx_address.bytes.0);
+    b58_addr_slice[1..].copy_from_slice(&stx_address.bytes().0);
     let b58_address_string = b58::check_encode_slice(&b58_addr_slice);
     Ok(format!(
         "{{
@@ -644,7 +644,7 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
 }
 
 fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
-    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+    if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
             "Usage: {}\n",
             DECODE_TRANSACTION_USAGE
@@ -682,7 +682,7 @@ fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<S
 }
 
 fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
-    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+    if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
             "Usage: {}\n",
             DECODE_HEADER_USAGE
@@ -721,7 +721,7 @@ fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String
 }
 
 fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
-    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+    if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
             "Usage: {}\n",
             DECODE_BLOCK_USAGE
@@ -758,7 +758,7 @@ fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String,
 }
 
 fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
-    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+    if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
             "Usage: {}\n",
             DECODE_MICROBLOCK_USAGE
@@ -797,7 +797,7 @@ fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<St
 }
 
 fn decode_microblocks(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
-    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+    if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
             "Usage: {}\n",
             DECODE_MICROBLOCKS_USAGE
@@ -863,7 +863,7 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
         if let Some(custom_chain_id) = flag.split('=').nth(1) {
             // Attempt to parse the custom chain ID from hex
             chain_id = u32::from_str_radix(custom_chain_id.trim_start_matches("0x"), 16)
-                .map_err(|err| CliError::InvalidChainId(err))?;
+                .map_err(CliError::InvalidChainId)?;
         } else {
             // Use the default testnet chain ID
             chain_id = CHAIN_ID_TESTNET;
@@ -896,6 +896,8 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
 
 #[cfg(test)]
 mod test {
+    use stacks_common::util::cargo_workspace;
+
     use super::*;
 
     #[test]
@@ -917,7 +919,9 @@ mod test {
             "1",
             "0",
             "foo-contract",
-            "../sample-contracts/tokens.clar",
+            &cargo_workspace("sample/contracts/tokens.clar")
+                .display()
+                .to_string(),
         ];
 
         assert!(main_handler(to_string_vec(&publish_args)).is_ok());
@@ -928,7 +932,9 @@ mod test {
             "1",
             "0",
             "foo-contract",
-            "../sample-contracts/non-existent-tokens.clar",
+            &cargo_workspace("sample/contracts/non-existent-tokens.clar")
+                .display()
+                .to_string(),
         ];
 
         assert!(format!(
@@ -1152,7 +1158,7 @@ mod test {
                 .contains("Failed to decode hex")
         );
 
-        let sk = StacksPrivateKey::new();
+        let sk = StacksPrivateKey::random();
         let s = format!(
             "{}",
             sign_transaction_single_sig_standard("01zz", &sk).unwrap_err()

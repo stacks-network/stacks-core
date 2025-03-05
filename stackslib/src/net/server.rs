@@ -82,7 +82,7 @@ impl HttpPeer {
         }
     }
 
-    pub fn set_server_handle(&mut self, h: usize, addr: SocketAddr) -> () {
+    pub fn set_server_handle(&mut self, h: usize, addr: SocketAddr) {
         self.http_server_handle = h;
         self.http_server_addr = addr;
     }
@@ -91,8 +91,8 @@ impl HttpPeer {
     #[cfg_attr(test, mutants::skip)]
     pub fn find_free_conversation(&self, data_url: &UrlString) -> Option<usize> {
         for (event_id, convo) in self.peers.iter() {
-            if let Some(ref url) = convo.get_url() {
-                if *url == data_url && !convo.is_request_inflight() {
+            if let Some(url) = convo.get_url() {
+                if url == data_url && !convo.is_request_inflight() {
                     return Some(*event_id);
                 }
             }
@@ -287,7 +287,7 @@ impl HttpPeer {
 
     /// Deregister a socket/event pair
     #[cfg_attr(test, mutants::skip)]
-    pub fn deregister_http(&mut self, network_state: &mut NetworkState, event_id: usize) -> () {
+    pub fn deregister_http(&mut self, network_state: &mut NetworkState, event_id: usize) {
         test_debug!("Remove HTTP event {}", event_id);
         self.peers.remove(&event_id);
 
@@ -306,7 +306,7 @@ impl HttpPeer {
     }
 
     /// Remove slow/unresponsive peers
-    fn disconnect_unresponsive(&mut self, network_state: &mut NetworkState) -> () {
+    fn disconnect_unresponsive(&mut self, network_state: &mut NetworkState) {
         let now = get_epoch_time_secs();
         let mut to_remove = vec![];
         for (event_id, (socket, _, _, ts)) in self.connecting.iter() {
@@ -338,7 +338,7 @@ impl HttpPeer {
             }
         }
 
-        for event_id in to_remove.drain(0..) {
+        for event_id in to_remove.into_iter() {
             self.deregister_http(network_state, event_id);
         }
     }
@@ -429,56 +429,52 @@ impl HttpPeer {
         // get incoming bytes and update the state of this conversation.
         let mut convo_dead = false;
         let recv_res = convo.recv(client_sock);
-        match recv_res {
-            Err(e) => {
-                match e {
-                    net_error::PermanentlyDrained => {
-                        // socket got closed, but we might still have pending unsolicited messages
-                        debug!(
-                            "Remote HTTP peer disconnected event {} (socket {:?})",
-                            event_id, &client_sock
-                        );
-                        convo_dead = true;
-                    }
-                    net_error::InvalidMessage => {
-                        // got sent bad data.  If this was an inbound conversation, send it a HTTP
-                        // 400 and close the socket.
-                        debug!("Got a bad HTTP message on socket {:?}", &client_sock);
-                        match convo.reply_error(StacksHttpResponse::new_empty_error(
-                            &HttpBadRequest::new(
-                                "Received an HTTP message that the node could not decode"
-                                    .to_string(),
-                            ),
-                        )) {
-                            Ok(_) => {
-                                // prime the socket
-                                if let Err(e) = HttpPeer::saturate_http_socket(client_sock, convo) {
-                                    debug!(
-                                        "Failed to flush HTTP 400 to socket {:?}: {:?}",
-                                        &client_sock, &e
-                                    );
-                                    // convo_dead = true;
-                                }
-                            }
-                            Err(e) => {
+        if let Err(e) = recv_res {
+            match e {
+                net_error::PermanentlyDrained => {
+                    // socket got closed, but we might still have pending unsolicited messages
+                    debug!(
+                        "Remote HTTP peer disconnected event {} (socket {:?})",
+                        event_id, &client_sock
+                    );
+                    convo_dead = true;
+                }
+                net_error::InvalidMessage => {
+                    // got sent bad data.  If this was an inbound conversation, send it a HTTP
+                    // 400 and close the socket.
+                    debug!("Got a bad HTTP message on socket {:?}", &client_sock);
+                    match convo.reply_error(StacksHttpResponse::new_empty_error(
+                        &HttpBadRequest::new(
+                            "Received an HTTP message that the node could not decode".to_string(),
+                        ),
+                    )) {
+                        Ok(_) => {
+                            // prime the socket
+                            if let Err(e) = HttpPeer::saturate_http_socket(client_sock, convo) {
                                 debug!(
-                                    "Failed to reply HTTP 400 to socket {:?}: {:?}",
+                                    "Failed to flush HTTP 400 to socket {:?}: {:?}",
                                     &client_sock, &e
                                 );
-                                convo_dead = true;
+                                // convo_dead = true;
                             }
                         }
-                    }
-                    _ => {
-                        debug!(
-                            "Failed to receive HTTP data on event {} (socket {:?}): {:?}",
-                            event_id, &client_sock, &e
-                        );
-                        convo_dead = true;
+                        Err(e) => {
+                            debug!(
+                                "Failed to reply HTTP 400 to socket {:?}: {:?}",
+                                &client_sock, &e
+                            );
+                            convo_dead = true;
+                        }
                     }
                 }
+                _ => {
+                    debug!(
+                        "Failed to receive HTTP data on event {} (socket {:?}): {:?}",
+                        event_id, &client_sock, &e
+                    );
+                    convo_dead = true;
+                }
             }
-            Ok(_) => {}
         }
 
         // react to inbound messages -- do we need to send something out, or fulfill requests
@@ -522,7 +518,7 @@ impl HttpPeer {
         network_state: &mut NetworkState,
         node_state: &mut StacksNodeState,
         poll_state: &mut NetworkPollState,
-    ) -> () {
+    ) {
         for event_id in poll_state.ready.iter() {
             if self.connecting.contains_key(event_id) {
                 let (socket, data_url, initial_request_opt, _) =
@@ -560,7 +556,7 @@ impl HttpPeer {
         let mut to_remove = vec![];
         let mut msgs = vec![];
         for event_id in &poll_state.ready {
-            let Some(client_sock) = self.sockets.get_mut(&event_id) else {
+            let Some(client_sock) = self.sockets.get_mut(event_id) else {
                 debug!("Rogue socket event {}", event_id);
                 to_remove.push(*event_id);
                 continue;
@@ -730,11 +726,8 @@ mod test {
                 peer.step().unwrap();
 
                 // asked to yield?
-                match http_rx.try_recv() {
-                    Ok(_) => {
-                        break;
-                    }
-                    Err(_) => {}
+                if http_rx.try_recv().is_ok() {
+                    break;
                 }
             }
 
@@ -753,7 +746,7 @@ mod test {
             client_requests.push(request);
         }
 
-        for (i, request) in client_requests.drain(..).enumerate() {
+        for (i, request) in client_requests.into_iter().enumerate() {
             let (client_sx, client_rx) = sync_channel(1);
             let client = thread::spawn(move || {
                 let mut sock = TcpStream::connect(
@@ -779,7 +772,7 @@ mod test {
                 let mut resp = vec![];
                 match sock.read_to_end(&mut resp) {
                     Ok(_) => {
-                        if resp.len() == 0 {
+                        if resp.is_empty() {
                             test_debug!("Client {} did not receive any data", i);
                             client_sx.send(Err(net_error::PermanentlyDrained)).unwrap();
                             return;
@@ -799,7 +792,7 @@ mod test {
             client_handles.push(client_rx);
         }
 
-        for (i, client_thread) in client_threads.drain(..).enumerate() {
+        for (i, client_thread) in client_threads.into_iter().enumerate() {
             test_debug!("Client join {}", i);
             client_thread.join().unwrap();
             let resp = client_handles[i].recv().unwrap();
@@ -1046,21 +1039,11 @@ mod test {
                 match http_response_bytes_res {
                     Ok(http_response_bytes) => {
                         // should be a PeerInfo
-                        let response = match StacksHttp::parse_response(
+                        let response = StacksHttp::parse_response(
                             "GET",
                             "/v2/info",
                             &http_response_bytes,
-                        ) {
-                            Ok(res) => res,
-                            Err(e) => {
-                                eprintln!(
-                                    "Failed to parse /v2/info response from:\n{:?}\n{:?}",
-                                    &http_response_bytes, &e
-                                );
-                                assert!(false);
-                                unreachable!();
-                            }
-                        };
+                        ).unwrap_or_else(|e| panic!("Failed to parse /v2/info response from:\n{http_response_bytes:?}\n{e:?}"));
                         *have_success.borrow_mut() = true;
                         true
                     }
@@ -1106,7 +1089,7 @@ mod test {
             },
             |client_id, http_response_bytes_res| {
                 match http_response_bytes_res {
-                    Ok(bytes) => bytes.len() == 0, // should not have gotten any data
+                    Ok(bytes) => bytes.is_empty(), // should not have gotten any data
                     Err(net_error::PermanentlyDrained) => true,
                     Err(err) => {
                         // should have failed
@@ -1150,13 +1133,9 @@ mod test {
                 let auth_origin = TransactionAuth::from_p2pkh(&privk_origin).unwrap();
                 let mut tx_contract = StacksTransaction::new(
                     TransactionVersion::Testnet,
-                    auth_origin.clone(),
-                    TransactionPayload::new_smart_contract(
-                        &"hello-world".to_string(),
-                        &big_contract.to_string(),
-                        None,
-                    )
-                    .unwrap(),
+                    auth_origin,
+                    TransactionPayload::new_smart_contract("hello-world", &big_contract, None)
+                        .unwrap(),
                 );
 
                 tx_contract.chain_id = chainstate.config().chain_id;

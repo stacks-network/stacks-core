@@ -18,7 +18,7 @@
 use std::char::from_digit;
 use std::cmp::min;
 use std::io::{Cursor, Write};
-use std::{error, fmt, mem};
+use std::{fmt, mem};
 
 use ripemd::Ripemd160;
 #[cfg(feature = "serde")]
@@ -450,7 +450,7 @@ pub fn bitcoin_merkle_root(data: Vec<Sha256dHash>) -> Sha256dHash {
     bitcoin_merkle_root(next)
 }
 
-impl<'a, T: BitcoinHash> MerkleRoot for &'a [T] {
+impl<T: BitcoinHash> MerkleRoot for &[T] {
     fn merkle_root(&self) -> Sha256dHash {
         bitcoin_merkle_root(self.iter().map(|obj| obj.bitcoin_hash()).collect())
     }

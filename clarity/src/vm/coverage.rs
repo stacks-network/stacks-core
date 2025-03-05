@@ -3,7 +3,6 @@ use std::fs::File;
 use std::io::Write;
 
 use hashbrown::{HashMap, HashSet};
-use serde_json::Value as JsonValue;
 
 use super::functions::define::DefineFunctionsParsed;
 use super::EvalHook;
@@ -24,6 +23,12 @@ struct ContractFileInfo {
 #[derive(Serialize, Deserialize)]
 struct CoverageFileInfo {
     coverage: HashMap<String, Vec<(u32, u64)>>,
+}
+
+impl Default for CoverageReporter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CoverageReporter {

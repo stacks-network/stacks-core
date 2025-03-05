@@ -433,12 +433,7 @@ fn main() {
 }
 
 fn version() -> String {
-    stacks::version_string(
-        "stacks-node",
-        option_env!("STACKS_NODE_VERSION")
-            .or(option_env!("CARGO_PKG_VERSION"))
-            .unwrap_or("0.0.0.0"),
-    )
+    stacks::version_string("stacks-node", option_env!("STACKS_NODE_VERSION"))
 }
 
 fn print_help() {
@@ -456,7 +451,7 @@ SUBCOMMANDS:
 
 mainnet\t\tStart a node that will join and stream blocks from the public mainnet.
 
-mocknet\t\tStart a node based on a fast local setup emulating a burnchain. Ideal for smart contract development. 
+mocknet\t\tStart a node based on a fast local setup emulating a burnchain. Ideal for smart contract development.
 
 helium\t\tStart a node based on a local setup relying on a local instance of bitcoind.
 \t\tThe following bitcoin.conf is expected:
@@ -471,7 +466,7 @@ testnet\t\tStart a node that will join and stream blocks from the public testnet
 
 start\t\tStart a node with a config of your own. Can be used for joining a network, starting new chain, etc.
 \t\tArguments:
-\t\t  --config: path of the config (such as https://github.com/blockstack/stacks-blockchain/blob/master/testnet/stacks-node/conf/testnet-follower-conf.toml).
+\t\t  --config: path of the config (such as https://github.com/blockstack/stacks-blockchain/blob/master/sample/conf/testnet-follower-conf.toml).
 \t\tExample:
 \t\t  stacks-node start --config /path/to/config.toml
 

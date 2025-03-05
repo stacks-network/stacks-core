@@ -20,7 +20,6 @@ use std::{fmt, mem};
 
 use ripemd::Ripemd160;
 use serde::de::{Deserialize, Error as de_Error};
-use serde::ser::Error as ser_Error;
 use serde::Serialize;
 use sha2::{Digest, Sha256, Sha512, Sha512_256};
 use sha3::Keccak256;
@@ -29,7 +28,7 @@ use crate::types::StacksPublicKeyBuffer;
 use crate::util::pair::*;
 use crate::util::secp256k1::Secp256k1PublicKey;
 use crate::util::uint::Uint256;
-use crate::util::{log, HexError};
+use crate::util::HexError;
 
 // hash function for Merkle trees
 pub trait MerkleHashFunc {
@@ -382,9 +381,11 @@ pub struct MerklePathPoint<H: MerkleHashFunc> {
 pub type MerklePath<H> = Vec<MerklePathPoint<H>>;
 
 /// Merkle tree implementation with tagged nodes:
-/// * a leaf hash is H(0x00 + data)
-/// * a node hash is H(0x01 + left.hash + right.hash)
-/// An empty tree has root hash 0x00000...00000
+///
+/// * A leaf hash is `H(0x00 + data)`
+/// * A node hash is `H(0x01 + left.hash + right.hash)`
+///
+/// An empty tree has a root hash of `0x00000...00000`.
 ///
 /// NOTE: This is consensus-critical code, because it is used to generate the transaction Merkle
 /// tree roots in Stacks blocks.
@@ -396,7 +397,7 @@ where
         MerkleTree { nodes: vec![] }
     }
 
-    pub fn new(data: &Vec<Vec<u8>>) -> MerkleTree<H> {
+    pub fn new(data: &[Vec<u8>]) -> MerkleTree<H> {
         if data.is_empty() {
             return MerkleTree { nodes: vec![] };
         }
@@ -657,9 +658,7 @@ pub fn bytes_to_hex(s: &[u8]) -> String {
 
 #[cfg(test)]
 mod test {
-    use super::{
-        bin_bytes, hex_bytes, to_bin, DoubleSha256, MerkleHashFunc, MerklePath, MerkleTree,
-    };
+    use super::{bin_bytes, hex_bytes, to_bin, DoubleSha256, MerkleHashFunc, MerkleTree};
 
     struct MerkleTreeFixture {
         data: Vec<Vec<u8>>,
@@ -814,7 +813,7 @@ mod test {
             vec![127, 0, 0, 1]
         );
 
-        assert_eq!(bin_bytes("").unwrap().len(), 0);
+        assert!(bin_bytes("").unwrap().is_empty());
         assert!(bin_bytes("2").is_err());
     }
 }

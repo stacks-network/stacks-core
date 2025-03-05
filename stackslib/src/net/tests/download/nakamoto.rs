@@ -102,7 +102,7 @@ impl NakamotoDownloadStateMachine {
     }
 }
 
-impl<'a> NakamotoStagingBlocksConnRef<'a> {
+impl NakamotoStagingBlocksConnRef<'_> {
     pub fn load_nakamoto_tenure(
         &self,
         tip: &StacksBlockId,
@@ -144,7 +144,7 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
 #[test]
 fn test_nakamoto_tenure_downloader() {
     let ch = ConsensusHash([0x11; 20]);
-    let private_key = StacksPrivateKey::new();
+    let private_key = StacksPrivateKey::random();
     let mut test_signers = TestSigners::new(vec![]);
 
     let reward_set = test_signers.synthesize_reward_set();
@@ -173,15 +173,15 @@ fn test_nakamoto_tenure_downloader() {
         pubkey_hash: Hash160([0x02; 20]),
     };
     let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-    let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+    let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
 
     let coinbase_payload =
-        TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof.clone()));
+        TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof));
 
     let mut coinbase_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        coinbase_payload.clone(),
+        coinbase_payload,
     );
     coinbase_tx.chain_id = 0x80000000;
     coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -189,7 +189,7 @@ fn test_nakamoto_tenure_downloader() {
     let mut tenure_change_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        TransactionPayload::TenureChange(tenure_change_payload.clone()),
+        TransactionPayload::TenureChange(tenure_change_payload),
     );
     tenure_change_tx.chain_id = 0x80000000;
     tenure_change_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -209,8 +209,8 @@ fn test_nakamoto_tenure_downloader() {
     stx_transfer.anchor_mode = TransactionAnchorMode::OnChainOnly;
 
     let mut tenure_start_block = NakamotoBlock {
-        header: tenure_start_header.clone(),
-        txs: vec![tenure_change_tx.clone(), coinbase_tx.clone()],
+        header: tenure_start_header,
+        txs: vec![tenure_change_tx, coinbase_tx.clone()],
     };
     test_signers.sign_nakamoto_block(&mut tenure_start_block, 0);
 
@@ -266,14 +266,14 @@ fn test_nakamoto_tenure_downloader() {
     let mut next_tenure_change_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        TransactionPayload::TenureChange(next_tenure_change_payload.clone()),
+        TransactionPayload::TenureChange(next_tenure_change_payload),
     );
     next_tenure_change_tx.chain_id = 0x80000000;
     next_tenure_change_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
 
     let mut next_tenure_start_block = NakamotoBlock {
-        header: next_tenure_start_header.clone(),
-        txs: vec![next_tenure_change_tx.clone(), coinbase_tx.clone()],
+        header: next_tenure_start_header,
+        txs: vec![next_tenure_change_tx, coinbase_tx],
     };
     test_signers.sign_nakamoto_block(&mut next_tenure_start_block, 0);
 
@@ -289,9 +289,9 @@ fn test_nakamoto_tenure_downloader() {
         tenure_start_block.header.block_id(),
         next_tenure_start_block.header.consensus_hash.clone(),
         next_tenure_start_block.header.block_id(),
-        naddr.clone(),
+        naddr,
         reward_set.clone(),
-        reward_set.clone(),
+        reward_set,
     );
 
     // must be first block
@@ -398,13 +398,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
     ]];
 
     let rc_len = 10u64;
-    let peer = make_nakamoto_peer_from_invs(
-        function_name!(),
-        &observer,
-        rc_len as u32,
-        3,
-        bitvecs.clone(),
-    );
+    let peer = make_nakamoto_peer_from_invs(function_name!(), &observer, rc_len as u32, 3, bitvecs);
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     peer.mine_malleablized_blocks = false;
@@ -474,8 +468,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
     .unwrap()
     .unwrap();
 
-    assert!(unconfirmed_tenure.len() > 0);
-    assert!(last_confirmed_tenure.len() > 0);
+    assert!(!unconfirmed_tenure.is_empty());
+    assert!(!last_confirmed_tenure.is_empty());
 
     assert_eq!(
         unconfirmed_tenure.first().as_ref().unwrap().block_id(),
@@ -568,7 +562,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             ),
             1
         );
-        assert_eq!(full_schedule.len(), 0);
+        assert!(full_schedule.is_empty());
         assert_eq!(empty_downloaders.len(), 1);
     }
 
@@ -710,7 +704,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 tenure_tip.tip_block_id.clone(),
             )
         );
-        assert_eq!(utd.tenure_tip, Some(tenure_tip.clone()));
+        assert_eq!(utd.tenure_tip, Some(tenure_tip));
 
         // fill in blocks
         for (i, block) in unconfirmed_tenure.iter().enumerate().rev() {
@@ -809,7 +803,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 tenure_tip.tip_block_id.clone(),
             )
         );
-        assert_eq!(utd.tenure_tip, Some(tenure_tip.clone()));
+        assert_eq!(utd.tenure_tip, Some(tenure_tip));
 
         // fill in blocks
         for (i, block) in unconfirmed_tenure.iter().enumerate().rev() {
@@ -890,7 +884,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             &sortdb,
             &sort_tip,
             peer.chainstate(),
-            tenure_tip.clone(),
+            tenure_tip,
             &current_reward_sets,
         )
         .unwrap();
@@ -967,7 +961,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             &sortdb,
             &sort_tip,
             peer.chainstate(),
-            tenure_tip.clone(),
+            tenure_tip,
             &current_reward_sets,
         )
         .unwrap();
@@ -986,7 +980,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
 
     // Does not consume blocks beyond the highest processed block ID
     {
-        let mut utd = NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), None);
+        let mut utd = NakamotoUnconfirmedTenureDownloader::new(naddr, None);
         utd.confirmed_signer_keys = Some(
             current_reward_sets
                 .get(&tip_rc)
@@ -1030,7 +1024,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             &sortdb,
             &sort_tip,
             peer.chainstate(),
-            tenure_tip.clone(),
+            tenure_tip,
             &current_reward_sets,
         )
         .unwrap();
@@ -1071,7 +1065,7 @@ fn test_tenure_start_end_from_inventory() {
         public_key_hash: Hash160([0xff; 20]),
     };
     let rc_len = 12u16;
-    let mut invs = NakamotoTenureInv::new(0, u64::from(rc_len), 0, naddr.clone());
+    let mut invs = NakamotoTenureInv::new(0, u64::from(rc_len), 0, naddr);
     let pox_constants = PoxConstants::new(
         rc_len.into(),
         5,
@@ -1182,7 +1176,7 @@ fn test_tenure_start_end_from_inventory() {
         for (i, wt) in wanted_tenures.iter().enumerate() {
             if i >= (rc_len - 1).into() {
                 // nothing here
-                assert!(available.get(&wt.tenure_id_consensus_hash).is_none());
+                assert!(!available.contains_key(&wt.tenure_id_consensus_hash));
                 continue;
             }
 
@@ -1227,11 +1221,7 @@ fn test_tenure_start_end_from_inventory() {
                 // no tenure here
                 assert!(
                     tenure_start_end_opt.is_none(),
-                    "{}",
-                    format!(
-                        "tenure_start_end = {:?}, rc = {}, i = {}, wt = {:?}",
-                        &tenure_start_end_opt, rc, i, &wt
-                    )
+                    "tenure_start_end = {tenure_start_end_opt:?}, rc = {rc}, i = {i}, wt = {wt:?}"
                 );
             }
         }
@@ -1268,7 +1258,7 @@ fn test_tenure_start_end_from_inventory() {
             let tenure_start_end_opt = available.get(&wt.tenure_id_consensus_hash);
             if bits
                 .get(i as u16)
-                .expect(&format!("failed to get bit {}: {:?}", i, &wt))
+                .unwrap_or_else(|| panic!("failed to get bit {i}: {wt:?}"))
             {
                 // this sortition had a tenure
                 let mut j = (i + 1) as u16;
@@ -1294,13 +1284,11 @@ fn test_tenure_start_end_from_inventory() {
 
                 if tenure_start_index.is_some() && tenure_end_index.is_some() {
                     debug!(
-                        "rc = {}, i = {}, tenure_start_index = {:?}, tenure_end_index = {:?}",
-                        rc, i, &tenure_start_index, &tenure_end_index
+                        "rc = {rc}, i = {i}, tenure_start_index = {tenure_start_index:?}, tenure_end_index = {tenure_end_index:?}"
                     );
-                    let tenure_start_end = tenure_start_end_opt.expect(&format!(
-                        "failed to get tenure_start_end_opt: i = {}, wt = {:?}",
-                        i, &wt
-                    ));
+                    let tenure_start_end = tenure_start_end_opt.unwrap_or_else(|| {
+                        panic!("failed to get tenure_start_end_opt: i = {i}, wt = {wt:?}")
+                    });
                     assert_eq!(
                         all_tenures[tenure_start_index.unwrap() as usize].winning_block_id,
                         tenure_start_end.start_block_id
@@ -1316,11 +1304,7 @@ fn test_tenure_start_end_from_inventory() {
                 // no tenure here
                 assert!(
                     tenure_start_end_opt.is_none(),
-                    "{}",
-                    format!(
-                        "tenure_start_end = {:?}, rc = {}, i = {}, wt = {:?}",
-                        &tenure_start_end_opt, rc, i, &wt
-                    )
+                    "tenure_start_end = {tenure_start_end_opt:?}, rc = {rc}, i = {i}, wt = {wt:?}"
                 );
             }
         }
@@ -1337,13 +1321,7 @@ fn test_make_tenure_downloaders() {
     ]];
 
     let rc_len = 10u64;
-    let peer = make_nakamoto_peer_from_invs(
-        function_name!(),
-        &observer,
-        rc_len as u32,
-        3,
-        bitvecs.clone(),
-    );
+    let peer = make_nakamoto_peer_from_invs(function_name!(), &observer, rc_len as u32, 3, bitvecs);
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
@@ -1381,18 +1359,16 @@ fn test_make_tenure_downloaders() {
                 wanted_tenures[w].winning_block_id.0,
                 all_sortitions[i].winning_stacks_block_hash.0
             );
-            assert_eq!(wanted_tenures[w].processed, false);
+            assert!(!wanted_tenures[w].processed);
         }
 
-        let Err(NetError::DBError(DBError::NotFoundError)) =
-            NakamotoDownloadStateMachine::load_wanted_tenures(
-                &ih,
-                tip.block_height + 1,
-                tip.block_height + 2,
-            )
-        else {
-            panic!()
-        };
+        let err = NakamotoDownloadStateMachine::load_wanted_tenures(
+            &ih,
+            tip.block_height + 1,
+            tip.block_height + 2,
+        )
+        .unwrap_err();
+        assert!(matches!(err, NetError::DBError(DBError::NotFoundError)));
 
         let wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures(
             &ih,
@@ -1400,7 +1376,7 @@ fn test_make_tenure_downloaders() {
             tip.block_height,
         )
         .unwrap();
-        assert_eq!(wanted_tenures.len(), 0);
+        assert!(wanted_tenures.is_empty());
     }
 
     // test load_wanted_tenures_for_reward_cycle
@@ -1430,25 +1406,23 @@ fn test_make_tenure_downloaders() {
                 wanted_tenures[w].winning_block_id.0,
                 all_sortitions[i].winning_stacks_block_hash.0
             );
-            assert_eq!(wanted_tenures[w].processed, false);
+            assert!(!wanted_tenures[w].processed);
         }
 
-        let Err(NetError::DBError(DBError::NotFoundError)) =
-            NakamotoDownloadStateMachine::load_wanted_tenures_for_reward_cycle(
-                rc + 1,
-                &tip,
-                peer.sortdb(),
-            )
-        else {
-            panic!()
-        };
+        let err = NakamotoDownloadStateMachine::load_wanted_tenures_for_reward_cycle(
+            rc + 1,
+            &tip,
+            peer.sortdb(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, NetError::DBError(DBError::NotFoundError)));
     }
 
     // test load_wanted_tenures_at_tip
     {
         let sortdb = peer.sortdb();
         let wanted_tenures =
-            NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(None, &tip, sortdb, &vec![])
+            NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(None, &tip, sortdb, &[])
                 .unwrap();
         assert_eq!(wanted_tenures.len(), 2);
         for i in (tip.block_height - 1)..=(tip.block_height) {
@@ -1462,7 +1436,7 @@ fn test_make_tenure_downloaders() {
                 wanted_tenures[w].winning_block_id.0,
                 all_sortitions[i].winning_stacks_block_hash.0
             );
-            assert_eq!(wanted_tenures[w].processed, false);
+            assert!(!wanted_tenures[w].processed);
         }
 
         let all_wanted_tenures = wanted_tenures;
@@ -1470,7 +1444,7 @@ fn test_make_tenure_downloaders() {
             None,
             &tip,
             sortdb,
-            &vec![all_wanted_tenures[0].clone()],
+            &[all_wanted_tenures[0].clone()],
         )
         .unwrap();
         assert_eq!(wanted_tenures.len(), 1);
@@ -1485,7 +1459,7 @@ fn test_make_tenure_downloaders() {
                 .winning_stacks_block_hash
                 .0
         );
-        assert_eq!(wanted_tenures[0].processed, false);
+        assert!(!wanted_tenures[0].processed);
 
         let wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(
             None,
@@ -1494,7 +1468,7 @@ fn test_make_tenure_downloaders() {
             &all_wanted_tenures,
         )
         .unwrap();
-        assert_eq!(wanted_tenures.len(), 0);
+        assert!(wanted_tenures.is_empty());
     }
 
     // test inner_update_processed_wanted_tenures
@@ -1552,7 +1526,7 @@ fn test_make_tenure_downloaders() {
         };
 
         // full invs
-        let mut full_invs = NakamotoTenureInv::new(0, u64::from(rc_len), 0, naddr.clone());
+        let mut full_invs = NakamotoTenureInv::new(0, rc_len, 0, naddr.clone());
         full_invs.merge_tenure_inv(
             BitVec::<2100>::try_from(
                 vec![
@@ -1581,7 +1555,7 @@ fn test_make_tenure_downloaders() {
         }
 
         // sparse invs
-        let mut sparse_invs = NakamotoTenureInv::new(0, u64::from(rc_len), 0, naddr.clone());
+        let mut sparse_invs = NakamotoTenureInv::new(0, rc_len, 0, naddr.clone());
         sparse_invs.merge_tenure_inv(
             BitVec::<2100>::try_from(
                 vec![
@@ -1710,7 +1684,7 @@ fn test_make_tenure_downloaders() {
             public_key_hash: Hash160([0xff; 20]),
         };
 
-        let mut full_invs = NakamotoTenureInv::new(0, u64::from(rc_len), 0, naddr.clone());
+        let mut full_invs = NakamotoTenureInv::new(0, rc_len, 0, naddr.clone());
 
         full_invs.merge_tenure_inv(
             BitVec::<2100>::try_from(
@@ -1813,7 +1787,7 @@ fn test_make_tenure_downloaders() {
         assert_eq!(tenure_block_ids.len(), 1);
 
         let available_tenures = tenure_block_ids.get(&naddr).unwrap();
-        assert_eq!(available_tenures.len(), 0);
+        assert!(available_tenures.is_empty());
     }
 
     // test make_ibd_download_schedule
@@ -1941,7 +1915,7 @@ fn test_make_tenure_downloaders() {
             public_key_hash: Hash160([0xff; 20]),
         };
 
-        let mut full_invs = NakamotoTenureInv::new(0, u64::from(rc_len), 0, naddr.clone());
+        let mut full_invs = NakamotoTenureInv::new(0, rc_len, 0, naddr.clone());
 
         full_invs.merge_tenure_inv(
             BitVec::<2100>::try_from(
@@ -2070,7 +2044,7 @@ fn test_make_tenure_downloaders() {
         );
 
         // only made 4 downloaders got created
-        assert_eq!(ibd_schedule.len(), 0);
+        assert!(ibd_schedule.is_empty());
         assert_eq!(downloaders.downloaders.len(), 10);
         for (i, wt) in rc_wanted_tenures.iter().enumerate() {
             let naddrs = available.get(&wt.tenure_id_consensus_hash).unwrap();
@@ -2161,7 +2135,7 @@ fn test_nakamoto_download_run_2_peers() {
     for height in 25..tip.block_height {
         let ops = peer
             .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(&tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
@@ -2238,13 +2212,7 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
     ];
 
     let rc_len = 10u64;
-    let peer = make_nakamoto_peer_from_invs(
-        function_name!(),
-        &observer,
-        rc_len as u32,
-        5,
-        bitvecs.clone(),
-    );
+    let peer = make_nakamoto_peer_from_invs(function_name!(), &observer, rc_len as u32, 5, bitvecs);
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
@@ -2274,7 +2242,7 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
     for height in 25..tip.block_height {
         let ops = peer
             .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(&tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
@@ -2346,7 +2314,7 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
 /// tenure _T + 1_.  The unconfirmed downloader should be able to handle this case.
 #[test]
 fn test_nakamoto_microfork_download_run_2_peers() {
-    let sender_key = StacksPrivateKey::new();
+    let sender_key = StacksPrivateKey::random();
     let sender_addr = to_addr(&sender_key);
     let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
 
@@ -2358,18 +2326,14 @@ fn test_nakamoto_microfork_download_run_2_peers() {
 
     let rc_len = 10u64;
 
-    let (mut peer, _) = make_nakamoto_peers_from_invs_ext(
-        function_name!(),
-        &observer,
-        bitvecs.clone(),
-        |boot_plan| {
+    let (mut peer, _) =
+        make_nakamoto_peers_from_invs_ext(function_name!(), &observer, bitvecs, |boot_plan| {
             boot_plan
                 .with_pox_constants(rc_len as u32, 5)
                 .with_extra_peers(0)
                 .with_initial_balances(initial_balances)
                 .with_malleablized_blocks(false)
-        },
-    );
+        });
     peer.refresh_burnchain_view();
 
     let nakamoto_start =
@@ -2421,7 +2385,7 @@ fn test_nakamoto_microfork_download_run_2_peers() {
 
     peer.refresh_burnchain_view();
 
-    peer.mine_nakamoto_on(vec![fork_naka_block.clone()]);
+    peer.mine_nakamoto_on(vec![fork_naka_block]);
     let (fork_naka_block_2, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
     debug!(
         "test: confirmed fork with {}: {:?}",
@@ -2458,7 +2422,7 @@ fn test_nakamoto_microfork_download_run_2_peers() {
     for height in 25..tip.block_height {
         let ops = peer
             .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(&tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
@@ -2531,24 +2495,20 @@ fn test_nakamoto_microfork_download_run_2_peers() {
 #[test]
 fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
     let observer = TestEventObserver::new();
-    let sender_key = StacksPrivateKey::new();
+    let sender_key = StacksPrivateKey::random();
     let sender_addr = to_addr(&sender_key);
     let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
     let bitvecs = vec![vec![true, true, false, false]];
 
     let rc_len = 10u64;
-    let (mut peer, _) = make_nakamoto_peers_from_invs_ext(
-        function_name!(),
-        &observer,
-        bitvecs.clone(),
-        |boot_plan| {
+    let (mut peer, _) =
+        make_nakamoto_peers_from_invs_ext(function_name!(), &observer, bitvecs, |boot_plan| {
             boot_plan
                 .with_pox_constants(rc_len as u32, 5)
                 .with_extra_peers(0)
                 .with_initial_balances(initial_balances)
                 .with_malleablized_blocks(false)
-        },
-    );
+        });
     peer.refresh_burnchain_view();
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
@@ -2595,7 +2555,7 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
     );
 
     peer.refresh_burnchain_view();
-    peer.mine_nakamoto_on(vec![next_block.clone()]);
+    peer.mine_nakamoto_on(vec![next_block]);
 
     for _ in 0..9 {
         let (next_block, ..) = peer.single_block_tenure(&sender_key, |_| {}, |_| {}, |_| true);
@@ -2637,7 +2597,7 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
     for height in 25..tip.block_height {
         let ops = peer
             .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(&tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
@@ -2715,24 +2675,20 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
 #[test]
 fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
     let observer = TestEventObserver::new();
-    let sender_key = StacksPrivateKey::new();
+    let sender_key = StacksPrivateKey::random();
     let sender_addr = to_addr(&sender_key);
     let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
     let bitvecs = vec![vec![true, true]];
 
     let rc_len = 10u64;
-    let (mut peer, _) = make_nakamoto_peers_from_invs_ext(
-        function_name!(),
-        &observer,
-        bitvecs.clone(),
-        |boot_plan| {
+    let (mut peer, _) =
+        make_nakamoto_peers_from_invs_ext(function_name!(), &observer, bitvecs, |boot_plan| {
             boot_plan
                 .with_pox_constants(rc_len as u32, 5)
                 .with_extra_peers(0)
                 .with_initial_balances(initial_balances)
                 .with_malleablized_blocks(false)
-        },
-    );
+        });
     peer.refresh_burnchain_view();
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
@@ -2785,7 +2741,7 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
             );
 
             peer.refresh_burnchain_view();
-            peer.mine_nakamoto_on(vec![next_block.clone()]);
+            peer.mine_nakamoto_on(vec![next_block]);
         }
         Err(ChainstateError::NoSuchBlockError) => {
             // tried to mine but our commit was invalid (e.g. because we haven't mined often
@@ -2843,7 +2799,7 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
     for height in 25..tip.block_height {
         let ops = peer
             .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(&tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
@@ -2922,24 +2878,20 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
 #[test]
 fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
     let observer = TestEventObserver::new();
-    let sender_key = StacksPrivateKey::new();
+    let sender_key = StacksPrivateKey::random();
     let sender_addr = to_addr(&sender_key);
     let initial_balances = vec![(sender_addr.to_account_principal(), 1000000000)];
     let bitvecs = vec![vec![true, true]];
 
     let rc_len = 10u64;
-    let (mut peer, _) = make_nakamoto_peers_from_invs_ext(
-        function_name!(),
-        &observer,
-        bitvecs.clone(),
-        |boot_plan| {
+    let (mut peer, _) =
+        make_nakamoto_peers_from_invs_ext(function_name!(), &observer, bitvecs, |boot_plan| {
             boot_plan
                 .with_pox_constants(rc_len as u32, 5)
                 .with_extra_peers(0)
                 .with_initial_balances(initial_balances)
                 .with_malleablized_blocks(false)
-        },
-    );
+        });
     peer.refresh_burnchain_view();
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
@@ -2992,7 +2944,7 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
             );
 
             peer.refresh_burnchain_view();
-            peer.mine_nakamoto_on(vec![next_block.clone()]);
+            peer.mine_nakamoto_on(vec![next_block]);
         }
         Err(ChainstateError::NoSuchBlockError) => {
             // tried to mine but our commit was invalid (e.g. because we haven't mined often
@@ -3052,7 +3004,7 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
     for height in 25..tip.block_height {
         let ops = peer
             .get_burnchain_block_ops_at_height(height + 1)
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(&tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();

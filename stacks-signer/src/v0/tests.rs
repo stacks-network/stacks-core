@@ -16,7 +16,7 @@
 use std::sync::LazyLock;
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use libsigner::v0::messages::{BlockResponse, RejectCode};
+use libsigner::v0::messages::{BlockResponse, RejectReason};
 use libsigner::BlockProposal;
 use slog::{slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksPublicKey;
@@ -40,6 +40,13 @@ pub static TEST_PAUSE_BLOCK_BROADCAST: LazyLock<TestFlag<bool>> = LazyLock::new(
 
 /// A global variable that can be used to skip broadcasting the block to the network
 pub static TEST_SKIP_BLOCK_BROADCAST: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+
+/// A global variable that can be used to pause the block validation submission
+pub static TEST_STALL_BLOCK_VALIDATION_SUBMISSION: LazyLock<TestFlag<bool>> =
+    LazyLock::new(TestFlag::default);
+
+/// A global variable that can be used to prevent signer cleanup
+pub static TEST_SKIP_SIGNER_CLEANUP: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 impl Signer {
     /// Skip the block broadcast if the TEST_SKIP_BLOCK_BROADCAST flag is set
@@ -81,7 +88,9 @@ impl Signer {
                 "consensus_hash" => %block_proposal.block.header.consensus_hash
             );
             if let Err(e) = block_info.mark_locally_rejected() {
-                warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
+                if !block_info.has_reached_consensus() {
+                    warn!("{self}: Failed to mark block as locally rejected: {e:?}");
+                }
             };
             // We must insert the block into the DB to prevent subsequent repeat proposals being accepted (should reject
             // as invalid since we rejected in a prior round if this crops up again)
@@ -89,17 +98,7 @@ impl Signer {
             self.signer_db
                 .insert_block(block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
-            Some(BlockResponse::rejected(
-                block_proposal.block.header.signer_signature_hash(),
-                RejectCode::TestingDirective,
-                &self.private_key,
-                self.mainnet,
-                self.signer_db.calculate_tenure_extend_timestamp(
-                    self.proposal_config.tenure_idle_timeout,
-                    &block_proposal.block,
-                    false,
-                ),
-            ))
+            Some(self.create_block_rejection(RejectReason::TestingDirective, &block_proposal.block))
         } else {
             block_response
         }
@@ -137,5 +136,17 @@ impl Signer {
             return true;
         }
         false
+    }
+
+    /// Stall the block validation submission if the TEST_STALL_BLOCK_VALIDATION_SUBMISSION flag is set
+    pub fn test_stall_block_validation_submission(&self) {
+        if TEST_STALL_BLOCK_VALIDATION_SUBMISSION.get() {
+            // Do an extra check just so we don't log EVERY time.
+            warn!("{self}: Block validation submission is stalled due to testing directive");
+            while TEST_STALL_BLOCK_VALIDATION_SUBMISSION.get() {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            warn!("{self}: Block validation submission is no longer stalled due to testing directive. Continuing...");
+        }
     }
 }

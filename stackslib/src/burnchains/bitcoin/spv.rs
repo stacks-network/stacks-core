@@ -46,23 +46,23 @@ use crate::util_lib::db::{
 
 const BLOCK_HEADER_SIZE: u64 = 81;
 
-pub const BITCOIN_GENESIS_BLOCK_HASH_MAINNET: &'static str =
+pub const BITCOIN_GENESIS_BLOCK_HASH_MAINNET: &str =
     "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";
-pub const BITCOIN_GENESIS_BLOCK_MERKLE_ROOT_MAINNET: &'static str =
+pub const BITCOIN_GENESIS_BLOCK_MERKLE_ROOT_MAINNET: &str =
     "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b";
 
-pub const BITCOIN_GENESIS_BLOCK_HASH_TESTNET: &'static str =
+pub const BITCOIN_GENESIS_BLOCK_HASH_TESTNET: &str =
     "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943";
 
-pub const BITCOIN_GENESIS_BLOCK_HASH_REGTEST: &'static str =
+pub const BITCOIN_GENESIS_BLOCK_HASH_REGTEST: &str =
     "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206";
 
 pub const BLOCK_DIFFICULTY_CHUNK_SIZE: u64 = 2016;
 const BLOCK_DIFFICULTY_INTERVAL: u32 = 14 * 24 * 60 * 60; // two weeks, in seconds
 
-pub const SPV_DB_VERSION: &'static str = "3";
+pub const SPV_DB_VERSION: &str = "3";
 
-const SPV_INITIAL_SCHEMA: &[&'static str] = &[
+const SPV_INITIAL_SCHEMA: &[&str] = &[
     r#"
     CREATE TABLE headers(
         version INTEGER NOT NULL,
@@ -81,7 +81,7 @@ const SPV_INITIAL_SCHEMA: &[&'static str] = &[
 // unlike the `headers` table, this table will never be deleted from, since we use it to determine
 // whether or not newly-arrived headers represent a better chain than the best-known chain.  The
 // only way to _replace_ a row is to find a header difficulty interval with a _higher_ work score.
-const SPV_SCHEMA_2: &[&'static str] = &[r#"
+const SPV_SCHEMA_2: &[&str] = &[r#"
     CREATE TABLE chain_work(
         interval INTEGER PRIMARY KEY,
         work TEXT NOT NULL  -- 32-byte (256-bit) integer
@@ -89,7 +89,7 @@ const SPV_SCHEMA_2: &[&'static str] = &[r#"
     "#];
 
 // force the node to go and store the burnchain block header hash as well
-const SPV_SCHEMA_3: &[&'static str] = &[
+const SPV_SCHEMA_3: &[&str] = &[
     r#"
     DROP TABLE headers;
     "#,
@@ -132,7 +132,7 @@ impl FromColumn<Sha256dHash> for Sha256dHash {
 }
 
 impl FromRow<BlockHeader> for BlockHeader {
-    fn from_row<'a>(row: &'a Row) -> Result<BlockHeader, db_error> {
+    fn from_row(row: &Row) -> Result<BlockHeader, db_error> {
         let version: u32 = row.get_unwrap("version");
         let prev_blockhash: Sha256dHash = Sha256dHash::from_column(row, "prev_blockhash")?;
         let merkle_root: Sha256dHash = Sha256dHash::from_column(row, "merkle_root")?;
@@ -167,9 +167,9 @@ impl SpvClient {
             start_block_height: start_block,
             end_block_height: end_block,
             cur_block_height: start_block,
-            network_id: network_id,
-            readwrite: readwrite,
-            reverse_order: reverse_order,
+            network_id,
+            readwrite,
+            reverse_order,
             headers_db: conn,
             check_txcount: true,
         };
@@ -197,9 +197,9 @@ impl SpvClient {
             start_block_height: start_block,
             end_block_height: end_block,
             cur_block_height: start_block,
-            network_id: network_id,
-            readwrite: readwrite,
-            reverse_order: reverse_order,
+            network_id,
+            readwrite,
+            reverse_order,
             headers_db: conn,
             check_txcount: true,
         };
@@ -225,7 +225,7 @@ impl SpvClient {
         &mut self.headers_db
     }
 
-    pub fn tx_begin<'a>(&'a mut self) -> Result<DBTx<'a>, btc_error> {
+    pub fn tx_begin(&mut self) -> Result<DBTx<'_>, btc_error> {
         if !self.readwrite {
             return Err(db_error::ReadOnly.into());
         }
@@ -274,7 +274,7 @@ impl SpvClient {
         tx.execute("UPDATE db_config SET version = ?1", &[version])
             .map_err(db_error::SqliteError)
             .map_err(|e| e.into())
-            .and_then(|_| Ok(()))
+            .map(|_| ())
     }
 
     #[cfg(test)]
@@ -328,13 +328,11 @@ impl SpvClient {
             } else {
                 return Err(btc_error::DBError(db_error::NoDBError));
             }
-        } else {
+        } else if readwrite {
             // can just open
-            if readwrite {
-                OpenFlags::SQLITE_OPEN_READ_WRITE
-            } else {
-                OpenFlags::SQLITE_OPEN_READ_ONLY
-            }
+            OpenFlags::SQLITE_OPEN_READ_WRITE
+        } else {
+            OpenFlags::SQLITE_OPEN_READ_ONLY
         };
 
         let mut conn = sqlite_open(headers_path, open_flags, false)
@@ -354,11 +352,11 @@ impl SpvClient {
     pub fn is_initialized(&self) -> Result<(), btc_error> {
         fs::metadata(&self.headers_path)
             .map_err(btc_error::FilesystemError)
-            .and_then(|_m| Ok(()))
+            .map(|_m| ())
     }
 
     /// Get the block range to scan
-    pub fn set_scan_range(&mut self, start_block: u64, end_block: Option<u64>) -> () {
+    pub fn set_scan_range(&mut self, start_block: u64, end_block: Option<u64>) {
         self.start_block_height = start_block;
         self.end_block_height = end_block;
         self.cur_block_height = start_block;
@@ -526,10 +524,10 @@ impl SpvClient {
     /// * headers must be contiguous
     fn validate_header_integrity(
         start_height: u64,
-        headers: &Vec<LoneBlockHeader>,
+        headers: &[LoneBlockHeader],
         check_txcount: bool,
     ) -> Result<(), btc_error> {
-        if headers.len() == 0 {
+        if headers.is_empty() {
             return Ok(());
         }
 
@@ -724,13 +722,13 @@ impl SpvClient {
             .next()
             .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))?
         {
-            let height: u64 = u64::from_column(&row, "height")?;
+            let height: u64 = u64::from_column(row, "height")?;
             if height != next_height {
                 break;
             }
             next_height += 1;
 
-            let next_header = BlockHeader::from_row(&row)?;
+            let next_header = BlockHeader::from_row(row)?;
             headers.push(LoneBlockHeader {
                 header: next_header,
                 tx_count: VarInt(0),
@@ -741,8 +739,8 @@ impl SpvClient {
     }
 
     /// Insert a block header
-    fn insert_block_header<'a>(
-        tx: &mut DBTx<'a>,
+    fn insert_block_header(
+        tx: &mut DBTx<'_>,
         header: BlockHeader,
         height: u64,
     ) -> Result<(), btc_error> {
@@ -762,7 +760,7 @@ impl SpvClient {
 
         tx.execute(sql, args)
             .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))
-            .and_then(|_x| Ok(()))
+            .map(|_x| ())
     }
 
     /// Initialize the block headers file with the genesis block hash.
@@ -834,10 +832,7 @@ impl SpvClient {
             // fetching headers in ascending order, so verify that the first item in
             // `block_headers` connects to a parent in the DB (if it has one)
             self.insert_block_headers_after(insert_height, block_headers)
-                .map_err(|e| {
-                    error!("Failed to insert block headers: {:?}", &e);
-                    e
-                })?;
+                .inspect_err(|e| error!("Failed to insert block headers: {e:?}"))?;
 
             // check work
             let chain_tip = self.get_headers_height()?;
@@ -845,22 +840,15 @@ impl SpvClient {
                 (insert_height.saturating_sub(1)) / BLOCK_DIFFICULTY_CHUNK_SIZE,
                 chain_tip / BLOCK_DIFFICULTY_CHUNK_SIZE + 1,
             )
-            .map_err(|e| {
-                error!(
-                    "Received headers with bad target, difficulty, or continuity: {:?}",
-                    &e
-                );
-                e
+            .inspect_err(|e| {
+                error!("Received headers with bad target, difficulty, or continuity: {e:?}")
             })?;
         } else {
             // fetching headers in descending order, so verify that the last item in
             // `block_headers` connects to a child in the DB (if it has one)
             let headers_len = block_headers.len() as u64;
             self.insert_block_headers_before(insert_height, block_headers)
-                .map_err(|e| {
-                    error!("Failed to insert block headers: {:?}", &e);
-                    e
-                })?;
+                .inspect_err(|e| error!("Failed to insert block headers: {e:?}"))?;
 
             // check work
             let interval_start = if insert_height % BLOCK_DIFFICULTY_CHUNK_SIZE == 0 {
@@ -872,12 +860,8 @@ impl SpvClient {
             let interval_end = (insert_height + 1 + headers_len) / BLOCK_DIFFICULTY_CHUNK_SIZE + 1;
 
             self.validate_header_work(interval_start, interval_end)
-                .map_err(|e| {
-                    error!(
-                        "Received headers with bad target, difficulty, or continuity: {:?}",
-                        &e
-                    );
-                    e
+                .inspect_err(|e| {
+                    error!("Received headers with bad target, difficulty, or continuity: {e:?}")
                 })?;
         }
 
@@ -885,16 +869,12 @@ impl SpvClient {
             let total_work_after = self.update_chain_work()?;
             if total_work_after < total_work_before {
                 error!(
-                    "New headers represent less work than the old headers ({} < {})",
-                    total_work_before, total_work_after
+                    "New headers represent less work than the old headers ({total_work_before} < {total_work_after})"
                 );
                 return Err(btc_error::InvalidChainWork);
             }
 
-            debug!(
-                "Handled {} Headers: {}-{}",
-                num_headers, first_header_hash, last_header_hash
-            );
+            debug!("Handled {num_headers} Headers: {first_header_hash}-{last_header_hash}");
         } else {
             debug!("Handled empty header reply");
         }
@@ -945,7 +925,7 @@ impl SpvClient {
     ) -> Result<(), btc_error> {
         assert!(self.readwrite, "SPV header DB is open read-only");
 
-        if block_headers.len() == 0 {
+        if block_headers.is_empty() {
             // no-op
             return Ok(());
         }
@@ -958,22 +938,16 @@ impl SpvClient {
         );
 
         SpvClient::validate_header_integrity(start_height, &block_headers, self.check_txcount)
-            .map_err(|e| {
-                error!("Received invalid headers: {:?}", &e);
-                e
-            })?;
+            .inspect_err(|e| error!("Received invalid headers: {e:?}"))?;
 
-        let parent_header = match self.read_block_header(start_height)? {
-            Some(header) => header,
-            None => {
-                warn!(
-                    "No header for block {} -- cannot insert {} headers into {}",
-                    start_height,
-                    block_headers.len(),
-                    self.headers_path
-                );
-                return Err(btc_error::NoncontiguousHeader);
-            }
+        let Some(parent_header) = self.read_block_header(start_height)? else {
+            warn!(
+                "No header for block {} -- cannot insert {} headers into {}",
+                start_height,
+                block_headers.len(),
+                self.headers_path
+            );
+            return Err(btc_error::NoncontiguousHeader);
         };
 
         // contiguous?
@@ -996,7 +970,7 @@ impl SpvClient {
         block_headers: Vec<LoneBlockHeader>,
     ) -> Result<(), btc_error> {
         assert!(self.readwrite, "SPV header DB is open read-only");
-        if block_headers.len() == 0 {
+        if block_headers.is_empty() {
             // no-op
             return Ok(());
         }
@@ -1012,10 +986,7 @@ impl SpvClient {
         );
 
         SpvClient::validate_header_integrity(start_height, &block_headers, self.check_txcount)
-            .map_err(|e| {
-                error!("Received invalid headers: {:?}", &e);
-                e
-            })?;
+            .inspect_err(|e| error!("Received invalid headers: {e:?}"))?;
 
         match self.read_block_header(end_height)? {
             Some(child_header) => {
@@ -1030,10 +1001,7 @@ impl SpvClient {
             None => {
                 // if we're inserting headers in reverse order, we're not guaranteed to have the
                 // child.
-                debug!(
-                    "No header for child block {}, so will not validate continuity",
-                    end_height
-                );
+                debug!("No header for child block {end_height}, so will not validate continuity");
             }
         }
 
@@ -1137,7 +1105,7 @@ impl SpvClient {
         ]);
         let max_target_bits = BlockHeader::compact_target_from_u256(&max_target);
 
-        let parent_header = if headers_in_range.len() > 0 {
+        let parent_header = if !headers_in_range.is_empty() {
             headers_in_range[0]
         } else {
             match self.read_block_header(current_header_height - 1)? {
@@ -1231,7 +1199,7 @@ impl BitcoinMessageHandler for SpvClient {
 
         indexer.runtime.last_getheaders_send_time = get_epoch_time_secs();
         self.send_next_getheaders(indexer, start_height)
-            .and_then(|_r| Ok(true))
+            .map(|_r| true)
     }
 
     /// Trait message handler
@@ -1298,7 +1266,7 @@ impl BitcoinMessageHandler for SpvClient {
                     );
                 }
                 self.send_next_getheaders(indexer, block_height)
-                    .and_then(|_| Ok(true))
+                    .map(|_| true)
             }
             x => Err(btc_error::UnhandledMessage(x)),
         }
@@ -1519,20 +1487,16 @@ mod test {
         assert_eq!(spv_client.read_block_headers(1, 10).unwrap(), headers);
 
         // should fail
-        if let Err(btc_error::NoncontiguousHeader) =
-            spv_client.insert_block_headers_after(1, headers.clone())
-        {
-        } else {
-            assert!(false);
-        }
+        assert!(matches!(
+            spv_client.insert_block_headers_after(1, headers.clone()),
+            Err(btc_error::NoncontiguousHeader)
+        ));
 
         // should fail
-        if let Err(btc_error::NoncontiguousHeader) =
-            spv_client.insert_block_headers_after(9, headers.clone())
-        {
-        } else {
-            assert!(false);
-        }
+        assert!(matches!(
+            spv_client.insert_block_headers_after(9, headers.clone()),
+            Err(btc_error::NoncontiguousHeader)
+        ));
 
         spv_client.drop_headers(1).unwrap();
         assert_eq!(
@@ -1629,7 +1593,7 @@ mod test {
             .unwrap();
         assert_eq!(spv_client.read_block_headers(1, 10).unwrap(), headers);
 
-        let mut all_headers = vec![genesis_regtest_header.clone()];
+        let mut all_headers = vec![genesis_regtest_header];
         all_headers.append(&mut headers.clone());
 
         assert_eq!(spv_client.read_block_headers(0, 10).unwrap(), all_headers);
@@ -1644,17 +1608,13 @@ mod test {
             .unwrap();
 
         // should fail now, since there's a child to check
-        if let Err(btc_error::NoncontiguousHeader) =
-            spv_client.insert_block_headers_before(1, headers.clone())
-        {
-        } else {
-            assert!(false);
-        }
+        assert!(matches!(
+            spv_client.insert_block_headers_before(1, headers.clone()),
+            Err(btc_error::NoncontiguousHeader)
+        ));
 
         // should succeed
-        spv_client
-            .insert_block_headers_before(9, headers.clone())
-            .unwrap();
+        spv_client.insert_block_headers_before(9, headers).unwrap();
     }
 
     #[test]
@@ -1773,13 +1733,13 @@ mod test {
         ];
 
         // should fail
-        if let btc_error::InvalidPoW = spv_client
-            .handle_headers(40317, bad_headers.clone())
-            .unwrap_err()
-        {
-        } else {
-            panic!("Bad PoW headers accepted");
-        }
+        assert!(
+            matches!(
+                spv_client.handle_headers(40317, bad_headers),
+                Err(btc_error::InvalidPoW)
+            ),
+            "Bad PoW headers accepted"
+        );
     }
 
     #[test]

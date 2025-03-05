@@ -41,7 +41,7 @@ use stacks_common::codec::{
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::sleep_ms;
 
-use crate::events::{SignerEvent, SignerEventTrait};
+use crate::events::{BlockProposalData, SignerEvent, SignerEventTrait};
 use crate::v0::messages::{BlockRejection, SignerMessage};
 use crate::{BlockProposal, Signer, SignerEventReceiver, SignerRunLoop};
 
@@ -126,9 +126,10 @@ fn test_simple_signer() {
         },
         burn_height: 2,
         reward_cycle: 1,
+        block_proposal_data: BlockProposalData::empty(),
     };
     for i in 0..max_events {
-        let privk = Secp256k1PrivateKey::new();
+        let privk = Secp256k1PrivateKey::random();
         let message = SignerMessage::BlockProposal(block_proposal.clone());
         let message_bytes = message.serialize_to_vec();
         let mut chunk = StackerDBChunkData::new(i as u32, 1, message_bytes);

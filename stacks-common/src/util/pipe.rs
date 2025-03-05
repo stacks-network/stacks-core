@@ -21,14 +21,13 @@ use std::io;
 use std::io::{Read, Write};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendError};
 
-use crate::util::log;
-
 /// Inter-thread pipe for streaming messages, built on channels.
 /// Used mainly in conjunction with networking.
-/// * The read endpoint lives inside the connection, and will consume data from another thread to
-/// be sent out on the network.
-/// * The write endpoint gets fed into calls to consensus_serialize(), to be sent out on the
-/// network.
+///
+/// * The read endpoint lives inside the connection and will consume data from another thread
+///   to be sent out on the network.
+/// * The write endpoint gets fed into calls to `consensus_serialize()` to be sent out on the
+///   network.
 #[derive(Debug)]
 pub struct PipeRead {
     input: Receiver<Vec<u8>>,
@@ -102,7 +101,7 @@ impl PipeRead {
     }
 
     fn fill_buf(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        assert_eq!(self.buf.len(), 0);
+        assert!(self.buf.is_empty());
         assert_eq!(self.i, 0);
 
         let mut copied = 0;
@@ -187,7 +186,7 @@ impl PipeWrite {
     }
 
     fn write_or_buffer(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if buf.len() == 0 {
+        if buf.is_empty() {
             return Ok(0);
         }
 
@@ -315,7 +314,6 @@ impl Write for PipeWrite {
 
 #[cfg(test)]
 mod test {
-    use std::io::prelude::*;
     use std::io::{Read, Write};
     use std::{io, thread};
 
@@ -323,7 +321,6 @@ mod test {
     use rand::RngCore;
 
     use super::*;
-    use crate::util::*;
 
     #[test]
     fn test_connection_pipe_oneshot() {
@@ -428,16 +425,14 @@ mod test {
 
                 let nw = match pipe_write.write(&buf[i..(i + span)]) {
                     Ok(sz) => sz,
-                    Err(e) => match e.kind() {
-                        io::ErrorKind::BrokenPipe => {
+                    Err(e) => {
+                        if let io::ErrorKind::BrokenPipe = e.kind() {
                             broken_pipe = true;
                             0
+                        } else {
+                            panic!("unwrapped err: {e:?}");
                         }
-                        _ => {
-                            assert!(false, "unwrapped err: {:?}", &e);
-                            unreachable!();
-                        }
-                    },
+                    }
                 };
 
                 i += span;
@@ -448,7 +443,7 @@ mod test {
                 assert_eq!(i, buf.len());
             }
 
-            test_debug!("producer exit; wrote {} bytes", i);
+            test_debug!("producer exit; wrote {i} bytes");
         });
 
         let consumer = thread::spawn(move || {
@@ -461,27 +456,23 @@ mod test {
 
                 let nr = match pipe_read.read(&mut next_bytes[..]) {
                     Ok(sz) => sz,
-                    Err(e) => match e.kind() {
-                        io::ErrorKind::BrokenPipe => {
+                    Err(e) => {
+                        if let io::ErrorKind::BrokenPipe = e.kind() {
                             test_debug!("Read pipe broke");
                             broken_pipe = true;
                             0
+                        } else {
+                            panic!("unwrapped err: {e:?}");
                         }
-                        _ => {
-                            assert!(false, "unwrapped err: {:?}", &e);
-                            unreachable!();
-                        }
-                    },
+                    }
                 };
 
                 input.extend_from_slice(&next_bytes[0..nr]);
 
-                test_debug!("Read buffer added {} bytes (now {})", nr, input.len());
+                test_debug!("Read buffer added {nr} bytes (now {})", input.len());
                 assert!(
                     nr == span || input.len() == buf_compare.len(),
-                    "nr = {}, span = {}, input.len() = {}, buf_compare.len() = {}",
-                    nr,
-                    span,
+                    "nr = {nr}, span = {span}, input.len() = {}, buf_compare.len() = {}",
                     input.len(),
                     buf_compare.len()
                 );

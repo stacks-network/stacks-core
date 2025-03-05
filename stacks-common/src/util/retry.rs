@@ -18,11 +18,7 @@
 */
 
 use std::io;
-use std::io::prelude::*;
-use std::io::{Read, Write};
-
-use crate::util::hash::to_hex;
-use crate::util::log;
+use std::io::Read;
 
 /// Wrap a Read so that we store a copy of what was read.
 /// Used for re-trying reads when we don't know what to expect from the stream.
@@ -61,7 +57,7 @@ impl<'a, R: Read> RetryReader<'a, R> {
     }
 }
 
-impl<'a, R: Read> Read for RetryReader<'a, R> {
+impl<R: Read> Read for RetryReader<'_, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let nr_buf = if self.i < self.buf.len() {
             // consume from inner buffer
@@ -98,7 +94,7 @@ impl<'a, R: Read> BoundReader<'a, R> {
     }
 }
 
-impl<'a, R: Read> Read for BoundReader<'a, R> {
+impl<R: Read> Read for BoundReader<'_, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let intended_read = self
             .read_so_far
@@ -134,7 +130,7 @@ impl<'a, R: Read> LogReader<'a, R> {
     }
 }
 
-impl<'a, R: Read> Read for LogReader<'a, R> {
+impl<R: Read> Read for LogReader<'_, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let nr = self.fd.read(buf)?;
         let read = buf[0..nr].to_vec();

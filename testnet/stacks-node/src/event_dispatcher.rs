@@ -18,6 +18,8 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
+#[cfg(test)]
+use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
@@ -80,14 +82,17 @@ lazy_static! {
 }
 
 #[derive(Debug, Clone)]
-struct EventObserver {
+pub struct EventObserver {
     /// Path to the database where pending payloads are stored. If `None`, then
     /// the database is not used and events are not recoverable across restarts.
-    db_path: Option<PathBuf>,
+    pub db_path: Option<PathBuf>,
     /// URL to which events will be sent
-    endpoint: String,
+    pub endpoint: String,
     /// Timeout for sending events to this observer
-    timeout: Duration,
+    pub timeout: Duration,
+    /// If true, the stacks-node will not retry if event delivery fails for any reason.
+    /// WARNING: This should not be set on observers that require successful delivery of all events.
+    pub disable_retries: bool,
 }
 
 struct ReceiptPayloadInfo<'a> {
@@ -162,6 +167,7 @@ pub struct MinedNakamotoBlockEvent {
     pub block_size: u64,
     pub cost: ExecutionCost,
     pub miner_signature: MessageSignature,
+    pub miner_signature_hash: Sha512Trunc256Sum,
     pub signer_signature_hash: Sha512Trunc256Sum,
     pub tx_events: Vec<TransactionEvent>,
     pub signer_bitvec: String,
@@ -329,7 +335,7 @@ impl RewardSetEventPayload {
 }
 
 #[cfg(test)]
-static TEST_EVENT_OBSERVER_SKIP_RETRY: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+static TEST_EVENT_OBSERVER_SKIP_RETRY: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 impl EventObserver {
     fn init_db(db_path: &str) -> Result<Connection, db_error> {
@@ -436,14 +442,10 @@ impl EventObserver {
 
         for (id, url, payload, timeout_ms) in pending_payloads {
             let timeout = Duration::from_millis(timeout_ms);
-            Self::send_payload_directly(&payload, &url, timeout);
+            Self::send_payload_directly(&payload, &url, timeout, false);
 
             #[cfg(test)]
-            if TEST_EVENT_OBSERVER_SKIP_RETRY
-                .lock()
-                .unwrap()
-                .unwrap_or(false)
-            {
+            if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
                 warn!("Fault injection: delete_payload");
                 return;
             }
@@ -457,7 +459,12 @@ impl EventObserver {
         }
     }
 
-    fn send_payload_directly(payload: &serde_json::Value, full_url: &str, timeout: Duration) {
+    fn send_payload_directly(
+        payload: &serde_json::Value,
+        full_url: &str,
+        timeout: Duration,
+        disable_retries: bool,
+    ) {
         debug!(
             "Event dispatcher: Sending payload"; "url" => %full_url, "payload" => ?payload
         );
@@ -507,12 +514,13 @@ impl EventObserver {
                 }
             }
 
+            if disable_retries {
+                warn!("Observer is configured in disable_retries mode: skipping retry of payload");
+                return;
+            }
+
             #[cfg(test)]
-            if TEST_EVENT_OBSERVER_SKIP_RETRY
-                .lock()
-                .unwrap()
-                .unwrap_or(false)
-            {
+            if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
                 warn!("Fault injection: skipping retry of payload");
                 return;
             }
@@ -527,7 +535,12 @@ impl EventObserver {
         }
     }
 
-    fn new(working_dir: Option<PathBuf>, endpoint: String, timeout: Duration) -> Self {
+    fn new(
+        working_dir: Option<PathBuf>,
+        endpoint: String,
+        timeout: Duration,
+        disable_retries: bool,
+    ) -> Self {
         let db_path = if let Some(mut db_path) = working_dir {
             db_path.push("event_observers.sqlite");
 
@@ -546,6 +559,7 @@ impl EventObserver {
             db_path,
             endpoint,
             timeout,
+            disable_retries,
         }
     }
 
@@ -560,7 +574,10 @@ impl EventObserver {
         };
         let full_url = format!("http://{url_str}");
 
-        if let Some(db_path) = &self.db_path {
+        // if the observer is in "disable_retries" mode quickly send the payload without checking for the db
+        if self.disable_retries {
+            Self::send_payload_directly(payload, &full_url, self.timeout, true);
+        } else if let Some(db_path) = &self.db_path {
             let conn =
                 Connection::open(db_path).expect("Failed to open database for event observer");
 
@@ -571,7 +588,7 @@ impl EventObserver {
             Self::process_pending_payloads(&conn);
         } else {
             // No database, just send the payload
-            Self::send_payload_directly(payload, &full_url, self.timeout);
+            Self::send_payload_directly(payload, &full_url, self.timeout, false);
         }
     }
 
@@ -592,6 +609,7 @@ impl EventObserver {
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
         slot_holders: Vec<PoxAddress>,
+        consensus_hash: &ConsensusHash,
     ) -> serde_json::Value {
         let reward_recipients = rewards
             .into_iter()
@@ -613,7 +631,8 @@ impl EventObserver {
             "burn_block_height": burn_block_height,
             "reward_recipients": serde_json::Value::Array(reward_recipients),
             "reward_slot_holders": serde_json::Value::Array(reward_slot_holders),
-            "burn_amount": burns
+            "burn_amount": burns,
+            "consensus_hash": format!("0x{consensus_hash}"),
         })
     }
 
@@ -773,7 +792,7 @@ impl EventObserver {
         self.send_payload(payload, PATH_MINED_NAKAMOTO_BLOCK);
     }
 
-    fn send_stackerdb_chunks(&self, payload: &serde_json::Value) {
+    pub fn send_stackerdb_chunks(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_STACKERDB_CHUNKS);
     }
 
@@ -866,6 +885,7 @@ impl EventObserver {
             "reward_set": reward_set_value,
             "cycle_number": cycle_number_value,
             "tenure_height": coinbase_height,
+            "consensus_hash": format!("0x{}", metadata.consensus_hash),
         });
 
         let as_object_mut = payload.as_object_mut().unwrap();
@@ -952,9 +972,14 @@ impl ProposalCallbackReceiver for ProposalCallbackHandler {
 }
 
 impl MemPoolEventDispatcher for EventDispatcher {
-    fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: MemPoolDropReason) {
+    fn mempool_txs_dropped(
+        &self,
+        txids: Vec<Txid>,
+        new_txid: Option<Txid>,
+        reason: MemPoolDropReason,
+    ) {
         if !txids.is_empty() {
-            self.process_dropped_mempool_txs(txids, reason)
+            self.process_dropped_mempool_txs(txids, new_txid, reason)
         }
     }
 
@@ -1097,6 +1122,7 @@ impl BlockEventDispatcher for EventDispatcher {
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
         recipient_info: Vec<PoxAddress>,
+        consensus_hash: &ConsensusHash,
     ) {
         self.process_burn_block(
             burn_block,
@@ -1104,6 +1130,7 @@ impl BlockEventDispatcher for EventDispatcher {
             rewards,
             burns,
             recipient_info,
+            consensus_hash,
         )
     }
 }
@@ -1140,6 +1167,7 @@ impl EventDispatcher {
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
         recipient_info: Vec<PoxAddress>,
+        consensus_hash: &ConsensusHash,
     ) {
         // lazily assemble payload only if we have observers
         let interested_observers = self.filter_observers(&self.burn_block_observers_lookup, true);
@@ -1153,6 +1181,7 @@ impl EventDispatcher {
             rewards,
             burns,
             recipient_info,
+            consensus_hash,
         );
 
         for observer in interested_observers.iter() {
@@ -1309,7 +1338,7 @@ impl EventDispatcher {
             let mature_rewards = serde_json::Value::Array(mature_rewards_vec);
 
             #[cfg(any(test, feature = "testing"))]
-            if test_skip_block_announcement(&block) {
+            if test_skip_block_announcement(block) {
                 return;
             }
 
@@ -1528,6 +1557,7 @@ impl EventDispatcher {
             cost: consumed.clone(),
             tx_events,
             miner_signature: block.header.miner_signature,
+            miner_signature_hash: block.header.miner_signature_hash(),
             signer_signature_hash: block.header.signer_signature_hash(),
             signer_signature: block.header.signer_signature.clone(),
             signer_bitvec,
@@ -1582,7 +1612,12 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_dropped_mempool_txs(&self, txs: Vec<Txid>, reason: MemPoolDropReason) {
+    pub fn process_dropped_mempool_txs(
+        &self,
+        txs: Vec<Txid>,
+        new_txid: Option<Txid>,
+        reason: MemPoolDropReason,
+    ) {
         // lazily assemble payload only if we have observers
         let interested_observers = self.filter_observers(&self.mempool_observers_lookup, true);
 
@@ -1595,10 +1630,22 @@ impl EventDispatcher {
             .map(|tx| serde_json::Value::String(format!("0x{tx}")))
             .collect();
 
-        let payload = json!({
-            "dropped_txids": serde_json::Value::Array(dropped_txids),
-            "reason": reason.to_string(),
-        });
+        let payload = match new_txid {
+            Some(id) => {
+                json!({
+                    "dropped_txids": serde_json::Value::Array(dropped_txids),
+                    "reason": reason.to_string(),
+                    "new_txid": format!("0x{}", &id),
+                })
+            }
+            None => {
+                json!({
+                    "dropped_txids": serde_json::Value::Array(dropped_txids),
+                    "reason": reason.to_string(),
+                    "new_txid": null,
+                })
+            }
+        };
 
         for observer in interested_observers.iter() {
             observer.send_dropped_mempool_txs(&payload);
@@ -1641,7 +1688,12 @@ impl EventDispatcher {
             Some(working_dir),
             conf.endpoint.clone(),
             Duration::from_millis(conf.timeout_ms),
+            conf.disable_retries,
         );
+
+        if conf.disable_retries {
+            warn!("Observer {} is configured in \"disable_retries\" mode: events are not guaranteed to be delivered", conf.endpoint);
+        }
 
         let observer_index = self.registered_observers.len() as u16;
 
@@ -1728,6 +1780,7 @@ mod test {
     use std::time::Instant;
 
     use clarity::vm::costs::ExecutionCost;
+    use serial_test::serial;
     use stacks::burnchains::{PoxConstants, Txid};
     use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
@@ -1744,7 +1797,8 @@ mod test {
 
     #[test]
     fn build_block_processed_event() {
-        let observer = EventObserver::new(None, "nowhere".to_string(), Duration::from_secs(3));
+        let observer =
+            EventObserver::new(None, "nowhere".to_string(), Duration::from_secs(3), false);
 
         let filtered_events = vec![];
         let block = StacksBlock::genesis_block();
@@ -1804,7 +1858,8 @@ mod test {
 
     #[test]
     fn test_block_processed_event_nakamoto() {
-        let observer = EventObserver::new(None, "nowhere".to_string(), Duration::from_secs(3));
+        let observer =
+            EventObserver::new(None, "nowhere".to_string(), Duration::from_secs(3), false);
 
         let filtered_events = vec![];
         let mut block_header = NakamotoBlockHeader::empty();
@@ -1818,7 +1873,7 @@ mod test {
             txs: vec![],
         };
         let mut metadata = StacksHeaderInfo::regtest_genesis();
-        metadata.anchored_header = StacksBlockHeaderTypes::Nakamoto(block_header.clone());
+        metadata.anchored_header = StacksBlockHeaderTypes::Nakamoto(block_header);
         let receipts = vec![];
         let parent_index_hash = StacksBlockId([0; 32]);
         let winner_txid = Txid([0; 32]);
@@ -1848,7 +1903,7 @@ mod test {
             &mblock_confirmed_consumed,
             &pox_constants,
             &None,
-            &Some(signer_bitvec.clone()),
+            &Some(signer_bitvec),
             block_timestamp,
             coinbase_height,
         );
@@ -2011,6 +2066,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     fn test_process_pending_payloads() {
         use mockito::Matcher;
 
@@ -2033,6 +2089,8 @@ mod test {
             .create();
 
         let url = &format!("{}/api", &server.url());
+
+        TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
         // Insert payload
         EventObserver::insert_payload(&conn, url, &payload, timeout)
@@ -2058,7 +2116,8 @@ mod test {
         let endpoint = "http://example.com".to_string();
         let timeout = Duration::from_secs(5);
 
-        let observer = EventObserver::new(Some(working_dir.clone()), endpoint.clone(), timeout);
+        let observer =
+            EventObserver::new(Some(working_dir.clone()), endpoint.clone(), timeout, false);
 
         // Verify fields
         assert_eq!(observer.endpoint, endpoint);
@@ -2075,7 +2134,7 @@ mod test {
         let endpoint = "http://example.com".to_string();
         let timeout = Duration::from_secs(5);
 
-        let observer = EventObserver::new(None, endpoint.clone(), timeout);
+        let observer = EventObserver::new(None, endpoint.clone(), timeout, false);
 
         // Verify fields
         assert_eq!(observer.endpoint, endpoint);
@@ -2084,6 +2143,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     fn test_send_payload_with_db() {
         use mockito::Matcher;
 
@@ -2103,7 +2163,9 @@ mod test {
         let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
         let timeout = Duration::from_secs(5);
 
-        let observer = EventObserver::new(Some(working_dir.clone()), endpoint, timeout);
+        let observer = EventObserver::new(Some(working_dir), endpoint, timeout, false);
+
+        TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
         // Call send_payload
         observer.send_payload(&payload, "/test");
@@ -2138,7 +2200,7 @@ mod test {
 
         let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
 
-        let observer = EventObserver::new(None, endpoint, timeout);
+        let observer = EventObserver::new(None, endpoint, timeout, false);
 
         // Call send_payload
         observer.send_payload(&payload, "/test");
@@ -2169,8 +2231,12 @@ mod test {
             tx.send(()).unwrap();
         });
 
-        let observer =
-            EventObserver::new(None, format!("127.0.0.1:{port}"), Duration::from_secs(3));
+        let observer = EventObserver::new(
+            None,
+            format!("127.0.0.1:{port}"),
+            Duration::from_secs(3),
+            false,
+        );
 
         let payload = json!({"key": "value"});
 
@@ -2218,8 +2284,12 @@ mod test {
             }
         });
 
-        let observer =
-            EventObserver::new(None, format!("127.0.0.1:{port}"), Duration::from_secs(3));
+        let observer = EventObserver::new(
+            None,
+            format!("127.0.0.1:{port}"),
+            Duration::from_secs(3),
+            false,
+        );
 
         let payload = json!({"key": "value"});
 
@@ -2231,6 +2301,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     fn test_send_payload_timeout() {
         let port = get_random_port();
         let timeout = Duration::from_secs(3);
@@ -2242,6 +2313,8 @@ mod test {
         let server = Server::http(format!("127.0.0.1:{port}")).unwrap();
         thread::spawn(move || {
             let mut attempt = 0;
+            // This exists to only keep request from being dropped
+            #[allow(clippy::collection_is_never_read)]
             let mut _request_holder = None;
             while let Ok(request) = server.recv() {
                 attempt += 1;
@@ -2263,7 +2336,7 @@ mod test {
             }
         });
 
-        let observer = EventObserver::new(None, format!("127.0.0.1:{port}"), timeout);
+        let observer = EventObserver::new(None, format!("127.0.0.1:{port}"), timeout, false);
 
         let payload = json!({"key": "value"});
 
@@ -2293,6 +2366,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     fn test_send_payload_with_db_force_restart() {
         let port = get_random_port();
         let timeout = Duration::from_secs(3);
@@ -2307,6 +2381,8 @@ mod test {
         let server = Server::http(format!("127.0.0.1:{port}")).unwrap();
         thread::spawn(move || {
             let mut attempt = 0;
+            // This exists to only keep request from being dropped
+            #[allow(clippy::collection_is_never_read)]
             let mut _request_holder = None;
             while let Ok(mut request) = server.recv() {
                 attempt += 1;
@@ -2354,9 +2430,10 @@ mod test {
         });
 
         let observer = EventObserver::new(
-            Some(working_dir.clone()),
+            Some(working_dir),
             format!("127.0.0.1:{port}"),
             timeout,
+            false,
         );
 
         let payload = json!({"key": "value"});
@@ -2364,7 +2441,7 @@ mod test {
 
         // Disable retrying so that it sends the payload only once
         // and that payload will be ignored by the test server.
-        TEST_EVENT_OBSERVER_SKIP_RETRY.lock().unwrap().replace(true);
+        TEST_EVENT_OBSERVER_SKIP_RETRY.set(true);
 
         info!("Sending payload 1");
 
@@ -2372,10 +2449,7 @@ mod test {
         observer.send_payload(&payload, "/test");
 
         // Re-enable retrying
-        TEST_EVENT_OBSERVER_SKIP_RETRY
-            .lock()
-            .unwrap()
-            .replace(false);
+        TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
         info!("Sending payload 2");
 
@@ -2385,5 +2459,71 @@ mod test {
         // Wait for the server to process the requests
         rx.recv_timeout(Duration::from_secs(5))
             .expect("Server did not receive request in time");
+    }
+
+    #[test]
+    fn test_event_dispatcher_disable_retries() {
+        let timeout = Duration::from_secs(5);
+        let payload = json!({"key": "value"});
+
+        // Create a mock server returning error 500
+        let mut server = mockito::Server::new();
+        let _m = server.mock("POST", "/test").with_status(500).create();
+
+        let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
+
+        let observer = EventObserver::new(None, endpoint, timeout, true);
+
+        // in non "disable_retries" mode this will run forever
+        observer.send_payload(&payload, "/test");
+
+        // Verify that the payload was sent
+        _m.assert();
+    }
+
+    #[test]
+    fn test_event_dispatcher_disable_retries_invalid_url() {
+        let timeout = Duration::from_secs(5);
+        let payload = json!({"key": "value"});
+
+        let endpoint = String::from("255.255.255.255");
+
+        let observer = EventObserver::new(None, endpoint, timeout, true);
+
+        // in non "disable_retries" mode this will run forever
+        observer.send_payload(&payload, "/test");
+    }
+
+    #[test]
+    #[ignore]
+    /// This test generates a new block and ensures the "disable_retries" events_observer will not block.
+    fn block_event_with_disable_retries_observer() {
+        let dir = tempdir().unwrap();
+        let working_dir = dir.path().to_path_buf();
+
+        let mut event_dispatcher = EventDispatcher::new();
+        let config = EventObserverConfig {
+            endpoint: String::from("255.255.255.255"),
+            events_keys: vec![EventKeyType::MinedBlocks],
+            timeout_ms: 1000,
+            disable_retries: true,
+        };
+        event_dispatcher.register_observer(&config, working_dir);
+
+        let nakamoto_block = NakamotoBlock {
+            header: NakamotoBlockHeader::empty(),
+            txs: vec![],
+        };
+
+        // this will block forever in non "disable_retries" mode
+        event_dispatcher.process_mined_nakamoto_block_event(
+            0,
+            &nakamoto_block,
+            0,
+            &ExecutionCost::max_value(),
+            vec![],
+        );
+
+        assert_eq!(event_dispatcher.registered_observers.len(), 1);
     }
 }

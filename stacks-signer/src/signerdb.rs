@@ -24,7 +24,11 @@ use blockstack_lib::util_lib::db::{
     query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
     Error as DBError,
 };
+#[cfg(any(test, feature = "testing"))]
+use blockstack_lib::util_lib::db::{FromColumn, FromRow};
 use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress};
+use clarity::types::Address;
+use libsigner::v0::messages::{RejectReason, RejectReasonPrefix};
 use libsigner::BlockProposal;
 use rusqlite::functions::FunctionFlags;
 use rusqlite::{
@@ -209,7 +213,7 @@ impl BlockInfo {
 
     /// Mark this block as valid, signed over, and records a group timestamp in the block info if it wasn't
     ///  already set.
-    pub fn mark_globally_accepted(&mut self) -> Result<(), String> {
+    fn mark_globally_accepted(&mut self) -> Result<(), String> {
         self.move_to(BlockState::GloballyAccepted)?;
         self.valid = Some(true);
         self.signed_over = true;
@@ -225,7 +229,7 @@ impl BlockInfo {
     }
 
     /// Mark the block as globally rejected and invalid
-    pub fn mark_globally_rejected(&mut self) -> Result<(), String> {
+    fn mark_globally_rejected(&mut self) -> Result<(), String> {
         self.move_to(BlockState::GloballyRejected)?;
         self.valid = Some(false);
         Ok(())
@@ -342,6 +346,24 @@ CREATE INDEX IF NOT EXISTS blocks_state ON blocks (state);
 CREATE INDEX IF NOT EXISTS blocks_signed_group ON blocks (signed_group);
 "#;
 
+static CREATE_INDEXES_6: &str = r#"
+CREATE INDEX IF NOT EXISTS block_validations_pending_on_added_time ON block_validations_pending(added_time ASC);
+"#;
+
+static CREATE_INDEXES_8: &str = r#"
+-- Add new index for get_last_globally_accepted_block query
+CREATE INDEX IF NOT EXISTS blocks_consensus_hash_state_height ON blocks (consensus_hash, state, stacks_height DESC);
+
+-- Add new index for get_canonical_tip query
+CREATE INDEX IF NOT EXISTS blocks_state_height_signed_group ON blocks (state, stacks_height DESC, signed_group DESC);
+
+-- Index for get_first_signed_block_in_tenure
+CREATE INDEX IF NOT EXISTS blocks_consensus_hash_status_height ON blocks (consensus_hash, signed_over, stacks_height ASC);
+
+-- Index for has_unprocessed_blocks
+CREATE INDEX IF NOT EXISTS blocks_reward_cycle_state on blocks (reward_cycle, state);
+"#;
+
 static CREATE_SIGNER_STATE_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS signer_states (
     reward_cycle INTEGER PRIMARY KEY,
@@ -436,15 +458,15 @@ INSERT INTO temp_blocks (
     broadcasted,
     stacks_height,
     burn_block_height,
-    valid, 
+    valid,
     state,
-    signed_group, 
+    signed_group,
     signed_self,
     proposed_time,
     validation_time_ms,
     tenure_change
 )
-SELECT 
+SELECT
     signer_signature_hash,
     reward_cycle,
     block_info,
@@ -452,7 +474,7 @@ SELECT
     signed_over,
     broadcasted,
     stacks_height,
-    burn_block_height, 
+    burn_block_height,
     json_extract(block_info, '$.valid') AS valid,
     json_extract(block_info, '$.state') AS state,
     json_extract(block_info, '$.signed_group') AS signed_group,
@@ -465,6 +487,25 @@ FROM blocks;
 DROP TABLE blocks;
 
 ALTER TABLE temp_blocks RENAME TO blocks;"#;
+
+static CREATE_BLOCK_VALIDATION_PENDING_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS block_validations_pending (
+    signer_signature_hash TEXT NOT NULL,
+    -- the time at which the block was added to the pending table
+    added_time INTEGER NOT NULL,
+    PRIMARY KEY (signer_signature_hash)
+) STRICT;"#;
+
+static CREATE_TENURE_ACTIVTY_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS tenure_activity (
+    consensus_hash TEXT NOT NULL PRIMARY KEY,
+    last_activity_time INTEGER NOT NULL
+) STRICT;"#;
+
+static ADD_REJECT_CODE: &str = r#"
+ALTER TABLE block_rejection_signer_addrs
+    ADD COLUMN reject_code INTEGER;
+"#;
 
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
@@ -514,9 +555,30 @@ static SCHEMA_5: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (5);",
 ];
 
+static SCHEMA_6: &[&str] = &[
+    CREATE_BLOCK_VALIDATION_PENDING_TABLE,
+    CREATE_INDEXES_6,
+    "INSERT OR REPLACE INTO db_config (version) VALUES (6);",
+];
+
+static SCHEMA_7: &[&str] = &[
+    CREATE_TENURE_ACTIVTY_TABLE,
+    "INSERT OR REPLACE INTO db_config (version) VALUES (7);",
+];
+
+static SCHEMA_8: &[&str] = &[
+    CREATE_INDEXES_8,
+    "INSERT INTO db_config (version) VALUES (8);",
+];
+
+static SCHEMA_9: &[&str] = &[
+    ADD_REJECT_CODE,
+    "INSERT INTO db_config (version) VALUES (9);",
+];
+
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 5;
+    pub const SCHEMA_VERSION: u32 = 9;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -616,6 +678,62 @@ impl SignerDb {
         Ok(())
     }
 
+    /// Migrate from schema 5 to schema 6
+    fn schema_6_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 6 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_6.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
+    /// Migrate from schema 6 to schema 7
+    fn schema_7_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 7 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_7.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
+    /// Migrate from schema 7 to schema 8
+    fn schema_8_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 8 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_8.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
+    /// Migrate from schema 9 to schema 9
+    fn schema_9_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 9 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_9.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
     /// Register custom scalar functions used by the database
     fn register_scalar_functions(&self) -> Result<(), DBError> {
         // Register helper function for determining if a block is a tenure change transaction
@@ -654,7 +772,11 @@ impl SignerDb {
                 2 => Self::schema_3_migration(&sql_tx)?,
                 3 => Self::schema_4_migration(&sql_tx)?,
                 4 => Self::schema_5_migration(&sql_tx)?,
-                5 => break,
+                5 => Self::schema_6_migration(&sql_tx)?,
+                6 => Self::schema_7_migration(&sql_tx)?,
+                7 => Self::schema_8_migration(&sql_tx)?,
+                8 => Self::schema_9_migration(&sql_tx)?,
+                9 => break,
                 x => return Err(DBError::Other(format!(
                     "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
                     Self::SCHEMA_VERSION,
@@ -711,15 +833,13 @@ impl SignerDb {
         try_deserialize(result)
     }
 
-    /// Return the last signed block in a tenure (identified by its consensus hash)
-    pub fn get_last_signed_block_in_tenure(
-        &self,
-        tenure: &ConsensusHash,
-    ) -> Result<Option<BlockInfo>, DBError> {
-        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 ORDER BY stacks_height DESC LIMIT 1";
+    /// Return whether there was signed block in a tenure (identified by its consensus hash)
+    pub fn has_signed_block_in_tenure(&self, tenure: &ConsensusHash) -> Result<bool, DBError> {
+        let query =
+            "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 LIMIT 1";
         let result: Option<String> = query_row(&self.db, query, [tenure])?;
 
-        try_deserialize(result)
+        Ok(result.is_some())
     }
 
     /// Return the first signed block in a tenure (identified by its consensus hash)
@@ -731,6 +851,20 @@ impl SignerDb {
         let result: Option<String> = query_row(&self.db, query, [tenure])?;
 
         try_deserialize(result)
+    }
+
+    /// Return the count of globally accepted blocks in a tenure (identified by its consensus hash)
+    pub fn get_globally_accepted_block_count_in_tenure(
+        &self,
+        tenure: &ConsensusHash,
+    ) -> Result<u64, DBError> {
+        let query = "SELECT COALESCE((MAX(stacks_height) - MIN(stacks_height) + 1), 0) AS block_count FROM blocks WHERE consensus_hash = ?1 AND state = ?2";
+        let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
+        let block_count_opt: Option<u64> = query_row(&self.db, query, args)?;
+        match block_count_opt {
+            Some(block_count) => Ok(block_count),
+            None => Ok(0),
+        }
     }
 
     /// Return the last accepted block in a tenure (identified by its consensus hash).
@@ -905,27 +1039,58 @@ impl SignerDb {
         &self,
         block_sighash: &Sha512Trunc256Sum,
         addr: &StacksAddress,
+        reject_reason: &RejectReason,
     ) -> Result<(), DBError> {
-        let qry = "INSERT OR REPLACE INTO block_rejection_signer_addrs (signer_signature_hash, signer_addr) VALUES (?1, ?2);";
-        let args = params![block_sighash, addr.to_string(),];
+        let qry = "INSERT OR REPLACE INTO block_rejection_signer_addrs (signer_signature_hash, signer_addr, reject_code) VALUES (?1, ?2, ?3);";
+        let args = params![
+            block_sighash,
+            addr.to_string(),
+            RejectReasonPrefix::from(reject_reason) as i64
+        ];
 
         debug!("Inserting block rejection.";
-                "block_sighash" => %block_sighash,
-                "signer_address" => %addr);
+            "block_sighash" => %block_sighash,
+            "signer_address" => %addr,
+            "reject_reason" => %reject_reason
+        );
 
         self.db.execute(qry, args)?;
         Ok(())
     }
 
-    /// Get all signer addresses that rejected the block
+    /// Get all signer addresses that rejected the block (and their reject codes)
     pub fn get_block_rejection_signer_addrs(
         &self,
         block_sighash: &Sha512Trunc256Sum,
-    ) -> Result<Vec<StacksAddress>, DBError> {
+    ) -> Result<Vec<(StacksAddress, RejectReasonPrefix)>, DBError> {
         let qry =
-            "SELECT signer_addr FROM block_rejection_signer_addrs WHERE signer_signature_hash = ?1";
+            "SELECT signer_addr, reject_code FROM block_rejection_signer_addrs WHERE signer_signature_hash = ?1";
         let args = params![block_sighash];
-        query_rows(&self.db, qry, args)
+        let mut stmt = self.db.prepare(qry)?;
+
+        let rows = stmt.query_map(args, |row| {
+            let addr: String = row.get(0)?;
+            let addr = StacksAddress::from_string(&addr).ok_or(SqliteError::InvalidColumnType(
+                0,
+                "signer_addr".into(),
+                rusqlite::types::Type::Text,
+            ))?;
+            let reject_code: i64 = row.get(1)?;
+
+            let reject_code = u8::try_from(reject_code)
+                .map_err(|_| {
+                    SqliteError::InvalidColumnType(
+                        1,
+                        "reject_code".into(),
+                        rusqlite::types::Type::Integer,
+                    )
+                })
+                .map(RejectReasonPrefix::from)?;
+
+            Ok((addr, reject_code))
+        })?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.into())
     }
 
     /// Mark a block as having been broadcasted and therefore GloballyAccepted
@@ -960,20 +1125,41 @@ impl SignerDb {
         Ok(Some(broadcasted))
     }
 
-    /// Get the current state of a given block in the database
-    pub fn get_block_state(
+    /// Get a pending block validation, sorted by the time at which it was added to the pending table.
+    /// If found, remove it from the pending table.
+    pub fn get_and_remove_pending_block_validation(
         &self,
-        block_sighash: &Sha512Trunc256Sum,
-    ) -> Result<Option<BlockState>, DBError> {
-        let qry = "SELECT state FROM blocks WHERE signer_signature_hash = ?1 LIMIT 1";
-        let args = params![block_sighash];
-        let state_opt: Option<String> = query_row(&self.db, qry, args)?;
-        let Some(state) = state_opt else {
-            return Ok(None);
-        };
-        Ok(Some(
-            BlockState::try_from(state.as_str()).map_err(|_| DBError::Corruption)?,
-        ))
+    ) -> Result<Option<Sha512Trunc256Sum>, DBError> {
+        let qry = "DELETE FROM block_validations_pending WHERE signer_signature_hash = (SELECT signer_signature_hash FROM block_validations_pending ORDER BY added_time ASC LIMIT 1) RETURNING signer_signature_hash";
+        let args = params![];
+        let mut stmt = self.db.prepare(qry)?;
+        let sighash: Option<String> = stmt.query_row(args, |row| row.get(0)).optional()?;
+        Ok(sighash.and_then(|sighash| Sha512Trunc256Sum::from_hex(&sighash).ok()))
+    }
+
+    /// Remove a pending block validation
+    pub fn remove_pending_block_validation(
+        &self,
+        sighash: &Sha512Trunc256Sum,
+    ) -> Result<(), DBError> {
+        self.db.execute(
+            "DELETE FROM block_validations_pending WHERE signer_signature_hash = ?1",
+            params![sighash.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// Insert a pending block validation
+    pub fn insert_pending_block_validation(
+        &self,
+        sighash: &Sha512Trunc256Sum,
+        ts: u64,
+    ) -> Result<(), DBError> {
+        self.db.execute(
+            "INSERT INTO block_validations_pending (signer_signature_hash, added_time) VALUES (?1, ?2)",
+            params![sighash.to_string(), u64_to_sql(ts)?],
+        )?;
+        Ok(())
     }
 
     /// Return the start time (epoch time in seconds) and the processing time in milliseconds of the tenure (idenfitied by consensus_hash).
@@ -1038,6 +1224,50 @@ impl SignerDb {
         );
         tenure_extend_timestamp
     }
+
+    /// Mark a block as globally accepted. This removes the block from the pending
+    /// validations table. This does **not** update the block's state in SignerDb.
+    pub fn mark_block_globally_accepted(&self, block_info: &mut BlockInfo) -> Result<(), DBError> {
+        block_info
+            .mark_globally_accepted()
+            .map_err(DBError::Other)?;
+        self.remove_pending_block_validation(&block_info.signer_signature_hash())?;
+        Ok(())
+    }
+
+    /// Mark a block as globally rejected. This removes the block from the pending
+    /// validations table. This does **not** update the block's state in SignerDb.
+    pub fn mark_block_globally_rejected(&self, block_info: &mut BlockInfo) -> Result<(), DBError> {
+        block_info
+            .mark_globally_rejected()
+            .map_err(DBError::Other)?;
+        self.remove_pending_block_validation(&block_info.signer_signature_hash())?;
+        Ok(())
+    }
+    /// Update the tenure (identified by consensus_hash) last activity timestamp
+    pub fn update_last_activity_time(
+        &mut self,
+        tenure: &ConsensusHash,
+        last_activity_time: u64,
+    ) -> Result<(), DBError> {
+        debug!("Updating last activity for tenure"; "consensus_hash" => %tenure, "last_activity_time" => last_activity_time);
+        self.db.execute("INSERT OR REPLACE INTO tenure_activity (consensus_hash, last_activity_time) VALUES (?1, ?2)", params![tenure, u64_to_sql(last_activity_time)?])?;
+        Ok(())
+    }
+
+    /// Get the last activity timestamp for a tenure (identified by consensus_hash)
+    pub fn get_last_activity_time(&self, tenure: &ConsensusHash) -> Result<Option<u64>, DBError> {
+        let query =
+            "SELECT last_activity_time FROM tenure_activity WHERE consensus_hash = ? LIMIT 1";
+        let Some(last_activity_time_i64) = query_row::<i64, _>(&self.db, query, &[tenure])? else {
+            return Ok(None);
+        };
+        let last_activity_time = u64::try_from(last_activity_time_i64).map_err(|e| {
+            error!("Failed to parse db last_activity_time as u64: {e}");
+            DBError::Corruption
+        })?;
+        Ok(Some(last_activity_time))
+    }
 }
 
 fn try_deserialize<T>(s: Option<String>) -> Result<Option<T>, DBError>
@@ -1050,6 +1280,50 @@ where
         .map_err(DBError::SerializationError)
 }
 
+/// For tests, a struct to represent a pending block validation
+#[cfg(any(test, feature = "testing"))]
+pub struct PendingBlockValidation {
+    /// The signer signature hash of the block
+    pub signer_signature_hash: Sha512Trunc256Sum,
+    /// The time at which the block was added to the pending table
+    pub added_time: u64,
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl FromRow<PendingBlockValidation> for PendingBlockValidation {
+    fn from_row(row: &rusqlite::Row) -> Result<Self, DBError> {
+        let signer_signature_hash = Sha512Trunc256Sum::from_column(row, "signer_signature_hash")?;
+        let added_time = row.get_unwrap(1);
+        Ok(PendingBlockValidation {
+            signer_signature_hash,
+            added_time,
+        })
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl SignerDb {
+    /// For tests, fetch all pending block validations
+    pub fn get_all_pending_block_validations(
+        &self,
+    ) -> Result<Vec<PendingBlockValidation>, DBError> {
+        let qry = "SELECT signer_signature_hash, added_time FROM block_validations_pending ORDER BY added_time ASC";
+        query_rows(&self.db, qry, params![])
+    }
+
+    /// For tests, check if a pending block validation exists
+    pub fn has_pending_block_validation(
+        &self,
+        sighash: &Sha512Trunc256Sum,
+    ) -> Result<bool, DBError> {
+        let qry = "SELECT signer_signature_hash FROM block_validations_pending WHERE signer_signature_hash = ?1";
+        let args = params![sighash.to_string()];
+        let sighash_opt: Option<String> = query_row(&self.db, qry, args)?;
+        Ok(sighash_opt.is_some())
+    }
+}
+
+/// Tests for SignerDb
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -1063,7 +1337,7 @@ mod tests {
     use clarity::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
     use clarity::util::hash::Hash160;
     use clarity::util::secp256k1::MessageSignature;
-    use libsigner::BlockProposal;
+    use libsigner::{BlockProposal, BlockProposalData};
 
     use super::*;
     use crate::signerdb::NakamotoBlockVote;
@@ -1086,6 +1360,7 @@ mod tests {
             block,
             burn_height: 7,
             reward_cycle: 42,
+            block_proposal_data: BlockProposalData::empty(),
         };
         overrides(&mut block_proposal);
         (BlockInfo::from(block_proposal.clone()), block_proposal)
@@ -1117,7 +1392,7 @@ mod tests {
             .unwrap()
             .expect("Unable to get block from db");
 
-        assert_eq!(BlockInfo::from(block_proposal_1.clone()), block_info);
+        assert_eq!(BlockInfo::from(block_proposal_1), block_info);
 
         // Test looking up a block with an unknown hash
         let block_info = db
@@ -1132,14 +1407,7 @@ mod tests {
             .unwrap()
             .expect("Unable to get block from db");
 
-        assert_eq!(BlockInfo::from(block_proposal_2.clone()), block_info);
-        // test getting the block state
-        let block_state = db
-            .get_block_state(&block_proposal_1.block.header.signer_signature_hash())
-            .unwrap()
-            .expect("Unable to get block state from db");
-
-        assert_eq!(block_state, BlockInfo::from(block_proposal_1.clone()).state);
+        assert_eq!(BlockInfo::from(block_proposal_2), block_info);
     }
 
     #[test]
@@ -1563,15 +1831,14 @@ mod tests {
             previous_tenure_blocks: 1,
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(
-                &StacksPrivateKey::new(),
+                &StacksPrivateKey::random(),
             )),
         };
-        let tenure_change_tx_payload =
-            TransactionPayload::TenureChange(tenure_change_payload.clone());
+        let tenure_change_tx_payload = TransactionPayload::TenureChange(tenure_change_payload);
         let tenure_change_tx = StacksTransaction::new(
             TransactionVersion::Testnet,
-            TransactionAuth::from_p2pkh(&StacksPrivateKey::new()).unwrap(),
-            tenure_change_tx_payload.clone(),
+            TransactionAuth::from_p2pkh(&StacksPrivateKey::random()).unwrap(),
+            tenure_change_tx_payload,
         );
 
         let consensus_hash_1 = ConsensusHash([0x01; 20]);
@@ -1756,5 +2023,174 @@ mod tests {
             timestamp_hash_3.saturating_add(tenure_idle_timeout.as_secs())
                 < block_infos[0].proposed_time
         );
+    }
+
+    #[test]
+    fn test_get_and_remove_pending_block_validation() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let pending_hash = db.get_and_remove_pending_block_validation().unwrap();
+        assert!(pending_hash.is_none());
+
+        db.insert_pending_block_validation(&Sha512Trunc256Sum([0x01; 32]), 1000)
+            .unwrap();
+        db.insert_pending_block_validation(&Sha512Trunc256Sum([0x02; 32]), 2000)
+            .unwrap();
+        db.insert_pending_block_validation(&Sha512Trunc256Sum([0x03; 32]), 3000)
+            .unwrap();
+
+        let pending_hash = db.get_and_remove_pending_block_validation().unwrap();
+        assert_eq!(pending_hash, Some(Sha512Trunc256Sum([0x01; 32])));
+
+        let pendings = db.get_all_pending_block_validations().unwrap();
+        assert_eq!(pendings.len(), 2);
+
+        let pending_hash = db.get_and_remove_pending_block_validation().unwrap();
+        assert_eq!(pending_hash, Some(Sha512Trunc256Sum([0x02; 32])));
+
+        let pendings = db.get_all_pending_block_validations().unwrap();
+        assert_eq!(pendings.len(), 1);
+
+        let pending_hash = db.get_and_remove_pending_block_validation().unwrap();
+        assert_eq!(pending_hash, Some(Sha512Trunc256Sum([0x03; 32])));
+
+        let pendings = db.get_all_pending_block_validations().unwrap();
+        assert!(pendings.is_empty());
+    }
+
+    #[test]
+    fn check_globally_signed_block_count() {
+        let db_path = tmp_db_path();
+        let consensus_hash_1 = ConsensusHash([0x01; 20]);
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let (mut block_info, _) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+        });
+
+        assert!(matches!(
+            db.get_globally_accepted_block_count_in_tenure(&consensus_hash_1)
+                .unwrap(),
+            0
+        ));
+
+        // locally accepted still returns 0
+        block_info.signed_over = true;
+        block_info.state = BlockState::LocallyAccepted;
+        block_info.block.header.chain_length = 1;
+        db.insert_block(&block_info).unwrap();
+
+        assert_eq!(
+            db.get_globally_accepted_block_count_in_tenure(&consensus_hash_1)
+                .unwrap(),
+            0
+        );
+
+        block_info.signed_over = true;
+        block_info.state = BlockState::GloballyAccepted;
+        block_info.block.header.chain_length = 2;
+        db.insert_block(&block_info).unwrap();
+
+        block_info.signed_over = true;
+        block_info.state = BlockState::GloballyAccepted;
+        block_info.block.header.chain_length = 3;
+        db.insert_block(&block_info).unwrap();
+
+        assert_eq!(
+            db.get_globally_accepted_block_count_in_tenure(&consensus_hash_1)
+                .unwrap(),
+            2
+        );
+
+        // add an unsigned block
+        block_info.signed_over = false;
+        block_info.state = BlockState::GloballyAccepted;
+        block_info.block.header.chain_length = 4;
+        db.insert_block(&block_info).unwrap();
+
+        assert_eq!(
+            db.get_globally_accepted_block_count_in_tenure(&consensus_hash_1)
+                .unwrap(),
+            3
+        );
+
+        // add a locally signed block
+        block_info.signed_over = true;
+        block_info.state = BlockState::LocallyAccepted;
+        block_info.block.header.chain_length = 5;
+        db.insert_block(&block_info).unwrap();
+
+        assert_eq!(
+            db.get_globally_accepted_block_count_in_tenure(&consensus_hash_1)
+                .unwrap(),
+            3
+        );
+    }
+
+    #[test]
+    fn has_signed_block() {
+        let db_path = tmp_db_path();
+        let consensus_hash_1 = ConsensusHash([0x01; 20]);
+        let consensus_hash_2 = ConsensusHash([0x02; 20]);
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let (mut block_info, _) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.chain_length = 1;
+        });
+
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+
+        block_info.signed_over = true;
+        db.insert_block(&block_info).unwrap();
+
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+
+        block_info.block.header.consensus_hash = consensus_hash_2;
+        block_info.block.header.chain_length = 2;
+        block_info.signed_over = false;
+
+        db.insert_block(&block_info).unwrap();
+
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+
+        block_info.signed_over = true;
+
+        db.insert_block(&block_info).unwrap();
+
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+    }
+
+    #[test]
+    fn update_last_activity() {
+        let db_path = tmp_db_path();
+        let consensus_hash_1 = ConsensusHash([0x01; 20]);
+        let consensus_hash_2 = ConsensusHash([0x02; 20]);
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        assert!(db
+            .get_last_activity_time(&consensus_hash_1)
+            .unwrap()
+            .is_none());
+        assert!(db
+            .get_last_activity_time(&consensus_hash_2)
+            .unwrap()
+            .is_none());
+
+        let time = get_epoch_time_secs();
+        db.update_last_activity_time(&consensus_hash_1, time)
+            .unwrap();
+        let retrieved_time = db
+            .get_last_activity_time(&consensus_hash_1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(time, retrieved_time);
+        assert!(db
+            .get_last_activity_time(&consensus_hash_2)
+            .unwrap()
+            .is_none());
     }
 }

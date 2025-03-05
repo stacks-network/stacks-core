@@ -146,7 +146,7 @@ fn trie_cursor_try_attach_leaf() {
                 let ptr_opt_res = Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[i as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[i as u8; 40]),
                     &mut node,
                 );
                 assert!(ptr_opt_res.is_ok());
@@ -172,14 +172,11 @@ fn trie_cursor_try_attach_leaf() {
                 assert!(leaf_opt.is_some());
 
                 let leaf = leaf_opt.unwrap();
-                assert_eq!(
-                    leaf,
-                    TrieLeaf::new(&path[i + 1..].to_vec(), &[i as u8; 40].to_vec())
-                );
+                assert_eq!(leaf, TrieLeaf::new(&path[i + 1..], &[i as u8; 40]));
 
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                    merkle_test(&mut f, &path, &[i as u8; 40].to_vec());
+                    merkle_test(&mut f, &path, &[i as u8; 40]);
                 }
             }
 
@@ -202,14 +199,11 @@ fn trie_cursor_try_attach_leaf() {
                 assert!(leaf_opt.is_some());
 
                 let leaf = leaf_opt.unwrap();
-                assert_eq!(
-                    leaf,
-                    TrieLeaf::new(&path[i + 1..].to_vec(), &[i as u8; 40].to_vec())
-                );
+                assert_eq!(leaf, TrieLeaf::new(&path[i + 1..], &[i as u8; 40]));
 
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                    merkle_test(&mut f, &path, &[i as u8; 40].to_vec());
+                    merkle_test(&mut f, &path, &[i as u8; 40]);
                 }
             }
 
@@ -224,7 +218,7 @@ fn trie_cursor_try_attach_leaf() {
                     TrieNodeType::Node256(ref data) => {
                         assert_eq!(count_children(&data.ptrs), 2)
                     }
-                    _ => assert!(false),
+                    node_type => panic!("Unexpected node type: {node_type:?}"),
                 };
             }
 
@@ -264,7 +258,7 @@ fn trie_cursor_promote_leaf_to_node4() {
         Trie::test_try_attach_leaf(
             &mut f,
             &mut c,
-            &mut TrieLeaf::new(&vec![], &[128; 40].to_vec()),
+            &mut TrieLeaf::new(&[], &[128; 40]),
             &mut node,
         )
         .unwrap()
@@ -284,11 +278,11 @@ fn trie_cursor_promote_leaf_to_node4() {
             .unwrap()
             .unwrap(),
             TrieLeaf::new(
-                &vec![
+                &[
                     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
                     23, 24, 25, 26, 27, 28, 29, 30, 31
                 ],
-                &[128; 40].to_vec()
+                &[128; 40]
             )
         );
 
@@ -299,9 +293,8 @@ fn trie_cursor_promote_leaf_to_node4() {
                 &[
                     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
                     22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
-                ]
-                .to_vec(),
-                &[128; 40].to_vec(),
+                ],
+                &[128; 40],
             );
         }
 
@@ -331,7 +324,7 @@ fn trie_cursor_promote_leaf_to_node4() {
                 &mut f,
                 &mut c,
                 &mut leaf_data,
-                &mut TrieLeaf::new(&vec![], &[(i + 128) as u8; 40].to_vec()),
+                &mut TrieLeaf::new(&[], &[(i + 128) as u8; 40]),
             )
             .unwrap();
             ptrs.push(ptr);
@@ -350,14 +343,11 @@ fn trie_cursor_promote_leaf_to_node4() {
             assert!(leaf_opt.is_some());
 
             let leaf = leaf_opt.unwrap();
-            assert_eq!(
-                leaf,
-                TrieLeaf::new(&path[i + 1..].to_vec(), &[(i + 128) as u8; 40].to_vec())
-            );
+            assert_eq!(leaf, TrieLeaf::new(&path[i + 1..], &[(i + 128) as u8; 40]));
 
             // without a MARF commit, merkle tests will fail in deferred mode
             if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                merkle_test(&mut f, &path, &[(i + 128) as u8; 40].to_vec());
+                merkle_test(&mut f, &path, &[(i + 128) as u8; 40]);
             }
         }
 
@@ -380,25 +370,21 @@ fn trie_cursor_promote_leaf_to_node4() {
             assert!(leaf_opt.is_some());
 
             let leaf = leaf_opt.unwrap();
-            assert_eq!(
-                leaf,
-                TrieLeaf::new(&path[i + 1..].to_vec(), &[(i + 128) as u8; 40].to_vec())
-            );
+            assert_eq!(leaf, TrieLeaf::new(&path[i + 1..], &[(i + 128) as u8; 40]));
 
             // without a MARF commit, merkle tests will fail in deferred mode
             if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                merkle_test(&mut f, &path, &[(i + 128) as u8; 40].to_vec());
+                merkle_test(&mut f, &path, &[(i + 128) as u8; 40]);
             }
         }
 
         // each ptr must be a node with two children
-        for i in 0..31 {
-            let ptr = &ptrs[i];
+        for ptr in ptrs.iter().take(31) {
             let (node, hash) = f.read_nodetype(ptr).unwrap();
             match node {
                 TrieNodeType::Node4(ref data) => assert_eq!(count_children(&data.ptrs), 2),
                 TrieNodeType::Node256(ref data) => assert_eq!(count_children(&data.ptrs), 2),
-                _ => assert!(false),
+                _ => panic!("Unexpected node type"),
             };
         }
 
@@ -474,7 +460,7 @@ fn trie_cursor_promote_node4_to_node16() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[128 + j; 40]),
                     &mut node,
                 )
                 .unwrap()
@@ -490,12 +476,12 @@ fn trie_cursor_promote_node4_to_node16() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    TrieLeaf::new(&path[k + 1..], &[128 + j; 40])
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                    merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
+                    merkle_test(&mut f, &path, &[j + 128; 40]);
                 }
             }
         }
@@ -523,7 +509,7 @@ fn trie_cursor_promote_node4_to_node16() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new(&[], &[192 + k as u8; 40]),
                 &mut node,
             )
             .unwrap();
@@ -540,25 +526,22 @@ fn trie_cursor_promote_node4_to_node16() {
                 )
                 .unwrap()
                 .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
+                TrieLeaf::new(&path[k + 1..], &[192 + k as u8; 40])
             );
 
             // without a MARF commit, merkle tests will fail in deferred mode
             if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+                merkle_test(&mut f, &path, &[(k + 192) as u8; 40]);
             }
         }
 
         // each ptr we got should point to a node16 with 5 children
         for ptr in ptrs.iter() {
             let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node16(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 5);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let TrieNodeType::Node16(data) = &node {
+                assert_eq!(count_children(&data.ptrs), 5);
+            } else {
+                panic!("Unexpected node type");
             }
         }
 
@@ -635,7 +618,7 @@ fn trie_cursor_promote_node16_to_node48() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[128 + j; 40]),
                     &mut node,
                 )
                 .unwrap()
@@ -652,12 +635,12 @@ fn trie_cursor_promote_node16_to_node48() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    TrieLeaf::new(&path[k + 1..], &[128 + j; 40])
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                    merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
+                    merkle_test(&mut f, &path, &[j + 128; 40]);
                 }
             }
         }
@@ -685,7 +668,7 @@ fn trie_cursor_promote_node16_to_node48() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new(&[], &[192 + k as u8; 40]),
                 &mut node,
             )
             .unwrap();
@@ -702,25 +685,22 @@ fn trie_cursor_promote_node16_to_node48() {
                 )
                 .unwrap()
                 .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
+                TrieLeaf::new(&path[k + 1..], &[192 + k as u8; 40])
             );
 
             // without a MARF commit, merkle tests will fail in deferred mode
             if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+                merkle_test(&mut f, &path, &[(k + 192) as u8; 40]);
             }
         }
 
         // each ptr we got should point to a node16 with 5 children
         for ptr in ptrs.iter() {
             let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node16(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 5);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let TrieNodeType::Node16(ref data) = node {
+                assert_eq!(count_children(&data.ptrs), 5);
+            } else {
+                panic!("Unexpected node type");
             }
         }
 
@@ -742,7 +722,7 @@ fn trie_cursor_promote_node16_to_node48() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[128 + j; 40]),
                     &mut node,
                 )
                 .unwrap()
@@ -759,12 +739,12 @@ fn trie_cursor_promote_node16_to_node48() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    TrieLeaf::new(&path[k + 1..], &[128 + j; 40])
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                    merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
+                    merkle_test(&mut f, &path, &[j + 128; 40]);
                 }
             }
         }
@@ -793,7 +773,7 @@ fn trie_cursor_promote_node16_to_node48() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new(&[], &[192 + k as u8; 40]),
                 &mut node,
             )
             .unwrap();
@@ -810,25 +790,22 @@ fn trie_cursor_promote_node16_to_node48() {
                 )
                 .unwrap()
                 .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
+                TrieLeaf::new(&path[k + 1..], &[192 + k as u8; 40])
             );
 
             // without a MARF commit, merkle tests will fail in deferred mode
             if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+                merkle_test(&mut f, &path, &[(k + 192) as u8; 40]);
             }
         }
 
         // each ptr we got should point to a node48 with 17 children
         for ptr in ptrs.iter() {
             let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node48(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 17);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let TrieNodeType::Node48(ref data) = node {
+                assert_eq!(count_children(&data.ptrs), 17);
+            } else {
+                panic!("Unexpected node type");
             }
         }
 
@@ -905,7 +882,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[128 + j; 40]),
                     &mut node,
                 )
                 .unwrap()
@@ -922,12 +899,12 @@ fn trie_cursor_promote_node48_to_node256() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    TrieLeaf::new(&path[k + 1..], &[128 + j; 40])
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                    merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
+                    merkle_test(&mut f, &path, &[j + 128; 40]);
                 }
             }
         }
@@ -955,7 +932,7 @@ fn trie_cursor_promote_node48_to_node256() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new(&[], &[192 + k as u8; 40]),
                 &mut node,
             )
             .unwrap();
@@ -972,25 +949,22 @@ fn trie_cursor_promote_node48_to_node256() {
                 )
                 .unwrap()
                 .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
+                TrieLeaf::new(&path[k + 1..], &[192 + k as u8; 40])
             );
 
             // without a MARF commit, merkle tests will fail in deferred mode
             if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+                merkle_test(&mut f, &path, &[(k + 192) as u8; 40]);
             }
         }
 
         // each ptr we got should point to a node16 with 5 children
         for ptr in ptrs.iter() {
             let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node16(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 5);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let TrieNodeType::Node16(ref data) = node {
+                assert_eq!(count_children(&data.ptrs), 5);
+            } else {
+                panic!("Unexpected node type");
             }
         }
 
@@ -1012,7 +986,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[128 + j; 40]),
                     &mut node,
                 )
                 .unwrap()
@@ -1028,12 +1002,12 @@ fn trie_cursor_promote_node48_to_node256() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    TrieLeaf::new(&path[k + 1..], &[128 + j; 40])
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                    merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
+                    merkle_test(&mut f, &path, &[j + 128; 40]);
                 }
             }
         }
@@ -1061,7 +1035,7 @@ fn trie_cursor_promote_node48_to_node256() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new(&[], &[192 + k as u8; 40]),
                 &mut node,
             )
             .unwrap();
@@ -1078,25 +1052,22 @@ fn trie_cursor_promote_node48_to_node256() {
                 )
                 .unwrap()
                 .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
+                TrieLeaf::new(&path[k + 1..], &[192 + k as u8; 40])
             );
 
             // without a MARF commit, merkle tests will fail in deferred mode
             if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+                merkle_test(&mut f, &path, &[(k + 192) as u8; 40]);
             }
         }
 
         // each ptr we got should point to a node48 with 17 children
         for ptr in ptrs.iter() {
             let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node48(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 17);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let TrieNodeType::Node48(ref data) = node {
+                assert_eq!(count_children(&data.ptrs), 17);
+            } else {
+                panic!("Unexpected node type");
             }
         }
 
@@ -1118,7 +1089,7 @@ fn trie_cursor_promote_node48_to_node256() {
                 Trie::test_try_attach_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[128 + j; 40]),
                     &mut node,
                 )
                 .unwrap()
@@ -1135,12 +1106,12 @@ fn trie_cursor_promote_node48_to_node256() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[k + 1..].to_vec(), &[128 + j as u8; 40].to_vec())
+                    TrieLeaf::new(&path[k + 1..], &[128 + j; 40])
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                    merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
+                    merkle_test(&mut f, &path, &[j + 128; 40]);
                 }
             }
         }
@@ -1168,7 +1139,7 @@ fn trie_cursor_promote_node48_to_node256() {
             let new_ptr = Trie::test_insert_leaf(
                 &mut f,
                 &mut c,
-                &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                &mut TrieLeaf::new(&[], &[192 + k as u8; 40]),
                 &mut node,
             )
             .unwrap();
@@ -1185,25 +1156,22 @@ fn trie_cursor_promote_node48_to_node256() {
                 )
                 .unwrap()
                 .unwrap(),
-                TrieLeaf::new(&path[k + 1..].to_vec(), &[192 + k as u8; 40].to_vec())
+                TrieLeaf::new(&path[k + 1..], &[192 + k as u8; 40])
             );
 
             // without a MARF commit, merkle tests will fail in deferred mode
             if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+                merkle_test(&mut f, &path, &[(k + 192) as u8; 40]);
             }
         }
 
         // each ptr we got should point to a node256 with 49 children
         for ptr in ptrs.iter() {
             let (node, hash) = f.read_nodetype(ptr).unwrap();
-            match node {
-                TrieNodeType::Node256(ref data) => {
-                    assert_eq!(count_children(&data.ptrs), 49);
-                }
-                _ => {
-                    assert!(false);
-                }
+            if let TrieNodeType::Node256(ref data) = node {
+                assert_eq!(count_children(&data.ptrs), 49);
+            } else {
+                panic!("Unexpected node type");
             }
         }
 
@@ -1245,8 +1213,6 @@ fn trie_cursor_splice_leaf_4() {
             let (nodes, node_ptrs, hashes) =
                 make_node_path(&mut f, node_id.to_u8(), &path_segments, [31u8; 40].to_vec());
 
-            let mut ptrs = vec![];
-
             // splice in a node in each path segment
             for k in 0..5 {
                 let mut path = vec![
@@ -1270,11 +1236,10 @@ fn trie_cursor_splice_leaf_4() {
                 let new_ptr = Trie::test_splice_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[192 + k as u8; 40]),
                     &mut node,
                 )
                 .unwrap();
-                ptrs.push(new_ptr);
 
                 Trie::update_root_hash(&mut f, &c).unwrap();
 
@@ -1287,12 +1252,12 @@ fn trie_cursor_splice_leaf_4() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[5 * k + 3..].to_vec(), &[192 + k as u8; 40].to_vec())
+                    TrieLeaf::new(&path[5 * k + 3..], &[192 + k as u8; 40])
                 );
 
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                    merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+                    merkle_test(&mut f, &path, &[(k + 192) as u8; 40]);
                 }
             }
 
@@ -1338,7 +1303,6 @@ fn trie_cursor_splice_leaf_2() {
 
             let (nodes, node_ptrs, hashes) =
                 make_node_path(&mut f, node_id.to_u8(), &path_segments, [31u8; 40].to_vec());
-            let mut ptrs = vec![];
 
             // splice in a node in each path segment
             for k in 0..10 {
@@ -1359,11 +1323,10 @@ fn trie_cursor_splice_leaf_2() {
                 let new_ptr = Trie::test_splice_leaf(
                     &mut f,
                     &mut c,
-                    &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()),
+                    &mut TrieLeaf::new(&[], &[192 + k as u8; 40]),
                     &mut node,
                 )
                 .unwrap();
-                ptrs.push(new_ptr);
 
                 Trie::update_root_hash(&mut f, &c).unwrap();
 
@@ -1376,13 +1339,13 @@ fn trie_cursor_splice_leaf_2() {
                     )
                     .unwrap()
                     .unwrap(),
-                    TrieLeaf::new(&path[3 * k + 2..].to_vec(), &[192 + k as u8; 40].to_vec())
+                    TrieLeaf::new(&path[3 * k + 2..], &[192 + k as u8; 40])
                 );
 
                 // proofs should still work
                 // without a MARF commit, merkle tests will fail in deferred mode
                 if f.hash_calculation_mode != TrieHashCalculationMode::Deferred {
-                    merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
+                    merkle_test(&mut f, &path, &[(k + 192) as u8; 40]);
                 }
             }
 
@@ -1415,7 +1378,7 @@ where
             let path = path_gen(i);
             let triepath = TrieHash::from_bytes(&path).unwrap();
             let value = TrieLeaf::new(
-                &vec![],
+                &[],
                 &[
                     0,
                     0,
@@ -1457,8 +1420,7 @@ where
                     0,
                     (i / 256) as u8,
                     (i % 256) as u8,
-                ]
-                .to_vec(),
+                ],
             );
             marf.insert_raw(triepath, value).unwrap();
 
@@ -1469,7 +1431,7 @@ where
             {
                 merkle_test(
                     &mut marf.borrow_storage_backend(),
-                    &path.to_vec(),
+                    &path,
                     &[
                         0,
                         0,
@@ -1511,8 +1473,7 @@ where
                         0,
                         (i / 256) as u8,
                         (i % 256) as u8,
-                    ]
-                    .to_vec(),
+                    ],
                 );
             }
         }
@@ -1577,7 +1538,7 @@ where
             {
                 merkle_test(
                     &mut marf.borrow_storage_backend(),
-                    &path.to_vec(),
+                    &path,
                     &[
                         0,
                         0,
@@ -1619,8 +1580,7 @@ where
                         0,
                         (i / 256) as u8,
                         (i % 256) as u8,
-                    ]
-                    .to_vec(),
+                    ],
                 );
             }
         }

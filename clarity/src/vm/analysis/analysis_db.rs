@@ -18,14 +18,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use crate::vm::analysis::errors::{CheckErrors, CheckResult};
 use crate::vm::analysis::type_checker::ContractAnalysis;
 use crate::vm::database::{
     ClarityBackingStore, ClarityDeserializable, ClaritySerializable, RollbackWrapper,
 };
 use crate::vm::representations::ClarityName;
 use crate::vm::types::signatures::FunctionSignature;
-use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
+use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier};
 use crate::vm::ClarityVersion;
 
 pub struct AnalysisDatabase<'a> {
@@ -50,11 +50,11 @@ impl<'a> AnalysisDatabase<'a> {
         self.begin();
         let result = f(self).or_else(|e| {
             self.roll_back()
-                .map_err(|e| CheckErrors::Expects(format!("{e:?}")).into())?;
+                .map_err(|e| CheckErrors::Expects(format!("{e:?}")))?;
             Err(e)
         })?;
         self.commit()
-            .map_err(|e| CheckErrors::Expects(format!("{e:?}")).into())?;
+            .map_err(|e| CheckErrors::Expects(format!("{e:?}")))?;
         Ok(result)
     }
 
@@ -130,9 +130,9 @@ impl<'a> AnalysisDatabase<'a> {
                     .map_err(|_| CheckErrors::Expects("Bad data deserialized from DB".into()))
             })
             .transpose()?
-            .and_then(|mut x| {
+            .map(|mut x| {
                 x.canonicalize_types(epoch);
-                Some(x)
+                x
             }))
     }
 

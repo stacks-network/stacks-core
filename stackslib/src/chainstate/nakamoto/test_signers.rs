@@ -86,7 +86,7 @@ impl Default for TestSigners {
 
         let mut signer_keys = Vec::<Secp256k1PrivateKey>::new();
         for _ in 0..num_signers {
-            signer_keys.push(Secp256k1PrivateKey::default());
+            signer_keys.push(Secp256k1PrivateKey::random());
         }
         Self {
             threshold,
@@ -128,7 +128,7 @@ impl TestSigners {
             self.generate_aggregate_key(cycle);
         }
 
-        let signer_signature = self.generate_block_signatures(&block);
+        let signer_signature = self.generate_block_signatures(block);
 
         test_debug!(
             "Signed Nakamoto block {} with {} signatures (rc {})",
@@ -165,10 +165,11 @@ impl TestSigners {
                 weight: 1,
             };
             let pox_addr = PoxAddress::Standard(
-                StacksAddress {
-                    version: AddressHashMode::SerializeP2PKH.to_version_testnet(),
-                    bytes: Hash160::from_data(&nakamoto_signer_entry.signing_key),
-                },
+                StacksAddress::new(
+                    AddressHashMode::SerializeP2PKH.to_version_testnet(),
+                    Hash160::from_data(&nakamoto_signer_entry.signing_key),
+                )
+                .expect("FATAL: constant testnet address version is not supported"),
                 Some(AddressHashMode::SerializeP2PKH),
             );
             signer_entries.push(nakamoto_signer_entry);
@@ -264,7 +265,7 @@ impl TestSigners {
 
         let aggregate_public_key: Vec<u8> =
             rand::thread_rng().sample_iter(Standard).take(33).collect();
-        self.aggregate_public_key = aggregate_public_key.clone();
+        self.aggregate_public_key.clone_from(&aggregate_public_key);
         aggregate_public_key
     }
 }

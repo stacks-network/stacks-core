@@ -20,34 +20,31 @@ pub mod natives;
 
 use std::collections::BTreeMap;
 
-use hashbrown::HashMap;
 use stacks_common::types::StacksEpochId;
 
 use self::contexts::ContractContext;
 pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
 use super::contexts::{TypeMap, TypingContext};
-use super::{AnalysisPass, ContractAnalysis};
+use super::ContractAnalysis;
 pub use crate::vm::analysis::errors::{
     check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
 };
 use crate::vm::analysis::AnalysisDatabase;
-use crate::vm::contexts::Environment;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
-    analysis_typecheck_cost, cost_functions, runtime_cost, ClarityCostFunctionReference,
-    CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
+    analysis_typecheck_cost, runtime_cost, CostErrors, CostOverflowingMath, CostTracker,
+    ExecutionCost, LimitedCostTracker,
 };
-use crate::vm::errors::InterpreterError;
 use crate::vm::functions::define::DefineFunctionsParsed;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
 use crate::vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
-use crate::vm::types::signatures::{FunctionSignature, BUFF_20};
+use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
     parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, PrincipalData,
-    QualifiedContractIdentifier, TupleTypeSignature, TypeSignature, Value,
+    QualifiedContractIdentifier, TypeSignature, Value,
 };
 use crate::vm::variables::NativeVariables;
 use crate::vm::ClarityVersion;
@@ -239,10 +236,7 @@ impl FunctionType {
                 Ok(TypeSignature::BoolType)
             }
             FunctionType::Binary(_, _, _) => {
-                return Err(CheckErrors::Expects(
-                    "Binary type should not be reached in 2.05".into(),
-                )
-                .into())
+                Err(CheckErrors::Expects("Binary type should not be reached in 2.05".into()).into())
             }
         }
     }
@@ -286,8 +280,8 @@ impl FunctionType {
                     )?;
                 }
                 (expected_type, value) => {
-                    if !expected_type.admits(&StacksEpochId::Epoch2_05, &value)? {
-                        let actual_type = TypeSignature::type_of(&value)?;
+                    if !expected_type.admits(&StacksEpochId::Epoch2_05, value)? {
+                        let actual_type = TypeSignature::type_of(value)?;
                         return Err(
                             CheckErrors::TypeError(expected_type.clone(), actual_type).into()
                         );
@@ -438,41 +432,39 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         context: &TypingContext,
         expected_type: &TypeSignature,
     ) -> TypeResult {
-        match (&expr.expr, expected_type) {
-            (
-                LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
-                TypeSignature::TraitReferenceType(trait_identifier),
-            ) => {
-                let contract_to_check = self
-                    .db
-                    .load_contract(&contract_identifier, &StacksEpochId::Epoch2_05)?
-                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+        if let (
+            LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
+            TypeSignature::TraitReferenceType(trait_identifier),
+        ) = (&expr.expr, expected_type)
+        {
+            let contract_to_check = self
+                .db
+                .load_contract(contract_identifier, &StacksEpochId::Epoch2_05)?
+                .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
-                let contract_defining_trait = self
-                    .db
-                    .load_contract(
-                        &trait_identifier.contract_identifier,
-                        &StacksEpochId::Epoch2_05,
-                    )?
-                    .ok_or(CheckErrors::NoSuchContract(
-                        trait_identifier.contract_identifier.to_string(),
-                    ))?;
-
-                let trait_definition = contract_defining_trait
-                    .get_defined_trait(&trait_identifier.name)
-                    .ok_or(CheckErrors::NoSuchTrait(
-                        trait_identifier.contract_identifier.to_string(),
-                        trait_identifier.name.to_string(),
-                    ))?;
-
-                contract_to_check.check_trait_compliance(
+            let contract_defining_trait = self
+                .db
+                .load_contract(
+                    &trait_identifier.contract_identifier,
                     &StacksEpochId::Epoch2_05,
-                    trait_identifier,
-                    trait_definition,
-                )?;
-                return Ok(expected_type.clone());
-            }
-            (_, _) => {}
+                )?
+                .ok_or(CheckErrors::NoSuchContract(
+                    trait_identifier.contract_identifier.to_string(),
+                ))?;
+
+            let trait_definition = contract_defining_trait
+                .get_defined_trait(&trait_identifier.name)
+                .ok_or(CheckErrors::NoSuchTrait(
+                    trait_identifier.contract_identifier.to_string(),
+                    trait_identifier.name.to_string(),
+                ))?;
+
+            contract_to_check.check_trait_compliance(
+                &StacksEpochId::Epoch2_05,
+                trait_identifier,
+                trait_definition,
+            )?;
+            return Ok(expected_type.clone());
         }
 
         let actual_type = self.type_check(expr, context)?;

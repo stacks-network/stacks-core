@@ -120,7 +120,7 @@ use crate::util_lib::db::{
     FromRow,
 };
 
-pub static NAKAMOTO_TENURES_SCHEMA_1: &'static str = r#"
+pub static NAKAMOTO_TENURES_SCHEMA_1: &str = r#"
     CREATE TABLE nakamoto_tenures (
         -- consensus hash of start-tenure block (i.e. the consensus hash of the sortition in which the miner's block-commit
         -- was mined)
@@ -157,7 +157,7 @@ pub static NAKAMOTO_TENURES_SCHEMA_1: &'static str = r#"
     CREATE INDEX nakamoto_tenures_by_parent ON nakamoto_tenures(tenure_id_consensus_hash,prev_tenure_id_consensus_hash);
 "#;
 
-pub static NAKAMOTO_TENURES_SCHEMA_2: &'static str = r#"
+pub static NAKAMOTO_TENURES_SCHEMA_2: &str = r#"
     -- Drop the nakamoto_tenures table if it exists
     DROP TABLE IF EXISTS nakamoto_tenures;
 
@@ -197,7 +197,7 @@ pub static NAKAMOTO_TENURES_SCHEMA_2: &'static str = r#"
     CREATE INDEX nakamoto_tenures_by_parent ON nakamoto_tenures(tenure_id_consensus_hash,prev_tenure_id_consensus_hash);
 "#;
 
-pub static NAKAMOTO_TENURES_SCHEMA_3: &'static str = r#"
+pub static NAKAMOTO_TENURES_SCHEMA_3: &str = r#"
     -- Drop the nakamoto_tenures table if it exists
     DROP TABLE IF EXISTS nakamoto_tenures;
 
@@ -372,7 +372,7 @@ impl NakamotoChainState {
         let matured_coinbase_height = coinbase_height - MINER_REWARD_MATURITY;
         let matured_tenure_block_header = Self::get_header_by_coinbase_height(
             chainstate_tx.deref_mut(),
-            &tip_index_hash,
+            tip_index_hash,
             matured_coinbase_height,
         )?
         .ok_or_else(|| {
@@ -756,7 +756,7 @@ impl NakamotoChainState {
                 headers_conn.sqlite(),
                 &block_header.parent_block_id,
             )?
-            .map(|parent_version| NakamotoBlockHeader::is_shadow_block_version(parent_version))
+            .map(NakamotoBlockHeader::is_shadow_block_version)
             .unwrap_or(false);
 
             if !is_parent_shadow_block && !prev_sn.sortition {

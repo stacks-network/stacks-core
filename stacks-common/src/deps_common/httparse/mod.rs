@@ -30,7 +30,7 @@
 //! Originally written by Sean McArthur.
 //!
 //! Modified by Jude Nelson to remove all unsafe code.
-use std::{error, fmt, mem, result, str};
+use std::{fmt, mem, result, str};
 
 macro_rules! next {
     ($bytes:ident) => {{
@@ -169,14 +169,14 @@ impl<'a> Bytes<'a> {
     }
 }
 
-impl<'a> AsRef<[u8]> for Bytes<'a> {
+impl AsRef<[u8]> for Bytes<'_> {
     #[inline]
     fn as_ref(&self) -> &[u8] {
         &self.slice_peek()[self.pos..]
     }
 }
 
-impl<'a> Iterator for Bytes<'a> {
+impl Iterator for Bytes<'_> {
     type Item = u8;
 
     #[inline]
@@ -701,6 +701,7 @@ pub fn parse_headers<'b: 'h, 'h>(
 }
 
 #[inline]
+#[allow(clippy::never_loop)]
 fn parse_headers_iter<'a>(headers: &mut &mut [Header<'a>], bytes: &mut Bytes<'a>) -> Result<usize> {
     let mut num_headers: usize = 0;
     let mut count: usize = 0;
@@ -938,7 +939,7 @@ mod tests {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/");
             assert_eq!(req.version.unwrap(), 1);
-            assert_eq!(req.headers.len(), 0);
+            assert!(req.headers.is_empty());
         }
     }
 
@@ -949,7 +950,7 @@ mod tests {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/thing?data=a");
             assert_eq!(req.version.unwrap(), 1);
-            assert_eq!(req.headers.len(), 0);
+            assert!(req.headers.is_empty());
         }
     }
 
@@ -960,7 +961,7 @@ mod tests {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/thing?data=a^");
             assert_eq!(req.version.unwrap(), 1);
-            assert_eq!(req.headers.len(), 0);
+            assert!(req.headers.is_empty());
         }
     }
 
@@ -1083,7 +1084,7 @@ mod tests {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/");
             assert_eq!(req.version.unwrap(), 1);
-            assert_eq!(req.headers.len(), 0);
+            assert!(req.headers.is_empty());
         }
     }
 
@@ -1094,7 +1095,7 @@ mod tests {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/");
             assert_eq!(req.version.unwrap(), 1);
-            assert_eq!(req.headers.len(), 0);
+            assert!(req.headers.is_empty());
         }
     }
 
@@ -1105,7 +1106,7 @@ mod tests {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/\\?wayne\\=5");
             assert_eq!(req.version.unwrap(), 1);
-            assert_eq!(req.headers.len(), 0);
+            assert!(req.headers.is_empty());
         }
     }
 
@@ -1281,8 +1282,6 @@ mod tests {
 
     #[test]
     fn test_std_error() {
-        use std::error::Error as StdError;
-
         use super::Error;
         let err = Error::HeaderName;
         assert_eq!(err.to_string(), err.description_str());

@@ -211,7 +211,7 @@ impl P2PSession {
             peer_info.parent_network_id,
             PeerAddress::from_socketaddr(&peer_addr),
             peer_addr.port(),
-            Some(StacksPrivateKey::new()),
+            Some(StacksPrivateKey::random()),
             u64::MAX,
             UrlString::try_from(format!("http://127.0.0.1:{}", data_port).as_str()).unwrap(),
             vec![],
@@ -316,7 +316,7 @@ fn main() {
             "{}",
             &blockstack_lib::version_string(
                 option_env!("CARGO_PKG_NAME").unwrap_or(&argv[0]),
-                option_env!("CARGO_PKG_VERSION").unwrap_or("0.0.0.0")
+                option_env!("STACKS_NODE_VERSION")
             )
         );
         process::exit(0);
@@ -507,7 +507,7 @@ fn main() {
         }
 
         let index_block_hash = &argv[3];
-        let index_block_hash = StacksBlockId::from_hex(&index_block_hash).unwrap();
+        let index_block_hash = StacksBlockId::from_hex(index_block_hash).unwrap();
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
         let (chainstate, _) =
@@ -540,7 +540,7 @@ fn main() {
         let microblocks =
             StacksChainState::find_parent_microblock_stream(chainstate.db(), &block_info)
                 .unwrap()
-                .unwrap_or(vec![]);
+                .unwrap_or_default();
 
         let mut mblock_report = vec![];
         for mblock in microblocks.iter() {
@@ -686,11 +686,11 @@ check if the associated microblocks can be downloaded
             };
 
             let index_block_hash =
-                StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
+                StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
             let start_load_header = get_epoch_time_ms();
             let parent_header_opt = {
                 let child_block_info = match StacksChainState::load_staging_block_info(
-                    &chain_state.db(),
+                    chain_state.db(),
                     &index_block_hash,
                 ) {
                     Ok(Some(hdr)) => hdr,
@@ -725,8 +725,8 @@ check if the associated microblocks can be downloaded
                     &chain_state,
                     &parent_consensus_hash,
                     &parent_header.block_hash(),
-                    &consensus_hash,
-                    &block_hash,
+                    consensus_hash,
+                    block_hash,
                 )
                 .unwrap();
             } else {
@@ -1023,13 +1023,13 @@ check if the associated microblocks can be downloaded
             }
             i += 1;
             let line = line.unwrap().trim().to_string();
-            if line.len() == 0 {
+            if line.is_empty() {
                 continue;
             }
             let vals: Vec<_> = line.split(" => ").map(|x| x.trim()).collect();
             let hex_string = &vals[0];
             let expected_value_display = &vals[1];
-            let value = clarity::vm::Value::try_deserialize_hex_untyped(&hex_string).unwrap();
+            let value = clarity::vm::Value::try_deserialize_hex_untyped(hex_string).unwrap();
             assert_eq!(&value.to_string(), expected_value_display);
         }
 
@@ -1177,7 +1177,7 @@ check if the associated microblocks can be downloaded
         let txs = argv[5..]
             .iter()
             .map(|tx_str| {
-                let tx_bytes = hex_bytes(&tx_str).unwrap();
+                let tx_bytes = hex_bytes(tx_str).unwrap();
                 let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
                 tx
             })
@@ -1317,7 +1317,7 @@ check if the associated microblocks can be downloaded
         let old_sortition_db =
             SortitionDB::open(old_sort_path, true, PoxConstants::mainnet_default()).unwrap();
 
-        // initial argon balances -- see testnet/stacks-node/conf/testnet-follower-conf.toml
+        // initial argon balances -- see sample/conf/testnet-follower-conf.toml
         let initial_balances = vec![
             (
                 StacksAddress::from_string("ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2")
@@ -1345,7 +1345,7 @@ check if the associated microblocks can be downloaded
             ),
         ];
 
-        let burnchain = Burnchain::regtest(&burnchain_db_path);
+        let burnchain = Burnchain::regtest(burnchain_db_path);
         let first_burnchain_block_height = burnchain.first_block_height;
         let first_burnchain_block_hash = burnchain.first_block_hash;
         let epochs = StacksEpoch::all(first_burnchain_block_height, u64::MAX, u64::MAX);
@@ -1358,8 +1358,7 @@ check if the associated microblocks can be downloaded
             )
             .unwrap();
 
-        let old_burnchaindb =
-            BurnchainDB::connect(&old_burnchaindb_path, &burnchain, true).unwrap();
+        let old_burnchaindb = BurnchainDB::connect(old_burnchaindb_path, &burnchain, true).unwrap();
 
         let mut boot_data = ChainStateBootData {
             initial_balances,
@@ -1385,7 +1384,7 @@ check if the associated microblocks can be downloaded
 
         let all_snapshots = old_sortition_db.get_all_snapshots().unwrap();
         let all_stacks_blocks =
-            StacksChainState::get_all_staging_block_headers(&old_chainstate.db()).unwrap();
+            StacksChainState::get_all_staging_block_headers(old_chainstate.db()).unwrap();
 
         // order block hashes by arrival index
         let mut stacks_blocks_arrival_indexes = vec![];
@@ -1402,7 +1401,7 @@ check if the associated microblocks can be downloaded
             );
             stacks_blocks_arrival_indexes.push((index_hash, snapshot.arrival_index));
         }
-        stacks_blocks_arrival_indexes.sort_by(|ref a, ref b| a.1.partial_cmp(&b.1).unwrap());
+        stacks_blocks_arrival_indexes.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
         let stacks_blocks_arrival_order: Vec<StacksBlockId> = stacks_blocks_arrival_indexes
             .into_iter()
             .map(|(h, _)| h)
@@ -1464,7 +1463,7 @@ check if the associated microblocks can be downloaded
                 header: burn_block_header,
                 ops: blockstack_txs,
             } = BurnchainDB::get_burnchain_block(
-                &old_burnchaindb.conn(),
+                old_burnchaindb.conn(),
                 &old_snapshot.burn_header_hash,
             )
             .unwrap();
@@ -1484,7 +1483,7 @@ check if the associated microblocks can be downloaded
                         &burnchain,
                         &sortition_tip.sortition_id,
                         None,
-                        |_| {},
+                        |_, _| {},
                     )
                     .unwrap()
             };
@@ -1523,7 +1522,7 @@ check if the associated microblocks can be downloaded
                     while next_arrival < stacks_blocks_arrival_order.len()
                         && known_stacks_blocks.contains(&stacks_block_id)
                     {
-                        if let Some(_) = stacks_blocks_available.get(&stacks_block_id) {
+                        if stacks_blocks_available.get(&stacks_block_id).is_some() {
                             // load up the block
                             let stacks_block_opt = StacksChainState::load_block(
                                 &old_chainstate.blocks_path,
@@ -1585,7 +1584,7 @@ check if the associated microblocks can be downloaded
                         null_event_dispatcher,
                     )
                     .unwrap();
-                if receipts.len() == 0 {
+                if receipts.is_empty() {
                     break;
                 }
             }
@@ -1614,10 +1613,33 @@ check if the associated microblocks can be downloaded
         process::exit(0);
     }
 
+    if argv[1] == "dump-consts" {
+        dump_consts();
+    }
+
     if argv.len() < 4 {
         eprintln!("Usage: {} blockchain network working_dir", argv[0]);
         process::exit(1);
     }
+}
+
+#[cfg_attr(test, mutants::skip)]
+pub fn dump_consts() {
+    use stacks_common::consts;
+    let json_out = json!({
+        "miner_reward_maturity": consts::MINER_REWARD_MATURITY,
+        "chain_id_mainnet": consts::CHAIN_ID_MAINNET,
+        "chain_id_testnet": consts::CHAIN_ID_TESTNET,
+        "signer_slots_per_user": consts::SIGNER_SLOTS_PER_USER,
+        "network_id_mainnet": consts::NETWORK_ID_MAINNET,
+        "network_id_testnet": consts::NETWORK_ID_TESTNET,
+        "microstacks_per_stacks": consts::MICROSTACKS_PER_STACKS,
+        "stacks_epoch_max": consts::STACKS_EPOCH_MAX,
+        "peer_version_mainnet_major": consts::PEER_VERSION_MAINNET_MAJOR,
+        "peer_version_testnet_major": consts::PEER_VERSION_TESTNET_MAJOR,
+    });
+    println!("{}", serde_json::to_string_pretty(&json_out).unwrap());
+    process::exit(0);
 }
 
 #[cfg_attr(test, mutants::skip)]
@@ -1789,7 +1811,7 @@ simulating a miner.
     .expect("Failed to load chain tip header info")
     .expect("Failed to load chain tip header info");
 
-    let sk = StacksPrivateKey::new();
+    let sk = StacksPrivateKey::random();
     let mut tx_auth = TransactionAuth::from_p2pkh(&sk).unwrap();
     tx_auth.set_origin_nonce(0);
 
@@ -1958,7 +1980,7 @@ fn analyze_sortition_mev(argv: Vec<String>) {
                 &burnchain,
                 &tip_sort_id,
                 rc_info_opt,
-                |_| (),
+                |_, _| (),
             )
             .unwrap();
 
@@ -2071,10 +2093,10 @@ fn analyze_sortition_mev(argv: Vec<String>) {
     for (winner, count) in all_wins_epoch3.into_iter() {
         let degradation = (count as f64)
             / (all_wins_epoch2
-                .get(&winner)
+                .get(winner)
                 .map(|cnt| *cnt as f64)
                 .unwrap_or(0.00000000000001f64));
-        println!("{},{},{}", &winner, count, degradation);
+        println!("{winner},{count},{degradation}");
     }
 
     process::exit(0);

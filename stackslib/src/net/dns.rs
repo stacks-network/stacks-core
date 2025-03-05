@@ -43,9 +43,9 @@ pub struct DNSRequest {
 impl DNSRequest {
     pub fn new(host: String, port: u16, timeout: u128) -> DNSRequest {
         DNSRequest {
-            host: host,
-            port: port,
-            timeout: timeout,
+            host,
+            port,
+            timeout,
         }
     }
 
@@ -56,7 +56,7 @@ impl DNSRequest {
 }
 
 impl Hash for DNSRequest {
-    fn hash<H: Hasher>(&self, state: &mut H) -> () {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.host.hash(state);
         self.port.hash(state);
     }
@@ -76,15 +76,12 @@ pub struct DNSResponse {
 
 impl DNSResponse {
     pub fn new(request: DNSRequest, result: Result<Vec<SocketAddr>, String>) -> DNSResponse {
-        DNSResponse {
-            request: request,
-            result: result,
-        }
+        DNSResponse { request, result }
     }
 
     pub fn error(request: DNSRequest, errstr: String) -> DNSResponse {
         DNSResponse {
-            request: request,
+            request,
             result: Err(errstr),
         }
     }
@@ -122,18 +119,18 @@ impl DNSResolver {
             queries: VecDeque::new(),
             inbound: socket_chan_rx,
             outbound: dns_chan_tx,
-            max_inflight: max_inflight,
+            max_inflight,
             hardcoded: HashMap::new(),
         };
         (resolver, client)
     }
 
-    pub fn add_hardcoded(&mut self, host: &str, port: u16, addrs: Vec<SocketAddr>) -> () {
+    pub fn add_hardcoded(&mut self, host: &str, port: u16, addrs: Vec<SocketAddr>) {
         self.hardcoded.insert((host.to_string(), port), addrs);
     }
 
     pub fn resolve(&self, req: DNSRequest) -> DNSResponse {
-        if let Some(ref addrs) = self.hardcoded.get(&(req.host.clone(), req.port)) {
+        if let Some(addrs) = self.hardcoded.get(&(req.host.clone(), req.port)) {
             return DNSResponse::new(req, Ok(addrs.to_vec()));
         }
 
@@ -153,7 +150,7 @@ impl DNSResolver {
             }
         };
 
-        if addrs.len() == 0 {
+        if addrs.is_empty() {
             return DNSResponse::error(req, "DNS resolve error: got zero addresses".to_string());
         }
         test_debug!("{}:{} resolved to {:?}", &req.host, req.port, &addrs);
@@ -269,7 +266,7 @@ impl DNSClient {
         Ok(())
     }
 
-    fn clear_timeouts(&mut self) -> () {
+    fn clear_timeouts(&mut self) {
         let mut to_remove = vec![];
         for req in self.requests.keys() {
             if req.is_timed_out() {
@@ -277,7 +274,7 @@ impl DNSClient {
                 to_remove.push(req.clone());
             }
         }
-        for req in to_remove.drain(..) {
+        for req in to_remove.into_iter() {
             self.requests.insert(
                 req.clone(),
                 Some(DNSResponse::error(req, "DNS lookup timed out".to_string())),
@@ -350,7 +347,7 @@ impl DNSClient {
         Ok(Some(resp))
     }
 
-    pub fn clear_all_requests(&mut self) -> () {
+    pub fn clear_all_requests(&mut self) {
         self.requests.clear()
     }
 }
@@ -380,13 +377,10 @@ mod test {
         let mut resolved_addrs = None;
         loop {
             client.try_recv().unwrap();
-            match client.poll_lookup("www.google.com", 80).unwrap() {
-                Some(addrs) => {
-                    test_debug!("addrs: {:?}", &addrs);
-                    resolved_addrs = Some(addrs);
-                    break;
-                }
-                None => {}
+            if let Some(addrs) = client.poll_lookup("www.google.com", 80).unwrap() {
+                test_debug!("addrs: {:?}", &addrs);
+                resolved_addrs = Some(addrs);
+                break;
             }
             sleep_ms(100);
         }
@@ -399,7 +393,7 @@ mod test {
     #[test]
     fn dns_resolve_10_names() {
         let (mut client, thread_handle) = dns_thread_start(100);
-        let names = vec![
+        let names = [
             "www.google.com",
             "www.facebook.com",
             "www.twitter.com",
@@ -423,16 +417,13 @@ mod test {
             client.try_recv().unwrap();
 
             for name in names.iter() {
-                if resolved_addrs.contains_key(&name.to_string()) {
+                if resolved_addrs.contains_key(*name) {
                     continue;
                 }
-                match client.poll_lookup(name, 80).unwrap() {
-                    Some(addrs) => {
-                        test_debug!("name {} addrs: {:?}", name, &addrs);
-                        resolved_addrs.insert(name.to_string(), addrs);
-                        break;
-                    }
-                    None => {}
+                if let Some(addrs) = client.poll_lookup(name, 80).unwrap() {
+                    test_debug!("name {name} addrs: {addrs:?}");
+                    resolved_addrs.insert(name.to_string(), addrs);
+                    break;
                 }
             }
 
@@ -455,13 +446,10 @@ mod test {
         let mut resolved_error = None;
         loop {
             client.try_recv().unwrap();
-            match client.poll_lookup("asdfjkl;", 80).unwrap() {
-                Some(resp) => {
-                    test_debug!("addrs: {:?}", &resp);
-                    resolved_error = Some(resp);
-                    break;
-                }
-                None => {}
+            if let Some(resp) = client.poll_lookup("asdfjkl;", 80).unwrap() {
+                test_debug!("addrs: {:?}", &resp);
+                resolved_error = Some(resp);
+                break;
             }
             sleep_ms(100);
         }
@@ -509,26 +497,12 @@ mod test {
             .queue_lookup("www.google.com", 80, get_epoch_time_ms() + 100)
             .unwrap();
         sleep_ms(200);
-        let mut resolved_err = None;
-        loop {
-            client.try_recv().unwrap();
-            match client.poll_lookup("www.google.com", 80) {
-                Ok(res) => {
-                    resolved_err = Some(res);
-                    break;
-                }
-                Err(e) => {
-                    eprintln!("err: {:?}", &e);
-                    assert!(false);
-                }
-            }
-            sleep_ms(100);
-        }
-        assert!(resolved_err.is_some());
-        eprintln!("{:?}", &resolved_err);
-        assert!(format!("{:?}", &resolved_err.unwrap())
-            .find("timed out")
-            .is_some());
+        client.try_recv().unwrap();
+        let resolved_err = client.poll_lookup("www.google.com", 80).unwrap().unwrap();
+        assert!(
+            format!("{resolved_err:?}").contains("timed out"),
+            "{resolved_err:?}"
+        );
         dns_thread_shutdown(client, thread_handle);
     }
 }
