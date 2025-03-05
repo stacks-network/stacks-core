@@ -402,7 +402,7 @@ impl SortitionsView {
                 false,
             );
             let epoch_time = get_epoch_time_secs();
-            let enough_time_passed = epoch_time > extend_timestamp;
+            let enough_time_passed = epoch_time >= extend_timestamp;
             if !changed_burn_view && !enough_time_passed {
                 warn!(
                     "Miner block proposal contains a tenure extend, but the burnchain view has not changed and enough time has not passed to refresh the block limit. Considering proposal invalid.";

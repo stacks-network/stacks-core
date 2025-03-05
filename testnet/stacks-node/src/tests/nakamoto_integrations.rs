@@ -6642,6 +6642,7 @@ fn signer_chainstate() {
                 ext: ExtraBlockInfo::None,
                 state: BlockState::Unprocessed,
                 validation_time_ms: None,
+                reject_reason: None,
             })
             .unwrap();
 
@@ -6722,6 +6723,7 @@ fn signer_chainstate() {
                 ext: ExtraBlockInfo::None,
                 state: BlockState::GloballyAccepted,
                 validation_time_ms: Some(1000),
+                reject_reason: None,
             })
             .unwrap();
 
@@ -9645,12 +9647,14 @@ fn nakamoto_lockup_events() {
         wait_for(30, || Ok(get_stacks_height() > height_before)).unwrap();
     }
 
+    wait_for(30, || {
+        let blocks = test_observer::get_blocks();
+        let block = blocks.last().unwrap();
+        Ok(block.get("block_height").unwrap().as_u64().unwrap() == unlock_height)
+    })
+    .expect("Timed out waiting for test observer to reach unlock height");
     let blocks = test_observer::get_blocks();
     let block = blocks.last().unwrap();
-    assert_eq!(
-        block.get("block_height").unwrap().as_u64().unwrap(),
-        unlock_height
-    );
 
     let events = block.get("events").unwrap().as_array().unwrap();
     let mut found_event = false;
