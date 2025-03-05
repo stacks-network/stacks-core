@@ -559,38 +559,19 @@ impl Signer {
         // TODO: should add a check to ignore an old burn block height if we know its outdated. Would require us to store the burn block height we last saw on the side.
         //  the signer needs to be able to determine whether or not the block they're about to sign would conflict with an already-signed Stacks block
         let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
-        if let Some(block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) {
-            if should_reevaluate_block(&block_info) {
-                // Treat this case the same as if no block info was found
+        let prior_evaluation = self
+            .block_lookup_by_reward_cycle(&signer_signature_hash)
+            .and_then(|block_info| if should_reevaluate_block(&block_info) {
+                debug!("Received a proposal for this block before, but our rejection reason allows us to reconsider";
+                    "reject_reason" => ?block_info.reject_reason);
+                None
             } else {
-                let Some(block_response) = self.determine_response(&block_info) else {
-                    // We are still waiting for a response for this block. Do nothing.
-                    debug!(
-                        "{self}: Received a block proposal for a block we are already validating.";
-                        "signer_sighash" => %signer_signature_hash,
-                        "block_id" => %block_proposal.block.block_id()
-                    );
-                    return;
-                };
+                Some(block_info)
+            });
 
-                // Submit a proposal response to the .signers contract for miners
-                debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
-
-                let accepted = matches!(block_response, BlockResponse::Accepted(..));
-                if let Err(e) = self
-                    .stackerdb
-                    .send_message_with_retry::<SignerMessage>(block_response.into())
-                {
-                    warn!("{self}: Failed to send block response to stacker-db: {e:?}");
-                } else {
-                    crate::monitoring::actions::increment_block_responses_sent(accepted);
-                    crate::monitoring::actions::record_block_response_latency(
-                        &block_proposal.block,
-                    );
-                }
-
-                return;
-            }
+        // we previously considered this proposal, handle the status here
+        if let Some(block_info) = prior_evaluation {
+            return self.handle_prior_proposal_eval(&block_info);
         }
 
         info!(
@@ -672,6 +653,32 @@ impl Signer {
             self.signer_db
                 .insert_block(&block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
+        }
+    }
+
+    fn handle_prior_proposal_eval(&mut self, block_info: &BlockInfo) {
+        let Some(block_response) = self.determine_response(&block_info) else {
+            // We are still waiting for a response for this block. Do nothing.
+            debug!(
+                "{self}: Received a block proposal for a block we are already validating.";
+                "signer_sighash" => %block_info.signer_signature_hash(),
+                "block_id" => %block_info.block.block_id()
+            );
+            return;
+        };
+
+        // Submit a proposal response to the .signers contract for miners
+        debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
+
+        let accepted = matches!(block_response, BlockResponse::Accepted(..));
+        if let Err(e) = self
+            .stackerdb
+            .send_message_with_retry::<SignerMessage>(block_response.into())
+        {
+            warn!("{self}: Failed to send block response to stacker-db: {e:?}");
+        } else {
+            crate::monitoring::actions::increment_block_responses_sent(accepted);
+            crate::monitoring::actions::record_block_response_latency(&block_info.block);
         }
     }
 
