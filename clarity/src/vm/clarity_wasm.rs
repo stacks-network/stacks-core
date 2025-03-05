@@ -431,6 +431,7 @@ pub fn initialize_contract(
     top_level
         .call(&mut store, &[], results.as_mut_slice())
         .map_err(|e| {
+            println!("Cleaning up context");
             store.data_mut().global_context.roll_back().expect("Failed to clean up the context.");
             error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version)
         })?;
@@ -560,6 +561,8 @@ pub fn call_function<'a>(
     // Call the function
     func.call(&mut store, &wasm_args, &mut results)
         .map_err(|e| {
+            println!("Cleaning up context");
+            store.data_mut().global_context.roll_back().expect("Failed to clean up the context.");
             error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version)
         })?;
 
