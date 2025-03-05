@@ -448,6 +448,7 @@ fn trait_invocation_cross_epoch() {
                     "invocation-1",
                     &[],
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -465,7 +466,7 @@ fn trait_invocation_cross_epoch() {
                     &invoke_contract_id,
                     "invocation-1",
                     &[],
-                    |_, _| false,
+                    |_, _| false, None
                 )
                 .unwrap_err();
 
@@ -488,7 +489,7 @@ fn trait_invocation_cross_epoch() {
                     &invoke_contract_id,
                     "invocation-2",
                     &[Value::Principal(impl_contract_id.clone().into())],
-                    |_, _| false,
+                    |_, _| false, None
                 )
                 .unwrap_err();
 
@@ -513,6 +514,7 @@ fn trait_invocation_cross_epoch() {
                     "invocation-1",
                     &[],
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -530,6 +532,7 @@ fn trait_invocation_cross_epoch() {
                     "invocation-2",
                     &[Value::Principal(impl_contract_id.clone().into())],
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -784,6 +787,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     "do-it-static",
                     &[],
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -804,6 +808,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                         Value::UInt(1),
                     ],
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -821,6 +826,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     "do-it-static",
                     &[],
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -841,6 +847,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                         Value::UInt(1),
                     ],
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -858,6 +865,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     "do-it-static",
                     &[],
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -878,6 +886,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                         Value::UInt(1),
                     ],
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -1428,6 +1437,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                 "get-it",
                 &[Value::Principal(contract_id_e3c3.clone().into())],
                 |_, _| false,
+                None,
             )
             .unwrap();
         assert_eq!(Value::okay(Value::UInt(20)).unwrap(), res1.0);
@@ -1440,6 +1450,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                 "get-it",
                 &[Value::Principal(contract_id_e3c3.clone().into())],
                 |_, _| false,
+                None,
             )
             .unwrap();
         assert_eq!(Value::okay(Value::UInt(20)).unwrap(), res2.0);
@@ -1571,6 +1582,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                 "get-it",
                 &[Value::Principal(contract_id_e2c1.clone().into())],
                 |_, _| false,
+                None,
             )
             .unwrap();
         assert_eq!(Value::okay(Value::UInt(777)).unwrap(), res1.0);
@@ -1583,6 +1595,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                 "get-it",
                 &[Value::Principal(contract_id_e2c2.clone().into())],
                 |_, _| false,
+                None,
             )
             .unwrap();
         assert_eq!(Value::okay(Value::UInt(777)).unwrap(), res2.0);

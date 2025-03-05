@@ -392,6 +392,7 @@ pub fn setup_states_with_epochs(
                         Value::UInt(burnchain.pox_constants.pox_rejection_fraction as u128),
                     ],
                     |_, _| false,
+                    None,
                 )
                 .expect("Failed to set burnchain parameters in PoX contract");
             });
@@ -666,7 +667,7 @@ fn make_genesis_block_with_recipients(
         .0;
 
     builder
-        .try_mine_tx(&mut epoch_tx, &coinbase_op, ast_rules)
+        .try_mine_tx(&mut epoch_tx, &coinbase_op, ast_rules, None)
         .unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
@@ -931,11 +932,13 @@ fn make_stacks_block_with_input(
         .0;
 
     builder
-        .try_mine_tx(&mut epoch_tx, &coinbase_op, ast_rules)
+        .try_mine_tx(&mut epoch_tx, &coinbase_op, ast_rules, None)
         .unwrap();
 
     for tx in txs {
-        builder.try_mine_tx(&mut epoch_tx, tx, ast_rules).unwrap();
+        builder
+            .try_mine_tx(&mut epoch_tx, tx, ast_rules, None)
+            .unwrap();
     }
 
     let block = builder.mine_anchored_block(&mut epoch_tx);

@@ -974,6 +974,7 @@ impl StacksChainState {
         tx: &StacksTransaction,
         origin_account: &StacksAccount,
         ast_rules: ASTRules,
+        max_execution_time: Option<std::time::Duration>,
     ) -> Result<StacksTransactionReceipt, Error> {
         match tx.payload {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
@@ -1044,6 +1045,7 @@ impl StacksChainState {
                         )
                         .expect("FATAL: error while evaluating post-conditions")
                     },
+                    max_execution_time,
                 );
 
                 let mut total_cost = clarity_tx.cost_so_far();
@@ -1471,6 +1473,7 @@ impl StacksChainState {
         tx: &StacksTransaction,
         quiet: bool,
         ast_rules: ASTRules,
+        max_execution_time: Option<std::time::Duration>,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
         let epoch = clarity_block.get_epoch();
@@ -1509,6 +1512,7 @@ impl StacksChainState {
                 tx,
                 &origin_account,
                 ast_rules,
+                max_execution_time,
             )?;
 
             // update the account nonces
@@ -1537,6 +1541,7 @@ impl StacksChainState {
                 tx,
                 &origin_account,
                 ast_rules,
+                None,
             )?;
 
             let new_payer_account = StacksChainState::get_payer_account(&mut transaction, tx);
@@ -1700,6 +1705,7 @@ pub mod test {
                 stx_balance: STXBalance::Unlocked { amount: 100 },
             },
             ASTRules::PrecheckSize,
+            None,
         )
         .unwrap();
 
@@ -1764,6 +1770,7 @@ pub mod test {
                 &signed_tx,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -1815,6 +1822,7 @@ pub mod test {
                 &signed_tx,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -2009,6 +2017,7 @@ pub mod test {
                     &signed_tx,
                     false,
                     ASTRules::PrecheckSize,
+                    None,
                 );
                 if let Err(Error::InvalidStacksTransaction(msg, false)) = res {
                     assert!(msg.contains(&err_frag), "{err_frag}");
@@ -2099,6 +2108,7 @@ pub mod test {
                 &signed_tx,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -2179,6 +2189,7 @@ pub mod test {
                 &signed_tx,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -2273,6 +2284,7 @@ pub mod test {
                     &signed_tx,
                     false,
                     ASTRules::PrecheckSize,
+                    None,
                 );
                 if expected_behavior[i] {
                     assert!(res.is_ok());
@@ -2366,6 +2378,7 @@ pub mod test {
                     &signed_tx,
                     false,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .unwrap();
 
@@ -2470,6 +2483,7 @@ pub mod test {
                     &signed_tx,
                     false,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .unwrap();
 
@@ -2558,6 +2572,7 @@ pub mod test {
                 &signed_tx,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -2671,6 +2686,7 @@ pub mod test {
                 &signed_tx,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -2683,6 +2699,7 @@ pub mod test {
                 &signed_tx_2,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -2805,6 +2822,7 @@ pub mod test {
                 &signed_tx,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -2820,6 +2838,7 @@ pub mod test {
                 &signed_tx_2,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -2895,6 +2914,7 @@ pub mod test {
                 &signed_tx,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -2946,6 +2966,7 @@ pub mod test {
                     &signed_tx_2,
                     false,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .unwrap();
 
@@ -3010,6 +3031,7 @@ pub mod test {
                 &signed_tx,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -3115,6 +3137,7 @@ pub mod test {
                 &signed_tx,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -3153,6 +3176,7 @@ pub mod test {
                     &signed_tx_2,
                     false,
                     ASTRules::PrecheckSize,
+                    None,
                 );
                 assert!(res.is_err());
 
@@ -3184,6 +3208,7 @@ pub mod test {
             &signed_tx,
             false,
             ASTRules::PrecheckSize,
+            None,
         )
         .unwrap();
 
@@ -3224,6 +3249,7 @@ pub mod test {
                 &signed_tx_2,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             );
             assert!(res.is_ok());
 
@@ -3349,6 +3375,7 @@ pub mod test {
                 &signed_tx,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -3365,6 +3392,7 @@ pub mod test {
                 &signed_tx_2,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -3876,6 +3904,7 @@ pub mod test {
                 &signed_contract_tx,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -3901,6 +3930,7 @@ pub mod test {
                     tx_pass,
                     false,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .unwrap();
                 expected_stackaroos_balance += 100;
@@ -3931,6 +3961,7 @@ pub mod test {
                     tx_pass,
                     false,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .unwrap();
                 expected_stackaroos_balance -= 100;
@@ -3978,6 +4009,7 @@ pub mod test {
                     tx_pass,
                     false,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .unwrap();
                 expected_nonce += 1;
@@ -4008,6 +4040,7 @@ pub mod test {
                     tx_fail,
                     false,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .unwrap();
                 expected_nonce += 1;
@@ -4051,6 +4084,7 @@ pub mod test {
                     tx_fail,
                     false,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .unwrap();
                 expected_recv_nonce += 1;
@@ -4099,6 +4133,7 @@ pub mod test {
                     tx_fail,
                     false,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .unwrap();
                 expected_nonce += 1;
@@ -4594,6 +4629,7 @@ pub mod test {
                 &signed_contract_tx,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -4618,6 +4654,7 @@ pub mod test {
                     tx_pass,
                     false,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .unwrap();
                 expected_stackaroos_balance += 100;
@@ -4665,6 +4702,7 @@ pub mod test {
                     tx_pass,
                     false,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .unwrap();
                 expected_stackaroos_balance -= 100;
@@ -4731,6 +4769,7 @@ pub mod test {
                     tx_fail,
                     false,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .unwrap();
                 expected_nonce += 1;
@@ -4789,6 +4828,7 @@ pub mod test {
                     tx_fail,
                     false,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .unwrap();
                 expected_recv_nonce += 1;
@@ -4955,6 +4995,7 @@ pub mod test {
                 &signed_contract_tx,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -4963,6 +5004,7 @@ pub mod test {
                 &contract_call_tx,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -8059,6 +8101,7 @@ pub mod test {
                 &signed_contract_tx,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
             let err = StacksChainState::process_transaction(
@@ -8066,6 +8109,7 @@ pub mod test {
                 &signed_contract_call_tx,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap_err();
 
@@ -8090,6 +8134,7 @@ pub mod test {
             &signed_contract_tx,
             false,
             ASTRules::PrecheckSize,
+            None,
         )
         .unwrap();
         let (fee, _) = StacksChainState::process_transaction(
@@ -8097,6 +8142,7 @@ pub mod test {
             &signed_contract_call_tx,
             false,
             ASTRules::PrecheckSize,
+            None,
         )
         .unwrap();
 
@@ -8244,6 +8290,7 @@ pub mod test {
                 &signed_tx_poison_microblock,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -8364,6 +8411,7 @@ pub mod test {
                 &signed_tx_poison_microblock,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap_err();
             let Error::ClarityError(clarity_error::BadTransaction(msg)) = &err else {
@@ -8482,6 +8530,7 @@ pub mod test {
                 &signed_tx_poison_microblock_1,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -8496,6 +8545,7 @@ pub mod test {
                 &signed_tx_poison_microblock_2,
                 false,
                 ASTRules::PrecheckSize,
+                None,
             )
             .unwrap();
 
@@ -8761,6 +8811,7 @@ pub mod test {
             &smart_contract_v2,
             false,
             ASTRules::PrecheckSize,
+            None,
         ) {
             assert!(msg.find("not in Stacks epoch 2.1 or later").is_some());
         } else {
@@ -9053,6 +9104,7 @@ pub mod test {
             &signed_contract_tx,
             false,
             ASTRules::PrecheckSize,
+            None,
         )
         .unwrap();
         assert_eq!(fee, 0);
@@ -9062,6 +9114,7 @@ pub mod test {
             &signed_contract_call_tx,
             false,
             ASTRules::PrecheckSize,
+            None,
         )
         .unwrap();
         assert_eq!(fee, 1);
@@ -9081,6 +9134,7 @@ pub mod test {
             &signed_contract_tx,
             false,
             ASTRules::PrecheckSize,
+            None,
         )
         .unwrap();
         assert_eq!(fee, 0);
@@ -9090,6 +9144,7 @@ pub mod test {
             &signed_contract_call_tx,
             false,
             ASTRules::PrecheckSize,
+            None,
         )
         .unwrap();
         assert_eq!(fee, 1);
@@ -9109,6 +9164,7 @@ pub mod test {
             &signed_contract_tx,
             false,
             ASTRules::PrecheckSize,
+            None,
         )
         .unwrap();
         assert_eq!(fee, 0);
@@ -9118,6 +9174,7 @@ pub mod test {
             &signed_contract_call_tx,
             false,
             ASTRules::PrecheckSize,
+            None,
         )
         .unwrap_err();
         conn.commit_block();
@@ -9220,6 +9277,7 @@ pub mod test {
             &signed_contract_tx,
             false,
             ASTRules::PrecheckSize,
+            None,
         )
         .unwrap();
         assert_eq!(fee, 0);
@@ -9229,6 +9287,7 @@ pub mod test {
             &signed_contract_call_tx,
             false,
             ASTRules::PrecheckSize,
+            None,
         )
         .unwrap();
         assert_eq!(fee, 1);
@@ -9248,6 +9307,7 @@ pub mod test {
             &signed_contract_tx,
             false,
             ASTRules::PrecheckSize,
+            None,
         )
         .unwrap();
         assert_eq!(fee, 0);
@@ -9257,6 +9317,7 @@ pub mod test {
             &signed_contract_call_tx,
             false,
             ASTRules::PrecheckSize,
+            None,
         )
         .unwrap();
         assert_eq!(fee, 1);
@@ -9276,6 +9337,7 @@ pub mod test {
             &signed_contract_tx,
             false,
             ASTRules::PrecheckSize,
+            None,
         )
         .unwrap();
         assert_eq!(fee, 0);
@@ -9285,6 +9347,7 @@ pub mod test {
             &signed_contract_call_tx,
             false,
             ASTRules::PrecheckSize,
+            None,
         )
         .unwrap_err();
         conn.commit_block();
@@ -9310,7 +9373,7 @@ pub mod test {
             return Err(Error::InvalidStacksTransaction(msg, false));
         }
 
-        StacksChainState::process_transaction(clarity_block, tx, quiet, ast_rules)
+        StacksChainState::process_transaction(clarity_block, tx, quiet, ast_rules, None)
     }
 
     #[test]
@@ -9875,6 +9938,7 @@ pub mod test {
             &signed_runtime_checkerror_tx_clar1,
             false,
             ASTRules::PrecheckSize,
+            None,
         )
         .unwrap();
         assert_eq!(fee, 1);
