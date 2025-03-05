@@ -422,6 +422,7 @@ impl TransactionResult {
             "event_name" => %"transaction_result",
             "tx_id" => %tx.txid(),
             "event_type" => %"success",
+            "fee" => tx.get_tx_fee()
         );
     }
 
@@ -445,6 +446,7 @@ impl TransactionResult {
             "tx_id" => %tx.txid(),
             "event_type" => "skip",
             "reason" => %err,
+            "fee" => tx.get_tx_fee()
         );
     }
 

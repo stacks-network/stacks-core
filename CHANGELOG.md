@@ -7,6 +7,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+### Added"
+- Add fee information to transaction log ending with "success" or "skipped", while building a new block  
+
 ### Changed
 
 - When a miner times out waiting for signatures, it will re-propose the same block instead of building a new block ([#5877](https://github.com/stacks-network/stacks-core/pull/5877))
