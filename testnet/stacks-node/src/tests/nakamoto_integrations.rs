@@ -11113,6 +11113,8 @@ fn reload_miner_config() {
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
+    let old_burn_fee_cap: u64 = 200000;
+    conf.burnchain.burn_fee_cap = 200000;
     conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), 1000000);
     conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
 
@@ -11193,7 +11195,7 @@ fn reload_miner_config() {
         .map(|r| r.get("amt").unwrap().as_u64().unwrap())
         .sum::<u64>();
 
-    assert_eq!(reward_amount, 200000);
+    assert_eq!(reward_amount, old_burn_fee_cap);
 
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
 
