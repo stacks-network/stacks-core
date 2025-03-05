@@ -54,7 +54,6 @@ pub mod test_util;
 pub mod clarity;
 
 use std::collections::BTreeMap;
-use std::time::Duration;
 
 use serde_json;
 use stacks_common::types::StacksEpochId;
@@ -607,7 +606,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 #[cfg(any(test, feature = "testing"))]
 pub fn execute_with_max_execution_time(
     program: &str,
-    max_execution_time: Duration,
+    max_execution_time: std::time::Duration,
 ) -> Result<Option<Value>> {
     execute_with_parameters_and_call_in_global_context(
         program,

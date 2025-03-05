@@ -3079,6 +3079,7 @@ fn block_proposal_api_endpoint() {
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
             ASTRules::PrecheckSize,
+            None,
         );
         assert!(
             matches!(res, TransactionResult::Success(..)),

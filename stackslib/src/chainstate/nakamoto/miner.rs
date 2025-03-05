@@ -691,6 +691,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
         ast_rules: ASTRules,
+        max_execution_time: Option<std::time::Duration>,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
             return TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError);
@@ -737,13 +738,18 @@ impl BlockBuilder for NakamotoBlockBuilder {
             }
 
             let cost_before = clarity_tx.cost_so_far();
-            let (fee, receipt) =
-                match StacksChainState::process_transaction(clarity_tx, tx, quiet, ast_rules) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        return parse_process_transaction_error(clarity_tx, tx, e);
-                    }
-                };
+            let (fee, receipt) = match StacksChainState::process_transaction(
+                clarity_tx,
+                tx,
+                quiet,
+                ast_rules,
+                max_execution_time,
+            ) {
+                Ok(x) => x,
+                Err(e) => {
+                    return parse_process_transaction_error(clarity_tx, tx, e);
+                }
+            };
             let cost_after = clarity_tx.cost_so_far();
             let mut soft_limit_reached = false;
             // We only attempt to apply the soft limit to non-boot code contract calls.

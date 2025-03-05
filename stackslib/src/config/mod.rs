@@ -1104,6 +1104,7 @@ impl Config {
             },
             miner_status,
             confirm_microblocks: false,
+            max_execution_time: miner_config.max_execution_time,
         }
     }
 
@@ -1146,6 +1147,7 @@ impl Config {
             },
             miner_status,
             confirm_microblocks: true,
+            max_execution_time: miner_config.max_execution_time,
         }
     }
 
@@ -2177,6 +2179,8 @@ pub struct MinerConfig {
     pub tenure_extend_cost_threshold: u64,
     /// Define the timeout to apply while waiting for signers responses, based on the amount of rejections
     pub block_rejection_timeout_steps: HashMap<u32, Duration>,
+
+    pub max_execution_time: Option<Duration>,
 }
 
 impl Default for MinerConfig {
@@ -2226,6 +2230,7 @@ impl Default for MinerConfig {
                 rejections_timeouts_default_map.insert(30, Duration::from_secs(0));
                 rejections_timeouts_default_map
             },
+            max_execution_time: None,
         }
     }
 }
@@ -2625,6 +2630,7 @@ pub struct MinerConfigFile {
     pub tenure_timeout_secs: Option<u64>,
     pub tenure_extend_cost_threshold: Option<u64>,
     pub block_rejection_timeout_steps: Option<HashMap<String, u64>>,
+    pub max_execution_time: Option<Duration>,
 }
 
 impl MinerConfigFile {
@@ -2786,7 +2792,9 @@ impl MinerConfigFile {
                 } else{
                     miner_default_config.block_rejection_timeout_steps
                 }
-            }
+            },
+
+            max_execution_time: self.max_execution_time
         })
     }
 }

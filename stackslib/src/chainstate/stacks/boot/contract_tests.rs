@@ -1178,6 +1178,7 @@ fn pox_2_delegate_extend_units() {
                     Value::UInt(0),
                 ],
                 |_, _| false,
+                None,
             )
         })
         .unwrap();

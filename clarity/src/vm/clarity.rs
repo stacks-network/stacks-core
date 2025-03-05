@@ -292,6 +292,7 @@ pub trait TransactionConnection: ClarityConnection {
         public_function: &str,
         args: &[Value],
         abort_call_back: F,
+        max_execution_time: Option<std::time::Duration>,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error>
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
@@ -303,6 +304,7 @@ pub trait TransactionConnection: ClarityConnection {
 
         self.with_abort_callback(
             |vm_env| {
+                vm_env.context.set_max_execution_time(max_execution_time);
                 vm_env
                     .execute_transaction(
                         sender.clone(),
