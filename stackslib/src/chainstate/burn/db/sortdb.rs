@@ -94,6 +94,12 @@ pub const REWARD_WINDOW_END: u64 = 144 * 90 + REWARD_WINDOW_START;
 
 pub type BlockHeaderCache = HashMap<ConsensusHash, (Option<BlockHeaderHash>, ConsensusHash)>;
 
+pub enum FindIter<R> {
+    Found(R),
+    Continue,
+    Halt,
+}
+
 impl FromRow<SortitionId> for SortitionId {
     fn from_row(row: &Row) -> Result<SortitionId, db_error> {
         SortitionId::from_column(row, "sortition_id")
@@ -4988,6 +4994,60 @@ impl SortitionDB {
         Ok(handle.get_reward_set_size_at(&sort_id_of_start)? > 0)
     }
 
+    /// Find a sortition by traversing the sortition history backwards, starting
+    ///  from the current canonical burn tip.
+    ///
+    /// The supplied function `f` is applied to each traversed snapshot
+    ///  and the return value of `f` controls the iteration.
+    ///
+    /// FindIter::Found(x) => tells the search to stop, and return `Ok(Some(x))`
+    /// FindIter::Halt => tells the search to stop, and return `Ok(None)`
+    /// FindIter::Continue will continue the iteration
+    ///
+    /// This function exits early and returns the error if either `f` or a SortitionDB
+    ///  error occurs while processing.
+    /// It returns `Ok(None)` if the traversal reaches the sortition root without finding `x`
+    pub fn find_in_canonical<F, R, E>(&self, f: F) -> Result<Option<R>, E>
+    where
+        F: FnMut(&BlockSnapshot) -> Result<FindIter<R>, E>,
+        E: From<db_error>,
+    {
+        let cursor = Self::get_canonical_burn_chain_tip(self.conn())?;
+        self.find_from(cursor, f)
+    }
+
+    /// Find a sortition by traversing the sortition history backwards, starting
+    ///  from `sn`. The supplied function `f` is applied to each traversed snapshot
+    ///  and the return value of `f` controls the iteration.
+    ///
+    /// FindIter::Found(x) => tells the search to stop, and return `Ok(Some(x))`
+    /// FindIter::Halt => tells the search to stop, and return `Ok(None)`
+    /// FindIter::Continue will continue the iteration
+    ///
+    /// This function exits early and returns the error if either `f` or a SortitionDB
+    ///  error occurs while processing.
+    /// It returns `Ok(None)` if the traversal reaches the sortition root without finding `x`
+    pub fn find_from<F, R, E>(&self, sn: BlockSnapshot, mut f: F) -> Result<Option<R>, E>
+    where
+        F: FnMut(&BlockSnapshot) -> Result<FindIter<R>, E>,
+        E: From<db_error>,
+    {
+        let mut cursor_opt = Some(sn);
+        loop {
+            let Some(ref cursor) = cursor_opt else {
+                return Ok(None);
+            };
+            let next_id = &cursor.parent_sortition_id;
+            match f(cursor)? {
+                FindIter::Found(x) => return Ok(Some(x)),
+                FindIter::Halt => return Ok(None),
+                FindIter::Continue => {
+                    cursor_opt = Self::get_block_snapshot(self.conn(), next_id)?;
+                }
+            }
+        }
+    }
+
     /// Find out how any burn tokens were destroyed in a given block on a given fork.
     pub fn get_block_burn_amount(
         conn: &Connection,
@@ -5584,7 +5644,8 @@ impl SortitionHandleTx<'_> {
                     "ACCEPTED({}) leader block commit {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex;
                     "apparent_sender" => %op.apparent_sender,
-                    "stacks_block_hash" => %op.block_header_hash
+                    "stacks_block_hash" => %op.block_header_hash,
+                    "parent_burn_block" => %op.parent_block_ptr
                 );
                 self.insert_block_commit(op, sort_id)
             }

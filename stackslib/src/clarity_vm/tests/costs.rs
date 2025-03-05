@@ -23,7 +23,11 @@ use clarity::vm::contexts::{
 };
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
-use clarity::vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
+use clarity::vm::costs::{
+    compute_cost, parse_cost, ClarityCostFunctionEvaluator, ClarityCostFunctionReference,
+    CostErrors, DefaultVersion, ExecutionCost, LimitedCostTracker, COSTS_1_NAME, COSTS_2_NAME,
+    COSTS_3_NAME,
+};
 use clarity::vm::database::{ClarityDatabase, MemoryBackingStore};
 use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use clarity::vm::events::StacksTransactionEvent;
@@ -873,6 +877,92 @@ fn setup_cost_tracked_test(
         .unwrap();
 }
 
+fn eval_cost_fn(
+    owned_env: &mut OwnedEnvironment,
+    cost_contract_name: &str,
+    cost_fn: &ClarityCostFunction,
+    argument: u64,
+) -> Result<ExecutionCost, CostErrors> {
+    let mainnet = owned_env.is_mainnet();
+    let boot_costs_id = boot_code_id(cost_contract_name, mainnet);
+    let cost_fn_name = cost_fn.get_name_str();
+    let cost_tracker = owned_env.mut_cost_tracker();
+    let data = match cost_tracker {
+        LimitedCostTracker::Free => panic!(),
+        LimitedCostTracker::Limited(data) => data,
+    };
+    let clarity_cost_fn_ref = ClarityCostFunctionReference {
+        contract_id: boot_costs_id,
+        function_name: cost_fn_name.to_string(),
+    };
+    compute_cost(data, clarity_cost_fn_ref, &[argument], data.epoch)
+}
+
+fn eval_replaced_cost_fn(
+    owned_env: &mut OwnedEnvironment,
+    cost_contract_name: &str,
+    cost_fn: &ClarityCostFunction,
+    argument: u64,
+) -> Result<ExecutionCost, CostErrors> {
+    let mainnet = owned_env.is_mainnet();
+    let boot_costs_id = boot_code_id(cost_contract_name, mainnet);
+    let clarity_cost_fn_default_version = DefaultVersion::try_from(mainnet, &boot_costs_id)
+        .expect("FAIL: should find default version for boot cost contracts");
+    let cost_fn_name = cost_fn.get_name_str();
+    let clarity_cost_fn_ref = ClarityCostFunctionReference {
+        contract_id: boot_costs_id,
+        function_name: cost_fn_name.to_string(),
+    };
+    clarity_cost_fn_default_version.evaluate(&clarity_cost_fn_ref, cost_fn, &[argument])
+}
+
+fn proptest_cost_fn(cost_fn: &ClarityCostFunction, cost_contract_name: &str) {
+    let mut inputs = vec![0, u64::MAX];
+    (1..64).for_each(|i| {
+        inputs.push(2u64.pow(i) - 1);
+        inputs.push(2u64.pow(i));
+        inputs.push(2u64.pow(i) + 1);
+    });
+    for use_mainnet in [true, false] {
+        let epoch = match cost_contract_name {
+            COSTS_1_NAME => StacksEpochId::Epoch20,
+            COSTS_2_NAME => StacksEpochId::Epoch2_05,
+            COSTS_3_NAME => StacksEpochId::latest(),
+            _ => panic!(),
+        };
+        with_owned_env(epoch, use_mainnet, |mut owned_env| {
+            for i in inputs.iter() {
+                eprintln!("Evaluating {cost_contract_name}.{cost_fn}({i})");
+                let clar_evaled = eval_cost_fn(&mut owned_env, cost_contract_name, cost_fn, *i);
+                let replace_evaled =
+                    eval_replaced_cost_fn(&mut owned_env, cost_contract_name, cost_fn, *i);
+                assert_eq!(clar_evaled, replace_evaled);
+            }
+        });
+    }
+}
+
+fn proptest_cost_contract(cost_contract_name: &str) {
+    for cost_fn in ClarityCostFunction::ALL.iter() {
+        proptest_cost_fn(cost_fn, cost_contract_name);
+    }
+}
+
+#[test]
+fn proptest_replacements_costs_1() {
+    proptest_cost_contract(COSTS_1_NAME);
+}
+
+#[test]
+fn proptest_replacements_costs_2() {
+    proptest_cost_contract(COSTS_2_NAME);
+}
+
+#[test]
+fn proptest_replacements_costs_3() {
+    proptest_cost_contract(COSTS_3_NAME);
+}
+
 fn test_program_cost(
     prog: &str,
     version: ClarityVersion,
@@ -1535,14 +1625,11 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
             "No contract call circuits should have been processed"
         );
         for (target, referenced_function) in tracker.cost_function_references().into_iter() {
-            assert_eq!(
-                &referenced_function.contract_id,
-                &boot_code_id("costs", use_mainnet),
-                "All cost functions should still point to the boot costs"
-            );
-            assert_eq!(
-                &referenced_function.function_name,
-                target.get_name_str(),
+            assert!(
+                matches!(
+                    referenced_function,
+                    ClarityCostFunctionEvaluator::Default(_, _, DefaultVersion::Costs1)
+                ),
                 "All cost functions should still point to the boot costs"
             );
         }
@@ -1651,17 +1738,19 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
 
         for (target, referenced_function) in tracker.cost_function_references().into_iter() {
             if target == &ClarityCostFunction::Le {
+                let ClarityCostFunctionEvaluator::Clarity(referenced_function) =
+                    referenced_function
+                else {
+                    panic!("Replaced function should be evaluated in Clarity");
+                };
                 assert_eq!(&referenced_function.contract_id, &cost_definer);
                 assert_eq!(&referenced_function.function_name, "cost-definition-le");
             } else {
-                assert_eq!(
-                    &referenced_function.contract_id,
-                    &boot_code_id("costs", use_mainnet),
-                    "Cost function should still point to the boot costs"
-                );
-                assert_eq!(
-                    &referenced_function.function_name,
-                    target.get_name_str(),
+                assert!(
+                    matches!(
+                        referenced_function,
+                        ClarityCostFunctionEvaluator::Default(_, _, DefaultVersion::Costs1)
+                    ),
                     "Cost function should still point to the boot costs"
                 );
             }

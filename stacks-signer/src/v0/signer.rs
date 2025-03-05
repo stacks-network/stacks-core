@@ -15,6 +15,8 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::mpsc::Sender;
+#[cfg(any(test, feature = "testing"))]
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
@@ -23,12 +25,18 @@ use blockstack_lib::net::api::postblock_proposal::{
 };
 use blockstack_lib::util_lib::db::Error as DBError;
 use clarity::types::chainstate::StacksPrivateKey;
+#[cfg(any(test, feature = "testing"))]
+use clarity::types::chainstate::StacksPublicKey;
 use clarity::types::{PrivateKey, StacksEpochId};
 use clarity::util::hash::{MerkleHashFunc, Sha512Trunc256Sum};
 use clarity::util::secp256k1::Secp256k1PublicKey;
+#[cfg(any(test, feature = "testing"))]
+use clarity::util::sleep_ms;
+#[cfg(any(test, feature = "testing"))]
+use clarity::util::tests::TestFlag;
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
-    RejectReason, SignerMessage,
+    RejectReason, RejectReasonPrefix, SignerMessage,
 };
 use libsigner::{BlockProposal, SignerEvent};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
@@ -37,12 +45,18 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error, info, warn};
 
-use crate::chainstate::{ProposalEvalConfig, SortitionsView};
+use crate::chainstate::{ProposalEvalConfig, SortitionMinerStatus, SortitionsView};
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
 use crate::Signer as SignerTrait;
+
+/// A global variable that can be used to make signers repeat their proposal
+/// response if their public key is in the provided list
+#[cfg(any(test, feature = "testing"))]
+pub static TEST_REPEAT_PROPOSAL_RESPONSE: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
+    LazyLock::new(TestFlag::default);
 
 /// Signer running mode (whether dry-run or real)
 #[derive(Debug)]
@@ -165,7 +179,11 @@ impl SignerTrait<SignerMessage> for Signer {
         match event {
             SignerEvent::BlockValidationResponse(block_validate_response) => {
                 debug!("{self}: Received a block proposal result from the stacks node...");
-                self.handle_block_validate_response(stacks_client, block_validate_response)
+                self.handle_block_validate_response(
+                    stacks_client,
+                    block_validate_response,
+                    sortition_state,
+                )
             }
             SignerEvent::SignerMessages(_signer_set, messages) => {
                 debug!(
@@ -177,10 +195,10 @@ impl SignerTrait<SignerMessage> for Signer {
                     let SignerMessage::BlockResponse(block_response) = message else {
                         continue;
                     };
-                    self.handle_block_response(stacks_client, block_response);
+                    self.handle_block_response(stacks_client, block_response, sortition_state);
                 }
             }
-            SignerEvent::MinerMessages(messages, miner_pubkey) => {
+            SignerEvent::MinerMessages(messages) => {
                 debug!(
                     "{self}: Received {} messages from the miner",
                     messages.len();
@@ -192,11 +210,19 @@ impl SignerTrait<SignerMessage> for Signer {
                             if self.test_ignore_all_block_proposals(block_proposal) {
                                 continue;
                             }
+                            let Some(miner_pubkey) = block_proposal.block.header.recover_miner_pk()
+                            else {
+                                warn!("{self}: Failed to recover miner pubkey";
+                                      "signer_sighash" => %block_proposal.block.header.signer_signature_hash(),
+                                      "consensus_hash" => %block_proposal.block.header.consensus_hash);
+                                continue;
+                            };
+
                             self.handle_block_proposal(
                                 stacks_client,
                                 sortition_state,
                                 block_proposal,
-                                miner_pubkey,
+                                &miner_pubkey,
                             );
                         }
                         SignerMessage::BlockPushed(b) => {
@@ -452,6 +478,45 @@ impl Signer {
         }
     }
 
+    /// The actual `send_block_response` implementation. Declared so that we do
+    /// not need to duplicate in testing.
+    fn impl_send_block_response(&mut self, block_response: BlockResponse) {
+        let res = self
+            .stackerdb
+            .send_message_with_retry::<SignerMessage>(block_response.clone().into());
+        match res {
+            Err(e) => warn!("{self}: Failed to send block rejection to stacker-db: {e:?}"),
+            Ok(ack) if !ack.accepted => warn!(
+                "{self}: Block rejection not accepted by stacker-db: {:?}",
+                ack.reason
+            ),
+            Ok(_) => debug!("{self}: Block rejection accepted by stacker-db"),
+        }
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    fn send_block_response(&mut self, block_response: BlockResponse) {
+        const NUM_REPEATS: usize = 1;
+        let mut count = 0;
+        let public_keys = TEST_REPEAT_PROPOSAL_RESPONSE.get();
+        if !public_keys.contains(
+            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
+        ) {
+            count = NUM_REPEATS;
+        }
+        while count <= NUM_REPEATS {
+            self.impl_send_block_response(block_response.clone());
+
+            count += 1;
+            sleep_ms(1000);
+        }
+    }
+
+    #[cfg(not(any(test, feature = "testing")))]
+    fn send_block_response(&mut self, block_response: BlockResponse) {
+        self.impl_send_block_response(block_response)
+    }
+
     /// Handle block proposal messages submitted to signers stackerdb
     fn handle_block_proposal(
         &mut self,
@@ -563,18 +628,7 @@ impl Signer {
         if let Some(block_response) = block_response {
             // We know proposal is invalid. Send rejection message, do not do further validation and do not store it.
             debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
-            let res = self
-                .stackerdb
-                .send_message_with_retry::<SignerMessage>(block_response.into());
-
-            match res {
-                Err(e) => warn!("{self}: Failed to send block rejection to stacker-db: {e:?}"),
-                Ok(ack) if !ack.accepted => warn!(
-                    "{self}: Block rejection not accepted by stacker-db: {:?}",
-                    ack.reason
-                ),
-                Ok(_) => debug!("{self}: Block rejection accepted by stacker-db"),
-            }
+            self.send_block_response(block_response);
         } else {
             // Just in case check if the last block validation submission timed out.
             self.check_submitted_block_proposal();
@@ -618,13 +672,14 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         block_response: &BlockResponse,
+        sortition_state: &mut Option<SortitionsView>,
     ) {
         match block_response {
             BlockResponse::Accepted(accepted) => {
                 self.handle_block_signature(stacks_client, accepted);
             }
             BlockResponse::Rejected(block_rejection) => {
-                self.handle_block_rejection(block_rejection);
+                self.handle_block_rejection(block_rejection, sortition_state);
             }
         };
     }
@@ -793,6 +848,7 @@ impl Signer {
     fn handle_block_validate_reject(
         &mut self,
         block_validate_reject: &BlockValidateReject,
+        sortition_state: &mut Option<SortitionsView>,
     ) -> Option<BlockResponse> {
         crate::monitoring::actions::increment_block_validation_responses(false);
         let signer_signature_hash = block_validate_reject.signer_signature_hash;
@@ -833,7 +889,7 @@ impl Signer {
         self.signer_db
             .insert_block(&block_info)
             .unwrap_or_else(|e| self.handle_insert_block_error(e));
-        self.handle_block_rejection(&block_rejection);
+        self.handle_block_rejection(&block_rejection, sortition_state);
         Some(BlockResponse::Rejected(block_rejection))
     }
 
@@ -842,6 +898,7 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         block_validate_response: &BlockValidateResponse,
+        sortition_state: &mut Option<SortitionsView>,
     ) {
         info!("{self}: Received a block validate response: {block_validate_response:?}");
         let block_response = match block_validate_response {
@@ -852,7 +909,7 @@ impl Signer {
                 self.handle_block_validate_ok(stacks_client, block_validate_ok)
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
-                self.handle_block_validate_reject(block_validate_reject)
+                self.handle_block_validate_reject(block_validate_reject, sortition_state)
             }
         };
         // Remove this block validation from the pending table
@@ -994,6 +1051,21 @@ impl Signer {
         })
     }
 
+    /// Compute the rejection weight for the given reject code, given a list of signatures
+    fn compute_reject_code_signing_weight<'a>(
+        &self,
+        addrs: impl Iterator<Item = &'a (StacksAddress, RejectReasonPrefix)>,
+        reject_code: RejectReasonPrefix,
+    ) -> u32 {
+        addrs.filter(|(_, code)| *code == reject_code).fold(
+            0u32,
+            |signing_weight, (stacker_address, _)| {
+                let stacker_weight = self.signer_weights.get(stacker_address).unwrap_or(&0);
+                signing_weight.saturating_add(*stacker_weight)
+            },
+        )
+    }
+
     /// Compute the total signing weight
     fn compute_signature_total_weight(&self) -> u32 {
         self.signer_weights
@@ -1002,7 +1074,11 @@ impl Signer {
     }
 
     /// Handle an observed rejection from another signer
-    fn handle_block_rejection(&mut self, rejection: &BlockRejection) {
+    fn handle_block_rejection(
+        &mut self,
+        rejection: &BlockRejection,
+        sortition_state: &mut Option<SortitionsView>,
+    ) {
         debug!("{self}: Received a block-reject signature: {rejection:?}");
 
         let block_hash = &rejection.signer_signature_hash;
@@ -1045,10 +1121,11 @@ impl Signer {
         }
 
         // signature is valid! store it
-        if let Err(e) = self
-            .signer_db
-            .add_block_rejection_signer_addr(block_hash, &signer_address)
-        {
+        if let Err(e) = self.signer_db.add_block_rejection_signer_addr(
+            block_hash,
+            &signer_address,
+            &rejection.response_data.reject_reason,
+        ) {
             warn!("{self}: Failed to save block rejection signature: {e:?}",);
         }
 
@@ -1061,7 +1138,8 @@ impl Signer {
                 return;
             }
         };
-        let total_reject_weight = self.compute_signature_signing_weight(rejection_addrs.iter());
+        let total_reject_weight =
+            self.compute_signature_signing_weight(rejection_addrs.iter().map(|(addr, _)| addr));
         let total_weight = self.compute_signature_total_weight();
 
         let min_weight = NakamotoBlockHeader::compute_voting_weight_threshold(total_weight)
@@ -1088,6 +1166,24 @@ impl Signer {
         {
             // Consensus reached! No longer bother tracking its validation submission to the node as we are too late to participate in the decision anyway.
             self.submitted_block_proposal = None;
+        }
+
+        // If 30% of the signers have rejected the block due to an invalid
+        // reorg, mark the miner as invalid.
+        let total_reorg_reject_weight = self.compute_reject_code_signing_weight(
+            rejection_addrs.iter(),
+            RejectReasonPrefix::ReorgNotAllowed,
+        );
+        if total_reorg_reject_weight.saturating_add(min_weight) > total_weight {
+            // Mark the miner as invalid
+            if let Some(sortition_state) = sortition_state {
+                let ch = block_info.block.header.consensus_hash;
+                if sortition_state.cur_sortition.consensus_hash == ch {
+                    info!("{self}: Marking miner as invalid for attempted reorg");
+                    sortition_state.cur_sortition.miner_status =
+                        SortitionMinerStatus::InvalidatedBeforeFirstBlock;
+                }
+            }
         }
     }
 

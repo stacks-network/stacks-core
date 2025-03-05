@@ -220,6 +220,12 @@ impl SortitionsView {
                 "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
             );
             self.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
+
+            // If the current proposal is also for this current
+            // sortition, then we can return early here.
+            if self.cur_sortition.consensus_hash == block.header.consensus_hash {
+                return Err(RejectReason::InvalidMiner);
+            }
         } else if let Some(tip) = signer_db
             .get_canonical_tip()
             .map_err(SignerChainstateError::from)?
@@ -253,6 +259,12 @@ impl SortitionsView {
                     );
                     self.cur_sortition.miner_status =
                         SortitionMinerStatus::InvalidatedBeforeFirstBlock;
+
+                    // If the current proposal is also for this current
+                    // sortition, then we can return early here.
+                    if self.cur_sortition.consensus_hash == block.header.consensus_hash {
+                        return Err(RejectReason::ReorgNotAllowed);
+                    }
                 }
             }
         }
@@ -390,7 +402,7 @@ impl SortitionsView {
                 false,
             );
             let epoch_time = get_epoch_time_secs();
-            let enough_time_passed = epoch_time > extend_timestamp;
+            let enough_time_passed = epoch_time >= extend_timestamp;
             if !changed_burn_view && !enough_time_passed {
                 warn!(
                     "Miner block proposal contains a tenure extend, but the burnchain view has not changed and enough time has not passed to refresh the block limit. Considering proposal invalid.";
@@ -415,7 +427,7 @@ impl SortitionsView {
     ) -> Result<bool, SignerChainstateError> {
         // if the parent tenure is the last sortition, it is a valid choice.
         // if the parent tenure is a reorg, then all of the reorged sortitions
-        //  must either have produced zero blocks _or_ produced their first block
+        //  must either have produced zero blocks _or_ produced their first (and only) block
         //  very close to the burn block transition.
         if sortition_state.prior_sortition == sortition_state.parent_tenure_id {
             return Ok(true);
@@ -452,6 +464,23 @@ impl SortitionsView {
                 continue;
             }
 
+            // disallow reorg if more than one block has already been signed
+            let globally_accepted_blocks =
+                signer_db.get_globally_accepted_block_count_in_tenure(&tenure.consensus_hash)?;
+            if globally_accepted_blocks > 1 {
+                warn!(
+                    "Miner is not building off of most recent tenure, but a tenure they attempted to reorg has already more than one globally accepted block.";
+                    "proposed_block_consensus_hash" => %block.header.consensus_hash,
+                    "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                    "parent_tenure" => %sortition_state.parent_tenure_id,
+                    "last_sortition" => %sortition_state.prior_sortition,
+                    "violating_tenure_id" => %tenure.consensus_hash,
+                    "violating_tenure_first_block_id" => ?tenure.first_block_mined,
+                    "globally_accepted_blocks" => globally_accepted_blocks,
+                );
+                return Ok(false);
+            }
+
             if tenure.first_block_mined.is_some() {
                 let Some(local_block_info) =
                     signer_db.get_first_signed_block_in_tenure(&tenure.consensus_hash)?
@@ -481,7 +510,7 @@ impl SortitionsView {
                         0
                     };
                     if Duration::from_secs(proposal_to_sortition)
-                        <= *first_proposal_burn_block_timing
+                        < *first_proposal_burn_block_timing
                     {
                         info!(
                             "Miner is not building off of most recent tenure. A tenure they reorg has already mined blocks, but the block was poorly timed, allowing the reorg.";
@@ -587,7 +616,7 @@ impl SortitionsView {
                     "proposed_chain_length" => block.header.chain_length,
                     "expected_at_least" => info.block.header.chain_length + 1,
                 );
-                if info.signed_group.map_or(true, |signed_time| {
+                if info.signed_group.is_none_or(|signed_time| {
                     signed_time + reorg_attempts_activity_timeout.as_secs() > get_epoch_time_secs()
                 }) {
                     // Note if there is no signed_group time, this is a locally accepted block (i.e. tenure_last_block_proposal_timeout has not been exceeded).

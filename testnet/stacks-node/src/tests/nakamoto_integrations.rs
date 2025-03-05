@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fs::File;
 use std::ops::RangeBounds;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -51,6 +52,7 @@ use stacks::chainstate::stacks::boot::{
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionEvent, TransactionResult, TransactionSuccessEvent,
+    TEST_TX_STALL,
 };
 use stacks::chainstate::stacks::{
     SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction, TenureChangeCause,
@@ -102,13 +104,13 @@ use crate::nakamoto_node::miner::{
     TEST_P2P_BROADCAST_SKIP,
 };
 use crate::nakamoto_node::relayer::TEST_MINER_THREAD_STALL;
-use crate::neon::{Counters, RunLoopCounter};
+use crate::neon::Counters;
 use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::neon_integrations::{
     call_read_only, get_account, get_account_result, get_chain_info_opt, get_chain_info_result,
-    get_neighbors, get_pox_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
-    submit_tx_fallible, test_observer, wait_for_runloop,
+    get_neighbors, get_pox_info, get_sortition_info, next_block_and_wait,
+    run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer, wait_for_runloop,
 };
 use crate::tests::signer::SignerTest;
 use crate::tests::{
@@ -352,12 +354,8 @@ pub fn add_initial_balances(
 
 /// Spawn a blind signing thread. `signer` is the private key
 ///  of the individual signer who broadcasts the response to the StackerDB
-pub fn blind_signer(
-    conf: &Config,
-    signers: &TestSigners,
-    proposals_count: RunLoopCounter,
-) -> JoinHandle<()> {
-    blind_signer_multinode(signers, &[conf], vec![proposals_count])
+pub fn blind_signer(conf: &Config, signers: &TestSigners, counters: &Counters) -> JoinHandle<()> {
+    blind_signer_multinode(signers, &[conf], &[counters])
 }
 
 /// Spawn a blind signing thread listening to potentially multiple stacks nodes.
@@ -367,28 +365,29 @@ pub fn blind_signer(
 pub fn blind_signer_multinode(
     signers: &TestSigners,
     configs: &[&Config],
-    proposals_count: Vec<RunLoopCounter>,
+    counters: &[&Counters],
 ) -> JoinHandle<()> {
     assert_eq!(
         configs.len(),
-        proposals_count.len(),
+        counters.len(),
         "Expect the same number of node configs as proposals counters"
     );
     let sender = TestSigningChannel::instantiate();
     let mut signed_blocks = HashSet::new();
     let configs: Vec<_> = configs.iter().map(|x| Clone::clone(*x)).collect();
+    let counters: Vec<_> = counters.iter().map(|x| Clone::clone(*x)).collect();
     let signers = signers.clone();
-    let mut last_count: Vec<_> = proposals_count
+    let mut last_count: Vec<_> = counters
         .iter()
-        .map(|x| x.load(Ordering::SeqCst))
+        .map(|x| x.naka_proposed_blocks.load(Ordering::SeqCst))
         .collect();
     thread::Builder::new()
         .name("blind-signer".into())
         .spawn(move || loop {
             thread::sleep(Duration::from_millis(100));
-            let cur_count: Vec<_> = proposals_count
+            let cur_count: Vec<_> = counters
                 .iter()
-                .map(|x| x.load(Ordering::SeqCst))
+                .map(|x| x.naka_proposed_blocks.load(Ordering::SeqCst))
                 .collect();
             if cur_count
                 .iter()
@@ -1477,6 +1476,9 @@ fn simple_neon_integration() {
     let prom_bind = "127.0.0.1:6000".to_string();
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(5);
+    // set the block commit delay very high, so that we can safely assert that
+    //  only one commit is submitted per tenure without generating test flake.
+    naka_conf.miner.block_commit_delay = Duration::from_secs(600);
     let sender_sk = Secp256k1PrivateKey::random();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
@@ -1505,21 +1507,15 @@ fn simple_neon_integration() {
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
-    let Counters {
-        blocks_processed,
-        naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
-        ..
-    } = run_loop.counters();
     let node_counters = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    wait_for_runloop(&blocks_processed);
+    wait_for_runloop(&node_counters.blocks_processed);
     boot_to_epoch_3(
         &naka_conf,
-        &blocks_processed,
+        &node_counters.blocks_processed,
         &[stacker_sk],
         &[sender_signer_sk],
         &mut Some(&mut signers),
@@ -1563,15 +1559,19 @@ fn simple_neon_integration() {
     }
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &node_counters);
 
-    wait_for_first_naka_block_commit(60, &commits_submitted);
+    wait_for_first_naka_block_commit(60, &node_counters.naka_submitted_commits);
 
+    let prior_commits = node_counters.naka_submitted_commits.load(Ordering::SeqCst);
     // Mine 15 nakamoto tenures
-    for _i in 0..15 {
+    let tenures_count = 15;
+    for _i in 0..tenures_count {
         next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &node_counters)
             .unwrap();
     }
+    let post_commits = node_counters.naka_submitted_commits.load(Ordering::SeqCst);
+    assert_eq!(prior_commits + 15, post_commits, "There should have been exactly {tenures_count} submitted commits during the {tenures_count} tenures");
 
     // Submit a TX
     let transfer_tx = make_stacks_transfer(
@@ -1733,7 +1733,6 @@ fn restarting_miner() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
     let rl1_counters = run_loop.counters();
@@ -1743,7 +1742,6 @@ fn restarting_miner() {
     let _run_loop_2_stopper = run_loop.get_termination_switch();
     let Counters {
         blocks_processed: blocks_processed_2,
-        naka_proposed_blocks: proposals_submitted_2,
         ..
     } = run_loop_2.counters();
     let rl2_counters = run_loop_2.counters();
@@ -1781,7 +1779,7 @@ fn restarting_miner() {
     blind_signer_multinode(
         &signers,
         &[&naka_conf, &naka_conf],
-        vec![proposals_submitted, proposals_submitted_2],
+        &[&rl1_counters, &rl2_counters],
     );
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
@@ -1958,7 +1956,6 @@ fn flash_blocks_on_epoch_3_FLAKY() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
     let counters = run_loop.counters();
@@ -2030,7 +2027,7 @@ fn flash_blocks_on_epoch_3_FLAKY() {
             .stacks_block_height;
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -2204,9 +2201,9 @@ fn mine_multiple_per_tenure_integration() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
+    let counters = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
 
@@ -2244,7 +2241,7 @@ fn mine_multiple_per_tenure_integration() {
             .stacks_block_height;
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -2438,15 +2435,13 @@ fn multiple_miners() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
 
     let run_loop_2_stopper = run_loop.get_termination_switch();
-    let Counters {
-        naka_proposed_blocks: proposals_submitted_2,
-        ..
-    } = run_loop_2.counters();
+
+    let rl1_counters = run_loop.counters();
+    let rl2_counters = run_loop_2.counters();
 
     let coord_channel = run_loop.coordinator_channels();
     let coord_channel_2 = run_loop_2.coordinator_channels();
@@ -2494,7 +2489,7 @@ fn multiple_miners() {
     blind_signer_multinode(
         &signers,
         &[&naka_conf, &conf_node_2],
-        vec![proposals_submitted, proposals_submitted_2],
+        &[&rl1_counters, &rl2_counters],
     );
 
     info!("Neighbors 1"; "neighbors" => ?get_neighbors(&naka_conf));
@@ -2646,7 +2641,6 @@ fn correct_burn_outs() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
     let counters = run_loop.counters();
@@ -2792,7 +2786,7 @@ fn correct_burn_outs() {
     );
 
     info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     // we should already be able to query the stacker set via RPC
     let burnchain = naka_conf.get_burnchain();
@@ -2960,7 +2954,6 @@ fn block_proposal_api_endpoint() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
     let counters = run_loop.counters();
@@ -2980,7 +2973,7 @@ fn block_proposal_api_endpoint() {
     );
 
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
-    blind_signer(&conf, &signers, proposals_submitted);
+    blind_signer(&conf, &signers, &counters);
 
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
@@ -3333,7 +3326,6 @@ fn miner_writes_proposed_block_to_stackerdb() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
     let counters = run_loop.counters();
@@ -3352,7 +3344,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
     );
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -3439,7 +3431,6 @@ fn vote_for_aggregate_key_burn_op() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
     let counters = run_loop.counters();
@@ -3473,7 +3464,7 @@ fn vote_for_aggregate_key_burn_op() {
     .unwrap();
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -3669,10 +3660,9 @@ fn follower_bootup_simple() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
-
+    let counters = run_loop.counters();
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::Builder::new()
@@ -3708,7 +3698,7 @@ fn follower_bootup_simple() {
             .stacks_block_height;
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -3989,10 +3979,9 @@ fn follower_bootup_across_multiple_cycles() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
-
+    let counters = run_loop.counters();
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::Builder::new()
@@ -4028,7 +4017,7 @@ fn follower_bootup_across_multiple_cycles() {
             .stacks_block_height;
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -4192,10 +4181,9 @@ fn follower_bootup_custom_chain_id() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
-
+    let counters = run_loop.counters();
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::Builder::new()
@@ -4231,7 +4219,7 @@ fn follower_bootup_custom_chain_id() {
             .stacks_block_height;
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -4535,7 +4523,6 @@ fn burn_ops_integration_test() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
     let counters = run_loop.counters();
@@ -4559,7 +4546,7 @@ fn burn_ops_integration_test() {
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -5126,11 +5113,11 @@ fn forked_tenure_is_ignored() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         naka_mined_blocks: mined_blocks,
         naka_skip_commit_op: test_skip_commit_op,
         ..
     } = run_loop.counters();
+    let counters = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
 
@@ -5158,7 +5145,7 @@ fn forked_tenure_is_ignored() {
     .unwrap();
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     info!("Starting Tenure A.");
     wait_for_first_naka_block_commit(60, &commits_submitted);
@@ -5479,10 +5466,9 @@ fn check_block_heights() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
-
+    let counters = run_loop.counters();
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::Builder::new()
@@ -5537,7 +5523,7 @@ fn check_block_heights() {
             .stacks_block_height;
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     let heights0_value = call_read_only(
         &naka_conf,
@@ -5922,7 +5908,6 @@ fn nakamoto_attempt_time() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
     let counters = run_loop.counters();
@@ -5941,7 +5926,7 @@ fn nakamoto_attempt_time() {
     );
 
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
@@ -6219,9 +6204,9 @@ fn clarity_burn_state() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
+    let counters = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
 
@@ -6242,7 +6227,7 @@ fn clarity_burn_state() {
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -6542,7 +6527,7 @@ fn signer_chainstate() {
     }
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted.clone());
+    blind_signer(&naka_conf, &signers, &counters);
 
     let signer_client = stacks_signer::client::StacksClient::new(
         StacksPrivateKey::from_seed(&[0, 1, 2, 3]),
@@ -7007,10 +6992,15 @@ fn signer_chainstate() {
 /// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
 ///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
 ///  struct handles the epoch-2/3 tear-down and spin-up. It mines a regular Nakamoto tenure
-///  before pausing the commit op to produce an empty sortition, forcing a tenure extend.
-///  Commit ops are resumed, and an additional 15 nakamoto tenures mined.
+///  before producing two empty sortitions, forcing tenure extends.
+///  Afterwards, normal bitcoin blocks are resumed, and an additional 5 nakamoto tenures mined.
+///
+/// This test sets the block_commit_delay to 10 minutes: this way, the test will fail to
+///   recover after the empty sortitions if it cannot detect that empty sortitions should
+///   not trigger a wait for tenure
+///
 /// This test makes three assertions:
-///  * 15 blocks are mined after 3.0 starts.
+///  * >= 7 blocks are mined after 3.0 starts.
 ///  * A transaction submitted to the mempool in 3.0 will be mined in 3.0
 ///  * A tenure extend transaction was successfully mined in 3.0
 ///  * The final chain tip is a nakamoto block
@@ -7025,6 +7015,7 @@ fn continue_tenure_extend() {
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.connection_options.block_proposal_max_age_secs = u64::MAX;
+    naka_conf.miner.block_commit_delay = Duration::from_secs(600);
     let http_origin = naka_conf.node.data_url.clone();
     let sender_sk = Secp256k1PrivateKey::random();
     // setup sender + recipient for a test stx transfer
@@ -7057,8 +7048,6 @@ fn continue_tenure_extend() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
-        naka_skip_commit_op: test_skip_commit_op,
         ..
     } = run_loop.counters();
     let counters = run_loop.counters();
@@ -7080,7 +7069,7 @@ fn continue_tenure_extend() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -7113,45 +7102,20 @@ fn continue_tenure_extend() {
     }
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
-
-    let blocks_processed_before = coord_channel
-        .lock()
-        .expect("Mutex poisoned")
-        .get_stacks_blocks_processed();
+    blind_signer(&naka_conf, &signers, &counters);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Mine a regular nakamoto tenure
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
-    wait_for(5, || {
-        let blocks_processed = coord_channel
-            .lock()
-            .expect("Mutex poisoned")
-            .get_stacks_blocks_processed();
-        Ok(blocks_processed > blocks_processed_before)
-    })
-    .unwrap();
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        .unwrap();
 
-    let blocks_processed_before = coord_channel
-        .lock()
-        .expect("Mutex poisoned")
-        .get_stacks_blocks_processed();
-
-    info!("Pausing commit ops to trigger a tenure extend.");
-    test_skip_commit_op.set(true);
-
-    next_block_and(&mut btc_regtest_controller, 60, || Ok(true)).unwrap();
-
-    wait_for(5, || {
-        let blocks_processed = coord_channel
-            .lock()
-            .expect("Mutex poisoned")
-            .get_stacks_blocks_processed();
-        Ok(blocks_processed > blocks_processed_before)
-    })
-    .unwrap();
+    // assert that this produces a sortition with a winner
+    //  (because the commit was submitted before the commits were paused!)
+    let sortition = get_sortition_info(&naka_conf);
+    assert!(sortition.was_sortition);
 
     // Submit a TX
     let transfer_tx = make_stacks_transfer(
@@ -7163,26 +7127,7 @@ fn continue_tenure_extend() {
         send_amt,
     );
     let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
-
-    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-        .unwrap()
-        .unwrap();
-
-    let mut mempool = naka_conf
-        .connect_mempool_db()
-        .expect("Database failure opening mempool");
-
-    mempool
-        .submit_raw(
-            &mut chainstate,
-            &sortdb,
-            &tip.consensus_hash,
-            &tip.anchored_header.block_hash(),
-            transfer_tx,
-            &ExecutionCost::max_value(),
-            &StacksEpochId::Epoch30,
-        )
-        .unwrap();
+    submit_tx(&http_origin, &transfer_tx);
 
     // wait for the extended miner to include the tx in a block
     //  before we produce the next bitcoin block (this test will assert
@@ -7197,35 +7142,43 @@ fn continue_tenure_extend() {
         .lock()
         .expect("Mutex poisoned")
         .get_stacks_blocks_processed();
-
-    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-        .unwrap();
-
-    wait_for(5, || {
+    btc_regtest_controller.build_empty_block();
+    wait_for(60, || {
         let blocks_processed = coord_channel
             .lock()
             .expect("Mutex poisoned")
             .get_stacks_blocks_processed();
-        let sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
-        Ok(blocks_processed > blocks_processed_before && sender_nonce >= 1)
+        if blocks_processed > blocks_processed_before {
+            return Ok(true);
+        }
+        Ok(false)
     })
     .unwrap();
+
+    // assert that this produces a sortition without a winner
+    let sortition = get_sortition_info(&naka_conf);
+    assert!(!sortition.was_sortition);
 
     let blocks_processed_before = coord_channel
         .lock()
         .expect("Mutex poisoned")
         .get_stacks_blocks_processed();
-
-    next_block_and(&mut btc_regtest_controller, 60, || Ok(true)).unwrap();
-
-    wait_for(5, || {
+    btc_regtest_controller.build_empty_block();
+    wait_for(60, || {
         let blocks_processed = coord_channel
             .lock()
             .expect("Mutex poisoned")
             .get_stacks_blocks_processed();
-        Ok(blocks_processed > blocks_processed_before)
+        if blocks_processed > blocks_processed_before {
+            return Ok(true);
+        }
+        Ok(false)
     })
     .unwrap();
+
+    // assert that this produces a sortition without a winner
+    let sortition = get_sortition_info(&naka_conf);
+    assert!(!sortition.was_sortition);
 
     // Mine 3 nakamoto blocks
     for i in 0..3 {
@@ -7242,37 +7195,24 @@ fn continue_tenure_extend() {
         submit_tx(&http_origin, &transfer_tx);
         wait_for(10, || {
             let sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
-            Ok(sender_nonce >= transfer_nonce)
+            Ok(sender_nonce > transfer_nonce)
         })
         .expect("Timed out waiting for transfer TX to confirm");
     }
 
     info!("Resuming commit ops to mine regular tenures.");
-    test_skip_commit_op.set(false);
+    // wait for last commit to point at the correct tips
+    wait_for(60, || {
+        let committed_burn_ht = counters
+            .naka_submitted_commit_last_burn_height
+            .load(Ordering::SeqCst);
+        Ok(committed_burn_ht >= sortition.burn_block_height)
+    })
+    .unwrap();
 
-    // Mine 15 more regular nakamoto tenures
-    for _i in 0..15 {
-        let commits_before = commits_submitted.load(Ordering::SeqCst);
-        let blocks_processed_before = coord_channel
-            .lock()
-            .expect("Mutex poisoned")
-            .get_stacks_blocks_processed();
-        next_block_and(&mut btc_regtest_controller, 60, || {
-            let commits_count = commits_submitted.load(Ordering::SeqCst);
-            Ok(commits_count > commits_before)
-        })
-        .unwrap();
-
-        wait_for(5, || {
-            let blocks_processed = coord_channel
-                .lock()
-                .expect("Mutex poisoned")
-                .get_stacks_blocks_processed();
-            Ok(blocks_processed > blocks_processed_before)
-        })
-        .unwrap();
-
-        sleep_ms(5_000);
+    // Mine 5 more regular nakamoto tenures
+    for _i in 0..5 {
+        next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
     }
 
     // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
@@ -7326,7 +7266,7 @@ fn continue_tenure_extend() {
     );
 
     assert!(
-        tenure_block_founds.len() >= 17 - tenure_extends.len(),
+        tenure_block_founds.len() >= 7 - tenure_extends.len(),
         "Nakamoto node failed to include the block found tx per winning sortition"
     );
 
@@ -7336,7 +7276,7 @@ fn continue_tenure_extend() {
     );
 
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
-    assert!(tip.stacks_block_height >= block_height_pre_3_0 + 17);
+    assert!(tip.stacks_block_height >= block_height_pre_3_0 + 7);
 
     // make sure prometheus returns an updated height
     #[cfg(feature = "monitoring_prom")]
@@ -7551,9 +7491,7 @@ fn check_block_times() {
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
-        blocks_processed,
-        naka_proposed_blocks: proposals_submitted,
-        ..
+        blocks_processed, ..
     } = run_loop.counters();
     let counters = run_loop.counters();
 
@@ -7597,7 +7535,7 @@ fn check_block_times() {
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
     wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
 
     let info = get_chain_info_result(&naka_conf).unwrap();
@@ -7945,9 +7883,9 @@ fn check_block_info() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
+    let counters = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
 
@@ -8054,7 +7992,7 @@ fn check_block_info() {
     let info = get_chain_info(&naka_conf);
     let last_pre_nakamoto_block_height = info.stacks_tip_height.into();
 
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     let c0_block_ht_1_pre_3 = get_block_info(contract0_name, 1);
     info!("Info from pre-epoch 3.0: {c0_block_ht_1_pre_3:?}");
@@ -8576,7 +8514,6 @@ fn check_block_info_rewards() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
     let counters = run_loop.counters();
@@ -8641,7 +8578,7 @@ fn check_block_info_rewards() {
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     let tuple0 = get_block_info(contract0_name, 1);
     info!("Info from pre-epoch 3.0: {tuple0:?}");
@@ -8920,9 +8857,9 @@ fn mock_mining() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
+    let counters = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
 
@@ -8959,7 +8896,7 @@ fn mock_mining() {
             .stacks_block_height;
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     // Wait one block to confirm the VRF register, wait until a block commit is submitted
     wait_for_first_naka_block_commit(60, &commits_submitted);
@@ -9343,9 +9280,7 @@ fn v3_signer_api_endpoint() {
     let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
-        blocks_processed,
-        naka_proposed_blocks: proposals_submitted,
-        ..
+        blocks_processed, ..
     } = run_loop.counters();
     let counters = run_loop.counters();
 
@@ -9364,7 +9299,7 @@ fn v3_signer_api_endpoint() {
     );
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
-    blind_signer(&conf, &signers, proposals_submitted);
+    blind_signer(&conf, &signers, &counters);
     // TODO (hack) instantiate the sortdb in the burnchain
     _ = btc_regtest_controller.sortdb_mut();
 
@@ -9511,7 +9446,6 @@ fn v3_blockbyheight_api_endpoint() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
     let counters = run_loop.counters();
@@ -9531,7 +9465,7 @@ fn v3_blockbyheight_api_endpoint() {
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
-    blind_signer(&conf, &signers, proposals_submitted);
+    blind_signer(&conf, &signers, &counters);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -9630,9 +9564,7 @@ fn nakamoto_lockup_events() {
     let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
-        blocks_processed,
-        naka_proposed_blocks: proposals_submitted,
-        ..
+        blocks_processed, ..
     } = run_loop.counters();
     let counters = run_loop.counters();
     let coord_channel = run_loop.coordinator_channels();
@@ -9650,7 +9582,7 @@ fn nakamoto_lockup_events() {
     );
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
-    blind_signer(&conf, &signers, proposals_submitted);
+    blind_signer(&conf, &signers, &counters);
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
     let (chainstate, _) = StacksChainState::open(
@@ -9713,12 +9645,14 @@ fn nakamoto_lockup_events() {
         wait_for(30, || Ok(get_stacks_height() > height_before)).unwrap();
     }
 
+    wait_for(30, || {
+        let blocks = test_observer::get_blocks();
+        let block = blocks.last().unwrap();
+        Ok(block.get("block_height").unwrap().as_u64().unwrap() == unlock_height)
+    })
+    .expect("Timed out waiting for test observer to reach unlock height");
     let blocks = test_observer::get_blocks();
     let block = blocks.last().unwrap();
-    assert_eq!(
-        block.get("block_height").unwrap().as_u64().unwrap(),
-        unlock_height
-    );
 
     let events = block.get("events").unwrap().as_array().unwrap();
     let mut found_event = false;
@@ -9805,7 +9739,6 @@ fn skip_mining_long_tx() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         naka_mined_blocks: mined_naka_blocks,
         ..
     } = run_loop.counters();
@@ -9837,13 +9770,11 @@ fn skip_mining_long_tx() {
     .unwrap();
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // submit a long running TX and the transfer TX
-    let input_list: Vec<_> = (1..100u64).map(|x| x.to_string()).collect();
-    let input_list = input_list.join(" ");
 
     // Mine a few nakamoto tenures with some interim blocks in them
     for i in 0..5 {
@@ -9863,26 +9794,22 @@ fn skip_mining_long_tx() {
             .unwrap();
 
             TEST_P2P_BROADCAST_SKIP.set(true);
+            TEST_TX_STALL.set(true);
             let tx = make_contract_publish(
                 &sender_2_sk,
                 0,
                 9_000,
                 naka_conf.burnchain.chain_id,
                 "large_contract",
-                &format!(
-                    "(define-constant INP_LIST (list {input_list}))
-                        (define-private (mapping-fn (input int))
-                                (begin (sha256 (sha256 (sha256 (sha256 (sha256 (sha256 (sha256 (sha256 (sha256 input)))))))))
-                                       0))
-
-                        (define-private (mapping-fn-2 (input int))
-                                (begin (map mapping-fn INP_LIST) (map mapping-fn INP_LIST) (map mapping-fn INP_LIST) (map mapping-fn INP_LIST) 0))
-
-                        (begin
-                            (map mapping-fn-2 INP_LIST))"
-                ),
+                "(print \"hello world\")",
             );
             submit_tx(&http_origin, &tx);
+
+            // Sleep for longer than the miner's attempt time, so that the miner will
+            // mark this tx as long-running and skip it in the next attempt
+            sleep_ms(naka_conf.miner.nakamoto_attempt_time_ms + 1000);
+
+            TEST_TX_STALL.set(false);
 
             wait_for(90, || {
                 Ok(mined_naka_blocks.load(Ordering::SeqCst) > mined_before + 1)
@@ -10168,9 +10095,9 @@ fn sip029_coinbase_change() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
+    let counters = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
 
@@ -10201,7 +10128,7 @@ fn sip029_coinbase_change() {
     .unwrap();
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -10390,10 +10317,10 @@ fn clarity_cost_spend_down() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         naka_mined_blocks: mined_blocks,
         ..
     } = run_loop.counters();
+    let counters = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
 
@@ -10415,7 +10342,7 @@ fn clarity_cost_spend_down() {
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
 
     info!("Nakamoto miner started...");
-    blind_signer(&naka_conf, &signers, proposals_submitted);
+    blind_signer(&naka_conf, &signers, &counters);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -10652,9 +10579,9 @@ fn consensus_hash_event_dispatcher() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         ..
     } = run_loop.counters();
+    let counters = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
 
@@ -10672,7 +10599,7 @@ fn consensus_hash_event_dispatcher() {
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
-    blind_signer(&conf, &signers, proposals_submitted);
+    blind_signer(&conf, &signers, &counters);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -10764,7 +10691,7 @@ fn test_tenure_extend_from_flashblocks() {
 (define-data-var my-var uint u0)
 (define-data-var my-counter uint u0)
 
-(define-public (f) 
+(define-public (f)
    (begin
       (var-set my-var burn-block-height)
       (if (is-eq u0 (mod burn-block-height u2))
@@ -11089,10 +11016,10 @@ fn mine_invalid_principal_from_consensus_buff() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_proposed_blocks: proposals_submitted,
         naka_mined_blocks: mined_blocks,
         ..
     } = run_loop.counters();
+    let counters = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
 
@@ -11110,7 +11037,7 @@ fn mine_invalid_principal_from_consensus_buff() {
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
-    blind_signer(&conf, &signers, proposals_submitted);
+    blind_signer(&conf, &signers, &counters);
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
@@ -11156,6 +11083,143 @@ fn mine_invalid_principal_from_consensus_buff() {
     assert_eq!(dropped_txs.len(), 1);
     assert_eq!(dropped_txs[0].0, format!("0x{}", &contract_tx.txid()));
     assert_eq!(dropped_txs[0].1.as_str(), "Problematic");
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+/// Test hot-reloading of miner config
+#[test]
+#[ignore]
+fn reload_miner_config() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, _miner_account) = naka_neon_integration_conf(None);
+    let password = "12345".to_string();
+    let _http_origin = format!("http://{}", &conf.node.rpc_bind);
+    conf.connection_options.auth_token = Some(password.clone());
+    conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    let stacker_sk = setup_stacker(&mut conf);
+    let signer_sk = Secp256k1PrivateKey::random();
+    let signer_addr = tests::to_addr(&signer_sk);
+    let sender_sk = Secp256k1PrivateKey::random();
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), 1000000);
+    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+
+    test_observer::spawn();
+    test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let conf_path =
+        std::env::temp_dir().join(format!("miner-config-test-{}.toml", rand::random::<u64>()));
+    conf.config_path = Some(conf_path.clone().to_str().unwrap().to_string());
+
+    // Make a minimum-viable config file
+    let update_config = |burn_fee_cap: u64, sats_vbyte: u64| {
+        use std::io::Write;
+
+        let new_config = format!(
+            r#"
+            [burnchain]
+            burn_fee_cap = {}
+            satoshis_per_byte = {}
+            "#,
+            burn_fee_cap, sats_vbyte,
+        );
+        // Write to a file
+        let mut file = File::create(&conf_path).unwrap();
+        file.write_all(new_config.as_bytes()).unwrap();
+    };
+
+    update_config(100000, 50);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let counters = run_loop.counters();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    let mut signers = TestSigners::new(vec![signer_sk]);
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    blind_signer(&conf, &signers, &counters);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+
+    let burn_blocks = test_observer::get_burn_blocks();
+    let burn_block = burn_blocks.last().unwrap();
+    info!("Burn block: {:?}", &burn_block);
+
+    let reward_amount = burn_block
+        .get("reward_recipients")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r.get("amt").unwrap().as_u64().unwrap())
+        .sum::<u64>();
+
+    assert_eq!(reward_amount, 200000);
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+
+    info!("---- Updating config ----");
+    let new_amount = 150000;
+    update_config(new_amount, 55);
+
+    // Due to timing of commits, just mine two blocks
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+
+    let burn_blocks = test_observer::get_burn_blocks();
+    let burn_block = burn_blocks.last().unwrap();
+    info!("Burn block: {:?}", &burn_block);
+
+    let reward_amount = burn_block
+        .get("reward_recipients")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r.get("amt").unwrap().as_u64().unwrap())
+        .sum::<u64>();
+
+    assert_eq!(reward_amount, new_amount);
 
     coord_channel
         .lock()

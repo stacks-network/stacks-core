@@ -1330,7 +1330,9 @@ impl StacksMessageCodec for RejectReason {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let type_prefix_byte = read_next::<u8, _>(fd)?;
+        let Ok(type_prefix_byte) = read_next::<u8, _>(fd) else {
+            return Ok(RejectReason::Unknown(RejectReasonPrefix::Unknown as u8));
+        };
         let type_prefix = RejectReasonPrefix::from(type_prefix_byte);
         let code = match type_prefix {
             RejectReasonPrefix::ValidationFailed => RejectReason::ValidationFailed(
@@ -1962,5 +1964,21 @@ mod test {
         );
         assert_eq!(block_accepted.signature, block_accepted_old.signature);
         assert_eq!(block_accepted.metadata, block_accepted_old.metadata);
+    }
+
+    #[test]
+    fn test_deserialize_old_block_response() {
+        // Fixture of an older version of a block response that has a tenure_extend_timestamp
+        // but _not_ a reject_reason.
+        let hex_str = "01006dc371d2313be71f93ac759f3302e5a0e4ff77dd0e73f13bb491936b5489d5390032208fc53bd0984c84abaac44ecd777e473e3e325066217e9d7314baa5cdfe1847363e1036f364b4bf7982f4d103079b17c19bf8a19904e822c2d62a5021c19700000036737461636b732d7369676e657220302e302e3120283a2c2072656c65617365206275696c642c206c696e7578205b7838365f36345d290200000008000000006751c76e";
+        let bytes = hex_bytes(hex_str).unwrap();
+        let block_response = read_next::<SignerMessage, _>(&mut &bytes[..]).unwrap();
+        let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = block_response else {
+            panic!("Expected BlockResponse::Accepted");
+        };
+        assert_eq!(
+            accepted.response_data.reject_reason,
+            RejectReason::Unknown(RejectReasonPrefix::Unknown as u8)
+        );
     }
 }

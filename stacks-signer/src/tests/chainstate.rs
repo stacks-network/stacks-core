@@ -287,7 +287,7 @@ fn check_proposal_reorg_timing_bad() {
 
 #[test]
 fn check_proposal_reorg_timing_ok() {
-    let result = reorg_timing_testing("reorg_timing_okay", 30, 30);
+    let result = reorg_timing_testing("reorg_timing_okay", 30, 29);
     result.expect("Proposal should validate okay, because the reorg occurred in a block whose proposed time was close to the sortition");
 }
 
