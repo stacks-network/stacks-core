@@ -21,7 +21,8 @@ use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::net::api::postblock_proposal::{
-    BlockValidateOk, BlockValidateReject, BlockValidateResponse, TOO_MANY_REQUESTS_STATUS,
+    BlockValidateOk, BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
+    TOO_MANY_REQUESTS_STATUS,
 };
 use blockstack_lib::util_lib::db::Error as DBError;
 use clarity::types::chainstate::StacksPrivateKey;
@@ -391,6 +392,7 @@ impl Signer {
             ),
         )
     }
+
     /// Create a block rejection response for a block with the given reject code
     pub fn create_block_rejection(
         &self,
@@ -411,6 +413,7 @@ impl Signer {
             ),
         )
     }
+
     /// Check if block should be rejected based on sortition state
     /// Will return a BlockResponse::Rejection if the block is invalid, none otherwise.
     fn check_block_against_sortition_state(
@@ -556,33 +559,19 @@ impl Signer {
         // TODO: should add a check to ignore an old burn block height if we know its outdated. Would require us to store the burn block height we last saw on the side.
         //  the signer needs to be able to determine whether or not the block they're about to sign would conflict with an already-signed Stacks block
         let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
-        if let Some(block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) {
-            let Some(block_response) = self.determine_response(&block_info) else {
-                // We are still waiting for a response for this block. Do nothing.
-                debug!("{self}: Received a block proposal for a block we are already validating.";
-                    "signer_sighash" => %signer_signature_hash,
-                    "block_id" => %block_proposal.block.block_id()
-                );
-                return;
-            };
-            // Submit a proposal response to the .signers contract for miners
-            debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
-            let accepted = matches!(block_response, BlockResponse::Accepted(..));
-            match self
-                .stackerdb
-                .send_message_with_retry::<SignerMessage>(block_response.into())
-            {
-                Ok(_) => {
-                    crate::monitoring::actions::increment_block_responses_sent(accepted);
-                    crate::monitoring::actions::record_block_response_latency(
-                        &block_proposal.block,
-                    );
-                }
-                Err(e) => {
-                    warn!("{self}: Failed to send block response to stacker-db: {e:?}",);
-                }
-            }
-            return;
+        let prior_evaluation = self
+            .block_lookup_by_reward_cycle(&signer_signature_hash)
+            .and_then(|block_info| if should_reevaluate_block(&block_info) {
+                debug!("Received a proposal for this block before, but our rejection reason allows us to reconsider";
+                    "reject_reason" => ?block_info.reject_reason);
+                None
+            } else {
+                Some(block_info)
+            });
+
+        // we previously considered this proposal, handle the status here
+        if let Some(block_info) = prior_evaluation {
+            return self.handle_prior_proposal_eval(&block_info);
         }
 
         info!(
@@ -664,6 +653,32 @@ impl Signer {
             self.signer_db
                 .insert_block(&block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
+        }
+    }
+
+    fn handle_prior_proposal_eval(&mut self, block_info: &BlockInfo) {
+        let Some(block_response) = self.determine_response(block_info) else {
+            // We are still waiting for a response for this block. Do nothing.
+            debug!(
+                "{self}: Received a block proposal for a block we are already validating.";
+                "signer_sighash" => %block_info.signer_signature_hash(),
+                "block_id" => %block_info.block.block_id()
+            );
+            return;
+        };
+
+        // Submit a proposal response to the .signers contract for miners
+        debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
+
+        let accepted = matches!(block_response, BlockResponse::Accepted(..));
+        if let Err(e) = self
+            .stackerdb
+            .send_message_with_retry::<SignerMessage>(block_response.into())
+        {
+            warn!("{self}: Failed to send block response to stacker-db: {e:?}");
+        } else {
+            crate::monitoring::actions::increment_block_responses_sent(accepted);
+            crate::monitoring::actions::record_block_response_latency(&block_info.block);
         }
     }
 
@@ -886,6 +901,8 @@ impl Signer {
                 false,
             ),
         );
+
+        block_info.reject_reason = Some(block_rejection.response_data.reject_reason.clone());
         self.signer_db
             .insert_block(&block_info)
             .unwrap_or_else(|e| self.handle_insert_block_error(e));
@@ -1015,6 +1032,7 @@ impl Signer {
             ),
             &block_info.block,
         );
+        block_info.reject_reason = Some(rejection.get_response_data().reject_reason.clone());
         if let Err(e) = block_info.mark_locally_rejected() {
             if !block_info.has_reached_consensus() {
                 warn!("{self}: Failed to mark block as locally rejected: {e:?}");
@@ -1035,6 +1053,7 @@ impl Signer {
             ),
             Ok(_) => debug!("{self}: Block rejection accepted by stacker-db"),
         }
+
         self.signer_db
             .insert_block(&block_info)
             .unwrap_or_else(|e| self.handle_insert_block_error(e));
@@ -1128,6 +1147,7 @@ impl Signer {
         ) {
             warn!("{self}: Failed to save block rejection signature: {e:?}",);
         }
+        block_info.reject_reason = Some(rejection.response_data.reject_reason.clone());
 
         // do we have enough signatures to mark a block a globally rejected?
         // i.e. is (set-size) - (threshold) + 1 reached.
@@ -1406,5 +1426,35 @@ impl Signer {
         } else {
             None
         }
+    }
+}
+
+/// Determine if a block should be re-evaluated based on its rejection reason˝
+fn should_reevaluate_block(block_info: &BlockInfo) -> bool {
+    if let Some(reject_reason) = &block_info.reject_reason {
+        match reject_reason {
+            RejectReason::ValidationFailed(ValidateRejectCode::UnknownParent)
+            | RejectReason::NoSortitionView
+            | RejectReason::ConnectivityIssues(_)
+            | RejectReason::TestingDirective
+            | RejectReason::InvalidTenureExtend
+            | RejectReason::NotRejected
+            | RejectReason::Unknown(_) => true,
+            RejectReason::ValidationFailed(_)
+            | RejectReason::RejectedInPriorRound
+            | RejectReason::SortitionViewMismatch
+            | RejectReason::ReorgNotAllowed
+            | RejectReason::InvalidBitvec
+            | RejectReason::PubkeyHashMismatch
+            | RejectReason::InvalidMiner
+            | RejectReason::NotLatestSortitionWinner
+            | RejectReason::InvalidParentBlock
+            | RejectReason::DuplicateBlockFound => {
+                // No need to re-validate these types of rejections.
+                false
+            }
+        }
+    } else {
+        false
     }
 }
