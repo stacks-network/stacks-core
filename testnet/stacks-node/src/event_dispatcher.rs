@@ -438,8 +438,17 @@ impl EventObserver {
         };
 
         for (id, url, payload, timeout_ms) in pending_payloads {
+            let full_url = Url::parse(url.as_str())
+                .unwrap_or_else(|_| panic!("Event dispatcher: unable to parse {url} as a URL"));
+            let endport_url = Url::parse(format!("http://{}", &self.endpoint).as_str())
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Event dispatcher: unable to parse {} as a URL",
+                        &self.endpoint
+                    )
+                });
             // If the URL is not the same as the endpoint, skip it
-            if !url.starts_with(&self.endpoint) {
+            if full_url.origin() != endport_url.origin() {
                 continue;
             }
             let timeout = Duration::from_millis(timeout_ms);
@@ -2049,7 +2058,7 @@ mod test {
         let db_path = dir.path().join("event_observers.sqlite");
         let db_path_str = db_path.to_str().unwrap();
         let mut server = mockito::Server::new();
-        let endpoint = server.url().to_string();
+        let endpoint = server.host_with_port();
         let timeout = Duration::from_secs(5);
         let observer =
             EventObserver::new(Some(dir.path().to_path_buf()), endpoint.clone(), timeout);
@@ -2093,7 +2102,7 @@ mod test {
         let db_path_str = db_path.to_str().unwrap();
 
         let mut server = mockito::Server::new();
-        let endpoint = server.url().to_string();
+        let endpoint = server.host_with_port();
         let timeout = Duration::from_secs(5);
         let observer =
             EventObserver::new(Some(dir.path().to_path_buf()), endpoint.clone(), timeout);
