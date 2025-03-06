@@ -14,7 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use stacks_common::codec::StacksMessageCodec;
+use std::collections::BTreeMap;
+
+use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::types::net::{PeerAddress, PeerHost};
 
 use crate::net::http::common::{HTTP_PREAMBLE_MAX_ENCODED_SIZE, HTTP_PREAMBLE_MAX_NUM_HEADERS};
@@ -75,6 +77,58 @@ fn test_parse_reserved_header() {
     for (key, value, expected_result) in tests {
         let result = HttpReservedHeader::try_from_str(key, value);
         assert_eq!(result, expected_result);
+    }
+}
+
+#[test]
+fn parse_http_request_duplicate_headers() {
+    let tests = vec![
+        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nCache-Control: no-cache\r\ncache-control: no-store\r\nConnection: close\r\n\r\n",
+         Ok(BTreeMap::from([("cache-control".to_string(), "no-cache, no-store".to_string())]))),
+        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nCache-Control: no-store\r\ncache-control: no-cache\r\nConnection: close\r\n\r\n",
+         Ok(BTreeMap::from([("cache-control".into(), "no-store, no-cache".into())]))),
+        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nHost: core2.blockstack.org\r\nConnection: close\r\n\r\n",
+         Err(CodecError::DeserializeError("Invalid HTTP request: duplicate header \"host\"".into()))),
+        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nConnection: close\r\nConnection: keep-alive\r\n\r\n",
+         Err(CodecError::DeserializeError("Invalid HTTP request: duplicate header \"connection\"".into()))),
+        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nContent-Type: application/json\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n",
+         Err(CodecError::DeserializeError("Invalid HTTP request: duplicate header \"content-type\"".into()))),
+        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nContent-Length: 10\r\nContent-length: 5\r\nConnection: close\r\n\r\n",
+         Err(CodecError::DeserializeError("Invalid HTTP request: duplicate header \"content-length\"".into()))),
+    ];
+
+    for (data, expected) in tests.into_iter() {
+        let result = HttpRequestPreamble::consensus_deserialize(&mut data.as_bytes());
+        match result {
+            Ok(req) => {
+                let expected = expected.unwrap();
+                assert_eq!(req.headers, expected);
+            }
+            Err(e) => {
+                let expected = expected.unwrap_err();
+                assert_eq!(format!("{expected:?}"), format!("{e:?}"));
+            }
+        }
+    }
+}
+
+#[test]
+fn parse_http_request_set_cookie() {
+    let tests = vec![
+        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nConnection: close\r\n\r\n",
+         vec![]),
+        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nset-Cookie: a1\r\nSet-Cookie: a2\r\nConnection: close\r\n\r\n",
+         vec!["a1".to_string(), "a2".to_string()]),
+        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nset-Cookie: a2\r\nSet-Cookie: a1\r\nConnection: close\r\n\r\n",
+         vec!["a2".to_string(), "a1".to_string()]),
+        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nset-Cookie: a1\r\nConnection: close\r\n\r\n",
+         vec!["a1".to_string()]),
+    ];
+
+    for (data, expected) in tests.into_iter() {
+        let req = HttpRequestPreamble::consensus_deserialize(&mut data.as_bytes())
+            .expect("Should be able to parse the set-cookie requests");
+        assert_eq!(req.set_cookie, expected);
     }
 }
 
