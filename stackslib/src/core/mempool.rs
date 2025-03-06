@@ -1562,7 +1562,6 @@ impl MemPoolDB {
 
         debug!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
-        let mut candidate_cache = CandidateCache::new(settings.candidate_retry_cache_size);
         let mut nonce_cache = NonceCache::new(settings.nonce_cache_size);
 
         // == Queries for `GlobalFeeRate` mempool walk strategy
@@ -1649,63 +1648,52 @@ impl MemPoolDB {
             }
 
             // First, try to read from the retry list
-            let (candidate, update_estimate) = match candidate_cache.next() {
-                Some(tx) => {
-                    let update_estimate = tx.fee_rate.is_none();
-                    (tx, update_estimate)
-                }
-                None => {
-                    // When the retry list is empty, read from the mempool db depending on the configured miner strategy
-                    match settings.strategy {
-                        MemPoolWalkStrategy::GlobalFeeRate => {
-                            let start_with_no_estimate = tx_consideration_sampler.sample(&mut rng)
-                                < settings.consider_no_estimate_tx_prob;
-                            // randomly select from either the null fee-rate transactions or those with fee-rate estimates.
-                            let opt_tx = if start_with_no_estimate {
-                                null_iterator.next().map_err(Error::SqliteError)?
-                            } else {
+            let (candidate, update_estimate) = match settings.strategy {
+                MemPoolWalkStrategy::GlobalFeeRate => {
+                    let start_with_no_estimate = tx_consideration_sampler.sample(&mut rng)
+                        < settings.consider_no_estimate_tx_prob;
+                    // randomly select from either the null fee-rate transactions or those with fee-rate estimates.
+                    let opt_tx = if start_with_no_estimate {
+                        null_iterator.next().map_err(Error::SqliteError)?
+                    } else {
+                        fee_iterator.next().map_err(Error::SqliteError)?
+                    };
+                    match opt_tx {
+                        Some(row) => (MemPoolTxInfoPartial::from_row(row)?, start_with_no_estimate),
+                        None => {
+                            // If the selected iterator is empty, check the other
+                            match if start_with_no_estimate {
                                 fee_iterator.next().map_err(Error::SqliteError)?
-                            };
-                            match opt_tx {
-                                Some(row) => {
-                                    (MemPoolTxInfoPartial::from_row(row)?, start_with_no_estimate)
-                                }
-                                None => {
-                                    // If the selected iterator is empty, check the other
-                                    match if start_with_no_estimate {
-                                        fee_iterator.next().map_err(Error::SqliteError)?
-                                    } else {
-                                        null_iterator.next().map_err(Error::SqliteError)?
-                                    } {
-                                        Some(row) => (
-                                            MemPoolTxInfoPartial::from_row(row)?,
-                                            !start_with_no_estimate,
-                                        ),
-                                        None => {
-                                            debug!("No more transactions to consider in mempool");
-                                            break MempoolIterationStopReason::NoMoreCandidates;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        MemPoolWalkStrategy::NextNonceWithHighestFeeRate => {
-                            match query_stmt_nonce_rank
-                                .query(NO_PARAMS)
-                                .map_err(Error::SqliteError)?
-                                .next()
-                                .map_err(Error::SqliteError)?
-                            {
-                                Some(row) => {
-                                    let tx = MemPoolTxInfoPartial::from_row(row)?;
-                                    let update_estimate = tx.fee_rate.is_none();
-                                    (tx, update_estimate)
-                                }
+                            } else {
+                                null_iterator.next().map_err(Error::SqliteError)?
+                            } {
+                                Some(row) => (
+                                    MemPoolTxInfoPartial::from_row(row)?,
+                                    !start_with_no_estimate,
+                                ),
                                 None => {
                                     debug!("No more transactions to consider in mempool");
                                     break MempoolIterationStopReason::NoMoreCandidates;
                                 }
                             }
+                        }
+                    }
+                }
+                MemPoolWalkStrategy::NextNonceWithHighestFeeRate => {
+                    match query_stmt_nonce_rank
+                        .query(NO_PARAMS)
+                        .map_err(Error::SqliteError)?
+                        .next()
+                        .map_err(Error::SqliteError)?
+                    {
+                        Some(row) => {
+                            let tx = MemPoolTxInfoPartial::from_row(row)?;
+                            let update_estimate = tx.fee_rate.is_none();
+                            (tx, update_estimate)
+                        }
+                        None => {
+                            debug!("No more transactions to consider in mempool");
+                            break MempoolIterationStopReason::NoMoreCandidates;
                         }
                     }
                 }
@@ -1739,7 +1727,7 @@ impl MemPoolDB {
                 }
                 Ordering::Greater => {
                     debug!(
-                        "Mempool: nonces too high, cached for later";
+                        "Mempool: nonces too high";
                         "txid" => %candidate.txid,
                         "tx_origin_addr" => %candidate.origin_address,
                         "tx_origin_nonce" => candidate.origin_nonce,
@@ -1747,8 +1735,6 @@ impl MemPoolDB {
                         "expected_origin_nonce" => expected_origin_nonce,
                         "expected_sponsor_nonce" => expected_sponsor_nonce,
                     );
-                    // This transaction could become runnable in this pass, save it for later
-                    candidate_cache.push(candidate);
                     continue;
                 }
                 Ordering::Equal => {
@@ -1856,13 +1842,6 @@ impl MemPoolDB {
                     break MempoolIterationStopReason::IteratorExited;
                 }
             }
-
-            // Reset for finding the next transaction to process
-            debug!(
-                "Mempool: reset: retry list has {} entries",
-                candidate_cache.len()
-            );
-            candidate_cache.reset();
         };
 
         // drop these rusqlite statements and queries, since their existence as immutable borrows on the
