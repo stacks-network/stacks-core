@@ -432,14 +432,11 @@ pub fn initialize_contract(
         .call(&mut store, &[], results.as_mut_slice())
         .map_err(|e| {
             println!("CLEANING UP CONTEXT");
-            let top_level = store.data_mut().global_context.is_top_level();
-            if top_level {
-                store
-                    .data_mut()
-                    .global_context
-                    .roll_back()
-                    .unwrap_or_else(|e| panic!("Failed to clean up global context: {}", e));
-            }
+            store
+                .data_mut()
+                .global_context
+                .roll_back()
+                .unwrap_or_else(|e| panic!("Failed to clean up global context: {}", e));
 
             error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version)
         })?;
@@ -570,14 +567,11 @@ pub fn call_function<'a>(
     func.call(&mut store, &wasm_args, &mut results)
         .map_err(|e| {
             println!("CLEANING UP CONTEXT");
-            let top_level = store.data_mut().global_context.is_top_level();
-            if top_level {
-                store
-                    .data_mut()
-                    .global_context
-                    .roll_back()
-                    .unwrap_or_else(|e| panic!("Failed to clean up global context: {}", e));
-            }
+            store
+                .data_mut()
+                .global_context
+                .roll_back()
+                .unwrap_or_else(|e| panic!("Failed to clean up global context: {}", e));
 
             error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version)
         })?;
