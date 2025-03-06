@@ -1053,7 +1053,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         let quiet = !cfg!(test);
         match StacksChainState::process_transaction(clarity_tx, &tx, quiet, ast_rules) {
-            Ok((fee, receipt)) => Ok(TransactionResult::success(&tx, receipt)),
+            Ok((_fee, receipt)) => Ok(TransactionResult::success(&tx, receipt)),
             Err(e) => {
                 let (is_problematic, e) =
                     TransactionResult::is_problematic(&tx, e, clarity_tx.get_epoch());
