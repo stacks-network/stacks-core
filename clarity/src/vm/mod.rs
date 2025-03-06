@@ -42,7 +42,7 @@ pub mod coverage;
 
 pub mod events;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub mod tooling;
 
 #[cfg(any(test, feature = "testing"))]

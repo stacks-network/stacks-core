@@ -40,7 +40,7 @@ features = ["arbitrary_precision", "unbounded_depth"]
 version = "0.2.23"
 features = ["std"]
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 rusqlite = { workspace = true }
 
 [dev-dependencies]
