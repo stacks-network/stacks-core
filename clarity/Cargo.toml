@@ -27,11 +27,10 @@ regex = "1"
 lazy_static = "1.4.0"
 integer-sqrt = "0.1.3"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
-stacks_common = { package = "stacks-common", path = "../stacks-common", optional = true, default-features = false }
+stacks_common = { package = "stacks-common", path = "../stacks-common" }
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
 hashbrown = { workspace = true }
-rusqlite = { workspace = true, optional = true}
 
 [dependencies.serde_json]
 version = "1.0"
@@ -41,6 +40,9 @@ features = ["arbitrary_precision", "unbounded_depth"]
 version = "0.2.23"
 features = ["std"]
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rusqlite = { workspace = true }
+
 [dev-dependencies]
 assert-json-diff = "1.0.0"
 mutants = "0.0.3"
@@ -49,11 +51,10 @@ mutants = "0.0.3"
 # criterion = "0.3"
 
 [features]
-default = ["canonical"]
-canonical = ["rusqlite", "stacks_common/canonical"]
+default = []
 developer-mode = ["stacks_common/developer-mode"]
 slog_json = ["stacks_common/slog_json"]
-testing = ["canonical"]
+testing = []
 devtools = []
 rollback_value_check = []
 disable-costs = []
