@@ -418,7 +418,7 @@ pub enum TransactionEvent {
 impl TransactionResult {
     /// Logs a queryable message for the case where `txid` has succeeded.
     pub fn log_transaction_success(tx: &StacksTransaction) {
-        info!("Tx successfully processed.";
+        info!("Tx successfully processed";
             "event_name" => %"transaction_result",
             "tx_id" => %tx.txid(),
             "event_type" => %"success",
