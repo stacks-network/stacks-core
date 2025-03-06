@@ -478,14 +478,13 @@ impl TransactionResult {
     /// This method logs "transaction success" as a side effect.
     pub fn success_with_soft_limit(
         transaction: &StacksTransaction,
-        fee: u64,
         receipt: StacksTransactionReceipt,
         soft_limit_reached: bool,
     ) -> TransactionResult {
         Self::log_transaction_success(transaction);
         Self::Success(TransactionSuccess {
             tx: transaction.clone(),
-            fee,
+            fee: transaction.get_tx_fee(),
             receipt,
             soft_limit_reached,
         })
