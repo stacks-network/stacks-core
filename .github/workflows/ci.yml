@@ -48,7 +48,7 @@ jobs:
         id: rustfmt
         uses: stacks-network/actions/rustfmt@main
         with:
-          alias: "+nightly fmt"
+          alias: "fmt-stacks"
 
   ######################################################################################
   ## Check if the branch that this workflow is being run against is a release branch
