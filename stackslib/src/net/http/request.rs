@@ -438,15 +438,13 @@ impl StacksMessageCodec for HttpRequestPreamble {
                     } else if key == "set-cookie" {
                         set_cookie.push(value);
                     } else {
-                        match headers.entry(key) {
-                            Entry::Vacant(vacant_entry) => {
-                                vacant_entry.insert(value);
-                            }
-                            Entry::Occupied(mut occupied_entry) => {
-                                occupied_entry.get_mut().push_str(", ");
-                                occupied_entry.get_mut().push_str(&value);
-                            }
-                        }
+                        headers
+                            .entry(key)
+                            .and_modify(|entry| {
+                                entry.push_str(", ");
+                                entry.push_str(&value);
+                            })
+                            .or_insert(value);
                     }
                 }
 
