@@ -145,6 +145,7 @@ pub enum WasmError {
     ExpectedReturnValue,
     InvalidIndicator(i32),
     Runtime(wasmtime::Error),
+    Expect(String),
 }
 
 #[cfg(feature = "clarity-wasm")]
@@ -184,6 +185,7 @@ impl fmt::Display for WasmError {
                 write!(f, "Invalid response/optional indicator: {indicator}")
             }
             WasmError::Runtime(e) => write!(f, "Runtime error: {e}"),
+            WasmError::Expect(s) => write!(f, "{s}"),
         }
     }
 }
