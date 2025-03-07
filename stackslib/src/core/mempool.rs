@@ -1639,6 +1639,9 @@ impl MemPoolDB {
             LIMIT 1
             ";
         let mut query_stmt_nonce_rank = self.db.prepare(&sql).map_err(Error::SqliteError)?;
+        let mut nonce_rank_iterator = query_stmt_nonce_rank
+            .query(NO_PARAMS)
+            .map_err(Error::SqliteError)?;
 
         let stop_reason = loop {
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
@@ -1680,12 +1683,7 @@ impl MemPoolDB {
                     }
                 }
                 MemPoolWalkStrategy::NextNonceWithHighestFeeRate => {
-                    match query_stmt_nonce_rank
-                        .query(NO_PARAMS)
-                        .map_err(Error::SqliteError)?
-                        .next()
-                        .map_err(Error::SqliteError)?
-                    {
+                    match nonce_rank_iterator.next().map_err(Error::SqliteError)? {
                         Some(row) => {
                             let tx = MemPoolTxInfoPartial::from_row(row)?;
                             let update_estimate = tx.fee_rate.is_none();
@@ -1851,6 +1849,7 @@ impl MemPoolDB {
         drop(query_stmt_null);
         drop(fee_iterator);
         drop(query_stmt_fee);
+        drop(nonce_rank_iterator);
         drop(query_stmt_nonce_rank);
 
         // Write through the nonce cache to the database
