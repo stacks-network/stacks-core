@@ -12305,3 +12305,136 @@ fn retry_proposal() {
 
     signer_test.shutdown();
 }
+
+#[test]
+#[ignore]
+/// This test verifies that a a signer will accept a rejected block if it is
+/// re-proposed and determined to be legitimate. This can happen if the block
+/// is initially rejected due to a test flag or because the stacks-node had
+/// not yet processed the block's parent.
+fn signer_can_accept_rejected_block() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr, (send_amt + send_fee) * 3)],
+        |_| {},
+        |config| {
+            config.miner.block_rejection_timeout_steps.clear();
+            config
+                .miner
+                .block_rejection_timeout_steps
+                .insert(0, Duration::from_secs(123));
+            config
+                .miner
+                .block_rejection_timeout_steps
+                .insert(10, Duration::from_secs(20));
+            config
+                .miner
+                .block_rejection_timeout_steps
+                .insert(15, Duration::from_secs(10));
+            config
+                .miner
+                .block_rejection_timeout_steps
+                .insert(20, Duration::from_secs(30));
+        },
+        None,
+        None,
+    );
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_pk = StacksPublicKey::from_private(&miner_sk);
+
+    signer_test.boot_to_epoch_3();
+
+    signer_test.mine_nakamoto_block(Duration::from_secs(60), true);
+
+    let info = get_chain_info(&signer_test.running_nodes.conf);
+    let block_height_before = info.stacks_tip_height;
+
+    // make signer[0] reject all proposals
+    let rejecting_signer =
+        StacksPublicKey::from_private(&signer_test.signer_stacks_private_keys[0]);
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![rejecting_signer]);
+
+    // make signer[1] ignore all proposals
+    let ignoring_signer = StacksPublicKey::from_private(&signer_test.signer_stacks_private_keys[1]);
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![ignoring_signer]);
+
+    // Stall block validation so we can ensure the timing we want to test
+    TEST_VALIDATE_STALL.set(true);
+
+    // submit a tx so that the miner will mine a block
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        0,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+
+    info!("Submitted transfer tx and waiting for block proposal");
+    let block = wait_for_block_proposal(30, block_height_before + 1, &miner_pk)
+        .expect("Timed out waiting for block proposal");
+
+    // Wait for signer[0] to reject the block
+    wait_for_block_rejections(30, block.header.signer_signature_hash(), 1)
+        .expect("Failed to get expected rejections for Miner 1's block");
+
+    info!("Disable signer 0 from rejecting proposals");
+    test_observer::clear();
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![]);
+
+    // Unstall the other signers
+    TEST_VALIDATE_STALL.set(false);
+
+    info!(
+        "Block proposed, submitting another transaction that should not get included in the block"
+    );
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        1,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+
+    info!("Waiting for the block to be approved");
+    wait_for(60, || {
+        let blocks = test_observer::get_blocks();
+
+        // Look for a block with height `block_height_before + 1`
+        if let Some(block) = blocks
+            .iter()
+            .find(|block| block["block_height"].as_u64() == Some(block_height_before + 1))
+        {
+            if transfers_in_block(block) == 1 {
+                Ok(true) // Success: found the block with exactly 1 transfer
+            } else {
+                Err("Transfer included in block".into()) // Found the block, but it has the wrong number of transfers
+            }
+        } else {
+            Ok(false) // Keep waiting if the block hasn't appeared yet
+        }
+    })
+    .expect("Timed out waiting for block");
+
+    signer_test.shutdown();
+}
