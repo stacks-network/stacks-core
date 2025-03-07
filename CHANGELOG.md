@@ -14,6 +14,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - When a miner times out waiting for signatures, it will re-propose the same block instead of building a new block ([#5877](https://github.com/stacks-network/stacks-core/pull/5877))
 
+### Fixed
+
+- Reduced tenure downloader trace verbosity by removing "info" log statement ([#5871](https://github.com/stacks-network/stacks-core/issues/5871))
+
 ## [3.1.0.0.7]
 
 ### Added

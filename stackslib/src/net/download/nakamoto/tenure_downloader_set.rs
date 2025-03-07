@@ -671,10 +671,6 @@ impl NakamotoTenureDownloaderSet {
             );
             new_blocks.insert(downloader.tenure_id_consensus_hash.clone(), blocks);
             if downloader.is_done() {
-                info!(
-                    "Downloader for tenure {} is finished",
-                    &downloader.tenure_id_consensus_hash
-                );
                 debug!(
                     "Downloader for tenure {} finished on {naddr}",
                     &downloader.tenure_id_consensus_hash,
