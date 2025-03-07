@@ -549,6 +549,7 @@ impl NakamotoBlockProposal {
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 ASTRules::PrecheckSize,
+                None,
             );
             let err = match tx_result {
                 TransactionResult::Success(_) => Ok(()),

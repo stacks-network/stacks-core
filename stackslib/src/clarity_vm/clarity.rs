@@ -878,6 +878,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     &costs_2_contract_tx,
                     &boot_code_account,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .expect("FATAL: Failed to process PoX 2 contract initialization");
 
@@ -991,6 +992,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     &pox_2_contract_tx,
                     &boot_code_account,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .expect("FATAL: Failed to process PoX 2 contract initialization");
 
@@ -1012,6 +1014,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                         "set-burnchain-parameters",
                         &params,
                         |_, _| false,
+                        None,
                     )
                     .expect("Failed to set burnchain parameters in PoX-2 contract");
 
@@ -1062,6 +1065,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     &costs_3_contract_tx,
                     &boot_code_account,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .expect("FATAL: Failed to process costs-3 contract initialization");
 
@@ -1232,6 +1236,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     &pox_3_contract_tx,
                     &boot_code_account,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .expect("FATAL: Failed to process PoX 3 contract initialization");
 
@@ -1253,6 +1258,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                         "set-burnchain-parameters",
                         &params,
                         |_, _| false,
+                        None,
                     )
                     .expect("Failed to set burnchain parameters in PoX-3 contract");
 
@@ -1349,6 +1355,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     &pox_4_contract_tx,
                     &boot_code_account,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .expect("FATAL: Failed to process PoX 4 contract initialization");
 
@@ -1369,6 +1376,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                         "set-burnchain-parameters",
                         &params,
                         |_, _| false,
+                        None,
                     )
                     .expect("Failed to set burnchain parameters in PoX-3 contract");
 
@@ -1407,6 +1415,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     &signers_contract_tx,
                     &boot_code_account,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .expect("FATAL: Failed to process .signers contract initialization");
                 receipt
@@ -1453,6 +1462,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                             &signers_contract_tx,
                             &boot_code_account,
                             ASTRules::PrecheckSize,
+                            None,
                         )
                         .expect("FATAL: Failed to process .signers DB contract initialization");
                         receipt
@@ -1493,6 +1503,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     &signers_contract_tx,
                     &boot_code_account,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .expect("FATAL: Failed to process .signers-voting contract initialization");
                 receipt
@@ -2218,7 +2229,8 @@ mod tests {
                     &contract_identifier,
                     "foo",
                     &[Value::Int(1)],
-                    |_, _| false
+                    |_, _| false,
+                    None
                 ))
                 .unwrap()
                 .0,
@@ -2501,7 +2513,8 @@ mod tests {
                     &contract_identifier,
                     "get-bar",
                     &[],
-                    |_, _| false
+                    |_, _| false,
+                    None
                 ))
                 .unwrap()
                 .0,
@@ -2515,7 +2528,8 @@ mod tests {
                     &contract_identifier,
                     "set-bar",
                     &[Value::Int(1), Value::Int(1)],
-                    |_, _| false
+                    |_, _| false,
+                    None
                 ))
                 .unwrap()
                 .0,
@@ -2531,6 +2545,7 @@ mod tests {
                         "set-bar",
                         &[Value::Int(10), Value::Int(1)],
                         |_, _| true,
+                        None,
                     )
                 })
                 .unwrap_err();
@@ -2550,7 +2565,8 @@ mod tests {
                     &contract_identifier,
                     "get-bar",
                     &[],
-                    |_, _| false
+                    |_, _| false,
+                    None
                 ))
                 .unwrap()
                 .0,
@@ -2565,7 +2581,8 @@ mod tests {
                     &contract_identifier,
                     "set-bar",
                     &[Value::Int(10), Value::Int(0)],
-                    |_, _| true
+                    |_, _| true,
+                    None
                 ))
                 .unwrap_err()
             )
@@ -2579,7 +2596,8 @@ mod tests {
                     &contract_identifier,
                     "get-bar",
                     &[],
-                    |_, _| false
+                    |_, _| false,
+                    None
                 ))
                 .unwrap()
                 .0,
@@ -2690,6 +2708,7 @@ mod tests {
                     &tx1,
                     &account,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .unwrap();
                 assert!(receipt.post_condition_aborted);
@@ -2700,6 +2719,7 @@ mod tests {
                     &tx2,
                     &account,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .unwrap();
             });
@@ -2710,6 +2730,7 @@ mod tests {
                     &tx3,
                     &account,
                     ASTRules::PrecheckSize,
+                    None,
                 )
                 .unwrap();
 
@@ -2893,7 +2914,8 @@ mod tests {
                     &contract_identifier,
                     "do-expand",
                     &[],
-                    |_, _| false
+                    |_, _| false,
+                    None
                 ))
                 .unwrap_err()
             {
