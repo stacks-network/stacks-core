@@ -40,6 +40,7 @@ fn make_preamble(query: &str) -> HttpRequestPreamble {
         content_length: Some(0),
         keep_alive: false,
         headers: BTreeMap::new(),
+        set_cookie: Vec::new(),
     }
 }
 
