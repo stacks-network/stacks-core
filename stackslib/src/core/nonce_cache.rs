@@ -101,9 +101,8 @@ impl NonceCache {
         }
     }
 
-    /// Store the (address, nonce) pair to the `nonces` table.
-    /// If storage fails, return false.
-    /// Otherwise return true.
+    /// Set the nonce for `address` to `value` in the in-memory cache.
+    /// If this causes an eviction, flush the in-memory cache to the DB.
     pub fn set(&mut self, address: StacksAddress, value: u64, conn: &mut DBConn) {
         let evicted = self.cache.insert(address.clone(), value);
         if evicted.is_some() {
@@ -112,6 +111,8 @@ impl NonceCache {
         }
     }
 
+    /// Flush the in-memory cache the the DB, including `evicted`.
+    /// Do not return until successful.
     pub fn flush_with_evicted(&mut self, conn: &mut DBConn, evicted: Option<(StacksAddress, u64)>) {
         const MAX_BACKOFF: Duration = Duration::from_secs(30);
         let mut backoff = Duration::from_millis(rand::thread_rng().gen_range(50..200));
@@ -138,6 +139,7 @@ impl NonceCache {
         }
     }
 
+    /// Try to flush the in-memory cache the the DB, including `evicted`.
     pub fn try_flush_with_evicted(
         &mut self,
         conn: &mut DBConn,
@@ -162,6 +164,7 @@ impl NonceCache {
         Ok(())
     }
 
+    /// Flush the in-memory cache the the DB.
     pub fn flush(&mut self, conn: &mut DBConn) {
         self.flush_with_evicted(conn, None)
     }
@@ -249,5 +252,75 @@ mod tests {
         let addr = StacksAddress::from_string("ST2JHG361ZXG51QTKY2NQCVBPPRRE2KZB1HR05NNC").unwrap();
         db_set_nonce(&conn, &addr, 123).unwrap();
         assert_eq!(db_get_nonce(&conn, &addr).unwrap().unwrap(), 123);
+    }
+
+    #[test]
+    fn test_nonce_cache_eviction() {
+        let _chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let chainstate_path = chainstate_path(function_name!());
+        let mut mempool = MemPoolDB::open_test(false, CHAIN_ID_TESTNET, &chainstate_path).unwrap();
+        let mut cache = NonceCache::new(2); // Cache size of 2
+
+        let addr1 =
+            StacksAddress::from_string("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap();
+        let addr2 =
+            StacksAddress::from_string("ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5").unwrap();
+        let addr3 =
+            StacksAddress::from_string("ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG").unwrap();
+
+        let conn = &mut mempool.db;
+
+        // Fill cache to capacity
+        cache.set(addr1.clone(), 1, conn);
+        cache.set(addr2.clone(), 2, conn);
+
+        // This should cause addr1 to be evicted
+        cache.set(addr3.clone(), 3, conn);
+
+        // Verify addr1 was written to DB during eviction
+        assert_eq!(db_get_nonce(&conn, &addr1).unwrap().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_nonce_cache_flush() {
+        let _chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let chainstate_path = chainstate_path(function_name!());
+        let mut mempool = MemPoolDB::open_test(false, CHAIN_ID_TESTNET, &chainstate_path).unwrap();
+        let mut cache = NonceCache::new(3);
+
+        let addr1 =
+            StacksAddress::from_string("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap();
+        let addr2 =
+            StacksAddress::from_string("ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5").unwrap();
+
+        let conn = &mut mempool.db;
+
+        cache.set(addr1.clone(), 5, conn);
+        cache.set(addr2.clone(), 10, conn);
+
+        // Explicitly flush cache
+        cache.flush(conn);
+
+        // Verify both entries were written to DB
+        assert_eq!(db_get_nonce(&conn, &addr1).unwrap().unwrap(), 5);
+        assert_eq!(db_get_nonce(&conn, &addr2).unwrap().unwrap(), 10);
+    }
+
+    #[test]
+    fn test_db_nonce_overwrite() {
+        let _chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let chainstate_path = chainstate_path(function_name!());
+        let mut mempool = MemPoolDB::open_test(false, CHAIN_ID_TESTNET, &chainstate_path).unwrap();
+        let conn = &mut mempool.db;
+
+        let addr = StacksAddress::from_string("ST2JHG361ZXG51QTKY2NQCVBPPRRE2KZB1HR05NNC").unwrap();
+
+        // Set initial nonce
+        db_set_nonce(&conn, &addr, 1).unwrap();
+        assert_eq!(db_get_nonce(&conn, &addr).unwrap().unwrap(), 1);
+
+        // Overwrite with new nonce
+        db_set_nonce(&conn, &addr, 2).unwrap();
+        assert_eq!(db_get_nonce(&conn, &addr).unwrap().unwrap(), 2);
     }
 }

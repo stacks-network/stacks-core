@@ -2292,8 +2292,6 @@ impl StacksBlockBuilder {
 
         let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
         let mut considered = HashSet::new(); // txids of all transactions we looked at
-        let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
-        let mut mined_sponsor_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction sponsors to the nonces we used
 
         let mut invalidated_txs = vec![];
         let mut to_drop_and_blacklist = vec![];
@@ -2360,40 +2358,6 @@ impl StacksBlockBuilder {
                             ));
                         }
 
-                        if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
-                            if *nonce >= txinfo.tx.get_origin_nonce() {
-                                return Ok(Some(
-                                    TransactionResult::skipped(
-                                        &txinfo.tx,
-                                        format!(
-                                            "Bad origin nonce, tx nonce {} versus {}.",
-                                            txinfo.tx.get_origin_nonce(),
-                                            *nonce
-                                        ),
-                                    )
-                                    .convert_to_event(),
-                                ));
-                            }
-                        }
-                        if let Some(sponsor_addr) = txinfo.tx.sponsor_address() {
-                            if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
-                                if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
-                                    if *nonce >= sponsor_nonce {
-                                        return Ok(Some(
-                                            TransactionResult::skipped(
-                                                &txinfo.tx,
-                                                format!(
-                                                    "Bad sponsor nonce, tx nonce {} versus {}.",
-                                                    sponsor_nonce, *nonce
-                                                ),
-                                            )
-                                            .convert_to_event(),
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-
                         considered.insert(txinfo.tx.txid());
                         num_considered += 1;
 
@@ -2445,15 +2409,7 @@ impl StacksBlockBuilder {
                                               "error" => ?e);
                                     }
                                 }
-                                mined_origin_nonces.insert(
-                                    txinfo.tx.origin_address(),
-                                    txinfo.tx.get_origin_nonce(),
-                                );
-                                if let (Some(sponsor_addr), Some(sponsor_nonce)) =
-                                    (txinfo.tx.sponsor_address(), txinfo.tx.get_sponsor_nonce())
-                                {
-                                    mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
-                                }
+
                                 if soft_limit_reached {
                                     // done mining -- our soft limit execution budget is exceeded.
                                     // Make the block from the transactions we did manage to get
