@@ -737,7 +737,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
             }
 
             let cost_before = clarity_tx.cost_so_far();
-            let (fee, receipt) =
+            let (_fee, receipt) =
                 match StacksChainState::process_transaction(clarity_tx, tx, quiet, ast_rules) {
                     Ok(x) => x,
                     Err(e) => {
@@ -764,7 +764,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
 
             // save
             self.txs.push(tx.clone());
-            TransactionResult::success_with_soft_limit(tx, fee, receipt, soft_limit_reached)
+            TransactionResult::success_with_soft_limit(tx, receipt, soft_limit_reached)
         };
 
         self.bytes_so_far += tx_len;

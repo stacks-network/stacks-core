@@ -465,13 +465,12 @@ impl TransactionResult {
     /// This method logs "transaction success" as a side effect.
     pub fn success(
         transaction: &StacksTransaction,
-        fee: u64,
         receipt: StacksTransactionReceipt,
     ) -> TransactionResult {
         Self::log_transaction_success(transaction);
         Self::Success(TransactionSuccess {
             tx: transaction.clone(),
-            fee,
+            fee: transaction.get_tx_fee(),
             receipt,
             soft_limit_reached: false,
         })
@@ -481,14 +480,13 @@ impl TransactionResult {
     /// This method logs "transaction success" as a side effect.
     pub fn success_with_soft_limit(
         transaction: &StacksTransaction,
-        fee: u64,
         receipt: StacksTransactionReceipt,
         soft_limit_reached: bool,
     ) -> TransactionResult {
         Self::log_transaction_success(transaction);
         Self::Success(TransactionSuccess {
             tx: transaction.clone(),
-            fee,
+            fee: transaction.get_tx_fee(),
             receipt,
             soft_limit_reached,
         })
@@ -1056,7 +1054,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         let quiet = !cfg!(test);
         match StacksChainState::process_transaction(clarity_tx, &tx, quiet, ast_rules) {
-            Ok((fee, receipt)) => Ok(TransactionResult::success(&tx, fee, receipt)),
+            Ok((_fee, receipt)) => Ok(TransactionResult::success(&tx, receipt)),
             Err(e) => {
                 let (is_problematic, e) =
                     TransactionResult::is_problematic(&tx, e, clarity_tx.get_epoch());
@@ -2860,7 +2858,7 @@ impl BlockBuilder for StacksBlockBuilder {
             self.txs.push(tx.clone());
             self.total_anchored_fees += fee;
 
-            TransactionResult::success(tx, fee, receipt)
+            TransactionResult::success(tx, receipt)
         } else {
             // building up the microblocks
             if tx.anchor_mode != TransactionAnchorMode::OffChainOnly
@@ -2950,7 +2948,7 @@ impl BlockBuilder for StacksBlockBuilder {
             self.micro_txs.push(tx.clone());
             self.total_streamed_fees += fee;
 
-            TransactionResult::success(tx, fee, receipt)
+            TransactionResult::success(tx, receipt)
         };
 
         self.bytes_so_far += tx_len;
