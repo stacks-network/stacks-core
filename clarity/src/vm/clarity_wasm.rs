@@ -573,28 +573,10 @@ pub fn call_function<'a>(
         .map_err(|e| Error::Wasm(WasmError::Runtime(e)))?;
 
     // Call the function
-    let func_result = func.call(&mut store, &[], results.as_mut_slice());
-    match func_result {
-        Ok(_) => {}
-        Err(e) => {
-            // Before propagating the error, attempt to roll back the function context.
-            // If the rollback fails, immediately return a rollback-specific error.
-            if store.data_mut().global_context.roll_back().is_err() {
-                return Err(Error::Wasm(WasmError::Expect(
-                    "Expected entry to rollback".into(),
-                )));
-            }
-
-            // Rollback succeeded, so resolve and return the original runtime error.
-            return Err(error_mapping::resolve_error(
-                e,
-                instance,
-                &mut store,
-                &epoch,
-                &clarity_version,
-            ));
-        }
-    }
+    func.call(&mut store, &wasm_args, &mut results)
+        .map_err(|e| {
+            error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version)
+        })?;
 
     // If the function returns a value, translate it into a Clarity `Value`
     wasm_to_clarity_value(&return_type, 0, &results, memory, &mut &mut store, epoch)
