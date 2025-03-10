@@ -626,7 +626,7 @@ fn test_reconfigure_stackerdb() {
             assert_eq!(slot_metadata.signature, MessageSignature::empty());
 
             let chunk = db.get_latest_chunk(&sc, i as u32).unwrap().unwrap();
-            assert_eq!(chunk.len(), 0);
+            assert!(chunk.is_empty());
         } else {
             // final five are new
             let slot_metadata = db.get_slot_metadata(&sc, i as u32).unwrap().unwrap();
@@ -636,7 +636,7 @@ fn test_reconfigure_stackerdb() {
             assert_eq!(slot_metadata.signature, MessageSignature::empty());
 
             let chunk = db.get_latest_chunk(&sc, i as u32).unwrap().unwrap();
-            assert_eq!(chunk.len(), 0);
+            assert!(chunk.is_empty());
         }
     }
 
@@ -709,7 +709,7 @@ fn test_reconfigure_stackerdb() {
             assert_eq!(slot_metadata.signature, MessageSignature::empty());
 
             let chunk = db.get_latest_chunk(&sc, i as u32).unwrap().unwrap();
-            assert_eq!(chunk.len(), 0);
+            assert!(chunk.is_empty());
         } else {
             // final five are gone
             let slot_metadata_opt = db.get_slot_metadata(&sc, i as u32).unwrap();

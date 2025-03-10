@@ -216,9 +216,8 @@ pub fn check_pox_print_event(
 ) {
     if let StacksTransactionEvent::SmartContractEvent(data) = event {
         test_debug!(
-            "Decode event, expecting for {}: {:?}",
+            "Decode event, expecting for {}: {data:?}",
             common_data.op_name,
-            data
         );
         assert_eq!(data.key.1, "print");
         let outer_tuple = data
@@ -273,8 +272,8 @@ pub fn check_pox_print_event(
             .expect("The event tuple should have a field named `data`");
         let inner_tuple = args.clone().expect_tuple().unwrap();
 
-        test_debug!("Check for ops {:?}", &op_data);
-        test_debug!("Inner tuple is {:?}", &inner_tuple);
+        test_debug!("Check for ops {op_data:?}");
+        test_debug!("Inner tuple is {inner_tuple:?}");
         let mut missing = vec![];
         let mut wrong = vec![];
         for (inner_key, inner_val) in op_data {
@@ -290,14 +289,12 @@ pub fn check_pox_print_event(
             }
             // assert_eq!(inner_tuple.data_map.get(inner_key), Some(&inner_val));
         }
-        if !missing.is_empty() || !wrong.is_empty() {
-            eprintln!("missing:\n{missing:#?}");
-            eprintln!("wrong:\n{wrong:#?}");
-            assert!(false);
-        }
+        assert!(
+            missing.is_empty() && wrong.is_empty(),
+            "missing:\n{missing:?}\nwrong: {wrong:?}"
+        );
     } else {
-        error!("unexpected event type: {event:?}");
-        panic!("Unexpected transaction event type.")
+        panic!("Unexpected event type: {event:?}")
     }
 }
 
@@ -755,7 +752,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
         if cur_reward_cycle < EXPECTED_ALICE_FIRST_REWARD_CYCLE {
             // no reward addresses yet
-            assert_eq!(reward_addrs.len(), 0);
+            assert!(reward_addrs.is_empty());
         } else if cur_reward_cycle < EXPECTED_FIRST_V2_CYCLE as u128 {
             // After the start of Alice's first cycle, but before the first V2 cycle,
             //  Alice is the only Stacker, so check that.
@@ -851,7 +848,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
         get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
     })
     .unwrap();
-    assert_eq!(reward_addrs.len(), 0);
+    assert!(reward_addrs.is_empty());
 
     // check the first reward cycle when Alice's tokens get stacked
     let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
@@ -1387,7 +1384,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     }
 
     assert_eq!(alice_txs.len(), 1);
-    assert_eq!(charlie_txs.len(), 0);
+    assert!(charlie_txs.is_empty());
 
     assert_eq!(bob_txs.len(), 1);
 
@@ -2131,7 +2128,7 @@ fn test_lock_period_invariant_extend_transition() {
         get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
     })
     .unwrap();
-    assert_eq!(reward_addrs.len(), 0);
+    assert!(reward_addrs.is_empty());
 
     // check the first reward cycle when Alice's tokens get stacked
     let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
@@ -2383,7 +2380,7 @@ fn test_pox_extend_transition_pox_2() {
         get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
     })
     .unwrap();
-    assert_eq!(reward_addrs.len(), 0);
+    assert!(reward_addrs.is_empty());
 
     // check the first reward cycle when Alice's tokens get stacked
     let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
@@ -2889,7 +2886,7 @@ fn test_delegate_extend_transition_pox_2() {
         get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
     })
     .unwrap();
-    assert_eq!(reward_addrs.len(), 0);
+    assert!(reward_addrs.is_empty());
 
     // check the first reward cycle when Alice's tokens get stacked
     let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
@@ -3866,10 +3863,16 @@ fn test_get_pox_addrs() {
                     let balance = get_balance(&mut peer, &key_to_stacks_addr(key).into());
                     assert!(balance > 0);
                 }
-                assert_eq!(reward_addrs.len(), 0);
+                assert!(reward_addrs.is_empty());
             }
 
-            eprintln!("\ntenure: {}\nreward cycle: {}\nlockup_reward_cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, lockup_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
+            eprintln!("tenure: {tenure_id})");
+            eprintln!("reward cycle: {cur_reward_cycle}");
+            eprintln!("lockup_reward_cycle: {lockup_reward_cycle}");
+            eprintln!("min-uSTX: {min_ustx}");
+            eprintln!("addrs: {reward_addrs:?}");
+            eprintln!("ntotal_liquid_ustx: {total_liquid_ustx}");
+            eprintln!("total-stacked: {total_stacked}");
 
             if cur_reward_cycle == lockup_reward_cycle.into() {
                 assert_eq!(reward_addrs.len(), 4);
@@ -4158,10 +4161,16 @@ fn test_stack_with_segwit() {
                     let balance = get_balance(&mut peer, &key_to_stacks_addr(key).into());
                     assert!(balance > 0);
                 }
-                assert_eq!(reward_addrs.len(), 0);
+                assert!(reward_addrs.is_empty());
             }
 
-            eprintln!("\ntenure: {}\nreward cycle: {}\nlockup_reward_cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, lockup_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
+            eprintln!("tenure: {tenure_id}");
+            eprintln!("reward cycle: {cur_reward_cycle}");
+            eprintln!("lockup_reward_cycle: {lockup_reward_cycle}");
+            eprintln!("min-uSTX: {min_ustx}");
+            eprintln!("addrs: {reward_addrs:?}");
+            eprintln!("total_liquid_ustx: {total_liquid_ustx}");
+            eprintln!("total-stacked: {total_stacked}");
 
             if cur_reward_cycle == lockup_reward_cycle.into() {
                 assert_eq!(reward_addrs.len(), 4);
@@ -4265,7 +4274,7 @@ fn test_stack_with_segwit() {
         assert!(expected_addrs.contains(&rw_addr));
         expected_addrs.retain(|addr| *addr != rw_addr);
     }
-    assert_eq!(expected_addrs.len(), 0);
+    assert!(expected_addrs.is_empty());
 }
 
 /// Verify that delegate-stx validates the PoX addr, if given

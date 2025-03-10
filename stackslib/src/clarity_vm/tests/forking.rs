@@ -338,12 +338,8 @@ fn with_separate_forks_environment<F0, F1, F2, F3>(
 }
 
 fn initialize_contract(owned_env: &mut OwnedEnvironment) {
-    let p1_address = {
-        if let Value::Principal(PrincipalData::Standard(address)) = execute(p1_str) {
-            address
-        } else {
-            panic!();
-        }
+    let Value::Principal(PrincipalData::Standard(p1_address)) = execute(p1_str) else {
+        panic!("Expected a standard principal data");
     };
     let contract = format!(
         "(define-constant burn-address 'SP000000000000000000002Q6VF78)
@@ -371,12 +367,8 @@ fn branched_execution(
     owned_env: &mut OwnedEnvironment,
     expect_success: bool,
 ) {
-    let p1_address = {
-        if let Value::Principal(PrincipalData::Standard(address)) = execute(p1_str) {
-            address
-        } else {
-            panic!();
-        }
+    let Value::Principal(PrincipalData::Standard(p1_address)) = execute(p1_str) else {
+        panic!("Expected a standard principal data");
     };
     let contract_identifier = QualifiedContractIdentifier::new(p1_address.clone(), "tokens".into());
     let placeholder_context =

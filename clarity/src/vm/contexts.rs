@@ -715,6 +715,10 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         })
     }
 
+    pub fn is_mainnet(&self) -> bool {
+        self.context.mainnet
+    }
+
     #[cfg(any(test, feature = "testing"))]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
         self.execute_in_env::<_, _, crate::vm::errors::Error>(
@@ -793,6 +797,11 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
 
     pub fn get_cost_total(&self) -> ExecutionCost {
         self.context.cost_track.get_total()
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn mut_cost_tracker(&mut self) -> &mut LimitedCostTracker {
+        &mut self.context.cost_track
     }
 
     /// Destroys this environment, returning ownership of its database reference.
@@ -1639,7 +1648,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             );
             f(&mut exec_env)
         };
-        self.roll_back().map_err(crate::vm::errors::Error::from)?;
+        self.roll_back()?;
 
         match result {
             Ok(return_value) => Ok(return_value),
