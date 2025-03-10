@@ -36,7 +36,7 @@ use self::type_checker::v2_1::TypeChecker as TypeChecker2_1;
 pub use self::types::{AnalysisPass, ContractAnalysis};
 use crate::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::vm::costs::LimitedCostTracker;
-#[cfg(feature = "canonical")]
+#[cfg(feature = "rusqlite")]
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::database::STORE_CONTRACT_SRC_INTERFACE;
 use crate::vm::representations::SymbolicExpression;
@@ -44,7 +44,7 @@ use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;
 
 /// Used by CLI tools like the docs generator. Not used in production
-#[cfg(feature = "canonical")]
+#[cfg(feature = "rusqlite")]
 pub fn mem_type_check(
     snippet: &str,
     version: ClarityVersion,

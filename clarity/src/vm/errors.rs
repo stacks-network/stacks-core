@@ -16,7 +16,7 @@
 
 use std::{error, fmt};
 
-#[cfg(feature = "canonical")]
+#[cfg(feature = "rusqlite")]
 use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJSONErr;
 use stacks_common::types::chainstate::BlockHeaderHash;
@@ -57,7 +57,7 @@ pub enum InterpreterError {
     UninitializedPersistedVariable,
     FailedToConstructAssetTable,
     FailedToConstructEventBatch,
-    #[cfg(feature = "canonical")]
+    #[cfg(feature = "rusqlite")]
     SqliteError(IncomparableError<SqliteError>),
     BadFileName,
     FailedToCreateDataDirectory,
@@ -241,7 +241,7 @@ mod test {
     fn error_formats() {
         let t = "(/ 10 0)";
         let expected = "DivisionByZero
- Stack Trace: 
+ Stack Trace:
 _native_:native_div
 ";
 
