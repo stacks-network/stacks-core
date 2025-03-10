@@ -19,7 +19,7 @@ use std::fmt;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::sync::LazyLock;
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(feature = "rusqlite")]
 pub mod sqlite;
 
 use crate::address::c32::{c32_address, c32_address_decode};

@@ -707,7 +707,7 @@ macro_rules! fmax {
     }}
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(feature = "rusqlite")]
 macro_rules! impl_byte_array_rusqlite_only {
     ($thing:ident) => {
         impl rusqlite::types::FromSql for $thing {

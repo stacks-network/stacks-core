@@ -16,7 +16,7 @@
 
 use std::{error, fmt};
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(feature = "rusqlite")]
 use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJSONErr;
 use stacks_common::types::chainstate::BlockHeaderHash;
@@ -57,7 +57,7 @@ pub enum InterpreterError {
     UninitializedPersistedVariable,
     FailedToConstructAssetTable,
     FailedToConstructEventBatch,
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(feature = "rusqlite")]
     SqliteError(IncomparableError<SqliteError>),
     BadFileName,
     FailedToCreateDataDirectory,

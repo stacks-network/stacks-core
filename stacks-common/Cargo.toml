@@ -31,6 +31,7 @@ slog-json = { version = "2.3.0", optional = true }
 chrono = "0.4.19"
 libc = "0.2.82"
 hashbrown = { workspace = true }
+rusqlite = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
@@ -60,9 +61,6 @@ features = ["serde"]
 version = "0.2.23"
 features = ["std"]
 
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-rusqlite = { workspace = true }
-
 [dev-dependencies]
 rand_core = { workspace = true }
 
@@ -70,6 +68,7 @@ rand_core = { workspace = true }
 default = ["developer-mode"]
 developer-mode = []
 slog_json = ["slog-json"]
+rusqlite = ["dep:rusqlite"]
 testing = []
 serde = []
 bech32_std = []
