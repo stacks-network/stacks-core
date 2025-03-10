@@ -16,18 +16,19 @@ set -o pipefail
 ##   for 20 slices, this is about 1.8TB
 
 NETWORK="mainnet"                         ## network to replay
-REPO_DIR="$HOME/stacks-inspect"           ## where to build the source
+REPO_DIR="$HOME/stacks-core"              ## where to build the source
 REMOTE_REPO="stacks-network/stacks-core"  ## remote git repo to build stacks-inspect from
 SCRATCH_DIR="$HOME/scratch"               ## root folder for the replay slices
 TIMESTAMP=$(date +%Y-%m-%d-%s)            ## use a simple date format year-month-day-epoch
-LOG_DIR="/tmp/replay_${TIMESTAMP}"        ## location of logfiles for the replay
+LOG_DIR="$HOME/replay_${TIMESTAMP}"       ## location of logfiles for the replay
 SLICE_DIR="${SCRATCH_DIR}/slice"          ## location of slice dirs
 TMUX_SESSION="replay"                     ## tmux session name to run the replay
 TERM_OUT=false                            ## terminal friendly output
 TESTING=false                             ## only run a replay on a few thousand blocks
 BRANCH="develop"                          ## default branch to build stacks-inspect from
 CORES=$(grep -c processor /proc/cpuinfo)  ## retrieve total number of CORES on the system
-RESERVED=10                               ## reserve this many CORES for other processes as default
+RESERVED=8                                ## reserve this many CORES for other processes as default
+LOCAL_CHAINSTATE=                         ## path to local chainstate to use instead of snapshot download
 
 ## ansi color codes for terminal output
 COLRED=$'\033[31m'    ## Red
@@ -94,19 +95,25 @@ configure_replay_slices() {
 		echo "${COLRED}Error${COLRESET} creating dir ${SLICE_DIR}"
 		exit 1
 	}
-	echo "Downloading latest ${NETWORK} chainstate archive ${COLYELLOW}https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.gz${COLRESET}"
-	## curl had some random issues retrying the download when network issues arose. wget has resumed more consistently, so we'll use that binary
-	# curl -L --proto '=https' --tlsv1.2 https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.gz -o ${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.gz || {
-	wget -O  "${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.gz" "https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.gz"  || {
-		echo "${COLRED}Error${COLRESET} downlaoding latest ${NETWORK} chainstate archive"
-		exit 1
-	}
-	## extract downloaded archive
-	echo "Extracting downloaded archive: ${COLYELLOW}${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.gz${COLRESET}"
-	tar --strip-components=1 -xzf "${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.gz" -C "${SLICE_DIR}0" || {
-		echo "${COLRED}Error${COLRESET} extracting ${NETWORK} chainstate archive"
-		exit
-	}
+
+    if [[ -n "${LOCAL_CHAINSTATE}" ]]; then
+       echo "Copying local chainstate '${LOCAL_CHAINSTATE}'"
+       cp -r "${LOCAL_CHAINSTATE}"/* "${SLICE_DIR}0"
+    else
+       echo "Downloading latest ${NETWORK} chainstate archive ${COLYELLOW}https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.gz${COLRESET}"
+       ## curl had some random issues retrying the download when network issues arose. wget has resumed more consistently, so we'll use that binary
+       # curl -L --proto '=https' --tlsv1.2 https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.gz -o ${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.gz || {
+       wget -O  "${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.gz" "https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.gz"  || {
+           echo "${COLRED}Error${COLRESET} downlaoding latest ${NETWORK} chainstate archive"
+           exit 1
+       }
+       ## extract downloaded archive
+       echo "Extracting downloaded archive: ${COLYELLOW}${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.gz${COLRESET}"
+       tar --strip-components=1 -xzf "${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.gz" -C "${SLICE_DIR}0" || {
+           echo "${COLRED}Error${COLRESET} extracting ${NETWORK} chainstate archive"
+           exit
+       }
+    fi
 	echo "Moving marf database: ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs -> ${COLYELLOW}${SCRATCH_DIR}/marf.sqlite.blobs${COLRESET}"
 	mv "${SLICE_DIR}"0/chainstate/vm/clarity/marf.sqlite.blobs "${SCRATCH_DIR}"/
 	echo "Symlinking marf database: ${SCRATCH_DIR}/marf.sqlite.blobs -> ${COLYELLOW}${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs${COLRESET}"
@@ -377,6 +384,8 @@ usage() {
 	echo "        ${COLYELLOW}-t|--terminal${COLRESET}: more terminal friendly output"
 	echo "        ${COLYELLOW}-n|--network${COLRESET}: run block replay against specific network (default: mainnet)"
 	echo "        ${COLYELLOW}-b|--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
+	echo "        ${COLYELLOW}-c|--chainstate${COLRESET}: local chainstate copy to use instead of downloading a chainstaet snapshot"
+    echo "        ${COLYELLOW}-l|--logdir${COLRESET}: use existing log directory"
 	echo "        ${COLYELLOW}-r|--reserved${COLRESET}: how many cpu cores to reserve for system tasks"
 	echo 
 	echo "    ex: ${COLCYAN}${0} -t -u ${COLRESET}"
@@ -386,9 +395,30 @@ usage() {
 
 
 ## install missing dependencies
-for cmd in curl tmux git wget tar gzip grep cargo pgrep; do
+HAS_APT=1
+HAS_SUDO=1
+for cmd in apt-get sudo curl tmux git wget tar gzip grep cargo pgrep tput find; do
+    # in Alpine, `find` might be linked to `busybox` and won't work
+    if [ "${cmd}" == "find" ] && [ -L "${cmd}" ]; then
+        local rp="$(readlink "$(command -v "${cmd}" || echo "NOTLINK")")"
+        if [ "${rp}" == "/bin/busybox" ]; then
+           echo "${COLRED}ERROR${COLRESET} Busybox 'find' is not supported. Please install 'findutils' or similar."
+           exit 1
+        fi
+    fi
+
 	command -v "${cmd}" >/dev/null 2>&1 || {
 		case "${cmd}" in
+            "apt-get")
+                echo "${COLYELLOW}WARN${COLRESET} 'apt-get' not found; automatic package installation will fail"
+                HAS_APT=0
+                continue
+                ;;
+            "sudo")
+                echo "${COLYELLOW}WARN${COLRESET} 'sudo' not found; automatic package installation will fail"
+                HAS_SUDO=0
+                continue
+                ;;
 			"cargo")
 				install_cargo
 				;;
@@ -399,6 +429,11 @@ for cmd in curl tmux git wget tar gzip grep cargo pgrep; do
 				package="${cmd}"
 				;;
 		esac
+
+        if [[ ${HAS_APT} = 0 ]] || [[ ${HAS_SUDO} = 0 ]]; then
+           echo "${COLRED}Error${COLRESET} Missing command '${cmd}'"
+           exit 1
+        fi
 		(sudo apt-get update && sudo apt-get install "${package}") || {
 			echo "${COLRED}Error${COLRESET} installing $package"
 			exit 1
@@ -422,6 +457,7 @@ while [ ${#} -gt 0 ]; do
 			# required if not mainnet
 			if [ "${2}" == "" ]; then
 				echo "Missing required value for ${1}"
+                exit 1
 			fi
 			NETWORK=${2}
 			shift
@@ -430,10 +466,29 @@ while [ ${#} -gt 0 ]; do
 			# build from specific branch
 			if [ "${2}" == "" ]; then
 				echo "Missing required value for ${1}"
+                exit 1
 			fi
 			BRANCH=${2}
 			shift
-			;;	
+			;;
+        -c|--chainstate)
+            # use a local chainstate
+            if [ "${2}" == "" ]; then
+                echo "Missing required value for ${1}"
+                exit 1
+            fi
+            LOCAL_CHAINSTATE="${2}"
+            shift
+            ;;
+        -l|--logdir)
+            # use a given logdir
+            if [ "${2}" == "" ]; then
+                echo "Missing required value for ${1}"
+                exit 1
+            fi
+            LOG_DIR="${2}"
+            shift
+            ;;
 		-r|--RESERVED) 
 			# reserve this many cpus for the system (default is 10)
 			if [ "${2}" == "" ]; then 
@@ -458,8 +513,8 @@ done
 ## clear display before starting
 tput reset
 echo "Replay Started: ${COLYELLOW}$(date)${COLRESET}"
-build_stacks_inspect      ## comment if using an existing chainstate/slice dir (ex: replay was performed already, and a second run is desired)
-configure_replay_slices   ## comment if using an existing chainstate/slice dir (ex: replay was performed already, and a second run is desired)
+build_stacks_inspect        ## comment if using an existing chainstate/slice dir (ex: replay was performed already, and a second run is desired)
+configure_replay_slices     ## comment if using an existing chainstate/slice dir (ex: replay was performed already, and a second run is desired)
 setup_replay                ## configure logdir and tmux sessions
 start_replay                ## replay pre-nakamoto blocks (2.x)
 start_replay nakamoto       ## replay nakamoto blocks
