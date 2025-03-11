@@ -149,6 +149,8 @@ pub struct NakamotoTenureDownloader {
     pub tenure_end_block: Option<NakamotoBlock>,
     /// Tenure blocks
     pub tenure_blocks: Option<Vec<NakamotoBlock>>,
+    /// Whether this tenure is unconfirmed
+    pub is_tenure_unconfirmed: bool,
 }
 
 impl NakamotoTenureDownloader {
@@ -161,6 +163,7 @@ impl NakamotoTenureDownloader {
         naddr: NeighborAddress,
         start_signer_keys: RewardSet,
         end_signer_keys: RewardSet,
+        is_tenure_unconfirmed: bool,
     ) -> Self {
         debug!(
             "Instantiate downloader to {}-{} for tenure {}: {}-{}",
@@ -187,6 +190,7 @@ impl NakamotoTenureDownloader {
             tenure_start_block: None,
             tenure_end_block: None,
             tenure_blocks: None,
+            is_tenure_unconfirmed,
         }
     }
 
