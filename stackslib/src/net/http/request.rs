@@ -14,7 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fmt::Display;
 use std::io::{Read, Write};
 
 use percent_encoding::percent_decode_str;
@@ -54,6 +56,8 @@ pub struct HttpRequestPreamble {
     pub keep_alive: bool,
     /// Other headers that were not consumed in parsing
     pub headers: BTreeMap<String, String>,
+    /// `Set-Cookie` headers
+    pub set_cookie: Vec<String>,
 }
 
 impl HttpRequestPreamble {
@@ -74,6 +78,7 @@ impl HttpRequestPreamble {
             content_length: None,
             keep_alive,
             headers: BTreeMap::new(),
+            set_cookie: vec![],
         }
     }
 
@@ -105,6 +110,7 @@ impl HttpRequestPreamble {
             content_length: None,
             keep_alive: true,
             headers: BTreeMap::new(),
+            set_cookie: vec![],
         }
     }
 
@@ -187,10 +193,10 @@ impl HttpRequestPreamble {
                 return Some(format!("{}", &self.host));
             }
             "content-type" => {
-                return self.content_type.clone().map(|ct| format!("{}", &ct));
+                return self.content_type.as_ref().map(HttpContentType::to_string);
             }
             "content-length" => {
-                return self.content_length.clone().map(|cl| format!("{}", &cl));
+                return self.content_length.as_ref().map(u32::to_string);
             }
             _ => {
                 return self.headers.get(&hdr).cloned();
@@ -371,9 +377,10 @@ impl StacksMessageCodec for HttpRequestPreamble {
 
                 let mut headers: BTreeMap<String, String> = BTreeMap::new();
                 let mut seen_headers: HashSet<String> = HashSet::new();
+                let mut set_cookie = vec![];
 
-                for i in 0..req.headers.len() {
-                    let value = String::from_utf8(req.headers[i].value.to_vec()).map_err(|_e| {
+                for req_header in req.headers.iter() {
+                    let value = String::from_utf8(req_header.value.to_vec()).map_err(|_e| {
                         CodecError::DeserializeError(
                             "Invalid HTTP header value: not utf-8".to_string(),
                         )
@@ -389,7 +396,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
                         ));
                     }
 
-                    let key = req.headers[i].name.to_string().to_lowercase();
+                    let key = req_header.name.to_lowercase();
 
                     if seen_headers.contains(&key) {
                         return Err(CodecError::DeserializeError(format!(
@@ -397,23 +404,25 @@ impl StacksMessageCodec for HttpRequestPreamble {
                             key
                         )));
                     }
-                    seen_headers.insert(key.clone());
 
                     if key == "host" {
                         peerhost = match value.parse::<PeerHost>() {
                             Ok(ph) => Some(ph),
                             Err(_) => None,
                         };
+                        seen_headers.insert(key);
                     } else if key == "content-type" {
                         // parse
                         let ctype = value.to_lowercase().parse::<HttpContentType>()?;
                         content_type = Some(ctype);
+                        seen_headers.insert(key);
                     } else if key == "content-length" {
                         // parse
                         content_length = match value.parse::<u32>() {
                             Ok(len) => Some(len),
                             Err(_) => None,
                         };
+                        seen_headers.insert(key);
                     } else if key == "connection" {
                         // parse
                         if value.to_lowercase() == "close" {
@@ -425,8 +434,17 @@ impl StacksMessageCodec for HttpRequestPreamble {
                                 "Inavlid HTTP request: invalid Connection: header".to_string(),
                             ));
                         }
+                        seen_headers.insert(key);
+                    } else if key == "set-cookie" {
+                        set_cookie.push(value);
                     } else {
-                        headers.insert(key, value);
+                        headers
+                            .entry(key)
+                            .and_modify(|entry| {
+                                entry.push_str(", ");
+                                entry.push_str(&value);
+                            })
+                            .or_insert(value);
                     }
                 }
 
@@ -445,6 +463,7 @@ impl StacksMessageCodec for HttpRequestPreamble {
                     content_length,
                     keep_alive,
                     headers,
+                    set_cookie,
                 })
             }
         }
