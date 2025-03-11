@@ -2220,7 +2220,8 @@ mod test {
 
         let pending_payloads =
             EventDispatcher::get_pending_payloads(&conn).expect("Failed to get pending payloads");
-        // Verify that the pending payload is still in the database
+        // Verify that the pending payload is no longer in the database,
+        // because this observer is no longer registered.
         assert_eq!(
             pending_payloads.len(),
             0,
