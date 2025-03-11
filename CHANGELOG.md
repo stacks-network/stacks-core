@@ -8,7 +8,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## [Unreleased]
 
 ### Added"
-- Add fee information to transaction log ending with "success" or "skipped", while building a new block  
+- Add fee information to transaction log ending with "success" or "skipped", while building a new block
 
 ### Changed
 
