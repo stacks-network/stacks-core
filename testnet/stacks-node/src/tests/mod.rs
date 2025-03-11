@@ -134,7 +134,7 @@ pub fn insert_new_port(port: u16) -> bool {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn serialize_sign_sponsored_sig_tx_anchor_mode_version(
+pub fn sign_sponsored_sig_tx_anchor_mode_version(
     payload: TransactionPayload,
     sender: &StacksPrivateKey,
     payer: &StacksPrivateKey,
@@ -144,8 +144,8 @@ pub fn serialize_sign_sponsored_sig_tx_anchor_mode_version(
     chain_id: u32,
     anchor_mode: TransactionAnchorMode,
     version: TransactionVersion,
-) -> Vec<u8> {
-    serialize_sign_tx_anchor_mode_version(
+) -> StacksTransaction {
+    sign_tx_anchor_mode_version(
         payload,
         sender,
         Some(payer),
@@ -158,14 +158,14 @@ pub fn serialize_sign_sponsored_sig_tx_anchor_mode_version(
     )
 }
 
-pub fn serialize_sign_standard_single_sig_tx(
+pub fn sign_standard_single_sig_tx(
     payload: TransactionPayload,
     sender: &StacksPrivateKey,
     nonce: u64,
     tx_fee: u64,
     chain_id: u32,
-) -> Vec<u8> {
-    serialize_sign_standard_single_sig_tx_anchor_mode(
+) -> StacksTransaction {
+    sign_standard_single_sig_tx_anchor_mode(
         payload,
         sender,
         nonce,
@@ -175,15 +175,15 @@ pub fn serialize_sign_standard_single_sig_tx(
     )
 }
 
-pub fn serialize_sign_standard_single_sig_tx_anchor_mode(
+pub fn sign_standard_single_sig_tx_anchor_mode(
     payload: TransactionPayload,
     sender: &StacksPrivateKey,
     nonce: u64,
     tx_fee: u64,
     chain_id: u32,
     anchor_mode: TransactionAnchorMode,
-) -> Vec<u8> {
-    serialize_sign_standard_single_sig_tx_anchor_mode_version(
+) -> StacksTransaction {
+    sign_standard_single_sig_tx_anchor_mode_version(
         payload,
         sender,
         nonce,
@@ -194,7 +194,7 @@ pub fn serialize_sign_standard_single_sig_tx_anchor_mode(
     )
 }
 
-pub fn serialize_sign_standard_single_sig_tx_anchor_mode_version(
+pub fn sign_standard_single_sig_tx_anchor_mode_version(
     payload: TransactionPayload,
     sender: &StacksPrivateKey,
     nonce: u64,
@@ -202,8 +202,8 @@ pub fn serialize_sign_standard_single_sig_tx_anchor_mode_version(
     chain_id: u32,
     anchor_mode: TransactionAnchorMode,
     version: TransactionVersion,
-) -> Vec<u8> {
-    serialize_sign_tx_anchor_mode_version(
+) -> StacksTransaction {
+    sign_tx_anchor_mode_version(
         payload,
         sender,
         None,
@@ -217,7 +217,7 @@ pub fn serialize_sign_standard_single_sig_tx_anchor_mode_version(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn serialize_sign_tx_anchor_mode_version(
+pub fn sign_tx_anchor_mode_version(
     payload: TransactionPayload,
     sender: &StacksPrivateKey,
     payer: Option<&StacksPrivateKey>,
@@ -227,7 +227,7 @@ pub fn serialize_sign_tx_anchor_mode_version(
     chain_id: u32,
     anchor_mode: TransactionAnchorMode,
     version: TransactionVersion,
-) -> Vec<u8> {
+) -> StacksTransaction {
     let mut sender_spending_condition =
         TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
             .expect("Failed to create p2pkh spending condition from public key.");
@@ -259,12 +259,35 @@ pub fn serialize_sign_tx_anchor_mode_version(
         tx_signer.sign_sponsor(payer).unwrap();
     }
 
+    tx_signer.get_tx().unwrap()
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn serialize_sign_tx_anchor_mode_version(
+    payload: TransactionPayload,
+    sender: &StacksPrivateKey,
+    payer: Option<&StacksPrivateKey>,
+    sender_nonce: u64,
+    payer_nonce: Option<u64>,
+    tx_fee: u64,
+    chain_id: u32,
+    anchor_mode: TransactionAnchorMode,
+    version: TransactionVersion,
+) -> Vec<u8> {
+    let tx = sign_tx_anchor_mode_version(
+        payload,
+        sender,
+        payer,
+        sender_nonce,
+        payer_nonce,
+        tx_fee,
+        chain_id,
+        anchor_mode,
+        version,
+    );
+
     let mut buf = vec![];
-    tx_signer
-        .get_tx()
-        .unwrap()
-        .consensus_serialize(&mut buf)
-        .unwrap();
+    tx.consensus_serialize(&mut buf).unwrap();
     buf
 }
 
@@ -283,7 +306,10 @@ pub fn make_contract_publish_versioned(
     let payload =
         TransactionPayload::SmartContract(TransactionSmartContract { name, code_body }, version);
 
-    serialize_sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id)
+    let tx = sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id);
+    let mut tx_bytes = vec![];
+    tx.consensus_serialize(&mut tx_bytes).unwrap();
+    tx_bytes
 }
 
 pub fn make_contract_publish(
@@ -320,14 +346,17 @@ pub fn make_contract_publish_microblock_only_versioned(
     let payload =
         TransactionPayload::SmartContract(TransactionSmartContract { name, code_body }, version);
 
-    serialize_sign_standard_single_sig_tx_anchor_mode(
+    let tx = sign_standard_single_sig_tx_anchor_mode(
         payload,
         sender,
         nonce,
         tx_fee,
         chain_id,
         TransactionAnchorMode::OffChainOnly,
-    )
+    );
+    let mut tx_bytes = vec![];
+    tx.consensus_serialize(&mut tx_bytes).unwrap();
+    tx_bytes
 }
 
 pub fn make_contract_publish_microblock_only(
@@ -429,7 +458,10 @@ pub fn make_stacks_transfer(
 ) -> Vec<u8> {
     let payload =
         TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
-    serialize_sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id)
+    let tx = sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id);
+    let mut tx_bytes = vec![];
+    tx.consensus_serialize(&mut tx_bytes).unwrap();
+    tx_bytes
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -445,7 +477,7 @@ pub fn make_sponsored_stacks_transfer_on_testnet(
 ) -> Vec<u8> {
     let payload =
         TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
-    serialize_sign_sponsored_sig_tx_anchor_mode_version(
+    let tx = sign_sponsored_sig_tx_anchor_mode_version(
         payload,
         sender,
         payer,
@@ -455,7 +487,10 @@ pub fn make_sponsored_stacks_transfer_on_testnet(
         chain_id,
         TransactionAnchorMode::OnChainOnly,
         TransactionVersion::Testnet,
-    )
+    );
+    let mut tx_bytes = vec![];
+    tx.consensus_serialize(&mut tx_bytes).unwrap();
+    tx_bytes
 }
 
 pub fn make_stacks_transfer_mblock_only(
@@ -468,14 +503,17 @@ pub fn make_stacks_transfer_mblock_only(
 ) -> Vec<u8> {
     let payload =
         TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
-    serialize_sign_standard_single_sig_tx_anchor_mode(
+    let tx = sign_standard_single_sig_tx_anchor_mode(
         payload,
         sender,
         nonce,
         tx_fee,
         chain_id,
         TransactionAnchorMode::OffChainOnly,
-    )
+    );
+    let mut tx_bytes = vec![];
+    tx.consensus_serialize(&mut tx_bytes).unwrap();
+    tx_bytes
 }
 
 pub fn make_poison(
@@ -487,12 +525,18 @@ pub fn make_poison(
     header_2: StacksMicroblockHeader,
 ) -> Vec<u8> {
     let payload = TransactionPayload::PoisonMicroblock(header_1, header_2);
-    serialize_sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id)
+    let tx = sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id);
+    let mut tx_bytes = vec![];
+    tx.consensus_serialize(&mut tx_bytes).unwrap();
+    tx_bytes
 }
 
 pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64, chain_id: u32) -> Vec<u8> {
     let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, None);
-    serialize_sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id)
+    let tx = sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id);
+    let mut tx_bytes = vec![];
+    tx.consensus_serialize(&mut tx_bytes).unwrap();
+    tx_bytes
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -516,7 +560,10 @@ pub fn make_contract_call(
         function_args: function_args.to_vec(),
     };
 
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee, chain_id)
+    let tx = sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee, chain_id);
+    let mut tx_bytes = vec![];
+    tx.consensus_serialize(&mut tx_bytes).unwrap();
+    tx_bytes
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -540,14 +587,17 @@ pub fn make_contract_call_mblock_only(
         function_args: function_args.to_vec(),
     };
 
-    serialize_sign_standard_single_sig_tx_anchor_mode(
+    let tx = sign_standard_single_sig_tx_anchor_mode(
         payload.into(),
         sender,
         nonce,
         tx_fee,
         chain_id,
         TransactionAnchorMode::OffChainOnly,
-    )
+    );
+    let mut tx_bytes = vec![];
+    tx.consensus_serialize(&mut tx_bytes).unwrap();
+    tx_bytes
 }
 
 fn make_microblock(

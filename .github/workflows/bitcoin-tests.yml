@@ -123,6 +123,8 @@ jobs:
           - test-name: tests::epoch_24::verify_auto_unlock_behavior
           # Disable this flaky test. We don't need continue testing Epoch 2 -> 3 transition
           - test-name: tests::nakamoto_integrations::flash_blocks_on_epoch_3_FLAKY
+          # This test takes a long time to run, and is meant to be run manually
+          - test-name: tests::nakamoto_integrations::large_mempool
 
     steps:
       ## Setup test environment

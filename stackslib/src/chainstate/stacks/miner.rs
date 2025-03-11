@@ -2287,7 +2287,7 @@ impl StacksBlockBuilder {
             }
         }
 
-        mempool.reset_nonce_cache()?;
+        // TODO: Should we fill in missing nonces here too?
         mempool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
 
         let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
@@ -2652,6 +2652,7 @@ impl StacksBlockBuilder {
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
 
+        mempool.reset_nonce_cache()?;
         let (blocked, tx_events) = match Self::select_and_apply_transactions(
             &mut epoch_tx,
             &mut builder,

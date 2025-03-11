@@ -26,7 +26,7 @@ use stacks_common::util::secp256k1::*;
 
 use super::{
     make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,
-    serialize_sign_standard_single_sig_tx_anchor_mode_version, to_addr, SK_1, SK_2,
+    sign_standard_single_sig_tx_anchor_mode_version, to_addr, SK_1, SK_2,
 };
 use crate::helium::RunLoop;
 use crate::Keychain;
@@ -506,7 +506,7 @@ fn mempool_setup_chainstate() {
                     1000,
                     TokenTransferMemo([0; 34]),
                 );
-                let tx_bytes = serialize_sign_standard_single_sig_tx_anchor_mode_version(
+                let tx = sign_standard_single_sig_tx_anchor_mode_version(
                     payload,
                     &contract_sk,
                     5,
@@ -515,8 +515,8 @@ fn mempool_setup_chainstate() {
                     TransactionAnchorMode::OnChainOnly,
                     TransactionVersion::Mainnet,
                 );
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let mut tx_bytes = vec![];
+                tx.consensus_serialize(&mut tx_bytes).unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,

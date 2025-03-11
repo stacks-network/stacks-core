@@ -1569,7 +1569,6 @@ impl MemPoolDB {
             SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
             FROM address_nonce_ranked
             ORDER BY origin_rank ASC, sponsor_rank ASC, sort_fee_rate DESC
-            LIMIT 1
             ";
         let mut query_stmt_nonce_rank = self.db.prepare(&sql).map_err(Error::SqliteError)?;
         let mut nonce_rank_iterator = query_stmt_nonce_rank
