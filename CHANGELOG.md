@@ -5,10 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [3.1.0.0.7]
+## [Unreleased]
 
 ### Added"
-- Add fee information to transaction log ending with "success" or "skipped", while building a new block  
+- Add fee information to transaction log ending with "success" or "skipped", while building a new block
 
 ### Changed
 
