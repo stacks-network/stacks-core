@@ -7,11 +7,20 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [3.1.0.0.7]
 
-## Added
+### Added"
+- Add fee information to transaction log ending with "success" or "skipped", while building a new block  
+
+### Changed
+
+- When a miner times out waiting for signatures, it will re-propose the same block instead of building a new block ([#5877](https://github.com/stacks-network/stacks-core/pull/5877))
+
+## [3.1.0.0.7]
+
+### Added
 
 - Add `disable_retries` mode for events_observer disabling automatic retry on error
 
-## Changed
+### Changed
 
 - Implement faster cost tracker for default cost functions in Clarity
 - By default, miners will wait for a new tenure to start for a configurable amount of time after receiving a burn block before
@@ -21,7 +30,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [3.1.0.0.6]
 
-## Added
+### Added
 
 - The `BlockProposal` StackerDB message serialization struct now includes a `server_version` string, which represents the version of the node that the miner is using. ([#5803](https://github.com/stacks-network/stacks-core/pull/5803))
 - Add `vrf_seed` to the `/v3/sortitions` rpc endpoint

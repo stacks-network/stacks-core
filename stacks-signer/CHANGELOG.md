@@ -7,7 +7,13 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [3.1.0.0.7.0]
 
-## Changed
+### Changed
+
+- For some rejection reasons, a signer will reconsider a block proposal that it previously rejected ([#5880](https://github.com/stacks-network/stacks-core/pull/5880))
+
+## [3.1.0.0.7.0]
+
+### Changed
 
 - Add new reject codes to the signer response for better visibility into why a block was rejected.
 - When allowing a reorg within the `reorg_attempts_activity_timeout_ms`, the signer will now watch the responses from other signers and if >30% of them reject this reorg attempt, then the signer will mark the miner as invalid, reject further attempts to reorg and allow the previous miner to extend their tenure.
@@ -18,7 +24,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [3.1.0.0.6.0]
 
-## Added
+### Added
 
 - Introduced the `reorg_attempts_activity_timeout_ms` configuration option for signers which is used to determine the length of time after the last block of a tenure is confirmed that an incoming miner's attempts to reorg it are considered valid miner activity.
 - Add signer configuration option `tenure_idle_timeout_buffer_secs` to specify the number of seconds of buffer the signer will add to its tenure extend time that it sends to miners. The idea is to allow for some clock skew between the miner and signers, preventing the case where the miner attempts to tenure extend too early.

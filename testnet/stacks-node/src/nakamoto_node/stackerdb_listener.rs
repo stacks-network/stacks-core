@@ -52,9 +52,13 @@ pub static EVENT_RECEIVER_POLL: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone)]
 pub struct BlockStatus {
-    pub responded_signers: HashSet<StacksPublicKey>,
+    /// Set of the slot ids of signers who have responded
+    pub responded_signers: HashSet<u32>,
+    /// Map of the slot id of signers who have signed the block and their signature
     pub gathered_signatures: BTreeMap<u32, MessageSignature>,
+    /// Total weight of signers who have signed the block
     pub total_weight_approved: u32,
+    /// Total weight of signers who have rejected the block
     pub total_weight_rejected: u32,
 }
 
@@ -342,7 +346,7 @@ impl StackerDBListener {
                             "server_version" => metadata.server_version,
                         );
                         block.gathered_signatures.insert(slot_id, signature);
-                        block.responded_signers.insert(signer_pubkey);
+                        block.responded_signers.insert(slot_id);
 
                         if block.total_weight_approved >= self.weight_threshold {
                             // Signal to anyone waiting on this block that we have enough signatures
@@ -384,11 +388,13 @@ impl StackerDBListener {
                                 continue;
                             }
                         };
-                        block.responded_signers.insert(rejected_pubkey);
-                        block.total_weight_rejected = block
-                            .total_weight_rejected
-                            .checked_add(signer_entry.weight)
-                            .expect("FATAL: total weight rejected exceeds u32::MAX");
+
+                        if block.responded_signers.insert(slot_id) {
+                            block.total_weight_rejected = block
+                                .total_weight_rejected
+                                .checked_add(signer_entry.weight)
+                                .expect("FATAL: total weight rejected exceeds u32::MAX");
+                        }
 
                         info!("StackerDBListener: Signer rejected block";
                             "block_signer_sighash" => %rejected_data.signer_signature_hash,
@@ -494,6 +500,25 @@ impl StackerDBListenerComms {
             total_weight_rejected: 0,
         };
         blocks.insert(block.signer_signature_hash(), block_status);
+    }
+
+    /// Reset rejections for a block proposal.
+    /// This is used when a block proposal times out and we need to retry it by
+    /// clearing the block's rejections. Block approvals cannot be cleared
+    /// because an old approval could always be used to make a block reach
+    /// the approval threshold.
+    pub fn reset_rejections(&self, signer_sighash: &Sha512Trunc256Sum) {
+        let (lock, _cvar) = &*self.blocks;
+        let mut blocks = lock.lock().expect("FATAL: failed to lock block status");
+        if let Some(block) = blocks.get_mut(signer_sighash) {
+            block.responded_signers.clear();
+            block.total_weight_rejected = 0;
+
+            // Add approving signers back to the responded signers set
+            for (slot_id, _) in block.gathered_signatures.iter() {
+                block.responded_signers.insert(*slot_id);
+            }
+        }
     }
 
     /// Get the status for `block` from the Stacker DB listener.
