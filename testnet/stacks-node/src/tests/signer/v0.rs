@@ -69,6 +69,7 @@ use stacks_signer::client::{SignerSlotID, StackerDB};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::signerdb::SignerDb;
 use stacks_signer::v0::signer::TEST_REPEAT_PROPOSAL_RESPONSE;
+use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::v0::tests::{
     TEST_IGNORE_ALL_BLOCK_PROPOSALS, TEST_PAUSE_BLOCK_BROADCAST, TEST_REJECT_ALL_BLOCK_PROPOSAL,
     TEST_SKIP_BLOCK_BROADCAST, TEST_SKIP_SIGNER_CLEANUP, TEST_STALL_BLOCK_VALIDATION_SUBMISSION,
@@ -11996,6 +11997,8 @@ fn mark_miner_as_invalid_if_reorg_is_rejected() {
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
         .expect("Failed to mine BTC block followed by Block N");
     verify_sortition_winner(&sortdb, &miner_pkh_1);
+    miners.signer_test.check_signer_states_normal();
+
     let block_n =
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk_1)
             .expect("Failed to get block N");
@@ -12021,6 +12024,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected() {
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 30)
         .expect("Failed to mine BTC block");
     verify_sortition_winner(&sortdb, &miner_pkh_2);
+    miners.signer_test.check_signer_states_normal();
 
     info!("------------------------- Miner 1 Submits a Block Commit -------------------------");
     miners.submit_commit_miner_1(&sortdb);
@@ -12043,10 +12047,15 @@ fn mark_miner_as_invalid_if_reorg_is_rejected() {
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 30)
         .expect("Failed to mine BTC block");
+
     let block_n_1_prime = wait_for_block_proposal(30, block_n_height + 1, &miner_pk_1)
         .expect("Failed to get block proposal N+1'");
     // Stall the miner from proposing again until we're ready
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
+
+    miners
+        .signer_test
+        .check_signer_states_reorg(&approving_signers, &rejecting_signers);
 
     info!("------------------------- Wait for 3 acceptances and 2 rejections -------------------------");
     let signer_signature_hash = block_n_1_prime.header.signer_signature_hash();

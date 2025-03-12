@@ -35,7 +35,7 @@ use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, In
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
-use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
+use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPublicKey};
 use stacks::types::PrivateKey;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::MerkleHashFunc;
@@ -47,9 +47,11 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_signer::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::{SignerResult, State, StateInfo};
+use stacks_signer::v0::signer_state::{LocalStateMachine, MinerState};
 use stacks_signer::{Signer, SpawnedSigner};
 
 use super::nakamoto_integrations::{check_nakamoto_empty_block_heuristics, wait_for};
+use super::neon_integrations::get_sortition_info_ch;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
@@ -291,6 +293,294 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             info!("Finished signers: {:?}", finished_signers.iter().collect::<Vec<_>>());
             Ok(finished_signers.len() == self.spawned_signers.len())
         }).unwrap();
+    }
+
+    /// Fetch the local signer state machine for all the signers,
+    ///  waiting until every signer has processed the latest burn block.
+    /// Then, check that every signer's state machine corresponds to the
+    ///  latest burn block:
+    ///    1. Having a valid sortition
+    ///    2. The active miner is the winner of that sortition
+    ///    3. The active miner is building off of the prior tenure
+    pub fn check_signer_states_normal(&mut self) {
+        let info_cur = self.get_peer_info();
+        let current_rc = self.get_current_reward_cycle();
+        let mut states = Vec::with_capacity(0);
+        wait_for(120, || {
+            states = self.get_all_states();
+            Ok(states.iter().enumerate().all(|(ix, signer_state)| {
+                let state_machine = signer_state
+                    .signer_state_machines
+                    .iter()
+                    .find_map(|(rc, state)| {
+                        if current_rc % 2 == *rc {
+                            Some(state.as_ref())
+                        } else {
+                            None
+                        }
+                    })
+                    .expect(
+                        "BUG: should be able to find signer state machine at the current reward cycle",
+                    )
+                    .expect("BUG: signer state machine should exist at the current reward cycle");
+
+                let LocalStateMachine::Initialized(state_machine) = state_machine else {
+                    warn!("Local state machine for signer #{ix} not initialized");
+                    return false;
+                };
+                state_machine.burn_block_height >= info_cur.burn_block_height
+            }))
+
+        })
+        .expect("Timed out while waiting to fetch local state machines from the signer set");
+
+        let sortition_latest =
+            get_sortition_info_ch(&self.running_nodes.conf, &info_cur.pox_consensus);
+        let sortition_prior = get_sortition_info_ch(
+            &self.running_nodes.conf,
+            sortition_latest.last_sortition_ch.as_ref().unwrap(),
+        );
+        assert_eq!(
+            sortition_latest.last_sortition_ch,
+            sortition_latest.stacks_parent_ch
+        );
+        let latest_block = self
+            .stacks_client
+            .get_tenure_tip(&sortition_prior.consensus_hash)
+            .unwrap();
+        let latest_block_id =
+            StacksBlockId::new(&sortition_prior.consensus_hash, &latest_block.block_hash());
+
+        states
+            .into_iter()
+            .enumerate()
+            .for_each(|(ix, signer_state)| {
+                let state_machine = signer_state
+                    .signer_state_machines
+                    .into_iter()
+                    .find_map(|(rc, state)| if current_rc % 2 == rc { Some(state) } else { None })
+                    .expect(
+                        "BUG: should be able to find signer state machine at the current reward cycle",
+                    )
+                    .expect("BUG: signer state machine should exist at the current reward cycle");
+
+                let LocalStateMachine::Initialized(state_machine) = state_machine else {
+                    error!("Local state machine was not initialized");
+                    panic!();
+                };
+
+                assert_eq!(state_machine.burn_block, info_cur.pox_consensus,);
+                assert_eq!(state_machine.burn_block_height, info_cur.burn_block_height,);
+                let MinerState::ActiveMiner { current_miner_pkh, parent_tenure_id, parent_tenure_last_block, parent_tenure_last_block_height } =
+                    state_machine.current_miner
+                else {
+                    error!("State machine for Signer #{ix} did not have an active miner");
+                    panic!();
+                };
+                assert_eq!(Some(current_miner_pkh), sortition_latest.miner_pk_hash160);
+                assert_eq!(parent_tenure_id, sortition_prior.consensus_hash);
+                assert_eq!(parent_tenure_last_block, latest_block_id);
+                assert_eq!(parent_tenure_last_block_height, latest_block.height());
+            });
+    }
+
+    /// Fetch the local signer state machine for all the signers,
+    ///  waiting until every signer has processed the latest burn block.
+    /// Then, check that every signer's state machine corresponds to the
+    ///  latest burn block:
+    ///    1. Having a valid sortition
+    ///    2. The active miner is the winner of that sortition
+    ///    3. The active miner is building off of the prior tenure
+    pub fn check_signer_states_reorg(
+        &mut self,
+        accepting_reorg: &[StacksPublicKey],
+        rejecting_reorg: &[StacksPublicKey],
+    ) {
+        let info_cur = self.get_peer_info();
+        let current_rc = self.get_current_reward_cycle();
+        let mut states = Vec::with_capacity(0);
+        let accepting_reorg: Vec<_> = accepting_reorg
+            .iter()
+            .map(|pk| {
+                self.signer_stacks_private_keys
+                    .iter()
+                    .position(|sk| &StacksPublicKey::from_private(&sk) == pk)
+                    .unwrap()
+            })
+            .collect();
+        let rejecting_reorg: Vec<_> = rejecting_reorg
+            .iter()
+            .map(|pk| {
+                self.signer_stacks_private_keys
+                    .iter()
+                    .position(|sk| &StacksPublicKey::from_private(&sk) == pk)
+                    .unwrap()
+            })
+            .collect();
+
+        wait_for(120, || {
+            states = self.get_all_states();
+            Ok(states.iter().enumerate().all(|(ix, signer_state)| {
+                let state_machine = signer_state
+                    .signer_state_machines
+                    .iter()
+                    .find_map(|(rc, state)| {
+                        if current_rc % 2 == *rc {
+                            Some(state.as_ref())
+                        } else {
+                            None
+                        }
+                    })
+                    .expect(
+                        "BUG: should be able to find signer state machine at the current reward cycle",
+                    )
+                    .expect("BUG: signer state machine should exist at the current reward cycle");
+
+                let LocalStateMachine::Initialized(state_machine) = state_machine else {
+                    warn!("Local state machine for signer #{ix} not initialized");
+                    return false;
+                };
+                state_machine.burn_block_height >= info_cur.burn_block_height
+            }))
+
+        })
+        .expect("Timed out while waiting to fetch local state machines from the signer set");
+
+        let sortition_latest =
+            get_sortition_info_ch(&self.running_nodes.conf, &info_cur.pox_consensus);
+        let sortition_parent = get_sortition_info_ch(
+            &self.running_nodes.conf,
+            sortition_latest.stacks_parent_ch.as_ref().unwrap(),
+        );
+        let sortition_prior = get_sortition_info_ch(
+            &self.running_nodes.conf,
+            sortition_latest.last_sortition_ch.as_ref().unwrap(),
+        );
+        assert!(sortition_latest.last_sortition_ch != sortition_latest.stacks_parent_ch);
+        let latest_block = self
+            .stacks_client
+            .get_tenure_tip(&sortition_parent.consensus_hash)
+            .unwrap();
+        let latest_block_id =
+            StacksBlockId::new(&sortition_parent.consensus_hash, &latest_block.block_hash());
+
+        info!("Sortition Latest: {sortition_latest:?}");
+        info!("Sortition Parent: {sortition_parent:?}");
+        info!("Sortition Prior: {sortition_prior:?}");
+
+        info!("Expected accepting: {accepting_reorg:?}");
+        info!("Expected rejecting: {rejecting_reorg:?}");
+
+        states.iter().enumerate().for_each(|(ix, signer_state)| {
+            let state_machine = signer_state
+                .signer_state_machines
+                .iter()
+                .find_map(|(rc, state)| {
+                    if current_rc % 2 == *rc {
+                        Some(state.as_ref())
+                    } else {
+                        None
+                    }
+                })
+                .expect(
+                    "BUG: should be able to find signer state machine at the current reward cycle",
+                )
+                .expect("BUG: signer state machine should exist at the current reward cycle");
+
+            let LocalStateMachine::Initialized(state_machine) = state_machine else {
+                error!("Local state machine was not initialized");
+                panic!();
+            };
+
+            info!("Signer #{ix} has state machine: {state_machine:?}");
+        });
+
+        states
+            .into_iter()
+            .enumerate()
+            .for_each(|(ix, signer_state)| {
+                let state_machine = signer_state
+                    .signer_state_machines
+                    .into_iter()
+                    .find_map(|(rc, state)| if current_rc % 2 == rc { Some(state) } else { None })
+                    .expect(
+                        "BUG: should be able to find signer state machine at the current reward cycle",
+                    )
+                    .expect("BUG: signer state machine should exist at the current reward cycle");
+
+                let LocalStateMachine::Initialized(state_machine) = state_machine else {
+                    error!("Local state machine was not initialized");
+                    panic!();
+                };
+
+                info!("Signer #{ix} has state machine: {state_machine:?}");
+
+                assert_eq!(state_machine.burn_block, info_cur.pox_consensus,);
+                assert_eq!(state_machine.burn_block_height, info_cur.burn_block_height,);
+                let MinerState::ActiveMiner { current_miner_pkh, parent_tenure_id, parent_tenure_last_block, parent_tenure_last_block_height } =
+                    state_machine.current_miner
+                else {
+                    error!("State machine for Signer #{ix} did not have an active miner");
+                    panic!();
+                };
+                if accepting_reorg.contains(&ix) {
+                    assert_eq!(Some(current_miner_pkh), sortition_latest.miner_pk_hash160);
+                    assert_eq!(parent_tenure_id, sortition_parent.consensus_hash);
+                    assert_eq!(parent_tenure_last_block, latest_block_id);
+                    assert_eq!(parent_tenure_last_block_height, latest_block.height());
+                } else if rejecting_reorg.contains(&ix) {
+                    assert_eq!(Some(current_miner_pkh), sortition_prior.miner_pk_hash160);
+                } else {
+                    error!("Signer #{ix} was not supplied in either the approving or rejecting vectors");
+                    panic!();
+                }
+            });
+    }
+
+    /// Get status check results (if returned) from each signer (blocks on the receipt)
+    /// Returns Some() or None() for each signer, in order of `self.spawned_signers`
+    pub fn get_all_states(&mut self) -> Vec<StateInfo> {
+        let mut finished_signers = HashSet::new();
+        let mut output_states = Vec::new();
+        let mut sent_request = false;
+        wait_for(120, || {
+            if !sent_request {
+                // clear any stale states
+                if self
+                    .get_states(&finished_signers)
+                    .iter()
+                    .any(|s| s.is_some())
+                {
+                    info!("Had stale state responses, trying again to clear");
+                    return Ok(false);
+                }
+                self.send_status_request(&finished_signers);
+                sent_request = true;
+                thread::sleep(Duration::from_secs(1));
+            }
+
+            let latest_states = self.get_states(&finished_signers);
+            for (ix, state) in latest_states.into_iter().enumerate() {
+                let Some(state) = state else {
+                    continue;
+                };
+
+                finished_signers.insert(ix);
+                output_states.push((ix, state));
+            }
+            info!(
+                "Finished signers: {:?}",
+                finished_signers.iter().collect::<Vec<_>>()
+            );
+            Ok(finished_signers.len() == self.spawned_signers.len())
+        })
+        .expect("Timed out waiting for state responses from signer set");
+
+        output_states.sort_by_key(|(ix, _state)| *ix);
+        output_states
+            .into_iter()
+            .map(|(_ix, state)| state)
+            .collect()
     }
 
     /// Get status check results (if returned) from each signer without blocking

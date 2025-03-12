@@ -26,6 +26,7 @@ use stacks_common::{debug, error, info, warn};
 use crate::chainstate::SortitionsView;
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig, SignerConfigMode};
+use crate::v0::signer_state::LocalStateMachine;
 #[cfg(any(test, feature = "testing"))]
 use crate::v0::tests::TEST_SKIP_SIGNER_CLEANUP;
 use crate::Signer as SignerTrait;
@@ -53,6 +54,9 @@ pub struct StateInfo {
     pub reward_cycle_info: Option<RewardCycleInfo>,
     /// The current running signers reward cycles
     pub running_signers: Vec<u64>,
+    /// The local state machines for the running signers
+    ///  as a pair of (reward-cycle, state-machine)
+    pub signer_state_machines: Vec<(u64, Option<LocalStateMachine>)>,
 }
 
 /// The signer result that can be sent across threads
@@ -326,7 +330,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         let new_signer_config = match self.get_signer_config(reward_cycle) {
             Ok(Some(new_signer_config)) => {
                 let signer_mode = new_signer_config.signer_mode.clone();
-                let new_signer = Signer::new(new_signer_config);
+                let new_signer = Signer::new(&self.stacks_client, new_signer_config);
                 info!("{new_signer} Signer is registered for reward cycle {reward_cycle} as {signer_mode}. Initialized signer state.");
                 ConfiguredSigner::RegisteredSigner(new_signer)
             }
@@ -506,6 +510,19 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                     .stacks_signers
                     .values()
                     .map(|s| s.reward_cycle())
+                    .collect(),
+                signer_state_machines: self
+                    .stacks_signers
+                    .iter()
+                    .map(|(reward_cycle, signer)| {
+                        let ConfiguredSigner::RegisteredSigner(ref signer) = signer else {
+                            return (*reward_cycle, None);
+                        };
+                        (
+                            *reward_cycle,
+                            Some(signer.get_local_state_machine().clone()),
+                        )
+                    })
                     .collect(),
             }
             .into()])

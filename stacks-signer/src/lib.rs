@@ -54,6 +54,7 @@ use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait, VERSION_STRI
 use runloop::SignerResult;
 use slog::{slog_info, slog_warn};
 use stacks_common::{info, warn};
+use v0::signer_state::LocalStateMachine;
 
 use crate::client::StacksClient;
 use crate::config::SignerConfig;
@@ -62,7 +63,7 @@ use crate::runloop::RunLoop;
 /// A trait which provides a common `Signer` interface for `v0` and `v1`
 pub trait Signer<T: SignerEventTrait>: Debug + Display {
     /// Create a new `Signer` instance
-    fn new(config: SignerConfig) -> Self;
+    fn new(stacks_client: &StacksClient, signer_config: SignerConfig) -> Self;
     /// Get the reward cycle of the signer
     fn reward_cycle(&self) -> u64;
     /// Process an event
@@ -76,6 +77,8 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
     );
     /// Check if the signer is in the middle of processing blocks
     fn has_unprocessed_blocks(&self) -> bool;
+    /// Get a reference to the local state machine of the signer
+    fn get_local_state_machine(&self) -> &LocalStateMachine;
 }
 
 /// A wrapper around the running signer type for the signer

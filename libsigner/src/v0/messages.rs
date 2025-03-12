@@ -274,7 +274,7 @@ pub struct PeerInfo {
     pub stacks_tip: BlockHeaderHash,
     /// The stacks tip height
     pub stacks_tip_height: u64,
-    /// The pox consensus
+    /// The consensus hash of the current burnchain tip
     pub pox_consensus: ConsensusHash,
     /// The server version
     pub server_version: String,
