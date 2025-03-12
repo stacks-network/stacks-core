@@ -33,7 +33,7 @@ use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
 use libsigner::v0::messages::{RejectReason, SignerMessage as SignerMessageV0};
 use libsigner::{SignerSession, StackerDBSession};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use stacks::burnchains::{MagicBytes, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
@@ -11232,6 +11232,58 @@ fn reload_miner_config() {
     run_loop_thread.join().unwrap();
 }
 
+fn insert_tx_in_mempool(
+    db_tx: &Transaction,
+    tx_hex: Vec<u8>,
+    origin_addr: &StacksAddress,
+    origin_nonce: u64,
+    fee: u64,
+    consensus_hash: &ConsensusHash,
+    block_header_hash: &BlockHeaderHash,
+    height: u64,
+) {
+    let sql = "INSERT OR REPLACE INTO mempool (
+        txid,
+        origin_address,
+        origin_nonce,
+        sponsor_address,
+        sponsor_nonce,
+        tx_fee,
+        length,
+        consensus_hash,
+        block_header_hash,
+        height,
+        accept_time,
+        tx)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
+    let origin_addr_str = origin_addr.to_string();
+    let length = tx_hex.len() as u64;
+
+    let txid = {
+        let mut cursor = Cursor::new(&tx_hex);
+        StacksTransaction::consensus_deserialize(&mut cursor)
+            .expect("Failed to deserialize transaction")
+            .txid()
+    };
+    let args = params![
+        txid,
+        origin_addr_str,
+        origin_nonce,
+        origin_addr_str,
+        origin_nonce,
+        fee,
+        length,
+        consensus_hash,
+        block_header_hash,
+        height,
+        Utc::now().timestamp(),
+        tx_hex
+    ];
+    db_tx
+        .execute(sql, args)
+        .expect("Failed to insert transaction into mempool");
+}
+
 #[test]
 #[ignore]
 /// This test intends to check the timing of the mempool iteration when there
@@ -11335,28 +11387,13 @@ fn large_mempool() {
 
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
-    // Open a sqlite DB at mempool_db_path and insert a large number of transactions
-    // into the mempool. We will then mine a block and check how long it takes to
-    // mine the block and how long it takes to empty the mempool.
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let mut conn = Connection::open(&mempool_db_path).unwrap();
-
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    let sql = "INSERT OR REPLACE INTO mempool (
-        txid,
-        origin_address,
-        origin_nonce,
-        sponsor_address,
-        sponsor_nonce,
-        tx_fee,
-        length,
-        consensus_hash,
-        block_header_hash,
-        height,
-        accept_time,
-        tx)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
+
+    // Open a sqlite DB at mempool_db_path so that we can quickly add
+    // transactions to the mempool.
+    let mut conn = Connection::open(&mempool_db_path).unwrap();
     let db_tx = conn.transaction().unwrap();
 
     info!("Sending the first round of funding");
@@ -11375,25 +11412,16 @@ fn large_mempool() {
                 &recipient_addr.into(),
                 239_980,
             );
-            let length = transfer_tx.len() as u64;
-            let mut cursor = Cursor::new(transfer_tx.clone());
-            let tx = StacksTransaction::consensus_deserialize(&mut cursor).unwrap();
-            let txid = tx.txid();
-            let args = params![
-                txid,
-                sender_addr.to_string(),
-                *nonce,
-                sender_addr.to_string(),
+            insert_tx_in_mempool(
+                &db_tx,
+                transfer_tx,
+                &sender_addr,
                 *nonce,
                 transfer_fee,
-                length,
-                tip.consensus_hash,
-                tip.canonical_stacks_tip_hash,
+                &tip.consensus_hash,
+                &tip.canonical_stacks_tip_hash,
                 tip.stacks_block_height,
-                Utc::now().timestamp(),
-                transfer_tx
-            ];
-            db_tx.execute(sql, args).unwrap();
+            );
             *nonce += 1;
             new_senders.push(recipient_sk);
         }
@@ -11425,10 +11453,12 @@ fn large_mempool() {
     senders.extend(new_senders.iter().map(|sk| (sk, 0)));
 
     info!("Sending the second round of funding");
+    let db_tx = conn.transaction().unwrap();
     let timer = Instant::now();
     let mut new_senders = vec![];
     for (sender_sk, nonce) in senders.iter_mut() {
         for _ in 0..25 {
+            let sender_addr = tests::to_addr(sender_sk);
             let recipient_sk = StacksPrivateKey::random();
             let recipient_addr = tests::to_addr(&recipient_sk);
             let transfer_tx = make_stacks_transfer(
@@ -11439,11 +11469,21 @@ fn large_mempool() {
                 &recipient_addr.into(),
                 9_050,
             );
-            submit_tx(&http_origin, &transfer_tx);
+            insert_tx_in_mempool(
+                &db_tx,
+                transfer_tx,
+                &sender_addr,
+                *nonce,
+                transfer_fee,
+                &tip.consensus_hash,
+                &tip.canonical_stacks_tip_hash,
+                tip.stacks_block_height,
+            );
             *nonce += 1;
             new_senders.push(recipient_sk);
         }
     }
+    db_tx.commit().unwrap();
 
     info!("Sending second round of funding took {:?}", timer.elapsed());
 
@@ -11473,26 +11513,35 @@ fn large_mempool() {
     // Pause block mining
     TEST_MINE_STALL.set(true);
 
+    let db_tx = conn.transaction().unwrap();
     let timer = Instant::now();
 
     // Fill the mempool with the first round of transfers
     for _ in 0..25 {
         for (sender_sk, nonce) in senders.iter_mut() {
-            let sender_nonce = *nonce;
+            let sender_addr = tests::to_addr(sender_sk);
             let transfer_tx = make_stacks_transfer(
                 sender_sk,
-                sender_nonce,
+                *nonce,
                 transfer_fee,
                 naka_conf.burnchain.chain_id,
                 &recipient,
                 1,
             );
-            // TODO: Insert these txs directly into the DB instead of using
-            //       this RPC call
-            submit_tx(&http_origin, &transfer_tx);
+            insert_tx_in_mempool(
+                &db_tx,
+                transfer_tx,
+                &sender_addr,
+                *nonce,
+                transfer_fee,
+                &tip.consensus_hash,
+                &tip.canonical_stacks_tip_hash,
+                tip.stacks_block_height,
+            );
             *nonce += 1;
         }
     }
+    db_tx.commit().unwrap();
 
     info!(
         "Sending first round of transfers took {:?}",
@@ -11540,24 +11589,35 @@ fn large_mempool() {
     // Pause block mining
     TEST_MINE_STALL.set(true);
 
+    let db_tx = conn.transaction().unwrap();
     let timer = Instant::now();
 
     // Fill the mempool with the second round of transfers
     for _ in 0..25 {
         for (sender_sk, nonce) in senders.iter_mut() {
-            let sender_nonce = *nonce;
+            let sender_addr = tests::to_addr(sender_sk);
             let transfer_tx = make_stacks_transfer(
                 sender_sk,
-                sender_nonce,
+                *nonce,
                 transfer_fee,
                 naka_conf.burnchain.chain_id,
                 &recipient,
                 1,
             );
-            submit_tx(&http_origin, &transfer_tx);
+            insert_tx_in_mempool(
+                &db_tx,
+                transfer_tx,
+                &sender_addr,
+                *nonce,
+                transfer_fee,
+                &tip.consensus_hash,
+                &tip.canonical_stacks_tip_hash,
+                tip.stacks_block_height,
+            );
             *nonce += 1;
         }
     }
+    db_tx.commit().unwrap();
 
     info!(
         "Sending second round of transfers took {:?}",
