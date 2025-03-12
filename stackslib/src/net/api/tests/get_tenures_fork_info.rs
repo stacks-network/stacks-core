@@ -37,6 +37,7 @@ fn make_preamble<T: Display, R: Display>(start: &T, stop: &R) -> HttpRequestPrea
         content_length: Some(0),
         keep_alive: false,
         headers: BTreeMap::new(),
+        set_cookie: Vec::new(),
     }
 }
 
