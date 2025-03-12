@@ -2315,7 +2315,7 @@ impl StacksBlockBuilder {
                         blocked = (*settings.miner_status.lock().expect("FATAL: mutex poisoned"))
                             .is_blocked();
                         if blocked {
-                            debug!("Miner stopping due to preemption");
+                            info!("Miner stopping due to preemption");
                             return Ok(None);
                         }
 
@@ -2323,16 +2323,20 @@ impl StacksBlockBuilder {
                         let update_estimator = to_consider.update_estimate;
 
                         if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
+                            info!("Miner stopping due to limit reached");
                             return Ok(None);
                         }
                         let time_now = get_epoch_time_ms();
                         if time_now >= deadline {
-                            debug!("Miner mining time exceeded ({} ms)", max_miner_time_ms);
+                            info!(
+                                "Miner stopping due to mining time exceeded ({} ms)",
+                                max_miner_time_ms
+                            );
                             return Ok(None);
                         }
                         if let Some(time_estimate) = txinfo.metadata.time_estimate_ms {
                             if time_now.saturating_add(time_estimate.into()) > deadline {
-                                debug!("Mining tx would cause us to exceed our deadline, skipping";
+                                info!("Mining tx would cause us to exceed our deadline, skipping";
                                        "txid" => %txinfo.tx.txid(),
                                        "deadline" => deadline,
                                        "now" => time_now,
@@ -2440,9 +2444,7 @@ impl StacksBlockBuilder {
                                         } else if block_limit_hit
                                             == BlockLimitFunction::CONTRACT_LIMIT_HIT
                                         {
-                                            debug!(
-                                                "Stop mining anchored block due to limit exceeded"
-                                            );
+                                            info!("Miner stopping due to limit reached");
                                             block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
                                             return Ok(None);
                                         }

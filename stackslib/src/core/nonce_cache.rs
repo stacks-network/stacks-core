@@ -165,6 +165,7 @@ impl NonceCache {
     }
 
     /// Flush the in-memory cache the the DB.
+    /// Do not return until successful.
     pub fn flush(&mut self, conn: &mut DBConn) {
         self.flush_with_evicted(conn, None)
     }
