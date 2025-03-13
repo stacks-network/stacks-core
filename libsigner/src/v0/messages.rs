@@ -82,7 +82,9 @@ define_u8_enum!(
 ///  the contract index in the signers contracts (i.e., X in signers-0-X)
 MessageSlotID {
     /// Block Response message from signers
-    BlockResponse = 1
+    BlockResponse = 1,
+    /// Signer State Machine Update
+    StateMachineUpdate = 2
 });
 
 define_u8_enum!(
@@ -205,9 +207,9 @@ impl SignerMessage {
             Self::BlockProposal(_)
             | Self::BlockPushed(_)
             | Self::MockProposal(_)
-            | Self::MockBlock(_)
-            | Self::StateMachineUpdate(_) => None,
+            | Self::MockBlock(_) => None,
             Self::BlockResponse(_) | Self::MockSignature(_) => Some(MessageSlotID::BlockResponse), // Mock signature uses the same slot as block response since its exclusively for epoch 2.5 testing
+            Self::StateMachineUpdate(_) => Some(MessageSlotID::StateMachineUpdate),
         }
     }
 }
