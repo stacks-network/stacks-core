@@ -61,7 +61,8 @@ use stacks_common::codec::{
     StacksMessageCodec,
 };
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
@@ -122,7 +123,9 @@ SignerMessageTypePrefix {
     /// Mock block signature message from Epoch 2.5 signers
     MockSignature = 4,
     /// Mock block message from Epoch 2.5 miners
-    MockBlock = 5
+    MockBlock = 5,
+    /// State machine update
+    StateMachineUpdate = 6
 });
 
 #[cfg_attr(test, mutants::skip)]
@@ -168,6 +171,7 @@ impl From<&SignerMessage> for SignerMessageTypePrefix {
             SignerMessage::MockProposal(_) => SignerMessageTypePrefix::MockProposal,
             SignerMessage::MockSignature(_) => SignerMessageTypePrefix::MockSignature,
             SignerMessage::MockBlock(_) => SignerMessageTypePrefix::MockBlock,
+            SignerMessage::StateMachineUpdate(_) => SignerMessageTypePrefix::StateMachineUpdate,
         }
     }
 }
@@ -187,6 +191,8 @@ pub enum SignerMessage {
     MockProposal(MockProposal),
     /// A mock block from the epoch 2.5 miners
     MockBlock(MockBlock),
+    /// A state machine update
+    StateMachineUpdate(StateMachineUpdate),
 }
 
 impl SignerMessage {
@@ -199,7 +205,8 @@ impl SignerMessage {
             Self::BlockProposal(_)
             | Self::BlockPushed(_)
             | Self::MockProposal(_)
-            | Self::MockBlock(_) => None,
+            | Self::MockBlock(_)
+            | Self::StateMachineUpdate(_) => None,
             Self::BlockResponse(_) | Self::MockSignature(_) => Some(MessageSlotID::BlockResponse), // Mock signature uses the same slot as block response since its exclusively for epoch 2.5 testing
         }
     }
@@ -217,6 +224,9 @@ impl StacksMessageCodec for SignerMessage {
             SignerMessage::MockSignature(signature) => signature.consensus_serialize(fd),
             SignerMessage::MockProposal(message) => message.consensus_serialize(fd),
             SignerMessage::MockBlock(block) => block.consensus_serialize(fd),
+            SignerMessage::StateMachineUpdate(state_machine_update) => {
+                state_machine_update.consensus_serialize(fd)
+            }
         }?;
         Ok(())
     }
@@ -249,6 +259,10 @@ impl StacksMessageCodec for SignerMessage {
             SignerMessageTypePrefix::MockBlock => {
                 let block = StacksMessageCodec::consensus_deserialize(fd)?;
                 SignerMessage::MockBlock(block)
+            }
+            SignerMessageTypePrefix::StateMachineUpdate => {
+                let state_machine_update = StacksMessageCodec::consensus_deserialize(fd)?;
+                SignerMessage::StateMachineUpdate(state_machine_update)
             }
         };
         Ok(message)
@@ -521,6 +535,54 @@ impl StacksMessageCodec for MockBlock {
         Ok(Self {
             mock_proposal,
             mock_signatures,
+        })
+    }
+}
+
+/// Message for update the Signer State infos
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StateMachineUpdate {
+    burn_block: ConsensusHash,
+    burn_block_height: u64,
+    current_miner_pkh: Hash160,
+    parent_tenure_id: ConsensusHash,
+    parent_tenure_last_block: StacksBlockId,
+    parent_tenure_last_block_height: u64,
+    active_signer_protocol_version: u64,
+    local_supported_signer_protocol_version: u64,
+}
+
+impl StacksMessageCodec for StateMachineUpdate {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.burn_block)?;
+        write_next(fd, &self.burn_block_height)?;
+        write_next(fd, &self.current_miner_pkh)?;
+        write_next(fd, &self.parent_tenure_id)?;
+        write_next(fd, &self.parent_tenure_last_block)?;
+        write_next(fd, &self.parent_tenure_last_block_height)?;
+        write_next(fd, &self.active_signer_protocol_version)?;
+        write_next(fd, &self.local_supported_signer_protocol_version)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let burn_block = read_next::<ConsensusHash, _>(fd)?;
+        let burn_block_height = read_next::<u64, _>(fd)?;
+        let current_miner_pkh = read_next::<Hash160, _>(fd)?;
+        let parent_tenure_id = read_next::<ConsensusHash, _>(fd)?;
+        let parent_tenure_last_block = read_next::<StacksBlockId, _>(fd)?;
+        let parent_tenure_last_block_height = read_next::<u64, _>(fd)?;
+        let active_signer_protocol_version = read_next::<u64, _>(fd)?;
+        let local_supported_signer_protocol_version = read_next::<u64, _>(fd)?;
+        Ok(Self {
+            burn_block,
+            burn_block_height,
+            current_miner_pkh,
+            parent_tenure_id,
+            parent_tenure_last_block,
+            parent_tenure_last_block_height,
+            active_signer_protocol_version,
+            local_supported_signer_protocol_version,
         })
     }
 }
