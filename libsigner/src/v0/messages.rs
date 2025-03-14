@@ -51,7 +51,7 @@ use clarity::util::hash::Sha256Sum;
 use clarity::util::retry::BoundReader;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::serialization::SerializationError;
-use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
+use clarity::vm::types::{QualifiedContractIdentifier, ResponseData, TupleData};
 use clarity::vm::Value;
 use hashbrown::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
@@ -875,11 +875,11 @@ impl BlockResponse {
         }
     }
 
-    /// The signer signature hash for the block response
-    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+    /// Get the block response data from the block response
+    pub fn get_response_data(&self) -> &BlockResponseData {
         match self {
-            BlockResponse::Accepted(accepted) => accepted.signer_signature_hash,
-            BlockResponse::Rejected(rejection) => rejection.signer_signature_hash,
+            BlockResponse::Accepted(accepted) => &accepted.response_data,
+            BlockResponse::Rejected(rejection) => &rejection.response_data,
         }
     }
 

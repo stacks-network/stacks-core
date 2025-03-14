@@ -167,6 +167,8 @@ pub struct BlockInfo {
     pub validation_time_ms: Option<u64>,
     /// Extra data specific to v0, v1, etc.
     pub ext: ExtraBlockInfo,
+    /// If this signer rejected this block, what was the reason
+    pub reject_reason: Option<RejectReason>,
 }
 
 impl From<BlockProposal> for BlockInfo {
@@ -184,6 +186,7 @@ impl From<BlockProposal> for BlockInfo {
             ext: ExtraBlockInfo::default(),
             state: BlockState::Unprocessed,
             validation_time_ms: None,
+            reject_reason: None,
         }
     }
 }
@@ -2192,5 +2195,78 @@ mod tests {
             .get_last_activity_time(&consensus_hash_2)
             .unwrap()
             .is_none());
+    }
+
+    /// BlockInfo without the `reject_reason` field for backwards compatibility testing
+    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    pub struct BlockInfoPrev {
+        /// The block we are considering
+        pub block: NakamotoBlock,
+        /// The burn block height at which the block was proposed
+        pub burn_block_height: u64,
+        /// The reward cycle the block belongs to
+        pub reward_cycle: u64,
+        /// Our vote on the block if we have one yet
+        pub vote: Option<NakamotoBlockVote>,
+        /// Whether the block contents are valid
+        pub valid: Option<bool>,
+        /// Whether this block is already being signed over
+        pub signed_over: bool,
+        /// Time at which the proposal was received by this signer (epoch time in seconds)
+        pub proposed_time: u64,
+        /// Time at which the proposal was signed by this signer (epoch time in seconds)
+        pub signed_self: Option<u64>,
+        /// Time at which the proposal was signed by a threshold in the signer set (epoch time in seconds)
+        pub signed_group: Option<u64>,
+        /// The block state relative to the signer's view of the stacks blockchain
+        pub state: BlockState,
+        /// Consumed processing time in milliseconds to validate this block
+        pub validation_time_ms: Option<u64>,
+        /// Extra data specific to v0, v1, etc.
+        pub ext: ExtraBlockInfo,
+    }
+
+    /// Verify that we can deserialize the old BlockInfo struct into the new version
+    #[test]
+    fn deserialize_old_block_info() {
+        let block_info_prev = BlockInfoPrev {
+            block: NakamotoBlock {
+                header: NakamotoBlockHeader::genesis(),
+                txs: vec![],
+            },
+            burn_block_height: 2,
+            reward_cycle: 3,
+            vote: None,
+            valid: None,
+            signed_over: true,
+            proposed_time: 4,
+            signed_self: None,
+            signed_group: None,
+            state: BlockState::Unprocessed,
+            validation_time_ms: Some(5),
+            ext: ExtraBlockInfo::default(),
+        };
+
+        let block_info: BlockInfo =
+            serde_json::from_value(serde_json::to_value(&block_info_prev).unwrap()).unwrap();
+        assert_eq!(block_info.block, block_info_prev.block);
+        assert_eq!(
+            block_info.burn_block_height,
+            block_info_prev.burn_block_height
+        );
+        assert_eq!(block_info.reward_cycle, block_info_prev.reward_cycle);
+        assert_eq!(block_info.vote, block_info_prev.vote);
+        assert_eq!(block_info.valid, block_info_prev.valid);
+        assert_eq!(block_info.signed_over, block_info_prev.signed_over);
+        assert_eq!(block_info.proposed_time, block_info_prev.proposed_time);
+        assert_eq!(block_info.signed_self, block_info_prev.signed_self);
+        assert_eq!(block_info.signed_group, block_info_prev.signed_group);
+        assert_eq!(block_info.state, block_info_prev.state);
+        assert_eq!(
+            block_info.validation_time_ms,
+            block_info_prev.validation_time_ms
+        );
+        assert_eq!(block_info.ext, block_info_prev.ext);
+        assert!(block_info.reject_reason.is_none());
     }
 }

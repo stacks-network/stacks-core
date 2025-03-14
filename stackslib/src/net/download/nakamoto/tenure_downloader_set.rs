@@ -520,6 +520,7 @@ impl NakamotoTenureDownloaderSet {
                 naddr.clone(),
                 start_reward_set.clone(),
                 end_reward_set.clone(),
+                false,
             );
 
             debug!("Request tenure {ch} from neighbor {naddr}");
@@ -671,14 +672,18 @@ impl NakamotoTenureDownloaderSet {
             );
             new_blocks.insert(downloader.tenure_id_consensus_hash.clone(), blocks);
             if downloader.is_done() {
-                info!(
-                    "Downloader for tenure {} is finished",
-                    &downloader.tenure_id_consensus_hash
-                );
-                debug!(
-                    "Downloader for tenure {} finished on {naddr}",
-                    &downloader.tenure_id_consensus_hash,
-                );
+                if downloader.is_tenure_unconfirmed {
+                    debug!(
+                        "Downloader for tenure {} finished on {naddr}",
+                        &downloader.tenure_id_consensus_hash,
+                    );
+                } else {
+                    info!(
+                        "Downloader for tenure {} is finished",
+                        &downloader.tenure_id_consensus_hash
+                    );
+                }
+
                 finished.push(naddr.clone());
                 finished_tenures.push(CompletedTenure::from(downloader));
                 continue;

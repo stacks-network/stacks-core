@@ -742,6 +742,7 @@ impl NakamotoUnconfirmedTenureDownloader {
             self.naddr.clone(),
             confirmed_signer_keys.clone(),
             unconfirmed_signer_keys.clone(),
+            true,
         );
 
         Ok(ntd)
