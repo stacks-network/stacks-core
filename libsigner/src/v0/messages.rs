@@ -2045,4 +2045,64 @@ mod test {
             RejectReason::Unknown(RejectReasonPrefix::Unknown as u8)
         );
     }
+
+    #[test]
+    fn test_deserialize_state_machine_update() {
+        let signer_message = StateMachineUpdate {
+            burn_block: ConsensusHash::from_bytes(&[0x55; 20]).unwrap(),
+            burn_block_height: 100,
+            current_miner_pkh: Hash160::from_data(&[0xab; 32]),
+            parent_tenure_id: ConsensusHash::from_bytes(&[0x22; 20]).unwrap(),
+            parent_tenure_last_block: StacksBlockId([0x33u8; 32]),
+            parent_tenure_last_block_height: 1,
+            active_signer_protocol_version: 2,
+            local_supported_signer_protocol_version: 3,
+        };
+
+        let mut bytes = vec![];
+        signer_message.consensus_serialize(&mut bytes).unwrap();
+
+        let signer_message_deserialized =
+            StateMachineUpdate::consensus_deserialize(&mut &bytes[..]).unwrap();
+
+        assert_eq!(
+            signer_message.burn_block,
+            signer_message_deserialized.burn_block
+        );
+
+        assert_eq!(
+            signer_message.burn_block_height,
+            signer_message_deserialized.burn_block_height
+        );
+
+        assert_eq!(
+            signer_message.current_miner_pkh,
+            signer_message_deserialized.current_miner_pkh
+        );
+
+        assert_eq!(
+            signer_message.parent_tenure_id,
+            signer_message_deserialized.parent_tenure_id
+        );
+
+        assert_eq!(
+            signer_message.parent_tenure_last_block,
+            signer_message_deserialized.parent_tenure_last_block
+        );
+
+        assert_eq!(
+            signer_message.parent_tenure_last_block_height,
+            signer_message_deserialized.parent_tenure_last_block_height
+        );
+
+        assert_eq!(
+            signer_message.active_signer_protocol_version,
+            signer_message_deserialized.active_signer_protocol_version
+        );
+
+        assert_eq!(
+            signer_message.local_supported_signer_protocol_version,
+            signer_message_deserialized.local_supported_signer_protocol_version
+        );
+    }
 }
