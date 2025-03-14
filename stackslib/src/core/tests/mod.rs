@@ -64,6 +64,7 @@ use crate::core::mempool::{
     db_get_all_nonces, MemPoolSyncData, MemPoolWalkSettings, MemPoolWalkTxTypes, TxTag,
     BLOOM_COUNTER_DEPTH, BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS,
 };
+use crate::core::util::{insert_tx_in_mempool, make_stacks_transfer, to_addr};
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::net::Error as NetError;
 use crate::util_lib::bloom::test::setup_bloom_counter;

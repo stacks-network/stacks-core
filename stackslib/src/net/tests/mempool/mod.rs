@@ -32,6 +32,7 @@ use crate::burnchains::*;
 use crate::chainstate::nakamoto::coordinator::tests::make_token_transfer;
 use crate::chainstate::stacks::test::*;
 use crate::chainstate::stacks::*;
+use crate::core::util::to_addr;
 use crate::core::StacksEpochExtension;
 use crate::net::atlas::*;
 use crate::net::codec::*;

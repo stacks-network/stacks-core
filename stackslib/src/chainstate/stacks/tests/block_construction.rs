@@ -5034,7 +5034,7 @@ fn paramaterized_mempool_walk_test(
 fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
     let key_address_pairs: Vec<(Secp256k1PrivateKey, StacksAddress)> = (0..7)
         .map(|_user_index| {
-            let privk = StacksPrivateKey::new();
+            let privk = StacksPrivateKey::random();
             let addr = StacksAddress::from_public_keys(
                 C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
                 &AddressHashMode::SerializeP2PKH,

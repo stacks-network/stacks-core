@@ -43,10 +43,11 @@ use crate::chainstate::stacks::{
     TransactionAuth, TransactionPayload, TransactionVersion,
 };
 use crate::clarity::vm::types::StacksAddressExtensions;
+use crate::core::util::to_addr;
 use crate::core::StacksEpochExtension;
 use crate::net::inv::nakamoto::{InvGenerator, NakamotoInvStateMachine, NakamotoTenureInv};
 use crate::net::neighbors::comms::NeighborComms;
-use crate::net::test::{to_addr, TestEventObserver, TestPeer};
+use crate::net::test::{TestEventObserver, TestPeer};
 use crate::net::tests::{NakamotoBootPlan, NakamotoBootStep, NakamotoBootTenure};
 use crate::net::{
     Error as NetError, GetNakamotoInvData, HandshakeData, NakamotoInvData, NeighborAddress,

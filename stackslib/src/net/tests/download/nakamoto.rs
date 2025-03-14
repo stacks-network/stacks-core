@@ -43,10 +43,11 @@ use crate::chainstate::stacks::{
     TransactionPayload, TransactionVersion,
 };
 use crate::clarity::vm::types::StacksAddressExtensions;
+use crate::core::util::to_addr;
 use crate::net::api::gettenureinfo::RPCGetTenureInfo;
 use crate::net::download::nakamoto::{TenureStartEnd, WantedTenure, *};
 use crate::net::inv::nakamoto::NakamotoTenureInv;
-use crate::net::test::{dns_thread_start, to_addr, TestEventObserver};
+use crate::net::test::{dns_thread_start, TestEventObserver};
 use crate::net::tests::inv::nakamoto::{
     make_nakamoto_peer_from_invs, make_nakamoto_peers_from_invs_ext, peer_get_nakamoto_invs,
 };

@@ -15,6 +15,10 @@ use stacks::chainstate::stacks::{
 };
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
+use stacks::core::util::{
+    make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,
+    sign_standard_single_sig_tx_anchor_mode_version, to_addr,
+};
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
@@ -24,10 +28,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress};
 use stacks_common::util::hash::*;
 use stacks_common::util::secp256k1::*;
 
-use super::{
-    make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,
-    sign_standard_single_sig_tx_anchor_mode_version, to_addr, SK_1, SK_2,
-};
+use super::{SK_1, SK_2};
 use crate::helium::RunLoop;
 use crate::Keychain;
 

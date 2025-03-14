@@ -4929,14 +4929,4 @@ pub mod test {
             acct
         }
     }
-
-    pub fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
-        StacksAddress::from_public_keys(
-            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            &AddressHashMode::SerializeP2PKH,
-            1,
-            &vec![StacksPublicKey::from_private(sk)],
-        )
-        .unwrap()
-    }
 }

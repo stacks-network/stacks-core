@@ -3,7 +3,7 @@ use std::{env, thread};
 
 use ::core::str;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::ClarityVersion;
+use clarity::vm::{ClarityVersion, Value};
 use stacks::burnchains::bitcoin::address::{
     BitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
 };
@@ -25,6 +25,7 @@ use stacks::chainstate::stacks::miner::{
 use stacks::chainstate::stacks::StacksBlockHeader;
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::config::{Config, InitialBalance};
+use stacks::core::util::make_contract_call;
 use stacks::core::{self, EpochList, BURNCHAIN_TX_SEARCH_WINDOW};
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::types::chainstate::{

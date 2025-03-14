@@ -14,7 +14,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::io::Cursor;
 use std::ops::Add;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,7 +21,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
-use chrono::Utc;
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MinerSlotID, PeerInfo, RejectCode,
@@ -31,12 +29,11 @@ use libsigner::v0::messages::{
 use libsigner::{
     BlockProposal, BlockProposalData, SignerSession, StackerDBSession, VERSION_STRING,
 };
-use rusqlite::{params, Connection, Transaction};
+use rusqlite::Connection;
 use stacks::address::AddressHashMode;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
-use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::address::PoxAddress;
@@ -47,6 +44,9 @@ use stacks::chainstate::stacks::{StacksTransaction, TenureChangeCause, Transacti
 use stacks::codec::StacksMessageCodec;
 use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig};
 use stacks::core::mempool::MemPoolWalkStrategy;
+use stacks::core::util::{
+    insert_tx_in_mempool, make_contract_call, make_contract_publish, make_stacks_transfer,
+};
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::getsigner::GetSignerResponse;
@@ -94,18 +94,16 @@ use crate::nakamoto_node::stackerdb_listener::TEST_IGNORE_SIGNERS;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
-    boot_to_epoch_25, boot_to_epoch_3_reward_set, insert_tx_in_mempool, next_block_and,
-    next_block_and_controller, next_block_and_process_new_stacks_block, setup_epoch_3_reward_set,
-    wait_for, POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
+    boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, next_block_and_controller,
+    next_block_and_process_new_stacks_block, setup_epoch_3_reward_set, wait_for,
+    POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, get_pox_info, get_sortition_info,
     get_sortition_info_ch, next_block_and_wait, run_until_burnchain_height, submit_tx,
     submit_tx_fallible, test_observer,
 };
-use crate::tests::{
-    self, gen_random_port, make_contract_call, make_contract_publish, make_stacks_transfer,
-};
+use crate::tests::{self, gen_random_port};
 use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
 
 impl SignerTest<SpawnedSigner> {
@@ -161,7 +159,7 @@ impl SignerTest<SpawnedSigner> {
             .to_rsv();
 
             let signer_pk = StacksPublicKey::from_private(stacker_sk);
-            let stacking_tx = tests::make_contract_call(
+            let stacking_tx = make_contract_call(
                 stacker_sk,
                 0,
                 1000,
@@ -4742,7 +4740,7 @@ fn signer_set_rollover() {
         .to_rsv();
 
         let signer_pk = Secp256k1PublicKey::from_private(stacker_sk);
-        let stacking_tx = tests::make_contract_call(
+        let stacking_tx = make_contract_call(
             stacker_sk,
             0,
             1000,
@@ -9231,7 +9229,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
     .to_rsv();
 
     let signer_pk = Secp256k1PublicKey::from_private(&new_signer_private_key);
-    let stacking_tx = tests::make_contract_call(
+    let stacking_tx = make_contract_call(
         &new_signer_private_key,
         0,
         1000,

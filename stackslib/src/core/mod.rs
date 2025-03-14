@@ -34,6 +34,8 @@ pub mod nonce_cache;
 
 #[cfg(test)]
 pub mod tests;
+#[cfg(any(test, feature = "testing"))]
+pub mod util;
 
 use std::cmp::Ordering;
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;

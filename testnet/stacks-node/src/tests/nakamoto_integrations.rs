@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::Cursor;
 use std::ops::RangeBounds;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -24,7 +23,6 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
-use chrono::Utc;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
@@ -34,7 +32,7 @@ use lazy_static::lazy_static;
 use libsigner::v0::messages::{RejectReason, SignerMessage as SignerMessageV0};
 use libsigner::{SignerSession, StackerDBSession};
 use rand::{thread_rng, Rng};
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{Connection, OptionalExtension};
 use stacks::burnchains::{MagicBytes, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
@@ -65,6 +63,9 @@ use stacks::chainstate::stacks::{
 };
 use stacks::config::{EventKeyType, InitialBalance};
 use stacks::core::mempool::{MemPoolWalkStrategy, MAXIMUM_MEMPOOL_TX_CHAINING};
+use stacks::core::util::{
+    insert_tx_in_mempool, make_contract_call, make_contract_publish_versioned, make_stacks_transfer,
+};
 use stacks::core::{
     EpochList, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20,
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
@@ -116,10 +117,7 @@ use crate::tests::neon_integrations::{
     run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer, wait_for_runloop,
 };
 use crate::tests::signer::SignerTest;
-use crate::tests::{
-    gen_random_port, get_chain_info, make_contract_call, make_contract_publish,
-    make_contract_publish_versioned, make_stacks_transfer, to_addr,
-};
+use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, to_addr};
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
 pub static POX_4_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
@@ -890,7 +888,7 @@ pub fn boot_to_epoch_3(
 
         let signer_pk = StacksPublicKey::from_private(signer_sk);
 
-        let stacking_tx = tests::make_contract_call(
+        let stacking_tx = make_contract_call(
             stacker_sk,
             0,
             1000,
@@ -953,7 +951,7 @@ pub fn boot_to_epoch_3(
             let signer_index =
                 get_signer_index(&signer_set, &Secp256k1PublicKey::from_private(signer_sk))
                     .unwrap();
-            let voting_tx = tests::make_contract_call(
+            let voting_tx = make_contract_call(
                 signer_sk,
                 0,
                 300,
@@ -1052,7 +1050,7 @@ pub fn boot_to_pre_epoch_3_boundary(
 
         let signer_pk = StacksPublicKey::from_private(signer_sk);
 
-        let stacking_tx = tests::make_contract_call(
+        let stacking_tx = make_contract_call(
             stacker_sk,
             0,
             1000,
@@ -1115,7 +1113,7 @@ pub fn boot_to_pre_epoch_3_boundary(
             let signer_index =
                 get_signer_index(&signer_set, &Secp256k1PublicKey::from_private(signer_sk))
                     .unwrap();
-            let voting_tx = tests::make_contract_call(
+            let voting_tx = make_contract_call(
                 signer_sk,
                 0,
                 300,
@@ -1290,7 +1288,7 @@ pub fn setup_epoch_3_reward_set(
         .to_rsv();
 
         let signer_pk = StacksPublicKey::from_private(signer_sk);
-        let stacking_tx = tests::make_contract_call(
+        let stacking_tx = make_contract_call(
             stacker_sk,
             0,
             1000,
@@ -2734,7 +2732,7 @@ fn correct_burn_outs() {
             .unwrap()
             .to_rsv();
 
-            let stacking_tx = tests::make_contract_call(
+            let stacking_tx = make_contract_call(
                 account.0,
                 account.2.nonce,
                 1000,
@@ -4678,7 +4676,7 @@ fn burn_ops_integration_test() {
     let signer_key_arg_1: StacksPublicKeyBuffer =
         signer_pk_1.to_bytes_compressed().as_slice().into();
 
-    let set_signer_key_auth_tx = tests::make_contract_call(
+    let set_signer_key_auth_tx = make_contract_call(
         &signer_sk_1,
         1,
         500,
@@ -6283,7 +6281,7 @@ fn clarity_burn_state() {
             // Pause mining to prevent the stacks block from being mined before the tenure change is processed
             TEST_MINE_STALL.set(true);
             // Submit a tx for the next block (the next block will be a new tenure, so the burn block height will increment)
-            let call_tx = tests::make_contract_call(
+            let call_tx = make_contract_call(
                 &sender_sk,
                 sender_nonce,
                 tx_fee,
@@ -6372,7 +6370,7 @@ fn clarity_burn_state() {
             result.expect_result_ok().expect("Read-only call failed");
 
             // Submit a tx to trigger the next block
-            let call_tx = tests::make_contract_call(
+            let call_tx = make_contract_call(
                 &sender_sk,
                 sender_nonce,
                 tx_fee,
@@ -11231,62 +11229,6 @@ fn reload_miner_config() {
     run_loop_stopper.store(false, Ordering::SeqCst);
 
     run_loop_thread.join().unwrap();
-}
-
-pub fn insert_tx_in_mempool(
-    db_tx: &Transaction,
-    tx_hex: Vec<u8>,
-    origin_addr: &StacksAddress,
-    origin_nonce: u64,
-    fee: u64,
-    consensus_hash: &ConsensusHash,
-    block_header_hash: &BlockHeaderHash,
-    height: u64,
-) {
-    let sql = "INSERT OR REPLACE INTO mempool (
-        txid,
-        origin_address,
-        origin_nonce,
-        sponsor_address,
-        sponsor_nonce,
-        tx_fee,
-        length,
-        consensus_hash,
-        block_header_hash,
-        height,
-        accept_time,
-        tx,
-        fee_rate)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
-
-    let origin_addr_str = origin_addr.to_string();
-    let length = tx_hex.len() as u64;
-    let fee_rate = fee / length * 30;
-
-    let txid = {
-        let mut cursor = Cursor::new(&tx_hex);
-        StacksTransaction::consensus_deserialize(&mut cursor)
-            .expect("Failed to deserialize transaction")
-            .txid()
-    };
-    let args = params![
-        txid,
-        origin_addr_str,
-        origin_nonce,
-        origin_addr_str,
-        origin_nonce,
-        fee,
-        length,
-        consensus_hash,
-        block_header_hash,
-        height,
-        Utc::now().timestamp(),
-        tx_hex,
-        fee_rate
-    ];
-    db_tx
-        .execute(sql, args)
-        .expect("Failed to insert transaction into mempool");
 }
 
 #[test]
