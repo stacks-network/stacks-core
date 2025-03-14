@@ -12,4 +12,3 @@ clippy-stacks = "clippy -p libstackerdb -p stacks-signer -p pox-locking -p clari
 #[target.x86_64-unknown-linux-gnu]
 #linker = "/usr/bin/clang"
 #rustflags = ["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]
-

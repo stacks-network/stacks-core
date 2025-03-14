@@ -37,7 +37,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{env, fs, io, process, thread};
 
 use blockstack_lib::burnchains::bitcoin::{spv, BitcoinNetworkType};
@@ -605,7 +605,7 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
 
-        let start = time::Instant::now();
+        let start = Instant::now();
 
         let header_hashes = {
             let ic = sort_db.index_conn();
@@ -614,14 +614,11 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
                 .unwrap()
         };
 
-        println!(
-            "Fetched header hashes in {}",
-            start.elapsed().as_seconds_f32()
-        );
-        let start = time::Instant::now();
+        println!("Fetched header hashes in {}", start.elapsed().as_secs_f32());
+        let start = Instant::now();
 
         let block_inv = chain_state.get_blocks_inventory(&header_hashes).unwrap();
-        println!("Fetched block inv in {}", start.elapsed().as_seconds_f32());
+        println!("Fetched block inv in {}", start.elapsed().as_secs_f32());
         println!("{:?}", &block_inv);
 
         println!("Done!");
@@ -652,7 +649,7 @@ check if the associated microblocks can be downloaded
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
 
-        let start = time::Instant::now();
+        let start = Instant::now();
         let local_peer = LocalPeer::new(
             0,
             0,
@@ -671,12 +668,9 @@ check if the associated microblocks can be downloaded
                 .unwrap()
         };
 
-        println!(
-            "Fetched header hashes in {}",
-            start.elapsed().as_seconds_f32()
-        );
+        println!("Fetched header hashes in {}", start.elapsed().as_secs_f32());
 
-        let start = time::Instant::now();
+        let start = Instant::now();
         let mut total_load_headers = 0;
 
         for (consensus_hash, block_hash_opt) in header_hashes.iter() {
@@ -736,7 +730,7 @@ check if the associated microblocks can be downloaded
 
         println!(
             "Checked can_download in {} (headers load took {}ms)",
-            start.elapsed().as_seconds_f32(),
+            start.elapsed().as_secs_f32(),
             total_load_headers
         );
 

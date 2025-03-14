@@ -293,6 +293,7 @@ fn test_nakamoto_tenure_downloader() {
         naddr,
         reward_set.clone(),
         reward_set,
+        false,
     );
 
     // must be first block
