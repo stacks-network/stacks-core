@@ -304,7 +304,11 @@ pub trait TransactionConnection: ClarityConnection {
 
         self.with_abort_callback(
             |vm_env| {
-                vm_env.context.set_max_execution_time(max_execution_time);
+                if let Some(max_execution_time_duration) = max_execution_time {
+                    vm_env
+                        .context
+                        .set_max_execution_time(max_execution_time_duration);
+                }
                 vm_env
                     .execute_transaction(
                         sender.clone(),

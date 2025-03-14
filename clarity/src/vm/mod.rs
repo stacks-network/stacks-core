@@ -64,10 +64,10 @@ use self::ast::ContractAST;
 use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
 use crate::vm::callables::CallableType;
-use crate::vm::contexts::GlobalContext;
 pub use crate::vm::contexts::{
     CallStack, ContractContext, Environment, LocalContext, MAX_CONTEXT_DEPTH,
 };
+use crate::vm::contexts::{ExecutionTimeTracker, GlobalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     runtime_cost, CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer,
@@ -304,11 +304,20 @@ pub fn apply(
     }
 }
 
-fn check_max_execution_time_expired(global_context: &GlobalContext) -> bool {
-    if let Some(max_execution_time) = global_context.max_execution_time {
-        return global_context.execution_time_tracker.elapsed() >= max_execution_time;
+fn check_max_execution_time_expired(global_context: &GlobalContext) -> Result<()> {
+    match global_context.execution_time_tracker {
+        ExecutionTimeTracker::NoTracking => Ok(()),
+        ExecutionTimeTracker::MaxTime {
+            start_time,
+            max_duration,
+        } => {
+            if start_time.elapsed() >= max_duration {
+                Err(CostErrors::ExecutionTimeExpired.into())
+            } else {
+                Ok(())
+            }
+        }
     }
-    false
 }
 
 pub fn eval(
@@ -320,14 +329,7 @@ pub fn eval(
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
 
-    if check_max_execution_time_expired(env.global_context) {
-        warn!(
-            "ExecutionTime expired while running {:?} ({:?} elapsed)",
-            exp,
-            env.global_context.execution_time_tracker.elapsed()
-        );
-        return Err(CostErrors::ExecutionTimeExpired.into());
-    }
+    check_max_execution_time_expired(env.global_context)?;
 
     if let Some(mut eval_hooks) = env.global_context.eval_hooks.take() {
         for hook in eval_hooks.iter_mut() {
@@ -616,7 +618,7 @@ pub fn execute_with_max_execution_time(
         ast::ASTRules::PrecheckSize,
         false,
         |g| {
-            g.set_max_execution_time(Some(max_execution_time));
+            g.set_max_execution_time(max_execution_time);
             Ok(())
         },
     )
