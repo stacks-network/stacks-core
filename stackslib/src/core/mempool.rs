@@ -844,6 +844,10 @@ const MEMPOOL_SCHEMA_8_NONCE_SORTING: &'static [&'static str] = &[
     DROP INDEX IF EXISTS "by_origin";
     "#,
     r#"
+    -- Add indexes for nonce sorting
+    CREATE INDEX IF NOT EXISTS by_address_nonce ON nonces(address, nonce);
+    "#,
+    r#"
     INSERT INTO schema_version (version) VALUES (8)
     "#,
 ];
@@ -1559,6 +1563,8 @@ impl MemPoolDB {
                 LEFT JOIN nonces AS ns ON m.sponsor_address = ns.address
                 WHERE (no.address IS NULL OR m.origin_nonce = no.nonce)
                     AND (ns.address IS NULL OR m.sponsor_nonce = ns.nonce)
+                ORDER BY fee_rate DESC
+                LIMIT 1024
             ),
             address_nonce_ranked AS (
                 SELECT *,

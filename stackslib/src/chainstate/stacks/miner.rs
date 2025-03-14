@@ -2306,6 +2306,17 @@ impl StacksBlockBuilder {
             let mut loop_result = Ok(());
             while block_limit_hit != BlockLimitFunction::LIMIT_REACHED {
                 let mut num_considered = 0;
+
+                // Check if we've been preempted before we attempt mining.
+                // This is important because otherwise, we will add unnecessary
+                // contention on the mempool DB.
+                blocked =
+                    (*settings.miner_status.lock().expect("FATAL: mutex poisoned")).is_blocked();
+                if blocked {
+                    info!("Miner stopping due to preemption");
+                    break;
+                }
+
                 let intermediate_result = mempool.iterate_candidates(
                     epoch_tx,
                     &mut tx_events,
