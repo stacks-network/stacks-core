@@ -12221,10 +12221,11 @@ fn larger_mempool() {
         for _ in 0..25 {
             for (sender_sk, nonce) in senders.iter_mut() {
                 let sender_addr = tests::to_addr(sender_sk);
+                let fee = thread_rng().gen_range(180..2000);
                 let transfer_tx = make_stacks_transfer(
                     sender_sk,
                     *nonce,
-                    transfer_fee,
+                    fee,
                     naka_conf.burnchain.chain_id,
                     &recipient,
                     1,
@@ -12234,7 +12235,7 @@ fn larger_mempool() {
                     transfer_tx,
                     &sender_addr,
                     *nonce,
-                    transfer_fee,
+                    fee,
                     &tip.consensus_hash,
                     &tip.canonical_stacks_tip_hash,
                     tip.stacks_block_height,
