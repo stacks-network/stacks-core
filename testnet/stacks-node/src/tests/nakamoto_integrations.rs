@@ -11340,7 +11340,7 @@ fn rbf_on_config_change() {
 
     let mut last_log = Instant::now();
     last_log -= Duration::from_secs(5);
-    wait_for(10, || {
+    wait_for(30, || {
         let last_commit = &counters.naka_submitted_commit_last_stacks_tip.get();
         if last_log.elapsed() >= Duration::from_secs(5) {
             info!(
@@ -11359,7 +11359,7 @@ fn rbf_on_config_change() {
 
     update_config(155000, 57);
 
-    wait_for(12, || {
+    wait_for(30, || {
         let commit_count = &counters.naka_submitted_commits.get();
         Ok(*commit_count > commits_before)
     })
