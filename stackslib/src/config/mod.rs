@@ -2191,7 +2191,7 @@ pub struct MinerConfig {
     pub tenure_extend_cost_threshold: u64,
     /// Define the timeout to apply while waiting for signers responses, based on the amount of rejections
     pub block_rejection_timeout_steps: HashMap<u32, Duration>,
-    /// Define max execution for contract calls
+    /// Define max execution time for contract calls: transactions taking more than the specified amount of seconds will be rejected
     pub max_execution_time: Option<u64>,
 }
 
