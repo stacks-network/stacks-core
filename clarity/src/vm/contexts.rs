@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::mem::replace;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use hashbrown::{HashMap, HashSet};
 use serde::Serialize;
@@ -47,8 +47,6 @@ use crate::vm::types::{
 };
 use crate::vm::version::ClarityVersion;
 use crate::vm::{ast, eval, is_reserved, stx_transfer_consolidated};
-
-use std::time::Duration;
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 

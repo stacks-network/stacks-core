@@ -280,6 +280,7 @@ impl From<CostErrors> for CheckErrors {
                 CheckErrors::Expects("Unexpected interpreter failure in cost computation".into())
             }
             CostErrors::Expect(s) => CheckErrors::Expects(s),
+            CostErrors::ExecutionTimeExpired => CheckErrors::ExecutionTimeExpired,
         }
     }
 }

@@ -55,6 +55,7 @@ pub mod clarity;
 
 use std::collections::BTreeMap;
 
+use costs::CostErrors;
 use serde_json;
 use stacks_common::types::StacksEpochId;
 
@@ -325,7 +326,7 @@ pub fn eval(
             exp,
             env.global_context.execution_time_tracker.elapsed()
         );
-        return Err(CheckErrors::ExecutionTimeExpired.into());
+        return Err(CostErrors::ExecutionTimeExpired.into());
     }
 
     if let Some(mut eval_hooks) = env.global_context.eval_hooks.take() {
