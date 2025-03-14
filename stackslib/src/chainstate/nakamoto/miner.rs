@@ -738,7 +738,8 @@ impl BlockBuilder for NakamotoBlockBuilder {
             }
 
             let cost_before = clarity_tx.cost_so_far();
-            let (fee, receipt) = match StacksChainState::process_transaction(
+
+            let (_fee, receipt) = match StacksChainState::process_transaction(
                 clarity_tx,
                 tx,
                 quiet,
@@ -750,6 +751,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
                     return parse_process_transaction_error(clarity_tx, tx, e);
                 }
             };
+
             let cost_after = clarity_tx.cost_so_far();
             let mut soft_limit_reached = false;
             // We only attempt to apply the soft limit to non-boot code contract calls.
@@ -770,7 +772,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
 
             // save
             self.txs.push(tx.clone());
-            TransactionResult::success_with_soft_limit(tx, fee, receipt, soft_limit_reached)
+            TransactionResult::success_with_soft_limit(tx, receipt, soft_limit_reached)
         };
 
         self.bytes_so_far += tx_len;
