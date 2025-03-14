@@ -804,6 +804,11 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         self.context.cost_track.get_total()
     }
 
+    #[cfg(any(test, feature = "testing"))]
+    pub fn mut_cost_tracker(&mut self) -> &mut LimitedCostTracker {
+        &mut self.context.cost_track
+    }
+
     /// Destroys this environment, returning ownership of its database reference.
     ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
     ///   because the database is not guaranteed to be in a sane state.

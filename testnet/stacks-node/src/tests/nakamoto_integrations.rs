@@ -6643,6 +6643,7 @@ fn signer_chainstate() {
                 ext: ExtraBlockInfo::None,
                 state: BlockState::Unprocessed,
                 validation_time_ms: None,
+                reject_reason: None,
             })
             .unwrap();
 
@@ -6723,6 +6724,7 @@ fn signer_chainstate() {
                 ext: ExtraBlockInfo::None,
                 state: BlockState::GloballyAccepted,
                 validation_time_ms: Some(1000),
+                reject_reason: None,
             })
             .unwrap();
 
@@ -9646,12 +9648,14 @@ fn nakamoto_lockup_events() {
         wait_for(30, || Ok(get_stacks_height() > height_before)).unwrap();
     }
 
+    wait_for(30, || {
+        let blocks = test_observer::get_blocks();
+        let block = blocks.last().unwrap();
+        Ok(block.get("block_height").unwrap().as_u64().unwrap() == unlock_height)
+    })
+    .expect("Timed out waiting for test observer to reach unlock height");
     let blocks = test_observer::get_blocks();
     let block = blocks.last().unwrap();
-    assert_eq!(
-        block.get("block_height").unwrap().as_u64().unwrap(),
-        unlock_height
-    );
 
     let events = block.get("events").unwrap().as_array().unwrap();
     let mut found_event = false;
@@ -11112,6 +11116,8 @@ fn reload_miner_config() {
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
+    let old_burn_fee_cap: u64 = 100000;
+    conf.burnchain.burn_fee_cap = old_burn_fee_cap;
     conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), 1000000);
     conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
 
@@ -11146,8 +11152,6 @@ fn reload_miner_config() {
         file.write_all(new_config.as_bytes()).unwrap();
     };
 
-    update_config(100000, 50);
-
     let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
     let counters = run_loop.counters();
@@ -11178,6 +11182,8 @@ fn reload_miner_config() {
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
 
     let burn_blocks = test_observer::get_burn_blocks();
     let burn_block = burn_blocks.last().unwrap();
@@ -11192,7 +11198,9 @@ fn reload_miner_config() {
         .map(|r| r.get("amt").unwrap().as_u64().unwrap())
         .sum::<u64>();
 
-    assert_eq!(reward_amount, 200000);
+    let burn_amount = burn_block.get("burn_amount").unwrap().as_u64().unwrap();
+
+    assert_eq!(reward_amount + burn_amount, old_burn_fee_cap);
 
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
 
@@ -11218,7 +11226,9 @@ fn reload_miner_config() {
         .map(|r| r.get("amt").unwrap().as_u64().unwrap())
         .sum::<u64>();
 
-    assert_eq!(reward_amount, new_amount);
+    let burn_amount = burn_block.get("burn_amount").unwrap().as_u64().unwrap();
+
+    assert_eq!(reward_amount + burn_amount, new_amount);
 
     coord_channel
         .lock()
