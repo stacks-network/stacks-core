@@ -2049,11 +2049,11 @@ mod test {
     #[test]
     fn test_deserialize_state_machine_update() {
         let signer_message = StateMachineUpdate {
-            burn_block: ConsensusHash::from_bytes(&[0x55; 20]).unwrap(),
+            burn_block: ConsensusHash([0x55; 20]),
             burn_block_height: 100,
-            current_miner_pkh: Hash160::from_data(&[0xab; 32]),
-            parent_tenure_id: ConsensusHash::from_bytes(&[0x22; 20]).unwrap(),
-            parent_tenure_last_block: StacksBlockId([0x33u8; 32]),
+            current_miner_pkh: Hash160([0xab; 20]),
+            parent_tenure_id: ConsensusHash([0x22; 20]),
+            parent_tenure_last_block: StacksBlockId([0x33; 32]),
             parent_tenure_last_block_height: 1,
             active_signer_protocol_version: 2,
             local_supported_signer_protocol_version: 3,
@@ -2061,6 +2061,20 @@ mod test {
 
         let mut bytes = vec![];
         signer_message.consensus_serialize(&mut bytes).unwrap();
+
+        // check for raw content for avoiding regressions when structure changes
+        let raw_signer_message: Vec<&[u8]> = vec![
+            /* burn_block*/ &[0x55; 20],
+            /* burn_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 100],
+            /* current_miner_pkh */ &[0xab; 20],
+            /* parent_tenure_id*/ &[0x22; 20],
+            /* parent_tenure_last_block */ &[0x33; 32],
+            /* parent_tenure_last_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 1],
+            /* active_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 2],
+            /* local_supported_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 3],
+        ];
+
+        assert_eq!(bytes, raw_signer_message.concat());
 
         let signer_message_deserialized =
             StateMachineUpdate::consensus_deserialize(&mut &bytes[..]).unwrap();
