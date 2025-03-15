@@ -12753,6 +12753,7 @@ fn large_mempool_random_fee() {
         |_| {},
         |conf| {
             conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+            conf.miner.mempool_walk_strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
         },
         None,
         None,
