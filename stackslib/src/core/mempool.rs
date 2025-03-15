@@ -1563,8 +1563,8 @@ impl MemPoolDB {
                 LEFT JOIN nonces AS ns ON m.sponsor_address = ns.address
                 WHERE (no.address IS NULL OR m.origin_nonce = no.nonce)
                     AND (ns.address IS NULL OR m.sponsor_nonce = ns.nonce)
-                ORDER BY fee_rate DESC
-                LIMIT 1024
+                ORDER BY accept_time ASC
+                LIMIT 11650 -- max transactions that can fit in one block
             ),
             address_nonce_ranked AS (
                 SELECT *,
