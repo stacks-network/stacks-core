@@ -67,11 +67,11 @@ libsecp256k1 = { version = "0.7.0" }
 rand_core = { workspace = true }
 
 [features]
-default = ["canonical", "developer-mode"]
-canonical = ["rusqlite"]
+default = ["developer-mode"]
 developer-mode = []
 slog_json = ["slog-json"]
-testing = ["canonical"]
+rusqlite = ["dep:rusqlite"]
+testing = []
 serde = []
 bech32_std = []
 bech32_strict = []

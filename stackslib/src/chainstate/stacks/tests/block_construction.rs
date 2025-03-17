@@ -4999,7 +4999,6 @@ fn paramaterized_mempool_walk_test(
                                 // Generate any success result
                                 TransactionResult::success(
                                     &available_tx.tx.tx,
-                                    available_tx.tx.metadata.tx_fee,
                                     StacksTransactionReceipt::from_stx_transfer(
                                         available_tx.tx.tx.clone(),
                                         vec![],
