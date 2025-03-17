@@ -51,6 +51,7 @@ jobs:
       inputs.signer_tag != ''
     name: Build Binaries
     runs-on: ubuntu-latest
+    environment: "Build Release"
     strategy:
       ## Run a maximum of 10 builds concurrently, using the matrix defined in inputs.arch
       max-parallel: 10
@@ -85,29 +86,6 @@ jobs:
           signer_docker_tag: ${{ inputs.signer_docker_tag }}
           is_node_release: ${{ inputs.is_node_release }}
 
-  ## Runs when the following is true:
-  ##  - either node or signer tag is provided
-  create-release:
-    if: |
-      inputs.node_tag != '' ||
-      inputs.signer_tag != ''
-    name: Create Release
-    runs-on: ubuntu-latest
-    needs:
-      - build-binaries
-    steps:
-      ## Creates releases
-      - name: Create Release
-        uses: stacks-network/actions/stacks-core/release/create-releases@main
-        with:
-          node_tag: ${{ inputs.node_tag }}
-          node_docker_tag: ${{ inputs.node_docker_tag }}
-          signer_tag: ${{ inputs.signer_tag }}
-          signer_docker_tag: ${{ inputs.signer_docker_tag }}
-          is_node_release: ${{ inputs.is_node_release }}
-          is_signer_release: ${{ inputs.is_signer_release }}
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-
   ## Builds arch dependent Docker images from binaries
   ##
   ## Runs when the following is true:
@@ -120,7 +98,6 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - build-binaries
-      - create-release
     strategy:
       fail-fast: false
       ## Build a maximum of 2 images concurrently based on matrix.dist
@@ -142,6 +119,30 @@ jobs:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
           dist: ${{ matrix.dist }}
+
+  ## Runs when the following is true:
+  ##  - either node or signer tag is provided
+  create-release:
+    if: |
+      inputs.node_tag != '' ||
+      inputs.signer_tag != ''
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs:
+      - build-binaries
+      - docker-image
+    steps:
+      ## Creates releases
+      - name: Create Release
+        uses: stacks-network/actions/stacks-core/release/create-releases@main
+        with:
+          node_tag: ${{ inputs.node_tag }}
+          node_docker_tag: ${{ inputs.node_docker_tag }}
+          signer_tag: ${{ inputs.signer_tag }}
+          signer_docker_tag: ${{ inputs.signer_docker_tag }}
+          is_node_release: ${{ inputs.is_node_release }}
+          is_signer_release: ${{ inputs.is_signer_release }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
   ## Create the downstream PR for the release branch to master,develop
   create-pr:
