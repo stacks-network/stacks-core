@@ -1874,6 +1874,15 @@ impl MemPoolDB {
                         break MempoolIterationStopReason::IteratorExited;
                     }
                 }
+
+                if settings.strategy == MemPoolWalkStrategy::GlobalFeeRate {
+                    // Reset for finding the next transaction to process
+                    debug!(
+                        "Mempool: reset: retry list has {} entries",
+                        candidate_cache.len()
+                    );
+                    candidate_cache.reset();
+                }
             };
 
             // If we've reached the end of the mempool, or if we've stopped
@@ -1883,7 +1892,7 @@ impl MemPoolDB {
                 || !state_changed
             {
                 if stop_reason == MempoolIterationStopReason::NoMoreCandidates {
-                    info!("Mempool: no more transactions to consider");
+                    debug!("Mempool: no more transactions to consider");
                 }
                 break stop_reason;
             }
@@ -1892,15 +1901,6 @@ impl MemPoolDB {
             // query.
             let mut nonce_conn = self.reopen(true)?;
             nonce_cache.flush(&mut nonce_conn);
-
-            if settings.strategy == MemPoolWalkStrategy::GlobalFeeRate {
-                // Reset for finding the next transaction to process
-                debug!(
-                    "Mempool: reset: retry list has {} entries",
-                    candidate_cache.len()
-                );
-                candidate_cache.reset();
-            }
         };
 
         // drop these rusqlite statements and queries, since their existence as immutable borrows on the
