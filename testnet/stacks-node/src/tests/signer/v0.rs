@@ -12956,3 +12956,267 @@ fn large_mempool_random_fee() {
 
     signer_test.shutdown();
 }
+
+#[test]
+#[ignore]
+/// This test intends to check the timing of the mempool iteration when there
+/// are a large number of transactions in the mempool. It will boot to epoch 3,
+/// fan out some STX transfers to a large number of accounts, wait for these to
+/// all be mined, and then pause block mining, and submit a large number of
+/// transactions to the mempool from those accounts, all with the same fee. It
+/// will then unpause block mining and wait for the first block to be mined.
+/// Since the default miner configuration specifies to spend 5 seconds mining a
+/// block, we expect that this first block should be proposed within 10 seconds
+/// and approved within 20 seconds. We also verify that the block contains at
+/// least 5,000 transactions, since a lower count than that would indicate a
+/// clear regression.
+fn larger_mempool() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let transfer_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+
+    // Start with 10 accounts with initial balances.
+    let initial_sender_sks = (0..10)
+        .map(|_| StacksPrivateKey::random())
+        .collect::<Vec<_>>();
+    let initial_sender_addrs = initial_sender_sks
+        .iter()
+        .map(|sk| tests::to_addr(sk))
+        .collect::<Vec<_>>();
+
+    // These 10 accounts will send to 25 accounts each, then those 260 accounts
+    // will send to 25 accounts each, for a total of 6760 accounts.
+    // At the end of the funding round, we want to have 6760 accounts with
+    // enough balance to send 1 uSTX 25 times for each of 2 rounds of sends.
+    // With a fee of 180 uSTX per send, we need each account to end up with
+    // 2001 * 25 * 10 = 500_250 uSTX.
+    // The 260 accounts in the middle will need to have
+    // (500250 + 180) * 26 = 13_011_180 uSTX.
+    // The 10 initial accounts will need to have
+    // (13011180 + 180) * 26 = 338_295_360 uSTX.
+    let initial_balance = 338_295_360;
+    let initial_balances = initial_sender_addrs
+        .iter()
+        .map(|addr| (addr.clone(), initial_balance))
+        .collect::<Vec<_>>();
+
+    let num_signers = 5;
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        initial_balances,
+        |_| {},
+        |conf| {
+            conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+            conf.miner.mempool_walk_strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
+        },
+        None,
+        None,
+    );
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+    signer_test.boot_to_epoch_3();
+
+    // This will hold tuples for all of our senders, with the sender pk and
+    // the nonce
+    let mut senders = initial_sender_sks
+        .iter()
+        .map(|sk| (sk, 0))
+        .collect::<Vec<_>>();
+
+    let mempool_db_path = format!(
+        "{}/nakamoto-neon/chainstate/mempool.sqlite",
+        signer_test.running_nodes.conf.node.working_dir
+    );
+    let chain_id = signer_test.running_nodes.conf.burnchain.chain_id;
+    let burnchain = signer_test.running_nodes.conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+
+    // Open a sqlite DB at mempool_db_path so that we can quickly add
+    // transactions to the mempool.
+    let mut conn = Connection::open(&mempool_db_path).unwrap();
+    let db_tx = conn.transaction().unwrap();
+
+    info!("Sending the first round of funding");
+    let timer = Instant::now();
+    let mut new_senders = vec![];
+    for (sender_sk, nonce) in senders.iter_mut() {
+        for _ in 0..25 {
+            let recipient_sk = StacksPrivateKey::random();
+            let recipient_addr = tests::to_addr(&recipient_sk);
+            let sender_addr = tests::to_addr(sender_sk);
+            let transfer_tx = make_stacks_transfer(
+                sender_sk,
+                *nonce,
+                transfer_fee,
+                chain_id,
+                &recipient_addr.into(),
+                13_011_180,
+            );
+            insert_tx_in_mempool(
+                &db_tx,
+                transfer_tx,
+                &sender_addr,
+                *nonce,
+                transfer_fee,
+                &tip.consensus_hash,
+                &tip.canonical_stacks_tip_hash,
+                tip.stacks_block_height,
+            );
+            *nonce += 1;
+            new_senders.push(recipient_sk);
+        }
+    }
+    db_tx.commit().unwrap();
+
+    info!("Sending first round of funding took {:?}", timer.elapsed());
+
+    // Wait for the first round of funding to be mined
+    wait_for(120, || {
+        for (sender_sk, nonce) in senders.iter() {
+            let sender_addr = tests::to_addr(sender_sk);
+            let account = get_account(&http_origin, &sender_addr);
+            if account.nonce < *nonce {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    })
+    .expect("Timed out waiting for first round of funding to be mined");
+
+    info!(
+        "Sending and mining first round of funding took {:?}",
+        timer.elapsed()
+    );
+
+    // Add the new senders to the list of senders
+    senders.extend(new_senders.iter().map(|sk| (sk, 0)));
+
+    info!("Sending the second round of funding");
+    let db_tx = conn.transaction().unwrap();
+    let timer = Instant::now();
+    let mut new_senders = vec![];
+    for (sender_sk, nonce) in senders.iter_mut() {
+        for _ in 0..25 {
+            let sender_addr = tests::to_addr(sender_sk);
+            let recipient_sk = StacksPrivateKey::random();
+            let recipient_addr = tests::to_addr(&recipient_sk);
+            let transfer_tx = make_stacks_transfer(
+                sender_sk,
+                *nonce,
+                transfer_fee,
+                chain_id,
+                &recipient_addr.into(),
+                500_250,
+            );
+            insert_tx_in_mempool(
+                &db_tx,
+                transfer_tx,
+                &sender_addr,
+                *nonce,
+                transfer_fee,
+                &tip.consensus_hash,
+                &tip.canonical_stacks_tip_hash,
+                tip.stacks_block_height,
+            );
+            *nonce += 1;
+            new_senders.push(recipient_sk);
+        }
+    }
+    db_tx.commit().unwrap();
+
+    info!("Sending second round of funding took {:?}", timer.elapsed());
+
+    // Wait for the second round of funding to be mined
+    wait_for(120, || {
+        for (sender_sk, nonce) in senders.iter() {
+            let sender_addr = tests::to_addr(sender_sk);
+            let account = get_account(&http_origin, &sender_addr);
+            if account.nonce < *nonce {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    })
+    .expect("Timed out waiting for second round of funding to be mined");
+
+    info!(
+        "Sending and mining second round of funding took {:?}",
+        timer.elapsed()
+    );
+
+    // Add the new senders to the list of senders
+    senders.extend(new_senders.iter().map(|sk| (sk, 0)));
+
+    info!("Pause mining and fill the mempool with the transfers");
+
+    // Pause block mining
+    TEST_MINE_STALL.set(true);
+
+    let timer = Instant::now();
+
+    // Fill the mempool with the transfers
+    for _ in 0..10 {
+        let db_tx = conn.transaction().unwrap();
+        for _ in 0..25 {
+            for (sender_sk, nonce) in senders.iter_mut() {
+                let sender_addr = tests::to_addr(sender_sk);
+                let transfer_tx =
+                    make_stacks_transfer(sender_sk, *nonce, transfer_fee, chain_id, &recipient, 1);
+                insert_tx_in_mempool(
+                    &db_tx,
+                    transfer_tx,
+                    &sender_addr,
+                    *nonce,
+                    transfer_fee,
+                    &tip.consensus_hash,
+                    &tip.canonical_stacks_tip_hash,
+                    tip.stacks_block_height,
+                );
+                *nonce += 1;
+            }
+        }
+        db_tx.commit().unwrap();
+    }
+
+    info!("Sending transfers took {:?}", timer.elapsed());
+
+    let proposed_blocks_before = test_observer::get_mined_nakamoto_blocks().len();
+
+    info!("Mining transfers...");
+
+    // Unpause block mining
+    TEST_MINE_STALL.set(false);
+
+    // Wait for the first block to be proposed.
+    wait_for(30, || {
+        let proposed_blocks = test_observer::get_mined_nakamoto_blocks().len();
+        Ok(proposed_blocks > proposed_blocks_before)
+    })
+    .expect("Timed out waiting for first block to be mined");
+
+    let blocks = test_observer::get_mined_nakamoto_blocks();
+    let last_block = blocks.last().unwrap();
+    info!(
+        "First block contains {} transactions",
+        last_block.tx_events.len()
+    );
+
+    // Wait for the first round of transfers to all be mined
+    wait_for(43200, || {
+        for (sender_sk, nonce) in senders.iter() {
+            let sender_addr = tests::to_addr(sender_sk);
+            let account = get_account(&http_origin, &sender_addr);
+            if account.nonce < *nonce {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    })
+    .expect("Timed out waiting for first round of transfers to be mined");
+
+    info!("Mining first round of transfers took {:?}", timer.elapsed());
+    signer_test.shutdown();
+}
