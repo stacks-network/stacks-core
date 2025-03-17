@@ -13,8 +13,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::time::Duration;
-
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use serde::{Deserialize, Serialize};
@@ -288,7 +286,7 @@ impl LocalStateMachine {
             )?;
 
             if is_last_valid {
-                Self::make_miner_state(cur_sortition, client, db, proposal_config)?
+                Self::make_miner_state(last_sortition, client, db, proposal_config)?
             } else {
                 warn!("Neither the current nor the prior sortition winner is considered a valid tenure");
                 MinerState::NoValidMiner

@@ -464,37 +464,6 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         let latest_block_id =
             StacksBlockId::new(&sortition_parent.consensus_hash, &latest_block.block_hash());
 
-        info!("Sortition Latest: {sortition_latest:?}");
-        info!("Sortition Parent: {sortition_parent:?}");
-        info!("Sortition Prior: {sortition_prior:?}");
-
-        info!("Expected accepting: {accepting_reorg:?}");
-        info!("Expected rejecting: {rejecting_reorg:?}");
-
-        states.iter().enumerate().for_each(|(ix, signer_state)| {
-            let state_machine = signer_state
-                .signer_state_machines
-                .iter()
-                .find_map(|(rc, state)| {
-                    if current_rc % 2 == *rc {
-                        Some(state.as_ref())
-                    } else {
-                        None
-                    }
-                })
-                .expect(
-                    "BUG: should be able to find signer state machine at the current reward cycle",
-                )
-                .expect("BUG: signer state machine should exist at the current reward cycle");
-
-            let LocalStateMachine::Initialized(state_machine) = state_machine else {
-                error!("Local state machine was not initialized");
-                panic!();
-            };
-
-            info!("Signer #{ix} has state machine: {state_machine:?}");
-        });
-
         states
             .into_iter()
             .enumerate()
