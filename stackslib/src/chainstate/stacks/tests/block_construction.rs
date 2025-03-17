@@ -5221,7 +5221,6 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
                                 // Generate any success result
                                 TransactionResult::success(
                                     &available_tx.tx.tx,
-                                    available_tx.tx.metadata.tx_fee,
                                     StacksTransactionReceipt::from_stx_transfer(
                                         available_tx.tx.tx.clone(),
                                         vec![],
