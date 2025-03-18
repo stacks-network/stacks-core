@@ -11239,23 +11239,22 @@ fn reload_miner_config() {
     run_loop_thread.join().unwrap();
 }
 
-#[test]
-#[ignore]
-/// This test intends to check the timing of the mempool iteration when there
+/// This function intends to check the timing of the mempool iteration when there
 /// are a large number of transactions in the mempool. It will boot to epoch 3,
 /// fan out some STX transfers to a large number of accounts, wait for these to
 /// all be mined, and then pause block mining, and submit a large number of
 /// transactions to the mempool. It will then unpause block mining and check
 /// how long it takes for the miner to mine the first block, and how long it
-/// takes to empty the mempool.
-fn large_mempool() {
+/// takes to empty the mempool. Several tests below call this function, testing
+/// different strategies and fees.
+fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
-    naka_conf.miner.mempool_walk_strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
+    naka_conf.miner.mempool_walk_strategy = strategy;
 
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -11298,7 +11297,7 @@ fn large_mempool() {
         .collect::<Vec<_>>();
 
     test_observer::spawn();
-    test_observer::register_any(&mut naka_conf);
+    test_observer::register(&mut naka_conf, &[EventKeyType::MinedBlocks]);
 
     let mempool_db_path = format!(
         "{}/nakamoto-neon/chainstate/mempool.sqlite",
@@ -11315,9 +11314,7 @@ fn large_mempool() {
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
-        blocks_processed,
-        naka_proposed_blocks,
-        ..
+        blocks_processed, ..
     } = run_loop.counters();
     let counters = run_loop.counters();
 
@@ -11462,7 +11459,7 @@ fn large_mempool() {
     // Add the new senders to the list of senders
     senders.extend(new_senders.iter().map(|sk| (sk, 0)));
 
-    info!("Pause mining and fill the mempool with the first round of transfers");
+    info!("Pause mining and fill the mempool with the transfers");
 
     // Pause block mining
     TEST_MINE_STALL.set(true);
@@ -11470,14 +11467,15 @@ fn large_mempool() {
     let db_tx = conn.transaction().unwrap();
     let timer = Instant::now();
 
-    // Fill the mempool with the first round of transfers
+    // Fill the mempool with the transfers
     for _ in 0..25 {
         for (sender_sk, nonce) in senders.iter_mut() {
             let sender_addr = tests::to_addr(sender_sk);
+            let fee = set_fee();
             let transfer_tx = make_stacks_transfer(
                 sender_sk,
                 *nonce,
-                transfer_fee,
+                fee,
                 naka_conf.burnchain.chain_id,
                 &recipient,
                 1,
@@ -11487,7 +11485,7 @@ fn large_mempool() {
                 transfer_tx,
                 &sender_addr,
                 *nonce,
-                transfer_fee,
+                fee,
                 &tip.consensus_hash,
                 &tip.canonical_stacks_tip_hash,
                 tip.stacks_block_height,
@@ -11497,34 +11495,31 @@ fn large_mempool() {
     }
     db_tx.commit().unwrap();
 
-    info!(
-        "Sending first round of transfers took {:?}",
-        timer.elapsed()
-    );
+    info!("Sending transfers took {:?}", timer.elapsed());
 
-    let blocks_proposed_before = naka_proposed_blocks.load(Ordering::SeqCst);
-
-    info!("Mining first round of transfers");
-
-    let timer = Instant::now();
+    info!("Mining transfers");
+    let proposed_blocks_before = test_observer::get_mined_nakamoto_blocks().len();
 
     // Unpause block mining
     TEST_MINE_STALL.set(false);
 
     // Wait for the first block to be proposed.
-    wait_for(60, || {
-        let blocks_proposed = naka_proposed_blocks.load(Ordering::SeqCst);
-        Ok(blocks_proposed > blocks_proposed_before)
+    wait_for(30, || {
+        let proposed_blocks = test_observer::get_mined_nakamoto_blocks().len();
+        Ok(proposed_blocks > proposed_blocks_before)
     })
     .expect("Timed out waiting for first block to be mined");
 
+    let blocks = test_observer::get_mined_nakamoto_blocks();
+    let last_block = blocks.last().unwrap();
     info!(
-        "Mining first block of first round of transfers took {:?}",
-        timer.elapsed()
+        "First block contains {} transactions",
+        last_block.tx_events.len()
     );
+    assert!(last_block.tx_events.len() > 5000);
 
-    // Wait for the first round of transfers to all be mined
-    wait_for(1200, || {
+    // Wait for the transfers to all be mined
+    wait_for(7200, || {
         for (sender_sk, nonce) in senders.iter() {
             let sender_addr = tests::to_addr(sender_sk);
             let account = get_account(&http_origin, &sender_addr);
@@ -11534,86 +11529,9 @@ fn large_mempool() {
         }
         Ok(true)
     })
-    .expect("Timed out waiting for first round of transfers to be mined");
+    .expect("Timed out waiting for transfers to be mined");
 
-    info!("Mining first round of transfers took {:?}", timer.elapsed());
-
-    info!("Pause mining and fill the mempool with the second round of transfers");
-
-    // Pause block mining
-    TEST_MINE_STALL.set(true);
-
-    let db_tx = conn.transaction().unwrap();
-    let timer = Instant::now();
-
-    // Fill the mempool with the second round of transfers
-    for _ in 0..25 {
-        for (sender_sk, nonce) in senders.iter_mut() {
-            let sender_addr = tests::to_addr(sender_sk);
-            let transfer_tx = make_stacks_transfer(
-                sender_sk,
-                *nonce,
-                transfer_fee,
-                naka_conf.burnchain.chain_id,
-                &recipient,
-                1,
-            );
-            insert_tx_in_mempool(
-                &db_tx,
-                transfer_tx,
-                &sender_addr,
-                *nonce,
-                transfer_fee,
-                &tip.consensus_hash,
-                &tip.canonical_stacks_tip_hash,
-                tip.stacks_block_height,
-            );
-            *nonce += 1;
-        }
-    }
-    db_tx.commit().unwrap();
-
-    info!(
-        "Sending second round of transfers took {:?}",
-        timer.elapsed()
-    );
-
-    let blocks_proposed_before = naka_proposed_blocks.load(Ordering::SeqCst);
-    info!("Mining second round of transfers");
-    let timer = Instant::now();
-
-    // Unpause block mining
-    TEST_MINE_STALL.set(false);
-
-    // Wait for the first block to be proposed.
-    wait_for(60, || {
-        let blocks_proposed = naka_proposed_blocks.load(Ordering::SeqCst);
-        Ok(blocks_proposed > blocks_proposed_before)
-    })
-    .expect("Timed out waiting for first block to be mined");
-
-    info!(
-        "Mining first block of second round of transfers took {:?}",
-        timer.elapsed()
-    );
-
-    // Wait for the second round of transfers to all be mined
-    wait_for(600, || {
-        for (sender_sk, nonce) in senders.iter() {
-            let sender_addr = tests::to_addr(sender_sk);
-            let account = get_account(&http_origin, &sender_addr);
-            if account.nonce < *nonce {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    })
-    .expect("Timed out waiting for first round of transfers to be mined");
-
-    info!(
-        "Mining second round of transfers took {:?}",
-        timer.elapsed()
-    );
+    info!("Mining transfers took {:?}", timer.elapsed());
 
     coord_channel
         .lock()
@@ -11626,312 +11544,30 @@ fn large_mempool() {
 
 #[test]
 #[ignore]
-/// This test intends to check the timing of the mempool iteration when there
-/// are a large number of transactions in the mempool. It will boot to epoch 3,
-/// fan out some STX transfers to a large number of accounts, wait for these to
-/// all be mined, and then pause block mining, and submit a large number of
-/// transactions to the mempool from those accounts with random fees between
-/// the minimum allowed fee of 180 uSTX and 2000 uSTX. It will then unpause
-/// block mining and check how long it takes for the miner to mine the first
-/// block, and how long it takes to empty the mempool.
-fn large_mempool_random_fee() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+fn large_mempool_original_constant_fee() {
+    large_mempool_base(MemPoolWalkStrategy::GlobalFeeRate, || 180);
+}
 
-    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
-    naka_conf.miner.mempool_walk_strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
+#[test]
+#[ignore]
+fn large_mempool_original_random_fee() {
+    large_mempool_base(MemPoolWalkStrategy::GlobalFeeRate, || {
+        thread_rng().gen_range(180..2000)
+    });
+}
 
-    let sender_signer_sk = Secp256k1PrivateKey::random();
-    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
-    let stacker_sk = setup_stacker(&mut naka_conf);
-    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+#[test]
+#[ignore]
+fn large_mempool_next_constant_fee() {
+    large_mempool_base(MemPoolWalkStrategy::NextNonceWithHighestFeeRate, || 180);
+}
 
-    let transfer_fee = 180;
-    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-
-    // Start with 10 accounts with initial balances.
-    let initial_sender_sks = (0..10)
-        .map(|_| StacksPrivateKey::random())
-        .collect::<Vec<_>>();
-    let initial_sender_addrs = initial_sender_sks
-        .iter()
-        .map(|sk| tests::to_addr(sk))
-        .collect::<Vec<_>>();
-
-    // These 10 accounts will send to 25 accounts each, then those 260 accounts
-    // will send to 25 accounts each, for a total of 6760 accounts.
-    // At the end of the funding round, we want to have 6760 accounts with
-    // enough balance to send 1 uSTX 25 times for each of 2 rounds of sends.
-    // With a fee of 180 - 2000 uSTX per send, we need each account to end up
-    // with 2001 * 25 = 50_025 uSTX.
-    // The 260 accounts in the middle will need to have
-    // (50025 + 180) * 26 = 1_305_330 uSTX.
-    // The 10 initial accounts will need to have
-    // (1305330 + 180) * 26 = 33_943_260 uSTX.
-    let initial_balance = 33_943_260;
-    for addr in initial_sender_addrs.iter() {
-        naka_conf.add_initial_balance(PrincipalData::from(*addr).to_string(), initial_balance);
-    }
-    // This will hold tuples for all of our senders, with the sender pk and
-    // the nonce
-    let mut senders = initial_sender_sks
-        .iter()
-        .map(|sk| (sk, 0))
-        .collect::<Vec<_>>();
-
-    test_observer::spawn();
-    test_observer::register_any(&mut naka_conf);
-
-    let mempool_db_path = format!(
-        "{}/nakamoto-neon/chainstate/mempool.sqlite",
-        naka_conf.node.working_dir
-    );
-
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
-    btcd_controller
-        .start_bitcoind()
-        .expect("Failed starting bitcoind");
-    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
-
-    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
-    let run_loop_stopper = run_loop.get_termination_switch();
-    let Counters {
-        blocks_processed,
-        naka_proposed_blocks,
-        ..
-    } = run_loop.counters();
-    let counters = run_loop.counters();
-
-    let coord_channel = run_loop.coordinator_channels();
-
-    let run_loop_thread = thread::Builder::new()
-        .name("run_loop".into())
-        .spawn(move || run_loop.start(None, 0))
-        .unwrap();
-    wait_for_runloop(&blocks_processed);
-    boot_to_epoch_3(
-        &naka_conf,
-        &blocks_processed,
-        &[stacker_sk],
-        &[sender_signer_sk],
-        &mut Some(&mut signers),
-        &mut btc_regtest_controller,
-    );
-
-    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
-    blind_signer(&naka_conf, &signers, &counters);
-
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
-
-    let burnchain = naka_conf.get_burnchain();
-    let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-
-    // Open a sqlite DB at mempool_db_path so that we can quickly add
-    // transactions to the mempool.
-    let mut conn = Connection::open(&mempool_db_path).unwrap();
-    let db_tx = conn.transaction().unwrap();
-
-    info!("Sending the first round of funding");
-    let timer = Instant::now();
-    let mut new_senders = vec![];
-    for (sender_sk, nonce) in senders.iter_mut() {
-        for _ in 0..25 {
-            let recipient_sk = StacksPrivateKey::random();
-            let recipient_addr = tests::to_addr(&recipient_sk);
-            let sender_addr = tests::to_addr(sender_sk);
-            let transfer_tx = make_stacks_transfer(
-                sender_sk,
-                *nonce,
-                transfer_fee,
-                naka_conf.burnchain.chain_id,
-                &recipient_addr.into(),
-                1_305_330,
-            );
-            insert_tx_in_mempool(
-                &db_tx,
-                transfer_tx,
-                &sender_addr,
-                *nonce,
-                transfer_fee,
-                &tip.consensus_hash,
-                &tip.canonical_stacks_tip_hash,
-                tip.stacks_block_height,
-            );
-            *nonce += 1;
-            new_senders.push(recipient_sk);
-        }
-    }
-    db_tx.commit().unwrap();
-
-    info!("Sending first round of funding took {:?}", timer.elapsed());
-
-    // Wait for the first round of funding to be mined
-    wait_for(120, || {
-        for (sender_sk, nonce) in senders.iter() {
-            let sender_addr = tests::to_addr(sender_sk);
-            let account = get_account(&http_origin, &sender_addr);
-            if account.nonce < *nonce {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    })
-    .expect("Timed out waiting for first round of funding to be mined");
-
-    info!(
-        "Sending and mining first round of funding took {:?}",
-        timer.elapsed()
-    );
-
-    // Add the new senders to the list of senders
-    senders.extend(new_senders.iter().map(|sk| (sk, 0)));
-
-    info!("Sending the second round of funding");
-    let db_tx = conn.transaction().unwrap();
-    let timer = Instant::now();
-    let mut new_senders = vec![];
-    for (sender_sk, nonce) in senders.iter_mut() {
-        for _ in 0..25 {
-            let sender_addr = tests::to_addr(sender_sk);
-            let recipient_sk = StacksPrivateKey::random();
-            let recipient_addr = tests::to_addr(&recipient_sk);
-            let transfer_tx = make_stacks_transfer(
-                sender_sk,
-                *nonce,
-                transfer_fee,
-                naka_conf.burnchain.chain_id,
-                &recipient_addr.into(),
-                50_025,
-            );
-            insert_tx_in_mempool(
-                &db_tx,
-                transfer_tx,
-                &sender_addr,
-                *nonce,
-                transfer_fee,
-                &tip.consensus_hash,
-                &tip.canonical_stacks_tip_hash,
-                tip.stacks_block_height,
-            );
-            *nonce += 1;
-            new_senders.push(recipient_sk);
-        }
-    }
-    db_tx.commit().unwrap();
-
-    info!("Sending second round of funding took {:?}", timer.elapsed());
-
-    // Wait for the second round of funding to be mined
-    wait_for(120, || {
-        for (sender_sk, nonce) in senders.iter() {
-            let sender_addr = tests::to_addr(sender_sk);
-            let account = get_account(&http_origin, &sender_addr);
-            if account.nonce < *nonce {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    })
-    .expect("Timed out waiting for second round of funding to be mined");
-
-    info!(
-        "Sending and mining second round of funding took {:?}",
-        timer.elapsed()
-    );
-
-    // Add the new senders to the list of senders
-    senders.extend(new_senders.iter().map(|sk| (sk, 0)));
-
-    info!("Pause mining and fill the mempool with the first round of transfers");
-
-    // Pause block mining
-    TEST_MINE_STALL.set(true);
-
-    let timer = Instant::now();
-
-    // Fill the mempool with the transfers
-    let db_tx = conn.transaction().unwrap();
-    for _ in 0..25 {
-        for (sender_sk, nonce) in senders.iter_mut() {
-            let sender_addr = tests::to_addr(sender_sk);
-            let fee = thread_rng().gen_range(180..2000);
-            let transfer_tx = make_stacks_transfer(
-                sender_sk,
-                *nonce,
-                fee,
-                naka_conf.burnchain.chain_id,
-                &recipient,
-                1,
-            );
-            insert_tx_in_mempool(
-                &db_tx,
-                transfer_tx,
-                &sender_addr,
-                *nonce,
-                fee,
-                &tip.consensus_hash,
-                &tip.canonical_stacks_tip_hash,
-                tip.stacks_block_height,
-            );
-            *nonce += 1;
-        }
-    }
-    db_tx.commit().unwrap();
-
-    info!(
-        "Sending first round of transfers took {:?}",
-        timer.elapsed()
-    );
-
-    let blocks_proposed_before = naka_proposed_blocks.load(Ordering::SeqCst);
-
-    info!("Mining first round of transfers");
-
-    let timer = Instant::now();
-
-    // Unpause block mining
-    TEST_MINE_STALL.set(false);
-
-    // Wait for the first block to be proposed.
-    wait_for(10, || {
-        let blocks_proposed = naka_proposed_blocks.load(Ordering::SeqCst);
-        Ok(blocks_proposed > blocks_proposed_before)
-    })
-    .expect("Timed out waiting for first block to be mined");
-
-    info!(
-        "Mining first block of first round of transfers took {:?}",
-        timer.elapsed()
-    );
-
-    // Wait for the first round of transfers to all be mined
-    wait_for(3600, || {
-        for (sender_sk, nonce) in senders.iter() {
-            let sender_addr = tests::to_addr(sender_sk);
-            let account = get_account(&http_origin, &sender_addr);
-            if account.nonce < *nonce {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    })
-    .expect("Timed out waiting for first round of transfers to be mined");
-
-    info!("Mining first round of transfers took {:?}", timer.elapsed());
-
-    coord_channel
-        .lock()
-        .expect("Mutex poisoned")
-        .stop_chains_coordinator();
-    run_loop_stopper.store(false, Ordering::SeqCst);
-
-    run_loop_thread.join().unwrap();
+#[test]
+#[ignore]
+fn large_mempool_next_random_fee() {
+    large_mempool_base(MemPoolWalkStrategy::NextNonceWithHighestFeeRate, || {
+        thread_rng().gen_range(180..2000)
+    });
 }
 
 #[test]
@@ -12158,7 +11794,7 @@ fn larger_mempool() {
     // Add the new senders to the list of senders
     senders.extend(new_senders.iter().map(|sk| (sk, 0)));
 
-    info!("Pause mining and fill the mempool with the first round of transfers");
+    info!("Pause mining and fill the mempool with the transfers");
 
     // Pause block mining
     TEST_MINE_STALL.set(true);
@@ -12196,14 +11832,11 @@ fn larger_mempool() {
         db_tx.commit().unwrap();
     }
 
-    info!(
-        "Sending first round of transfers took {:?}",
-        timer.elapsed()
-    );
+    info!("Sending transfers took {:?}", timer.elapsed());
 
     let blocks_proposed_before = naka_proposed_blocks.load(Ordering::SeqCst);
 
-    info!("Mining first round of transfers");
+    info!("Mining transfers");
 
     let timer = Instant::now();
 
@@ -12217,12 +11850,9 @@ fn larger_mempool() {
     })
     .expect("Timed out waiting for first block to be mined");
 
-    info!(
-        "Mining first block of first round of transfers took {:?}",
-        timer.elapsed()
-    );
+    info!("Mining first block of transfers took {:?}", timer.elapsed());
 
-    // Wait for the first round of transfers to all be mined
+    // Wait for the transfers to all be mined
     wait_for(7200, || {
         for (sender_sk, nonce) in senders.iter() {
             let sender_addr = tests::to_addr(sender_sk);
@@ -12233,9 +11863,9 @@ fn larger_mempool() {
         }
         Ok(true)
     })
-    .expect("Timed out waiting for first round of transfers to be mined");
+    .expect("Timed out waiting for transfers to be mined");
 
-    info!("Mining first round of transfers took {:?}", timer.elapsed());
+    info!("Mining transfers took {:?}", timer.elapsed());
 
     coord_channel
         .lock()

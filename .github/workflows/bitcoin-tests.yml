@@ -124,9 +124,11 @@ jobs:
           # Disable this flaky test. We don't need continue testing Epoch 2 -> 3 transition
           - test-name: tests::nakamoto_integrations::flash_blocks_on_epoch_3_FLAKY
           # These mempool tests take a long time to run, and are meant to be run manually
+          - test-name: tests::nakamoto_integrations::large_mempool_original_constant_fee
+          - test-name: tests::nakamoto_integrations::large_mempool_original_random_fee
+          - test-name: tests::nakamoto_integrations::large_mempool_next_constant_fee
+          - test-name: tests::nakamoto_integrations::large_mempool_next_random_fee
           - test-name: tests::nakamoto_integrations::larger_mempool
-          - test-name: tests::signer::v0::large_mempool
-          - test-name: tests::signer::v0::large_mempool_random_fee
           - test-name: tests::signer::v0::larger_mempool
 
     steps:
