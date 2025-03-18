@@ -5244,24 +5244,24 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
             // Expected transaction consideration order, sorted by mineable first (next origin+sponsor nonces, highest fee).
             // Ignores old and very future nonces.
             let expected_tx_order = vec![
-                (address_2.clone(), 6, address_4.clone(), 1, 1000),
+                (address_2.clone(), 6, address_4.clone(), 1, 1000), // Round 1
                 (address_5.clone(), 0, address_5.clone(), 0, 500),
                 (address_0.clone(), 2, address_0.clone(), 2, 300),
-                (address_2.clone(), 7, address_4.clone(), 2, 800),
+                (address_2.clone(), 7, address_4.clone(), 2, 800), // Round 2
                 (address_5.clone(), 1, address_5.clone(), 1, 500),
                 (address_0.clone(), 3, address_0.clone(), 3, 400),
-                (address_2.clone(), 8, address_2.clone(), 8, 1000),
+                (address_2.clone(), 8, address_2.clone(), 8, 1000), // Round 3
                 (address_4.clone(), 3, address_5.clone(), 2, 550),
                 (address_0.clone(), 4, address_3.clone(), 0, 500),
-                (address_5.clone(), 3, address_4.clone(), 4, 2000),
+                (address_5.clone(), 3, address_4.clone(), 4, 2000), // Round 4
                 (address_1.clone(), 1, address_3.clone(), 1, 600),
-                (address_5.clone(), 4, address_4.clone(), 5, 2000),
+                (address_5.clone(), 4, address_4.clone(), 5, 2000), // Round 5
                 (address_1.clone(), 2, address_3.clone(), 2, 700),
-                (address_1.clone(), 3, address_3.clone(), 3, 800),
-                (address_1.clone(), 4, address_1.clone(), 4, 1200),
+                (address_1.clone(), 3, address_3.clone(), 3, 800), // Round 6
+                (address_1.clone(), 4, address_1.clone(), 4, 1200), // Round 7
                 (address_3.clone(), 4, address_3.clone(), 4, 100),
-                (address_2.clone(), 9, address_3.clone(), 5, 1000),
-                (address_2.clone(), 10, address_3.clone(), 6, 1500),
+                (address_2.clone(), 9, address_3.clone(), 5, 1000), // Round 8
+                (address_2.clone(), 10, address_3.clone(), 6, 1500), // Round 9
             ];
             assert_eq!(
                 considered_txs, expected_tx_order,
