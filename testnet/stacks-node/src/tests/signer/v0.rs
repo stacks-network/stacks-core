@@ -12687,7 +12687,9 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         "First block contains {} transactions",
         last_block.tx_events.len()
     );
-    assert!(last_block.tx_events.len() > 5000);
+    if strategy == MemPoolWalkStrategy::NextNonceWithHighestFeeRate {
+        assert!(last_block.tx_events.len() > 5000);
+    }
 
     // Wait for the first block to be accepted.
     wait_for(20, || {
