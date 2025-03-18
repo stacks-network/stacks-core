@@ -1573,6 +1573,7 @@ impl MemPoolDB {
         debug!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
         let mut nonce_cache = NonceCache::new(settings.nonce_cache_size);
+        let mut nonce_conn = self.reopen(true)?;
 
         // == Queries for `GlobalFeeRate` mempool walk strategy
         //
@@ -1728,7 +1729,6 @@ impl MemPoolDB {
                 state_changed = true;
 
                 // Check the nonces.
-                let mut nonce_conn = self.reopen(false)?;
                 let expected_origin_nonce =
                     nonce_cache.get(&candidate.origin_address, clarity_tx, &mut nonce_conn);
                 let expected_sponsor_nonce =
@@ -1899,7 +1899,6 @@ impl MemPoolDB {
 
             // Flush the nonce cache to the database before performing the next
             // query.
-            let mut nonce_conn = self.reopen(true)?;
             nonce_cache.flush(&mut nonce_conn);
         };
 
