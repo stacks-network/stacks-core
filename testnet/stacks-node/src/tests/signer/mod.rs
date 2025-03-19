@@ -214,13 +214,11 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Send a status request to each spawned signer
     pub fn send_status_request(&self, exclude: &HashSet<usize>) {
-        for signer_ix in 0..self.spawned_signers.len() {
+        for (signer_ix, signer_config) in self.signer_configs.iter().enumerate() {
             if exclude.contains(&signer_ix) {
                 continue;
             }
-            let port = 3000 + signer_ix;
-            let endpoint = format!("http://localhost:{port}");
-            let path = format!("{endpoint}/status");
+            let path = format!("http://{}/status", signer_config.endpoint);
 
             debug!("Issue status request to {path}");
             let client = reqwest::blocking::Client::new();
@@ -471,7 +469,14 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                         }
                     })
                 else {
-                    warn!("Local state machine for signer #{ix} not set for reward cycle ${current_rc} yet");
+                    let rcs_set: Vec<_> = signer_state.signer_state_machines.iter().map(|(rc, state)| {
+                          (rc, state.is_some())
+                        }).collect();
+                    warn!(
+                        "Local state machine for signer #{ix} not set for reward cycle #{current_rc} yet";
+                        "burn_block_height" => info_cur.burn_block_height,
+                        "rcs_set" => ?rcs_set
+                    );
                     return false;
                 };
 
@@ -702,6 +707,24 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .collect()
     }
 
+    /// Replace the test's configured signer st
+    pub fn replace_signers(
+        &mut self,
+        new_signers: Vec<SpawnedSigner<S, T>>,
+        new_signers_sks: Vec<StacksPrivateKey>,
+        new_signer_configs: Vec<SignerConfig>,
+    ) -> (
+        Vec<SpawnedSigner<S, T>>,
+        Vec<StacksPrivateKey>,
+        Vec<SignerConfig>,
+    ) {
+        let old_signers = std::mem::replace(&mut self.spawned_signers, new_signers);
+        let old_signers_sks =
+            std::mem::replace(&mut self.signer_stacks_private_keys, new_signers_sks);
+        let old_signers_confs = std::mem::replace(&mut self.signer_configs, new_signer_configs);
+        (old_signers, old_signers_sks, old_signers_confs)
+    }
+
     /// Get status check results (if returned) from each signer without blocking
     /// Returns Some() or None() for each signer, in order of `self.spawned_signers`
     pub fn get_states(&mut self, exclude: &HashSet<usize>) -> Vec<Option<StateInfo>> {
@@ -711,17 +734,14 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 output.push(None);
                 continue;
             }
-            let Ok(mut results) = signer.res_recv.try_recv() else {
-                debug!("Could not receive latest state from signer #{ix}");
+            let Ok(results) = signer.res_recv.try_recv() else {
+                info!("Could not receive latest state from signer #{ix}");
                 output.push(None);
                 continue;
             };
-            assert!(results.len() <= 1, "Received multiple states from the signer receiver: this test function assumes it should only ever receive 1");
-            let Some(SignerResult::StatusCheck(state_info)) = results.pop() else {
-                debug!("Could not receive latest state from signer #{ix}");
-                output.push(None);
-                continue;
-            };
+            // Note: if we ever add more signer result enum variants, this function
+            //  should push None and continue for non-StatusCheck variants
+            let SignerResult::StatusCheck(state_info) = results;
             output.push(Some(state_info));
         }
         output

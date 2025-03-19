@@ -72,7 +72,7 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
         stacks_client: &StacksClient,
         sortition_state: &mut Option<SortitionsView>,
         event: Option<&SignerEvent<T>>,
-        res: &Sender<Vec<SignerResult>>,
+        res: &Sender<SignerResult>,
         current_reward_cycle: u64,
     );
     /// Check if the signer is in the middle of processing blocks
@@ -82,18 +82,18 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
 }
 
 /// A wrapper around the running signer type for the signer
-pub type RunningSigner<T> = libsigner::RunningSigner<SignerEventReceiver<T>, Vec<SignerResult>, T>;
+pub type RunningSigner<T> = libsigner::RunningSigner<SignerEventReceiver<T>, SignerResult, T>;
 
 /// The wrapper for the runloop signer type
 type RunLoopSigner<S, T> =
-    libsigner::Signer<Vec<SignerResult>, RunLoop<S, T>, SignerEventReceiver<T>, T>;
+    libsigner::Signer<SignerResult, RunLoop<S, T>, SignerEventReceiver<T>, T>;
 
 /// The spawned signer
 pub struct SpawnedSigner<S: Signer<T> + Send, T: SignerEventTrait> {
     /// The underlying running signer thread handle
     running_signer: RunningSigner<T>,
     /// The result receiver for interacting with the running signer
-    pub res_recv: Receiver<Vec<SignerResult>>,
+    pub res_recv: Receiver<SignerResult>,
     /// The spawned signer's config
     pub config: GlobalConfig,
     /// Phantom data for the signer type
@@ -102,12 +102,12 @@ pub struct SpawnedSigner<S: Signer<T> + Send, T: SignerEventTrait> {
 
 impl<S: Signer<T> + Send, T: SignerEventTrait> SpawnedSigner<S, T> {
     /// Stop the signer thread and return the final state
-    pub fn stop(self) -> Option<Vec<SignerResult>> {
+    pub fn stop(self) -> Option<SignerResult> {
         self.running_signer.stop()
     }
 
     /// Wait for the signer to terminate, and get the final state. WARNING: This will hang forever if the event receiver stop signal was never sent/no error occurred.
-    pub fn join(self) -> Option<Vec<SignerResult>> {
+    pub fn join(self) -> Option<SignerResult> {
         self.running_signer.join()
     }
 }

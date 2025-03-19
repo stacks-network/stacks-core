@@ -176,7 +176,7 @@ impl SignerTrait<SignerMessage> for Signer {
         stacks_client: &StacksClient,
         sortition_state: &mut Option<SortitionsView>,
         event: Option<&SignerEvent<SignerMessage>>,
-        _res: &Sender<Vec<SignerResult>>,
+        _res: &Sender<SignerResult>,
         current_reward_cycle: u64,
     ) {
         let event_parity = match event {

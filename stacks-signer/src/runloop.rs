@@ -481,7 +481,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
 }
 
 impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
-    SignerRunLoop<Vec<SignerResult>, T> for RunLoop<Signer, T>
+    SignerRunLoop<SignerResult, T> for RunLoop<Signer, T>
 {
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.config.event_timeout = timeout;
@@ -494,8 +494,8 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
     fn run_one_pass(
         &mut self,
         event: Option<SignerEvent<T>>,
-        res: &Sender<Vec<SignerResult>>,
-    ) -> Option<Vec<SignerResult>> {
+        res: &Sender<SignerResult>,
+    ) -> Option<SignerResult> {
         debug!(
             "Running one pass for the signer. state={:?}, event={event:?}",
             self.state
@@ -536,8 +536,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
 
         // This is the only event that we respond to from the outer signer runloop
         if let Some(SignerEvent::StatusCheck) = event {
-            info!("Signer status check requested: {:?}.", self.state);
-            if let Err(e) = res.send(vec![StateInfo {
+            let state_info = StateInfo {
                 runloop_state: self.state,
                 reward_cycle_info: self.current_reward_cycle_info,
                 running_signers: self
@@ -558,9 +557,10 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                         )
                     })
                     .collect(),
-            }
-            .into()])
-            {
+            };
+            info!("Signer status check requested: {state_info:?}");
+
+            if let Err(e) = res.send(state_info.into()) {
                 error!("Failed to send status check result: {e}.");
             }
         }

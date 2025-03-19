@@ -4648,12 +4648,16 @@ fn signer_set_rollover() {
         None,
     );
 
+    let new_signer_configs: Vec<_> = new_signer_configs
+        .iter()
+        .map(|conf_str| SignerConfig::load_from_str(conf_str).unwrap())
+        .collect();
+
     let new_spawned_signers: Vec<_> = new_signer_configs
         .iter()
-        .map(|conf| {
+        .map(|signer_config| {
             info!("spawning signer");
-            let signer_config = SignerConfig::load_from_str(conf).unwrap();
-            SpawnedSigner::new(signer_config)
+            SpawnedSigner::new(signer_config.clone())
         })
         .collect();
 
@@ -4663,8 +4667,7 @@ fn signer_set_rollover() {
         initial_balances,
         |_| {},
         |naka_conf| {
-            for toml in new_signer_configs.clone() {
-                let signer_config = SignerConfig::load_from_str(&toml).unwrap();
+            for signer_config in new_signer_configs.clone() {
                 info!(
                     "---- Adding signer endpoint to naka conf ({}) ----",
                     signer_config.endpoint
@@ -4697,9 +4700,8 @@ fn signer_set_rollover() {
     let short_timeout = Duration::from_secs(20);
 
     // Verify that naka_conf has our new signer's event observers
-    for toml in &new_signer_configs {
-        let signer_config = SignerConfig::load_from_str(toml).unwrap();
-        let endpoint = format!("{}", signer_config.endpoint);
+    for signer_config in &new_signer_configs {
+        let endpoint = signer_config.endpoint.to_string();
         assert!(signer_test
             .running_nodes
             .conf
@@ -4843,7 +4845,20 @@ fn signer_set_rollover() {
         assert!(new_signer_public_keys.contains(&signer.signing_key.to_vec()));
     }
 
-    info!("---- Mining to the next reward cycle (block {next_cycle_height}) -----",);
+    info!("---- Mining to just before the next reward cycle (block {next_cycle_height}) -----",);
+    signer_test.run_until_burnchain_height_nakamoto(
+        Duration::from_secs(60),
+        next_cycle_height.saturating_sub(1),
+        new_num_signers,
+    );
+
+    let (old_spawned_signers, _, _) = signer_test.replace_signers(
+        new_spawned_signers,
+        new_signer_private_keys,
+        new_signer_configs,
+    );
+
+    info!("---- Mining into the next reward cycle (block {next_cycle_height}) -----",);
     signer_test.run_until_burnchain_height_nakamoto(
         Duration::from_secs(60),
         next_cycle_height,
@@ -4887,7 +4902,7 @@ fn signer_set_rollover() {
     }
 
     signer_test.shutdown();
-    for signer in new_spawned_signers {
+    for signer in old_spawned_signers {
         assert!(signer.stop().is_none());
     }
 }
@@ -12308,6 +12323,7 @@ fn signer_can_accept_rejected_block() {
     info!("Submitted transfer tx and waiting for block proposal");
     let block = wait_for_block_proposal(30, block_height_before + 1, &miner_pk)
         .expect("Timed out waiting for block proposal");
+    let expected_block_height = block.header.chain_length;
 
     // Wait for signer[0] to reject the block
     wait_for_block_rejections(30, block.header.signer_signature_hash(), 1)
@@ -12337,18 +12353,18 @@ fn signer_can_accept_rejected_block() {
     wait_for(60, || {
         let blocks = test_observer::get_blocks();
 
-        // Look for a block with height `block_height_before + 1`
-        if let Some(block) = blocks
+        // Look for a block with expected height
+        let Some(block) = blocks
             .iter()
-            .find(|block| block["block_height"].as_u64() == Some(block_height_before + 1))
-        {
-            if transfers_in_block(block) == 1 {
-                Ok(true) // Success: found the block with exactly 1 transfer
-            } else {
-                Err("Transfer included in block".into()) // Found the block, but it has the wrong number of transfers
-            }
+            .find(|block| block["block_height"].as_u64() == Some(expected_block_height)) else {
+                return Ok(false) // Keep waiting if the block hasn't appeared yet
+        };
+
+        let transfers_included_in_block = transfers_in_block(block);
+        if transfers_included_in_block == 1 {
+            Ok(true) // Success: found the block with exactly 1 transfer
         } else {
-            Ok(false) // Keep waiting if the block hasn't appeared yet
+            Err(format!("Unexpected amount of transfers included in block. Found: {transfers_included_in_block}"))
         }
     })
     .expect("Timed out waiting for block");
