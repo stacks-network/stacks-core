@@ -955,6 +955,20 @@ impl MultipleMinerTest {
         self.signer_test.shutdown();
     }
 
+    pub fn wait_for_test_observer_blocks(&self, timeout_secs: u64) {
+        let block_header_heash_tip = format!("0x{}", self.get_peer_stacks_tip().to_hex());
+
+        wait_for(timeout_secs, || {
+            for block in test_observer::get_blocks().iter().rev() {
+                if block["block_hash"].as_str().unwrap() == block_header_heash_tip {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        })
+        .expect("Timed out waiting for test_observer blocks");
+    }
+
     /// Wait for both miners to have the same stacks tip height
     pub fn wait_for_chains(&self, timeout_secs: u64) {
         wait_for(timeout_secs, || {
@@ -992,11 +1006,10 @@ fn last_block_contains_tenure_change_tx(cause: TenureChangeCause) -> bool {
     }
 }
 
-// Returns whether the last block in the test observer contains a tenure change
-/// transaction with the given cause.
+/// Check if a txid exists in the last block
 fn last_block_contains_txid(txid: &str) -> bool {
     let blocks = test_observer::get_blocks();
-    let last_block = &blocks.last().unwrap();
+    let last_block = blocks.last().unwrap();
     let transactions = last_block["transactions"].as_array().unwrap();
     for tx in transactions {
         let raw_tx = tx["raw_tx"].as_str().unwrap();
@@ -12514,15 +12527,14 @@ fn signer_can_accept_rejected_block() {
 }
 
 /// Test a scenario where:
-/// Two miners boot to Nakamoto.
+/// Two miners boot to Nakamoto (first miner has max_execution_time set to 0).
 /// Sortition occurs. Miner 1 wins.
-/// Miner 1 proposes a block N
-/// Signers accept and the stacks tip advances to N
-/// Miner 1's block commits are paused so it cannot confirm the next tenure.
+/// Miner 1 successfully mines block N with contract-publish
+/// Miner 1 successfully mines block N+1 with transfer and a contract-call that gets rejected (by max_execution_time)
+/// Miner 1 successfully mines block N+2 with transfer tx (this is mainly for ensuring everything still works after the expiration time)
 /// Sortition occurs. Miner 2 wins.
-/// Miner 2 successfully mines blocks N+1, N+2, and N+3
-/// Sortition occurs quickly, within first_proposal_burn_block_timing_secs. Miner 1 wins.
-/// Miner 1 proposes block N+1' but gets rejected as more than one block has been mined in the current tenure (by miner2)
+/// Miner 2 successfully mines block N+3 including the contract-call previously rejected by miner 1
+/// Ensures both the miners are aligned
 #[test]
 #[ignore]
 fn miner_rejection_by_contract_call_execution_time_expired() {
@@ -12555,7 +12567,7 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
 
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
-    let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
+    let (_miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
 
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
 
@@ -12570,100 +12582,84 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
     info!("------------------------- Pause Miner 1's Block Commits -------------------------");
     rl1_skip_commit_op.set(true);
 
-    // First, lets deploy the contract
-    let dummy_contract_src = "
-       (define-public (run-f)
-          (ok (1)))
-    ";
-
     info!("------------------------- Miner 1 Mines a Nakamoto Block N -------------------------");
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
         .expect("Failed to mine BTC block followed by Block N");
 
+    miners.wait_for_test_observer_blocks(60);
+
+    miners.send_fee = 300;
     // First, lets deploy the contract
-    let _contract_publish_txid =
-        miners.send_and_mine_contract_publish("dummy-contract", dummy_contract_src, 60);
+    let dummy_contract_src = "(define-public (dummy (number uint)) (begin (ok (+ number u1))))";
+
+    let contract_publish_txid = miners
+        .send_and_mine_contract_publish("dummy-contract", dummy_contract_src, 60)
+        .expect("Failed to publish contract in a new block");
+
+    miners.wait_for_test_observer_blocks(60);
+
+    assert_eq!(last_block_contains_txid(&contract_publish_txid), true);
+
+    info!("------------------------- Miner 1 Mines a Nakamoto Block N+1 -------------------------");
 
     let stacks_height_before = miners.get_peer_stacks_tip_height();
 
-    // try calling it (has to fail)
-    let contract_call_txid = miners.send_contract_call("dummy-contract", "f", &[]);
+    let tx1 = miners.send_transfer_tx();
 
-    let miner_1_block_n =
-        wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_1)
-            .expect("Failed to get block N+1");
+    // try calling the contract (has to fail)
+    let contract_call_txid =
+        miners.send_contract_call("dummy-contract", "dummy", &[clarity::vm::Value::UInt(1)]);
 
+    let _ = wait_for(60, || {
+        Ok(miners.get_peer_stacks_tip_height() > stacks_height_before)
+    });
+
+    miners.wait_for_test_observer_blocks(60);
+
+    assert_eq!(last_block_contains_txid(&tx1), true);
     assert_eq!(last_block_contains_txid(&contract_call_txid), false);
 
-    // assure we have a successful sortition that miner 1 won
+    info!("------------------------- Miner 1 Mines a Nakamoto Block N+2 -------------------------");
+
+    miners.sender_nonce -= 1;
+
+    let tx2 = miners
+        .send_and_mine_transfer_tx(60)
+        .expect("Failed to mine N + 2");
+
+    miners.wait_for_test_observer_blocks(60);
+
+    assert_eq!(last_block_contains_txid(&tx2), true);
+
     verify_sortition_winner(&sortdb, &miner_pkh_1);
 
     info!("------------------------- Miner 2 Submits a Block Commit -------------------------");
     miners.submit_commit_miner_2(&sortdb);
 
-    info!("------------------------- Pause Miner 2's Block Mining -------------------------");
-    TEST_MINE_STALL.set(true);
-
     info!("------------------------- Mine Tenure -------------------------");
     miners
-        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
-        .expect("Failed to mine BTC block");
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
+        .expect("Failed to mine BTC block followed by Block N+3");
 
-    info!("------------------------- Miner 1 Submits a Block Commit -------------------------");
-    miners.submit_commit_miner_1(&sortdb);
+    info!("------------------------- Miner 2 Mines Block N+3 -------------------------");
 
-    info!("------------------------- Miner 2 Mines Block N+2 -------------------------");
+    let stacks_height_before = miners.get_peer_stacks_tip_height();
 
-    TEST_MINE_STALL.set(false);
-    let _ = wait_for_block_pushed_by_miner_key(30, block_n_height + 1, &miner_pk_2)
-        .expect("Failed to get block N+1");
+    let contract_call_txid =
+        miners.send_contract_call("dummy-contract", "dummy", &[clarity::vm::Value::UInt(1)]);
 
-    // assure we have a successful sortition that miner 2 won
+    let _ = wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_2)
+        .expect("Failed to get block N+3");
+
+    miners.wait_for_test_observer_blocks(60);
+
+    assert_eq!(last_block_contains_txid(&contract_call_txid), true);
+
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
-    assert_eq!(
-        get_chain_info(&conf_1).stacks_tip_height,
-        block_n_height + 1
-    );
-
-    info!("------------------------- Miner 2 Mines N+2 and N+3 -------------------------");
-    miners
-        .send_and_mine_transfer_tx(30)
-        .expect("Failed to send and mine transfer tx");
-    miners
-        .send_and_mine_transfer_tx(30)
-        .expect("Failed to send and mine transfer tx");
-    assert_eq!(
-        get_chain_info(&conf_1).stacks_tip_height,
-        block_n_height + 3
-    );
-
-    info!("------------------------- Miner 1 Wins the Next Tenure, Mines N+3 -------------------------");
-    miners.btc_regtest_controller_mut().build_next_block(1);
-
-    let _ = wait_for_block_pushed_by_miner_key(30, block_n_height + 1, &miner_pk_2)
-    .expect("Failed to get block N+3");
-
-    // check N+2 contains the contract call (previously rejected by miner 1)
-    let miner1_blocks_after_boot_to_epoch3 = get_nakamoto_headers(&conf_1)
-        .into_iter()
-        .filter(|block| {
-            // skip first nakamoto block
-            if block.stacks_block_height == stacks_height_before {
-                return false;
-            }
-            let nakamoto_block_header = block.anchored_header.as_stacks_nakamoto().unwrap();
-            miner_pk_1
-                .verify(
-                    nakamoto_block_header.miner_signature_hash().as_bytes(),
-                    &nakamoto_block_header.miner_signature,
-                )
-                .unwrap()
-        })
-        .count();
-
-    assert_eq!(miner1_blocks_after_boot_to_epoch3, 1);
+    // ensure both miners are aligned
+    miners.wait_for_chains(60);
 
     info!("------------------------- Shutdown -------------------------");
     miners.shutdown();

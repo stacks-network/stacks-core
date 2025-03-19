@@ -61,6 +61,9 @@ impl From<CheckError> for Error {
             CheckErrors::MemoryBalanceExceeded(_a, _b) => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
+            CheckErrors::ExecutionTimeExpired => {
+                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+            }
             _ => Error::Analysis(e),
         }
     }
@@ -73,6 +76,9 @@ impl From<InterpreterError> for Error {
                 Error::CostError(a.clone(), b.clone())
             }
             InterpreterError::Unchecked(CheckErrors::CostOverflow) => {
+                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+            }
+            InterpreterError::Unchecked(CheckErrors::ExecutionTimeExpired) => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => Error::Interpreter(e),
@@ -88,6 +94,9 @@ impl From<ParseError> for Error {
             }
             ParseErrors::CostBalanceExceeded(a, b) => Error::CostError(a, b),
             ParseErrors::MemoryBalanceExceeded(_a, _b) => {
+                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+            }
+            ParseErrors::ExecutionTimeExpired => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => Error::Parse(e),
