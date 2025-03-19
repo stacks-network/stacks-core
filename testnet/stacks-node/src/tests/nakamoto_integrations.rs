@@ -11355,6 +11355,8 @@ fn rbf_on_config_change() {
 
     let commits_before = counters.naka_submitted_commits.get();
 
+    let commit_amount_before = counters.naka_submitted_commit_last_commit_amount.get();
+
     info!("---- Updating config ----");
 
     update_config(155000, 57);
@@ -11364,6 +11366,10 @@ fn rbf_on_config_change() {
         Ok(*commit_count > commits_before)
     })
     .expect("Expected new commit after config change");
+
+    let commit_amount_after = counters.naka_submitted_commit_last_commit_amount.get();
+    assert_eq!(commit_amount_after, 155000);
+    assert_ne!(commit_amount_after, commit_amount_before);
 
     coord_channel
         .lock()

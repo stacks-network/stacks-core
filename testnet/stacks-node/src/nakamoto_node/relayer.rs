@@ -1682,9 +1682,11 @@ impl RelayerThread {
 
         // update local state
         last_committed.set_txid(&txid);
-        self.globals
-            .counters
-            .bump_naka_submitted_commits(last_committed.burn_tip.block_height, tip_height);
+        self.globals.counters.bump_naka_submitted_commits(
+            last_committed.burn_tip.block_height,
+            tip_height,
+            last_committed.block_commit.burn_fee,
+        );
         self.last_committed = Some(last_committed);
 
         Ok(())
