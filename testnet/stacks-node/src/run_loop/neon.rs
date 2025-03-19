@@ -274,10 +274,11 @@ impl RunLoop {
             config.burnchain.burn_fee_cap,
         )));
 
-        let mut event_dispatcher = EventDispatcher::new();
+        let mut event_dispatcher = EventDispatcher::new(Some(config.get_working_dir()));
         for observer in config.events_observers.iter() {
-            event_dispatcher.register_observer(observer, config.get_working_dir());
+            event_dispatcher.register_observer(observer);
         }
+        event_dispatcher.process_pending_payloads();
 
         Self {
             config,

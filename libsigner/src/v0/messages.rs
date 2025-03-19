@@ -61,7 +61,8 @@ use stacks_common::codec::{
     StacksMessageCodec,
 };
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
@@ -81,7 +82,9 @@ define_u8_enum!(
 ///  the contract index in the signers contracts (i.e., X in signers-0-X)
 MessageSlotID {
     /// Block Response message from signers
-    BlockResponse = 1
+    BlockResponse = 1,
+    /// Signer State Machine Update
+    StateMachineUpdate = 2
 });
 
 define_u8_enum!(
@@ -122,7 +125,9 @@ SignerMessageTypePrefix {
     /// Mock block signature message from Epoch 2.5 signers
     MockSignature = 4,
     /// Mock block message from Epoch 2.5 miners
-    MockBlock = 5
+    MockBlock = 5,
+    /// State machine update
+    StateMachineUpdate = 6
 });
 
 #[cfg_attr(test, mutants::skip)]
@@ -168,6 +173,7 @@ impl From<&SignerMessage> for SignerMessageTypePrefix {
             SignerMessage::MockProposal(_) => SignerMessageTypePrefix::MockProposal,
             SignerMessage::MockSignature(_) => SignerMessageTypePrefix::MockSignature,
             SignerMessage::MockBlock(_) => SignerMessageTypePrefix::MockBlock,
+            SignerMessage::StateMachineUpdate(_) => SignerMessageTypePrefix::StateMachineUpdate,
         }
     }
 }
@@ -187,6 +193,8 @@ pub enum SignerMessage {
     MockProposal(MockProposal),
     /// A mock block from the epoch 2.5 miners
     MockBlock(MockBlock),
+    /// A state machine update
+    StateMachineUpdate(StateMachineUpdate),
 }
 
 impl SignerMessage {
@@ -201,6 +209,7 @@ impl SignerMessage {
             | Self::MockProposal(_)
             | Self::MockBlock(_) => None,
             Self::BlockResponse(_) | Self::MockSignature(_) => Some(MessageSlotID::BlockResponse), // Mock signature uses the same slot as block response since its exclusively for epoch 2.5 testing
+            Self::StateMachineUpdate(_) => Some(MessageSlotID::StateMachineUpdate),
         }
     }
 }
@@ -217,6 +226,9 @@ impl StacksMessageCodec for SignerMessage {
             SignerMessage::MockSignature(signature) => signature.consensus_serialize(fd),
             SignerMessage::MockProposal(message) => message.consensus_serialize(fd),
             SignerMessage::MockBlock(block) => block.consensus_serialize(fd),
+            SignerMessage::StateMachineUpdate(state_machine_update) => {
+                state_machine_update.consensus_serialize(fd)
+            }
         }?;
         Ok(())
     }
@@ -249,6 +261,10 @@ impl StacksMessageCodec for SignerMessage {
             SignerMessageTypePrefix::MockBlock => {
                 let block = StacksMessageCodec::consensus_deserialize(fd)?;
                 SignerMessage::MockBlock(block)
+            }
+            SignerMessageTypePrefix::StateMachineUpdate => {
+                let state_machine_update = StacksMessageCodec::consensus_deserialize(fd)?;
+                SignerMessage::StateMachineUpdate(state_machine_update)
             }
         };
         Ok(message)
@@ -521,6 +537,54 @@ impl StacksMessageCodec for MockBlock {
         Ok(Self {
             mock_proposal,
             mock_signatures,
+        })
+    }
+}
+
+/// Message for update the Signer State infos
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StateMachineUpdate {
+    burn_block: ConsensusHash,
+    burn_block_height: u64,
+    current_miner_pkh: Hash160,
+    parent_tenure_id: ConsensusHash,
+    parent_tenure_last_block: StacksBlockId,
+    parent_tenure_last_block_height: u64,
+    active_signer_protocol_version: u64,
+    local_supported_signer_protocol_version: u64,
+}
+
+impl StacksMessageCodec for StateMachineUpdate {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.burn_block)?;
+        write_next(fd, &self.burn_block_height)?;
+        write_next(fd, &self.current_miner_pkh)?;
+        write_next(fd, &self.parent_tenure_id)?;
+        write_next(fd, &self.parent_tenure_last_block)?;
+        write_next(fd, &self.parent_tenure_last_block_height)?;
+        write_next(fd, &self.active_signer_protocol_version)?;
+        write_next(fd, &self.local_supported_signer_protocol_version)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let burn_block = read_next::<ConsensusHash, _>(fd)?;
+        let burn_block_height = read_next::<u64, _>(fd)?;
+        let current_miner_pkh = read_next::<Hash160, _>(fd)?;
+        let parent_tenure_id = read_next::<ConsensusHash, _>(fd)?;
+        let parent_tenure_last_block = read_next::<StacksBlockId, _>(fd)?;
+        let parent_tenure_last_block_height = read_next::<u64, _>(fd)?;
+        let active_signer_protocol_version = read_next::<u64, _>(fd)?;
+        let local_supported_signer_protocol_version = read_next::<u64, _>(fd)?;
+        Ok(Self {
+            burn_block,
+            burn_block_height,
+            current_miner_pkh,
+            parent_tenure_id,
+            parent_tenure_last_block,
+            parent_tenure_last_block_height,
+            active_signer_protocol_version,
+            local_supported_signer_protocol_version,
         })
     }
 }
@@ -1979,6 +2043,80 @@ mod test {
         assert_eq!(
             accepted.response_data.reject_reason,
             RejectReason::Unknown(RejectReasonPrefix::Unknown as u8)
+        );
+    }
+
+    #[test]
+    fn test_deserialize_state_machine_update() {
+        let signer_message = StateMachineUpdate {
+            burn_block: ConsensusHash([0x55; 20]),
+            burn_block_height: 100,
+            current_miner_pkh: Hash160([0xab; 20]),
+            parent_tenure_id: ConsensusHash([0x22; 20]),
+            parent_tenure_last_block: StacksBlockId([0x33; 32]),
+            parent_tenure_last_block_height: 1,
+            active_signer_protocol_version: 2,
+            local_supported_signer_protocol_version: 3,
+        };
+
+        let mut bytes = vec![];
+        signer_message.consensus_serialize(&mut bytes).unwrap();
+
+        // check for raw content for avoiding regressions when structure changes
+        let raw_signer_message: Vec<&[u8]> = vec![
+            /* burn_block*/ &[0x55; 20],
+            /* burn_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 100],
+            /* current_miner_pkh */ &[0xab; 20],
+            /* parent_tenure_id*/ &[0x22; 20],
+            /* parent_tenure_last_block */ &[0x33; 32],
+            /* parent_tenure_last_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 1],
+            /* active_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 2],
+            /* local_supported_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 3],
+        ];
+
+        assert_eq!(bytes, raw_signer_message.concat());
+
+        let signer_message_deserialized =
+            StateMachineUpdate::consensus_deserialize(&mut &bytes[..]).unwrap();
+
+        assert_eq!(
+            signer_message.burn_block,
+            signer_message_deserialized.burn_block
+        );
+
+        assert_eq!(
+            signer_message.burn_block_height,
+            signer_message_deserialized.burn_block_height
+        );
+
+        assert_eq!(
+            signer_message.current_miner_pkh,
+            signer_message_deserialized.current_miner_pkh
+        );
+
+        assert_eq!(
+            signer_message.parent_tenure_id,
+            signer_message_deserialized.parent_tenure_id
+        );
+
+        assert_eq!(
+            signer_message.parent_tenure_last_block,
+            signer_message_deserialized.parent_tenure_last_block
+        );
+
+        assert_eq!(
+            signer_message.parent_tenure_last_block_height,
+            signer_message_deserialized.parent_tenure_last_block_height
+        );
+
+        assert_eq!(
+            signer_message.active_signer_protocol_version,
+            signer_message_deserialized.active_signer_protocol_version
+        );
+
+        assert_eq!(
+            signer_message.local_supported_signer_protocol_version,
+            signer_message_deserialized.local_supported_signer_protocol_version
         );
     }
 }
