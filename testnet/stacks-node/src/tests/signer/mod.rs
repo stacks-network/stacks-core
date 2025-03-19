@@ -230,9 +230,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         }
     }
 
-    pub fn wait_for_registered(&mut self, timeout_secs: u64) {
+    pub fn wait_for_registered(&mut self) {
         let mut finished_signers = HashSet::new();
-        wait_for(timeout_secs, || {
+        wait_for(120, || {
             self.send_status_request(&finished_signers);
             thread::sleep(Duration::from_secs(1));
             let latest_states = self.get_states(&finished_signers);
@@ -250,9 +250,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     /// Send a status request to the signers to ensure they are registered for both reward cycles.
-    pub fn wait_for_registered_both_reward_cycles(&mut self, timeout_secs: u64) {
+    pub fn wait_for_registered_both_reward_cycles(&mut self) {
         let mut finished_signers = HashSet::new();
-        wait_for(timeout_secs, || {
+        wait_for(120, || {
             self.send_status_request(&finished_signers);
             thread::sleep(Duration::from_secs(1));
             let latest_states = self.get_states(&finished_signers);

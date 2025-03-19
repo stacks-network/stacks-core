@@ -236,7 +236,7 @@ impl SignerTest<SpawnedSigner> {
             &mut self.running_nodes.btc_regtest_controller,
             &self.running_nodes.counters.blocks_processed,
         );
-        self.wait_for_registered(30);
+        self.wait_for_registered();
         debug!("Signers initialized");
 
         let current_burn_block_height = self
@@ -279,7 +279,7 @@ impl SignerTest<SpawnedSigner> {
             &mut self.running_nodes.btc_regtest_controller,
             &self.running_nodes.counters.blocks_processed,
         );
-        self.wait_for_registered(30);
+        self.wait_for_registered();
         info!("Signers initialized");
 
         self.run_until_epoch_3_boundary();
@@ -1832,7 +1832,7 @@ fn reloads_signer_set_in() {
         &mut signer_test.running_nodes.btc_regtest_controller,
         &signer_test.running_nodes.counters.blocks_processed,
     );
-    signer_test.wait_for_registered(30);
+    signer_test.wait_for_registered();
     info!("Signers initialized");
 
     signer_test.run_until_epoch_3_boundary();
@@ -8677,7 +8677,7 @@ fn incoming_signers_ignore_block_proposals() {
     info!("------------------------- Test Mine Until Middle of Prepare Phase at Block Height {middle_of_prepare_phase} -------------------------");
     signer_test.run_until_burnchain_height_nakamoto(timeout, middle_of_prepare_phase, num_signers);
 
-    signer_test.wait_for_registered_both_reward_cycles(30);
+    signer_test.wait_for_registered_both_reward_cycles();
 
     let current_burnchain_height = signer_test
         .running_nodes
@@ -8853,7 +8853,7 @@ fn outgoing_signers_ignore_block_proposals() {
     info!("------------------------- Test Mine Until Next Reward Cycle at Height {next_reward_cycle_height} -------------------------");
     signer_test.run_until_burnchain_height_nakamoto(timeout, next_reward_cycle_height, num_signers);
 
-    signer_test.wait_for_registered_both_reward_cycles(30);
+    signer_test.wait_for_registered_both_reward_cycles();
 
     let current_burnchain_height = signer_test
         .running_nodes
@@ -9211,7 +9211,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
         &signer_test.running_nodes.counters.blocks_processed,
     );
 
-    signer_test.wait_for_registered_both_reward_cycles(60);
+    signer_test.wait_for_registered_both_reward_cycles();
 
     info!("---- Mining to the next reward cycle (block {next_cycle_height}) -----",);
     signer_test.run_until_burnchain_height_nakamoto(
