@@ -8614,6 +8614,38 @@ pub fn make_random_tx_chain(
     chain
 }
 
+fn make_mblock_tx_chain(privk: &StacksPrivateKey, fee_plus: u64, chain_id: u32) -> Vec<Vec<u8>> {
+    let addr = to_addr(privk);
+    let mut chain = vec![];
+
+    for nonce in 0..25 {
+        // N.B. private keys are 32-33 bytes, so this is always safe
+        let random_iters = privk.to_bytes()[nonce as usize] as usize;
+
+        let be_bytes = [
+            privk.to_bytes()[nonce as usize],
+            privk.to_bytes()[(nonce + 1) as usize],
+        ];
+
+        let random_extra_fee = u16::from_be_bytes(be_bytes) as u64;
+
+        let mut addr_prefix = addr.to_string();
+        let _ = addr_prefix.split_off(12);
+        let contract_name = format!("crct-{nonce}-{addr_prefix}-{random_iters}");
+        eprintln!("Make tx {contract_name}");
+        let tx = make_contract_publish_microblock_only(
+            privk,
+            nonce,
+            1049230 + nonce + fee_plus + random_extra_fee,
+            chain_id,
+            &contract_name,
+            &make_runtime_sized_contract(1, nonce, &addr_prefix),
+        );
+        chain.push(tx);
+    }
+    chain
+}
+
 fn test_competing_miners_build_on_same_chain(
     num_miners: usize,
     conf_template: Config,
