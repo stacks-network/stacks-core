@@ -35,7 +35,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
-use stacks::chainstate::stacks::address::PoxAddress;
+use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{TransactionEvent, TransactionSuccessEvent};
@@ -12105,7 +12105,10 @@ fn transfers_in_block(block: &serde_json::Value) -> usize {
         let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
         let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
         if let TransactionPayload::TokenTransfer(..) = &parsed.payload {
-            count += 1;
+            // don't count phantom unlock transactions (identified as transfers from the boot addr)
+            if !parsed.get_origin().address_testnet().is_boot_code_addr() {
+                count += 1;
+            }
         }
     }
     count

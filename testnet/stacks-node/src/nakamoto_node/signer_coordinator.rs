@@ -298,7 +298,10 @@ impl SignerCoordinator {
             );
 
             match res {
-                Err(NakamotoNodeError::SignatureTimeout) => continue,
+                Err(NakamotoNodeError::SignatureTimeout) => {
+                    info!("Block proposal signing process timed out, resending the same proposal");
+                    continue;
+                }
                 _ => return res,
             }
         }
