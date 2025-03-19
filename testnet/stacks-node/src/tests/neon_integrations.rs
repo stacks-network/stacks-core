@@ -3316,6 +3316,34 @@ fn should_fix_2771() {
     channel.stop_chains_coordinator();
 }
 
+/// Returns a StacksMicroblock with the given transactions, sequence, and parent block that is
+/// signed with the given private key.
+fn make_signed_microblock(
+    block_privk: &StacksPrivateKey,
+    txs: Vec<StacksTransaction>,
+    parent_block: BlockHeaderHash,
+    seq: u16,
+) -> StacksMicroblock {
+    let mut rng = rand::thread_rng();
+
+    let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+    let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+    let tx_merkle_root = merkle_tree.root();
+
+    let mut mblock = StacksMicroblock {
+        header: StacksMicroblockHeader {
+            version: rng.gen(),
+            sequence: seq,
+            prev_block: parent_block,
+            tx_merkle_root,
+            signature: MessageSignature([0u8; 65]),
+        },
+        txs,
+    };
+    mblock.sign(block_privk).unwrap();
+    mblock
+}
+
 #[test]
 #[ignore]
 fn filter_low_fee_tx_integration_test() {
