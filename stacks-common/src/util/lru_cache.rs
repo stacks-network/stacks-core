@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt::Display;
+
 use hashbrown::HashMap;
 
 /// Node in the doubly linked list
@@ -22,6 +24,20 @@ struct Node<K, V> {
     dirty: bool,
     next: usize,
     prev: usize,
+}
+
+impl<K: Display, V: Display> Display for Node<K, V> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}={} ({}) [prev={}, next={}]",
+            self.key,
+            self.value,
+            if self.dirty { "dirty" } else { "clean" },
+            self.prev,
+            self.next
+        )
+    }
 }
 
 /// LRU cache for account nonces
@@ -35,6 +51,22 @@ pub struct LruCache<K, V> {
     head: usize,
     /// Index of the tail of the linked list -- the least recently used element
     tail: usize,
+}
+
+impl<K: Display, V: Display> Display for LruCache<K, V> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "LruCache (capacity={}, head={}, tail={})",
+            self.capacity, self.head, self.tail
+        )?;
+        let mut curr = self.head;
+        while curr != self.capacity {
+            writeln!(f, "  {}", self.order[curr])?;
+            curr = self.order[curr].next;
+        }
+        Ok(())
+    }
 }
 
 impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
@@ -116,12 +148,12 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
                 // Remove it from the cache
                 self.cache.remove(&self.order[index].key);
 
+                // Replace the key with the new key, saving the old key
+                let replaced_key = std::mem::replace(&mut self.order[index].key, key.clone());
+
                 // If it is dirty, save the key-value pair to return
                 if self.order[index].dirty {
-                    evicted = Some((
-                        std::mem::replace(&mut self.order[index].key, key.clone()),
-                        self.order[index].value,
-                    ));
+                    evicted = Some((replaced_key, self.order[index].value));
                 }
 
                 // Insert this new value into the cache
@@ -251,5 +283,25 @@ mod tests {
             .unwrap();
 
         assert_eq!(flushed, vec![(2, 2), (1, 3)]);
+    }
+
+    #[test]
+    fn test_lru_cache_evict_clean() {
+        let mut cache = LruCache::new(2);
+
+        assert!(cache.insert_with_dirty(0, 0, false).is_none());
+        assert!(cache.insert_with_dirty(1, 1, false).is_none());
+        assert!(cache.insert_with_dirty(2, 2, true).is_none());
+        assert!(cache.insert_with_dirty(3, 3, true).is_none());
+
+        let mut flushed = Vec::new();
+        cache
+            .flush(|k, v| {
+                flushed.push((*k, v));
+                Ok::<(), ()>(())
+            })
+            .unwrap();
+
+        assert_eq!(flushed, [(3, 3), (2, 2)]);
     }
 }
