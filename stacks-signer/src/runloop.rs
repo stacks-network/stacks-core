@@ -500,37 +500,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
             "Running one pass for the signer. state={:?}, event={event:?}",
             self.state
         );
-        // This is the only event that we respond to from the outer signer runloop
-        if let Some(SignerEvent::StatusCheck) = event {
-            info!("Signer status check requested: {:?}.", self.state);
-            if let Err(e) = res.send(vec![StateInfo {
-                runloop_state: self.state,
-                reward_cycle_info: self.current_reward_cycle_info,
-                running_signers: self
-                    .stacks_signers
-                    .values()
-                    .map(|s| s.reward_cycle())
-                    .collect(),
-                signer_state_machines: self
-                    .stacks_signers
-                    .iter()
-                    .map(|(reward_cycle, signer)| {
-                        let ConfiguredSigner::RegisteredSigner(ref signer) = signer else {
-                            return (*reward_cycle, None);
-                        };
-                        (
-                            *reward_cycle,
-                            Some(signer.get_local_state_machine().clone()),
-                        )
-                    })
-                    .collect(),
-            }
-            .into()])
-            {
-                error!("Failed to send status check result: {e}.");
-            }
-        }
-
         if self.state == State::Uninitialized {
             if let Err(e) = self.initialize_runloop() {
                 error!("Failed to initialize signer runloop: {e}.");
@@ -564,6 +533,38 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                 current_reward_cycle,
             );
         }
+
+        // This is the only event that we respond to from the outer signer runloop
+        if let Some(SignerEvent::StatusCheck) = event {
+            info!("Signer status check requested: {:?}.", self.state);
+            if let Err(e) = res.send(vec![StateInfo {
+                runloop_state: self.state,
+                reward_cycle_info: self.current_reward_cycle_info,
+                running_signers: self
+                    .stacks_signers
+                    .values()
+                    .map(|s| s.reward_cycle())
+                    .collect(),
+                signer_state_machines: self
+                    .stacks_signers
+                    .iter()
+                    .map(|(reward_cycle, signer)| {
+                        let ConfiguredSigner::RegisteredSigner(ref signer) = signer else {
+                            return (*reward_cycle, None);
+                        };
+                        (
+                            *reward_cycle,
+                            Some(signer.get_local_state_machine().clone()),
+                        )
+                    })
+                    .collect(),
+            }
+            .into()])
+            {
+                error!("Failed to send status check result: {e}.");
+            }
+        }
+
         if self.state == State::NoRegisteredSigners && event.is_some() {
             let next_reward_cycle = current_reward_cycle.saturating_add(1);
             info!("Signer is not registered for the current reward cycle ({current_reward_cycle}). Reward set is not yet determined or signer is not registered for the upcoming reward cycle ({next_reward_cycle}).");

@@ -308,11 +308,17 @@ impl SignerTrait<SignerMessage> for Signer {
             SignerEvent::NewBurnBlock {
                 burn_height,
                 burn_header_hash,
+                consensus_hash,
                 received_time,
             } => {
                 info!("{self}: Received a new burn block event for block height {burn_height}");
                 self.signer_db
-                    .insert_burn_block(burn_header_hash, *burn_height, received_time)
+                    .insert_burn_block(
+                        burn_header_hash,
+                        consensus_hash,
+                        *burn_height,
+                        received_time,
+                    )
                     .unwrap_or_else(|e| {
                         error!(
                             "Failed to write burn block event to signerdb";
@@ -328,17 +334,25 @@ impl SignerTrait<SignerMessage> for Signer {
                 *sortition_state = None;
             }
             SignerEvent::NewBlock {
-                block_hash,
                 block_height,
+                block_id,
+                consensus_hash,
+                signer_sighash,
             } => {
                 debug!(
                     "{self}: Received a new block event.";
-                    "block_hash" => %block_hash,
+                    "block_id" => %block_id,
+                    "signer_sighash" => %signer_sighash,
+                    "consensus_hash" => %consensus_hash,
                     "block_height" => block_height
                 );
+                self.local_state_machine
+                    .stacks_block_arrival(consensus_hash, *block_height, block_id)
+                    .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest stacks block arrival"; "err" => ?e));
+
                 if let Ok(Some(mut block_info)) = self
                     .signer_db
-                    .block_lookup(block_hash)
+                    .block_lookup(signer_sighash)
                     .inspect_err(|e| warn!("{self}: Failed to load block state: {e:?}"))
                 {
                     if block_info.state == BlockState::GloballyAccepted {

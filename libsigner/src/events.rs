@@ -32,6 +32,7 @@ use blockstack_lib::net::api::postblock_proposal::{
 use blockstack_lib::net::stackerdb::MINER_SLOT_COUNT;
 use blockstack_lib::util_lib::boot::boot_code_id;
 use blockstack_lib::version_string;
+use clarity::types::chainstate::StacksBlockId;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::QualifiedContractIdentifier;
 use serde::{Deserialize, Serialize};
@@ -202,13 +203,20 @@ pub enum SignerEvent<T: SignerEventTrait> {
         burn_height: u64,
         /// the burn hash for the newly processed burn block
         burn_header_hash: BurnchainHeaderHash,
+        /// the consensus hash for the newly processed burn block
+        consensus_hash: ConsensusHash,
         /// the time at which this event was received by the signer's event processor
         received_time: SystemTime,
     },
     /// A new processed Stacks block was received from the node with the given block hash
     NewBlock {
-        /// The block header hash for the newly processed stacks block
-        block_hash: Sha512Trunc256Sum,
+        /// The stacks block ID (or index block hash) of the new block
+        block_id: StacksBlockId,
+        /// The consensus hash of the block (either the tenure it was produced during for Stacks 3.0
+        ///   or the burn block that won the sortition in Stacks 2.0)
+        consensus_hash: ConsensusHash,
+        /// The signer sighash for the newly processed stacks block
+        signer_sighash: Sha512Trunc256Sum,
         /// The block height for the newly processed stacks block
         block_height: u64,
     },
@@ -556,6 +564,7 @@ struct BurnBlockEvent {
     reward_recipients: Vec<serde_json::Value>,
     reward_slot_holders: Vec<String>,
     burn_amount: u64,
+    consensus_hash: String,
 }
 
 impl<T: SignerEventTrait> TryFrom<BurnBlockEvent> for SignerEvent<T> {
@@ -571,17 +580,29 @@ impl<T: SignerEventTrait> TryFrom<BurnBlockEvent> for SignerEvent<T> {
                     .map_err(|e| EventError::Deserialize(format!("Invalid hex string: {e}")))
             })?;
 
+        let consensus_hash = burn_block_event
+            .consensus_hash
+            .get(2..)
+            .ok_or_else(|| EventError::Deserialize("Hex string should be 0x prefixed".into()))
+            .and_then(|hex| {
+                ConsensusHash::from_hex(hex)
+                    .map_err(|e| EventError::Deserialize(format!("Invalid hex string: {e}")))
+            })?;
+
         Ok(SignerEvent::NewBurnBlock {
             burn_height: burn_block_event.burn_block_height,
             received_time: SystemTime::now(),
             burn_header_hash,
+            consensus_hash,
         })
     }
 }
 
 #[derive(Debug, Deserialize)]
 struct BlockEvent {
-    block_hash: String,
+    index_block_hash: String,
+    signer_signature_hash: String,
+    consensus_hash: String,
     block_height: u64,
 }
 
@@ -589,16 +610,35 @@ impl<T: SignerEventTrait> TryFrom<BlockEvent> for SignerEvent<T> {
     type Error = EventError;
 
     fn try_from(block_event: BlockEvent) -> Result<Self, Self::Error> {
-        let block_hash: Sha512Trunc256Sum = block_event
-            .block_hash
+        let signer_sighash = block_event
+            .signer_signature_hash
             .get(2..)
             .ok_or_else(|| EventError::Deserialize("Hex string should be 0x prefixed".into()))
             .and_then(|hex| {
                 Sha512Trunc256Sum::from_hex(hex)
                     .map_err(|e| EventError::Deserialize(format!("Invalid hex string: {e}")))
             })?;
+        let consensus_hash = block_event
+            .consensus_hash
+            .get(2..)
+            .ok_or_else(|| EventError::Deserialize("Hex string should be 0x prefixed".into()))
+            .and_then(|hex| {
+                ConsensusHash::from_hex(hex)
+                    .map_err(|e| EventError::Deserialize(format!("Invalid hex string: {e}")))
+            })?;
+        let block_id = block_event
+            .index_block_hash
+            .get(2..)
+            .ok_or_else(|| EventError::Deserialize("Hex string should be 0x prefixed".into()))
+            .and_then(|hex| {
+                StacksBlockId::from_hex(hex)
+                    .map_err(|e| EventError::Deserialize(format!("Invalid hex string: {e}")))
+            })?;
+
         Ok(SignerEvent::NewBlock {
-            block_hash,
+            block_id,
+            signer_sighash,
+            consensus_hash,
             block_height: block_event.block_height,
         })
     }

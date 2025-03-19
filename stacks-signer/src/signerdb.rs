@@ -510,6 +510,15 @@ ALTER TABLE block_rejection_signer_addrs
     ADD COLUMN reject_code INTEGER;
 "#;
 
+static ADD_CONSENSUS_HASH: &str = r#"
+ALTER TABLE burn_blocks
+    ADD COLUMN consensus_hash TEXT;
+"#;
+
+static ADD_CONSENSUS_HASH_INDEX: &str = r#"
+CREATE INDEX IF NOT EXISTS burn_blocks_ch on burn_blocks (consensus_hash);
+"#;
+
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
     CREATE_DB_CONFIG,
@@ -579,9 +588,15 @@ static SCHEMA_9: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (9);",
 ];
 
+static SCHEMA_10: &[&str] = &[
+    ADD_CONSENSUS_HASH,
+    ADD_CONSENSUS_HASH_INDEX,
+    "INSERT INTO db_config (version) VALUES (10);",
+];
+
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 9;
+    pub const SCHEMA_VERSION: u32 = 10;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -723,7 +738,7 @@ impl SignerDb {
         Ok(())
     }
 
-    /// Migrate from schema 9 to schema 9
+    /// Migrate from schema 8 to schema 9
     fn schema_9_migration(tx: &Transaction) -> Result<(), DBError> {
         if Self::get_schema_version(tx)? >= 9 {
             // no migration necessary
@@ -731,6 +746,20 @@ impl SignerDb {
         }
 
         for statement in SCHEMA_9.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
+    /// Migrate from schema 9 to schema 10
+    fn schema_10_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 10 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_10.iter() {
             tx.execute_batch(statement)?;
         }
 
@@ -779,7 +808,8 @@ impl SignerDb {
                 6 => Self::schema_7_migration(&sql_tx)?,
                 7 => Self::schema_8_migration(&sql_tx)?,
                 8 => Self::schema_9_migration(&sql_tx)?,
-                9 => break,
+                9 => Self::schema_10_migration(&sql_tx)?,
+                10 => break,
                 x => return Err(DBError::Other(format!(
                     "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
                     Self::SCHEMA_VERSION,
@@ -911,6 +941,7 @@ impl SignerDb {
     pub fn insert_burn_block(
         &mut self,
         burn_hash: &BurnchainHeaderHash,
+        consensus_hash: &ConsensusHash,
         burn_height: u64,
         received_time: &SystemTime,
     ) -> Result<(), DBError> {
@@ -918,11 +949,12 @@ impl SignerDb {
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|e| DBError::Other(format!("Bad system time: {e}")))?
             .as_secs();
-        debug!("Inserting burn block info"; "burn_block_height" => burn_height, "burn_hash" => %burn_hash, "received" => received_ts);
+        debug!("Inserting burn block info"; "burn_block_height" => burn_height, "burn_hash" => %burn_hash, "received" => received_ts, "ch" => %consensus_hash);
         self.db.execute(
-            "INSERT OR REPLACE INTO burn_blocks (block_hash, block_height, received_time) VALUES (?1, ?2, ?3)",
+            "INSERT OR REPLACE INTO burn_blocks (block_hash, consensus_hash, block_height, received_time) VALUES (?1, ?2, ?3, ?4)",
             params![
                 burn_hash,
+                consensus_hash,
                 u64_to_sql(burn_height)?,
                 u64_to_sql(received_ts)?,
             ],
@@ -938,6 +970,23 @@ impl SignerDb {
     ) -> Result<Option<u64>, DBError> {
         let query = "SELECT received_time FROM burn_blocks WHERE block_hash = ? LIMIT 1";
         let Some(receive_time_i64) = query_row::<i64, _>(&self.db, query, &[burn_hash])? else {
+            return Ok(None);
+        };
+        let receive_time = u64::try_from(receive_time_i64).map_err(|e| {
+            error!("Failed to parse db received_time as u64: {e}");
+            DBError::Corruption
+        })?;
+        Ok(Some(receive_time))
+    }
+
+    /// Get timestamp (epoch seconds) at which a burn block was received over the event dispatcheer by this signer
+    /// if that burn block has been received.
+    pub fn get_burn_block_receive_time_ch(
+        &self,
+        ch: &ConsensusHash,
+    ) -> Result<Option<u64>, DBError> {
+        let query = "SELECT received_time FROM burn_blocks WHERE consensus_hash = ? LIMIT 1";
+        let Some(receive_time_i64) = query_row::<i64, _>(&self.db, query, &[ch])? else {
             return Ok(None);
         };
         let receive_time = u64::try_from(receive_time_i64).map_err(|e| {
@@ -1497,12 +1546,14 @@ mod tests {
         let db_path = tmp_db_path();
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let test_burn_hash = BurnchainHeaderHash([10; 32]);
+        let test_consensus_hash = ConsensusHash([13; 20]);
         let stime = SystemTime::now();
         let time_to_epoch = stime
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        db.insert_burn_block(&test_burn_hash, 10, &stime).unwrap();
+        db.insert_burn_block(&test_burn_hash, &test_consensus_hash, 10, &stime)
+            .unwrap();
 
         let stored_time = db
             .get_burn_block_receive_time(&test_burn_hash)
