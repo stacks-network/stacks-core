@@ -293,6 +293,7 @@ pub trait TransactionConnection: ClarityConnection {
     /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
     ///   if abort_call_back returns true, all modifications from this transaction will be rolled back.
     ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
+    #[allow(clippy::too_many_arguments)]
     fn run_contract_call<F>(
         &mut self,
         sender: &PrincipalData,
