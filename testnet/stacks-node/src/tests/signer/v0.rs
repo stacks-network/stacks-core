@@ -2236,6 +2236,7 @@ fn bitcoind_forking_test() {
         vec![(sender_addr, send_amt + send_fee)],
         |_| {},
         |node_config| {
+            node_config.miner.block_commit_delay = Duration::from_secs(1);
             let epochs = node_config.burnchain.epochs.as_mut().unwrap();
             epochs[StacksEpochId::Epoch30].end_height = 3_015;
             epochs[StacksEpochId::Epoch31].start_height = 3_015;
