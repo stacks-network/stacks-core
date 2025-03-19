@@ -500,39 +500,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
             "Running one pass for the signer. state={:?}, event={event:?}",
             self.state
         );
-        if self.state == State::Uninitialized {
-            if let Err(e) = self.initialize_runloop() {
-                error!("Failed to initialize signer runloop: {e}.");
-                if let Some(event) = event {
-                    warn!("Ignoring event: {event:?}");
-                }
-                return None;
-            }
-        } else if let Some(SignerEvent::NewBurnBlock { burn_height, .. }) = event {
-            if let Err(e) = self.refresh_runloop(burn_height) {
-                error!("Failed to refresh signer runloop: {e}.");
-                warn!("Signer may have an outdated view of the network.");
-            }
-        }
-        let current_reward_cycle = self
-            .current_reward_cycle_info
-            .as_ref()
-            .expect("FATAL: cannot be an initialized signer with no reward cycle info.")
-            .reward_cycle;
-        for configured_signer in self.stacks_signers.values_mut() {
-            let ConfiguredSigner::RegisteredSigner(ref mut signer) = configured_signer else {
-                debug!("{configured_signer}: Not configured for cycle, ignoring events for cycle");
-                continue;
-            };
-
-            signer.process_event(
-                &self.stacks_client,
-                &mut self.sortition_state,
-                event.as_ref(),
-                res,
-                current_reward_cycle,
-            );
-        }
 
         // This is the only event that we respond to from the outer signer runloop
         if let Some(SignerEvent::StatusCheck) = event {
@@ -563,6 +530,41 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
             if let Err(e) = res.send(state_info.into()) {
                 error!("Failed to send status check result: {e}.");
             }
+        }
+
+        if self.state == State::Uninitialized {
+            if let Err(e) = self.initialize_runloop() {
+                error!("Failed to initialize signer runloop: {e}.");
+                if let Some(event) = event {
+                    warn!("Ignoring event: {event:?}");
+                }
+                return None;
+            }
+        } else if let Some(SignerEvent::NewBurnBlock { burn_height, .. }) = event {
+            if let Err(e) = self.refresh_runloop(burn_height) {
+                error!("Failed to refresh signer runloop: {e}.");
+                warn!("Signer may have an outdated view of the network.");
+            }
+        }
+
+        let current_reward_cycle = self
+            .current_reward_cycle_info
+            .as_ref()
+            .expect("FATAL: cannot be an initialized signer with no reward cycle info.")
+            .reward_cycle;
+        for configured_signer in self.stacks_signers.values_mut() {
+            let ConfiguredSigner::RegisteredSigner(ref mut signer) = configured_signer else {
+                debug!("{configured_signer}: Not configured for cycle, ignoring events for cycle");
+                continue;
+            };
+
+            signer.process_event(
+                &self.stacks_client,
+                &mut self.sortition_state,
+                event.as_ref(),
+                res,
+                current_reward_cycle,
+            );
         }
 
         if self.state == State::NoRegisteredSigners && event.is_some() {

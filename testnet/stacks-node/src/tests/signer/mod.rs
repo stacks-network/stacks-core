@@ -455,40 +455,46 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         let info_cur = self.get_peer_info();
         let current_rc = self.get_current_reward_cycle();
         let mut states = Vec::with_capacity(0);
-        wait_for(120, || {
-            states = self.get_all_states();
-            Ok(states.iter().enumerate().all(|(ix, signer_state)| {
-                let Some(Some(state_machine)) = signer_state
-                    .signer_state_machines
-                    .iter()
-                    .find_map(|(rc, state)| {
-                        if current_rc % 2 == *rc {
-                            Some(state.as_ref())
-                        } else {
-                            None
-                        }
-                    })
-                else {
-                    let rcs_set: Vec<_> = signer_state.signer_state_machines.iter().map(|(rc, state)| {
-                          (rc, state.is_some())
+        // fetch all the state machines *twice*
+        //  we do this because the state machines return before the signer runloop
+        //  invokes run_one_pass(), which is necessary to handle any pending updates to
+        //  the state machine.
+        // we get around this by just doing this twice
+        for _i in 0..2 {
+            wait_for(120, || {
+                states = self.get_all_states();
+                Ok(states.iter().enumerate().all(|(ix, signer_state)| {
+                    let Some(Some(state_machine)) = signer_state
+                        .signer_state_machines
+                        .iter()
+                        .find_map(|(rc, state)| {
+                            if current_rc % 2 == *rc {
+                                Some(state.as_ref())
+                            } else {
+                                None
+                            }
+                        })
+                    else {
+                        let rcs_set: Vec<_> = signer_state.signer_state_machines.iter().map(|(rc, state)| {
+                            (rc, state.is_some())
                         }).collect();
-                    warn!(
-                        "Local state machine for signer #{ix} not set for reward cycle #{current_rc} yet";
-                        "burn_block_height" => info_cur.burn_block_height,
-                        "rcs_set" => ?rcs_set
-                    );
-                    return false;
-                };
+                        warn!(
+                            "Local state machine for signer #{ix} not set for reward cycle #{current_rc} yet";
+                            "burn_block_height" => info_cur.burn_block_height,
+                            "rcs_set" => ?rcs_set
+                        );
+                        return false;
+                    };
 
-                let LocalStateMachine::Initialized(state_machine) = state_machine else {
-                    warn!("Local state machine for signer #{ix} not initialized");
-                    return false;
-                };
-                state_machine.burn_block_height >= info_cur.burn_block_height
-            }))
-
-        })
-        .expect("Timed out while waiting to fetch local state machines from the signer set");
+                    let LocalStateMachine::Initialized(state_machine) = state_machine else {
+                        warn!("Local state machine for signer #{ix} not initialized");
+                        return false;
+                    };
+                    state_machine.burn_block_height >= info_cur.burn_block_height
+                }))
+            })
+                .expect("Timed out while waiting to fetch local state machines from the signer set");
+        }
 
         let state_machines = states
             .into_iter()
