@@ -213,8 +213,10 @@ impl SignerTrait<SignerMessage> for Signer {
             return;
         }
 
-        self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client, &self.proposal_config)
-            .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
+        if self.reward_cycle <= current_reward_cycle {
+            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client, &self.proposal_config)
+                .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
+        }
 
         match event {
             SignerEvent::BlockValidationResponse(block_validate_response) => {
