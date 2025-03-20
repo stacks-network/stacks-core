@@ -345,7 +345,25 @@ fn isatty(stream: Stream) -> bool {
     unsafe { libc::isatty(fd) != 0 }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
 fn isatty(stream: Stream) -> bool {
-    false
+    use winapi::um::consoleapi::GetConsoleMode;
+    use winapi::um::handleapi::INVALID_HANDLE_VALUE;
+    use winapi::um::processenv::GetStdHandle;
+    use winapi::um::winbase::{STD_OUTPUT_HANDLE, STD_ERROR_HANDLE};
+    
+    let handle = match stream {
+        Stream::Stdout => STD_OUTPUT_HANDLE,
+        Stream::Stderr => STD_ERROR_HANDLE,
+    };
+
+    unsafe {
+        let handle = GetStdHandle(handle);
+        if handle == INVALID_HANDLE_VALUE {
+            return false;
+        }
+
+        let mut mode: u32 = 0;
+        GetConsoleMode(handle, &mut mode) != 0
+    }
 }
