@@ -440,6 +440,9 @@ impl StackerDBListener {
                     | SignerMessageV0::MockBlock(_) => {
                         debug!("Received mock message. Ignoring.");
                     }
+                    SignerMessageV0::StateMachineUpdate(_) => {
+                        debug!("Received state machine update message. Ignoring.");
+                    }
                 };
             }
         }
