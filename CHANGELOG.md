@@ -7,8 +7,11 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
-### Added"
+### Added
+
 - Add fee information to transaction log ending with "success" or "skipped", while building a new block
+- When a miner's config file is updated (ie with a new fee rate), a new block commit is issued using
+  the new values ([#5924](https://github.com/stacks-network/stacks-core/pull/5924))
 
 ### Changed
 
