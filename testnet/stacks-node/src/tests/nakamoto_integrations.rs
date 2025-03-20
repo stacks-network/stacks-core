@@ -11278,14 +11278,17 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
     // These 10 accounts will send to 25 accounts each, then those 260 accounts
     // will send to 25 accounts each, for a total of 6760 accounts.
     // At the end of the funding round, we want to have 6760 accounts with
-    // enough balance to send 1 uSTX 25 times for each of 2 rounds of sends.
-    // With a fee of 180 uSTX per send, we need each account to end up with
-    // 181 * 25 * 2 = 9_050 uSTX.
-    // The 260 accounts in the middle will need to have
-    // (9050 + 180) * 26 = 239_980 uSTX.
-    // The 10 initial accounts will need to have
-    // (239980 + 180) * 26 = 6_244_160 uSTX.
-    let initial_balance = 6_244_160;
+    // enough balance to send 1 uSTX 25 times.
+    // With a fee of 180 to 2000 uSTX per send, we need each account to have
+    //   2001 * 25 = 50_025 uSTX.
+    // The 260 accounts in the middle will need to have enough to send that
+    // amount to 25 other accounts, plus the fee, and then enough to send the
+    // transfers themselves as well:
+    //   (50025 + 180) * 25 + 50025 = 1_305_150 uSTX.
+    // The 10 initial accounts will need to have enough to send that amount to
+    // 25 other accounts, plus enough to send the transfers themselves as well:
+    //   (1305150 + 180) * 25 + 1305150 = 33_938_400 uSTX.
+    let initial_balance = 33_938_400;
     for addr in initial_sender_addrs.iter() {
         naka_conf.add_initial_balance(PrincipalData::from(*addr).to_string(), initial_balance);
     }
@@ -11362,7 +11365,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
                 transfer_fee,
                 naka_conf.burnchain.chain_id,
                 &recipient_addr.into(),
-                239_980,
+                1_305_150,
             );
             insert_tx_in_mempool(
                 &db_tx,
@@ -11418,7 +11421,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
                 transfer_fee,
                 naka_conf.burnchain.chain_id,
                 &recipient_addr.into(),
-                9_050,
+                50_025,
             );
             insert_tx_in_mempool(
                 &db_tx,
@@ -11472,6 +11475,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         for (sender_sk, nonce) in senders.iter_mut() {
             let sender_addr = tests::to_addr(sender_sk);
             let fee = set_fee();
+            assert!(fee >= 180 && fee <= 2000);
             let transfer_tx = make_stacks_transfer(
                 sender_sk,
                 *nonce,
