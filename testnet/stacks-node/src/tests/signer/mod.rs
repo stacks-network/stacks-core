@@ -50,11 +50,11 @@ use stacks_signer::runloop::{SignerResult, State, StateInfo};
 use stacks_signer::v0::signer_state::{LocalStateMachine, MinerState};
 use stacks_signer::{Signer, SpawnedSigner};
 
-use super::make_stacks_transfer;
 use super::nakamoto_integrations::{
     check_nakamoto_empty_block_heuristics, next_block_and, wait_for,
 };
 use super::neon_integrations::{get_account, get_sortition_info_ch, submit_tx_fallible};
+use super::{make_contract_call, make_contract_publish, make_stacks_transfer};
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
@@ -446,6 +446,65 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             send_amt,
         );
         submit_tx_fallible(&http_origin, &transfer_tx).map(|resp| (resp, sender_nonce))
+    }
+
+    /// Submit a burn block dependent contract for publishing
+    ///  and wait until it is included in a block
+    pub fn submit_burn_block_contract_and_wait(
+        &mut self,
+        sender_sk: &StacksPrivateKey,
+    ) -> Result<String, String> {
+        let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
+        let sender_addr = to_addr(&sender_sk);
+        let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
+        let burn_height_contract = "
+         (define-data-var local-burn-block-ht uint u0)
+         (define-public (run-update)
+           (ok (var-set local-burn-block-ht burn-block-height)))
+        ";
+        let contract_tx = make_contract_publish(
+            &sender_sk,
+            0,
+            1000,
+            self.running_nodes.conf.burnchain.chain_id,
+            "burn-height-local",
+            burn_height_contract,
+        );
+        let txid = submit_tx_fallible(&http_origin, &contract_tx)?;
+
+        wait_for(120, || {
+            let next_nonce = get_account(&http_origin, &sender_addr).nonce;
+            Ok(next_nonce > sender_nonce)
+        })
+        .map(|()| txid)
+    }
+
+    /// Submit a burn block dependent contract-call
+    ///  and wait until it is included in a block
+    pub fn submit_burn_block_call_and_wait(
+        &mut self,
+        sender_sk: &StacksPrivateKey,
+    ) -> Result<String, String> {
+        let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
+        let sender_addr = to_addr(&sender_sk);
+        let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
+        let contract_call_tx = make_contract_call(
+            &sender_sk,
+            sender_nonce,
+            1000,
+            self.running_nodes.conf.burnchain.chain_id,
+            &sender_addr,
+            "burn-height-local",
+            "run-update",
+            &[],
+        );
+        let txid = submit_tx_fallible(&http_origin, &contract_call_tx)?;
+
+        wait_for(120, || {
+            let next_nonce = get_account(&http_origin, &sender_addr).nonce;
+            Ok(next_nonce > sender_nonce)
+        })
+        .map(|()| txid)
     }
 
     /// Get the local state machines and most recent peer info from the stacks-node,

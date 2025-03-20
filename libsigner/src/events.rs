@@ -29,6 +29,7 @@ use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
 };
+use blockstack_lib::net::api::{prefix_hex, prefix_opt_hex};
 use blockstack_lib::net::stackerdb::MINER_SLOT_COUNT;
 use blockstack_lib::util_lib::boot::boot_code_id;
 use blockstack_lib::version_string;
@@ -215,8 +216,9 @@ pub enum SignerEvent<T: SignerEventTrait> {
         /// The consensus hash of the block (either the tenure it was produced during for Stacks 3.0
         ///   or the burn block that won the sortition in Stacks 2.0)
         consensus_hash: ConsensusHash,
-        /// The signer sighash for the newly processed stacks block
-        signer_sighash: Sha512Trunc256Sum,
+        /// The signer sighash for the newly processed stacks block. If the newly processed block is a 2.0
+        ///  block, there is *no* signer sighash
+        signer_sighash: Option<Sha512Trunc256Sum>,
         /// The block height for the newly processed stacks block
         block_height: u64,
     },
@@ -559,50 +561,39 @@ impl<T: SignerEventTrait> TryFrom<BlockValidateResponse> for SignerEvent<T> {
 
 #[derive(Debug, Deserialize)]
 struct BurnBlockEvent {
-    burn_block_hash: String,
+    #[serde(with = "prefix_hex")]
+    burn_block_hash: BurnchainHeaderHash,
     burn_block_height: u64,
     reward_recipients: Vec<serde_json::Value>,
     reward_slot_holders: Vec<String>,
     burn_amount: u64,
-    consensus_hash: String,
+    #[serde(with = "prefix_hex")]
+    consensus_hash: ConsensusHash,
 }
 
 impl<T: SignerEventTrait> TryFrom<BurnBlockEvent> for SignerEvent<T> {
     type Error = EventError;
 
     fn try_from(burn_block_event: BurnBlockEvent) -> Result<Self, Self::Error> {
-        let burn_header_hash = burn_block_event
-            .burn_block_hash
-            .get(2..)
-            .ok_or_else(|| EventError::Deserialize("Hex string should be 0x prefixed".into()))
-            .and_then(|hex| {
-                BurnchainHeaderHash::from_hex(hex)
-                    .map_err(|e| EventError::Deserialize(format!("Invalid hex string: {e}")))
-            })?;
-
-        let consensus_hash = burn_block_event
-            .consensus_hash
-            .get(2..)
-            .ok_or_else(|| EventError::Deserialize("Hex string should be 0x prefixed".into()))
-            .and_then(|hex| {
-                ConsensusHash::from_hex(hex)
-                    .map_err(|e| EventError::Deserialize(format!("Invalid hex string: {e}")))
-            })?;
-
         Ok(SignerEvent::NewBurnBlock {
             burn_height: burn_block_event.burn_block_height,
             received_time: SystemTime::now(),
-            burn_header_hash,
-            consensus_hash,
+            burn_header_hash: burn_block_event.burn_block_hash,
+            consensus_hash: burn_block_event.consensus_hash,
         })
     }
 }
 
 #[derive(Debug, Deserialize)]
 struct BlockEvent {
-    index_block_hash: String,
-    signer_signature_hash: String,
-    consensus_hash: String,
+    #[serde(with = "prefix_hex")]
+    index_block_hash: StacksBlockId,
+    #[serde(with = "prefix_opt_hex")]
+    signer_signature_hash: Option<Sha512Trunc256Sum>,
+    #[serde(with = "prefix_hex")]
+    consensus_hash: ConsensusHash,
+    #[serde(with = "prefix_hex")]
+    block_hash: BlockHeaderHash,
     block_height: u64,
 }
 
@@ -610,35 +601,10 @@ impl<T: SignerEventTrait> TryFrom<BlockEvent> for SignerEvent<T> {
     type Error = EventError;
 
     fn try_from(block_event: BlockEvent) -> Result<Self, Self::Error> {
-        let signer_sighash = block_event
-            .signer_signature_hash
-            .get(2..)
-            .ok_or_else(|| EventError::Deserialize("Hex string should be 0x prefixed".into()))
-            .and_then(|hex| {
-                Sha512Trunc256Sum::from_hex(hex)
-                    .map_err(|e| EventError::Deserialize(format!("Invalid hex string: {e}")))
-            })?;
-        let consensus_hash = block_event
-            .consensus_hash
-            .get(2..)
-            .ok_or_else(|| EventError::Deserialize("Hex string should be 0x prefixed".into()))
-            .and_then(|hex| {
-                ConsensusHash::from_hex(hex)
-                    .map_err(|e| EventError::Deserialize(format!("Invalid hex string: {e}")))
-            })?;
-        let block_id = block_event
-            .index_block_hash
-            .get(2..)
-            .ok_or_else(|| EventError::Deserialize("Hex string should be 0x prefixed".into()))
-            .and_then(|hex| {
-                StacksBlockId::from_hex(hex)
-                    .map_err(|e| EventError::Deserialize(format!("Invalid hex string: {e}")))
-            })?;
-
         Ok(SignerEvent::NewBlock {
-            block_id,
-            signer_sighash,
-            consensus_hash,
+            signer_sighash: block_event.signer_signature_hash,
+            block_id: block_event.index_block_hash,
+            consensus_hash: block_event.consensus_hash,
             block_height: block_event.block_height,
         })
     }

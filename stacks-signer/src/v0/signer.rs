@@ -341,6 +341,10 @@ impl SignerTrait<SignerMessage> for Signer {
                 consensus_hash,
                 signer_sighash,
             } => {
+                let Some(signer_sighash) = signer_sighash else {
+                    debug!("{self}: received a new block event for a pre-nakamoto block, no processing necessary");
+                    return;
+                };
                 debug!(
                     "{self}: Received a new block event.";
                     "block_id" => %block_id,
