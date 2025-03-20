@@ -17,6 +17,9 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+use libsigner::v0::messages::{
+    StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateMinerState,
+};
 use serde::{Deserialize, Serialize};
 use slog::{slog_info, slog_warn};
 use stacks_common::bitvec::BitVec;
@@ -30,6 +33,9 @@ use crate::chainstate::{
 };
 use crate::client::{ClientError, CurrentAndLastSortition, StacksClient};
 use crate::signerdb::SignerDb;
+
+/// This is the latest supported protocol version for this signer binary
+pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 1;
 
 /// A signer state machine view. This struct can
 ///  be used to encode the local signer's view or
@@ -91,6 +97,41 @@ pub enum LocalStateMachine {
 pub enum StateMachineUpdate {
     /// A new burn block at height u64 is expected
     BurnBlock(u64),
+}
+
+impl TryInto<StateMachineUpdateMessage> for &LocalStateMachine {
+    type Error = SignerChainstateError;
+
+    fn try_into(self) -> Result<StateMachineUpdateMessage, Self::Error> {
+        let LocalStateMachine::Initialized(state_machine) = self else {
+            return Err(SignerChainstateError::LocalStateMachineNotReady);
+        };
+
+        let current_miner = match state_machine.current_miner {
+            MinerState::ActiveMiner {
+                current_miner_pkh,
+                tenure_id,
+                parent_tenure_id,
+                parent_tenure_last_block,
+                parent_tenure_last_block_height,
+            } => StateMachineUpdateMinerState::ActiveMiner {
+                current_miner_pkh,
+                tenure_id,
+                parent_tenure_id,
+                parent_tenure_last_block,
+                parent_tenure_last_block_height,
+            },
+            MinerState::NoValidMiner => StateMachineUpdateMinerState::NoValidMiner,
+        };
+
+        Ok(StateMachineUpdateMessage {
+            burn_block: state_machine.burn_block,
+            burn_block_height: state_machine.burn_block_height,
+            current_miner,
+            active_signer_protocol_version: state_machine.active_signer_protocol_version,
+            local_supported_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        })
+    }
 }
 
 impl LocalStateMachine {
