@@ -2287,7 +2287,6 @@ impl StacksBlockBuilder {
             }
         }
 
-        // TODO: Should we fill in missing nonces here too?
         mempool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
 
         let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;

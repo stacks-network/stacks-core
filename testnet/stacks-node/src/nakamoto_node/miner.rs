@@ -189,6 +189,8 @@ pub struct BlockMinerThread {
     burnchain: Burnchain,
     /// Last block mined
     last_block_mined: Option<NakamotoBlock>,
+    /// Hash of the last block assembled
+    last_block_assembled: Option<StacksBlockId>,
     /// Number of blocks mined since a tenure change/extend was attempted
     mined_blocks: u64,
     /// Cost consumed by the current tenure
@@ -243,6 +245,7 @@ impl BlockMinerThread {
             keychain: rt.keychain.clone(),
             burnchain: rt.burnchain.clone(),
             last_block_mined: None,
+            last_block_assembled: None,
             mined_blocks: 0,
             registered_key,
             burn_election_block,
@@ -512,6 +515,19 @@ impl BlockMinerThread {
             return Err(NakamotoNodeError::StacksTipChanged);
         }
 
+        if self.last_block_assembled.is_none()
+            || self.last_block_assembled
+                != self.last_block_mined.as_ref().map(|block| block.block_id())
+        {
+            // Reset the nonce cache, since it is only valid if we assembled
+            // the last block successfully.
+            let mut mem_pool = self
+                .config
+                .connect_mempool_db()
+                .expect("Database failure opening mempool");
+            mem_pool.reset_nonce_cache()?;
+        }
+
         let new_block = loop {
             // If we're mock mining, we may not have processed the block that the
             // actual tenure winner committed to yet. So, before attempting to
@@ -540,6 +556,8 @@ impl BlockMinerThread {
 
             match self.mine_block(coordinator) {
                 Ok(x) => {
+                    self.last_block_assembled = Some(x.block_id());
+
                     if !self.validate_timestamp(&x)? {
                         info!("Block mined too quickly. Will try again.";
                             "block_timestamp" => x.header.timestamp,
@@ -557,6 +575,7 @@ impl BlockMinerThread {
                     }
 
                     info!("Miner interrupted while mining, will try again");
+                    self.last_block_assembled = None;
                     // sleep, and try again. if the miner was interrupted because the burnchain
                     // view changed, the next `mine_block()` invocation will error
                     thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
