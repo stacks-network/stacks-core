@@ -11,7 +11,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - The `BlockProposal` StackerDB message serialization struct now includes a `server_version` string, which represents the version of the node that the miner is using. ([#5803](https://github.com/stacks-network/stacks-core/pull/5803))
 - Add `vrf_seed` to the `/v3/sortitions` rpc endpoint
-- Add `txindex` config option for allowing transaction storage/tracking/querying
+- Add `txindex` configuration option enabling the storage (and querying via api) of transactions. Note: the old STACKS_TRANSACTION_LOG environment var configuration is no more available.
 
 ### Changed
 
