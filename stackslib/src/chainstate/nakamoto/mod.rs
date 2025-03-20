@@ -2158,7 +2158,7 @@ impl NakamotoChainState {
 
             let commit = stacks_db_tx.commit();
             if commit.is_err() {
-                warn!("Could not index transactions: {}", commit.err().unwrap());
+                error!("Could not index transactions: {}", commit.err().unwrap());
             }
         }
 
