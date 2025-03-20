@@ -7569,7 +7569,7 @@ fn block_validation_pending_table() {
                 .expect("Failed to get pending block validations");
             info!(
                 "----- Waiting for pending block proposal in SignerDB -----";
-                "proposed_signer_signature_hash" => block_signer_signature_hash.to_hex(),
+                "proposed_block_signer_signature_hash" => block_signer_signature_hash.to_hex(),
                 "pending_block_validations_len" => pending_block_validations.len(),
                 "pending_block_validations" => pending_block_validations.iter()
                     .map(|p| p.signer_signature_hash.to_hex())
