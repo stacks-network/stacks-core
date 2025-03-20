@@ -42,7 +42,7 @@ pub enum SignerChainstateError {
     /// The signer could not find information about the parent tenure
     #[error("No information available for parent tenure '{0}'")]
     NoParentTenureInfo(ConsensusHash),
-    /// The signer could not find information about the parent tenure
+    /// The local state machine wasn't ready to be queried
     #[error("The local state machine is not ready, so no update message can be produced")]
     LocalStateMachineNotReady,
 }

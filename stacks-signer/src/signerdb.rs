@@ -962,7 +962,7 @@ impl SignerDb {
         Ok(())
     }
 
-    /// Get timestamp (epoch seconds) at which a burn block was received over the event dispatcheer by this signer
+    /// Get timestamp (epoch seconds) at which a burn block was received over the event dispatcher by this signer
     /// if that burn block has been received.
     pub fn get_burn_block_receive_time(
         &self,
@@ -979,7 +979,7 @@ impl SignerDb {
         Ok(Some(receive_time))
     }
 
-    /// Get timestamp (epoch seconds) at which a burn block was received over the event dispatcheer by this signer
+    /// Get timestamp (epoch seconds) at which a burn block was received over the event dispatcher by this signer
     /// if that burn block has been received.
     pub fn get_burn_block_receive_time_ch(
         &self,

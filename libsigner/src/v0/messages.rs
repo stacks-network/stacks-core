@@ -604,7 +604,7 @@ impl StacksMessageCodec for StateMachineUpdateMinerState {
                 parent_tenure_last_block.consensus_serialize(fd)?;
                 parent_tenure_last_block_height.consensus_serialize(fd)?;
             }
-            StateMachineUpdateMinerState::NoValidMiner => return Ok(()),
+            StateMachineUpdateMinerState::NoValidMiner => {}
         }
         Ok(())
     }
@@ -628,7 +628,7 @@ impl StacksMessageCodec for StateMachineUpdateMinerState {
                 })
             }
             other => Err(CodecError::DeserializeError(format!(
-                "Unexpect miner state variant in StateMachineUpdate: {other}"
+                "Unexpected miner state variant in StateMachineUpdate: {other}"
             ))),
         }
     }
