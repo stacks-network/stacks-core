@@ -20,7 +20,6 @@ use std::time::Duration;
 use clarity::codec::StacksMessageCodec;
 use hashbrown::HashMap;
 use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
-use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::{debug, error, info, warn};
 
 use crate::chainstate::SortitionsView;

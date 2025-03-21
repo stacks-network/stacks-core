@@ -20,7 +20,6 @@ use std::time::Instant;
 use clarity::util::hash::to_hex;
 use clarity::util::secp256k1::Secp256k1PublicKey;
 use libsigner::VERSION_STRING;
-use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::{debug, error, info, warn};
 use tiny_http::{Response as HttpResponse, Server as HttpServer};
 

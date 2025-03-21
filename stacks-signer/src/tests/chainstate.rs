@@ -31,7 +31,6 @@ use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId};
 use clarity::util::vrf::VRFProof;
 use libsigner::v0::messages::RejectReason;
 use libsigner::{BlockProposal, BlockProposalData};
-use slog::slog_info;
 use stacks_common::bitvec::BitVec;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::info;

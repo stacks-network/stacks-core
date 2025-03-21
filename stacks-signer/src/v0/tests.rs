@@ -18,7 +18,6 @@ use std::sync::LazyLock;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use libsigner::v0::messages::{BlockResponse, RejectReason};
 use libsigner::BlockProposal;
-use slog::{slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::tests::TestFlag;

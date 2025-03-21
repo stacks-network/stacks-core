@@ -25,7 +25,6 @@ mod server;
 pub mod actions {
     use ::prometheus::HistogramTimer;
     use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-    use slog::slog_error;
     use stacks_common::error;
 
     use crate::config::GlobalConfig;
@@ -121,7 +120,6 @@ pub mod actions {
 #[cfg(not(feature = "monitoring_prom"))]
 pub mod actions {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-    use slog::slog_info;
     use stacks_common::info;
 
     use crate::GlobalConfig;
