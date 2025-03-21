@@ -334,7 +334,7 @@ fn mempool_walk_over_fork() {
     );
 
     mempool
-        .reset_nonce_cache()
+        .reset_mempool_caches()
         .expect("Should be able to reset nonces");
 
     chainstate.with_read_only_clarity_tx(
@@ -373,7 +373,7 @@ fn mempool_walk_over_fork() {
     );
 
     mempool
-        .reset_nonce_cache()
+        .reset_mempool_caches()
         .expect("Should be able to reset nonces");
 
     // The mempool iterator no longer does any consideration of what block accepted
@@ -414,7 +414,7 @@ fn mempool_walk_over_fork() {
     );
 
     mempool
-        .reset_nonce_cache()
+        .reset_mempool_caches()
         .expect("Should be able to reset nonces");
 
     chainstate.with_read_only_clarity_tx(
@@ -453,7 +453,7 @@ fn mempool_walk_over_fork() {
     );
 
     mempool
-        .reset_nonce_cache()
+        .reset_mempool_caches()
         .expect("Should be able to reset nonces");
 
     // let's test replace-across-fork while we're here.
@@ -675,7 +675,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
     );
 
     // Next with 0%
-    let _ = mempool.reset_nonce_cache();
+    let _ = mempool.reset_mempool_caches();
     mempool_settings.consider_no_estimate_tx_prob = 0;
 
     chainstate.with_read_only_clarity_tx(
@@ -711,7 +711,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
     );
 
     // Then with with 100%
-    let _ = mempool.reset_nonce_cache();
+    let _ = mempool.reset_mempool_caches();
     mempool_settings.consider_no_estimate_tx_prob = 100;
 
     chainstate.with_read_only_clarity_tx(

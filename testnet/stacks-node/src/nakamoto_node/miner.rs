@@ -514,7 +514,7 @@ impl BlockMinerThread {
                     .config
                     .connect_mempool_db()
                     .expect("Database failure opening mempool");
-                mem_pool.reset_nonce_cache()?;
+                mem_pool.reset_mempool_caches()?;
             }
 
             // If we're mock mining, we may not have processed the block that the

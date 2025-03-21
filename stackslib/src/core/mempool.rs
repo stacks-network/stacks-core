@@ -22,11 +22,12 @@ use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{Duration, Instant, SystemTime};
-use std::{fs, io};
+use std::{fs, io, thread};
 
 use clarity::vm::types::PrincipalData;
 use rand::distributions::Uniform;
 use rand::prelude::Distribution;
+use rand::Rng;
 use rusqlite::types::ToSql;
 use rusqlite::{
     params, Connection, Error as SqliteError, OpenFlags, OptionalExtension, Row, Rows, Statement,
@@ -100,6 +101,9 @@ pub const DEFAULT_BLACKLIST_MAX_SIZE: u64 = 134217728; // 2**27 -- the blacklist
 // The parameter choice here is due to performance -- calculating a tag set can be slower than just
 // loading the bloom filter, even though the bloom filter is larger.
 const DEFAULT_MAX_TX_TAGS: u32 = 2048;
+
+// maximum number of transactions that can fit in a single block
+const MAX_BLOCK_TXS: usize = 11_650;
 
 /// A node-specific transaction tag -- the first 8 bytes of siphash(local-seed,txid)
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
@@ -838,6 +842,13 @@ const MEMPOOL_SCHEMA_7_TIME_ESTIMATES: &[&str] = &[
 
 const MEMPOOL_SCHEMA_8_NONCE_SORTING: &'static [&'static str] = &[
     r#"
+    -- Add table to track considered transactions
+    CREATE TABLE IF NOT EXISTS considered_txs(
+        txid TEXT PRIMARY KEY NOT NULL,
+        FOREIGN KEY(txid) REFERENCES mempool(txid) ON DELETE CASCADE
+    );
+    "#,
+    r#"
     -- Drop redundant mempool indexes, covered by unique constraints
     DROP INDEX IF EXISTS "by_txid";
     DROP INDEX IF EXISTS "by_sponsor";
@@ -1429,10 +1440,12 @@ impl MemPoolDB {
     }
 
     #[cfg_attr(test, mutants::skip)]
-    pub fn reset_nonce_cache(&mut self) -> Result<(), db_error> {
+    pub fn reset_mempool_caches(&mut self) -> Result<(), db_error> {
         debug!("reset nonce cache");
-        let sql = "DELETE FROM nonces";
-        self.db.execute(sql, NO_PARAMS)?;
+        // Delete all rows from the nonces table
+        self.db.execute("DELETE FROM nonces", NO_PARAMS)?;
+        // Also delete all rows from the considered_txs table
+        self.db.execute("DELETE FROM considered_txs", NO_PARAMS)?;
         Ok(())
     }
 
@@ -1569,6 +1582,7 @@ impl MemPoolDB {
     {
         let start_time = Instant::now();
         let mut total_considered = 0;
+        let mut considered_txs = Vec::with_capacity(MAX_BLOCK_TXS);
 
         debug!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
@@ -1635,6 +1649,7 @@ impl MemPoolDB {
                 LEFT JOIN nonces AS ns ON m.sponsor_address = ns.address
                 WHERE (no.address IS NULL OR m.origin_nonce = no.nonce)
                     AND (ns.address IS NULL OR m.sponsor_nonce = ns.nonce)
+                    AND m.txid NOT IN (SELECT txid FROM considered_txs)
                 ORDER BY accept_time ASC
                 LIMIT 11650 -- max transactions that can fit in one block
             ),
@@ -1773,6 +1788,7 @@ impl MemPoolDB {
                         // Candidate transaction: fall through
                     }
                 };
+                considered_txs.push(candidate.txid);
 
                 // Read in and deserialize the transaction.
                 let tx_info_option = MemPoolDB::get_tx(self.conn(), &candidate.txid)?;
@@ -1900,6 +1916,10 @@ impl MemPoolDB {
             // Flush the nonce cache to the database before performing the next
             // query.
             nonce_cache.flush(&mut nonce_conn);
+
+            // Flush the candidate cache to the database before performing the
+            // next query.
+            flush_considered_txs(&mut nonce_conn, &mut considered_txs);
         };
 
         // drop these rusqlite statements and queries, since their existence as immutable borrows on the
@@ -2880,4 +2900,49 @@ impl MemPoolDB {
 
         Ok((ret, next_page, num_rows_visited))
     }
+}
+
+/// Flush the considered transaction IDs to the DB.
+/// Do not return until successful. After a successful flush, clear the vector.
+pub fn flush_considered_txs(conn: &mut DBConn, considered_txs: &mut Vec<Txid>) {
+    const MAX_BACKOFF: Duration = Duration::from_secs(30);
+    let mut backoff = Duration::from_millis(rand::thread_rng().gen_range(50..200));
+
+    loop {
+        // Pass a slice to the try function.
+        let result = try_flush_considered_txs(conn, considered_txs.as_slice());
+
+        match result {
+            Ok(_) => {
+                // On success, clear the vector so that it’s empty.
+                considered_txs.clear();
+                return;
+            }
+            Err(e) => {
+                warn!("Considered txid flush failed: {e}. Retrying in {backoff:?}");
+                thread::sleep(backoff);
+                if backoff < MAX_BACKOFF {
+                    backoff =
+                        backoff * 2 + Duration::from_millis(rand::thread_rng().gen_range(50..200));
+                }
+            }
+        }
+    }
+}
+
+/// Try to flush the considered transaction IDs to the DB.
+pub fn try_flush_considered_txs(
+    conn: &mut DBConn,
+    considered_txs: &[Txid],
+) -> Result<(), db_error> {
+    let sql = "INSERT OR IGNORE INTO considered_txs (txid) VALUES (?1)";
+
+    let db_tx = conn.transaction()?;
+
+    for txid in considered_txs {
+        db_tx.execute(sql, params![txid])?;
+    }
+
+    db_tx.commit()?;
+    Ok(())
 }

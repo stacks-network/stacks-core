@@ -1246,7 +1246,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let deadline = get_epoch_time_ms() + u128::from(self.settings.max_miner_time_ms);
         let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
 
-        mem_pool.reset_nonce_cache()?;
+        mem_pool.reset_mempool_caches()?;
         let stacks_epoch_id = clarity_tx.get_epoch();
         let block_limit = clarity_tx
             .block_limit()
@@ -2620,7 +2620,7 @@ impl StacksBlockBuilder {
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
 
-        mempool.reset_nonce_cache()?;
+        mempool.reset_mempool_caches()?;
         let (blocked, tx_events) = match Self::select_and_apply_transactions(
             &mut epoch_tx,
             &mut builder,
