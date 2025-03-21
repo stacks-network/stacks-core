@@ -18,11 +18,13 @@ use std::time::{Duration, UNIX_EPOCH};
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use libsigner::v0::messages::{
-    StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateMinerState,
+    StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,
+    StateMachineUpdateMinerState,
 };
 use serde::{Deserialize, Serialize};
 use slog::{slog_info, slog_warn};
 use stacks_common::bitvec::BitVec;
+use stacks_common::codec::Error as CodecError;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
@@ -100,11 +102,13 @@ pub enum StateMachineUpdate {
 }
 
 impl TryInto<StateMachineUpdateMessage> for &LocalStateMachine {
-    type Error = SignerChainstateError;
+    type Error = CodecError;
 
     fn try_into(self) -> Result<StateMachineUpdateMessage, Self::Error> {
         let LocalStateMachine::Initialized(state_machine) = self else {
-            return Err(SignerChainstateError::LocalStateMachineNotReady);
+            return Err(CodecError::SerializeError(
+                "Local state machine is not ready to be serialized into an update message".into(),
+            ));
         };
 
         let current_miner = match state_machine.current_miner {
@@ -124,13 +128,15 @@ impl TryInto<StateMachineUpdateMessage> for &LocalStateMachine {
             MinerState::NoValidMiner => StateMachineUpdateMinerState::NoValidMiner,
         };
 
-        Ok(StateMachineUpdateMessage {
-            burn_block: state_machine.burn_block,
-            burn_block_height: state_machine.burn_block_height,
-            current_miner,
-            active_signer_protocol_version: state_machine.active_signer_protocol_version,
-            local_supported_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
-        })
+        StateMachineUpdateMessage::new(
+            state_machine.active_signer_protocol_version,
+            SUPPORTED_SIGNER_PROTOCOL_VERSION,
+            StateMachineUpdateContent::V0 {
+                burn_block: state_machine.burn_block,
+                burn_block_height: state_machine.burn_block_height,
+                current_miner,
+            },
+        )
     }
 }
 

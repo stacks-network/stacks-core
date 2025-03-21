@@ -25,6 +25,7 @@
 
 use std::fmt::{Debug, Display};
 use std::io::{Read, Write};
+use std::marker::PhantomData;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -76,6 +77,9 @@ use crate::{
 
 /// Maximum size of the [BlockResponseData] serialized bytes
 pub const BLOCK_RESPONSE_DATA_MAX_SIZE: u32 = 2 * 1024 * 1024; // 2MB
+
+/// Maximum size of the state machine update messages
+pub const STATE_MACHINE_UPDATE_MAX_SIZE: u32 = 2 * 1024 * 1024; // 2MB
 
 define_u8_enum!(
 /// Enum representing the stackerdb message identifier: this is
@@ -541,19 +545,31 @@ impl StacksMessageCodec for MockBlock {
     }
 }
 
-/// Message for update the Signer State infos
+/// Message for updates to the Signer State machine
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct StateMachineUpdate {
-    /// The tip burn block (i.e., the latest bitcoin block) seen by this signer
-    pub burn_block: ConsensusHash,
-    /// The tip burn block height (i.e., the latest bitcoin block) seen by this signer
-    pub burn_block_height: u64,
-    /// The signer's view of who the current miner should be (and their tenure building info)
-    pub current_miner: StateMachineUpdateMinerState,
     /// The active signing protocol version
     pub active_signer_protocol_version: u64,
     /// The highest supported signing protocol by the local signer
     pub local_supported_signer_protocol_version: u64,
+    /// The actual content of the state machine update message (this is a versioned enum)
+    pub content: StateMachineUpdateContent,
+    // Prevent manual construction of this struct
+    no_manual_construct: PhantomData<()>,
+}
+
+/// Versioning enum for StateMachineUpdate messages
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub enum StateMachineUpdateContent {
+    /// Version 0
+    V0 {
+        /// The tip burn block (i.e., the latest bitcoin block) seen by this signer
+        burn_block: ConsensusHash,
+        /// The tip burn block height (i.e., the latest bitcoin block) seen by this signer
+        burn_block_height: u64,
+        /// The signer's view of who the current miner should be (and their tenure building info)
+        current_miner: StateMachineUpdateMinerState,
+    },
 }
 
 /// Message for update the Signer State infos
@@ -576,6 +592,26 @@ pub enum StateMachineUpdateMinerState {
     },
     /// The signer doesn't believe there's any valid miner
     NoValidMiner,
+}
+
+impl StateMachineUpdate {
+    /// Construct a StateMachineUpdate message, checking to ensure that the
+    /// supplied content is supported by the supplied protocol versions.
+    pub fn new(
+        active_signer_protocol_version: u64,
+        local_supported_signer_protocol_version: u64,
+        content: StateMachineUpdateContent,
+    ) -> Result<Self, CodecError> {
+        if !content.is_protocol_version_compatible(active_signer_protocol_version) {
+            return Err(CodecError::DeserializeError(format!("StateMachineUpdateContent is incompatible with protocol version: {active_signer_protocol_version}")));
+        }
+        Ok(Self {
+            active_signer_protocol_version,
+            local_supported_signer_protocol_version,
+            content,
+            no_manual_construct: PhantomData,
+        })
+    }
 }
 
 impl StateMachineUpdateMinerState {
@@ -634,32 +670,89 @@ impl StacksMessageCodec for StateMachineUpdateMinerState {
     }
 }
 
+impl StateMachineUpdateContent {
+    // Is the protocol version specified one that uses self's content?
+    fn is_protocol_version_compatible(&self, version: u64) -> bool {
+        match self {
+            Self::V0 { .. } => version == 0,
+        }
+    }
+
+    fn serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        match self {
+            Self::V0 {
+                burn_block,
+                burn_block_height,
+                current_miner,
+            } => {
+                burn_block.consensus_serialize(fd)?;
+                burn_block_height.consensus_serialize(fd)?;
+                current_miner.consensus_serialize(fd)?;
+            }
+        }
+        Ok(())
+    }
+    fn deserialize<R: Read>(fd: &mut R, version: u64) -> Result<Self, CodecError> {
+        match version {
+            0 => {
+                let burn_block = read_next(fd)?;
+                let burn_block_height = read_next(fd)?;
+                let current_miner = read_next(fd)?;
+                Ok(Self::V0 {
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                })
+            }
+            other => Err(CodecError::DeserializeError(format!(
+                "Unknown state machine update version: {other}"
+            ))),
+        }
+    }
+}
+
 impl StacksMessageCodec for StateMachineUpdate {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         self.active_signer_protocol_version
             .consensus_serialize(fd)?;
         self.local_supported_signer_protocol_version
             .consensus_serialize(fd)?;
-        self.burn_block.consensus_serialize(fd)?;
-        self.burn_block_height.consensus_serialize(fd)?;
-        self.current_miner.consensus_serialize(fd)?;
-        Ok(())
+        let mut buffer = Vec::new();
+        self.content.serialize(&mut buffer)?;
+        let buff_len = u32::try_from(buffer.len())
+            .map_err(|_e| CodecError::SerializeError("Message length exceeded u32".into()))?;
+        if buff_len > STATE_MACHINE_UPDATE_MAX_SIZE {
+            return Err(CodecError::SerializeError(format!(
+                "Message length exceeded max: {STATE_MACHINE_UPDATE_MAX_SIZE}"
+            )));
+        }
+        buff_len.consensus_serialize(fd)?;
+        fd.write_all(&buffer).map_err(CodecError::WriteError)
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let active_signer_protocol_version = read_next(fd)?;
         let local_supported_signer_protocol_version = read_next(fd)?;
-        let burn_block = read_next(fd)?;
-        let burn_block_height = read_next(fd)?;
-        let current_miner = read_next(fd)?;
+        let content_len: u32 = read_next(fd)?;
+        if content_len > STATE_MACHINE_UPDATE_MAX_SIZE {
+            return Err(CodecError::DeserializeError(format!(
+                "Message length exceeded max: {STATE_MACHINE_UPDATE_MAX_SIZE}"
+            )));
+        }
+        let buffer_len = usize::try_from(content_len)
+            .expect("FATAL: cannot process signer messages when usize < u32");
+        let mut buffer = vec![0u8; buffer_len];
+        fd.read_exact(&mut buffer).map_err(CodecError::ReadError)?;
+        let content = StateMachineUpdateContent::deserialize(
+            &mut buffer.as_slice(),
+            active_signer_protocol_version,
+        )?;
 
-        Ok(Self {
-            burn_block,
-            burn_block_height,
-            current_miner,
+        Self::new(
             active_signer_protocol_version,
             local_supported_signer_protocol_version,
-        })
+            content,
+        )
     }
 }
 
@@ -2121,28 +2214,53 @@ mod test {
     }
 
     #[test]
-    fn test_deserialize_state_machine_update() {
-        let signer_message = StateMachineUpdate {
-            burn_block: ConsensusHash([0x55; 20]),
-            burn_block_height: 100,
-            active_signer_protocol_version: 2,
-            local_supported_signer_protocol_version: 3,
-            current_miner: StateMachineUpdateMinerState::ActiveMiner {
-                current_miner_pkh: Hash160([0xab; 20]),
-                tenure_id: ConsensusHash([0x44; 20]),
-                parent_tenure_id: ConsensusHash([0x22; 20]),
-                parent_tenure_last_block: StacksBlockId([0x33; 32]),
-                parent_tenure_last_block_height: 1,
+    fn version_check_state_machine_update() {
+        let error = StateMachineUpdate::new(
+            1,
+            3,
+            StateMachineUpdateContent::V0 {
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh: Hash160([0xab; 20]),
+                    tenure_id: ConsensusHash([0x44; 20]),
+                    parent_tenure_id: ConsensusHash([0x22; 20]),
+                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                    parent_tenure_last_block_height: 1,
+                },
             },
-        };
+        )
+        .unwrap_err();
+        assert!(matches!(error, CodecError::DeserializeError(_)));
+    }
+
+    #[test]
+    fn deserialize_state_machine_update_v0() {
+        let signer_message = StateMachineUpdate::new(
+            0,
+            3,
+            StateMachineUpdateContent::V0 {
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh: Hash160([0xab; 20]),
+                    tenure_id: ConsensusHash([0x44; 20]),
+                    parent_tenure_id: ConsensusHash([0x22; 20]),
+                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                    parent_tenure_last_block_height: 1,
+                },
+            },
+        )
+        .unwrap();
 
         let mut bytes = vec![];
         signer_message.consensus_serialize(&mut bytes).unwrap();
 
         // check for raw content for avoiding regressions when structure changes
         let raw_signer_message: Vec<&[u8]> = vec![
-            /* active_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 2],
+            /* active_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 0],
             /* local_supported_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 3],
+            /* content_len*/ &[0, 0, 0, 129],
             /* burn_block*/ &[0x55; 20],
             /* burn_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 100],
             /* current_miner_variant */ &[0x01],
@@ -2160,21 +2278,25 @@ mod test {
 
         assert_eq!(signer_message, signer_message_deserialized);
 
-        let signer_message = StateMachineUpdate {
-            burn_block: ConsensusHash([0x55; 20]),
-            burn_block_height: 100,
-            active_signer_protocol_version: 2,
-            local_supported_signer_protocol_version: 3,
-            current_miner: StateMachineUpdateMinerState::NoValidMiner,
-        };
+        let signer_message = StateMachineUpdate::new(
+            0,
+            4,
+            StateMachineUpdateContent::V0 {
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::NoValidMiner,
+            },
+        )
+        .unwrap();
 
         let mut bytes = vec![];
         signer_message.consensus_serialize(&mut bytes).unwrap();
 
         // check for raw content for avoiding regressions when structure changes
         let raw_signer_message: Vec<&[u8]> = vec![
-            /* active_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 2],
-            /* local_supported_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 3],
+            /* active_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 0],
+            /* local_supported_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 4],
+            /* content_len*/ &[0, 0, 0, 29],
             /* burn_block*/ &[0x55; 20],
             /* burn_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 100],
             /* current_miner_variant */ &[0x00],
