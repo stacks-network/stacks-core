@@ -26,7 +26,7 @@ use std::{error, fmt};
 
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
-use curve25519_dalek::scalar::Scalar as ed25519_Scalar;
+use curve25519_dalek::scalar::{clamp_integer, Scalar as ed25519_Scalar};
 use rand;
 use sha2::{Digest, Sha512};
 
@@ -246,7 +246,7 @@ impl VRFProof {
 
     #[allow(clippy::needless_range_loop)]
     pub fn check_c(c: &ed25519_Scalar) -> bool {
-        let c_bytes = c.reduce().to_bytes();
+        let c_bytes = c.to_bytes();
 
         // upper 16 bytes of c must be 0's
         for c_byte in c_bytes[16..32].iter() {
@@ -281,7 +281,9 @@ impl VRFProof {
                 // 0                            32         48                         80
                 // |----------------------------|----------|---------------------------|
                 //      Gamma point               c scalar   s scalar
-                let gamma_opt = CompressedEdwardsY::from_slice(&bytes[0..32]).decompress();
+                let gamma_opt = CompressedEdwardsY::from_slice(&bytes[0..32])
+                    .unwrap()
+                    .decompress();
                 if gamma_opt.is_none() {
                     test_debug!("Invalid Gamma");
                     return None;
@@ -297,8 +299,8 @@ impl VRFProof {
 
                 c_buf[..16].copy_from_slice(&bytes[32..(16 + 32)]);
                 s_buf[..32].copy_from_slice(&bytes[48..(32 + 48)]);
-                let c = ed25519_Scalar::from_canonical_bytes(c_buf)?;
-                let s = ed25519_Scalar::from_canonical_bytes(s_buf)?;
+                let c = ed25519_Scalar::from_canonical_bytes(c_buf).expect("Invalid C scalar");
+                let s = ed25519_Scalar::from_canonical_bytes(s_buf).expect("Invalid S scalar");
 
                 Some(VRFProof { Gamma: gamma, c, s })
             }
@@ -324,7 +326,7 @@ impl VRFProof {
             "FATAL ERROR: somehow constructed an invalid ECVRF proof"
         );
 
-        let c_bytes = self.c.reduce().to_bytes();
+        let c_bytes = self.c.to_bytes();
         c_bytes_16[0..16].copy_from_slice(&c_bytes[0..16]);
 
         let gamma_bytes = self.Gamma.compress().to_bytes();
@@ -386,7 +388,7 @@ impl VRF {
             }
 
             let y = CompressedEdwardsY::from_slice(&hasher.finalize()[0..32]);
-            if let Some(h) = y.decompress() {
+            if let Some(h) = y.unwrap().decompress() {
                 break h;
             }
 
@@ -445,8 +447,7 @@ impl VRF {
         let mut h_32 = [0u8; 32];
         h_32.copy_from_slice(&h[0..32]);
 
-        let x_scalar_raw = ed25519_Scalar::from_bits(h_32);
-        let x_scalar = x_scalar_raw.reduce(); // use the canonical scalar for the private key
+        let x_scalar = ed25519_Scalar::from_bytes_mod_order(clamp_integer(h_32));
 
         trunc_hash.copy_from_slice(&h[32..64]);
 
@@ -473,7 +474,7 @@ impl VRF {
         let mut scalar_buf = [0u8; 32];
         scalar_buf[0..16].copy_from_slice(hash128);
 
-        ed25519_Scalar::from_bits(scalar_buf)
+        ed25519_Scalar::from_canonical_bytes(scalar_buf).expect("Invalid scalar")
     }
 
     /// ECVRF proof routine
@@ -492,8 +493,7 @@ impl VRF {
         let c_hashbuf = VRF::hash_points(&H_point, &Gamma_point, &kB_point, &kH_point);
         let c_scalar = VRF::ed25519_scalar_from_hash128(&c_hashbuf);
 
-        let s_full_scalar = &k_scalar + &c_scalar * &x_scalar;
-        let s_scalar = s_full_scalar.reduce();
+        let s_scalar = &k_scalar + &c_scalar * &x_scalar;
 
         // NOTE: expect() won't panic because c_scalar is guaranteed to have
         // its upper 16 bytes as 0
@@ -509,7 +509,7 @@ impl VRF {
     #[allow(clippy::op_ref)]
     pub fn verify(Y_point: &VRFPublicKey, proof: &VRFProof, alpha: &[u8]) -> Result<bool, Error> {
         let H_point = VRF::hash_to_curve(Y_point, alpha);
-        let s_reduced = proof.s().reduce();
+        let s_reduced = proof.s();
         let Y_point_ed = CompressedEdwardsY(Y_point.to_bytes())
             .decompress()
             .ok_or(Error::InvalidPublicKey)?;
@@ -517,8 +517,8 @@ impl VRF {
             return Err(Error::InvalidPublicKey);
         }
 
-        let U_point = &s_reduced * &ED25519_BASEPOINT_POINT - proof.c() * Y_point_ed;
-        let V_point = &s_reduced * &H_point - proof.c() * proof.Gamma();
+        let U_point = s_reduced * &ED25519_BASEPOINT_POINT - proof.c() * Y_point_ed;
+        let V_point = s_reduced * &H_point - proof.c() * proof.Gamma();
 
         let c_prime_hashbuf = VRF::hash_points(&H_point, proof.Gamma(), &U_point, &V_point);
         let c_prime = VRF::ed25519_scalar_from_hash128(&c_prime_hashbuf);
