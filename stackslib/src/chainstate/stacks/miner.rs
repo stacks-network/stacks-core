@@ -16,6 +16,8 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(any(test, feature = "testing"))]
+use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 use std::time::Instant;
@@ -37,6 +39,8 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::util::tests::TestFlag;
 use stacks_common::util::vrf::*;
 
 use crate::burnchains::{Burnchain, PrivateKey, PublicKey};
@@ -66,6 +70,26 @@ use crate::monitoring::{
 };
 use crate::net::relay::Relayer;
 use crate::net::Error as net_error;
+
+#[cfg(any(test, feature = "testing"))]
+/// Test flag to stall transaction execution
+pub static TEST_TX_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+
+/// Stall transaction processing for testing
+#[cfg(any(test, feature = "testing"))]
+fn fault_injection_stall_tx() {
+    if TEST_TX_STALL.get() {
+        // Do an extra check just so we don't log EVERY time.
+        warn!("Tx is stalled due to testing directive");
+        while TEST_TX_STALL.get() {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        warn!("Tx is no longer stalled due to testing directive. Continuing...");
+    }
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+fn fault_injection_stall_tx() {}
 
 /// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
 /// linked to the burnchain and what view(s) the miner had of the burnchain before and after
@@ -394,10 +418,11 @@ pub enum TransactionEvent {
 impl TransactionResult {
     /// Logs a queryable message for the case where `txid` has succeeded.
     pub fn log_transaction_success(tx: &StacksTransaction) {
-        info!("Tx successfully processed.";
+        info!("Tx successfully processed";
             "event_name" => %"transaction_result",
             "tx_id" => %tx.txid(),
             "event_type" => %"success",
+            "fee" => tx.get_tx_fee()
         );
     }
 
@@ -421,6 +446,7 @@ impl TransactionResult {
             "tx_id" => %tx.txid(),
             "event_type" => "skip",
             "reason" => %err,
+            "fee" => tx.get_tx_fee()
         );
     }
 
@@ -439,13 +465,12 @@ impl TransactionResult {
     /// This method logs "transaction success" as a side effect.
     pub fn success(
         transaction: &StacksTransaction,
-        fee: u64,
         receipt: StacksTransactionReceipt,
     ) -> TransactionResult {
         Self::log_transaction_success(transaction);
         Self::Success(TransactionSuccess {
             tx: transaction.clone(),
-            fee,
+            fee: transaction.get_tx_fee(),
             receipt,
             soft_limit_reached: false,
         })
@@ -455,14 +480,13 @@ impl TransactionResult {
     /// This method logs "transaction success" as a side effect.
     pub fn success_with_soft_limit(
         transaction: &StacksTransaction,
-        fee: u64,
         receipt: StacksTransactionReceipt,
         soft_limit_reached: bool,
     ) -> TransactionResult {
         Self::log_transaction_success(transaction);
         Self::Success(TransactionSuccess {
             tx: transaction.clone(),
-            fee,
+            fee: transaction.get_tx_fee(),
             receipt,
             soft_limit_reached,
         })
@@ -1030,7 +1054,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         let quiet = !cfg!(test);
         match StacksChainState::process_transaction(clarity_tx, &tx, quiet, ast_rules) {
-            Ok((fee, receipt)) => Ok(TransactionResult::success(&tx, fee, receipt)),
+            Ok((_fee, receipt)) => Ok(TransactionResult::success(&tx, receipt)),
             Err(e) => {
                 let (is_problematic, e) =
                     TransactionResult::is_problematic(&tx, e, clarity_tx.get_epoch());
@@ -2374,6 +2398,9 @@ impl StacksBlockBuilder {
                         num_considered += 1;
 
                         let tx_start = Instant::now();
+
+                        fault_injection_stall_tx();
+
                         let tx_result = builder.try_mine_tx_with_len(
                             epoch_tx,
                             &txinfo.tx,
@@ -2831,7 +2858,7 @@ impl BlockBuilder for StacksBlockBuilder {
             self.txs.push(tx.clone());
             self.total_anchored_fees += fee;
 
-            TransactionResult::success(tx, fee, receipt)
+            TransactionResult::success(tx, receipt)
         } else {
             // building up the microblocks
             if tx.anchor_mode != TransactionAnchorMode::OffChainOnly
@@ -2921,7 +2948,7 @@ impl BlockBuilder for StacksBlockBuilder {
             self.micro_txs.push(tx.clone());
             self.total_streamed_fees += fee;
 
-            TransactionResult::success(tx, fee, receipt)
+            TransactionResult::success(tx, receipt)
         };
 
         self.bytes_so_far += tx_len;

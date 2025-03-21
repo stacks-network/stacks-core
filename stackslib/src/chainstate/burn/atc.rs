@@ -1501,7 +1501,7 @@ mod test {
         let k: f64 = 11.795830089282052;
 
         // natural logarithm constant
-        let e: f64 = 2.718281828459045;
+        let e = std::f64::consts::E;
 
         let adv = L / (1.0 + e.powf(-k * (x0 - atc)));
         adv

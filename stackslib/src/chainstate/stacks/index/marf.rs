@@ -1041,8 +1041,9 @@ impl<T: MarfTrieId> MARF<T> {
         })?;
 
         // a NotFoundError _here_ means that the key doesn't exist in this view
-        let (cursor, node) = MARF::walk(storage, block_hash, path)
-            .inspect_err(|e| trace!("Failed to look up key {block_hash:?} {path:?}: {e:?}"))?;
+        let (cursor, node) = MARF::walk(storage, block_hash, path).inspect_err(|e| {
+            trace!("Failed to look up key {block_hash:?} {path:?}: {e:?}");
+        })?;
 
         // both of these get caught by get_by_key and turned into Ok(None)
         //   and a lot of downstream code seems to depend on that behavior, but
@@ -1051,7 +1052,7 @@ impl<T: MarfTrieId> MARF<T> {
         if cursor.block_hashes.len() + 1 != cursor.node_ptrs.len() {
             trace!("cursor.block_hashes = {:?}", &cursor.block_hashes);
             trace!("cursor.node_ptrs = {:?}", cursor.node_ptrs);
-            assert!(false);
+            panic!();
         }
 
         assert!(cursor.eop());
@@ -1084,12 +1085,12 @@ impl<T: MarfTrieId> MARF<T> {
         if cursor.block_hashes.len() + 1 != cursor.node_ptrs.len() {
             trace!("c.block_hashes = {:?}", &cursor.block_hashes);
             trace!("c.node_ptrs = {:?}", cursor.node_ptrs);
-            assert!(false);
+            panic!();
         }
 
         debug!(
-            "MARF Insert in {}: '{}' = '{}' (...{:?})",
-            block_hash, path, leaf_value.data, &leaf_value.path
+            "MARF Insert in {block_hash}: '{path}' = '{}' (...{:?})",
+            leaf_value.data, &leaf_value.path
         );
 
         Trie::add_value(storage, &mut cursor, &mut value)?;

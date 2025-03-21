@@ -27,6 +27,8 @@ use blockstack_lib::util_lib::db::{
 #[cfg(any(test, feature = "testing"))]
 use blockstack_lib::util_lib::db::{FromColumn, FromRow};
 use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress};
+use clarity::types::Address;
+use libsigner::v0::messages::{RejectReason, RejectReasonPrefix};
 use libsigner::BlockProposal;
 use rusqlite::functions::FunctionFlags;
 use rusqlite::{
@@ -165,6 +167,8 @@ pub struct BlockInfo {
     pub validation_time_ms: Option<u64>,
     /// Extra data specific to v0, v1, etc.
     pub ext: ExtraBlockInfo,
+    /// If this signer rejected this block, what was the reason
+    pub reject_reason: Option<RejectReason>,
 }
 
 impl From<BlockProposal> for BlockInfo {
@@ -182,6 +186,7 @@ impl From<BlockProposal> for BlockInfo {
             ext: ExtraBlockInfo::default(),
             state: BlockState::Unprocessed,
             validation_time_ms: None,
+            reject_reason: None,
         }
     }
 }
@@ -500,6 +505,11 @@ CREATE TABLE IF NOT EXISTS tenure_activity (
     last_activity_time INTEGER NOT NULL
 ) STRICT;"#;
 
+static ADD_REJECT_CODE: &str = r#"
+ALTER TABLE block_rejection_signer_addrs
+    ADD COLUMN reject_code INTEGER;
+"#;
+
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
     CREATE_DB_CONFIG,
@@ -564,9 +574,14 @@ static SCHEMA_8: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (8);",
 ];
 
+static SCHEMA_9: &[&str] = &[
+    ADD_REJECT_CODE,
+    "INSERT INTO db_config (version) VALUES (9);",
+];
+
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 8;
+    pub const SCHEMA_VERSION: u32 = 9;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -708,6 +723,20 @@ impl SignerDb {
         Ok(())
     }
 
+    /// Migrate from schema 9 to schema 9
+    fn schema_9_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 9 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_9.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
     /// Register custom scalar functions used by the database
     fn register_scalar_functions(&self) -> Result<(), DBError> {
         // Register helper function for determining if a block is a tenure change transaction
@@ -749,7 +778,8 @@ impl SignerDb {
                 5 => Self::schema_6_migration(&sql_tx)?,
                 6 => Self::schema_7_migration(&sql_tx)?,
                 7 => Self::schema_8_migration(&sql_tx)?,
-                8 => break,
+                8 => Self::schema_9_migration(&sql_tx)?,
+                9 => break,
                 x => return Err(DBError::Other(format!(
                     "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
                     Self::SCHEMA_VERSION,
@@ -824,6 +854,20 @@ impl SignerDb {
         let result: Option<String> = query_row(&self.db, query, [tenure])?;
 
         try_deserialize(result)
+    }
+
+    /// Return the count of globally accepted blocks in a tenure (identified by its consensus hash)
+    pub fn get_globally_accepted_block_count_in_tenure(
+        &self,
+        tenure: &ConsensusHash,
+    ) -> Result<u64, DBError> {
+        let query = "SELECT COALESCE((MAX(stacks_height) - MIN(stacks_height) + 1), 0) AS block_count FROM blocks WHERE consensus_hash = ?1 AND state = ?2";
+        let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
+        let block_count_opt: Option<u64> = query_row(&self.db, query, args)?;
+        match block_count_opt {
+            Some(block_count) => Ok(block_count),
+            None => Ok(0),
+        }
     }
 
     /// Return the last accepted block in a tenure (identified by its consensus hash).
@@ -998,27 +1042,58 @@ impl SignerDb {
         &self,
         block_sighash: &Sha512Trunc256Sum,
         addr: &StacksAddress,
+        reject_reason: &RejectReason,
     ) -> Result<(), DBError> {
-        let qry = "INSERT OR REPLACE INTO block_rejection_signer_addrs (signer_signature_hash, signer_addr) VALUES (?1, ?2);";
-        let args = params![block_sighash, addr.to_string(),];
+        let qry = "INSERT OR REPLACE INTO block_rejection_signer_addrs (signer_signature_hash, signer_addr, reject_code) VALUES (?1, ?2, ?3);";
+        let args = params![
+            block_sighash,
+            addr.to_string(),
+            RejectReasonPrefix::from(reject_reason) as i64
+        ];
 
         debug!("Inserting block rejection.";
-                "block_sighash" => %block_sighash,
-                "signer_address" => %addr);
+            "block_sighash" => %block_sighash,
+            "signer_address" => %addr,
+            "reject_reason" => %reject_reason
+        );
 
         self.db.execute(qry, args)?;
         Ok(())
     }
 
-    /// Get all signer addresses that rejected the block
+    /// Get all signer addresses that rejected the block (and their reject codes)
     pub fn get_block_rejection_signer_addrs(
         &self,
         block_sighash: &Sha512Trunc256Sum,
-    ) -> Result<Vec<StacksAddress>, DBError> {
+    ) -> Result<Vec<(StacksAddress, RejectReasonPrefix)>, DBError> {
         let qry =
-            "SELECT signer_addr FROM block_rejection_signer_addrs WHERE signer_signature_hash = ?1";
+            "SELECT signer_addr, reject_code FROM block_rejection_signer_addrs WHERE signer_signature_hash = ?1";
         let args = params![block_sighash];
-        query_rows(&self.db, qry, args)
+        let mut stmt = self.db.prepare(qry)?;
+
+        let rows = stmt.query_map(args, |row| {
+            let addr: String = row.get(0)?;
+            let addr = StacksAddress::from_string(&addr).ok_or(SqliteError::InvalidColumnType(
+                0,
+                "signer_addr".into(),
+                rusqlite::types::Type::Text,
+            ))?;
+            let reject_code: i64 = row.get(1)?;
+
+            let reject_code = u8::try_from(reject_code)
+                .map_err(|_| {
+                    SqliteError::InvalidColumnType(
+                        1,
+                        "reject_code".into(),
+                        rusqlite::types::Type::Integer,
+                    )
+                })
+                .map(RejectReasonPrefix::from)?;
+
+            Ok((addr, reject_code))
+        })?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.into())
     }
 
     /// Mark a block as having been broadcasted and therefore GloballyAccepted
@@ -1984,7 +2059,75 @@ mod tests {
         assert_eq!(pending_hash, Some(Sha512Trunc256Sum([0x03; 32])));
 
         let pendings = db.get_all_pending_block_validations().unwrap();
-        assert_eq!(pendings.len(), 0);
+        assert!(pendings.is_empty());
+    }
+
+    #[test]
+    fn check_globally_signed_block_count() {
+        let db_path = tmp_db_path();
+        let consensus_hash_1 = ConsensusHash([0x01; 20]);
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let (mut block_info, _) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+        });
+
+        assert!(matches!(
+            db.get_globally_accepted_block_count_in_tenure(&consensus_hash_1)
+                .unwrap(),
+            0
+        ));
+
+        // locally accepted still returns 0
+        block_info.signed_over = true;
+        block_info.state = BlockState::LocallyAccepted;
+        block_info.block.header.chain_length = 1;
+        db.insert_block(&block_info).unwrap();
+
+        assert_eq!(
+            db.get_globally_accepted_block_count_in_tenure(&consensus_hash_1)
+                .unwrap(),
+            0
+        );
+
+        block_info.signed_over = true;
+        block_info.state = BlockState::GloballyAccepted;
+        block_info.block.header.chain_length = 2;
+        db.insert_block(&block_info).unwrap();
+
+        block_info.signed_over = true;
+        block_info.state = BlockState::GloballyAccepted;
+        block_info.block.header.chain_length = 3;
+        db.insert_block(&block_info).unwrap();
+
+        assert_eq!(
+            db.get_globally_accepted_block_count_in_tenure(&consensus_hash_1)
+                .unwrap(),
+            2
+        );
+
+        // add an unsigned block
+        block_info.signed_over = false;
+        block_info.state = BlockState::GloballyAccepted;
+        block_info.block.header.chain_length = 4;
+        db.insert_block(&block_info).unwrap();
+
+        assert_eq!(
+            db.get_globally_accepted_block_count_in_tenure(&consensus_hash_1)
+                .unwrap(),
+            3
+        );
+
+        // add a locally signed block
+        block_info.signed_over = true;
+        block_info.state = BlockState::LocallyAccepted;
+        block_info.block.header.chain_length = 5;
+        db.insert_block(&block_info).unwrap();
+
+        assert_eq!(
+            db.get_globally_accepted_block_count_in_tenure(&consensus_hash_1)
+                .unwrap(),
+            3
+        );
     }
 
     #[test]
@@ -2052,5 +2195,78 @@ mod tests {
             .get_last_activity_time(&consensus_hash_2)
             .unwrap()
             .is_none());
+    }
+
+    /// BlockInfo without the `reject_reason` field for backwards compatibility testing
+    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    pub struct BlockInfoPrev {
+        /// The block we are considering
+        pub block: NakamotoBlock,
+        /// The burn block height at which the block was proposed
+        pub burn_block_height: u64,
+        /// The reward cycle the block belongs to
+        pub reward_cycle: u64,
+        /// Our vote on the block if we have one yet
+        pub vote: Option<NakamotoBlockVote>,
+        /// Whether the block contents are valid
+        pub valid: Option<bool>,
+        /// Whether this block is already being signed over
+        pub signed_over: bool,
+        /// Time at which the proposal was received by this signer (epoch time in seconds)
+        pub proposed_time: u64,
+        /// Time at which the proposal was signed by this signer (epoch time in seconds)
+        pub signed_self: Option<u64>,
+        /// Time at which the proposal was signed by a threshold in the signer set (epoch time in seconds)
+        pub signed_group: Option<u64>,
+        /// The block state relative to the signer's view of the stacks blockchain
+        pub state: BlockState,
+        /// Consumed processing time in milliseconds to validate this block
+        pub validation_time_ms: Option<u64>,
+        /// Extra data specific to v0, v1, etc.
+        pub ext: ExtraBlockInfo,
+    }
+
+    /// Verify that we can deserialize the old BlockInfo struct into the new version
+    #[test]
+    fn deserialize_old_block_info() {
+        let block_info_prev = BlockInfoPrev {
+            block: NakamotoBlock {
+                header: NakamotoBlockHeader::genesis(),
+                txs: vec![],
+            },
+            burn_block_height: 2,
+            reward_cycle: 3,
+            vote: None,
+            valid: None,
+            signed_over: true,
+            proposed_time: 4,
+            signed_self: None,
+            signed_group: None,
+            state: BlockState::Unprocessed,
+            validation_time_ms: Some(5),
+            ext: ExtraBlockInfo::default(),
+        };
+
+        let block_info: BlockInfo =
+            serde_json::from_value(serde_json::to_value(&block_info_prev).unwrap()).unwrap();
+        assert_eq!(block_info.block, block_info_prev.block);
+        assert_eq!(
+            block_info.burn_block_height,
+            block_info_prev.burn_block_height
+        );
+        assert_eq!(block_info.reward_cycle, block_info_prev.reward_cycle);
+        assert_eq!(block_info.vote, block_info_prev.vote);
+        assert_eq!(block_info.valid, block_info_prev.valid);
+        assert_eq!(block_info.signed_over, block_info_prev.signed_over);
+        assert_eq!(block_info.proposed_time, block_info_prev.proposed_time);
+        assert_eq!(block_info.signed_self, block_info_prev.signed_self);
+        assert_eq!(block_info.signed_group, block_info_prev.signed_group);
+        assert_eq!(block_info.state, block_info_prev.state);
+        assert_eq!(
+            block_info.validation_time_ms,
+            block_info_prev.validation_time_ms
+        );
+        assert_eq!(block_info.ext, block_info_prev.ext);
+        assert!(block_info.reject_reason.is_none());
     }
 }

@@ -51,7 +51,7 @@ use clarity::util::hash::Sha256Sum;
 use clarity::util::retry::BoundReader;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::serialization::SerializationError;
-use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
+use clarity::vm::types::{QualifiedContractIdentifier, ResponseData, TupleData};
 use clarity::vm::Value;
 use hashbrown::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
@@ -61,7 +61,8 @@ use stacks_common::codec::{
     StacksMessageCodec,
 };
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
@@ -81,7 +82,9 @@ define_u8_enum!(
 ///  the contract index in the signers contracts (i.e., X in signers-0-X)
 MessageSlotID {
     /// Block Response message from signers
-    BlockResponse = 1
+    BlockResponse = 1,
+    /// Signer State Machine Update
+    StateMachineUpdate = 2
 });
 
 define_u8_enum!(
@@ -122,7 +125,9 @@ SignerMessageTypePrefix {
     /// Mock block signature message from Epoch 2.5 signers
     MockSignature = 4,
     /// Mock block message from Epoch 2.5 miners
-    MockBlock = 5
+    MockBlock = 5,
+    /// State machine update
+    StateMachineUpdate = 6
 });
 
 #[cfg_attr(test, mutants::skip)]
@@ -168,6 +173,7 @@ impl From<&SignerMessage> for SignerMessageTypePrefix {
             SignerMessage::MockProposal(_) => SignerMessageTypePrefix::MockProposal,
             SignerMessage::MockSignature(_) => SignerMessageTypePrefix::MockSignature,
             SignerMessage::MockBlock(_) => SignerMessageTypePrefix::MockBlock,
+            SignerMessage::StateMachineUpdate(_) => SignerMessageTypePrefix::StateMachineUpdate,
         }
     }
 }
@@ -187,6 +193,8 @@ pub enum SignerMessage {
     MockProposal(MockProposal),
     /// A mock block from the epoch 2.5 miners
     MockBlock(MockBlock),
+    /// A state machine update
+    StateMachineUpdate(StateMachineUpdate),
 }
 
 impl SignerMessage {
@@ -201,6 +209,7 @@ impl SignerMessage {
             | Self::MockProposal(_)
             | Self::MockBlock(_) => None,
             Self::BlockResponse(_) | Self::MockSignature(_) => Some(MessageSlotID::BlockResponse), // Mock signature uses the same slot as block response since its exclusively for epoch 2.5 testing
+            Self::StateMachineUpdate(_) => Some(MessageSlotID::StateMachineUpdate),
         }
     }
 }
@@ -217,6 +226,9 @@ impl StacksMessageCodec for SignerMessage {
             SignerMessage::MockSignature(signature) => signature.consensus_serialize(fd),
             SignerMessage::MockProposal(message) => message.consensus_serialize(fd),
             SignerMessage::MockBlock(block) => block.consensus_serialize(fd),
+            SignerMessage::StateMachineUpdate(state_machine_update) => {
+                state_machine_update.consensus_serialize(fd)
+            }
         }?;
         Ok(())
     }
@@ -249,6 +261,10 @@ impl StacksMessageCodec for SignerMessage {
             SignerMessageTypePrefix::MockBlock => {
                 let block = StacksMessageCodec::consensus_deserialize(fd)?;
                 SignerMessage::MockBlock(block)
+            }
+            SignerMessageTypePrefix::StateMachineUpdate => {
+                let state_machine_update = StacksMessageCodec::consensus_deserialize(fd)?;
+                SignerMessage::StateMachineUpdate(state_machine_update)
             }
         };
         Ok(message)
@@ -525,6 +541,54 @@ impl StacksMessageCodec for MockBlock {
     }
 }
 
+/// Message for update the Signer State infos
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StateMachineUpdate {
+    burn_block: ConsensusHash,
+    burn_block_height: u64,
+    current_miner_pkh: Hash160,
+    parent_tenure_id: ConsensusHash,
+    parent_tenure_last_block: StacksBlockId,
+    parent_tenure_last_block_height: u64,
+    active_signer_protocol_version: u64,
+    local_supported_signer_protocol_version: u64,
+}
+
+impl StacksMessageCodec for StateMachineUpdate {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.burn_block)?;
+        write_next(fd, &self.burn_block_height)?;
+        write_next(fd, &self.current_miner_pkh)?;
+        write_next(fd, &self.parent_tenure_id)?;
+        write_next(fd, &self.parent_tenure_last_block)?;
+        write_next(fd, &self.parent_tenure_last_block_height)?;
+        write_next(fd, &self.active_signer_protocol_version)?;
+        write_next(fd, &self.local_supported_signer_protocol_version)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let burn_block = read_next::<ConsensusHash, _>(fd)?;
+        let burn_block_height = read_next::<u64, _>(fd)?;
+        let current_miner_pkh = read_next::<Hash160, _>(fd)?;
+        let parent_tenure_id = read_next::<ConsensusHash, _>(fd)?;
+        let parent_tenure_last_block = read_next::<StacksBlockId, _>(fd)?;
+        let parent_tenure_last_block_height = read_next::<u64, _>(fd)?;
+        let active_signer_protocol_version = read_next::<u64, _>(fd)?;
+        let local_supported_signer_protocol_version = read_next::<u64, _>(fd)?;
+        Ok(Self {
+            burn_block,
+            burn_block_height,
+            current_miner_pkh,
+            parent_tenure_id,
+            parent_tenure_last_block,
+            parent_tenure_last_block_height,
+            active_signer_protocol_version,
+            local_supported_signer_protocol_version,
+        })
+    }
+}
+
 define_u8_enum!(
 /// Enum representing the reject code type prefix
 RejectCodeTypePrefix {
@@ -555,11 +619,34 @@ impl From<&RejectCode> for RejectCodeTypePrefix {
     fn from(reject_code: &RejectCode) -> Self {
         match reject_code {
             RejectCode::ValidationFailed(_) => RejectCodeTypePrefix::ValidationFailed,
-            RejectCode::ConnectivityIssues => RejectCodeTypePrefix::ConnectivityIssues,
+            RejectCode::ConnectivityIssues(_) => RejectCodeTypePrefix::ConnectivityIssues,
             RejectCode::RejectedInPriorRound => RejectCodeTypePrefix::RejectedInPriorRound,
             RejectCode::NoSortitionView => RejectCodeTypePrefix::NoSortitionView,
             RejectCode::SortitionViewMismatch => RejectCodeTypePrefix::SortitionViewMismatch,
             RejectCode::TestingDirective => RejectCodeTypePrefix::TestingDirective,
+        }
+    }
+}
+
+impl From<&RejectReason> for RejectReasonPrefix {
+    fn from(reject_code: &RejectReason) -> Self {
+        match reject_code {
+            RejectReason::ValidationFailed(_) => RejectReasonPrefix::ValidationFailed,
+            RejectReason::ConnectivityIssues(_) => RejectReasonPrefix::ConnectivityIssues,
+            RejectReason::RejectedInPriorRound => RejectReasonPrefix::RejectedInPriorRound,
+            RejectReason::NoSortitionView => RejectReasonPrefix::NoSortitionView,
+            RejectReason::SortitionViewMismatch => RejectReasonPrefix::SortitionViewMismatch,
+            RejectReason::TestingDirective => RejectReasonPrefix::TestingDirective,
+            RejectReason::ReorgNotAllowed => RejectReasonPrefix::ReorgNotAllowed,
+            RejectReason::InvalidBitvec => RejectReasonPrefix::InvalidBitvec,
+            RejectReason::PubkeyHashMismatch => RejectReasonPrefix::PubkeyHashMismatch,
+            RejectReason::InvalidMiner => RejectReasonPrefix::InvalidMiner,
+            RejectReason::NotLatestSortitionWinner => RejectReasonPrefix::NotLatestSortitionWinner,
+            RejectReason::InvalidParentBlock => RejectReasonPrefix::InvalidParentBlock,
+            RejectReason::DuplicateBlockFound => RejectReasonPrefix::DuplicateBlockFound,
+            RejectReason::InvalidTenureExtend => RejectReasonPrefix::InvalidTenureExtend,
+            RejectReason::Unknown(_) => RejectReasonPrefix::Unknown,
+            RejectReason::NotRejected => RejectReasonPrefix::NotRejected,
         }
     }
 }
@@ -572,13 +659,174 @@ pub enum RejectCode {
     /// No Sortition View to verify against
     NoSortitionView,
     /// The block was rejected due to connectivity issues with the signer
-    ConnectivityIssues,
+    ConnectivityIssues(String),
     /// The block was rejected in a prior round
     RejectedInPriorRound,
     /// The block was rejected due to a mismatch with expected sortition view
     SortitionViewMismatch,
     /// The block was rejected due to a testing directive
     TestingDirective,
+}
+
+impl From<&RejectReason> for RejectCode {
+    fn from(reject_reason: &RejectReason) -> Self {
+        match reject_reason {
+            RejectReason::ValidationFailed(code) => RejectCode::ValidationFailed(*code),
+            RejectReason::NoSortitionView => RejectCode::NoSortitionView,
+            RejectReason::ConnectivityIssues(reason) => {
+                RejectCode::ConnectivityIssues(reason.clone())
+            }
+            RejectReason::RejectedInPriorRound => RejectCode::RejectedInPriorRound,
+            RejectReason::SortitionViewMismatch => RejectCode::SortitionViewMismatch,
+            RejectReason::TestingDirective => RejectCode::TestingDirective,
+            // Newer reject reasons were expanded from SortitionViewMismatch
+            _ => RejectCode::SortitionViewMismatch,
+        }
+    }
+}
+
+/// This enum is used to supply a `reason_code` in the block response data
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum RejectReason {
+    /// RPC endpoint Validation failed
+    ValidationFailed(ValidateRejectCode),
+    /// No Sortition View to verify against
+    NoSortitionView,
+    /// The block was rejected due to connectivity issues with the signer
+    ConnectivityIssues(String),
+    /// The block was rejected in a prior round
+    RejectedInPriorRound,
+    /// The block was rejected due to a mismatch with expected sortition view
+    SortitionViewMismatch,
+    /// The block was rejected due to a testing directive
+    TestingDirective,
+    /// The block attempted to reorg the previous tenure but was not allowed
+    ReorgNotAllowed,
+    /// The bitvec field does not match what is expected
+    InvalidBitvec,
+    /// The miner's pubkey hash does not match the winning pubkey hash
+    PubkeyHashMismatch,
+    /// The miner has been marked as invalid
+    InvalidMiner,
+    /// Miner is last sortition winner, when the current sortition winner is
+    /// still valid
+    NotLatestSortitionWinner,
+    /// The block does not confirm the expected parent block
+    InvalidParentBlock,
+    /// The block contains a block found tenure change, but we've already seen
+    /// a block found
+    DuplicateBlockFound,
+    /// The block attempted a tenure extend but the burn view has not changed
+    /// and not enough time has passed for a time-based tenure extend
+    InvalidTenureExtend,
+    /// The block was approved, no rejection details needed
+    NotRejected,
+    /// Handle unknown codes gracefully
+    Unknown(u8),
+}
+
+/// Enum representing the reject details type prefix
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum RejectReasonPrefix {
+    /// The block was rejected due to validation issues
+    ValidationFailed = 0,
+    /// The block was rejected due to connectivity issues with the signer
+    ConnectivityIssues = 1,
+    /// The block was rejected in a prior round
+    RejectedInPriorRound = 2,
+    /// The block was rejected due to no sortition view
+    NoSortitionView = 3,
+    /// The block was rejected due to a mismatch with expected sortition view
+    SortitionViewMismatch = 4,
+    /// The block was rejected due to a testing directive
+    TestingDirective = 5,
+    /// The block attempted to reorg the previous tenure but was not allowed
+    ReorgNotAllowed = 6,
+    /// The bitvec field does not match what is expected
+    InvalidBitvec = 7,
+    /// The miner's pubkey hash does not match the winning pubkey hash
+    PubkeyHashMismatch = 8,
+    /// The miner has been marked as invalid
+    InvalidMiner = 9,
+    /// Miner is last sortition winner, when the current sortition winner is
+    /// still valid
+    NotLatestSortitionWinner = 10,
+    /// The block does not confirm the expected parent block
+    InvalidParentBlock = 11,
+    /// The block contains a block found tenure change, but we've already seen
+    /// a block found
+    DuplicateBlockFound = 12,
+    /// The block attempted a tenure extend but the burn view has not changed
+    /// and not enough time has passed for a time-based tenure extend
+    InvalidTenureExtend = 13,
+    /// Unknown reject code, for forward compatibility
+    Unknown = 254,
+    /// The block was approved, no rejection details needed
+    NotRejected = 255,
+}
+
+impl RejectReasonPrefix {
+    /// Convert to a u8 representation
+    pub fn to_u8(&self) -> u8 {
+        match self {
+            Self::ValidationFailed => 0,
+            Self::ConnectivityIssues => 1,
+            Self::RejectedInPriorRound => 2,
+            Self::NoSortitionView => 3,
+            Self::SortitionViewMismatch => 4,
+            Self::TestingDirective => 5,
+            Self::ReorgNotAllowed => 6,
+            Self::InvalidBitvec => 7,
+            Self::PubkeyHashMismatch => 8,
+            Self::InvalidMiner => 9,
+            Self::NotLatestSortitionWinner => 10,
+            Self::InvalidParentBlock => 11,
+            Self::DuplicateBlockFound => 12,
+            Self::InvalidTenureExtend => 13,
+            Self::Unknown => 254,
+            Self::NotRejected => 255,
+        }
+    }
+}
+
+impl From<u8> for RejectReasonPrefix {
+    fn from(v: u8) -> Self {
+        match v {
+            0 => Self::ValidationFailed,
+            1 => Self::ConnectivityIssues,
+            2 => Self::RejectedInPriorRound,
+            3 => Self::NoSortitionView,
+            4 => Self::SortitionViewMismatch,
+            5 => Self::TestingDirective,
+            6 => Self::ReorgNotAllowed,
+            7 => Self::InvalidBitvec,
+            8 => Self::PubkeyHashMismatch,
+            9 => Self::InvalidMiner,
+            10 => Self::NotLatestSortitionWinner,
+            11 => Self::InvalidParentBlock,
+            12 => Self::DuplicateBlockFound,
+            13 => Self::InvalidTenureExtend,
+            255 => Self::NotRejected,
+            // For forward compatibility, all other values are unknown
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl From<&RejectCode> for RejectReason {
+    fn from(reject_code: &RejectCode) -> Self {
+        match reject_code {
+            RejectCode::ValidationFailed(code) => RejectReason::ValidationFailed(*code),
+            RejectCode::ConnectivityIssues(reason) => {
+                RejectReason::ConnectivityIssues(reason.clone())
+            }
+            RejectCode::RejectedInPriorRound => RejectReason::RejectedInPriorRound,
+            RejectCode::NoSortitionView => RejectReason::NoSortitionView,
+            RejectCode::SortitionViewMismatch => RejectReason::SortitionViewMismatch,
+            RejectCode::TestingDirective => RejectReason::TestingDirective,
+        }
+    }
 }
 
 define_u8_enum!(
@@ -651,21 +899,24 @@ impl BlockResponse {
             signer_signature_hash,
             signature,
             metadata: SignerMessageMetadata::default(),
-            response_data: BlockResponseData::new(tenure_extend_timestamp),
+            response_data: BlockResponseData::new(
+                tenure_extend_timestamp,
+                RejectReason::NotRejected,
+            ),
         })
     }
 
     /// Create a new rejected BlockResponse for the provided block signer signature hash and rejection code and sign it with the provided private key
     pub fn rejected(
         hash: Sha512Trunc256Sum,
-        reject_code: RejectCode,
+        reject_reason: RejectReason,
         private_key: &StacksPrivateKey,
         mainnet: bool,
         timestamp: u64,
     ) -> Self {
         Self::Rejected(BlockRejection::new(
             hash,
-            reject_code,
+            reject_reason,
             private_key,
             mainnet,
             timestamp,
@@ -688,11 +939,11 @@ impl BlockResponse {
         }
     }
 
-    /// The signer signature hash for the block response
-    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+    /// Get the block response data from the block response
+    pub fn get_response_data(&self) -> &BlockResponseData {
         match self {
-            BlockResponse::Accepted(accepted) => accepted.signer_signature_hash,
-            BlockResponse::Rejected(rejection) => rejection.signer_signature_hash,
+            BlockResponse::Accepted(accepted) => &accepted.response_data,
+            BlockResponse::Rejected(rejection) => &rejection.response_data,
         }
     }
 
@@ -796,7 +1047,7 @@ impl SignerMessageMetadata {
 }
 
 /// The latest version of the block response data
-pub const BLOCK_RESPONSE_DATA_VERSION: u8 = 2;
+pub const BLOCK_RESPONSE_DATA_VERSION: u8 = 3;
 
 /// Versioned, backwards-compatible struct for block response data
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -805,6 +1056,8 @@ pub struct BlockResponseData {
     pub version: u8,
     /// The block response data
     pub tenure_extend_timestamp: u64,
+    /// Block rejection reason
+    pub reject_reason: RejectReason,
     /// When deserializing future versions,
     /// there may be extra bytes that we don't know about
     pub unknown_bytes: Vec<u8>,
@@ -812,22 +1065,24 @@ pub struct BlockResponseData {
 
 impl BlockResponseData {
     /// Create a new BlockResponseData for the provided tenure extend timestamp and unknown bytes
-    pub fn new(tenure_extend_timestamp: u64) -> Self {
+    pub fn new(tenure_extend_timestamp: u64, reject_reason: RejectReason) -> Self {
         Self {
             version: BLOCK_RESPONSE_DATA_VERSION,
             tenure_extend_timestamp,
+            reject_reason,
             unknown_bytes: vec![],
         }
     }
 
     /// Create an empty BlockResponseData
     pub fn empty() -> Self {
-        Self::new(u64::MAX)
+        Self::new(u64::MAX, RejectReason::NotRejected)
     }
 
     /// Serialize the "inner" block response data. Used to determine the bytes length of the serialized block response data
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.tenure_extend_timestamp)?;
+        write_next(fd, &self.reject_reason)?;
         fd.write_all(&self.unknown_bytes)
             .map_err(CodecError::WriteError)?;
         Ok(())
@@ -859,9 +1114,11 @@ impl StacksMessageCodec for BlockResponseData {
         let inner_bytes: Vec<u8> = read_next_at_most(fd, BLOCK_RESPONSE_DATA_MAX_SIZE)?;
         let mut inner_reader = inner_bytes.as_slice();
         let tenure_extend_timestamp = read_next(&mut inner_reader)?;
+        let reject_reason = read_next::<RejectReason, _>(&mut inner_reader)?;
         Ok(Self {
             version,
             tenure_extend_timestamp,
+            reject_reason,
             unknown_bytes: inner_reader.to_vec(),
         })
     }
@@ -914,7 +1171,10 @@ impl BlockAccepted {
             signer_signature_hash,
             signature,
             metadata: SignerMessageMetadata::default(),
-            response_data: BlockResponseData::new(tenure_extend_timestamp),
+            response_data: BlockResponseData::new(
+                tenure_extend_timestamp,
+                RejectReason::NotRejected,
+            ),
         }
     }
 }
@@ -942,7 +1202,7 @@ impl BlockRejection {
     /// Create a new BlockRejection for the provided block and reason code
     pub fn new(
         signer_signature_hash: Sha512Trunc256Sum,
-        reason_code: RejectCode,
+        reject_reason: RejectReason,
         private_key: &StacksPrivateKey,
         mainnet: bool,
         timestamp: u64,
@@ -953,13 +1213,13 @@ impl BlockRejection {
             CHAIN_ID_TESTNET
         };
         let mut rejection = Self {
-            reason: reason_code.to_string(),
-            reason_code,
+            reason: reject_reason.to_string(),
+            reason_code: (&reject_reason).into(),
             signer_signature_hash,
             signature: MessageSignature::empty(),
             chain_id,
             metadata: SignerMessageMetadata::default(),
-            response_data: BlockResponseData::new(timestamp),
+            response_data: BlockResponseData::new(timestamp, reject_reason),
         };
         rejection
             .sign(private_key)
@@ -979,14 +1239,15 @@ impl BlockRejection {
         } else {
             CHAIN_ID_TESTNET
         };
+        let reject_code = RejectCode::ValidationFailed(reject.reason_code);
         let mut rejection = Self {
             reason: reject.reason,
-            reason_code: RejectCode::ValidationFailed(reject.reason_code),
+            reason_code: reject_code.clone(),
             signer_signature_hash: reject.signer_signature_hash,
             chain_id,
             signature: MessageSignature::empty(),
             metadata: SignerMessageMetadata::default(),
-            response_data: BlockResponseData::new(timestamp),
+            response_data: BlockResponseData::new(timestamp, (&reject_code).into()),
         };
         rejection
             .sign(private_key)
@@ -1070,7 +1331,7 @@ impl StacksMessageCodec for RejectCode {
         // Do not do a single match here as we may add other variants in the future and don't want to miss adding it
         match self {
             RejectCode::ValidationFailed(code) => write_next(fd, &(*code as u8))?,
-            RejectCode::ConnectivityIssues
+            RejectCode::ConnectivityIssues(_)
             | RejectCode::RejectedInPriorRound
             | RejectCode::NoSortitionView
             | RejectCode::SortitionViewMismatch
@@ -1093,11 +1354,76 @@ impl StacksMessageCodec for RejectCode {
                     ))
                 })?,
             ),
-            RejectCodeTypePrefix::ConnectivityIssues => RejectCode::ConnectivityIssues,
+            RejectCodeTypePrefix::ConnectivityIssues => {
+                RejectCode::ConnectivityIssues("unspecified".to_string())
+            }
             RejectCodeTypePrefix::RejectedInPriorRound => RejectCode::RejectedInPriorRound,
             RejectCodeTypePrefix::NoSortitionView => RejectCode::NoSortitionView,
             RejectCodeTypePrefix::SortitionViewMismatch => RejectCode::SortitionViewMismatch,
             RejectCodeTypePrefix::TestingDirective => RejectCode::TestingDirective,
+        };
+        Ok(code)
+    }
+}
+
+impl StacksMessageCodec for RejectReason {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &(RejectReasonPrefix::from(self) as u8))?;
+        // Do not do a single match here as we may add other variants in the future and don't want to miss adding it
+        match self {
+            RejectReason::ValidationFailed(code) => write_next(fd, &(*code as u8))?,
+            RejectReason::ConnectivityIssues(_)
+            | RejectReason::RejectedInPriorRound
+            | RejectReason::NoSortitionView
+            | RejectReason::SortitionViewMismatch
+            | RejectReason::TestingDirective
+            | RejectReason::ReorgNotAllowed
+            | RejectReason::InvalidBitvec
+            | RejectReason::PubkeyHashMismatch
+            | RejectReason::InvalidMiner
+            | RejectReason::NotLatestSortitionWinner
+            | RejectReason::InvalidParentBlock
+            | RejectReason::DuplicateBlockFound
+            | RejectReason::InvalidTenureExtend
+            | RejectReason::Unknown(_)
+            | RejectReason::NotRejected => {
+                // No additional data to serialize / deserialize
+            }
+        };
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let Ok(type_prefix_byte) = read_next::<u8, _>(fd) else {
+            return Ok(RejectReason::Unknown(RejectReasonPrefix::Unknown as u8));
+        };
+        let type_prefix = RejectReasonPrefix::from(type_prefix_byte);
+        let code = match type_prefix {
+            RejectReasonPrefix::ValidationFailed => RejectReason::ValidationFailed(
+                ValidateRejectCode::try_from(read_next::<u8, _>(fd)?).map_err(|e| {
+                    CodecError::DeserializeError(format!(
+                        "Failed to decode validation reject code: {:?}",
+                        &e
+                    ))
+                })?,
+            ),
+            RejectReasonPrefix::ConnectivityIssues => {
+                RejectReason::ConnectivityIssues("unspecified".to_string())
+            }
+            RejectReasonPrefix::RejectedInPriorRound => RejectReason::RejectedInPriorRound,
+            RejectReasonPrefix::NoSortitionView => RejectReason::NoSortitionView,
+            RejectReasonPrefix::SortitionViewMismatch => RejectReason::SortitionViewMismatch,
+            RejectReasonPrefix::TestingDirective => RejectReason::TestingDirective,
+            RejectReasonPrefix::ReorgNotAllowed => RejectReason::ReorgNotAllowed,
+            RejectReasonPrefix::InvalidBitvec => RejectReason::InvalidBitvec,
+            RejectReasonPrefix::PubkeyHashMismatch => RejectReason::PubkeyHashMismatch,
+            RejectReasonPrefix::InvalidMiner => RejectReason::InvalidMiner,
+            RejectReasonPrefix::NotLatestSortitionWinner => RejectReason::NotLatestSortitionWinner,
+            RejectReasonPrefix::InvalidParentBlock => RejectReason::InvalidParentBlock,
+            RejectReasonPrefix::DuplicateBlockFound => RejectReason::DuplicateBlockFound,
+            RejectReasonPrefix::InvalidTenureExtend => RejectReason::InvalidTenureExtend,
+            RejectReasonPrefix::Unknown => RejectReason::Unknown(type_prefix_byte),
+            RejectReasonPrefix::NotRejected => RejectReason::NotRejected,
         };
         Ok(code)
     }
@@ -1108,9 +1434,9 @@ impl std::fmt::Display for RejectCode {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             RejectCode::ValidationFailed(code) => write!(f, "Validation failed: {:?}", code),
-            RejectCode::ConnectivityIssues => write!(
+            RejectCode::ConnectivityIssues(reason) => write!(
                 f,
-                "The block was rejected due to connectivity issues with the signer."
+                "The block was rejected due to connectivity issues with the signer: {reason}"
             ),
             RejectCode::RejectedInPriorRound => write!(
                 f,
@@ -1127,6 +1453,80 @@ impl std::fmt::Display for RejectCode {
             }
             RejectCode::TestingDirective => {
                 write!(f, "The block was rejected due to a testing directive.")
+            }
+        }
+    }
+}
+
+#[cfg_attr(test, mutants::skip)]
+impl std::fmt::Display for RejectReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            RejectReason::ValidationFailed(code) => write!(f, "Validation failed: {:?}", code),
+            RejectReason::ConnectivityIssues(reason) => write!(
+                f,
+                "The block was rejected due to connectivity issues with the signer: {reason}"
+            ),
+            RejectReason::RejectedInPriorRound => write!(
+                f,
+                "The block was proposed before and rejected by the signer."
+            ),
+            RejectReason::NoSortitionView => {
+                write!(f, "The block was rejected due to no sortition view.")
+            }
+            RejectReason::SortitionViewMismatch => {
+                write!(
+                    f,
+                    "The block was rejected due to a mismatch with expected sortition view."
+                )
+            }
+            RejectReason::TestingDirective => {
+                write!(f, "The block was rejected due to a testing directive.")
+            }
+            RejectReason::ReorgNotAllowed => {
+                write!(
+                    f,
+                    "The block attempted to reorg the previous tenure(s) but was not allowed."
+                )
+            }
+            RejectReason::InvalidBitvec => {
+                write!(f, "The bitvec field does not match what is expected.")
+            }
+            RejectReason::PubkeyHashMismatch => {
+                write!(
+                    f,
+                    "The miner's pubkey hash does not match the winning pubkey hash."
+                )
+            }
+            RejectReason::InvalidMiner => {
+                write!(f, "The miner has been marked as invalid.")
+            }
+            RejectReason::NotLatestSortitionWinner => {
+                write!(
+                    f,
+                    "Miner is last sortition winner, when the current sortition winner is still valid."
+                )
+            }
+            RejectReason::InvalidParentBlock => {
+                write!(f, "The block does not confirm the expected parent block.")
+            }
+            RejectReason::DuplicateBlockFound => {
+                write!(
+                    f,
+                    "The block contains a block found tenure change, but we've already seen a block found."
+                )
+            }
+            RejectReason::InvalidTenureExtend => {
+                write!(
+                    f,
+                    "The block attempted a tenure extend but the burn view has not changed and not enough time has passed for a time-based tenure extend."
+                )
+            }
+            RejectReason::Unknown(code) => {
+                write!(f, "Unknown reject code: {}", code)
+            }
+            RejectReason::NotRejected => {
+                write!(f, "The block was approved, no rejection details needed.")
             }
         }
     }
@@ -1180,7 +1580,7 @@ mod test {
             .expect("Failed to deserialize RejectCode");
         assert_eq!(code, deserialized_code);
 
-        let code = RejectCode::ConnectivityIssues;
+        let code = RejectCode::ConnectivityIssues("unspecified".to_string());
         let serialized_code = code.serialize_to_vec();
         let deserialized_code = read_next::<RejectCode, _>(&mut &serialized_code[..])
             .expect("Failed to deserialize RejectCode");
@@ -1191,7 +1591,7 @@ mod test {
     fn serde_block_rejection() {
         let rejection = BlockRejection::new(
             Sha512Trunc256Sum([0u8; 32]),
-            RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
+            RejectReason::ValidationFailed(ValidateRejectCode::InvalidBlock),
             &StacksPrivateKey::random(),
             thread_rng().gen_bool(0.5),
             thread_rng().next_u64(),
@@ -1203,7 +1603,7 @@ mod test {
 
         let rejection = BlockRejection::new(
             Sha512Trunc256Sum([1u8; 32]),
-            RejectCode::ConnectivityIssues,
+            RejectReason::ConnectivityIssues("unspecified".to_string()),
             &StacksPrivateKey::random(),
             thread_rng().gen_bool(0.5),
             thread_rng().next_u64(),
@@ -1220,7 +1620,10 @@ mod test {
             signer_signature_hash: Sha512Trunc256Sum([0u8; 32]),
             signature: MessageSignature::empty(),
             metadata: SignerMessageMetadata::default(),
-            response_data: BlockResponseData::new(thread_rng().next_u64()),
+            response_data: BlockResponseData::new(
+                thread_rng().next_u64(),
+                RejectReason::NotRejected,
+            ),
         };
         let response = BlockResponse::Accepted(accepted);
         let serialized_response = response.serialize_to_vec();
@@ -1230,7 +1633,7 @@ mod test {
 
         let response = BlockResponse::Rejected(BlockRejection::new(
             Sha512Trunc256Sum([1u8; 32]),
-            RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock),
+            RejectReason::ValidationFailed(ValidateRejectCode::InvalidBlock),
             &StacksPrivateKey::random(),
             thread_rng().gen_bool(0.5),
             thread_rng().next_u64(),
@@ -1247,7 +1650,10 @@ mod test {
             signer_signature_hash: Sha512Trunc256Sum([2u8; 32]),
             signature: MessageSignature::empty(),
             metadata: SignerMessageMetadata::default(),
-            response_data: BlockResponseData::new(thread_rng().next_u64()),
+            response_data: BlockResponseData::new(
+                thread_rng().next_u64(),
+                RejectReason::NotRejected,
+            ),
         };
         let signer_message = SignerMessage::BlockResponse(BlockResponse::Accepted(accepted));
         let serialized_signer_message = signer_message.serialize_to_vec();
@@ -1414,7 +1820,7 @@ mod test {
                 chain_id: CHAIN_ID_TESTNET,
                 signature: MessageSignature::from_hex("006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df3").unwrap(),
                 metadata: SignerMessageMetadata::empty(),
-                response_data: BlockResponseData::new(u64::MAX)
+                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected),
             }))
         );
 
@@ -1427,7 +1833,7 @@ mod test {
                 .unwrap(),
                 metadata: SignerMessageMetadata::empty(),
                 signature: MessageSignature::from_hex("001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8").unwrap(),
-                response_data: BlockResponseData::new(u64::MAX)
+                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected),
             }))
         );
     }
@@ -1454,7 +1860,7 @@ mod test {
                 metadata: SignerMessageMetadata {
                     server_version: "Hello world".to_string(),
                 },
-                response_data: BlockResponseData::new(u64::MAX),
+                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected),
             }))
         );
 
@@ -1485,21 +1891,22 @@ mod test {
 
     #[test]
     fn block_response_data_serialization() {
-        let mut response_data = BlockResponseData::new(2);
+        let mut response_data = BlockResponseData::new(2, RejectReason::ReorgNotAllowed);
         response_data.unknown_bytes = vec![1, 2, 3, 4];
         let mut bytes = vec![];
         response_data.consensus_serialize(&mut bytes).unwrap();
-        // 1 byte version + 4 bytes (bytes_len) + 8 bytes tenure_extend_timestamp + 4 bytes unknown_bytes
-        assert_eq!(bytes.len(), 17);
+        // 1 byte version + 4 bytes (bytes_len) + 8 bytes tenure_extend_timestamp
+        //   + 1 byte reject code + 4 bytes unknown_bytes
+        assert_eq!(bytes.len(), 18);
         let deserialized_data = read_next::<BlockResponseData, _>(&mut &bytes[..])
             .expect("Failed to deserialize BlockResponseData");
         assert_eq!(response_data, deserialized_data);
 
-        let response_data = BlockResponseData::new(2);
+        let response_data = BlockResponseData::new(2, RejectReason::NotRejected);
         let mut bytes = vec![];
         response_data.consensus_serialize(&mut bytes).unwrap();
         // 1 byte version + 4 bytes (bytes_len) + 8 bytes tenure_extend_timestamp + 0 bytes unknown_bytes
-        assert_eq!(bytes.len(), 13);
+        assert_eq!(bytes.len(), 14);
         let deserialized_data = read_next::<BlockResponseData, _>(&mut &bytes[..])
             .expect("Failed to deserialize BlockResponseData");
         assert_eq!(response_data, deserialized_data);
@@ -1509,6 +1916,7 @@ mod test {
     pub struct NewerBlockResponseData {
         pub version: u8,
         pub tenure_extend_timestamp: u64,
+        pub reject_reason: RejectReason,
         pub some_other_field: u64,
         pub yet_another_field: u64,
     }
@@ -1516,6 +1924,7 @@ mod test {
     impl NewerBlockResponseData {
         pub fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
             write_next(fd, &self.tenure_extend_timestamp)?;
+            write_next(fd, &self.reject_reason)?;
             write_next(fd, &self.some_other_field)?;
             write_next(fd, &self.yet_another_field)?;
             Ok(())
@@ -1537,6 +1946,7 @@ mod test {
         let new_response_data = NewerBlockResponseData {
             version: 11,
             tenure_extend_timestamp: 2,
+            reject_reason: RejectReason::ReorgNotAllowed,
             some_other_field: 3,
             yet_another_field: 4,
         };
@@ -1549,6 +1959,10 @@ mod test {
         assert_eq!(reader.len(), 0, "Expected bytes to be fully consumed");
         assert_eq!(deserialized_data.version, 11);
         assert_eq!(deserialized_data.tenure_extend_timestamp, 2);
+        assert_eq!(
+            deserialized_data.reject_reason,
+            RejectReason::ReorgNotAllowed
+        );
         // two extra u64s:
         assert_eq!(deserialized_data.unknown_bytes.len(), 16);
 
@@ -1599,7 +2013,7 @@ mod test {
             signer_signature_hash: Sha512Trunc256Sum::from_hex("11717149677c2ac97d15ae5954f7a716f10100b9cb81a2bf27551b2f2e54ef19").unwrap(),
             metadata: SignerMessageMetadata::default(),
             signature: MessageSignature::from_hex("001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8").unwrap(),
-            response_data: BlockResponseData::new(u64::MAX)
+            response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected),
         };
 
         let mut bytes = vec![];
@@ -1614,5 +2028,95 @@ mod test {
         );
         assert_eq!(block_accepted.signature, block_accepted_old.signature);
         assert_eq!(block_accepted.metadata, block_accepted_old.metadata);
+    }
+
+    #[test]
+    fn test_deserialize_old_block_response() {
+        // Fixture of an older version of a block response that has a tenure_extend_timestamp
+        // but _not_ a reject_reason.
+        let hex_str = "01006dc371d2313be71f93ac759f3302e5a0e4ff77dd0e73f13bb491936b5489d5390032208fc53bd0984c84abaac44ecd777e473e3e325066217e9d7314baa5cdfe1847363e1036f364b4bf7982f4d103079b17c19bf8a19904e822c2d62a5021c19700000036737461636b732d7369676e657220302e302e3120283a2c2072656c65617365206275696c642c206c696e7578205b7838365f36345d290200000008000000006751c76e";
+        let bytes = hex_bytes(hex_str).unwrap();
+        let block_response = read_next::<SignerMessage, _>(&mut &bytes[..]).unwrap();
+        let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = block_response else {
+            panic!("Expected BlockResponse::Accepted");
+        };
+        assert_eq!(
+            accepted.response_data.reject_reason,
+            RejectReason::Unknown(RejectReasonPrefix::Unknown as u8)
+        );
+    }
+
+    #[test]
+    fn test_deserialize_state_machine_update() {
+        let signer_message = StateMachineUpdate {
+            burn_block: ConsensusHash([0x55; 20]),
+            burn_block_height: 100,
+            current_miner_pkh: Hash160([0xab; 20]),
+            parent_tenure_id: ConsensusHash([0x22; 20]),
+            parent_tenure_last_block: StacksBlockId([0x33; 32]),
+            parent_tenure_last_block_height: 1,
+            active_signer_protocol_version: 2,
+            local_supported_signer_protocol_version: 3,
+        };
+
+        let mut bytes = vec![];
+        signer_message.consensus_serialize(&mut bytes).unwrap();
+
+        // check for raw content for avoiding regressions when structure changes
+        let raw_signer_message: Vec<&[u8]> = vec![
+            /* burn_block*/ &[0x55; 20],
+            /* burn_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 100],
+            /* current_miner_pkh */ &[0xab; 20],
+            /* parent_tenure_id*/ &[0x22; 20],
+            /* parent_tenure_last_block */ &[0x33; 32],
+            /* parent_tenure_last_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 1],
+            /* active_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 2],
+            /* local_supported_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 3],
+        ];
+
+        assert_eq!(bytes, raw_signer_message.concat());
+
+        let signer_message_deserialized =
+            StateMachineUpdate::consensus_deserialize(&mut &bytes[..]).unwrap();
+
+        assert_eq!(
+            signer_message.burn_block,
+            signer_message_deserialized.burn_block
+        );
+
+        assert_eq!(
+            signer_message.burn_block_height,
+            signer_message_deserialized.burn_block_height
+        );
+
+        assert_eq!(
+            signer_message.current_miner_pkh,
+            signer_message_deserialized.current_miner_pkh
+        );
+
+        assert_eq!(
+            signer_message.parent_tenure_id,
+            signer_message_deserialized.parent_tenure_id
+        );
+
+        assert_eq!(
+            signer_message.parent_tenure_last_block,
+            signer_message_deserialized.parent_tenure_last_block
+        );
+
+        assert_eq!(
+            signer_message.parent_tenure_last_block_height,
+            signer_message_deserialized.parent_tenure_last_block_height
+        );
+
+        assert_eq!(
+            signer_message.active_signer_protocol_version,
+            signer_message_deserialized.active_signer_protocol_version
+        );
+
+        assert_eq!(
+            signer_message.local_supported_signer_protocol_version,
+            signer_message_deserialized.local_supported_signer_protocol_version
+        );
     }
 }

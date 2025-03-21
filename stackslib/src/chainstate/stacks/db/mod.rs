@@ -1338,7 +1338,7 @@ impl StacksChainState {
                     let mut balances_count = 0;
                     let initial_balances = get_balances();
                     for balance in initial_balances {
-                        balances_count = balances_count + 1;
+                        balances_count += 1;
                         let stx_address =
                             StacksChainState::parse_genesis_address(&balance.address, mainnet);
                         StacksChainState::account_genesis_credit(

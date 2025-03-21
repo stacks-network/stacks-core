@@ -160,7 +160,7 @@ fn test_store_and_fetch() {
             StacksEpochId::Epoch21,
         )
         .unwrap();
-    assert_eq!(ops.len(), 0);
+    assert!(ops.is_empty());
 
     let vtxindex = 1;
     let noncanon_block_height = 400;
@@ -248,7 +248,7 @@ fn test_store_and_fetch() {
 
     let BurnchainBlockData { header, ops } =
         BurnchainDB::get_burnchain_block(burnchain_db.conn(), &canon_hash).unwrap();
-    assert_eq!(ops.len(), 0);
+    assert!(ops.is_empty());
     assert_eq!(&header, &looked_up_canon);
 }
 
@@ -286,7 +286,7 @@ fn test_classify_stack_stx() {
             StacksEpochId::Epoch21,
         )
         .unwrap();
-    assert_eq!(ops.len(), 0);
+    assert!(ops.is_empty());
 
     // let's mine a block with a pre-stack-stx tx, and a stack-stx tx,
     //    the stack-stx tx should _fail_ to verify, because there's no
@@ -1100,7 +1100,7 @@ fn test_classify_delegate_stx() {
             StacksEpochId::Epoch21,
         )
         .unwrap();
-    assert_eq!(ops.len(), 0);
+    assert!(ops.is_empty());
 
     // let's mine a block with a pre-stx tx, and an invalid delegate-stx tx,
     //    the delegate-stx tx should _fail_ to verify, because there's it

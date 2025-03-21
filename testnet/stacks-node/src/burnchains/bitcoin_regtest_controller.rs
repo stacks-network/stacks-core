@@ -744,11 +744,6 @@ impl BitcoinRegtestController {
         utxos_to_exclude: Option<UTXOSet>,
         block_height: u64,
     ) -> Option<UTXOSet> {
-        // if mock mining, do not even bother requesting UTXOs
-        if self.config.get_node_config(false).mock_mining {
-            return None;
-        }
-
         let pubk = if self.config.miner.segwit && epoch_id >= StacksEpochId::Epoch21 {
             let mut p = *public_key;
             p.set_compressed(true);
@@ -1693,6 +1688,11 @@ impl BitcoinRegtestController {
             // in RBF, you have to consume the same UTXOs
             utxos
         } else {
+            // if mock mining, do not even bother requesting UTXOs
+            if self.config.node.mock_mining {
+                return Err(BurnchainControllerError::NoUTXOs);
+            }
+
             // Fetch some UTXOs
             let addr = self.get_miner_address(epoch_id, public_key);
             match self.get_utxos(
@@ -1990,6 +1990,30 @@ impl BitcoinRegtestController {
         let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
         let result =
             BitcoinRPCRequest::generate_to_address(&self.config, num_blocks, addr2str(&address));
+
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                error!("Bitcoin RPC failure: error generating block {e:?}");
+                panic!();
+            }
+        }
+    }
+
+    #[cfg(test)]
+    /// Instruct a regtest Bitcoin node to build an empty block.
+    pub fn build_empty_block(&self) {
+        info!("Generate empty block");
+        let public_key_bytes = match &self.config.burnchain.local_mining_public_key {
+            Some(public_key) => hex_bytes(public_key).expect("Invalid byte sequence"),
+            None => panic!("Unable to make new block, mining public key"),
+        };
+
+        // NOTE: miner address is whatever the configured segwit setting is
+        let public_key = Secp256k1PublicKey::from_slice(&public_key_bytes)
+            .expect("FATAL: invalid public key bytes");
+        let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
+        let result = BitcoinRPCRequest::generate_empty_to_address(&self.config, addr2str(&address));
 
         match result {
             Ok(_) => {}
@@ -2535,6 +2559,21 @@ impl BitcoinRPCRequest {
 
         let res = BitcoinRPCRequest::send(config, payload)?;
         debug!("Generated {num_blocks} blocks to {address}: {res:?}");
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn generate_empty_to_address(config: &Config, address: String) -> RPCResult<()> {
+        debug!("Generate empty block to {address}");
+        let payload = BitcoinRPCRequest {
+            method: "generateblock".to_string(),
+            params: vec![address.clone().into(), serde_json::Value::Array(vec![])],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+
+        let res = BitcoinRPCRequest::send(config, payload)?;
+        debug!("Generated empty block to {address}: {res:?}");
         Ok(())
     }
 

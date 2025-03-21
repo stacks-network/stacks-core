@@ -51,6 +51,7 @@ jobs:
       inputs.signer_tag != ''
     name: Build Binaries
     runs-on: ubuntu-latest
+    environment: "Build Release"
     strategy:
       ## Run a maximum of 10 builds concurrently, using the matrix defined in inputs.arch
       max-parallel: 10
@@ -62,7 +63,6 @@ jobs:
           - windows
         cpu:
           - arm64
-          - armv7
           - x86-64 ## defaults to x86-64-v3 variant - intel haswell (2013) and newer
           # - x86-64-v2 ## intel nehalem (2008) and newer
           # - x86-64-v3 ## intel haswell (2013) and newer
@@ -108,8 +108,10 @@ jobs:
           is_signer_release: ${{ inputs.is_signer_release }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
+
   ## Builds arch dependent Docker images from binaries
   ##
+  ## Note: this step requires the binaries in the create-release step to be uploaded
   ## Runs when the following is true:
   ##  - either node or signer tag is provided
   docker-image:
@@ -142,3 +144,21 @@ jobs:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
           dist: ${{ matrix.dist }}
+
+  ## Create the downstream PR for the release branch to master,develop
+  create-pr:
+    if: |
+      inputs.node_tag != '' ||
+      inputs.signer_tag != ''
+    name: Create Downstream PR (${{ github.ref_name }})
+    runs-on: ubuntu-latest
+    needs:
+      - build-binaries
+      - create-release
+      - docker-image
+    steps:
+      - name: Open Downstream PR
+        id: create-pr
+        uses: stacks-network/actions/stacks-core/release/downstream-pr@main
+        with:
+          token: ${{ secrets.GH_TOKEN }}

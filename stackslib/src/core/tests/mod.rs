@@ -278,7 +278,6 @@ fn mempool_walk_over_fork() {
                             // Generate any success result
                             TransactionResult::success(
                                 &available_tx.tx.tx,
-                                available_tx.tx.metadata.tx_fee,
                                 StacksTransactionReceipt::from_stx_transfer(
                                     available_tx.tx.tx.clone(),
                                     vec![],
@@ -316,7 +315,6 @@ fn mempool_walk_over_fork() {
                             // Generate any success result
                             TransactionResult::success(
                                 &available_tx.tx.tx,
-                                available_tx.tx.metadata.tx_fee,
                                 StacksTransactionReceipt::from_stx_transfer(
                                     available_tx.tx.tx.clone(),
                                     vec![],
@@ -353,7 +351,6 @@ fn mempool_walk_over_fork() {
                             // Generate any success result
                             TransactionResult::success(
                                 &available_tx.tx.tx,
-                                available_tx.tx.metadata.tx_fee,
                                 StacksTransactionReceipt::from_stx_transfer(
                                     available_tx.tx.tx.clone(),
                                     vec![],
@@ -395,7 +392,6 @@ fn mempool_walk_over_fork() {
                             // Generate any success result
                             TransactionResult::success(
                                 &available_tx.tx.tx,
-                                available_tx.tx.metadata.tx_fee,
                                 StacksTransactionReceipt::from_stx_transfer(
                                     available_tx.tx.tx.clone(),
                                     vec![],
@@ -435,7 +431,6 @@ fn mempool_walk_over_fork() {
                             // Generate any success result
                             TransactionResult::success(
                                 &available_tx.tx.tx,
-                                available_tx.tx.metadata.tx_fee,
                                 StacksTransactionReceipt::from_stx_transfer(
                                     available_tx.tx.tx.clone(),
                                     vec![],
@@ -661,7 +656,6 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
                             // Generate any success result
                             TransactionResult::success(
                                 &available_tx.tx.tx,
-                                available_tx.tx.metadata.tx_fee,
                                 StacksTransactionReceipt::from_stx_transfer(
                                     available_tx.tx.tx.clone(),
                                     vec![],
@@ -698,7 +692,6 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
                             // Generate any success result
                             TransactionResult::success(
                                 &available_tx.tx.tx,
-                                available_tx.tx.metadata.tx_fee,
                                 StacksTransactionReceipt::from_stx_transfer(
                                     available_tx.tx.tx.clone(),
                                     vec![],
@@ -735,7 +728,6 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
                             // Generate any success result
                             TransactionResult::success(
                                 &available_tx.tx.tx,
-                                available_tx.tx.metadata.tx_fee,
                                 StacksTransactionReceipt::from_stx_transfer(
                                     available_tx.tx.tx.clone(),
                                     vec![],
@@ -844,7 +836,6 @@ fn test_iterate_candidates_skipped_transaction() {
                             // Generate any success result
                             TransactionResult::success(
                                 &available_tx.tx.tx,
-                                available_tx.tx.metadata.tx_fee,
                                 StacksTransactionReceipt::from_stx_transfer(
                                     available_tx.tx.tx.clone(),
                                     vec![],
@@ -959,7 +950,6 @@ fn test_iterate_candidates_processing_error_transaction() {
                             // Generate any success result
                             TransactionResult::success(
                                 &available_tx.tx.tx,
-                                available_tx.tx.metadata.tx_fee,
                                 StacksTransactionReceipt::from_stx_transfer(
                                     available_tx.tx.tx.clone(),
                                     vec![],
@@ -1074,7 +1064,6 @@ fn test_iterate_candidates_problematic_transaction() {
                             // Generate any success result
                             TransactionResult::success(
                                 &available_tx.tx.tx,
-                                available_tx.tx.metadata.tx_fee,
                                 StacksTransactionReceipt::from_stx_transfer(
                                     available_tx.tx.tx.clone(),
                                     vec![],
@@ -1226,7 +1215,6 @@ fn test_iterate_candidates_concurrent_write_lock() {
                             // Generate any success result
                             TransactionResult::success(
                                 &available_tx.tx.tx,
-                                available_tx.tx.metadata.tx_fee,
                                 StacksTransactionReceipt::from_stx_transfer(
                                     available_tx.tx.tx.clone(),
                                     vec![],
@@ -1585,7 +1573,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
         num_txs,
     )
     .unwrap();
-    assert_eq!(txs.len(), 0);
+    assert!(txs.is_empty());
 
     eprintln!("get empty txs");
     let txs = MemPoolDB::get_txs_after(
@@ -1596,7 +1584,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
         num_txs,
     )
     .unwrap();
-    assert_eq!(txs.len(), 0);
+    assert!(txs.is_empty());
 
     eprintln!("garbage-collect");
     let mempool_tx = mempool.tx_begin().unwrap();
@@ -1621,7 +1609,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
         num_txs,
     )
     .unwrap();
-    assert_eq!(txs.len(), 0);
+    assert!(txs.is_empty());
 }
 
 #[test]
@@ -2229,7 +2217,7 @@ fn test_find_next_missing_transactions() {
         ts_after.saturating_sub(ts_before)
     );
 
-    assert_eq!(txs.len(), 0);
+    assert!(txs.is_empty());
     assert!(next_page_opt.is_some());
 
     // all txs returned for an empty txtag set
@@ -2272,7 +2260,7 @@ fn test_find_next_missing_transactions() {
         ts_after.saturating_sub(ts_before)
     );
 
-    assert_eq!(txs.len(), 0);
+    assert!(txs.is_empty());
     assert!(next_page_opt.is_some());
 
     let mut empty_bloom_conn = setup_bloom_counter(function_name!());
@@ -2393,7 +2381,7 @@ fn test_find_next_missing_transactions() {
             (2 * MAX_BLOOM_COUNTER_TXS) as u64,
         )
         .unwrap();
-    assert_eq!(old_txs.len(), 0);
+    assert!(old_txs.is_empty());
     assert!(next_page_opt.is_none());
 
     let (old_txs, next_page_opt, num_visited) = mempool
@@ -2405,7 +2393,7 @@ fn test_find_next_missing_transactions() {
             (2 * MAX_BLOOM_COUNTER_TXS) as u64,
         )
         .unwrap();
-    assert_eq!(old_txs.len(), 0);
+    assert!(old_txs.is_empty());
     assert!(next_page_opt.is_none());
 }
 
@@ -2725,7 +2713,6 @@ fn test_filter_txs_by_type() {
                             // Generate any success result
                             TransactionResult::success(
                                 &available_tx.tx.tx,
-                                available_tx.tx.metadata.tx_fee,
                                 StacksTransactionReceipt::from_stx_transfer(
                                     available_tx.tx.tx.clone(),
                                     vec![],
@@ -2760,7 +2747,6 @@ fn test_filter_txs_by_type() {
                             // Generate any success result
                             TransactionResult::success(
                                 &available_tx.tx.tx,
-                                available_tx.tx.metadata.tx_fee,
                                 StacksTransactionReceipt::from_stx_transfer(
                                     available_tx.tx.tx.clone(),
                                     vec![],

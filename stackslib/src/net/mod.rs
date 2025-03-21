@@ -2477,15 +2477,12 @@ pub mod test {
                     &hostport.parse::<std::net::SocketAddr>().unwrap(),
                 ) {
                     Ok(sock) => sock,
-                    Err(e) => match e.kind() {
-                        io::ErrorKind::AddrInUse => {
+                    Err(e) => {
+                        if let io::ErrorKind::AddrInUse = e.kind() {
                             continue;
                         }
-                        _ => {
-                            assert!(false, "TcpListener::bind({}): {:?}", &hostport, &e);
-                            unreachable!();
-                        }
-                    },
+                        panic!("TcpListener::bind({hostport}): {e:?}");
+                    }
                 };
                 break;
             }
@@ -2493,7 +2490,7 @@ pub mod test {
         };
 
         let std_sock_1 = std::net::TcpStream::connect(
-            &format!("127.0.0.1:{}", port)
+            &format!("127.0.0.1:{port}")
                 .parse::<std::net::SocketAddr>()
                 .unwrap(),
         )

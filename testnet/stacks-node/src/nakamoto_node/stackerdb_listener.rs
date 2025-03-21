@@ -52,10 +52,14 @@ pub static EVENT_RECEIVER_POLL: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone)]
 pub struct BlockStatus {
-    pub responded_signers: HashSet<StacksPublicKey>,
+    /// Set of the slot ids of signers who have responded
+    pub responded_signers: HashSet<u32>,
+    /// Map of the slot id of signers who have signed the block and their signature
     pub gathered_signatures: BTreeMap<u32, MessageSignature>,
-    pub total_weight_signed: u32,
-    pub total_reject_weight: u32,
+    /// Total weight of signers who have signed the block
+    pub total_weight_approved: u32,
+    /// Total weight of signers who have rejected the block
+    pub total_weight_rejected: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -312,14 +316,17 @@ impl StackerDBListener {
                                 "signer_slot_id" => slot_id,
                                 "signature" => %signature,
                                 "signer_weight" => signer_entry.weight,
-                                "total_weight_signed" => block.total_weight_signed,
+                                "total_weight_approved" => block.total_weight_approved,
+                                "percent_approved" => block.total_weight_approved as f64 / self.total_weight as f64 * 100.0,
+                                "total_weight_rejected" => block.total_weight_rejected,
+                                "percent_rejected" => block.total_weight_rejected as f64 / self.total_weight as f64 * 100.0,
                             );
                             continue;
                         }
 
                         if !block.gathered_signatures.contains_key(&slot_id) {
-                            block.total_weight_signed = block
-                                .total_weight_signed
+                            block.total_weight_approved = block
+                                .total_weight_approved
                                 .checked_add(signer_entry.weight)
                                 .expect("FATAL: total weight signed exceeds u32::MAX");
                         }
@@ -330,14 +337,18 @@ impl StackerDBListener {
                             "signer_slot_id" => slot_id,
                             "signature" => %signature,
                             "signer_weight" => signer_entry.weight,
-                            "total_weight_signed" => block.total_weight_signed,
+                            "total_weight_approved" => block.total_weight_approved,
+                            "percent_approved" => block.total_weight_approved as f64 / self.total_weight as f64 * 100.0,
+                            "total_weight_rejected" => block.total_weight_rejected,
+                            "percent_rejected" => block.total_weight_rejected as f64 / self.total_weight as f64 * 100.0,
+                            "weight_threshold" => self.weight_threshold,
                             "tenure_extend_timestamp" => tenure_extend_timestamp,
                             "server_version" => metadata.server_version,
                         );
                         block.gathered_signatures.insert(slot_id, signature);
-                        block.responded_signers.insert(signer_pubkey);
+                        block.responded_signers.insert(slot_id);
 
-                        if block.total_weight_signed >= self.weight_threshold {
+                        if block.total_weight_approved >= self.weight_threshold {
                             // Signal to anyone waiting on this block that we have enough signatures
                             cvar.notify_all();
                         }
@@ -377,11 +388,13 @@ impl StackerDBListener {
                                 continue;
                             }
                         };
-                        block.responded_signers.insert(rejected_pubkey);
-                        block.total_reject_weight = block
-                            .total_reject_weight
-                            .checked_add(signer_entry.weight)
-                            .expect("FATAL: total weight rejected exceeds u32::MAX");
+
+                        if block.responded_signers.insert(slot_id) {
+                            block.total_weight_rejected = block
+                                .total_weight_rejected
+                                .checked_add(signer_entry.weight)
+                                .expect("FATAL: total weight rejected exceeds u32::MAX");
+                        }
 
                         info!("StackerDBListener: Signer rejected block";
                             "block_signer_sighash" => %rejected_data.signer_signature_hash,
@@ -389,15 +402,19 @@ impl StackerDBListener {
                             "signer_slot_id" => slot_id,
                             "signature" => %rejected_data.signature,
                             "signer_weight" => signer_entry.weight,
-                            "total_weight_signed" => block.total_weight_signed,
+                            "total_weight_approved" => block.total_weight_approved,
+                            "percent_approved" => block.total_weight_approved as f64 / self.total_weight as f64 * 100.0,
+                            "total_weight_rejected" => block.total_weight_rejected,
+                            "percent_rejected" => block.total_weight_rejected as f64 / self.total_weight as f64 * 100.0,
+                            "weight_threshold" => self.weight_threshold,
                             "reason" => rejected_data.reason,
-                            "reason_code" => %rejected_data.reason_code,
+                            "reason_code" => ?rejected_data.reason_code,
                             "tenure_extend_timestamp" => rejected_data.response_data.tenure_extend_timestamp,
                             "server_version" => rejected_data.metadata.server_version,
                         );
 
                         if block
-                            .total_reject_weight
+                            .total_weight_rejected
                             .saturating_add(self.weight_threshold)
                             > self.total_weight
                         {
@@ -422,6 +439,9 @@ impl StackerDBListener {
                     | SignerMessageV0::MockProposal(_)
                     | SignerMessageV0::MockBlock(_) => {
                         debug!("Received mock message. Ignoring.");
+                    }
+                    SignerMessageV0::StateMachineUpdate(_) => {
+                        debug!("Received state machine update message. Ignoring.");
                     }
                 };
             }
@@ -479,10 +499,29 @@ impl StackerDBListenerComms {
         let block_status = BlockStatus {
             responded_signers: HashSet::new(),
             gathered_signatures: BTreeMap::new(),
-            total_weight_signed: 0,
-            total_reject_weight: 0,
+            total_weight_approved: 0,
+            total_weight_rejected: 0,
         };
         blocks.insert(block.signer_signature_hash(), block_status);
+    }
+
+    /// Reset rejections for a block proposal.
+    /// This is used when a block proposal times out and we need to retry it by
+    /// clearing the block's rejections. Block approvals cannot be cleared
+    /// because an old approval could always be used to make a block reach
+    /// the approval threshold.
+    pub fn reset_rejections(&self, signer_sighash: &Sha512Trunc256Sum) {
+        let (lock, _cvar) = &*self.blocks;
+        let mut blocks = lock.lock().expect("FATAL: failed to lock block status");
+        if let Some(block) = blocks.get_mut(signer_sighash) {
+            block.responded_signers.clear();
+            block.total_weight_rejected = 0;
+
+            // Add approving signers back to the responded signers set
+            for (slot_id, _) in block.gathered_signatures.iter() {
+                block.responded_signers.insert(*slot_id);
+            }
+        }
     }
 
     /// Get the status for `block` from the Stacker DB listener.

@@ -16,7 +16,7 @@
 use std::sync::LazyLock;
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use libsigner::v0::messages::{BlockResponse, RejectCode};
+use libsigner::v0::messages::{BlockResponse, RejectReason};
 use libsigner::BlockProposal;
 use slog::{slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksPublicKey;
@@ -92,13 +92,16 @@ impl Signer {
                     warn!("{self}: Failed to mark block as locally rejected: {e:?}");
                 }
             };
+
+            block_info.reject_reason = Some(RejectReason::TestingDirective);
+
             // We must insert the block into the DB to prevent subsequent repeat proposals being accepted (should reject
             // as invalid since we rejected in a prior round if this crops up again)
             // in case this is the first time we saw this block. Safe to do since this is testing case only.
             self.signer_db
                 .insert_block(block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
-            Some(self.create_block_rejection(RejectCode::TestingDirective, &block_proposal.block))
+            Some(self.create_block_rejection(RejectReason::TestingDirective, &block_proposal.block))
         } else {
             block_response
         }
