@@ -299,10 +299,14 @@ impl VRFProof {
 
                 c_buf[..16].copy_from_slice(&bytes[32..(16 + 32)]);
                 s_buf[..32].copy_from_slice(&bytes[48..(32 + 48)]);
-                let c = ed25519_Scalar::from_canonical_bytes(c_buf).ok()?;
-                let s = ed25519_Scalar::from_canonical_bytes(s_buf).ok()?;
+                let c: Option<ed25519_Scalar> = ed25519_Scalar::from_canonical_bytes(c_buf).into();
+                let s: Option<ed25519_Scalar> = ed25519_Scalar::from_canonical_bytes(s_buf).into();
 
-                Some(VRFProof { Gamma: gamma, c, s })
+                Some(VRFProof {
+                    Gamma: gamma,
+                    c: c?,
+                    s: s?,
+                })
             }
             _ => None,
         }
