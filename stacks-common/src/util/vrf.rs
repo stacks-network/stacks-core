@@ -282,8 +282,8 @@ impl VRFProof {
                 // |----------------------------|----------|---------------------------|
                 //      Gamma point               c scalar   s scalar
                 let gamma_opt = CompressedEdwardsY::from_slice(&bytes[0..32])
-                    .unwrap()
-                    .decompress();
+                    .ok()
+                    .and_then(|y| y.decompress());
                 if gamma_opt.is_none() {
                     test_debug!("Invalid Gamma");
                     return None;
@@ -299,8 +299,8 @@ impl VRFProof {
 
                 c_buf[..16].copy_from_slice(&bytes[32..(16 + 32)]);
                 s_buf[..32].copy_from_slice(&bytes[48..(32 + 48)]);
-                let c = ed25519_Scalar::from_canonical_bytes(c_buf).expect("Invalid C scalar");
-                let s = ed25519_Scalar::from_canonical_bytes(s_buf).expect("Invalid S scalar");
+                let c = ed25519_Scalar::from_canonical_bytes(c_buf).ok()?;
+                let s = ed25519_Scalar::from_canonical_bytes(s_buf).ok()?;
 
                 Some(VRFProof { Gamma: gamma, c, s })
             }
@@ -388,7 +388,7 @@ impl VRF {
             }
 
             let y = CompressedEdwardsY::from_slice(&hasher.finalize()[0..32]);
-            if let Some(h) = y.unwrap().decompress() {
+            if let Some(h) = y.ok().and_then(|y| y.decompress()) {
                 break h;
             }
 
