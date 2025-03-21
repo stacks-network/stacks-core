@@ -12176,8 +12176,11 @@ fn transfers_in_block(block: &serde_json::Value) -> usize {
         let raw_tx = tx["raw_tx"].as_str().unwrap();
         let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
         let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-        if let TransactionPayload::TokenTransfer(..) = &parsed.payload {
-            count += 1;
+        if let TransactionPayload::TokenTransfer(_, amount, _) = &parsed.payload {
+            // Don't count phantom transactions, which have a 0 amount.
+            if *amount > 0 {
+                count += 1;
+            }
         }
     }
     count
