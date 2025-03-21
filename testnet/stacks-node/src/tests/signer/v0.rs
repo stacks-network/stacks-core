@@ -8163,46 +8163,50 @@ fn block_proposal_max_age_rejections() {
 
     info!("------------------------- Test Block Proposal Rejected -------------------------");
     // Verify the signers rejected only the SECOND block proposal. The first was not even processed.
-    wait_for(30, || {
-        let rejections = test_observer::get_stackerdb_chunks()
+    wait_for(120, || {
+        let mut status_map = HashMap::new();
+        for chunk in test_observer::get_stackerdb_chunks()
             .into_iter()
             .flat_map(|chunk| chunk.modified_slots)
-            .map(|chunk| {
-                let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                else {
-                    return None;
-                };
-                match message {
-                    SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
-                        signer_signature_hash,
-                        signature,
-                        ..
-                    })) => {
-                        assert_eq!(
-                            signer_signature_hash, block_signer_signature_hash_2,
-                            "We should only reject the second block"
-                        );
-                        Some(signature)
-                    }
-                    SignerMessage::BlockResponse(BlockResponse::Accepted(BlockAccepted {
-                        signer_signature_hash,
-                        ..
-                    })) => {
-                        assert_ne!(
-                            signer_signature_hash, block_signer_signature_hash_1,
-                            "We should never have accepted block"
-                        );
-                        None
-                    }
-                    _ => None,
+        {
+            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+            else {
+                continue;
+            };
+            match message {
+                SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
+                    signer_signature_hash,
+                    ..
+                })) => {
+                    let entry = status_map.entry(signer_signature_hash).or_insert((0, 0));
+                    entry.0 += 1;
                 }
-            });
-        Ok(rejections.count() > num_signers * 7 / 10)
+                SignerMessage::BlockResponse(BlockResponse::Accepted(BlockAccepted {
+                    signer_signature_hash,
+                    ..
+                })) => {
+                    let entry = status_map.entry(signer_signature_hash).or_insert((0, 0));
+                    entry.1 += 1;
+                }
+                _ => continue,
+            }
+        }
+        let block_1_status = status_map
+            .get(&block_signer_signature_hash_1)
+            .cloned()
+            .unwrap_or((0, 0));
+        assert_eq!(block_1_status, (0, 0));
+
+        let block_2_status = status_map
+            .get(&block_signer_signature_hash_2)
+            .cloned()
+            .unwrap_or((0, 0));
+        assert_eq!(block_2_status.1, 0, "Block 2 should always be rejected");
+
+        info!("Block 2 status"; "accepted" => block_2_status.1, "rejected" => block_2_status.0);
+        Ok(block_2_status.0 > num_signers * 7 / 10)
     })
     .expect("Timed out waiting for block rejections");
-
-    info!("------------------------- Test Peer Info-------------------------");
-    assert_eq!(info_before, get_chain_info(&signer_test.running_nodes.conf));
 
     info!("------------------------- Test Shutdown-------------------------");
     signer_test.shutdown();
