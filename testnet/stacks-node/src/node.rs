@@ -241,6 +241,7 @@ fn spawn_peer(
                     false,
                     poll_timeout,
                     &handler_args,
+                    config.node.txindex,
                 )
                 .unwrap();
             if net_result.has_transactions() {

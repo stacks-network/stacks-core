@@ -86,6 +86,7 @@ mod gettenure;
 mod gettenureinfo;
 mod gettenuretip;
 mod gettransaction_unconfirmed;
+mod gettransactions;
 mod liststackerdbreplicas;
 mod postblock;
 mod postblock_proposal;
@@ -1011,6 +1012,7 @@ impl<'a> TestRPC<'a> {
                     &mut peer_1_mempool,
                     &rpc_args,
                     false,
+                    peer_1.config.txindex,
                 );
                 convo_1.chat(&mut node_state).unwrap();
             }
@@ -1059,6 +1061,7 @@ impl<'a> TestRPC<'a> {
                     &mut peer_2_mempool,
                     &rpc_args,
                     false,
+                    peer_2.config.txindex,
                 );
                 convo_2.chat(&mut node_state).unwrap();
             }
@@ -1118,6 +1121,7 @@ impl<'a> TestRPC<'a> {
                         &mut peer_1_mempool,
                         &rpc_args,
                         false,
+                        peer_1.config.txindex,
                     );
 
                     convo_1.chat(&mut node_state).unwrap();

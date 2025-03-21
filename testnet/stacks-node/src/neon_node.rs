@@ -4480,6 +4480,8 @@ impl PeerThread {
             p2p_thread.globals.recv_unconfirmed_txs(chainstate);
         });
 
+        let txindex = self.config.node.txindex;
+
         // do one pass
         let p2p_res = self.with_chainstate(|p2p_thread, sortdb, chainstate, mempool| {
             // NOTE: handler_args must be created such that it outlives the inner net.run() call and
@@ -4505,6 +4507,7 @@ impl PeerThread {
                     ibd,
                     poll_ms,
                     &handler_args,
+                    txindex,
                 )
             })
         });

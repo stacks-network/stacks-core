@@ -1429,7 +1429,7 @@ fn pox_treatment() {
             false
         },
     );
-    let processing_result = peer.try_process_block(&invalid_block, false).unwrap_err();
+    let processing_result = peer.try_process_block(&invalid_block).unwrap_err();
     assert_eq!(
         processing_result.to_string(),
         "Bitvec does not match the block commit's PoX handling".to_string(),
@@ -1520,7 +1520,7 @@ fn pox_treatment() {
             false
         },
     );
-    let processing_result = peer.try_process_block(&invalid_block, false).unwrap_err();
+    let processing_result = peer.try_process_block(&invalid_block).unwrap_err();
     assert_eq!(
         processing_result.to_string(),
         "Bitvec does not match the block commit's PoX handling".to_string(),
@@ -1614,7 +1614,7 @@ fn transactions_indexing() {
     let (tracked_block, burn_height, ..) =
         peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| false);
 
-    assert_eq!(peer.try_process_block(&tracked_block, true).unwrap(), true);
+    assert_eq!(peer.try_process_block(&tracked_block).unwrap(), true);
 
     let tracked_block_id = tracked_block.block_id();
 
@@ -1622,10 +1622,7 @@ fn transactions_indexing() {
     let (untracked_block, burn_height, ..) =
         peer.single_block_tenure(&private_key, |_| {}, |_| {}, |_| false);
 
-    assert_eq!(
-        peer.try_process_block(&untracked_block, false).unwrap(),
-        true
-    );
+    assert_eq!(peer.try_process_block(&untracked_block).unwrap(), true);
 
     let untracked_block_id = untracked_block.block_id();
 

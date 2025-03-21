@@ -5486,6 +5486,7 @@ impl PeerNetwork {
         ibd: bool,
         poll_timeout: u64,
         handler_args: &RPCHandlerArgs,
+        txindex: bool,
     ) -> Result<NetworkResult, net_error> {
         debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Network Dispatch (poll for {}) >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
         let mut poll_states = match self.network {
@@ -5557,8 +5558,15 @@ impl PeerNetwork {
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             let http_stacks_msgs = PeerNetwork::with_http(network, |ref mut net, ref mut http| {
-                let mut node_state =
-                    StacksNodeState::new(net, sortdb, chainstate, mempool, handler_args, ibd);
+                let mut node_state = StacksNodeState::new(
+                    net,
+                    sortdb,
+                    chainstate,
+                    mempool,
+                    handler_args,
+                    ibd,
+                    txindex,
+                );
                 http.run(network_state, &mut node_state, http_poll_state)
             });
             network_result.consume_http_uploads(http_stacks_msgs);

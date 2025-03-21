@@ -659,6 +659,8 @@ pub struct StacksNodeState<'a> {
     relay_message: Option<StacksMessageType>,
     /// Are we in Initial Block Download (IBD) phase?
     ibd: bool,
+    /// Are we indexing transactions?
+    txindex: bool,
 }
 
 impl<'a> StacksNodeState<'a> {
@@ -669,6 +671,7 @@ impl<'a> StacksNodeState<'a> {
         inner_mempool: &'a mut MemPoolDB,
         inner_rpc_args: &'a RPCHandlerArgs<'a>,
         ibd: bool,
+        txindex: bool,
     ) -> StacksNodeState<'a> {
         StacksNodeState {
             inner_network: Some(inner_network),
@@ -678,6 +681,7 @@ impl<'a> StacksNodeState<'a> {
             inner_rpc_args: Some(inner_rpc_args),
             relay_message: None,
             ibd,
+            txindex,
         }
     }
 
@@ -2689,6 +2693,7 @@ pub mod test {
         pub aggregate_public_key: Option<Vec<u8>>,
         pub test_stackers: Option<Vec<TestStacker>>,
         pub test_signers: Option<TestSigners>,
+        pub txindex: bool,
     }
 
     impl TestPeerConfig {
@@ -2741,6 +2746,7 @@ pub mod test {
                 aggregate_public_key: None,
                 test_stackers: None,
                 test_signers: None,
+                txindex: false,
             }
         }
 
@@ -3423,6 +3429,7 @@ pub mod test {
                 ibd,
                 100,
                 &rpc_handler_args,
+                self.config.txindex,
             );
 
             if self.network.get_current_epoch().epoch_id >= StacksEpochId::Epoch30 {
@@ -3534,6 +3541,7 @@ pub mod test {
                 ibd,
                 100,
                 &rpc_handler_args,
+                self.config.txindex,
             );
 
             if self.network.get_current_epoch().epoch_id >= StacksEpochId::Epoch30 {
