@@ -7,5 +7,6 @@
     },
     "rust-analyzer.rustfmt.extraArgs": [
         "+nightly"
-    ]
+    ],
+    "files.eol": "\n"
 }
