@@ -22,8 +22,6 @@
 #[macro_use]
 extern crate stacks_common;
 
-extern crate slog;
-
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
