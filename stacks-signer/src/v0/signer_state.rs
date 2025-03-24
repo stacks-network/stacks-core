@@ -22,7 +22,6 @@ use libsigner::v0::messages::{
     StateMachineUpdateMinerState,
 };
 use serde::{Deserialize, Serialize};
-use slog::{slog_info, slog_warn};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::Error as CodecError;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
