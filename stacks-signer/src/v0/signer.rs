@@ -45,6 +45,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error, info, warn};
 
+use super::signer_state::LocalStateMachine;
 use crate::chainstate::{ProposalEvalConfig, SortitionMinerStatus, SortitionsView};
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
@@ -106,6 +107,8 @@ pub struct Signer {
     pub submitted_block_proposal: Option<(Sha512Trunc256Sum, Instant)>,
     /// Maximum age of a block proposal in seconds before it is dropped without processing
     pub block_proposal_max_age_secs: u64,
+    /// The signer's local state machine used in signer set agreement
+    pub local_state_machine: LocalStateMachine,
 }
 
 impl std::fmt::Display for SignerMode {
@@ -125,8 +128,40 @@ impl std::fmt::Display for Signer {
 
 impl SignerTrait<SignerMessage> for Signer {
     /// Create a new signer from the given configuration
-    fn new(config: SignerConfig) -> Self {
-        Self::from(config)
+    fn new(stacks_client: &StacksClient, signer_config: SignerConfig) -> Self {
+        let stackerdb = StackerDB::from(&signer_config);
+        let mode = match signer_config.signer_mode {
+            SignerConfigMode::DryRun => SignerMode::DryRun,
+            SignerConfigMode::Normal { signer_id, .. } => SignerMode::Normal { signer_id },
+        };
+
+        debug!("Reward cycle #{} {mode}", signer_config.reward_cycle);
+
+        let signer_db =
+            SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
+        let proposal_config = ProposalEvalConfig::from(&signer_config);
+
+        let signer_state = LocalStateMachine::new(&signer_db, stacks_client, &proposal_config)
+            .unwrap_or_else(|e| {
+                warn!("Failed to initialize local state machine for signer: {e:?}");
+                LocalStateMachine::Uninitialized
+            });
+        Self {
+            private_key: signer_config.stacks_private_key,
+            stackerdb,
+            mainnet: signer_config.mainnet,
+            mode,
+            signer_addresses: signer_config.signer_entries.signer_addresses.clone(),
+            signer_weights: signer_config.signer_entries.signer_addr_to_weight.clone(),
+            signer_slot_ids: signer_config.signer_slot_ids.clone(),
+            reward_cycle: signer_config.reward_cycle,
+            signer_db,
+            proposal_config,
+            submitted_block_proposal: None,
+            block_proposal_validation_timeout: signer_config.block_proposal_validation_timeout,
+            block_proposal_max_age_secs: signer_config.block_proposal_max_age_secs,
+            local_state_machine: signer_state,
+        }
     }
 
     /// Return the reward cycle of the signer
@@ -140,7 +175,7 @@ impl SignerTrait<SignerMessage> for Signer {
         stacks_client: &StacksClient,
         sortition_state: &mut Option<SortitionsView>,
         event: Option<&SignerEvent<SignerMessage>>,
-        _res: &Sender<Vec<SignerResult>>,
+        _res: &Sender<SignerResult>,
         current_reward_cycle: u64,
     ) {
         let event_parity = match event {
@@ -176,6 +211,12 @@ impl SignerTrait<SignerMessage> for Signer {
             debug!("{self}: Signer reward cycle has not yet started. Ignoring event.");
             return;
         }
+
+        if self.reward_cycle <= current_reward_cycle {
+            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client, &self.proposal_config)
+                .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
+        }
+
         match event {
             SignerEvent::BlockValidationResponse(block_validate_response) => {
                 debug!("{self}: Received a block proposal result from the stacks node...");
@@ -268,11 +309,17 @@ impl SignerTrait<SignerMessage> for Signer {
             SignerEvent::NewBurnBlock {
                 burn_height,
                 burn_header_hash,
+                consensus_hash,
                 received_time,
             } => {
                 info!("{self}: Received a new burn block event for block height {burn_height}");
                 self.signer_db
-                    .insert_burn_block(burn_header_hash, *burn_height, received_time)
+                    .insert_burn_block(
+                        burn_header_hash,
+                        consensus_hash,
+                        *burn_height,
+                        received_time,
+                    )
                     .unwrap_or_else(|e| {
                         error!(
                             "Failed to write burn block event to signerdb";
@@ -282,20 +329,35 @@ impl SignerTrait<SignerMessage> for Signer {
                         );
                         panic!("{self} Failed to write burn block event to signerdb: {e}");
                     });
+                self.local_state_machine
+                    .bitcoin_block_arrival(&self.signer_db, stacks_client, &self.proposal_config, Some(*burn_height))
+                    .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
                 *sortition_state = None;
             }
             SignerEvent::NewBlock {
-                block_hash,
                 block_height,
+                block_id,
+                consensus_hash,
+                signer_sighash,
             } => {
+                let Some(signer_sighash) = signer_sighash else {
+                    debug!("{self}: received a new block event for a pre-nakamoto block, no processing necessary");
+                    return;
+                };
                 debug!(
                     "{self}: Received a new block event.";
-                    "block_hash" => %block_hash,
+                    "block_id" => %block_id,
+                    "signer_sighash" => %signer_sighash,
+                    "consensus_hash" => %consensus_hash,
                     "block_height" => block_height
                 );
+                self.local_state_machine
+                    .stacks_block_arrival(consensus_hash, *block_height, block_id)
+                    .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest stacks block arrival"; "err" => ?e));
+
                 if let Ok(Some(mut block_info)) = self
                     .signer_db
-                    .block_lookup(block_hash)
+                    .block_lookup(signer_sighash)
                     .inspect_err(|e| warn!("{self}: Failed to load block state: {e:?}"))
                 {
                     if block_info.state == BlockState::GloballyAccepted {
@@ -323,37 +385,9 @@ impl SignerTrait<SignerMessage> for Signer {
                 true
             })
     }
-}
 
-impl From<SignerConfig> for Signer {
-    fn from(signer_config: SignerConfig) -> Self {
-        let stackerdb = StackerDB::from(&signer_config);
-        let mode = match signer_config.signer_mode {
-            SignerConfigMode::DryRun => SignerMode::DryRun,
-            SignerConfigMode::Normal { signer_id, .. } => SignerMode::Normal { signer_id },
-        };
-
-        debug!("Reward cycle #{} {mode}", signer_config.reward_cycle);
-
-        let signer_db =
-            SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
-        let proposal_config = ProposalEvalConfig::from(&signer_config);
-
-        Self {
-            private_key: signer_config.stacks_private_key,
-            stackerdb,
-            mainnet: signer_config.mainnet,
-            mode,
-            signer_addresses: signer_config.signer_entries.signer_addresses.clone(),
-            signer_weights: signer_config.signer_entries.signer_addr_to_weight.clone(),
-            signer_slot_ids: signer_config.signer_slot_ids.clone(),
-            reward_cycle: signer_config.reward_cycle,
-            signer_db,
-            proposal_config,
-            submitted_block_proposal: None,
-            block_proposal_validation_timeout: signer_config.block_proposal_validation_timeout,
-            block_proposal_max_age_secs: signer_config.block_proposal_max_age_secs,
-        }
+    fn get_local_state_machine(&self) -> &LocalStateMachine {
+        &self.local_state_machine
     }
 }
 

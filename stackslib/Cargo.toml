@@ -83,10 +83,6 @@ features = ["serde", "recovery"]
 [dependencies.ed25519-dalek]
 workspace = true
 
-[dependencies.curve25519-dalek]
-version = "=2.0.0"
-features = ["serde"]
-
 [dependencies.time]
 version = "0.2.23"
 features = ["std"]
