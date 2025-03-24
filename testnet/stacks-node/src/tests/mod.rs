@@ -58,7 +58,6 @@ mod epoch_21;
 mod epoch_22;
 mod epoch_23;
 mod epoch_24;
-mod epoch_25;
 mod integrations;
 mod mempool;
 pub mod nakamoto_integrations;
