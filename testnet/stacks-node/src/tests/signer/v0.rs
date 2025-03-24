@@ -12554,8 +12554,8 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
             signer_config.tenure_last_block_proposal_timeout = Duration::from_secs(1800);
             signer_config.first_proposal_burn_block_timing = Duration::from_secs(1800);
         },
-        |config| config.miner.max_execution_time = Some(0),
-        |config| config.miner.max_execution_time = None,
+        |config| config.miner.max_execution_time_secs = Some(0),
+        |config| config.miner.max_execution_time_secs = None,
     );
     let rl1_skip_commit_op = miners
         .signer_test

@@ -607,7 +607,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 
 /// Execute for test in Clarity1, Epoch20, testnet.
 #[cfg(any(test, feature = "testing"))]
-pub fn execute_with_max_execution_time(
+pub fn execute_with_limited_execution_time(
     program: &str,
     max_execution_time: std::time::Duration,
 ) -> Result<Option<Value>> {

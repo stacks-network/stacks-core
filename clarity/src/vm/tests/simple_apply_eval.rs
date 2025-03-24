@@ -40,9 +40,9 @@ use crate::vm::types::{
 };
 use crate::vm::{
     eval, execute as vm_execute, execute_v2 as vm_execute_v2,
-    execute_with_max_execution_time as vm_execute_with_max_execution_time, execute_with_parameters,
-    CallStack, ClarityVersion, ContractContext, CostErrors, Environment, GlobalContext,
-    LocalContext, Value,
+    execute_with_limited_execution_time as vm_execute_with_limited_execution_time,
+    execute_with_parameters, CallStack, ClarityVersion, ContractContext, CostErrors, Environment,
+    GlobalContext, LocalContext, Value,
 };
 
 #[test]
@@ -1771,7 +1771,7 @@ fn test_chain_id() {
 #[test]
 fn test_execution_time_expiration() {
     assert_eq!(
-        vm_execute_with_max_execution_time("(+ 1 1)", Duration::from_secs(0))
+        vm_execute_with_limited_execution_time("(+ 1 1)", Duration::from_secs(0))
             .err()
             .unwrap(),
         CostErrors::ExecutionTimeExpired.into()
