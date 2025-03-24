@@ -549,7 +549,7 @@ pub fn read_and_sign_block_proposal(
     if !other_views.is_empty() {
         info!(
             "Fetched block proposals";
-            "primary_latest_signer_signature_hash" => %signer_signature_hash,
+            "signer_signature_hash" => %signer_signature_hash,
             "primary_latest_block_height" => proposed_block.header.chain_length,
             "other_views" => ?other_views,
         );
