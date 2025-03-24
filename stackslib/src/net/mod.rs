@@ -3141,6 +3141,7 @@ pub mod test {
                 observer,
                 indexer,
                 None,
+                config.txindex,
             );
             coord.handle_new_burnchain_block().unwrap();
 

@@ -164,17 +164,12 @@ fn test_try_make_response() {
 
     // check genesis txid
     let response = responses.remove(0);
-    let contents = response.get_http_payload_ok().unwrap();
-    let response_json: serde_json::Value = contents.try_into().unwrap();
-    println!("RESPONSE: {}", response_json);
-    /*
     let resp = response.decode_gettransaction().unwrap();
 
     let tx_bytes = hex_bytes(&resp.tx).unwrap();
     let stacks_transaction = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
     assert_eq!(stacks_transaction.txid(), tx_genesis.txid());
     assert_eq!(stacks_transaction.serialize_to_vec(), tx_bytes);
-    */
 
     // check tip txid
     let response = responses.remove(0);

@@ -367,6 +367,7 @@ impl NakamotoBootPlan {
         peer_config.network_id = self.network_id;
         peer_config.private_key = self.private_key.clone();
         peer_config.txindex = self.txindex;
+
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,

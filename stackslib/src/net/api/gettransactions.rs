@@ -31,6 +31,7 @@ use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::StacksTransaction;
 use crate::core::mempool::MemPoolDB;
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpNotImplemented, HttpRequest, HttpRequestContents,
@@ -48,6 +49,7 @@ use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 pub struct TransactionResponse {
     pub index_block_hash: StacksBlockId,
     pub tx: String,
+    pub result: String,
 }
 
 #[derive(Clone)]
@@ -124,31 +126,28 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
             .ok_or(NetError::SendError("`txid` no set".into()))?;
 
         node.with_node_state(|_network, _sortdb, chainstate, _mempool, _rpc_args| {
-            let index_block_hash_and_tx_hex_opt =
-                match NakamotoChainState::get_index_block_hash_and_tx_hex_from_txid(
-                    chainstate.index_conn().conn(),
-                    txid,
-                ) {
-                    Ok(index_block_hash_and_tx_hex_opt) => index_block_hash_and_tx_hex_opt,
-                    Err(e) => {
-                        // nope -- error trying to check
-                        let msg = format!("Failed to load transaction: {:?}\n", &e);
-                        warn!("{}", &msg);
-                        return StacksHttpResponse::new_error(
-                            &preamble,
-                            &HttpServerError::new(msg),
-                        )
+            let index_block_hash_and_tx_hex_opt = match NakamotoChainState::get_tx_info_from_txid(
+                chainstate.index_conn().conn(),
+                txid,
+            ) {
+                Ok(index_block_hash_and_tx_hex_opt) => index_block_hash_and_tx_hex_opt,
+                Err(e) => {
+                    // nope -- error trying to check
+                    let msg = format!("Failed to load transaction: {:?}\n", &e);
+                    warn!("{}", &msg);
+                    return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
                         .try_into_contents()
                         .map_err(NetError::from);
-                    }
-                };
+                }
+            };
 
             match index_block_hash_and_tx_hex_opt {
-                Some((index_block_hash, tx_hex)) => {
+                Some((index_block_hash, tx_hex, result)) => {
                     let preamble = HttpResponsePreamble::ok_json(&preamble);
                     let body = HttpResponseContents::try_from_json(&TransactionResponse {
                         index_block_hash,
                         tx: tx_hex,
+                        result,
                     })?;
                     return Ok((preamble, body));
                 }

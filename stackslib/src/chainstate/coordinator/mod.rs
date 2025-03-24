@@ -223,12 +223,12 @@ impl ChainsCoordinatorConfig {
         }
     }
 
-    pub fn test_new() -> ChainsCoordinatorConfig {
+    pub fn test_new(txindex: bool) -> ChainsCoordinatorConfig {
         ChainsCoordinatorConfig {
             always_use_affirmation_maps: false,
             require_affirmed_anchor_blocks: false,
             assume_present_anchor_blocks: false,
-            txindex: false,
+            txindex,
         }
     }
 }
@@ -651,6 +651,7 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
         path: &str,
         reward_set_provider: U,
         indexer: B,
+        txindex: bool,
     ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
         ChainsCoordinator::test_new_full(
             burnchain,
@@ -660,6 +661,7 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
             None,
             indexer,
             None,
+            txindex,
         )
     }
 
@@ -673,6 +675,7 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
         dispatcher: Option<&'a T>,
         burnchain_indexer: B,
         atlas_config: Option<AtlasConfig>,
+        txindex: bool,
     ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
         let burnchain = burnchain.clone();
 
@@ -718,7 +721,7 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
             notifier: (),
             atlas_config,
             atlas_db: Some(atlas_db),
-            config: ChainsCoordinatorConfig::test_new(),
+            config: ChainsCoordinatorConfig::test_new(txindex),
             burnchain_indexer,
             refresh_stacker_db: Arc::new(AtomicBool::new(false)),
             in_nakamoto_epoch: false,

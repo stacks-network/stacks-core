@@ -3564,11 +3564,11 @@ impl NakamotoChainState {
     }
 
     // Get index_block_hash and transaction payload hex by txid from the transactions table
-    pub fn get_index_block_hash_and_tx_hex_from_txid(
+    pub fn get_tx_info_from_txid(
         conn: &Connection,
         txid: Txid,
-    ) -> Result<Option<(StacksBlockId, String)>, ChainstateError> {
-        let sql = "SELECT index_block_hash, tx_hex FROM transactions WHERE txid = ?";
+    ) -> Result<Option<(StacksBlockId, String, String)>, ChainstateError> {
+        let sql = "SELECT index_block_hash, tx_hex, result FROM transactions WHERE txid = ?";
         let args = params![txid];
 
         let mut stmt = conn.prepare(sql)?;
@@ -3576,8 +3576,8 @@ impl NakamotoChainState {
             .query_row(args, |row| {
                 let index_block_hash: StacksBlockId = row.get(0)?;
                 let tx_hex: String = row.get(1)?;
-
-                Ok((index_block_hash, tx_hex))
+                let result: String = row.get(2)?;
+                Ok((index_block_hash, tx_hex, result))
             })
             .optional()?)
     }

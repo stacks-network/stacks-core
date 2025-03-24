@@ -469,6 +469,7 @@ pub fn make_coordinator<'a>(
         path,
         OnChainRewardSetProvider(None),
         indexer,
+        false,
     )
 }
 
@@ -476,6 +477,7 @@ pub fn make_coordinator_atlas<'a>(
     path: &str,
     burnchain: Option<Burnchain>,
     atlas_config: Option<AtlasConfig>,
+    txindex: bool,
 ) -> ChainsCoordinator<
     'a,
     NullEventDispatcher,
@@ -495,6 +497,7 @@ pub fn make_coordinator_atlas<'a>(
         None,
         indexer,
         atlas_config,
+        txindex,
     )
 }
 
@@ -544,6 +547,7 @@ fn make_reward_set_coordinator<'a>(
         path,
         StubbedRewardSetProvider(addrs),
         indexer,
+        false,
     )
 }
 
@@ -4656,6 +4660,7 @@ fn atlas_stop_start() {
         path,
         Some(burnchain_conf.clone()),
         Some(atlas_config.clone()),
+        false,
     );
 
     coord.handle_new_burnchain_block().unwrap();
@@ -4850,7 +4855,7 @@ fn atlas_stop_start() {
     // now, we'll shut down all the coordinator connections and reopen them
     //  to ensure that the queue remains in place
     let coord = (); // dispose of the coordinator, closing all its connections
-    let coord = make_coordinator_atlas(path, Some(burnchain_conf), Some(atlas_config));
+    let coord = make_coordinator_atlas(path, Some(burnchain_conf), Some(atlas_config), false);
 
     let atlas_queue = coord
         .atlas_db

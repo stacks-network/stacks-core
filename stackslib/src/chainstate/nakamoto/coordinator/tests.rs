@@ -1631,13 +1631,10 @@ fn transactions_indexing() {
     // compare transactions to what has been tracked
     for tx in tracked_block.txs {
         let current_tx_hex = to_hex(&tx.serialize_to_vec());
-        let (index_block_hash, tx_hex) =
-            NakamotoChainState::get_index_block_hash_and_tx_hex_from_txid(
-                &chainstate.index_conn(),
-                tx.txid(),
-            )
-            .unwrap()
-            .unwrap();
+        let (index_block_hash, tx_hex, _) =
+            NakamotoChainState::get_tx_info_from_txid(&chainstate.index_conn(), tx.txid())
+                .unwrap()
+                .unwrap();
         assert_eq!(index_block_hash, tracked_block_id);
         assert_eq!(tx_hex, current_tx_hex);
     }
@@ -1645,7 +1642,7 @@ fn transactions_indexing() {
     // ensure untracked transactions are not recorded
     for tx in untracked_block.txs {
         assert_eq!(
-            NakamotoChainState::get_index_block_hash_and_tx_hex_from_txid(
+            NakamotoChainState::get_tx_info_from_txid(
                 &chainstate.index_conn(),
                 tx.txid(),
             )

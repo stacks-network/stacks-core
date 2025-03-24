@@ -517,6 +517,7 @@ where
             .with_test_signers(test_signers)
             .with_test_stackers(test_stackers),
     );
+
     plan.initial_balances.append(&mut initial_balances);
 
     let (peer, other_peers) = plan.boot_into_nakamoto_peers(boot_tenures, Some(observer));
