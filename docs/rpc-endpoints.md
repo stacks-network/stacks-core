@@ -578,3 +578,20 @@ tenure, `tip_block_id` identifies the highest-known block in this tenure, and
 Get number of blocks signed by signer during a given reward cycle
 
 Returns a non-negative integer
+
+### GET /v3/transactions/[Transaction ID]
+
+Returns the index_block_hash, the transaction body (as hex) and the result given the TXID.
+
+```json
+{
+  "index_block_hash": "...",
+  "tx": "...",
+  "result": "..."
+}
+```
+
+This feature requires enabling of transaction indexing by setting the `txindex` node option.
+
+This will return 404 if the transaction does not exist and 501 (Not Implemented) if
+transaction indexing is not enabled.
