@@ -1642,12 +1642,9 @@ fn transactions_indexing() {
     // ensure untracked transactions are not recorded
     for tx in untracked_block.txs {
         assert_eq!(
-            NakamotoChainState::get_tx_info_from_txid(
-                &chainstate.index_conn(),
-                tx.txid(),
-            )
-            .unwrap()
-            .is_none(),
+            NakamotoChainState::get_tx_info_from_txid(&chainstate.index_conn(), tx.txid(),)
+                .unwrap()
+                .is_none(),
             true
         );
     }
