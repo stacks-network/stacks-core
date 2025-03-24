@@ -181,6 +181,7 @@ impl VRFPublicKey {
 pub enum Error {
     InvalidPublicKey,
     InvalidDataError,
+    InvalidHashPoints,
     OSRNGError(rand::Error),
 }
 
@@ -189,6 +190,7 @@ impl fmt::Display for Error {
         match *self {
             Error::InvalidPublicKey => write!(f, "Invalid public key"),
             Error::InvalidDataError => write!(f, "No data could be found"),
+            Error::InvalidHashPoints => write!(f, "VRF hash points did not yield a valid scalar"),
             Error::OSRNGError(ref e) => fmt::Display::fmt(e, f),
         }
     }
@@ -199,6 +201,7 @@ impl error::Error for Error {
         match *self {
             Error::InvalidPublicKey => None,
             Error::InvalidDataError => None,
+            Error::InvalidHashPoints => None,
             Error::OSRNGError(ref e) => Some(e),
         }
     }
@@ -474,17 +477,17 @@ impl VRF {
 
     /// Convert a 16-byte string into a scalar.
     /// The upper 16 bytes in the resulting scalar MUST BE 0's
-    fn ed25519_scalar_from_hash128(hash128: &[u8; 16]) -> ed25519_Scalar {
+    fn ed25519_scalar_from_hash128(hash128: &[u8; 16]) -> Option<ed25519_Scalar> {
         let mut scalar_buf = [0u8; 32];
         scalar_buf[0..16].copy_from_slice(hash128);
 
-        ed25519_Scalar::from_canonical_bytes(scalar_buf).expect("Invalid scalar")
+        ed25519_Scalar::from_canonical_bytes(scalar_buf).into()
     }
 
     /// ECVRF proof routine
     /// https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html#rfc.section.5.1
     #[allow(clippy::op_ref)]
-    pub fn prove(secret: &VRFPrivateKey, alpha: &[u8]) -> VRFProof {
+    pub fn prove(secret: &VRFPrivateKey, alpha: &[u8]) -> Option<VRFProof> {
         let (Y_point, x_scalar, trunc_hash) = VRF::expand_privkey(secret);
         let H_point = VRF::hash_to_curve(&Y_point, alpha);
 
@@ -495,14 +498,15 @@ impl VRF {
         let kH_point = &k_scalar * &H_point;
 
         let c_hashbuf = VRF::hash_points(&H_point, &Gamma_point, &kB_point, &kH_point);
-        let c_scalar = VRF::ed25519_scalar_from_hash128(&c_hashbuf);
+        let c_scalar = VRF::ed25519_scalar_from_hash128(&c_hashbuf)?;
 
         let s_scalar = &k_scalar + &c_scalar * &x_scalar;
 
         // NOTE: expect() won't panic because c_scalar is guaranteed to have
         // its upper 16 bytes as 0
         VRFProof::new(Gamma_point, c_scalar, s_scalar)
-            .expect("FATAL ERROR: upper-16 bytes of proof's C scalar are NOT 0")
+            .inspect_err(|e| error!("FATAL: upper-16 bytes of proof's C scalar are NOT 0: {e}"))
+            .ok()
     }
 
     /// Given a public key, verify that the private key owner that generate the ECVRF proof did so on the given message.
@@ -525,7 +529,9 @@ impl VRF {
         let V_point = s_reduced * &H_point - proof.c() * proof.Gamma();
 
         let c_prime_hashbuf = VRF::hash_points(&H_point, proof.Gamma(), &U_point, &V_point);
-        let c_prime = VRF::ed25519_scalar_from_hash128(&c_prime_hashbuf);
+        let Some(c_prime) = VRF::ed25519_scalar_from_hash128(&c_prime_hashbuf) else {
+            return Err(Error::InvalidHashPoints);
+        };
 
         // NOTE: this leverages constant-time comparison inherited from the Scalar impl
         Ok(c_prime == *(proof.c()))
@@ -587,7 +593,7 @@ mod tests {
             let privk = VRFPrivateKey::from_bytes(&proof_fixture.privkey[..]).unwrap();
             let expected_proof_bytes = &proof_fixture.proof[..];
 
-            let proof = VRF::prove(&privk, &alpha.to_vec());
+            let proof = VRF::prove(&privk, &alpha.to_vec()).unwrap();
             let proof_bytes = proof.to_bytes();
 
             assert_eq!(proof_bytes.to_vec(), expected_proof_bytes.to_vec());
@@ -609,7 +615,7 @@ mod tests {
             let mut msg = [0u8; 1024];
             rng.fill_bytes(&mut msg);
 
-            let proof = VRF::prove(&secret_key, &msg);
+            let proof = VRF::prove(&secret_key, &msg).unwrap();
             let res = VRF::verify(&public_key, &proof, &msg).unwrap();
 
             assert!(res);
