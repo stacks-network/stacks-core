@@ -1,4 +1,4 @@
-// Copyright (C) 2024 Stacks Open Internet Foundation
+// Copyright (C) 2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -67,38 +67,31 @@ impl NonceCache {
         C: ClarityConnection,
     {
         // Check in-memory cache
-        match self.cache.get(address) {
-            Some(nonce) => nonce,
-            None => {
-                // Check sqlite cache
-                let opt_nonce = match db_get_nonce(mempool_db, address) {
-                    Ok(opt_nonce) => opt_nonce,
-                    Err(e) => {
-                        warn!("error retrieving nonce from mempool db: {}", e);
-                        None
-                    }
-                };
-                match opt_nonce {
-                    Some(nonce) => {
-                        // Insert into in-memory cache, but it is not dirty,
-                        // since we just got it from the database.
-                        let evicted = self.cache.insert_clean(address.clone(), nonce);
-                        if evicted.is_some() {
-                            // If we evicted something, we need to flush the cache.
-                            self.flush_with_evicted(mempool_db, evicted);
-                        }
-                        nonce
-                    }
-                    None => {
-                        let nonce =
-                            StacksChainState::get_nonce(clarity_tx, &address.clone().into());
+        if let Some(cached_nonce) = self.cache.get(address) {
+            return cached_nonce;
+        };
 
-                        self.set(address.clone(), nonce, mempool_db);
-                        nonce
-                    }
-                }
+        // Check sqlite cache
+        let db_nonce_opt = db_get_nonce(mempool_db, address).unwrap_or_else(|e| {
+            warn!("error retrieving nonce from mempool db: {e}");
+            None
+        });
+        if let Some(db_nonce) = db_nonce_opt {
+            // Insert into in-memory cache, but it is not dirty,
+            // since we just got it from the database.
+            let evicted = self.cache.insert_clean(address.clone(), db_nonce);
+            if evicted.is_some() {
+                // If we evicted something, we need to flush the cache.
+                self.flush_with_evicted(mempool_db, evicted);
             }
+            return db_nonce;
         }
+
+        // Check the chainstate
+        let nonce = StacksChainState::get_nonce(clarity_tx, &address.clone().into());
+
+        self.set(address.clone(), nonce, mempool_db);
+        nonce
     }
 
     /// Set the nonce for `address` to `value` in the in-memory cache.
@@ -164,7 +157,7 @@ impl NonceCache {
         Ok(())
     }
 
-    /// Flush the in-memory cache the the DB.
+    /// Flush the in-memory cache to the DB.
     /// Do not return until successful.
     pub fn flush(&mut self, conn: &mut DBConn) {
         self.flush_with_evicted(conn, None)
