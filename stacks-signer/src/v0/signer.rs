@@ -291,7 +291,7 @@ impl SignerTrait<SignerMessage> for Signer {
             } => {
                 debug!(
                     "{self}: Received a new block event.";
-                    "block_hash" => %block_hash,
+                    "signer_signature_hash" => %block_hash,
                     "block_height" => block_height
                 );
                 if let Ok(Some(mut block_info)) = self
@@ -661,7 +661,7 @@ impl Signer {
             // We are still waiting for a response for this block. Do nothing.
             debug!(
                 "{self}: Received a block proposal for a block we are already validating.";
-                "signer_sighash" => %block_info.signer_signature_hash(),
+                "signer_signature_hash" => %block_info.signer_signature_hash(),
                 "block_id" => %block_info.block.block_id()
             );
             return;
@@ -1117,7 +1117,7 @@ impl Signer {
         // recover public key
         let Ok(public_key) = rejection.recover_public_key() else {
             debug!("{self}: Received block rejection with an unrecovarable signature. Will not store.";
-               "block_hash" => %block_hash,
+               "signer_signature_hash" => %block_hash,
                "signature" => %signature
             );
             return;
@@ -1133,7 +1133,7 @@ impl Signer {
 
         if !is_valid_sig {
             debug!("{self}: Receive block rejection with an invalid signature. Will not store.";
-                "block_hash" => %block_hash,
+                "signer_signature_hash" => %block_hash,
                 "signature" => %signature
             );
             return;
@@ -1235,7 +1235,7 @@ impl Signer {
         else {
             debug!("{self}: Received unrecovarable signature. Will not store.";
                    "signature" => %signature,
-                   "block_hash" => %block_hash);
+                   "signer_signature_hash" => %block_hash);
 
             return;
         };
