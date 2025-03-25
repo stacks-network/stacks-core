@@ -1486,6 +1486,25 @@ fn write_to_wasm(
     }
 }
 
+/// Ensure the memory is large enough to write the given number of bytes.
+fn ensure_memory(
+    memory: &Memory,
+    store: &mut impl AsContextMut,
+    required_bytes: usize,
+) -> Result<(), Error> {
+    // Round up division.
+    let required_pages = ((required_bytes + 65535) / 65536) as u64;
+    let current_pages = memory.size(store.as_context_mut());
+    // If the current memory is not large enough, grow it by the required
+    // number of pages.
+    if current_pages < required_pages {
+        memory
+            .grow(store.as_context_mut(), required_pages - current_pages)
+            .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+    }
+    Ok(())
+}
+
 /// Convert a Clarity `Value` into one or more Wasm `Val`. If this value
 /// requires writing into the Wasm memory, write it to the provided `offset`.
 /// Return a vector of `Val`s that can be passed to a Wasm function, and the
@@ -1585,6 +1604,9 @@ fn pass_argument_to_wasm(
             Ok((buffer, new_offset, new_in_mem_offset))
         }
         Value::Sequence(SequenceData::String(CharType::ASCII(s))) => {
+            let required_bytes = (in_mem_offset as usize) + s.data.len();
+            ensure_memory(&memory, &mut store, required_bytes)?;
+
             // For a string, write the bytes into the memory, then pass the
             // offset and length to the Wasm function.
             let buffer = vec![Val::I32(in_mem_offset), Val::I32(s.data.len() as i32)];
@@ -1599,6 +1621,9 @@ fn pass_argument_to_wasm(
             Ok((buffer, offset, adjusted_in_mem_offset))
         }
         Value::Sequence(SequenceData::String(CharType::UTF8(s))) => {
+            let required_bytes = (in_mem_offset as usize) + s.data.len();
+            ensure_memory(&memory, &mut store, required_bytes)?;
+
             // For a utf8 string, convert the chars to big-endian i32, convert this into a list of
             // bytes, then pass the offset and length to the wasm function
             let bytes: Vec<u8> = String::from_utf8(s.items().iter().flatten().copied().collect())
@@ -1614,6 +1639,9 @@ fn pass_argument_to_wasm(
             Ok((buffer, offset, adjusted_in_mem_offset))
         }
         Value::Sequence(SequenceData::Buffer(b)) => {
+            let required_bytes = (in_mem_offset as usize) + b.data.len();
+            ensure_memory(&memory, &mut store, required_bytes)?;
+
             // For a buffer, write the bytes into the memory, then pass the
             // offset and length to the Wasm function.
             let buffer = vec![Val::I32(in_mem_offset), Val::I32(b.data.len() as i32)];
@@ -1631,6 +1659,13 @@ fn pass_argument_to_wasm(
             let TypeSignature::SequenceType(SequenceSubtype::ListType(ltd)) = ty else {
                 return Err(Error::Wasm(WasmError::ValueTypeMismatch));
             };
+            let total_bytes = l
+                .data
+                .iter()
+                .map(|_| get_type_in_memory_size(ltd.get_list_item_type(), true))
+                .sum::<i32>() as usize;
+            let required_bytes = (in_mem_offset as usize) + total_bytes;
+            ensure_memory(&memory, &mut store, required_bytes)?;
 
             let mut buffer = vec![Val::I32(offset)];
             let mut written = 0;
