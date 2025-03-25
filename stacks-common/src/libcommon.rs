@@ -7,6 +7,7 @@
 #![allow(clippy::assertions_on_constants)]
 
 #[allow(unused_imports)]
+#[cfg(feature = "log")]
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
