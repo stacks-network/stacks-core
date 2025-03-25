@@ -25,7 +25,7 @@ use stacks::chainstate::stacks::miner::{
 use stacks::chainstate::stacks::StacksBlockHeader;
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::config::{Config, InitialBalance};
-use stacks::core::util::make_contract_call;
+use stacks::core::test_util::make_contract_call;
 use stacks::core::{self, EpochList, BURNCHAIN_TX_SEARCH_WINDOW};
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::types::chainstate::{

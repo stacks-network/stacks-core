@@ -27,7 +27,7 @@ use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{Error, StacksTransaction, TransactionPayload};
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::config::InitialBalance;
-use stacks::core::util::{make_contract_call, to_addr};
+use stacks::core::test_util::{make_contract_call, to_addr};
 use stacks::core::{self, EpochList, StacksEpochId};
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::consts::STACKS_EPOCH_MAX;

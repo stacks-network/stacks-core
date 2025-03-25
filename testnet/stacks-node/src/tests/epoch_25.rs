@@ -18,7 +18,7 @@ use std::{env, thread};
 use clarity::vm::types::PrincipalData;
 use stacks::burnchains::{Burnchain, PoxConstants};
 use stacks::config::InitialBalance;
-use stacks::core::util::{make_stacks_transfer_mblock_only, to_addr};
+use stacks::core::test_util::{make_stacks_transfer_mblock_only, to_addr};
 use stacks::core::{self, EpochList, StacksEpochId};
 use stacks_common::consts::STACKS_EPOCH_MAX;
 use stacks_common::types::chainstate::StacksPrivateKey;

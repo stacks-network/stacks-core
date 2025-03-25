@@ -26,7 +26,7 @@ use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::codec::StacksMessageCodec;
 use stacks::config::InitialBalance;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
-use stacks::core::util::{
+use stacks::core::test_util::{
     make_contract_call, make_contract_publish, make_sponsored_stacks_transfer_on_testnet,
     make_stacks_transfer, to_addr,
 };

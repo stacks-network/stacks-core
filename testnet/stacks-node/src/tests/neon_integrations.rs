@@ -42,7 +42,7 @@ use stacks::cli;
 use stacks::codec::StacksMessageCodec;
 use stacks::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
 use stacks::core::mempool::MemPoolWalkTxTypes;
-use stacks::core::util::{
+use stacks::core::test_util::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
     make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr,
 };

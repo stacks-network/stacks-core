@@ -15,7 +15,7 @@ use stacks::chainstate::stacks::{
 };
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
-use stacks::core::util::{
+use stacks::core::test_util::{
     make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,
     sign_standard_single_sig_tx_anchor_mode_version, to_addr,
 };
