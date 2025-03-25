@@ -160,6 +160,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     BOOT_CODE_COSTS_2,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
             }
@@ -185,6 +186,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     BOOT_CODE_COSTS_3,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
             }
@@ -222,6 +224,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                 tokens_contract,
                 None,
                 |_, _| false,
+                None,
             )
             .unwrap()
         });
@@ -757,7 +760,8 @@ pub fn rollback_log_memory_test(
                     &ct_ast,
                     &contract,
                     None,
-                    |_, _| { false }
+                    |_, _| { false },
+                    None
                 )
                 .unwrap_err()
             )
@@ -833,7 +837,8 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
                     &ct_ast,
                     &contract,
                     None,
-                    |_, _| { false }
+                    |_, _| { false },
+                    None
                 )
                 .unwrap_err()
             )
@@ -912,7 +917,8 @@ pub fn argument_memory_test(
                     &ct_ast,
                     &contract,
                     None,
-                    |_, _| { false }
+                    |_, _| { false },
+                    None
                 )
                 .unwrap_err()
             )
@@ -1007,7 +1013,8 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                     &ct_ast,
                     &contract_ok,
                     None,
-                    |_, _| true
+                    |_, _| true,
+                    None
                 )
                 .unwrap_err()
             {
@@ -1033,7 +1040,8 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                     &ct_ast,
                     &contract_err,
                     None,
-                    |_, _| false
+                    |_, _| false,
+                    None
                 )
                 .unwrap_err()
             )
@@ -1120,6 +1128,7 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                         &contract,
                         None,
                         |_, _| false,
+                        None,
                     )
                     .unwrap();
                     conn.save_analysis(&contract_identifier, &ct_analysis)
@@ -1143,7 +1152,8 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                             &ct_ast,
                             &contract,
                             None,
-                            |_, _| false
+                            |_, _| false,
+                            None
                         )
                         .unwrap_err()
                     )

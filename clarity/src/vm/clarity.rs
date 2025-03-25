@@ -353,12 +353,18 @@ pub trait TransactionConnection: ClarityConnection {
         contract_str: &str,
         sponsor: Option<PrincipalData>,
         abort_call_back: F,
+        max_execution_time: Option<std::time::Duration>,
     ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), Error>
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
     {
         let (_, asset_map, events, aborted) = self.with_abort_callback(
             |vm_env| {
+                if let Some(max_execution_time_duration) = max_execution_time {
+                    vm_env
+                        .context
+                        .set_max_execution_time(max_execution_time_duration);
+                }
                 vm_env
                     .initialize_contract_from_ast(
                         identifier.clone(),

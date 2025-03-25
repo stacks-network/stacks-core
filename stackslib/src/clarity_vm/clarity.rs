@@ -387,6 +387,7 @@ impl ClarityInstance {
                     BOOT_CODE_COSTS,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -408,6 +409,7 @@ impl ClarityInstance {
                     &*BOOT_CODE_COST_VOTING,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
 
@@ -433,6 +435,7 @@ impl ClarityInstance {
                     &*BOOT_CODE_POX_TESTNET,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -484,6 +487,7 @@ impl ClarityInstance {
                     BOOT_CODE_COSTS_2,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -505,6 +509,7 @@ impl ClarityInstance {
                     BOOT_CODE_COSTS_3,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -526,6 +531,7 @@ impl ClarityInstance {
                     &*POX_2_TESTNET_CODE,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -2051,6 +2057,7 @@ mod tests {
                     contract,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
@@ -2104,6 +2111,7 @@ mod tests {
                     contract,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
                 tx.save_analysis(&contract_identifier, &ct_analysis)
@@ -2132,6 +2140,7 @@ mod tests {
                     contract,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
                 tx.save_analysis(&contract_identifier, &ct_analysis)
@@ -2163,7 +2172,8 @@ mod tests {
                         &ct_ast,
                         contract,
                         None,
-                        |_, _| false
+                        |_, _| false,
+                        None
                     )
                     .unwrap_err()
                 )
@@ -2216,6 +2226,7 @@ mod tests {
                     contract,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
@@ -2277,6 +2288,7 @@ mod tests {
                     contract,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
@@ -2369,6 +2381,7 @@ mod tests {
                     contract,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
@@ -2500,6 +2513,7 @@ mod tests {
                     contract,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
@@ -2891,6 +2905,7 @@ mod tests {
                     contract,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)

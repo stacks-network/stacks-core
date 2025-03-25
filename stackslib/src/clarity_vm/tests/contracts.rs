@@ -132,6 +132,7 @@ fn test_get_burn_block_info_eval() {
                     contract,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -247,7 +248,7 @@ fn test_get_block_info_eval_v210() {
                 .analyze_smart_contract(&contract_identifier, clarity_version, contract, ASTRules::PrecheckSize)
                 .unwrap();
             clarity_db
-                .initialize_smart_contract(&contract_identifier, clarity_version, &ast, contract, None, |_, _| false)
+                .initialize_smart_contract(&contract_identifier, clarity_version, &ast, contract, None, |_, _| false, None)
                 .unwrap();
         });
         let mut tx = conn.start_transaction_processing();
@@ -326,7 +327,15 @@ fn publish_contract(
     bc.as_transaction(|tx| {
         let (ast, analysis) =
             tx.analyze_smart_contract(contract_id, version, contract, ASTRules::PrecheckSize)?;
-        tx.initialize_smart_contract(contract_id, version, &ast, contract, None, |_, _| false)?;
+        tx.initialize_smart_contract(
+            contract_id,
+            version,
+            &ast,
+            contract,
+            None,
+            |_, _| false,
+            None,
+        )?;
         tx.save_analysis(contract_id, &analysis)?;
         Ok(())
     })
@@ -616,6 +625,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     math_trait,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
             clarity_db
@@ -640,6 +650,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     compute_trait,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
             clarity_db
@@ -664,6 +675,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     impl_compute,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
             clarity_db
@@ -688,6 +700,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     impl_math,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
             clarity_db
@@ -712,6 +725,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     use_compute,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
             clarity_db
@@ -743,6 +757,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     use_compute,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
             clarity_db
@@ -767,6 +782,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     use_compute,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
             clarity_db
@@ -955,6 +971,7 @@ fn test_block_heights() {
                     contract_clarity1,
                     None,
                     |_, _| false,
+                    None
                 ).unwrap();
 
             // analyze the contracts as Clarity 2
@@ -1014,6 +1031,7 @@ fn test_block_heights() {
                     contract_clarity3,
                     None,
                     |_, _| false,
+                    None
                 ).unwrap();
         });
 
@@ -1233,6 +1251,7 @@ fn test_block_heights_across_versions() {
                     contract_e2c1_2,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -1263,6 +1282,7 @@ fn test_block_heights_across_versions() {
                     contract_e2c1_2,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -1295,6 +1315,7 @@ fn test_block_heights_across_versions() {
                     &contract_e3c3,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -1362,6 +1383,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                     contract_e2c1_2,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -1389,6 +1411,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                     contract_e2c1_2,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -1421,6 +1444,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                     &contract_e3c3,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -1507,6 +1531,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                     contract_e2c1_2,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -1534,6 +1559,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                     contract_e2c1_2,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -1566,6 +1592,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                     &contract_e3c3,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });
@@ -1642,6 +1669,7 @@ fn test_block_heights_at_block() {
                     contract,
                     None,
                     |_, _| false,
+                    None
                 ).unwrap();
             });
 
@@ -1704,6 +1732,7 @@ fn test_get_block_info_time() {
                     contract2,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
 
@@ -1726,6 +1755,7 @@ fn test_get_block_info_time() {
                     contract3,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
 
@@ -1748,6 +1778,7 @@ fn test_get_block_info_time() {
                     contract3_3,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
         });

@@ -1282,6 +1282,7 @@ impl StacksChainState {
                         )
                         .expect("FATAL: error while evaluating post-conditions")
                     },
+                    max_execution_time,
                 );
 
                 let mut total_cost = clarity_tx.cost_so_far();
