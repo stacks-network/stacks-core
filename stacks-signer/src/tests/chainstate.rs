@@ -251,7 +251,12 @@ fn reorg_timing_testing(
     let sortition_time = SystemTime::UNIX_EPOCH
         + Duration::from_secs(block_info_1.proposed_time + sortition_timing_secs);
     signer_db
-        .insert_burn_block(&view.cur_sortition.burn_block_hash, 3, &sortition_time)
+        .insert_burn_block(
+            &view.cur_sortition.burn_block_hash,
+            &view.cur_sortition.consensus_hash,
+            3,
+            &sortition_time,
+        )
         .unwrap();
 
     let MockServerClient {
@@ -385,10 +390,11 @@ fn check_block_proposal_timeout() {
 
     // Ensure we have a burn height to compare against
     let burn_hash = view.cur_sortition.burn_block_hash;
+    let consensus_hash = view.cur_sortition.consensus_hash;
     let burn_height = 1;
     let received_time = SystemTime::now();
     signer_db
-        .insert_burn_block(&burn_hash, burn_height, &received_time)
+        .insert_burn_block(&burn_hash, &consensus_hash, burn_height, &received_time)
         .unwrap();
 
     view.check_proposal(
@@ -456,10 +462,11 @@ fn check_sortition_timeout() {
     };
     // Ensure we have a burn height to compare against
     let burn_hash = sortition.burn_block_hash;
+    let consensus_hash = sortition.consensus_hash;
     let burn_height = 1;
     let received_time = SystemTime::now();
     signer_db
-        .insert_burn_block(&burn_hash, burn_height, &received_time)
+        .insert_burn_block(&burn_hash, &consensus_hash, burn_height, &received_time)
         .unwrap();
 
     std::thread::sleep(Duration::from_secs(1));

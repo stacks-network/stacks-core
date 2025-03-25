@@ -1203,7 +1203,7 @@ impl std::default::Default for Config {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct BurnchainConfig {
     pub chain: String,
     pub mode: String,

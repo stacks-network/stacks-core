@@ -10,7 +10,7 @@ use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::MinerStatus;
-use stacks::config::MinerConfig;
+use stacks::config::{BurnchainConfig, MinerConfig};
 use stacks::net::NetworkResult;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, ConsensusHash};
 
@@ -63,6 +63,8 @@ pub struct Globals<T> {
     pub leader_key_registration_state: Arc<Mutex<LeaderKeyRegistrationState>>,
     /// Last miner config loaded
     last_miner_config: Arc<Mutex<Option<MinerConfig>>>,
+    /// Last burnchain config
+    last_burnchain_config: Arc<Mutex<Option<BurnchainConfig>>>,
     /// Last miner spend amount
     last_miner_spend_amount: Arc<Mutex<Option<u64>>>,
     /// burnchain height at which we start mining
@@ -93,6 +95,7 @@ impl<T> Clone for Globals<T> {
             should_keep_running: self.should_keep_running.clone(),
             leader_key_registration_state: self.leader_key_registration_state.clone(),
             last_miner_config: self.last_miner_config.clone(),
+            last_burnchain_config: self.last_burnchain_config.clone(),
             last_miner_spend_amount: self.last_miner_spend_amount.clone(),
             start_mining_height: self.start_mining_height.clone(),
             estimated_winning_probs: self.estimated_winning_probs.clone(),
@@ -125,6 +128,7 @@ impl<T> Globals<T> {
             should_keep_running,
             leader_key_registration_state: Arc::new(Mutex::new(leader_key_registration_state)),
             last_miner_config: Arc::new(Mutex::new(None)),
+            last_burnchain_config: Arc::new(Mutex::new(None)),
             last_miner_spend_amount: Arc::new(Mutex::new(None)),
             start_mining_height: Arc::new(Mutex::new(start_mining_height)),
             estimated_winning_probs: Arc::new(Mutex::new(HashMap::new())),
@@ -350,6 +354,28 @@ impl<T> Globals<T> {
             Ok(ref mut last_miner_config) => **last_miner_config = Some(miner_config),
             Err(_e) => {
                 error!("FATAL; failed to lock last miner config");
+                panic!();
+            }
+        }
+    }
+
+    /// Get the last burnchain config
+    pub fn get_last_burnchain_config(&self) -> Option<BurnchainConfig> {
+        match self.last_burnchain_config.lock() {
+            Ok(last_burnchain_config) => (*last_burnchain_config).clone(),
+            Err(_e) => {
+                error!("FATAL; failed to lock last burnchain config");
+                panic!();
+            }
+        }
+    }
+
+    /// Set the last burnchain config
+    pub fn set_last_burnchain_config(&self, burnchain_config: BurnchainConfig) {
+        match self.last_burnchain_config.lock() {
+            Ok(ref mut last_burnchain_config) => **last_burnchain_config = Some(burnchain_config),
+            Err(_e) => {
+                error!("FATAL; failed to lock last burnchain config");
                 panic!();
             }
         }

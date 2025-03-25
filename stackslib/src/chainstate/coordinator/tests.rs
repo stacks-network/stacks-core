@@ -647,7 +647,7 @@ fn make_genesis_block_with_recipients(
 
     let parent_stacks_header = StacksHeaderInfo::regtest_genesis();
 
-    let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes());
+    let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes()).unwrap();
 
     let mut builder = StacksBlockBuilder::make_regtest_block_builder(
         burnchain,
@@ -910,7 +910,7 @@ fn make_stacks_block_with_input(
 
     eprintln!("Build off of {:?}", &parent_stacks_header);
 
-    let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes());
+    let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes()).unwrap();
 
     let total_burn = parents_sortition.total_burn;
 
