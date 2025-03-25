@@ -1127,6 +1127,17 @@ impl BlockMinerThread {
             )
         };
 
+        let Some(vrf_proof) = vrf_proof else {
+            error!(
+                "Unable to generate VRF proof, will be unable to mine";
+                "burn_block_sortition_hash" => %self.burn_election_block.sortition_hash,
+                "burn_block_block_height" => %self.burn_block.block_height,
+                "burn_block_hash" => %self.burn_block.burn_header_hash,
+                "vrf_pubkey" => &self.registered_key.vrf_public_key.to_hex()
+            );
+            return None;
+        };
+
         debug!(
             "Generated VRF Proof: {} over {} ({},{}) with key {}",
             vrf_proof.to_hex(),
