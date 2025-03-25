@@ -15,7 +15,7 @@
 
 use std::fmt::Display;
 
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 
 /// Node in the doubly linked list
 struct Node<K, V> {
@@ -75,7 +75,12 @@ impl<K: Display, V: Display> Display for LruCache<K, V> {
 
 impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
     /// Create a new LRU cache with the given capacity
-    pub fn new(capacity: usize) -> Self {
+    pub fn new(mut capacity: usize) -> Self {
+        if capacity == 0 {
+            error!("Capacity must be greater than 0. Defaulting to 1024.");
+            capacity = 1024;
+        }
+
         LruCache {
             capacity,
             cache: HashMap::new(),
@@ -218,18 +223,37 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
 
     /// Flush all dirty values in the cache, calling the given function, `f`,
     /// for each dirty value.
-    pub fn flush<E>(&mut self, mut f: impl FnMut(&K, V) -> Result<(), E>) -> Result<(), E> {
-        let mut index = self.head;
-        while index != self.capacity {
-            let next = self.order[index].next;
-            if self.order[index].dirty {
-                let value = self.order[index].value;
-                f(&self.order[index].key, value)?;
-                self.order[index].dirty = false;
+    /// Outer result is an error iff the cache is corrupted and should be discarded.
+    /// Inner result is an error iff the function, `f`, returns an error.
+    pub fn flush<E>(
+        &mut self,
+        mut f: impl FnMut(&K, V) -> Result<(), E>,
+    ) -> Result<Result<(), E>, ()> {
+        let mut current = self.head;
+
+        // Keep track of visited nodes to detect cycles
+        let mut visited = HashSet::new();
+
+        while current != self.capacity {
+            // Detect cycles
+            if !visited.insert(current) {
+                return Err(());
             }
-            index = next;
+
+            let node = self.order.get_mut(current).ok_or(())?;
+            let next = node.next;
+            if node.dirty {
+                let value = node.value;
+
+                // Call the flush function
+                match f(&node.key, value) {
+                    Ok(()) => node.dirty = false,
+                    Err(e) => return Ok(Err(e)),
+                }
+            }
+            current = next;
         }
-        Ok(())
+        Ok(Ok(()))
     }
 }
 

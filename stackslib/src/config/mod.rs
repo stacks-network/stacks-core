@@ -2664,6 +2664,14 @@ impl MinerConfigFile {
             } else {
                 miner_default_config.tenure_cost_limit_per_block_percentage
             };
+
+        let nonce_cache_size = self
+            .nonce_cache_size
+            .unwrap_or(miner_default_config.nonce_cache_size);
+        if nonce_cache_size == 0 {
+            return Err("miner.nonce_cache_size must be greater than 0".to_string());
+        }
+
         Ok(MinerConfig {
             first_attempt_time_ms: self
                 .first_attempt_time_ms
