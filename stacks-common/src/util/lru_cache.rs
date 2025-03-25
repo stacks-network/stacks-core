@@ -305,3 +305,85 @@ mod tests {
         assert_eq!(flushed, [(3, 3), (2, 2)]);
     }
 }
+
+#[cfg(test)]
+mod property_tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    #[derive(Debug, Clone)]
+    enum CacheOp {
+        Insert(u32),
+        Get(u32),
+        InsertClean(u32),
+        Flush,
+    }
+
+    prop_compose! {
+        fn arbitrary_op()(op_type in 0..4, value in 0..100u32) -> CacheOp {
+            match op_type {
+                0 => CacheOp::Insert(value),
+                1 => CacheOp::Get(value),
+                2 => CacheOp::InsertClean(value),
+                _ => CacheOp::Flush,
+            }
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(1_000_000))]
+
+        #[test]
+        fn doesnt_crash_with_random_operations(ops in prop::collection::vec(arbitrary_op(), 1..1000)) {
+            let mut cache = LruCache::new(10);
+            for op in ops {
+                match op {
+                    CacheOp::Insert(v) => { cache.insert(v, v); }
+                    CacheOp::Get(v) => { cache.get(&v); }
+                    CacheOp::InsertClean(v) => { cache.insert_clean(v, v); }
+                    CacheOp::Flush => { cache.flush(|_, _| Ok::<(), ()>(())).unwrap(); }
+                }
+            }
+        }
+
+        #[test]
+        fn maintains_size_invariant(ops in prop::collection::vec(0..100u32, 1..1000)) {
+            let capacity = 10;
+            let mut cache = LruCache::new(capacity);
+            for op in ops {
+                cache.insert(op, op);
+                prop_assert!(cache.cache.len() <= capacity);
+                prop_assert!(cache.order.len() <= capacity);
+            }
+        }
+
+        #[test]
+        fn maintains_lru_order(ops in prop::collection::vec(arbitrary_op(), 1..1000)) {
+            let mut cache = LruCache::new(10);
+            for op in ops {
+                match op {
+                    CacheOp::Insert(v) => { cache.insert(v, v); }
+                    CacheOp::Get(v) => { cache.get(&v); }
+                    CacheOp::InsertClean(v) => { cache.insert_clean(v, v); }
+                    CacheOp::Flush => { cache.flush(|_, _| Ok::<(), ()>(())).unwrap(); }
+                }
+                // Verify linked list integrity
+                if !cache.order.is_empty() {
+                    let mut curr = cache.head;
+                    let mut count = 0;
+                    while curr != cache.capacity {
+                        if count >= cache.order.len() {
+                            prop_assert!(false, "Linked list cycle detected");
+                        }
+                        if cache.order[curr].next != cache.capacity {
+                            prop_assert_eq!(cache.order[cache.order[curr].next].prev, curr);
+                        }
+                        curr = cache.order[curr].next;
+                        count += 1;
+                    }
+                }
+            }
+        }
+    }
+}
