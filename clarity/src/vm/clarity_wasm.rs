@@ -1555,11 +1555,8 @@ fn get_required_bytes(ty: &TypeSignature, value: &Value) -> Result<usize, Error>
             let TypeSignature::SequenceType(SequenceSubtype::ListType(ltd)) = ty else {
                 return Err(Error::Wasm(WasmError::ValueTypeMismatch));
             };
-            let total_bytes = l
-                .data
-                .iter()
-                .map(|_| get_type_in_memory_size(ltd.get_list_item_type(), true))
-                .sum::<i32>() as usize;
+            let element_size = get_type_in_memory_size(ltd.get_list_item_type(), true) as usize;
+            let total_bytes = element_size * l.data.len();
             Ok(total_bytes)
         }
         Value::Principal(PrincipalData::Standard(_)) => Ok(STANDARD_PRINCIPAL_BYTES),
@@ -1574,8 +1571,9 @@ fn get_required_bytes(ty: &TypeSignature, value: &Value) -> Result<usize, Error>
             };
 
             let mut total_bytes = 0;
-            for (name, ty) in tuple_ty.get_type_map() {
-                total_bytes += get_required_bytes(ty, &data_map[name])?;
+            let type_map = tuple_ty.get_type_map();
+            for (value, ty) in data_map.values().zip(type_map.values()) {
+                total_bytes += get_required_bytes(ty, value)?;
             }
             Ok(total_bytes)
         }
