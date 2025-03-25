@@ -774,7 +774,7 @@ impl MultipleMinerTest {
         let contract_tx = make_contract_publish(
             &self.sender_sk,
             self.sender_nonce,
-            self.send_fee,
+            self.send_fee + contract_name.len() as u64 + contract_src.len() as u64,
             self.signer_test.running_nodes.conf.burnchain.chain_id,
             contract_name,
             contract_src,
@@ -12589,7 +12589,6 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
 
     miners.wait_for_test_observer_blocks(60);
 
-    miners.send_fee = 300;
     // First, lets deploy the contract
     let dummy_contract_src = "(define-public (dummy (number uint)) (begin (ok (+ number u1))))";
 
@@ -12655,6 +12654,114 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
     miners.wait_for_test_observer_blocks(60);
 
     assert_eq!(last_block_contains_txid(&contract_call_txid), true);
+
+    verify_sortition_winner(&sortdb, &miner_pkh_2);
+
+    // ensure both miners are aligned
+    miners.wait_for_chains(60);
+
+    info!("------------------------- Shutdown -------------------------");
+    miners.shutdown();
+}
+
+/// Test a scenario where:
+/// Two miners boot to Nakamoto (first miner has max_execution_time set to 0).
+/// Sortition occurs. Miner 1 wins.
+/// Miner 1 fails to mine block N with contract-publish
+/// Sortition occurs. Miner 2 wins.
+/// Miner 2 successfully mines block N including the contract-publish previously rejected by miner 1
+/// Ensures both the miners are aligned
+#[test]
+#[ignore]
+fn miner_rejection_by_contract_publish_execution_time_expired() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let num_txs = 3;
+
+    let mut miners = MultipleMinerTest::new_with_config_modifications(
+        num_signers,
+        num_txs,
+        |signer_config| {
+            // Lets make sure we never time out since we need to stall some things to force our scenario
+            signer_config.block_proposal_validation_timeout = Duration::from_secs(1800);
+            signer_config.tenure_last_block_proposal_timeout = Duration::from_secs(1800);
+            signer_config.first_proposal_burn_block_timing = Duration::from_secs(1800);
+        },
+        |config| config.miner.max_execution_time_secs = Some(0),
+        |config| config.miner.max_execution_time_secs = None,
+    );
+    let rl1_skip_commit_op = miners
+        .signer_test
+        .running_nodes
+        .counters
+        .naka_skip_commit_op
+        .clone();
+    let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
+
+    let (conf_1, _) = miners.get_node_configs();
+    let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
+    let (_miner_pk_1, _) = miners.get_miner_public_keys();
+
+    info!("------------------------- Pause Miner 2's Block Commits -------------------------");
+
+    // Make sure Miner 2 cannot win a sortition at first.
+    rl2_skip_commit_op.set(true);
+
+    miners.boot_to_epoch_3();
+
+    let burnchain = conf_1.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+
+    info!("------------------------- Pause Miner 1's Block Commits -------------------------");
+    rl1_skip_commit_op.set(true);
+
+    info!("------------------------- Miner 1 Mines a Nakamoto Block N -------------------------");
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
+        .expect("Failed to mine BTC block followed by Block N");
+
+    miners.wait_for_test_observer_blocks(60);
+
+    // First, lets deploy the contract
+    let dummy_contract_src =
+        "(define-public (dummy (number uint)) (begin (ok (+ number u1))))(+ 1 1)";
+
+    let tx1 = miners.send_transfer_tx();
+
+    let contract_publish_txid = miners
+        .send_and_mine_contract_publish("dummy-contract", dummy_contract_src, 60)
+        .expect("Failed to publish contract in a new block");
+
+    miners.wait_for_test_observer_blocks(60);
+
+    assert_eq!(last_block_contains_txid(&tx1), true);
+
+    assert_eq!(last_block_contains_txid(&contract_publish_txid), false);
+
+    verify_sortition_winner(&sortdb, &miner_pkh_1);
+
+    info!("------------------------- Miner 2 Submits a Block Commit -------------------------");
+    miners.submit_commit_miner_2(&sortdb);
+
+    info!("------------------------- Mine Tenure -------------------------");
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
+        .expect("Failed to mine BTC block followed by Block N+3");
+
+    info!("------------------------- Miner 2 Mines Block N+1 -------------------------");
+
+    miners.sender_nonce -= 1;
+
+    let contract_publish_txid = miners
+        .send_and_mine_contract_publish("dummy-contract", dummy_contract_src, 60)
+        .expect("Failed to publish contract in a new block");
+
+    miners.wait_for_test_observer_blocks(60);
+
+    assert_eq!(last_block_contains_txid(&contract_publish_txid), true);
 
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
