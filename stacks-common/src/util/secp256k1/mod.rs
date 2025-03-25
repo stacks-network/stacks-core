@@ -1,14 +1,14 @@
-#[cfg(not(feature = "wasm"))]
-mod secp256k1;
+#[cfg(not(target_family = "wasm"))]
+mod native;
 
-#[cfg(not(feature = "wasm"))]
-pub use self::secp256k1::*;
+#[cfg(not(target_family = "wasm"))]
+pub use self::native::*;
 
-#[cfg(feature = "wasm")]
-mod libsecp256k1;
+#[cfg(target_family = "wasm")]
+mod wasm;
 
-#[cfg(feature = "wasm")]
-pub use self::libsecp256k1::*;
+#[cfg(target_family = "wasm")]
+pub use self::wasm::*;
 
 pub const MESSAGE_SIGNATURE_ENCODED_SIZE: u32 = 65;
 

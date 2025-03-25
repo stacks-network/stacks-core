@@ -66,5 +66,6 @@ version = "0.24.3"
 features = ["serde", "recovery"]
 
 [features]
+default = []
 monitoring_prom = ["libsigner/monitoring_prom", "prometheus", "tiny_http"]
 testing = []

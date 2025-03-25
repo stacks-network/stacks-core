@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#[cfg(feature = "canonical")]
+#[cfg(feature = "rusqlite")]
 use rusqlite::Connection;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
@@ -84,7 +84,7 @@ pub trait ClarityBackingStore {
     fn get_open_chain_tip_height(&mut self) -> u32;
     fn get_open_chain_tip(&mut self) -> StacksBlockId;
 
-    #[cfg(feature = "canonical")]
+    #[cfg(feature = "rusqlite")]
     fn get_side_store(&mut self) -> &Connection;
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
@@ -221,7 +221,7 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't retrieve data")
     }
 
-    #[cfg(feature = "canonical")]
+    #[cfg(feature = "rusqlite")]
     fn get_side_store(&mut self) -> &Connection {
         panic!("NullBackingStore has no side store")
     }

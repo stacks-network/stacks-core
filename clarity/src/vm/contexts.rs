@@ -656,7 +656,7 @@ impl<'a> OwnedEnvironment<'a> {
         )
     }
 
-    #[cfg(feature = "canonical")]
+    #[cfg(any(test, feature = "testing"))]
     pub fn initialize_versioned_contract(
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
@@ -1321,7 +1321,7 @@ impl<'a, 'b> Environment<'a, 'b> {
     /// This function should only be used for testing and the CLI interface.
     /// Normal execution reaches the `initialize_contract_from_ast` method
     /// below.
-    #[cfg(feature = "canonical")]
+    #[cfg(feature = "rusqlite")]
     pub fn initialize_contract(
         &mut self,
         contract_identifier: QualifiedContractIdentifier,

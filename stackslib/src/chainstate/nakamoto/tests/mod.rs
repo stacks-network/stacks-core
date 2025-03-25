@@ -1628,7 +1628,7 @@ fn test_nakamoto_block_static_verification() {
     let vrf_privkey = VRFPrivateKey::new();
     let vrf_pubkey = VRFPublicKey::from_private(&vrf_privkey);
     let sortition_hash = SortitionHash([0x01; 32]);
-    let vrf_proof = VRF::prove(&vrf_privkey, sortition_hash.as_bytes());
+    let vrf_proof = VRF::prove(&vrf_privkey, sortition_hash.as_bytes()).unwrap();
 
     let burn_recipient = StacksAddress::burn_address(false).to_account_principal();
     let alt_recipient = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&private_key_2))

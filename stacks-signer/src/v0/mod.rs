@@ -16,6 +16,8 @@
 
 /// The signer module for processing events
 pub mod signer;
+/// The state machine for the signer view
+pub mod signer_state;
 
 #[cfg(any(test, feature = "testing"))]
 /// Test specific functions for the signer module
