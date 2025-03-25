@@ -32,10 +32,10 @@ use crate::chainstate::burn::ConsensusHash;
 pub mod mempool;
 pub mod nonce_cache;
 
+#[cfg(any(test, feature = "testing"))]
+pub mod test_util;
 #[cfg(test)]
 pub mod tests;
-#[cfg(any(test, feature = "testing"))]
-pub mod util;
 
 use std::cmp::Ordering;
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
