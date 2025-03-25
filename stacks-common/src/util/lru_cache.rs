@@ -120,6 +120,11 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
             }
 
             let node = self.order.get(*order_idx).ok_or(())?;
+            // Safety check: if the key doesn't match, the cache is corrupted
+            if node.key != *key {
+                return Err(());
+            }
+
             Ok(Some(node.value))
         } else {
             Ok(None)
