@@ -1571,9 +1571,14 @@ fn get_required_bytes(ty: &TypeSignature, value: &Value) -> Result<usize, Error>
             };
 
             let mut total_bytes = 0;
-            let type_map = tuple_ty.get_type_map();
-            for (value, ty) in data_map.values().zip(type_map.values()) {
-                total_bytes += get_required_bytes(ty, value)?;
+            for (name, ty) in tuple_ty.get_type_map() {
+                match data_map.get(name) {
+                    Some(value) => total_bytes += get_required_bytes(ty, value)?,
+                    None => return Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+                }
+            }
+            if data_map.len() != tuple_ty.get_type_map().len() {
+                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
             }
             Ok(total_bytes)
         }
