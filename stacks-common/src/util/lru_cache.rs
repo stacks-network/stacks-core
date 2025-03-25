@@ -318,7 +318,8 @@ mod tests {
                 flushed.push((*k, v));
                 Ok::<(), ()>(())
             })
-            .unwrap();
+            .expect("cache corrupted")
+            .expect("flush failed");
 
         assert_eq!(flushed, vec![(1, 1)]);
 
@@ -331,7 +332,8 @@ mod tests {
                 flushed.push((*k, v));
                 Ok::<(), ()>(())
             })
-            .unwrap();
+            .expect("cache corrupted")
+            .expect("flush failed");
 
         assert_eq!(flushed, vec![(2, 2), (1, 3)]);
     }
@@ -351,7 +353,8 @@ mod tests {
                 flushed.push((*k, v));
                 Ok::<(), ()>(())
             })
-            .unwrap();
+            .expect("cache corrupted")
+            .expect("flush failed");
 
         assert_eq!(flushed, [(3, 3), (2, 2)]);
     }
@@ -390,10 +393,10 @@ mod property_tests {
             let mut cache = LruCache::new(10);
             for op in ops {
                 match op {
-                    CacheOp::Insert(v) => { cache.insert(v, v); }
-                    CacheOp::Get(v) => { cache.get(&v); }
-                    CacheOp::InsertClean(v) => { cache.insert_clean(v, v); }
-                    CacheOp::Flush => { cache.flush(|_, _| Ok::<(), ()>(())).unwrap(); }
+                    CacheOp::Insert(v) => { cache.insert(v, v).expect("cache corrupted"); }
+                    CacheOp::Get(v) => { cache.get(&v).expect("cache corrupted"); }
+                    CacheOp::InsertClean(v) => { cache.insert_clean(v, v).expect("cache corrupted"); }
+                    CacheOp::Flush => { cache.flush(|_, _| Ok::<(), ()>(())).expect("cache corrupted").expect("flush failed"); }
                 }
             }
         }
@@ -403,7 +406,7 @@ mod property_tests {
             let capacity = 10;
             let mut cache = LruCache::new(capacity);
             for op in ops {
-                cache.insert(op, op);
+                cache.insert(op, op).expect("cache corrupted");
                 prop_assert!(cache.cache.len() <= capacity);
                 prop_assert!(cache.order.len() <= capacity);
             }
@@ -414,10 +417,10 @@ mod property_tests {
             let mut cache = LruCache::new(10);
             for op in ops {
                 match op {
-                    CacheOp::Insert(v) => { cache.insert(v, v); }
-                    CacheOp::Get(v) => { cache.get(&v); }
-                    CacheOp::InsertClean(v) => { cache.insert_clean(v, v); }
-                    CacheOp::Flush => { cache.flush(|_, _| Ok::<(), ()>(())).unwrap(); }
+                    CacheOp::Insert(v) => { cache.insert(v, v).expect("cache corrupted"); }
+                    CacheOp::Get(v) => { cache.get(&v).expect("cache corrupted"); }
+                    CacheOp::InsertClean(v) => { cache.insert_clean(v, v).expect("cache corrupted"); }
+                    CacheOp::Flush => { cache.flush(|_, _| Ok::<(), ()>(())).expect("cache corrupted").expect("flush failed"); }
                 }
                 // Verify linked list integrity
                 if !cache.order.is_empty() {
