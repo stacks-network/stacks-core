@@ -266,13 +266,7 @@ pub fn make_contract_publish_microblock_only(
 }
 
 pub fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
-    StacksAddress::from_public_keys(
-        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        &AddressHashMode::SerializeP2PKH,
-        1,
-        &vec![StacksPublicKey::from_private(sk)],
-    )
-    .unwrap()
+    StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sk))
 }
 
 pub fn make_stacks_transfer(
