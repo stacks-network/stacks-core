@@ -759,20 +759,22 @@ impl MultipleMinerTest {
         Ok(txid)
     }
 
-    pub fn send_contract_publish(&mut self, contract_name: &str, contract_src: &str) -> String {
-        let http_origin = format!(
-            "http://{}",
-            &self.signer_test.running_nodes.conf.node.rpc_bind
-        );
+    pub fn send_contract_publish(
+        &mut self,
+        sender_nonce: u64,
+        contract_name: &str,
+        contract_src: &str,
+    ) -> String {
+        let http_origin = self.node_http();
+        let sender_addr = tests::to_addr(&self.sender_sk);
         let contract_tx = make_contract_publish(
             &self.sender_sk,
-            self.sender_nonce,
+            sender_nonce,
             self.send_fee + contract_name.len() as u64 + contract_src.len() as u64,
             self.signer_test.running_nodes.conf.burnchain.chain_id,
             contract_name,
             contract_src,
         );
-        self.sender_nonce += 1;
         submit_tx(&http_origin, &contract_tx)
     }
 
@@ -780,18 +782,20 @@ impl MultipleMinerTest {
     /// Returns the txid of the transfer tx.
     pub fn send_and_mine_contract_publish(
         &mut self,
+        sender_nonce: u64,
         contract_name: &str,
         contract_src: &str,
         timeout_secs: u64,
     ) -> Result<String, String> {
         let stacks_height_before = self.get_peer_stacks_tip_height();
 
-        let txid = self.send_contract_publish(contract_name, contract_src);
+        let txid = self.send_contract_publish(sender_nonce, contract_name, contract_src);
 
         // wait for the new block to be mined
         wait_for(timeout_secs, || {
             Ok(self.get_peer_stacks_tip_height() > stacks_height_before)
-        })?;
+        })
+        .unwrap();
 
         // wait for the observer to see it
         self.wait_for_test_observer_blocks(timeout_secs);
@@ -805,17 +809,15 @@ impl MultipleMinerTest {
 
     pub fn send_contract_call(
         &mut self,
+        sender_nonce: u64,
         contract_name: &str,
         function_name: &str,
         function_args: &[clarity::vm::Value],
     ) -> String {
-        let http_origin = format!(
-            "http://{}",
-            &self.signer_test.running_nodes.conf.node.rpc_bind
-        );
+        let http_origin = self.node_http();
         let contract_tx = make_contract_call(
             &self.sender_sk,
-            self.sender_nonce,
+            sender_nonce,
             self.send_fee,
             self.signer_test.running_nodes.conf.burnchain.chain_id,
             &tests::to_addr(&self.sender_sk),
@@ -823,7 +825,6 @@ impl MultipleMinerTest {
             function_name,
             function_args,
         );
-        self.sender_nonce += 1;
         submit_tx(&http_origin, &contract_tx)
     }
 
@@ -8232,7 +8233,7 @@ fn block_proposal_max_age_rejections() {
     let short_timeout = Duration::from_secs(30);
 
     info!("------------------------- Send Block Proposal To Signers -------------------------");
-    let info_before = get_chain_info(&signer_test.running_nodes.conf);
+    let _ = get_chain_info(&signer_test.running_nodes.conf);
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
         txs: vec![],
@@ -8301,7 +8302,9 @@ fn block_proposal_max_age_rejections() {
             .unwrap_or((0, 0));
         assert_eq!(block_2_status.1, 0, "Block 2 should always be rejected");
 
-        info!("Block 2 status"; "accepted" => block_2_status.1, "rejected" => block_2_status.0);
+        info!("Block 2 status";
+            "accepted" => %block_2_status.1, "rejected" => %block_2_status.0
+        );
         Ok(block_2_status.0 > num_signers * 7 / 10)
     })
     .expect("Timed out waiting for block rejections");
@@ -12474,19 +12477,25 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
     // First, lets deploy the contract
     let dummy_contract_src = "(define-public (dummy (number uint)) (begin (ok (+ number u1))))";
 
+    let sender_nonce = 0;
+
     let _ = miners
-        .send_and_mine_contract_publish("dummy-contract", dummy_contract_src, 60)
+        .send_and_mine_contract_publish(sender_nonce, "dummy-contract", dummy_contract_src, 60)
         .expect("Failed to publish contract in a new block");
 
     info!("------------------------- Miner 1 Mines a Nakamoto Block N+1 -------------------------");
 
     let stacks_height_before = miners.get_peer_stacks_tip_height();
 
-    let tx1 = miners.send_transfer_tx();
+    let (tx1, sender_nonce) = miners.send_transfer_tx();
 
     // try calling the contract (has to fail)
-    let contract_call_txid =
-        miners.send_contract_call("dummy-contract", "dummy", &[clarity::vm::Value::UInt(1)]);
+    let contract_call_txid = miners.send_contract_call(
+        sender_nonce + 1,
+        "dummy-contract",
+        "dummy",
+        &[clarity::vm::Value::UInt(1)],
+    );
 
     let _ = wait_for(60, || {
         Ok(miners.get_peer_stacks_tip_height() > stacks_height_before)
@@ -12498,8 +12507,6 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
     assert_eq!(last_block_contains_txid(&contract_call_txid), false);
 
     info!("------------------------- Miner 1 Mines a Nakamoto Block N+2 -------------------------");
-
-    miners.sender_nonce -= 1;
 
     let tx2 = miners
         .send_and_mine_transfer_tx(60)
@@ -12523,8 +12530,12 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
 
     let stacks_height_before = miners.get_peer_stacks_tip_height();
 
-    let contract_call_txid =
-        miners.send_contract_call("dummy-contract", "dummy", &[clarity::vm::Value::UInt(1)]);
+    let contract_call_txid = miners.send_contract_call(
+        sender_nonce + 2,
+        "dummy-contract",
+        "dummy",
+        &[clarity::vm::Value::UInt(1)],
+    );
 
     let _ = wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_2)
         .expect("Failed to get block N+3");
@@ -12607,10 +12618,10 @@ fn miner_rejection_by_contract_publish_execution_time_expired() {
     let dummy_contract_src =
         "(define-public (dummy (number uint)) (begin (ok (+ number u1))))(+ 1 1)";
 
-    let tx1 = miners.send_transfer_tx();
+    let (tx1, sender_nonce) = miners.send_transfer_tx();
 
     let _ = miners
-        .send_and_mine_contract_publish("dummy-contract", dummy_contract_src, 60)
+        .send_and_mine_contract_publish(sender_nonce + 1, "dummy-contract", dummy_contract_src, 60)
         .expect_err("Expected an error while publishing contract in a new block");
 
     assert_eq!(last_block_contains_txid(&tx1), true);
@@ -12627,10 +12638,8 @@ fn miner_rejection_by_contract_publish_execution_time_expired() {
 
     info!("------------------------- Miner 2 Mines Block N+1 -------------------------");
 
-    miners.sender_nonce -= 1;
-
     let _ = miners
-        .send_and_mine_contract_publish("dummy-contract", dummy_contract_src, 60)
+        .send_and_mine_contract_publish(sender_nonce + 1, "dummy-contract", dummy_contract_src, 60)
         .expect("Failed to publish contract in a new block");
 
     verify_sortition_winner(&sortdb, &miner_pkh_2);
