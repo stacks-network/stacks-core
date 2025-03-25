@@ -305,8 +305,9 @@ mod tests {
         assert_eq!(flushed, [(3, 3), (2, 2)]);
     }
 
+    /// Simple LRU implementation for testing
     pub struct SimpleLRU {
-        pub cache: Vec<u32>,
+        pub cache: Vec<Node<u32, u32>>,
         capacity: usize,
     }
 
@@ -318,23 +319,40 @@ mod tests {
             }
         }
 
-        pub fn insert(&mut self, key: u32) {
-            if let Some(pos) = self.cache.iter().position(|&x| x == key) {
+        pub fn insert(&mut self, key: u32, value: u32, dirty: bool) {
+            if let Some(pos) = self.cache.iter().position(|x| x.key == key) {
                 self.cache.remove(pos);
             } else if self.cache.len() == self.capacity {
                 self.cache.remove(0);
             }
-            self.cache.push(key);
+            self.cache.push(Node {
+                key,
+                value,
+                dirty,
+                next: 0,
+                prev: 0,
+            });
         }
 
         pub fn get(&mut self, key: u32) -> Option<u32> {
-            if let Some(pos) = self.cache.iter().position(|&x| x == key) {
-                self.cache.remove(pos);
-                self.cache.push(key);
-                Some(key)
+            if let Some(pos) = self.cache.iter().position(|x| x.key == key) {
+                let node = self.cache.remove(pos);
+                let value = node.value;
+                self.cache.push(node);
+                Some(value)
             } else {
                 None
             }
+        }
+
+        pub fn flush<E>(&mut self, mut f: impl FnMut(&u32, u32) -> Result<(), E>) -> Result<(), E> {
+            for node in self.cache.iter_mut().rev() {
+                if node.dirty {
+                    f(&node.key, node.value)?;
+                }
+                node.dirty = false;
+            }
+            Ok(())
         }
     }
 }
@@ -348,18 +366,18 @@ mod property_tests {
 
     #[derive(Debug, Clone)]
     enum CacheOp {
-        Insert(u32),
+        Insert(u32, u32),
         Get(u32),
-        InsertClean(u32),
+        InsertClean(u32, u32),
         Flush,
     }
 
     prop_compose! {
-        fn arbitrary_op()(op_type in 0..4, value in 0..100u32) -> CacheOp {
+        fn arbitrary_op()(op_type in 0..4, key in 0..100u32, value in 0..1000u32) -> CacheOp {
             match op_type {
-                0 => CacheOp::Insert(value),
-                1 => CacheOp::Get(value),
-                2 => CacheOp::InsertClean(value),
+                0 => CacheOp::Insert(key, value),
+                1 => CacheOp::Get(key),
+                2 => CacheOp::InsertClean(key, value),
                 _ => CacheOp::Flush,
             }
         }
@@ -373,9 +391,9 @@ mod property_tests {
             let mut cache = LruCache::new(10);
             for op in ops {
                 match op {
-                    CacheOp::Insert(v) => { cache.insert(v, v); }
-                    CacheOp::Get(v) => { cache.get(&v); }
-                    CacheOp::InsertClean(v) => { cache.insert_clean(v, v); }
+                    CacheOp::Insert(k, v) => { cache.insert(k, v); }
+                    CacheOp::Get(k) => { cache.get(&k); }
+                    CacheOp::InsertClean(k, v) => { cache.insert_clean(k, v); }
                     CacheOp::Flush => { cache.flush(|_, _| Ok::<(), ()>(())).unwrap(); }
                 }
             }
@@ -397,9 +415,9 @@ mod property_tests {
             let mut cache = LruCache::new(10);
             for op in ops {
                 match op {
-                    CacheOp::Insert(v) => { cache.insert(v, v); }
-                    CacheOp::Get(v) => { cache.get(&v); }
-                    CacheOp::InsertClean(v) => { cache.insert_clean(v, v); }
+                    CacheOp::Insert(k, v) => { cache.insert(k, v); }
+                    CacheOp::Get(k) => { cache.get(&k); }
+                    CacheOp::InsertClean(k, v) => { cache.insert_clean(k, v); }
                     CacheOp::Flush => { cache.flush(|_, _| Ok::<(), ()>(())).unwrap(); }
                 }
                 // Verify linked list integrity
@@ -426,20 +444,32 @@ mod property_tests {
             let mut simple = SimpleLRU::new(5);
             for op in ops {
                 match op {
-                    CacheOp::Insert(v) => {
-                        cache.insert(v, v);
-                        simple.insert(v);
+                    CacheOp::Insert(k, v) => {
+                        cache.insert(k, v);
+                        simple.insert(k, v, true);
                     }
-                    CacheOp::Get(v) => {
-                        let actual = cache.get(&v);
-                        let expected = simple.get(v);
+                    CacheOp::Get(k) => {
+                        let actual = cache.get(&k);
+                        let expected = simple.get(k);
                         prop_assert_eq!(actual, expected);
                     }
-                    CacheOp::InsertClean(v) => {
-                        cache.insert_clean(v, v);
-                        simple.insert(v);
+                    CacheOp::InsertClean(k, v) => {
+                        cache.insert_clean(k, v);
+                        simple.insert(k, v, false);
                     }
-                    CacheOp::Flush => cache.flush(|_, _| Ok::<(), ()>(())).unwrap(),
+                    CacheOp::Flush => {
+                        let mut flushed = vec![];
+                        let mut simple_flushed = vec![];
+                        cache.flush(|k, v| {
+                            flushed.push((*k, v));
+                            Ok::<(), ()>(())
+                        }).unwrap();
+                        simple.flush(|k, v| {
+                            simple_flushed.push((*k, v));
+                            Ok::<(), ()>(())
+                        }).unwrap();
+                        prop_assert_eq!(flushed, simple_flushed);
+                    }
                 };
 
                 // The cache should have the same order as the simple LRU
@@ -450,8 +480,8 @@ mod property_tests {
                         prop_assert!(false, "Linked list cycle detected");
                     }
                     let idx = simple.cache.len() - count - 1;
-                    prop_assert_eq!(cache.order[curr].key, simple.cache[idx]);
-                    prop_assert_eq!(cache.order[curr].value, simple.cache[idx]);
+                    prop_assert_eq!(cache.order[curr].key, simple.cache[idx].key);
+                    prop_assert_eq!(cache.order[curr].value, simple.cache[idx].value);
                     curr = cache.order[curr].next;
                     count += 1;
                 }
