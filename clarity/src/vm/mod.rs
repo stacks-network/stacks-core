@@ -45,7 +45,7 @@ pub mod coverage;
 
 pub mod events;
 
-#[cfg(feature = "canonical")]
+#[cfg(feature = "rusqlite")]
 pub mod tooling;
 
 #[cfg(any(test, feature = "testing"))]

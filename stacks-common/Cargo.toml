@@ -58,10 +58,6 @@ winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
 version = "1.0"
 features = ["arbitrary_precision", "unbounded_depth"]
 
-[dependencies.secp256k1]
-version = "0.24.3"
-features = ["serde", "recovery"]
-optional = true
 
 [dependencies.rusqlite]
 workspace = true
@@ -74,7 +70,7 @@ features = ["serde"]
 optional = true
 
 [dependencies.curve25519-dalek]
-version = "=2.0.0"
+version = "4.1.3"
 features = ["serde"]
 optional = true
 
@@ -82,21 +78,27 @@ optional = true
 version = "0.3.34"
 features = ["std"]
 
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+secp256k1 = { version = "0.24.3", features = ["serde", "recovery"] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+libsecp256k1 = { version = "0.7.0" }
+
 [dev-dependencies]
 rand_core = { workspace = true }
 
 [features]
-default = ["canonical", "log", "developer-mode"]
-canonical = ["rusqlite", "vrf", "secp256k1"]
+default = ["log", "rusqlite", "vrf", "developer-mode"]
 log = ["slog", "slog-term", "slog-json"]
 vrf = ["ed25519-dalek", "curve25519-dalek"]
-wasm = ["libsecp256k1", "developer-mode", "getrandom"]
 developer-mode = []
 slog_json = ["slog-json"]
-testing = ["canonical"]
+rusqlite = ["dep:rusqlite"]
+testing = []
 serde = []
 bech32_std = []
 bech32_strict = []
+wasm = ["developer-mode", "getrandom"]
 
 [build-dependencies]
 toml = "0.5.6"
