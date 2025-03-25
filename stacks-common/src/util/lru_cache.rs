@@ -83,30 +83,9 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
 
     /// Get the value for the given key
     pub fn get(&mut self, key: &K) -> Option<V> {
-        if let Some(node) = self.cache.get(key) {
-            // Move the node to the head of the LRU list
-            let node = *node;
-
-            if node != self.head {
-                let prev = self.order[node].prev;
-                let next = self.order[node].next;
-
-                if node == self.tail {
-                    // If this is the tail, update the tail
-                    self.tail = prev;
-                } else {
-                    // Else, update the next node's prev pointer
-                    self.order[next].prev = prev;
-                }
-
-                self.order[prev].next = next;
-                self.order[node].prev = self.capacity;
-                self.order[node].next = self.head;
-                self.order[self.head].prev = node;
-                self.head = node;
-            }
-
-            Some(self.order[node].value)
+        if let Some(&index) = self.cache.get(key) {
+            self.move_to_head(index);
+            Some(self.order[index].value)
         } else {
             None
         }
@@ -127,75 +106,60 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
     /// Insert a key-value pair into the cache
     /// Returns `Some((K, V))` if a dirty value was evicted.
     pub fn insert_with_dirty(&mut self, key: K, value: V, dirty: bool) -> Option<(K, V)> {
-        let mut evicted = None;
-        if let Some(node) = self.cache.get(&key) {
-            // Update the value for the key
-            let node = *node;
-            self.order[node].value = value;
-            self.order[node].dirty = dirty;
-
-            // Just call get to handle updating the LRU list
-            self.get(&key);
+        if let Some(&index) = self.cache.get(&key) {
+            // Update an existing node
+            self.order[index].value = value;
+            self.order[index].dirty = dirty;
+            self.move_to_head(index);
+            None
         } else {
+            let mut evicted = None;
+            // This is a new key
             let index = if self.cache.len() == self.capacity {
-                // Take the place of the least recently used element.
-                // First, remove it from the tail of the LRU list
-                let index = self.tail;
-                let prev = self.order[index].prev;
-                self.order[prev].next = self.capacity;
-                self.tail = prev;
-
-                // Remove it from the cache
-                self.cache.remove(&self.order[index].key);
+                // We've reached capacity. Evict the least-recently used value
+                // and reuse its node
+                let index = self.evict_lru();
 
                 // Replace the key with the new key, saving the old key
                 let replaced_key = std::mem::replace(&mut self.order[index].key, key.clone());
 
-                // If it is dirty, save the key-value pair to return
+                // Save the evicted key-value pair, if it was dirty
                 if self.order[index].dirty {
                     evicted = Some((replaced_key, self.order[index].value));
-                }
+                };
 
-                // Insert this new value into the cache
-                self.cache.insert(key, index);
-
-                // Update the node with the new key-value pair, inserting it at
-                // the head of the LRU list
+                // Update the evicted node with the new key-value pair
                 self.order[index].value = value;
                 self.order[index].dirty = dirty;
-                self.order[index].next = self.head;
-                self.order[index].prev = self.capacity;
+
+                // Insert the new key-value pair into the cache
+                self.cache.insert(key.clone(), index);
 
                 index
             } else {
-                // Insert a new key-value pair
+                // Create a new node, add it to the cache
+                let index = self.order.len();
                 let node = Node {
                     key: key.clone(),
                     value,
                     dirty,
-                    next: self.head,
+                    next: self.capacity,
                     prev: self.capacity,
                 };
-
-                let index = self.order.len();
                 self.order.push(node);
                 self.cache.insert(key, index);
-
                 index
             };
 
-            // Put it at the head of the LRU list
-            if self.head != self.capacity {
-                self.order[self.head].prev = index;
-            } else {
-                self.tail = index;
-            }
+            // Put the new or reused node at the head of the LRU list
+            self.attach_as_head(index);
 
-            self.head = index;
+            evicted
         }
-        evicted
     }
 
+    /// Flush all dirty values in the cache, calling the given function, `f`,
+    /// for each dirty value.
     pub fn flush<E>(&mut self, mut f: impl FnMut(&K, V) -> Result<(), E>) -> Result<(), E> {
         let mut index = self.head;
         while index != self.capacity {
@@ -208,6 +172,72 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
             index = next;
         }
         Ok(())
+    }
+
+    /// Helper function to remove a node from the linked list (by index)
+    fn detach_node(&mut self, index: usize) {
+        if index >= self.order.len() {
+            return;
+        }
+
+        let prev = self.order[index].prev;
+        let next = self.order[index].next;
+
+        if index == self.tail {
+            // If this is the last node, update the tail to point to its previous node
+            self.tail = prev;
+        } else {
+            // Else, update the next node to point to the previous node
+            self.order[next].prev = prev;
+        }
+
+        if index == self.head {
+            // If this is the first node, update the head to point to the next node
+            self.head = next;
+        } else {
+            // Else, update the previous node to point to the next node
+            self.order[prev].next = next;
+        }
+    }
+
+    /// Helper function to attach a node as the head of the linked list
+    fn attach_as_head(&mut self, index: usize) {
+        self.order[index].prev = self.capacity;
+        self.order[index].next = self.head;
+
+        if self.head != self.capacity {
+            // If there is a head, update its previous pointer to this one
+            self.order[self.head].prev = index;
+        } else {
+            // Else, the list was empty, so update the tail
+            self.tail = index;
+        }
+        self.head = index;
+    }
+
+    /// Helper function to move a node to the head of the linked list
+    fn move_to_head(&mut self, index: usize) {
+        if index == self.head {
+            // If the node is already the head, do nothing
+            return;
+        }
+
+        self.detach_node(index);
+        self.attach_as_head(index);
+    }
+
+    /// Helper function to evict the least-recently used node, which is the
+    /// tail of the linked list
+    /// Returns the index of the evicted node
+    fn evict_lru(&mut self) -> usize {
+        let index = self.tail;
+        if index == self.capacity {
+            // If the list is empty, do nothing
+            return self.capacity;
+        }
+        self.detach_node(index);
+        self.cache.remove(&self.order[index].key);
+        index
     }
 }
 
