@@ -5031,7 +5031,7 @@ fn paramaterized_mempool_walk_test(
 #[test]
 /// Test that the mempool walk query ignores old nonces and prefers next possible nonces before higher global fees.
 fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
-    let key_address_pairs: Vec<(Secp256k1PrivateKey, StacksAddress)> = (0..7)
+    let key_address_pairs: Vec<_> = (0..7)
         .map(|_user_index| {
             let privk = StacksPrivateKey::random();
             let addr = StacksAddress::from_public_keys(

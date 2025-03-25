@@ -40,7 +40,7 @@ impl<K: Display, V: Display> Display for Node<K, V> {
     }
 }
 
-/// LRU cache for account nonces
+/// LRU cache
 pub struct LruCache<K, V> {
     capacity: usize,
     /// Map from address to an offset in the linked list
