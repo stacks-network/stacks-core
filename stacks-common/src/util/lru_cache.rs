@@ -304,12 +304,46 @@ mod tests {
 
         assert_eq!(flushed, [(3, 3), (2, 2)]);
     }
+
+    pub struct SimpleLRU {
+        pub cache: Vec<u32>,
+        capacity: usize,
+    }
+
+    impl SimpleLRU {
+        pub fn new(capacity: usize) -> Self {
+            SimpleLRU {
+                cache: Vec::with_capacity(capacity),
+                capacity,
+            }
+        }
+
+        pub fn insert(&mut self, key: u32) {
+            if let Some(pos) = self.cache.iter().position(|&x| x == key) {
+                self.cache.remove(pos);
+            } else if self.cache.len() == self.capacity {
+                self.cache.remove(0);
+            }
+            self.cache.push(key);
+        }
+
+        pub fn get(&mut self, key: u32) -> Option<u32> {
+            if let Some(pos) = self.cache.iter().position(|&x| x == key) {
+                self.cache.remove(pos);
+                self.cache.push(key);
+                Some(key)
+            } else {
+                None
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod property_tests {
     use proptest::prelude::*;
 
+    use super::tests::SimpleLRU;
     use super::*;
 
     #[derive(Debug, Clone)]
@@ -359,7 +393,7 @@ mod property_tests {
         }
 
         #[test]
-        fn maintains_lru_order(ops in prop::collection::vec(arbitrary_op(), 1..1000)) {
+        fn maintains_linked_list_integrity(ops in prop::collection::vec(arbitrary_op(), 1..1000)) {
             let mut cache = LruCache::new(10);
             for op in ops {
                 match op {
@@ -382,6 +416,44 @@ mod property_tests {
                         curr = cache.order[curr].next;
                         count += 1;
                     }
+                }
+            }
+        }
+
+        #[test]
+        fn maintains_lru_correctness(ops in prop::collection::vec(arbitrary_op(), 1..1000)) {
+            let mut cache = LruCache::new(5);
+            let mut simple = SimpleLRU::new(5);
+            for op in ops {
+                match op {
+                    CacheOp::Insert(v) => {
+                        cache.insert(v, v);
+                        simple.insert(v);
+                    }
+                    CacheOp::Get(v) => {
+                        let actual = cache.get(&v);
+                        let expected = simple.get(v);
+                        prop_assert_eq!(actual, expected);
+                    }
+                    CacheOp::InsertClean(v) => {
+                        cache.insert_clean(v, v);
+                        simple.insert(v);
+                    }
+                    CacheOp::Flush => cache.flush(|_, _| Ok::<(), ()>(())).unwrap(),
+                };
+
+                // The cache should have the same order as the simple LRU
+                let mut curr = cache.head;
+                let mut count = 0;
+                while curr != cache.capacity {
+                    if count >= cache.order.len() {
+                        prop_assert!(false, "Linked list cycle detected");
+                    }
+                    let idx = simple.cache.len() - count - 1;
+                    prop_assert_eq!(cache.order[curr].key, simple.cache[idx]);
+                    prop_assert_eq!(cache.order[curr].value, simple.cache[idx]);
+                    curr = cache.order[curr].next;
+                    count += 1;
                 }
             }
         }
