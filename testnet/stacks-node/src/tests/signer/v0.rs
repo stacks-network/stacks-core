@@ -792,11 +792,22 @@ impl MultipleMinerTest {
         timeout_secs: u64,
     ) -> Result<String, String> {
         let stacks_height_before = self.get_peer_stacks_tip_height();
+
         let txid = self.send_contract_publish(contract_name, contract_src);
+
+        // wait for the new block to be mined
         wait_for(timeout_secs, || {
             Ok(self.get_peer_stacks_tip_height() > stacks_height_before)
         })?;
-        Ok(txid)
+
+        // wait for the observer to see it
+        self.wait_for_test_observer_blocks(timeout_secs);
+
+        if last_block_contains_txid(&txid) {
+            Ok(txid)
+        } else {
+            Err(txid)
+        }
     }
 
     pub fn send_contract_call(
@@ -12592,13 +12603,9 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
     // First, lets deploy the contract
     let dummy_contract_src = "(define-public (dummy (number uint)) (begin (ok (+ number u1))))";
 
-    let contract_publish_txid = miners
+    let _ = miners
         .send_and_mine_contract_publish("dummy-contract", dummy_contract_src, 60)
         .expect("Failed to publish contract in a new block");
-
-    miners.wait_for_test_observer_blocks(60);
-
-    assert_eq!(last_block_contains_txid(&contract_publish_txid), true);
 
     info!("------------------------- Miner 1 Mines a Nakamoto Block N+1 -------------------------");
 
@@ -12731,15 +12738,11 @@ fn miner_rejection_by_contract_publish_execution_time_expired() {
 
     let tx1 = miners.send_transfer_tx();
 
-    let contract_publish_txid = miners
+    let _ = miners
         .send_and_mine_contract_publish("dummy-contract", dummy_contract_src, 60)
-        .expect("Failed to publish contract in a new block");
-
-    miners.wait_for_test_observer_blocks(60);
+        .expect_err("Expected an error while publishing contract in a new block");
 
     assert_eq!(last_block_contains_txid(&tx1), true);
-
-    assert_eq!(last_block_contains_txid(&contract_publish_txid), false);
 
     verify_sortition_winner(&sortdb, &miner_pkh_1);
 
@@ -12755,13 +12758,9 @@ fn miner_rejection_by_contract_publish_execution_time_expired() {
 
     miners.sender_nonce -= 1;
 
-    let contract_publish_txid = miners
+    let _ = miners
         .send_and_mine_contract_publish("dummy-contract", dummy_contract_src, 60)
         .expect("Failed to publish contract in a new block");
-
-    miners.wait_for_test_observer_blocks(60);
-
-    assert_eq!(last_block_contains_txid(&contract_publish_txid), true);
 
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
