@@ -23,7 +23,6 @@ use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{Environment, Value};
-use slog::{slog_debug, slog_error};
 use stacks_common::{debug, error};
 
 use crate::events::synthesize_pox_event_info;
