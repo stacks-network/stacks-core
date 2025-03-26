@@ -11,7 +11,6 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value, MAX_CALL_STACK_DEPTH};
-use rand::Rng;
 use rusqlite::params;
 use serde::Deserialize;
 use serde_json::json;
@@ -30,12 +29,11 @@ use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::POX_4_NAME;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{
-    signal_mining_blocked, signal_mining_ready, TransactionErrorEvent, TransactionEvent,
-    TransactionSuccessEvent,
+    TransactionErrorEvent, TransactionEvent, TransactionSuccessEvent,
 };
 use stacks::chainstate::stacks::{
-    StacksBlock, StacksBlockHeader, StacksMicroblock, StacksMicroblockHeader, StacksPrivateKey,
-    StacksPublicKey, StacksTransaction, TransactionContractCall, TransactionPayload,
+    StacksBlock, StacksBlockHeader, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
+    StacksTransaction, TransactionContractCall, TransactionPayload,
 };
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::cli;
@@ -90,8 +88,6 @@ use crate::stacks_common::types::PrivateKey;
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::tests::gen_random_port;
 use crate::tests::nakamoto_integrations::{get_key_for_cycle, wait_for};
-use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
-use crate::util::secp256k1::MessageSignature;
 use crate::{neon, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
 fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAddress) {
@@ -3314,34 +3310,6 @@ fn should_fix_2771() {
     }
 
     channel.stop_chains_coordinator();
-}
-
-/// Returns a StacksMicroblock with the given transactions, sequence, and parent block that is
-/// signed with the given private key.
-fn make_signed_microblock(
-    block_privk: &StacksPrivateKey,
-    txs: Vec<StacksTransaction>,
-    parent_block: BlockHeaderHash,
-    seq: u16,
-) -> StacksMicroblock {
-    let mut rng = rand::thread_rng();
-
-    let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
-    let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
-    let tx_merkle_root = merkle_tree.root();
-
-    let mut mblock = StacksMicroblock {
-        header: StacksMicroblockHeader {
-            version: rng.gen(),
-            sequence: seq,
-            prev_block: parent_block,
-            tx_merkle_root,
-            signature: MessageSignature([0u8; 65]),
-        },
-        txs,
-    };
-    mblock.sign(block_privk).unwrap();
-    mblock
 }
 
 #[test]
@@ -8609,38 +8577,6 @@ pub fn make_random_tx_chain(
                 &make_runtime_sized_contract(random_iters, nonce, &addr_prefix),
             )
         };
-        chain.push(tx);
-    }
-    chain
-}
-
-fn make_mblock_tx_chain(privk: &StacksPrivateKey, fee_plus: u64, chain_id: u32) -> Vec<Vec<u8>> {
-    let addr = to_addr(privk);
-    let mut chain = vec![];
-
-    for nonce in 0..25 {
-        // N.B. private keys are 32-33 bytes, so this is always safe
-        let random_iters = privk.to_bytes()[nonce as usize] as usize;
-
-        let be_bytes = [
-            privk.to_bytes()[nonce as usize],
-            privk.to_bytes()[(nonce + 1) as usize],
-        ];
-
-        let random_extra_fee = u16::from_be_bytes(be_bytes) as u64;
-
-        let mut addr_prefix = addr.to_string();
-        let _ = addr_prefix.split_off(12);
-        let contract_name = format!("crct-{nonce}-{addr_prefix}-{random_iters}");
-        eprintln!("Make tx {contract_name}");
-        let tx = make_contract_publish_microblock_only(
-            privk,
-            nonce,
-            1049230 + nonce + fee_plus + random_extra_fee,
-            chain_id,
-            &contract_name,
-            &make_runtime_sized_contract(1, nonce, &addr_prefix),
-        );
         chain.push(tx);
     }
     chain

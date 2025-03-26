@@ -1705,6 +1705,12 @@ impl From<BlockResponse> for SignerMessage {
     }
 }
 
+impl From<StateMachineUpdate> for SignerMessage {
+    fn from(update: StateMachineUpdate) -> Self {
+        Self::StateMachineUpdate(update)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
