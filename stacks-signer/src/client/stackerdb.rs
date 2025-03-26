@@ -19,7 +19,6 @@ use clarity::codec::read_next;
 use hashbrown::HashMap;
 use libsigner::{MessageSlotID, SignerMessage, SignerSession, StackerDBSession};
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
-use slog::{slog_debug, slog_info, slog_warn};
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::util::hash::to_hex;
 use stacks_common::{debug, info, warn};

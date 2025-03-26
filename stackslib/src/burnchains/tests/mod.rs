@@ -241,7 +241,7 @@ impl TestMiner {
         );
         match self.vrf_key_map.get(vrf_pubkey) {
             Some(prover_key) => {
-                let proof = VRF::prove(prover_key, last_sortition_hash.as_bytes());
+                let proof = VRF::prove(prover_key, last_sortition_hash.as_bytes())?;
                 let valid = match VRF::verify(vrf_pubkey, &proof, last_sortition_hash.as_bytes()) {
                     Ok(v) => v,
                     Err(e) => false,

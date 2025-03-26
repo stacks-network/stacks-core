@@ -43,7 +43,6 @@ use libsigner::v0::messages::PeerInfo;
 use reqwest::header::AUTHORIZATION;
 use serde::Deserialize;
 use serde_json::json;
-use slog::{slog_debug, slog_warn};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::CHAIN_ID_MAINNET;
 use stacks_common::types::chainstate::{
@@ -168,17 +167,17 @@ impl StacksClient {
         &self.stacks_address
     }
 
-    /// Get the stacks tip header of the tenure given its consensus hash
+    /// Get the header of the highest known block in the given tenure
     pub fn get_tenure_tip(
         &self,
-        consensus_hash: &ConsensusHash,
+        tenure_id: &ConsensusHash,
     ) -> Result<StacksBlockHeaderTypes, ClientError> {
         debug!("StacksClient: Getting tenure tip";
-            "consensus_hash" => %consensus_hash,
+               "consensus_hash" => %tenure_id,
         );
         let send_request = || {
             self.stacks_node_client
-                .get(self.tenure_tip_path(consensus_hash))
+                .get(self.tenure_tip_path(tenure_id))
                 .send()
                 .map_err(|e| {
                     warn!("Signer failed to request latest sortition"; "err" => ?e);

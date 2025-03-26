@@ -25,7 +25,6 @@ use clarity::vm::errors::Error as ClarityError;
 use clarity::vm::types::serialization::SerializationError;
 use libsigner::RPCError;
 use libstackerdb::Error as StackerDBError;
-use slog::slog_debug;
 pub use stackerdb::*;
 pub use stacks_client::*;
 use stacks_common::codec::Error as CodecError;

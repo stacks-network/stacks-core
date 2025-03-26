@@ -4102,8 +4102,31 @@ fn follower_bootup_across_multiple_cycles() {
 
     debug!("Booted follower-thread");
 
-    // Wait a long time for the follower to catch up because CI is slow.
-    wait_for(600, || {
+    // Wait some time for the follower to at least get some nakamoto blocks
+    wait_for(120, || {
+        thread::sleep(Duration::from_secs(5));
+        let Ok(follower_node_info) = get_chain_info_result(&follower_conf) else {
+            return Ok(false);
+        };
+
+        let block_id = StacksBlockId::new(
+            &follower_node_info.stacks_tip_consensus_hash,
+            &follower_node_info.stacks_tip,
+        );
+        let tip = NakamotoChainState::get_block_header(chainstate.db(), &block_id)
+            .unwrap()
+            .unwrap();
+        info!(
+            "Latest follower tip";
+            "height" => tip.stacks_block_height,
+            "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
+        );
+
+        Ok(tip.anchored_header.as_stacks_nakamoto().is_some())
+    })
+    .unwrap();
+
+    wait_for(480, || {
         sleep_ms(1000);
         let Ok(follower_node_info) = get_chain_info_result(&follower_conf) else {
             return Ok(false);

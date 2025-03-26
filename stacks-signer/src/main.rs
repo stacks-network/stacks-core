@@ -34,7 +34,6 @@ use clarity::types::chainstate::StacksPublicKey;
 use clarity::util::sleep_ms;
 use libsigner::{SignerSession, VERSION_STRING};
 use libstackerdb::StackerDBChunkData;
-use slog::{slog_debug, slog_error};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error};

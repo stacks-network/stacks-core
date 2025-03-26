@@ -20,7 +20,6 @@ use blockstack_lib::chainstate::stacks::TenureChangePayload;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
 use blockstack_lib::util_lib::db::Error as DBError;
 use libsigner::v0::messages::RejectReason;
-use slog::{slog_info, slog_warn};
 use stacks_common::types::chainstate::{BurnchainHeaderHash, ConsensusHash, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
@@ -39,6 +38,12 @@ pub enum SignerChainstateError {
     /// Error resulting from crate::client interactions
     #[error("Client error: {0}")]
     ClientError(#[from] ClientError),
+    /// The signer could not find information about the parent tenure
+    #[error("No information available for parent tenure '{0}'")]
+    NoParentTenureInfo(ConsensusHash),
+    /// The local state machine wasn't ready to be queried
+    #[error("The local state machine is not ready, so no update message can be produced")]
+    LocalStateMachineNotReady,
 }
 
 impl From<SignerChainstateError> for RejectReason {
@@ -418,7 +423,10 @@ impl SortitionsView {
         Ok(())
     }
 
-    fn check_parent_tenure_choice(
+    /// Check if the tenure defined by `sortition_state` is building off of an
+    ///  appropriate tenure. Note that this does not check that it confirms the correct
+    ///  number of blocks from that tenure!
+    pub fn check_parent_tenure_choice(
         sortition_state: &SortitionState,
         block: &NakamotoBlock,
         signer_db: &SignerDb,

@@ -25,11 +25,11 @@ mod server;
 pub mod actions {
     use ::prometheus::HistogramTimer;
     use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-    use slog::slog_error;
     use stacks_common::error;
 
     use crate::config::GlobalConfig;
     use crate::monitoring::prometheus::*;
+    use crate::v0::signer_state::LocalStateMachine;
 
     /// Update stacks tip height gauge
     pub fn update_stacks_tip_height(height: i64) {
@@ -100,6 +100,14 @@ pub mod actions {
             .observe(latency_ms as f64 / 1000.0);
     }
 
+    /// Record the current local state machine
+    pub fn record_local_state(state: LocalStateMachine) {
+        SIGNER_LOCAL_STATE_MACHINE
+            .lock()
+            .expect("Local state machine lock poisoned")
+            .replace(state);
+    }
+
     /// Start serving monitoring metrics.
     /// This will only serve the metrics if the `monitoring_prom` feature is enabled.
     pub fn start_serving_monitoring_metrics(config: GlobalConfig) -> Result<(), String> {
@@ -121,9 +129,9 @@ pub mod actions {
 #[cfg(not(feature = "monitoring_prom"))]
 pub mod actions {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-    use slog::slog_info;
     use stacks_common::info;
 
+    use crate::v0::signer_state::LocalStateMachine;
     use crate::GlobalConfig;
 
     /// Update stacks tip height gauge
@@ -167,6 +175,9 @@ pub mod actions {
 
     /// Record the time taken to validate a block, as reported by the Stacks node.
     pub fn record_block_validation_latency(_latency_ms: u64) {}
+
+    /// Record the current local state machine
+    pub fn record_local_state(_state: LocalStateMachine) {}
 
     /// Start serving monitoring metrics.
     /// This will only serve the metrics if the `monitoring_prom` feature is enabled.
