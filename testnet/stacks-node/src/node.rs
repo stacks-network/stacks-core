@@ -660,10 +660,13 @@ impl Node {
             .expect("FATAL: failed to query canonical burn chain tip");
 
         // Generates a proof out of the sortition hash provided in the params.
-        let vrf_proof = self.keychain.generate_proof(
+        let Some(vrf_proof) = self.keychain.generate_proof(
             registered_key.target_block_height,
             tip.sortition_hash.as_bytes(),
-        );
+        ) else {
+            warn!("Failed to generate VRF proof, will be unable to initiate new tenure");
+            return None;
+        };
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
@@ -732,10 +735,13 @@ impl Node {
         if self.active_registered_key.is_some() {
             let registered_key = self.active_registered_key.clone().unwrap();
 
-            let vrf_proof = self.keychain.generate_proof(
+            let Some(vrf_proof) = self.keychain.generate_proof(
                 registered_key.target_block_height,
                 burnchain_tip.block_snapshot.sortition_hash.as_bytes(),
-            );
+            ) else {
+                warn!("Failed to generate VRF proof, will be unable to mine commits");
+                return;
+            };
 
             let op = self.generate_block_commit_op(
                 anchored_block_from_ongoing_tenure.header.block_hash(),
