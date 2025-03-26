@@ -30,7 +30,6 @@ use clarity::vm::contexts::GlobalContext;
 use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
-use slog::slog_warn;
 use stacks_common::types::StacksEpochId;
 use stacks_common::warn;
 

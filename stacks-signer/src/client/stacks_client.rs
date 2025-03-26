@@ -43,7 +43,6 @@ use libsigner::v0::messages::PeerInfo;
 use reqwest::header::AUTHORIZATION;
 use serde::Deserialize;
 use serde_json::json;
-use slog::{slog_debug, slog_warn};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::CHAIN_ID_MAINNET;
 use stacks_common::types::chainstate::{
