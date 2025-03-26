@@ -549,6 +549,17 @@ pub fn call_function<'a>(
     }
     let mut in_mem_offset = offset + arg_size;
 
+    // Ensure that the memory has enough space for the arguments
+    let mut total_required_bytes = 0;
+    for (arg, ty) in args.iter().zip(func_types.get_arg_types()) {
+        total_required_bytes += get_required_bytes(ty, arg)?;
+    }
+    ensure_memory(
+        &memory,
+        &mut store,
+        total_required_bytes + in_mem_offset as usize,
+    )?;
+
     // Convert the args into wasmtime values
     let mut wasm_args = vec![];
     for (arg, ty) in args.iter().zip(func_types.get_arg_types()) {
@@ -1486,6 +1497,94 @@ fn write_to_wasm(
     }
 }
 
+/// Ensure the memory is large enough to write the given number of bytes.
+fn ensure_memory(
+    memory: &Memory,
+    store: &mut impl AsContextMut,
+    required_bytes: usize,
+) -> Result<(), Error> {
+    // Round up division.
+    let required_pages = ((required_bytes + 65535) / 65536) as u64;
+    let current_pages = memory.size(store.as_context_mut());
+    // If the current memory is not large enough, grow it by the required
+    // number of pages.
+    if current_pages < required_pages {
+        memory
+            .grow(store.as_context_mut(), required_pages - current_pages)
+            .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+    }
+    Ok(())
+}
+
+/// Get the number of bytes required to write the given value to memory.
+/// This is used to ensure that the memory has enough space for the arguments.
+fn get_required_bytes(ty: &TypeSignature, value: &Value) -> Result<usize, Error> {
+    match value {
+        Value::UInt(_) | Value::Int(_) | Value::Bool(_) => {
+            // These types don't require memory allocation
+            Ok(0)
+        }
+        Value::Optional(o) => {
+            let TypeSignature::OptionalType(inner_ty) = ty else {
+                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+            };
+
+            if let Some(inner_value) = o.data.as_ref() {
+                get_required_bytes(inner_ty, inner_value)
+            } else {
+                Ok(0)
+            }
+        }
+        Value::Response(r) => {
+            let TypeSignature::ResponseType(inner_tys) = ty else {
+                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+            };
+            get_required_bytes(
+                if r.committed {
+                    &inner_tys.0
+                } else {
+                    &inner_tys.1
+                },
+                &r.data,
+            )
+        }
+        Value::Sequence(SequenceData::String(CharType::ASCII(s))) => Ok(s.data.len()),
+        Value::Sequence(SequenceData::String(CharType::UTF8(s))) => Ok(s.data.len()),
+        Value::Sequence(SequenceData::Buffer(b)) => Ok(b.data.len()),
+        Value::Sequence(SequenceData::List(l)) => {
+            let TypeSignature::SequenceType(SequenceSubtype::ListType(ltd)) = ty else {
+                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+            };
+            let element_size = get_type_in_memory_size(ltd.get_list_item_type(), true) as usize;
+            let total_bytes = element_size * l.data.len();
+            Ok(total_bytes)
+        }
+        Value::Principal(PrincipalData::Standard(_)) => Ok(STANDARD_PRINCIPAL_BYTES),
+        Value::Principal(PrincipalData::Contract(p))
+        | Value::CallableContract(CallableData {
+            contract_identifier: p,
+            ..
+        }) => Ok(PRINCIPAL_BYTES + 1 + p.name.len() as usize),
+        Value::Tuple(TupleData { data_map, .. }) => {
+            let TypeSignature::TupleType(tuple_ty) = ty else {
+                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+            };
+
+            let mut total_bytes = 0;
+            for (name, ty) in tuple_ty.get_type_map() {
+                match data_map.get(name) {
+                    Some(value) => total_bytes += get_required_bytes(ty, value)?,
+                    None => return Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+                }
+            }
+            if data_map.len() != tuple_ty.get_type_map().len() {
+                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+            }
+            Ok(total_bytes)
+        }
+    }
+}
+
 /// Convert a Clarity `Value` into one or more Wasm `Val`. If this value
 /// requires writing into the Wasm memory, write it to the provided `offset`.
 /// Return a vector of `Val`s that can be passed to a Wasm function, and the
@@ -1631,7 +1730,6 @@ fn pass_argument_to_wasm(
             let TypeSignature::SequenceType(SequenceSubtype::ListType(ltd)) = ty else {
                 return Err(Error::Wasm(WasmError::ValueTypeMismatch));
             };
-
             let mut buffer = vec![Val::I32(offset)];
             let mut written = 0;
             let mut in_mem_written = 0;
