@@ -52,7 +52,6 @@ use chainstate::SortitionsView;
 use config::GlobalConfig;
 use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait, VERSION_STRING};
 use runloop::SignerResult;
-use slog::{slog_info, slog_warn};
 use stacks_common::{info, warn};
 use v0::signer_state::LocalStateMachine;
 
