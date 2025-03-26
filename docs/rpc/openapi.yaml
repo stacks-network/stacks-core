@@ -885,9 +885,8 @@ paths:
           description: Transaction JSON with index_block_hash, transaction body and result
           content:
             application/json:
-              schema:
-                type: string
-                example: '"e161978626f216b2141b156ade10501207ae535fa365a13ef5d7a7c9310a09f2"'
+              example:
+                $ref: ./api/core-node/get_transactions.json
         "404":
           description: Transaction not found
           content:
