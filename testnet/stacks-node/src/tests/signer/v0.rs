@@ -815,10 +815,21 @@ impl MultipleMinerTest {
         function_args: &[clarity::vm::Value],
     ) -> String {
         let http_origin = self.node_http();
+        // build a fake tx for getting a rough amount of fee
+        let fake_contract_tx = make_contract_call(
+            &self.sender_sk,
+            sender_nonce,
+            100,
+            self.signer_test.running_nodes.conf.burnchain.chain_id,
+            &tests::to_addr(&self.sender_sk),
+            contract_name,
+            function_name,
+            function_args,
+        );
         let contract_tx = make_contract_call(
             &self.sender_sk,
             sender_nonce,
-            self.send_fee,
+            self.send_fee + fake_contract_tx.len() as u64,
             self.signer_test.running_nodes.conf.burnchain.chain_id,
             &tests::to_addr(&self.sender_sk),
             contract_name,
