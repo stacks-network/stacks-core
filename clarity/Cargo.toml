@@ -56,11 +56,12 @@ mutants = "0.0.3"
 # criterion = "0.3"
 
 [features]
-default = ["rusqlite", "log", "clarity-wasm", "serde_stacker"]
+default = ["rusqlite", "log", "clarity-wasm", "serde_stacker", "vrf"]
 clarity-wasm = ["wasmtime"]
 developer-mode = ["stacks_common/developer-mode"]
 slog_json = ["stacks_common/slog_json"]
 rusqlite = ["stacks_common/rusqlite", "dep:rusqlite"]
+vrf = ["stacks_common/vrf"]
 devtools = []
 rollback_value_check = []
 disable-costs = []
