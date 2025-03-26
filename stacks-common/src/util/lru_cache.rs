@@ -62,8 +62,12 @@ impl<K: Display, V: Display> Display for LruCache<K, V> {
         )?;
         let mut curr = self.head;
         while curr != self.capacity {
-            writeln!(f, "  {}", self.order[curr])?;
-            curr = self.order[curr].next;
+            let Some(node) = self.order.get(curr) else {
+                writeln!(f, "  <invalid>")?;
+                break;
+            };
+            writeln!(f, "  {}", node)?;
+            curr = node.next;
         }
         Ok(())
     }
