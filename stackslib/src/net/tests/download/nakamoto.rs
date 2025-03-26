@@ -43,7 +43,7 @@ use crate::chainstate::stacks::{
     TransactionPayload, TransactionVersion,
 };
 use crate::clarity::vm::types::StacksAddressExtensions;
-use crate::core::util::to_addr;
+use crate::core::test_util::to_addr;
 use crate::net::api::gettenureinfo::RPCGetTenureInfo;
 use crate::net::download::nakamoto::{TenureStartEnd, WantedTenure, *};
 use crate::net::inv::nakamoto::NakamotoTenureInv;

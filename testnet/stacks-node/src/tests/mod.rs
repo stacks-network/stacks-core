@@ -28,7 +28,7 @@ use stacks::chainstate::stacks::{
     StacksPrivateKey, StacksPublicKey, StacksTransaction, TransactionPayload,
 };
 #[cfg(any(test, feature = "testing"))]
-use stacks::core::util::{make_contract_publish, to_addr};
+use stacks::core::test_util::{make_contract_publish, to_addr};
 use stacks::core::{StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_TESTNET};
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;

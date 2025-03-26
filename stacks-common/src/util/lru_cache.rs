@@ -40,7 +40,7 @@ impl<K: Display, V: Display> Display for Node<K, V> {
     }
 }
 
-/// LRU cache for account nonces
+/// LRU cache
 pub struct LruCache<K, V> {
     capacity: usize,
     /// Map from address to an offset in the linked list
@@ -62,19 +62,15 @@ impl<K: Display, V: Display> Display for LruCache<K, V> {
         )?;
         let mut curr = self.head;
         while curr != self.capacity {
-            let Some(node) = self.order.get(curr) else {
-                writeln!(f, "  <invalid>")?;
-                break;
-            };
-            writeln!(f, "  {}", node)?;
-            curr = node.next;
+            writeln!(f, "  {}", self.order[curr])?;
+            curr = self.order[curr].next;
         }
         Ok(())
     }
 }
 
 impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
-    /// Create a new LRU cache with the given capacity
+    /// Create a new LRU cache with the given capacity (> 0)
     pub fn new(mut capacity: usize) -> Self {
         if capacity == 0 {
             error!("Capacity must be greater than 0. Defaulting to 1024.");
@@ -93,38 +89,9 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
     /// Get the value for the given key
     /// Returns an error iff the cache is corrupted and should be discarded
     pub fn get(&mut self, key: &K) -> Result<Option<V>, ()> {
-        if let Some(order_idx) = self.cache.get(key) {
-            // Move the node to the head of the LRU list
-            if *order_idx != self.head {
-                let node = self.order.get_mut(*order_idx).ok_or(())?;
-                let prev = node.prev;
-                let next = node.next;
-                node.prev = self.capacity;
-                node.next = self.head;
-
-                if *order_idx == self.tail {
-                    // If this is the tail, update the tail
-                    self.tail = prev;
-                } else {
-                    // Else, update the next node's prev pointer
-                    let next_node = self.order.get_mut(next).ok_or(())?;
-                    next_node.prev = prev;
-                }
-
-                let prev_node = self.order.get_mut(prev).ok_or(())?;
-                prev_node.next = next;
-
-                let head_node = self.order.get_mut(self.head).ok_or(())?;
-                head_node.prev = *order_idx;
-                self.head = *order_idx;
-            }
-
-            let node = self.order.get(*order_idx).ok_or(())?;
-            // Safety check: if the key doesn't match, the cache is corrupted
-            if node.key != *key {
-                return Err(());
-            }
-
+        if let Some(&index) = self.cache.get(key) {
+            self.move_to_head(index)?;
+            let node = self.order.get(index).ok_or(())?;
             Ok(Some(node.value))
         } else {
             Ok(None)
@@ -154,76 +121,58 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
         value: V,
         dirty: bool,
     ) -> Result<Option<(K, V)>, ()> {
-        let mut evicted = None;
-        if let Some(order_idx) = self.cache.get(&key) {
-            // Update the value for the key
-            let node = self.order.get_mut(*order_idx).ok_or(())?;
+        if let Some(&index) = self.cache.get(&key) {
+            // Update an existing node
+            let node = self.order.get_mut(index).ok_or(())?;
             node.value = value;
             node.dirty = dirty;
-
-            // Just call get to handle updating the LRU list
-            self.get(&key)?;
+            self.move_to_head(index)?;
+            Ok(None)
         } else {
+            let mut evicted = None;
+            // This is a new key
             let index = if self.cache.len() == self.capacity {
-                // Take the place of the least recently used element.
-                // First, remove it from the tail of the LRU list
-                let index = self.tail;
+                // We've reached capacity. Evict the least-recently used value
+                // and reuse its node
+                let index = self.evict_lru()?;
                 let tail_node = self.order.get_mut(index).ok_or(())?;
-                let prev = tail_node.prev;
-
-                // Remove it from the cache
-                self.cache.remove(&tail_node.key);
 
                 // Replace the key with the new key, saving the old key
                 let replaced_key = std::mem::replace(&mut tail_node.key, key.clone());
 
-                // If it is dirty, save the key-value pair to return
+                // Save the evicted key-value pair, if it was dirty
                 if tail_node.dirty {
                     evicted = Some((replaced_key, tail_node.value));
-                }
+                };
 
-                // Insert this new value into the cache
-                self.cache.insert(key, index);
-
-                // Update the node with the new key-value pair, inserting it at
-                // the head of the LRU list
+                // Update the evicted node with the new key-value pair
                 tail_node.value = value;
                 tail_node.dirty = dirty;
-                tail_node.next = self.head;
-                tail_node.prev = self.capacity;
 
-                let tail_prev_node = self.order.get_mut(prev).ok_or(())?;
-                tail_prev_node.next = self.capacity;
-                self.tail = prev;
+                // Insert the new key-value pair into the cache
+                self.cache.insert(key, index);
 
                 index
             } else {
-                // Insert a new key-value pair
+                // Create a new node, add it to the cache
+                let index = self.order.len();
                 let node = Node {
                     key: key.clone(),
                     value,
                     dirty,
-                    next: self.head,
+                    next: self.capacity,
                     prev: self.capacity,
                 };
-
-                let index = self.order.len();
                 self.order.push(node);
                 self.cache.insert(key, index);
-
                 index
             };
 
-            // Put it at the head of the LRU list
-            if self.head != self.capacity {
-                self.order[self.head].prev = index;
-            } else {
-                self.tail = index;
-            }
+            // Put the new or reused node at the head of the LRU list
+            self.attach_as_head(index)?;
 
-            self.head = index;
+            Ok(evicted)
         }
-        Ok(evicted)
     }
 
     /// Flush all dirty values in the cache, calling the given function, `f`,
@@ -255,10 +204,82 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
                     Ok(()) => node.dirty = false,
                     Err(e) => return Ok(Err(e)),
                 }
+                node.dirty = false;
             }
             current = next;
         }
         Ok(Ok(()))
+    }
+
+    /// Helper function to remove a node from the linked list (by index)
+    fn detach_node(&mut self, index: usize) -> Result<(), ()> {
+        let node = self.order.get(index).ok_or(())?;
+        let prev = node.prev;
+        let next = node.next;
+
+        if index == self.tail {
+            // If this is the last node, update the tail to point to its previous node
+            self.tail = prev;
+        } else {
+            // Else, update the next node to point to the previous node
+            let next_node = self.order.get_mut(next).ok_or(())?;
+            next_node.prev = prev;
+        }
+
+        if index == self.head {
+            // If this is the first node, update the head to point to the next node
+            self.head = next;
+        } else {
+            // Else, update the previous node to point to the next node
+            let prev_node = self.order.get_mut(prev).ok_or(())?;
+            prev_node.next = next;
+        }
+
+        Ok(())
+    }
+
+    /// Helper function to attach a node as the head of the linked list
+    fn attach_as_head(&mut self, index: usize) -> Result<(), ()> {
+        let node = self.order.get_mut(index).ok_or(())?;
+        node.prev = self.capacity;
+        node.next = self.head;
+
+        if self.head != self.capacity {
+            // If there is a head, update its previous pointer to this one
+            let head_node = self.order.get_mut(self.head).ok_or(())?;
+            head_node.prev = index;
+        } else {
+            // Else, the list was empty, so update the tail
+            self.tail = index;
+        }
+        self.head = index;
+        Ok(())
+    }
+
+    /// Helper function to move a node to the head of the linked list
+    fn move_to_head(&mut self, index: usize) -> Result<(), ()> {
+        if index == self.head {
+            // If the node is already the head, do nothing
+            return Ok(());
+        }
+
+        self.detach_node(index)?;
+        self.attach_as_head(index)
+    }
+
+    /// Helper function to evict the least-recently used node, which is the
+    /// tail of the linked list
+    /// Returns the index of the evicted node
+    fn evict_lru(&mut self) -> Result<usize, ()> {
+        let index = self.tail;
+        if index == self.capacity {
+            // If the list is empty, do nothing
+            return Ok(self.capacity);
+        }
+        self.detach_node(index)?;
+        let node = self.order.get(index).ok_or(())?;
+        self.cache.remove(&node.key);
+        Ok(index)
     }
 }
 
@@ -270,39 +291,42 @@ mod tests {
     fn test_lru_cache() {
         let mut cache = LruCache::new(2);
 
-        cache.insert(1, 1).unwrap();
-        cache.insert(2, 2).unwrap();
-        assert_eq!(cache.get(&1).unwrap(), Some(1));
-        cache.insert(3, 3).unwrap();
-        assert_eq!(cache.get(&2).unwrap(), None);
-        cache.insert(4, 4).unwrap();
-        assert_eq!(cache.get(&1).unwrap(), None);
-        assert_eq!(cache.get(&3).unwrap(), Some(3));
-        assert_eq!(cache.get(&4).unwrap(), Some(4));
+        cache.insert(1, 1).expect("cache corrupted");
+        cache.insert(2, 2).expect("cache corrupted");
+        assert_eq!(cache.get(&1).expect("cache corrupted"), Some(1));
+        cache.insert(3, 3).expect("cache corrupted");
+        assert_eq!(cache.get(&2).expect("cache corrupted"), None);
+        cache.insert(4, 4).expect("cache corrupted");
+        assert_eq!(cache.get(&1).expect("cache corrupted"), None);
+        assert_eq!(cache.get(&3).expect("cache corrupted"), Some(3));
+        assert_eq!(cache.get(&4).expect("cache corrupted"), Some(4));
     }
 
     #[test]
     fn test_lru_cache_update() {
         let mut cache = LruCache::new(2);
 
-        cache.insert(1, 1).unwrap();
-        cache.insert(2, 2).unwrap();
-        cache.insert(1, 10).unwrap();
-        assert_eq!(cache.get(&1).unwrap(), Some(10));
-        cache.insert(3, 3).unwrap();
-        assert_eq!(cache.get(&2).unwrap(), None);
-        cache.insert(2, 4).unwrap();
-        assert_eq!(cache.get(&2).unwrap(), Some(4));
-        assert_eq!(cache.get(&3).unwrap(), Some(3));
+        cache.insert(1, 1).expect("cache corrupted");
+        cache.insert(2, 2).expect("cache corrupted");
+        cache.insert(1, 10).expect("cache corrupted");
+        assert_eq!(cache.get(&1).expect("cache corrupted"), Some(10));
+        cache.insert(3, 3).expect("cache corrupted");
+        assert_eq!(cache.get(&2).expect("cache corrupted"), None);
+        cache.insert(2, 4).expect("cache corrupted");
+        assert_eq!(cache.get(&2).expect("cache corrupted"), Some(4));
+        assert_eq!(cache.get(&3).expect("cache corrupted"), Some(3));
     }
 
     #[test]
     fn test_lru_cache_evicted() {
         let mut cache = LruCache::new(2);
 
-        assert!(cache.insert(1, 1).unwrap().is_none());
-        assert!(cache.insert(2, 2).unwrap().is_none());
-        let evicted = cache.insert(3, 3).unwrap().expect("expected an eviction");
+        assert!(cache.insert(1, 1).expect("cache corrupted").is_none());
+        assert!(cache.insert(2, 2).expect("cache corrupted").is_none());
+        let evicted = cache
+            .insert(3, 3)
+            .expect("cache corrupted")
+            .expect("expected an eviction");
         assert_eq!(evicted, (1, 1));
     }
 
@@ -310,7 +334,7 @@ mod tests {
     fn test_lru_cache_flush() {
         let mut cache = LruCache::new(2);
 
-        cache.insert(1, 1).unwrap();
+        cache.insert(1, 1).expect("cache corrupted");
 
         let mut flushed = Vec::new();
         cache
@@ -323,8 +347,8 @@ mod tests {
 
         assert_eq!(flushed, vec![(1, 1)]);
 
-        cache.insert(1, 3).unwrap();
-        cache.insert(2, 2).unwrap();
+        cache.insert(1, 3).expect("cache corrupted");
+        cache.insert(2, 2).expect("cache corrupted");
 
         let mut flushed = Vec::new();
         cache
@@ -342,10 +366,22 @@ mod tests {
     fn test_lru_cache_evict_clean() {
         let mut cache = LruCache::new(2);
 
-        assert!(cache.insert_with_dirty(0, 0, false).unwrap().is_none());
-        assert!(cache.insert_with_dirty(1, 1, false).unwrap().is_none());
-        assert!(cache.insert_with_dirty(2, 2, true).unwrap().is_none());
-        assert!(cache.insert_with_dirty(3, 3, true).unwrap().is_none());
+        assert!(cache
+            .insert_with_dirty(0, 0, false)
+            .expect("cache corrupted")
+            .is_none());
+        assert!(cache
+            .insert_with_dirty(1, 1, false)
+            .expect("cache corrupted")
+            .is_none());
+        assert!(cache
+            .insert_with_dirty(2, 2, true)
+            .expect("cache corrupted")
+            .is_none());
+        assert!(cache
+            .insert_with_dirty(3, 3, true)
+            .expect("cache corrupted")
+            .is_none());
 
         let mut flushed = Vec::new();
         cache
@@ -358,28 +394,80 @@ mod tests {
 
         assert_eq!(flushed, [(3, 3), (2, 2)]);
     }
+
+    /// Simple LRU implementation for testing
+    pub struct SimpleLRU {
+        pub cache: Vec<Node<u32, u32>>,
+        capacity: usize,
+    }
+
+    impl SimpleLRU {
+        pub fn new(capacity: usize) -> Self {
+            SimpleLRU {
+                cache: Vec::with_capacity(capacity),
+                capacity,
+            }
+        }
+
+        pub fn insert(&mut self, key: u32, value: u32, dirty: bool) {
+            if let Some(pos) = self.cache.iter().position(|x| x.key == key) {
+                self.cache.remove(pos);
+            } else if self.cache.len() == self.capacity {
+                self.cache.remove(0);
+            }
+            self.cache.push(Node {
+                key,
+                value,
+                dirty,
+                next: 0,
+                prev: 0,
+            });
+        }
+
+        pub fn get(&mut self, key: u32) -> Option<u32> {
+            if let Some(pos) = self.cache.iter().position(|x| x.key == key) {
+                let node = self.cache.remove(pos);
+                let value = node.value;
+                self.cache.push(node);
+                Some(value)
+            } else {
+                None
+            }
+        }
+
+        pub fn flush<E>(&mut self, mut f: impl FnMut(&u32, u32) -> Result<(), E>) -> Result<(), E> {
+            for node in self.cache.iter_mut().rev() {
+                if node.dirty {
+                    f(&node.key, node.value)?;
+                }
+                node.dirty = false;
+            }
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]
 mod property_tests {
     use proptest::prelude::*;
 
+    use super::tests::SimpleLRU;
     use super::*;
 
     #[derive(Debug, Clone)]
     enum CacheOp {
-        Insert(u32),
+        Insert(u32, u32),
         Get(u32),
-        InsertClean(u32),
+        InsertClean(u32, u32),
         Flush,
     }
 
     prop_compose! {
-        fn arbitrary_op()(op_type in 0..4, value in 0..100u32) -> CacheOp {
+        fn arbitrary_op()(op_type in 0..4, key in 0..100u32, value in 0..1000u32) -> CacheOp {
             match op_type {
-                0 => CacheOp::Insert(value),
-                1 => CacheOp::Get(value),
-                2 => CacheOp::InsertClean(value),
+                0 => CacheOp::Insert(key, value),
+                1 => CacheOp::Get(key),
+                2 => CacheOp::InsertClean(key, value),
                 _ => CacheOp::Flush,
             }
         }
@@ -393,9 +481,9 @@ mod property_tests {
             let mut cache = LruCache::new(10);
             for op in ops {
                 match op {
-                    CacheOp::Insert(v) => { cache.insert(v, v).expect("cache corrupted"); }
-                    CacheOp::Get(v) => { cache.get(&v).expect("cache corrupted"); }
-                    CacheOp::InsertClean(v) => { cache.insert_clean(v, v).expect("cache corrupted"); }
+                    CacheOp::Insert(k, v) => { cache.insert(k, v).expect("cache corrupted"); }
+                    CacheOp::Get(k) => { cache.get(&k).expect("cache corrupted"); }
+                    CacheOp::InsertClean(k, v) => { cache.insert_clean(k, v).expect("cache corrupted"); }
                     CacheOp::Flush => { cache.flush(|_, _| Ok::<(), ()>(())).expect("cache corrupted").expect("flush failed"); }
                 }
             }
@@ -413,13 +501,13 @@ mod property_tests {
         }
 
         #[test]
-        fn maintains_lru_order(ops in prop::collection::vec(arbitrary_op(), 1..1000)) {
+        fn maintains_linked_list_integrity(ops in prop::collection::vec(arbitrary_op(), 1..1000)) {
             let mut cache = LruCache::new(10);
             for op in ops {
                 match op {
-                    CacheOp::Insert(v) => { cache.insert(v, v).expect("cache corrupted"); }
-                    CacheOp::Get(v) => { cache.get(&v).expect("cache corrupted"); }
-                    CacheOp::InsertClean(v) => { cache.insert_clean(v, v).expect("cache corrupted"); }
+                    CacheOp::Insert(k, v) => { cache.insert(k, v).expect("cache corrupted"); }
+                    CacheOp::Get(k) => { cache.get(&k).expect("cache corrupted"); }
+                    CacheOp::InsertClean(k, v) => { cache.insert_clean(k, v).expect("cache corrupted"); }
                     CacheOp::Flush => { cache.flush(|_, _| Ok::<(), ()>(())).expect("cache corrupted").expect("flush failed"); }
                 }
                 // Verify linked list integrity
@@ -436,6 +524,56 @@ mod property_tests {
                         curr = cache.order[curr].next;
                         count += 1;
                     }
+                }
+            }
+        }
+
+        #[test]
+        fn maintains_lru_correctness(ops in prop::collection::vec(arbitrary_op(), 1..1000)) {
+            let mut cache = LruCache::new(5);
+            let mut simple = SimpleLRU::new(5);
+            for op in ops {
+                match op {
+                    CacheOp::Insert(k, v) => {
+                        cache.insert(k, v).expect("cache corrupted");
+                        simple.insert(k, v, true);
+                    }
+                    CacheOp::Get(k) => {
+                        let actual = cache.get(&k).expect("cache corrupted");
+                        let expected = simple.get(k);
+                        prop_assert_eq!(actual, expected);
+                    }
+                    CacheOp::InsertClean(k, v) => {
+                        cache.insert_clean(k, v).expect("cache corrupted");
+                        simple.insert(k, v, false);
+                    }
+                    CacheOp::Flush => {
+                        let mut flushed = vec![];
+                        let mut simple_flushed = vec![];
+                        cache.flush(|k, v| {
+                            flushed.push((*k, v));
+                            Ok::<(), ()>(())
+                        }).expect("cache corrupted").expect("flush failed");
+                        simple.flush(|k, v| {
+                            simple_flushed.push((*k, v));
+                            Ok::<(), ()>(())
+                        }).unwrap();
+                        prop_assert_eq!(flushed, simple_flushed);
+                    }
+                };
+
+                // The cache should have the same order as the simple LRU
+                let mut curr = cache.head;
+                let mut count = 0;
+                while curr != cache.capacity {
+                    if count >= cache.order.len() {
+                        prop_assert!(false, "Linked list cycle detected");
+                    }
+                    let idx = simple.cache.len() - count - 1;
+                    prop_assert_eq!(cache.order[curr].key, simple.cache[idx].key);
+                    prop_assert_eq!(cache.order[curr].value, simple.cache[idx].value);
+                    curr = cache.order[curr].next;
+                    count += 1;
                 }
             }
         }

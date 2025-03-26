@@ -1616,6 +1616,15 @@ impl MemPoolDB {
             .query(NO_PARAMS)
             .map_err(Error::SqliteError)?;
 
+        // Here we have a nested loop to walk the mempool.
+        //
+        // The `GlobalFeeRate` strategy includes all transactions, so we just
+        // query once and walk the full mempool in the inner loop.
+        //
+        // The `NextNonceWithHighestFeeRate` strategy only selects transactions
+        // that have the next expected nonce, so we need to re-query the
+        // mempool after one batch has been processed and the nonce table has
+        // been updated. This is handled in the outer loop.
         let stop_reason = loop {
             let mut state_changed = false;
 
@@ -1902,7 +1911,11 @@ impl MemPoolDB {
             };
 
             // If we've reached the end of the mempool, or if we've stopped
-            // iterating for some other reason, break out of the loop
+            // iterating for some other reason, break out of the loop. In the
+            // case of `NextNonceWithHighestFeeRate` we know we've reached the
+            // end of the mempool if the state has not changed. In the case of
+            // `GlobalFeeRate` we know we've reached the end of the mempool if
+            // the stop reason is `NoMoreCandidates`.
             if settings.strategy != MemPoolWalkStrategy::NextNonceWithHighestFeeRate
                 || stop_reason != MempoolIterationStopReason::NoMoreCandidates
                 || !state_changed

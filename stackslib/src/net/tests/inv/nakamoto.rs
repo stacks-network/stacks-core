@@ -43,7 +43,7 @@ use crate::chainstate::stacks::{
     TransactionAuth, TransactionPayload, TransactionVersion,
 };
 use crate::clarity::vm::types::StacksAddressExtensions;
-use crate::core::util::to_addr;
+use crate::core::test_util::to_addr;
 use crate::core::StacksEpochExtension;
 use crate::net::inv::nakamoto::{InvGenerator, NakamotoInvStateMachine, NakamotoTenureInv};
 use crate::net::neighbors::comms::NeighborComms;

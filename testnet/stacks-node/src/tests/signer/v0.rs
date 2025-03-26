@@ -45,7 +45,7 @@ use stacks::chainstate::stacks::{StacksTransaction, TenureChangeCause, Transacti
 use stacks::codec::StacksMessageCodec;
 use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig};
 use stacks::core::mempool::MemPoolWalkStrategy;
-use stacks::core::util::{
+use stacks::core::test_util::{
     insert_tx_in_mempool, make_contract_call, make_contract_publish, make_stacks_transfer,
 };
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};

@@ -63,7 +63,7 @@ use stacks::chainstate::stacks::{
 };
 use stacks::config::{EventKeyType, InitialBalance};
 use stacks::core::mempool::{MemPoolWalkStrategy, MAXIMUM_MEMPOOL_TX_CHAINING};
-use stacks::core::util::{
+use stacks::core::test_util::{
     insert_tx_in_mempool, make_contract_call, make_contract_publish_versioned, make_stacks_transfer,
 };
 use stacks::core::{
