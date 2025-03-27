@@ -753,7 +753,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
 
         info!(
             "Received block proposal request";
-            "signer_sighash" => %block_proposal.block.header.signer_signature_hash(),
+            "signer_signature_hash" => %block_proposal.block.header.signer_signature_hash(),
             "block_header_hash" => %block_proposal.block.header.block_hash(),
             "height" => block_proposal.block.header.chain_length,
             "tx_count" => block_proposal.block.txs.len(),

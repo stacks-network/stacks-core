@@ -470,7 +470,7 @@ impl BlockMinerThread {
         };
 
         error!("Error while gathering signatures: {e:?}. Will try mining again in {pause_ms}.";
-            "signer_sighash" => %new_block.header.signer_signature_hash(),
+            "signer_signature_hash" => %new_block.header.signer_signature_hash(),
             "block_height" => new_block.header.chain_length,
             "consensus_hash" => %new_block.header.consensus_hash,
         );
@@ -583,7 +583,7 @@ impl BlockMinerThread {
                 Err(e) => match e {
                     NakamotoNodeError::StacksTipChanged => {
                         info!("Stacks tip changed while waiting for signatures";
-                            "signer_sighash" => %new_block.header.signer_signature_hash(),
+                            "signer_signature_hash" => %new_block.header.signer_signature_hash(),
                             "block_height" => new_block.header.chain_length,
                             "consensus_hash" => %new_block.header.consensus_hash,
                         );
@@ -591,7 +591,7 @@ impl BlockMinerThread {
                     }
                     NakamotoNodeError::BurnchainTipChanged => {
                         info!("Burnchain tip changed while waiting for signatures";
-                            "signer_sighash" => %new_block.header.signer_signature_hash(),
+                            "signer_signature_hash" => %new_block.header.signer_signature_hash(),
                             "block_height" => new_block.header.chain_length,
                             "consensus_hash" => %new_block.header.consensus_hash,
                         );
@@ -600,7 +600,7 @@ impl BlockMinerThread {
                     NakamotoNodeError::StackerDBUploadError(ref ack) => {
                         if ack.code == Some(StackerDBErrorCodes::BadSigner.code()) {
                             error!("Error while gathering signatures: failed to upload miner StackerDB data: {ack:?}. Giving up.";
-                                "signer_sighash" => %new_block.header.signer_signature_hash(),
+                                "signer_signature_hash" => %new_block.header.signer_signature_hash(),
                                 "block_height" => new_block.header.chain_length,
                                 "consensus_hash" => %new_block.header.consensus_hash,
                             );
@@ -624,7 +624,7 @@ impl BlockMinerThread {
             } else {
                 info!(
                     "Miner: Block signed by signer set and broadcasted";
-                    "signer_sighash" => %new_block.header.signer_signature_hash(),
+                    "signer_signature_hash" => %new_block.header.signer_signature_hash(),
                     "stacks_block_hash" => %new_block.header.block_hash(),
                     "stacks_block_id" => %new_block.header.block_id(),
                     "block_height" => new_block.header.chain_length,
@@ -1278,7 +1278,7 @@ impl BlockMinerThread {
             self.config
                 .make_nakamoto_block_builder_settings(self.globals.get_miner_status()),
             // we'll invoke the event dispatcher ourselves so that it calculates the
-            //  correct signer_sighash for `process_mined_nakamoto_block_event`
+            //  correct signer_signature_hash for `process_mined_nakamoto_block_event`
             Some(&self.event_dispatcher),
             signer_bitvec_len.unwrap_or(0),
         )
@@ -1312,7 +1312,7 @@ impl BlockMinerThread {
             block_metadata.block.header.chain_length,
             block_metadata.block.header.block_hash(),
             block_metadata.block.txs.len();
-            "signer_sighash" => %block_metadata.block.header.signer_signature_hash(),
+            "signer_signature_hash" => %block_metadata.block.header.signer_signature_hash(),
             "consensus_hash" => %block_metadata.block.header.consensus_hash,
             "parent_block_id" => %block_metadata.block.header.parent_block_id,
             "timestamp" => block_metadata.block.header.timestamp,
