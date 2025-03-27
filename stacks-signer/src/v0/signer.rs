@@ -234,10 +234,17 @@ impl SignerTrait<SignerMessage> for Signer {
                 );
                 // try and gather signatures
                 for message in messages {
-                    let SignerMessage::BlockResponse(block_response) = message else {
-                        continue;
-                    };
-                    self.handle_block_response(stacks_client, block_response, sortition_state);
+                    match message {
+                        SignerMessage::BlockResponse(block_response) => self.handle_block_response(
+                            stacks_client,
+                            block_response,
+                            sortition_state,
+                        ),
+                        SignerMessage::StateMachineUpdate(_update) => {
+                            // TODO: should make note of this update view point to determine if there is an agreed upon global state
+                        }
+                        _ => {}
+                    }
                 }
             }
             SignerEvent::MinerMessages(messages) => {
@@ -299,9 +306,6 @@ impl SignerTrait<SignerMessage> for Signer {
                                 // We are in epoch 2.5, so we should mock sign to prove we are still alive.
                                 self.mock_sign(mock_proposal.clone());
                             }
-                        }
-                        SignerMessage::StateMachineUpdate(_update) => {
-                            // TODO: should make note of this update view point to determine if there is an agreed upon global state
                         }
                         _ => {}
                     }
