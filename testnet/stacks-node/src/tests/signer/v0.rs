@@ -8203,7 +8203,7 @@ fn block_proposal_max_age_rejections() {
             .unwrap_or((0, 0));
         assert_eq!(block_2_status.1, 0, "Block 2 should always be rejected");
 
-        info!("Block 2 status"; "accepted" => block_2_status.1, "rejected" => block_2_status.0);
+        info!("Block 2 status"; "accepted" => %block_2_status.1, "rejected" => %block_2_status.0);
         Ok(block_2_status.0 > num_signers * 7 / 10)
     })
     .expect("Timed out waiting for block rejections");
