@@ -40,6 +40,17 @@ impl<K: Display, V: Display> Display for Node<K, V> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LruCacheCorrupted;
+
+impl std::fmt::Display for LruCacheCorrupted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "LRU cache is in a corrupted state")
+    }
+}
+
+impl std::error::Error for LruCacheCorrupted {}
+
 /// LRU cache
 pub struct LruCache<K, V> {
     capacity: usize,
@@ -92,10 +103,10 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
 
     /// Get the value for the given key
     /// Returns an error iff the cache is corrupted and should be discarded
-    pub fn get(&mut self, key: &K) -> Result<Option<V>, ()> {
+    pub fn get(&mut self, key: &K) -> Result<Option<V>, LruCacheCorrupted> {
         if let Some(&index) = self.cache.get(key) {
             self.move_to_head(index)?;
-            let node = self.order.get(index).ok_or(())?;
+            let node = self.order.get(index).ok_or(LruCacheCorrupted)?;
             Ok(Some(node.value))
         } else {
             Ok(None)
@@ -105,14 +116,14 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
     /// Insert a key-value pair into the cache, marking it as dirty.
     /// Returns an error iff the cache is corrupted and should be discarded
     /// Returns `Ok(Some((K, V)))` if a dirty value was evicted.
-    pub fn insert(&mut self, key: K, value: V) -> Result<Option<(K, V)>, ()> {
+    pub fn insert(&mut self, key: K, value: V) -> Result<Option<(K, V)>, LruCacheCorrupted> {
         self.insert_with_dirty(key, value, true)
     }
 
     /// Insert a key-value pair into the cache, marking it as clean.
     /// Returns an error iff the cache is corrupted and should be discarded
     /// Returns `Ok(Some((K, V)))` if a dirty value was evicted.
-    pub fn insert_clean(&mut self, key: K, value: V) -> Result<Option<(K, V)>, ()> {
+    pub fn insert_clean(&mut self, key: K, value: V) -> Result<Option<(K, V)>, LruCacheCorrupted> {
         self.insert_with_dirty(key, value, false)
     }
 
@@ -124,10 +135,10 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
         key: K,
         value: V,
         dirty: bool,
-    ) -> Result<Option<(K, V)>, ()> {
+    ) -> Result<Option<(K, V)>, LruCacheCorrupted> {
         if let Some(&index) = self.cache.get(&key) {
             // Update an existing node
-            let node = self.order.get_mut(index).ok_or(())?;
+            let node = self.order.get_mut(index).ok_or(LruCacheCorrupted)?;
             node.value = value;
             node.dirty = dirty;
             self.move_to_head(index)?;
@@ -139,7 +150,7 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
                 // We've reached capacity. Evict the least-recently used value
                 // and reuse its node
                 let index = self.evict_lru()?;
-                let tail_node = self.order.get_mut(index).ok_or(())?;
+                let tail_node = self.order.get_mut(index).ok_or(LruCacheCorrupted)?;
 
                 // Replace the key with the new key, saving the old key
                 let replaced_key = std::mem::replace(&mut tail_node.key, key.clone());
@@ -186,7 +197,7 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
     pub fn flush<E>(
         &mut self,
         mut f: impl FnMut(&K, V) -> Result<(), E>,
-    ) -> Result<Result<(), E>, ()> {
+    ) -> Result<Result<(), E>, LruCacheCorrupted> {
         let mut current = self.head;
 
         // Keep track of visited nodes to detect cycles
@@ -195,10 +206,10 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
         while current != self.capacity {
             // Detect cycles
             if !visited.insert(current) {
-                return Err(());
+                return Err(LruCacheCorrupted);
             }
 
-            let node = self.order.get_mut(current).ok_or(())?;
+            let node = self.order.get_mut(current).ok_or(LruCacheCorrupted)?;
             let next = node.next;
             if node.dirty {
                 let value = node.value;
@@ -216,8 +227,8 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
     }
 
     /// Helper function to remove a node from the linked list (by index)
-    fn detach_node(&mut self, index: usize) -> Result<(), ()> {
-        let node = self.order.get(index).ok_or(())?;
+    fn detach_node(&mut self, index: usize) -> Result<(), LruCacheCorrupted> {
+        let node = self.order.get(index).ok_or(LruCacheCorrupted)?;
         let prev = node.prev;
         let next = node.next;
 
@@ -226,7 +237,7 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
             self.tail = prev;
         } else {
             // Else, update the next node to point to the previous node
-            let next_node = self.order.get_mut(next).ok_or(())?;
+            let next_node = self.order.get_mut(next).ok_or(LruCacheCorrupted)?;
             next_node.prev = prev;
         }
 
@@ -235,7 +246,7 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
             self.head = next;
         } else {
             // Else, update the previous node to point to the next node
-            let prev_node = self.order.get_mut(prev).ok_or(())?;
+            let prev_node = self.order.get_mut(prev).ok_or(LruCacheCorrupted)?;
             prev_node.next = next;
         }
 
@@ -243,14 +254,14 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
     }
 
     /// Helper function to attach a node as the head of the linked list
-    fn attach_as_head(&mut self, index: usize) -> Result<(), ()> {
-        let node = self.order.get_mut(index).ok_or(())?;
+    fn attach_as_head(&mut self, index: usize) -> Result<(), LruCacheCorrupted> {
+        let node = self.order.get_mut(index).ok_or(LruCacheCorrupted)?;
         node.prev = self.capacity;
         node.next = self.head;
 
         if self.head != self.capacity {
             // If there is a head, update its previous pointer to this one
-            let head_node = self.order.get_mut(self.head).ok_or(())?;
+            let head_node = self.order.get_mut(self.head).ok_or(LruCacheCorrupted)?;
             head_node.prev = index;
         } else {
             // Else, the list was empty, so update the tail
@@ -261,7 +272,7 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
     }
 
     /// Helper function to move a node to the head of the linked list
-    fn move_to_head(&mut self, index: usize) -> Result<(), ()> {
+    fn move_to_head(&mut self, index: usize) -> Result<(), LruCacheCorrupted> {
         if index == self.head {
             // If the node is already the head, do nothing
             return Ok(());
@@ -274,14 +285,14 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
     /// Helper function to evict the least-recently used node, which is the
     /// tail of the linked list
     /// Returns the index of the evicted node
-    fn evict_lru(&mut self) -> Result<usize, ()> {
+    fn evict_lru(&mut self) -> Result<usize, LruCacheCorrupted> {
         let index = self.tail;
         if index == self.capacity {
             // If the list is empty, do nothing
             return Ok(self.capacity);
         }
         self.detach_node(index)?;
-        let node = self.order.get(index).ok_or(())?;
+        let node = self.order.get(index).ok_or(LruCacheCorrupted)?;
         self.cache.remove(&node.key);
         Ok(index)
     }
