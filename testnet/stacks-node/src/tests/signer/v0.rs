@@ -829,7 +829,7 @@ impl MultipleMinerTest {
         let contract_tx = make_contract_call(
             &self.sender_sk,
             sender_nonce,
-            self.send_fee + fake_contract_tx.len() as u64,
+            fake_contract_tx.len() as u64,
             self.signer_test.running_nodes.conf.burnchain.chain_id,
             &tests::to_addr(&self.sender_sk),
             contract_name,
