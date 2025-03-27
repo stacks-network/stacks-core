@@ -39,12 +39,23 @@ use crate::util_lib::db::{query_row, u64_to_sql, DBConn, Error as db_error};
 pub struct NonceCache {
     /// In-memory LRU cache of nonces.
     cache: LruCache<StacksAddress, u64>,
+    max_size: usize,
 }
 
 impl NonceCache {
     pub fn new(max_size: usize) -> Self {
         Self {
             cache: LruCache::new(max_size),
+            max_size,
+        }
+    }
+
+    /// Reset the cache to an empty state and clear the nonce DB.
+    /// This should only be called when the cache is corrupted.
+    fn reset_cache(&mut self, conn: &mut DBConn) {
+        self.cache = LruCache::new(self.max_size);
+        if let Err(e) = conn.execute("DELETE FROM nonces", []) {
+            warn!("error clearing nonces table: {e}");
         }
     }
 
@@ -67,9 +78,14 @@ impl NonceCache {
         C: ClarityConnection,
     {
         // Check in-memory cache
-        if let Some(cached_nonce) = self.cache.get(address) {
-            return cached_nonce;
-        };
+        match self.cache.get(address) {
+            Ok(Some(nonce)) => return nonce,
+            Ok(None) => {}
+            Err(_) => {
+                // The cache is corrupt, reset it
+                self.reset_cache(mempool_db);
+            }
+        }
 
         // Check sqlite cache
         let db_nonce_opt = db_get_nonce(mempool_db, address).unwrap_or_else(|e| {
@@ -79,7 +95,14 @@ impl NonceCache {
         if let Some(db_nonce) = db_nonce_opt {
             // Insert into in-memory cache, but it is not dirty,
             // since we just got it from the database.
-            let evicted = self.cache.insert_clean(address.clone(), db_nonce);
+            let evicted = match self.cache.insert_clean(address.clone(), db_nonce) {
+                Ok(evicted) => evicted,
+                Err(_) => {
+                    // The cache is corrupt, reset it
+                    self.reset_cache(mempool_db);
+                    None
+                }
+            };
             if evicted.is_some() {
                 // If we evicted something, we need to flush the cache.
                 self.flush_with_evicted(mempool_db, evicted);
@@ -97,7 +120,14 @@ impl NonceCache {
     /// Set the nonce for `address` to `value` in the in-memory cache.
     /// If this causes an eviction, flush the in-memory cache to the DB.
     pub fn set(&mut self, address: StacksAddress, value: u64, conn: &mut DBConn) {
-        let evicted = self.cache.insert(address.clone(), value);
+        let evicted = match self.cache.insert(address.clone(), value) {
+            Ok(evicted) => evicted,
+            Err(_) => {
+                // The cache is corrupt, reset it
+                self.reset_cache(conn);
+                Some((address, value))
+            }
+        };
         if evicted.is_some() {
             // If we evicted something, we need to flush the cache.
             self.flush_with_evicted(conn, evicted);
@@ -147,10 +177,18 @@ impl NonceCache {
             tx.execute(sql, params![addr, nonce])?;
         }
 
-        self.cache.flush(|addr, nonce| {
+        match self.cache.flush(|addr, nonce| {
             tx.execute(sql, params![addr, nonce])?;
             Ok::<(), db_error>(())
-        })?;
+        }) {
+            Ok(inner) => inner?,
+            Err(_) => {
+                drop(tx);
+                // The cache is corrupt, reset it and return
+                self.reset_cache(conn);
+                return Ok(());
+            }
+        };
 
         tx.commit()?;
 
