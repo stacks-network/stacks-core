@@ -404,15 +404,15 @@ pub fn blind_signer_multinode(
             match read_and_sign_block_proposal(configs.as_slice(), &signers, &signed_blocks, &sender) {
                 Ok(signed_block) => {
                     if signed_blocks.contains(&signed_block) {
-                        info!("Already signed block, will sleep and try again"; "signer_sig_hash" => signed_block.to_hex());
+                        info!("Already signed block, will sleep and try again"; "signer_signature_hash" => signed_block.to_hex());
                         thread::sleep(Duration::from_secs(5));
                         match read_and_sign_block_proposal(configs.as_slice(), &signers, &signed_blocks, &sender) {
                             Ok(signed_block) => {
                                 if signed_blocks.contains(&signed_block) {
-                                    info!("Already signed block, ignoring"; "signer_sig_hash" => signed_block.to_hex());
+                                    info!("Already signed block, ignoring"; "signer_signature_hash" => signed_block.to_hex());
                                     continue;
                                 }
-                                info!("Signed block"; "signer_sig_hash" => signed_block.to_hex());
+                                info!("Signed block"; "signer_signature_hash" => signed_block.to_hex());
                                 signed_blocks.insert(signed_block);
                             }
                             Err(e) => {
@@ -421,7 +421,7 @@ pub fn blind_signer_multinode(
                         };
                         continue;
                     }
-                    info!("Signed block"; "signer_sig_hash" => signed_block.to_hex());
+                    info!("Signed block"; "signer_signature_hash" => signed_block.to_hex());
                     signed_blocks.insert(signed_block);
                 }
                 Err(e) => {
@@ -483,7 +483,11 @@ pub fn get_latest_block_proposal(
     });
 
     for (b, _, is_latest) in proposed_blocks.iter() {
-        info!("Consider block"; "signer_sighash" => %b.header.signer_signature_hash(), "is_latest_sortition" => is_latest, "chain_height" => b.header.chain_length);
+        info!("Consider block";
+            "signer_signature_hash" => %b.header.signer_signature_hash(),
+            "is_latest_sortition" => is_latest,
+            "chain_height" => b.header.chain_length
+        );
     }
 
     let Some((proposed_block, miner_addr, _)) = proposed_blocks.pop() else {
@@ -541,20 +545,20 @@ pub fn read_and_sign_block_proposal(
         })
         .collect();
     let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
-    let signer_sig_hash = proposed_block.header.signer_signature_hash();
+    let signer_signature_hash = proposed_block.header.signer_signature_hash();
     let other_views = other_views_result?;
     if !other_views.is_empty() {
         info!(
             "Fetched block proposals";
-            "primary_latest_signer_sighash" => %signer_sig_hash,
+            "signer_signature_hash" => %signer_signature_hash,
             "primary_latest_block_height" => proposed_block.header.chain_length,
             "other_views" => ?other_views,
         );
     }
 
-    if signed_blocks.contains(&signer_sig_hash) {
+    if signed_blocks.contains(&signer_signature_hash) {
         // already signed off on this block, don't sign again.
-        return Ok(signer_sig_hash);
+        return Ok(signer_signature_hash);
     }
 
     let reward_set = load_nakamoto_reward_set(
@@ -577,7 +581,7 @@ pub fn read_and_sign_block_proposal(
     info!(
         "Fetched proposed block from .miners StackerDB";
         "proposed_block_hash" => &proposed_block_hash,
-        "signer_sig_hash" => &signer_sig_hash.to_hex(),
+        "signer_signature_hash" => &signer_signature_hash.to_hex(),
     );
 
     signers.sign_block_with_reward_set(&mut proposed_block, &reward_set);
@@ -585,7 +589,7 @@ pub fn read_and_sign_block_proposal(
     channel
         .send(proposed_block.header.signer_signature)
         .unwrap();
-    Ok(signer_sig_hash)
+    Ok(signer_signature_hash)
 }
 
 /// Return a working nakamoto-neon config and the miner's bitcoin address to fund
@@ -3080,6 +3084,7 @@ fn block_proposal_api_endpoint() {
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
             ASTRules::PrecheckSize,
+            None,
         );
         assert!(
             matches!(res, TransactionResult::Success(..)),

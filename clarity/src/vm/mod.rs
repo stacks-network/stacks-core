@@ -55,6 +55,7 @@ pub mod clarity;
 
 use std::collections::BTreeMap;
 
+use costs::CostErrors;
 use serde_json;
 use stacks_common::types::StacksEpochId;
 
@@ -63,10 +64,10 @@ use self::ast::ContractAST;
 use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
 use crate::vm::callables::CallableType;
-use crate::vm::contexts::GlobalContext;
 pub use crate::vm::contexts::{
     CallStack, ContractContext, Environment, LocalContext, MAX_CONTEXT_DEPTH,
 };
+use crate::vm::contexts::{ExecutionTimeTracker, GlobalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     runtime_cost, CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer,
@@ -303,6 +304,22 @@ pub fn apply(
     }
 }
 
+fn check_max_execution_time_expired(global_context: &GlobalContext) -> Result<()> {
+    match global_context.execution_time_tracker {
+        ExecutionTimeTracker::NoTracking => Ok(()),
+        ExecutionTimeTracker::MaxTime {
+            start_time,
+            max_duration,
+        } => {
+            if start_time.elapsed() >= max_duration {
+                Err(CostErrors::ExecutionTimeExpired.into())
+            } else {
+                Ok(())
+            }
+        }
+    }
+}
+
 pub fn eval(
     exp: &SymbolicExpression,
     env: &mut Environment,
@@ -311,6 +328,8 @@ pub fn eval(
     use crate::vm::representations::SymbolicExpressionType::{
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
+
+    check_max_execution_time_expired(env.global_context)?;
 
     if let Some(mut eval_hooks) = env.global_context.eval_hooks.take() {
         for hook in eval_hooks.iter_mut() {
@@ -502,13 +521,17 @@ pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Val
 
 /// Runs `program` in a test environment with the provided parameters.
 #[cfg(any(test, feature = "testing"))]
-pub fn execute_with_parameters(
+pub fn execute_with_parameters_and_call_in_global_context<F>(
     program: &str,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
     ast_rules: ast::ASTRules,
     use_mainnet: bool,
-) -> Result<Option<Value>> {
+    mut global_context_function: F,
+) -> Result<Option<Value>>
+where
+    F: FnMut(&mut GlobalContext) -> Result<()>,
+{
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::tests::test_only_mainnet_to_chain_id;
     use crate::vm::types::QualifiedContractIdentifier;
@@ -526,6 +549,7 @@ pub fn execute_with_parameters(
         epoch,
     );
     global_context.execute(|g| {
+        global_context_function(g)?;
         let parsed = ast::build_ast_with_rules(
             &contract_id,
             program,
@@ -537,6 +561,24 @@ pub fn execute_with_parameters(
         .expressions;
         eval_all(&parsed, &mut contract_context, g, None)
     })
+}
+
+#[cfg(any(test, feature = "testing"))]
+pub fn execute_with_parameters(
+    program: &str,
+    clarity_version: ClarityVersion,
+    epoch: StacksEpochId,
+    ast_rules: ast::ASTRules,
+    use_mainnet: bool,
+) -> Result<Option<Value>> {
+    execute_with_parameters_and_call_in_global_context(
+        program,
+        clarity_version,
+        epoch,
+        ast_rules,
+        use_mainnet,
+        |_| Ok(()),
+    )
 }
 
 /// Execute for test with `version`, Epoch20, testnet.
@@ -560,6 +602,25 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
         StacksEpochId::Epoch20,
         ast::ASTRules::PrecheckSize,
         false,
+    )
+}
+
+/// Execute for test in Clarity1, Epoch20, testnet.
+#[cfg(any(test, feature = "testing"))]
+pub fn execute_with_limited_execution_time(
+    program: &str,
+    max_execution_time: std::time::Duration,
+) -> Result<Option<Value>> {
+    execute_with_parameters_and_call_in_global_context(
+        program,
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch20,
+        ast::ASTRules::PrecheckSize,
+        false,
+        |g| {
+            g.set_max_execution_time(max_execution_time);
+            Ok(())
+        },
     )
 }
 
