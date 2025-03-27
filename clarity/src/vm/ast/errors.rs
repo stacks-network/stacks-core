@@ -92,6 +92,8 @@ pub enum ParseErrors {
     UnexpectedParserFailure,
     /// Should be an unreachable failure which invalidates the transaction
     InterpreterFailure,
+
+    ExecutionTimeExpired,
 }
 
 #[derive(Debug, PartialEq)]
@@ -173,6 +175,7 @@ impl From<CostErrors> for ParseError {
             CostErrors::InterpreterFailure | CostErrors::Expect(_) => {
                 ParseError::new(ParseErrors::InterpreterFailure)
             }
+            CostErrors::ExecutionTimeExpired => ParseError::new(ParseErrors::ExecutionTimeExpired),
         }
     }
 }
@@ -299,6 +302,7 @@ impl DiagnosableError for ParseErrors {
             ParseErrors::NoteToMatchThis(token) => format!("to match this '{}'", token),
             ParseErrors::UnexpectedParserFailure => "unexpected failure while parsing".to_string(),
             ParseErrors::InterpreterFailure => "unexpected failure while parsing".to_string(),
+            ParseErrors::ExecutionTimeExpired => "max execution time expired".to_string(),
         }
     }
 

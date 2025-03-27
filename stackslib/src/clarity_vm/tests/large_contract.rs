@@ -160,6 +160,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     BOOT_CODE_COSTS_2,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
             }
@@ -185,6 +186,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     BOOT_CODE_COSTS_3,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
             }
@@ -222,6 +224,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                 tokens_contract,
                 None,
                 |_, _| false,
+                None,
             )
             .unwrap()
         });
@@ -234,7 +237,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     &contract_identifier,
                     "token-transfer",
                     &[p1.clone().into(), Value::UInt(210)],
-                    |_, _| false
+                    |_, _| false,
+                    None
                 ))
                 .unwrap()
                 .0
@@ -247,7 +251,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     &contract_identifier,
                     "token-transfer",
                     &[p2.clone().into(), Value::UInt(9000)],
-                    |_, _| false
+                    |_, _| false,
+                    None
                 ))
                 .unwrap()
                 .0
@@ -261,7 +266,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     &contract_identifier,
                     "token-transfer",
                     &[p2.clone().into(), Value::UInt(1001)],
-                    |_, _| false
+                    |_, _| false,
+                    None
                 ))
                 .unwrap()
                 .0
@@ -269,7 +275,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         assert!(is_committed(
             & // send to self!
             block.as_transaction(|tx| tx.run_contract_call(&p1, None, &contract_identifier, "token-transfer",
-                                    &[p1.clone().into(), Value::UInt(1000)], |_, _| false)).unwrap().0
+                                    &[p1.clone().into(), Value::UInt(1000)], |_, _| false, None)).unwrap().0
         ));
 
         assert_eq!(
@@ -299,7 +305,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     &contract_identifier,
                     "faucet",
                     &[],
-                    |_, _| false
+                    |_, _| false,
+                    None
                 ))
                 .unwrap()
                 .0
@@ -313,7 +320,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     &contract_identifier,
                     "faucet",
                     &[],
-                    |_, _| false
+                    |_, _| false,
+                    None
                 ))
                 .unwrap()
                 .0
@@ -327,7 +335,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     &contract_identifier,
                     "faucet",
                     &[],
-                    |_, _| false
+                    |_, _| false,
+                    None
                 ))
                 .unwrap()
                 .0
@@ -351,7 +360,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     &contract_identifier,
                     "mint-after",
                     &[Value::UInt(25)],
-                    |_, _| false
+                    |_, _| false,
+                    None
                 ))
                 .unwrap()
                 .0
@@ -388,7 +398,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     &contract_identifier,
                     "mint-after",
                     &[Value::UInt(25)],
-                    |_, _| false
+                    |_, _| false,
+                    None
                 ))
                 .unwrap()
                 .0
@@ -402,7 +413,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     &contract_identifier,
                     "faucet",
                     &[],
-                    |_, _| false
+                    |_, _| false,
+                    None
                 ))
                 .unwrap()
                 .0
@@ -425,7 +437,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     &contract_identifier,
                     "my-get-token-balance",
                     &[p1.clone().into()],
-                    |_, _| false
+                    |_, _| false,
+                    None
                 ))
                 .unwrap()
                 .0,
@@ -747,7 +760,8 @@ pub fn rollback_log_memory_test(
                     &ct_ast,
                     &contract,
                     None,
-                    |_, _| { false }
+                    |_, _| { false },
+                    None
                 )
                 .unwrap_err()
             )
@@ -823,7 +837,8 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
                     &ct_ast,
                     &contract,
                     None,
-                    |_, _| { false }
+                    |_, _| { false },
+                    None
                 )
                 .unwrap_err()
             )
@@ -902,7 +917,8 @@ pub fn argument_memory_test(
                     &ct_ast,
                     &contract,
                     None,
-                    |_, _| { false }
+                    |_, _| { false },
+                    None
                 )
                 .unwrap_err()
             )
@@ -997,7 +1013,8 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                     &ct_ast,
                     &contract_ok,
                     None,
-                    |_, _| true
+                    |_, _| true,
+                    None
                 )
                 .unwrap_err()
             {
@@ -1023,7 +1040,8 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                     &ct_ast,
                     &contract_err,
                     None,
-                    |_, _| false
+                    |_, _| false,
+                    None
                 )
                 .unwrap_err()
             )
@@ -1110,6 +1128,7 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                         &contract,
                         None,
                         |_, _| false,
+                        None,
                     )
                     .unwrap();
                     conn.save_analysis(&contract_identifier, &ct_analysis)
@@ -1133,7 +1152,8 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                             &ct_ast,
                             &contract,
                             None,
-                            |_, _| false
+                            |_, _| false,
+                            None
                         )
                         .unwrap_err()
                     )
