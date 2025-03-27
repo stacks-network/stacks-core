@@ -289,7 +289,7 @@ impl SortitionsView {
             warn!(
                 "Miner block proposal has bitvec field which punishes in disagreement with signer. Considering invalid.";
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                "signer_signature_hash" => %block.header.signer_signature_hash(),
                 "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
                 "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| x.consensus_hash),
             );
@@ -327,7 +327,7 @@ impl SortitionsView {
             warn!(
                 "Miner block proposal has consensus hash that is neither the current or last sortition. Considering invalid.";
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                "signer_signature_hash" => %block.header.signer_signature_hash(),
                 "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
                 "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| x.consensus_hash),
             );
@@ -338,7 +338,7 @@ impl SortitionsView {
             warn!(
                 "Miner block proposal pubkey does not match the winning pubkey hash for its sortition. Considering invalid.";
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                "signer_signature_hash" => %block.header.signer_signature_hash(),
                 "proposed_block_pubkey" => &block_pk.to_hex(),
                 "proposed_block_pubkey_hash" => %block_pkh,
                 "sortition_winner_pubkey_hash" => %proposed_by.state().miner_pkh,
@@ -353,7 +353,7 @@ impl SortitionsView {
                     warn!(
                         "Current miner behaved improperly, this signer views the miner as invalid.";
                         "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                        "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                        "signer_signature_hash" => %block.header.signer_signature_hash(),
                     );
                     return Err(RejectReason::InvalidMiner);
                 }
@@ -367,7 +367,7 @@ impl SortitionsView {
                     warn!(
                         "Miner block proposal is from last sortition winner, when the new sortition winner is still valid. Considering proposal invalid.";
                         "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                        "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                        "signer_signature_hash" => %block.header.signer_signature_hash(),
                         "current_sortition_miner_status" => ?self.cur_sortition.miner_status,
                         "last_sortition" => %last_sortition.consensus_hash
                     );
@@ -412,7 +412,7 @@ impl SortitionsView {
                 warn!(
                     "Miner block proposal contains a tenure extend, but the burnchain view has not changed and enough time has not passed to refresh the block limit. Considering proposal invalid.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                    "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                    "signer_signature_hash" => %block.header.signer_signature_hash(),
                     "extend_timestamp" => extend_timestamp,
                     "epoch_time" => epoch_time,
                 );
@@ -443,7 +443,7 @@ impl SortitionsView {
         info!(
             "Most recent miner's tenure does not build off the prior sortition, checking if this is valid behavior";
             "proposed_block_consensus_hash" => %block.header.consensus_hash,
-            "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+            "signer_signature_hash" => %block.header.signer_signature_hash(),
             "sortition_state.consensus_hash" => %sortition_state.consensus_hash,
             "sortition_state.prior_sortition" => %sortition_state.prior_sortition,
             "sortition_state.parent_tenure_id" => %sortition_state.parent_tenure_id,
@@ -457,7 +457,7 @@ impl SortitionsView {
         if tenures_reorged.is_empty() {
             warn!("Miner is not building off of most recent tenure, but stacks node was unable to return information about the relevant sortitions. Marking miner invalid.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                    "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                    "signer_signature_hash" => %block.header.signer_signature_hash(),
             );
             return Ok(false);
         }
@@ -479,7 +479,7 @@ impl SortitionsView {
                 warn!(
                     "Miner is not building off of most recent tenure, but a tenure they attempted to reorg has already more than one globally accepted block.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                    "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                    "signer_signature_hash" => %block.header.signer_signature_hash(),
                     "parent_tenure" => %sortition_state.parent_tenure_id,
                     "last_sortition" => %sortition_state.prior_sortition,
                     "violating_tenure_id" => %tenure.consensus_hash,
@@ -496,7 +496,7 @@ impl SortitionsView {
                     warn!(
                         "Miner is not building off of most recent tenure, but a tenure they attempted to reorg has already mined blocks, and there is no local knowledge for that tenure's block timing.";
                         "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                        "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                        "signer_signature_hash" => %block.header.signer_signature_hash(),
                         "parent_tenure" => %sortition_state.parent_tenure_id,
                         "last_sortition" => %sortition_state.prior_sortition,
                         "violating_tenure_id" => %tenure.consensus_hash,
@@ -523,7 +523,7 @@ impl SortitionsView {
                         info!(
                             "Miner is not building off of most recent tenure. A tenure they reorg has already mined blocks, but the block was poorly timed, allowing the reorg.";
                             "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                            "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                            "signer_signature_hash" => %block.header.signer_signature_hash(),
                             "proposed_block_height" => block.header.chain_length,
                             "parent_tenure" => %sortition_state.parent_tenure_id,
                             "last_sortition" => %sortition_state.prior_sortition,
@@ -545,7 +545,7 @@ impl SortitionsView {
                 warn!(
                     "Miner is not building off of most recent tenure, but a tenure they attempted to reorg has already mined blocks.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                    "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                    "signer_signature_hash" => %block.header.signer_signature_hash(),
                     "parent_tenure" => %sortition_state.parent_tenure_id,
                     "last_sortition" => %sortition_state.prior_sortition,
                     "violating_tenure_id" => %tenure.consensus_hash,
@@ -620,7 +620,7 @@ impl SortitionsView {
                 warn!(
                     "Miner's block proposal does not confirm as many blocks as we expect";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                    "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                    "signer_signature_hash" => %block.header.signer_signature_hash(),
                     "proposed_chain_length" => block.header.chain_length,
                     "expected_at_least" => info.block.header.chain_length + 1,
                 );
@@ -649,7 +649,7 @@ impl SortitionsView {
                 warn!(
                     "Miner block proposal contains a tenure change, but failed to fetch the tenure tip for the parent tenure: {e:?}. Considering proposal invalid.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                    "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                    "signer_signature_hash" => %block.header.signer_signature_hash(),
                     "parent_tenure" => %tenure_change.prev_tenure_consensus_hash,
                 );
                 return Ok(false);
@@ -677,7 +677,7 @@ impl SortitionsView {
             warn!(
                 "Miner's block proposal does not confirm as many blocks as we expect";
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                "signer_signature_hash" => %block.header.signer_signature_hash(),
                 "proposed_chain_length" => block.header.chain_length,
                 "expected_at_least" => tip_height + 1,
             );
@@ -730,8 +730,8 @@ impl SortitionsView {
             warn!(
                 "Miner block proposal contains a tenure change, but we've already signed a block in this tenure. Considering proposal invalid.";
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
-                "last_in_tenure_signer_sighash" => %last_in_current_tenure.block.header.signer_signature_hash(),
+                "proposed_block_signer_signature_hash" => %block.header.signer_signature_hash(),
+                "last_in_tenure_signer_signature_hash" => %last_in_current_tenure.block.header.signer_signature_hash(),
             );
             return Err(RejectReason::DuplicateBlockFound);
         }
@@ -749,7 +749,7 @@ impl SortitionsView {
             info!(
                 "Have no accepted blocks in the tenure, assuming block confirmation is correct";
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                "signer_signature_hash" => %block.header.signer_signature_hash(),
                 "proposed_block_height" => block.header.chain_length,
             );
             return Ok(true);
@@ -760,7 +760,7 @@ impl SortitionsView {
             warn!(
                 "Miner's block proposal does not confirm as many blocks as we expect";
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                "proposed_block_signer_sighash" => %block.header.signer_signature_hash(),
+                "signer_signature_hash" => %block.header.signer_signature_hash(),
                 "proposed_chain_length" => block.header.chain_length,
                 "expected_at_least" => last_known_block.block.header.chain_length + 1,
             );

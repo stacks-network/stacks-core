@@ -4896,6 +4896,7 @@ impl NakamotoChainState {
                     &contract_content,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
             clarity.save_analysis(&contract_id, &analysis).unwrap();

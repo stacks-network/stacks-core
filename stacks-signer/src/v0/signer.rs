@@ -262,7 +262,7 @@ impl SignerTrait<SignerMessage> for Signer {
                             let Some(miner_pubkey) = block_proposal.block.header.recover_miner_pk()
                             else {
                                 warn!("{self}: Failed to recover miner pubkey";
-                                      "signer_sighash" => %block_proposal.block.header.signer_signature_hash(),
+                                      "signer_signature_hash" => %block_proposal.block.header.signer_signature_hash(),
                                       "consensus_hash" => %block_proposal.block.header.consensus_hash);
                                 continue;
                             };
@@ -280,7 +280,7 @@ impl SignerTrait<SignerMessage> for Signer {
                                 "{self}: Got block pushed message";
                                 "block_id" => %b.block_id(),
                                 "block_height" => b.header.chain_length,
-                                "signer_sighash" => %b.header.signer_signature_hash(),
+                                "signer_signature_hash" => %b.header.signer_signature_hash(),
                             );
                             #[cfg(any(test, feature = "testing"))]
                             if self.test_skip_block_broadcast(b) {
@@ -355,7 +355,7 @@ impl SignerTrait<SignerMessage> for Signer {
                 debug!(
                     "{self}: Received a new block event.";
                     "block_id" => %block_id,
-                    "signer_sighash" => %signer_sighash,
+                    "signer_signature_hash" => %signer_sighash,
                     "consensus_hash" => %consensus_hash,
                     "block_height" => block_height
                 );
@@ -473,7 +473,7 @@ impl Signer {
                     .inspect_err(|e| {
                         warn!(
                             "{self}: Failed to update sortition view: {e:?}";
-                            "signer_sighash" => %signer_signature_hash,
+                            "signer_signature_hash" => %signer_signature_hash,
                             "block_id" => %block_id,
                         )
                     })
@@ -493,7 +493,7 @@ impl Signer {
                 Err(RejectReason::ConnectivityIssues(e)) => {
                     warn!(
                         "{self}: Error checking block proposal: {e}";
-                        "signer_sighash" => %signer_signature_hash,
+                        "signer_signature_hash" => %signer_signature_hash,
                         "block_id" => %block_id,
                     );
                     Some(self.create_block_rejection(RejectReason::ConnectivityIssues(e), block))
@@ -502,7 +502,7 @@ impl Signer {
                 Err(reject_code) => {
                     warn!(
                         "{self}: Block proposal invalid";
-                        "signer_sighash" => %signer_signature_hash,
+                        "signer_signature_hash" => %signer_signature_hash,
                         "block_id" => %block_id,
                         "reject_reason" => %reject_code,
                         "reject_code" => ?reject_code,
@@ -515,7 +515,7 @@ impl Signer {
         } else {
             warn!(
                 "{self}: Cannot validate block, no sortition view";
-                "signer_sighash" => %signer_signature_hash,
+                "signer_signature_hash" => %signer_signature_hash,
                 "block_id" => %block_id,
             );
             Some(self.create_block_rejection(RejectReason::NoSortitionView, block))
@@ -588,7 +588,7 @@ impl Signer {
         {
             // Block is too old. Drop it with a warning. Don't even bother broadcasting to the node.
             warn!("{self}: Received a block proposal that is more than {} secs old. Ignoring...", self.block_proposal_max_age_secs;
-                "signer_sighash" => %block_proposal.block.header.signer_signature_hash(),
+                "signer_signature_hash" => %block_proposal.block.header.signer_signature_hash(),
                 "block_id" => %block_proposal.block.block_id(),
                 "block_height" => block_proposal.block.header.chain_length,
                 "burn_height" => block_proposal.burn_height,
@@ -617,7 +617,7 @@ impl Signer {
 
         info!(
             "{self}: received a block proposal for a new block.";
-            "signer_sighash" => %signer_signature_hash,
+            "signer_signature_hash" => %signer_signature_hash,
             "block_id" => %block_proposal.block.block_id(),
             "block_height" => block_proposal.block.header.chain_length,
             "burn_height" => block_proposal.burn_height,
@@ -636,7 +636,7 @@ impl Signer {
                     .inspect_err(|e| {
                         warn!(
                             "{self}: Failed to update sortition view: {e:?}";
-                            "signer_sighash" => %signer_signature_hash,
+                            "signer_signature_hash" => %signer_signature_hash,
                             "block_id" => %block_proposal.block.block_id(),
                         )
                     })
@@ -666,7 +666,7 @@ impl Signer {
                 // We don't know if proposal is valid, submit to stacks-node for further checks and store it locally.
                 info!(
                     "{self}: submitting block proposal for validation";
-                    "signer_sighash" => %signer_signature_hash,
+                    "signer_signature_hash" => %signer_signature_hash,
                     "block_id" => %block_proposal.block.block_id(),
                     "block_height" => block_proposal.block.header.chain_length,
                     "burn_height" => block_proposal.burn_height,
@@ -702,7 +702,7 @@ impl Signer {
             // We are still waiting for a response for this block. Do nothing.
             debug!(
                 "{self}: Received a block proposal for a block we are already validating.";
-                "signer_sighash" => %block_info.signer_signature_hash(),
+                "signer_signature_hash" => %block_info.signer_signature_hash(),
                 "block_id" => %block_info.block.block_id()
             );
             return;
@@ -771,7 +771,7 @@ impl Signer {
                 }
                 Err(e) => {
                     warn!("{self}: Error checking block proposal: {e}";
-                        "signer_sighash" => %signer_signature_hash,
+                        "signer_signature_hash" => %signer_signature_hash,
                         "block_id" => %proposed_block.block_id()
                     );
                     return Some(self.create_block_rejection(
@@ -794,7 +794,7 @@ impl Signer {
                     warn!(
                         "Miner's block proposal does not confirm as many blocks as we expect";
                         "proposed_block_consensus_hash" => %proposed_block_consensus_hash,
-                        "proposed_block_signer_sighash" => %signer_signature_hash,
+                        "proposed_block_signer_signature_hash" => %signer_signature_hash,
                         "proposed_chain_length" => proposed_block.header.chain_length,
                         "expected_at_least" => last_block_info.block.header.chain_length + 1,
                     );
@@ -807,7 +807,7 @@ impl Signer {
             Ok(_) => {}
             Err(e) => {
                 warn!("{self}: Failed to check block against signer db: {e}";
-                    "signer_sighash" => %signer_signature_hash,
+                    "signer_signature_hash" => %signer_signature_hash,
                     "block_id" => %proposed_block.block_id()
                 );
                 return Some(self.create_block_rejection(
@@ -1052,7 +1052,7 @@ impl Signer {
                 // This is weird. If this is reached, its probably an error in code logic or the db was flushed.
                 // Why are we tracking a block submission for a block we have never seen / stored before.
                 error!("{self}: tracking an unknown block validation submission.";
-                    "signer_sighash" => %proposal_signer_sighash,
+                    "signer_signature_hash" => %proposal_signer_sighash,
                 );
                 return;
             }
@@ -1065,7 +1065,7 @@ impl Signer {
         // Reject it so we aren't holding up the network because of our inaction.
         warn!(
             "{self}: Failed to receive block validation response within {} ms. Rejecting block.", self.block_proposal_validation_timeout.as_millis();
-            "signer_sighash" => %proposal_signer_sighash,
+            "signer_signature_hash" => %proposal_signer_sighash,
         );
         let rejection = self.create_block_rejection(
             RejectReason::ConnectivityIssues(
@@ -1158,7 +1158,7 @@ impl Signer {
         // recover public key
         let Ok(public_key) = rejection.recover_public_key() else {
             debug!("{self}: Received block rejection with an unrecovarable signature. Will not store.";
-               "block_hash" => %block_hash,
+               "signer_signature_hash" => %block_hash,
                "signature" => %signature
             );
             return;
@@ -1174,7 +1174,7 @@ impl Signer {
 
         if !is_valid_sig {
             debug!("{self}: Receive block rejection with an invalid signature. Will not store.";
-                "block_hash" => %block_hash,
+                "signer_signature_hash" => %block_hash,
                 "signature" => %signature
             );
             return;
@@ -1276,7 +1276,7 @@ impl Signer {
         else {
             debug!("{self}: Received unrecovarable signature. Will not store.";
                    "signature" => %signature,
-                   "block_hash" => %block_hash);
+                   "signer_signature_hash" => %block_hash);
 
             return;
         };
