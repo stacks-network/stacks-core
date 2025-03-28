@@ -41,7 +41,6 @@ fn setup_rlimit_nofiles() {
 #[cfg(windows)]
 fn setup_rlimit_nofiles() {
     // rlimit empty stub, since windows hasn't a hard file descriptor limit
-    // PR: https://github.com/stacks-network/stacks-core/pull/5937
 }
 
 fn stacker_db_id(i: usize) -> QualifiedContractIdentifier {
