@@ -393,6 +393,74 @@ mod tests {
         assert_eq!(flushed, [(2, 2), (3, 3)]);
     }
 
+    #[test]
+    fn test_lru_cache_capacity_one() {
+        let mut cache = LruCache::new(1);
+
+        cache.insert(1, 1).expect("cache corrupted");
+        assert_eq!(cache.get(&1).expect("cache corrupted"), Some(1));
+
+        cache.insert(2, 2).expect("cache corrupted");
+        assert_eq!(cache.get(&1).expect("cache corrupted"), None);
+        assert_eq!(cache.get(&2).expect("cache corrupted"), Some(2));
+    }
+
+    #[test]
+    fn test_lru_cache_capacity_one_update() {
+        let mut cache = LruCache::new(1);
+
+        cache.insert(1, 1).expect("cache corrupted");
+        cache.insert(1, 2).expect("cache corrupted");
+        assert_eq!(cache.get(&1).expect("cache corrupted"), Some(2));
+
+        cache.insert(2, 3).expect("cache corrupted");
+        assert_eq!(cache.get(&1).expect("cache corrupted"), None);
+        assert_eq!(cache.get(&2).expect("cache corrupted"), Some(3));
+    }
+
+    #[test]
+    fn test_lru_cache_capacity_one_eviction() {
+        let mut cache = LruCache::new(1);
+
+        assert!(cache.insert(1, 1).expect("cache corrupted").is_none());
+        let evicted = cache
+            .insert(2, 2)
+            .expect("cache corrupted")
+            .expect("expected eviction");
+        assert_eq!(evicted, (1, 1));
+    }
+
+    #[test]
+    fn test_lru_cache_capacity_one_flush() {
+        let mut cache = LruCache::new(1);
+
+        cache.insert(1, 1).expect("cache corrupted");
+
+        let mut flushed = Vec::new();
+        cache
+            .flush(|k, v| {
+                flushed.push((*k, v));
+                Ok::<(), ()>(())
+            })
+            .expect("cache corrupted")
+            .expect("flush failed");
+
+        assert_eq!(flushed, vec![(1, 1)]);
+
+        cache.insert(2, 2).expect("cache corrupted");
+
+        let mut flushed = Vec::new();
+        cache
+            .flush(|k, v| {
+                flushed.push((*k, v));
+                Ok::<(), ()>(())
+            })
+            .expect("cache corrupted")
+            .expect("flush failed");
+
+        assert_eq!(flushed, vec![(2, 2)]);
+    }
+
     /// Simple LRU implementation for testing
     pub struct SimpleLRU {
         pub cache: Vec<Node<u32, u32>>,
