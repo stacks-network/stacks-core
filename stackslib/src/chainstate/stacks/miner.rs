@@ -219,6 +219,7 @@ pub struct BlockBuilderSettings {
     pub miner_status: Arc<Mutex<MinerStatus>>,
     /// Should the builder attempt to confirm any parent microblocks
     pub confirm_microblocks: bool,
+    pub max_execution_time: Option<std::time::Duration>,
 }
 
 impl BlockBuilderSettings {
@@ -230,6 +231,7 @@ impl BlockBuilderSettings {
             mempool_settings: MemPoolWalkSettings::default(),
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
+            max_execution_time: None,
         }
     }
 
@@ -241,6 +243,7 @@ impl BlockBuilderSettings {
             mempool_settings: MemPoolWalkSettings::zero(),
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
+            max_execution_time: None,
         }
     }
 }
@@ -679,6 +682,7 @@ pub trait BlockBuilder {
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
         ast_rules: ASTRules,
+        max_execution_time: Option<std::time::Duration>,
     ) -> TransactionResult;
 
     /// Append a transaction if doing so won't exceed the epoch data size.
@@ -688,6 +692,7 @@ pub trait BlockBuilder {
         clarity_tx: &mut ClarityTx,
         tx: &StacksTransaction,
         ast_rules: ASTRules,
+        max_execution_time: Option<std::time::Duration>,
     ) -> Result<TransactionResult, Error> {
         let tx_len = tx.tx_len();
         match self.try_mine_tx_with_len(
@@ -696,6 +701,7 @@ pub trait BlockBuilder {
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
             ast_rules,
+            max_execution_time,
         ) {
             TransactionResult::Success(s) => Ok(TransactionResult::Success(s)),
             TransactionResult::Skipped(TransactionSkipped { error, .. })
@@ -1053,7 +1059,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         }
 
         let quiet = !cfg!(test);
-        match StacksChainState::process_transaction(clarity_tx, &tx, quiet, ast_rules) {
+        match StacksChainState::process_transaction(clarity_tx, &tx, quiet, ast_rules, None) {
             Ok((_fee, receipt)) => Ok(TransactionResult::success(&tx, receipt)),
             Err(e) => {
                 let (is_problematic, e) =
@@ -1686,7 +1692,13 @@ impl StacksBlockBuilder {
         let quiet = !cfg!(test);
         if !self.anchored_done {
             // save
-            match StacksChainState::process_transaction(clarity_tx, tx, quiet, ASTRules::Typical) {
+            match StacksChainState::process_transaction(
+                clarity_tx,
+                tx,
+                quiet,
+                ASTRules::Typical,
+                None,
+            ) {
                 Ok((fee, receipt)) => {
                     self.total_anchored_fees += fee;
                 }
@@ -1697,7 +1709,13 @@ impl StacksBlockBuilder {
 
             self.txs.push(tx.clone());
         } else {
-            match StacksChainState::process_transaction(clarity_tx, tx, quiet, ASTRules::Typical) {
+            match StacksChainState::process_transaction(
+                clarity_tx,
+                tx,
+                quiet,
+                ASTRules::Typical,
+                None,
+            ) {
                 Ok((fee, receipt)) => {
                     self.total_streamed_fees += fee;
                 }
@@ -2097,7 +2115,7 @@ impl StacksBlockBuilder {
         let ast_rules = miner_epoch_info.ast_rules;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
         for tx in txs.into_iter() {
-            match builder.try_mine_tx(&mut epoch_tx, &tx, ast_rules.clone()) {
+            match builder.try_mine_tx(&mut epoch_tx, &tx, ast_rules.clone(), None) {
                 Ok(_) => {
                     debug!("Included {}", &tx.txid());
                 }
@@ -2267,7 +2285,12 @@ impl StacksBlockBuilder {
         for initial_tx in initial_txs.iter() {
             tx_events.push(
                 builder
-                    .try_mine_tx(epoch_tx, initial_tx, ast_rules.clone())?
+                    .try_mine_tx(
+                        epoch_tx,
+                        initial_tx,
+                        ast_rules.clone(),
+                        settings.max_execution_time,
+                    )?
                     .convert_to_event(),
             );
         }
@@ -2407,6 +2430,7 @@ impl StacksBlockBuilder {
                             txinfo.metadata.len,
                             &block_limit_hit,
                             ast_rules,
+                            settings.max_execution_time,
                         );
 
                         let result_event = tx_result.convert_to_event();
@@ -2732,6 +2756,7 @@ impl BlockBuilder for StacksBlockBuilder {
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
         ast_rules: ASTRules,
+        _max_execution_time: Option<std::time::Duration>,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
             return TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError);
@@ -2797,7 +2822,7 @@ impl BlockBuilder for StacksBlockBuilder {
                 return TransactionResult::problematic(tx, Error::NetError(e));
             }
             let (fee, receipt) = match StacksChainState::process_transaction(
-                clarity_tx, tx, quiet, ast_rules,
+                clarity_tx, tx, quiet, ast_rules, None,
             ) {
                 Ok((fee, receipt)) => (fee, receipt),
                 Err(e) => {
@@ -2887,7 +2912,7 @@ impl BlockBuilder for StacksBlockBuilder {
                 return TransactionResult::problematic(tx, Error::NetError(e));
             }
             let (fee, receipt) = match StacksChainState::process_transaction(
-                clarity_tx, tx, quiet, ast_rules,
+                clarity_tx, tx, quiet, ast_rules, None,
             ) {
                 Ok((fee, receipt)) => (fee, receipt),
                 Err(e) => {

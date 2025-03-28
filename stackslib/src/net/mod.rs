@@ -3103,6 +3103,7 @@ pub mod test {
                             &boot_code_smart_contract,
                             &boot_code_account,
                             ASTRules::PrecheckSize,
+                            None,
                         )
                         .unwrap()
                     });

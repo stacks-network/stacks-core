@@ -1011,7 +1011,7 @@ impl SignerDb {
         debug!("Inserting block_info.";
             "reward_cycle" => %block_info.reward_cycle,
             "burn_block_height" => %block_info.burn_block_height,
-            "sighash" => %hash,
+            "signer_signature_hash" => %hash,
             "block_id" => %block_id,
             "signed" => %signed_over,
             "broadcasted" => ?broadcasted,
@@ -1064,7 +1064,7 @@ impl SignerDb {
         ];
 
         debug!("Inserting block signature.";
-            "sighash" => %block_sighash,
+            "signer_signature_hash" => %block_sighash,
             "signature" => %signature);
 
         self.db.execute(qry, args)?;
@@ -1100,7 +1100,7 @@ impl SignerDb {
         ];
 
         debug!("Inserting block rejection.";
-            "block_sighash" => %block_sighash,
+            "signer_signature_hash" => %block_sighash,
             "signer_address" => %addr,
             "reject_reason" => %reject_reason
         );

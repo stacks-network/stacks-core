@@ -309,6 +309,7 @@ fn test_try_make_response() {
                         tx.tx_len(),
                         &BlockLimitFunction::NO_LIMIT_HIT,
                         ASTRules::PrecheckSize,
+                        None,
                     );
                     let block = builder.mine_nakamoto_block(&mut tenure_tx);
                     Ok(block)

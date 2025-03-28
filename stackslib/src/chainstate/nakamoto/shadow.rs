@@ -539,6 +539,7 @@ impl NakamotoBlockBuilder {
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 ASTRules::PrecheckSize,
+                None,
             ) {
                 TransactionResult::Success(..) => {
                     debug!("Included {}", &tx.txid());
