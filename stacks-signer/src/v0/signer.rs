@@ -1460,6 +1460,10 @@ impl Signer {
             None
         }
     }
+
+    pub fn state_is_global(&self) {
+        false
+    }
 }
 
 /// Determine if a block should be re-evaluated based on its rejection reason˝
