@@ -539,7 +539,6 @@ impl MultipleMinerTest {
                 config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
                 config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
                 config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
-                config.miner.wait_on_interim_blocks = Duration::from_secs(5);
                 config.node.pox_sync_sample_secs = 30;
                 config.burnchain.pox_reward_length = Some(30);
 
@@ -5470,7 +5469,6 @@ fn partial_tenure_fork() {
             config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
             config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
             config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
-            config.miner.wait_on_interim_blocks = Duration::from_secs(5);
             config.node.pox_sync_sample_secs = 30;
             config.miner.block_commit_delay = Duration::from_secs(0);
 
@@ -12730,7 +12728,6 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         initial_balances,
         |_| {},
         |conf| {
-            conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
             conf.miner.mempool_walk_strategy = strategy;
         },
         None,
@@ -13018,7 +13015,6 @@ fn larger_mempool() {
         initial_balances,
         |_| {},
         |conf| {
-            conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
             conf.miner.mempool_walk_strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
         },
         None,

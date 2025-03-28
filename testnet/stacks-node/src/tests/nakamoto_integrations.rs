@@ -1480,7 +1480,6 @@ fn simple_neon_integration() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let prom_bind = "127.0.0.1:6000".to_string();
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(5);
     // set the block commit delay very high, so that we can safely assert that
     //  only one commit is submitted per tenure without generating test flake.
     naka_conf.miner.block_commit_delay = Duration::from_secs(600);
@@ -1707,7 +1706,6 @@ fn restarting_miner() {
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.miner.activated_vrf_key_path =
         Some(format!("{}/vrf_key", naka_conf.node.working_dir));
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(5);
     let sender_sk = Secp256k1PrivateKey::from_seed(&[1, 2, 1, 2, 1, 2]);
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
@@ -1929,7 +1927,6 @@ fn flash_blocks_on_epoch_3_FLAKY() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let prom_bind = "127.0.0.1:6000".to_string();
     naka_conf.node.prometheus_bind = Some(prom_bind);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::random();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
@@ -2172,7 +2169,6 @@ fn mine_multiple_per_tenure_integration() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -2356,7 +2352,6 @@ fn multiple_miners() {
     let node_2_rpc = 51026;
     let node_2_p2p = 51025;
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.node.pox_sync_sample_secs = 30;
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
@@ -2611,7 +2606,6 @@ fn correct_burn_outs() {
         epochs[StacksEpochId::Epoch30].start_height = 225;
     }
 
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.initial_balances.clear();
     let accounts: Vec<_> = (0..8)
         .map(|ix| {
@@ -3296,7 +3290,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
+    naka_conf.miner.min_time_between_blocks_ms = 1_000_000;
     let sender_sk = Secp256k1PrivateKey::random();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
@@ -3413,7 +3407,6 @@ fn vote_for_aggregate_key_burn_op() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let _http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let signer_sk = Secp256k1PrivateKey::random();
     let signer_addr = tests::to_addr(&signer_sk);
 
@@ -3631,7 +3624,6 @@ fn follower_bootup_simple() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -3948,7 +3940,6 @@ fn follower_bootup_across_multiple_cycles() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
 
@@ -4175,7 +4166,6 @@ fn follower_bootup_custom_chain_id() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.burnchain.chain_id = 0x87654321;
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -4508,7 +4498,6 @@ fn burn_ops_integration_test() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.burnchain.satoshis_per_byte = 2;
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
 
     let signer_sk_1 = setup_stacker(&mut naka_conf);
     let signer_addr_1 = tests::to_addr(&signer_sk_1);
@@ -5102,7 +5091,6 @@ fn forked_tenure_is_ignored() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(10);
     naka_conf.miner.block_commit_delay = Duration::from_secs(0);
     let sender_sk = Secp256k1PrivateKey::random();
     // setup sender + recipient for a test stx transfer
@@ -5462,7 +5450,6 @@ fn check_block_heights() {
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -6199,7 +6186,6 @@ fn clarity_burn_state() {
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -6471,7 +6457,6 @@ fn signer_chainstate() {
     let prom_bind = "127.0.0.1:6000".to_string();
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::random();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
@@ -7044,7 +7029,6 @@ fn continue_tenure_extend() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let prom_bind = "127.0.0.1:6000".to_string();
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.connection_options.block_proposal_max_age_secs = u64::MAX;
     naka_conf.miner.block_commit_delay = Duration::from_secs(600);
     let http_origin = naka_conf.node.data_url.clone();
@@ -7489,7 +7473,6 @@ fn check_block_times() {
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
@@ -7878,7 +7861,6 @@ fn check_block_info() {
     // change the chain id so that it isn't the same as primary testnet
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
@@ -8510,7 +8492,6 @@ fn check_block_info_rewards() {
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
@@ -8838,7 +8819,6 @@ fn mock_mining() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.node.pox_sync_sample_secs = 30;
     naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
     let sender_sk = Secp256k1PrivateKey::random();
@@ -9143,7 +9123,7 @@ fn utxo_check_on_startup_panic() {
     println!("Nakamoto node started with config: {naka_conf:?}");
     let prom_bind = "127.0.0.1:6000".to_string();
     naka_conf.node.prometheus_bind = Some(prom_bind);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
+    naka_conf.miner.min_time_between_blocks_ms = 1_000_000;
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
@@ -9219,7 +9199,7 @@ fn utxo_check_on_startup_recover() {
     println!("Nakamoto node started with config: {naka_conf:?}");
     let prom_bind = "127.0.0.1:6000".to_string();
     naka_conf.node.prometheus_bind = Some(prom_bind);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
+    naka_conf.miner.min_time_between_blocks_ms = 1_000_000;
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
@@ -9279,7 +9259,6 @@ fn v3_signer_api_endpoint() {
     let (mut conf, _miner_account) = naka_neon_integration_conf(None);
     let password = "12345".to_string();
     conf.connection_options.auth_token = Some(password);
-    conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let stacker_sk = setup_stacker(&mut conf);
     let signer_sk = Secp256k1PrivateKey::random();
     let signer_addr = tests::to_addr(&signer_sk);
@@ -9445,7 +9424,6 @@ fn v3_blockbyheight_api_endpoint() {
     let (mut conf, _miner_account) = naka_neon_integration_conf(None);
     let password = "12345".to_string();
     conf.connection_options.auth_token = Some(password);
-    conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let stacker_sk = setup_stacker(&mut conf);
     let signer_sk = Secp256k1PrivateKey::random();
     let signer_addr = tests::to_addr(&signer_sk);
@@ -9563,7 +9541,6 @@ fn nakamoto_lockup_events() {
     let (mut conf, _miner_account) = naka_neon_integration_conf(None);
     let password = "12345".to_string();
     conf.connection_options.auth_token = Some(password);
-    conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let stacker_sk = setup_stacker(&mut conf);
     let signer_sk = Secp256k1PrivateKey::random();
     let signer_addr = tests::to_addr(&signer_sk);
@@ -9732,7 +9709,6 @@ fn skip_mining_long_tx() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let prom_bind = "127.0.0.1:6000".to_string();
     naka_conf.node.prometheus_bind = Some(prom_bind);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.miner.nakamoto_attempt_time_ms = 5_000;
     naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
     let sender_1_sk = Secp256k1PrivateKey::from_seed(&[30]);
@@ -10089,7 +10065,6 @@ fn sip029_coinbase_change() {
     set_test_coinbase_schedule(Some(new_sched));
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
 
@@ -10289,7 +10264,6 @@ fn clarity_cost_spend_down() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let num_signers = 30;
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sks: Vec<_> = (0..num_signers)
         .map(|_| Secp256k1PrivateKey::random())
         .collect();
@@ -10578,7 +10552,6 @@ fn consensus_hash_event_dispatcher() {
     let (mut conf, _miner_account) = naka_neon_integration_conf(None);
     let password = "12345".to_string();
     conf.connection_options.auth_token = Some(password.clone());
-    conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let stacker_sk = setup_stacker(&mut conf);
     let signer_sk = Secp256k1PrivateKey::random();
     let signer_addr = tests::to_addr(&signer_sk);
@@ -11021,7 +10994,6 @@ fn mine_invalid_principal_from_consensus_buff() {
     let password = "12345".to_string();
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     conf.connection_options.auth_token = Some(password.clone());
-    conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let stacker_sk = setup_stacker(&mut conf);
     let signer_sk = Secp256k1PrivateKey::random();
     let signer_addr = tests::to_addr(&signer_sk);
@@ -11136,7 +11108,6 @@ fn reload_miner_config() {
     let password = "12345".to_string();
     let _http_origin = format!("http://{}", &conf.node.rpc_bind);
     conf.connection_options.auth_token = Some(password.clone());
-    conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let stacker_sk = setup_stacker(&mut conf);
     let signer_sk = Secp256k1PrivateKey::random();
     let signer_addr = tests::to_addr(&signer_sk);
@@ -11283,7 +11254,6 @@ fn rbf_on_config_change() {
     let password = "12345".to_string();
     let _http_origin = format!("http://{}", &conf.node.rpc_bind);
     conf.connection_options.auth_token = Some(password.clone());
-    conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     conf.node.next_initiative_delay = 500;
     let stacker_sk = setup_stacker(&mut conf);
     let signer_sk = Secp256k1PrivateKey::random();
@@ -11423,7 +11393,6 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.miner.mempool_walk_strategy = strategy;
 
     let sender_signer_sk = Secp256k1PrivateKey::random();
@@ -11762,7 +11731,6 @@ fn larger_mempool() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     naka_conf.miner.mempool_walk_strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
 
     let sender_signer_sk = Secp256k1PrivateKey::random();

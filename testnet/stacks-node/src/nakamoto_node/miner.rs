@@ -669,11 +669,27 @@ impl BlockMinerThread {
             return Ok(());
         };
 
-        let wait_start = Instant::now();
-        while wait_start.elapsed() < self.config.miner.wait_on_interim_blocks {
-            thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
-            if self.check_burn_tip_changed(&sort_db).is_err() {
-                return Err(NakamotoNodeError::BurnchainTipChanged);
+        // Wait for the last block to be processed before proceeding
+        if let Some(last_block_mined) = &self.last_block_mined {
+            loop {
+                let (stacks_tip_ch, stacks_tip_bh) =
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).map_err(
+                        |e| {
+                            error!("Failed to load canonical Stacks tip: {e:?}");
+                            NakamotoNodeError::ParentNotFound
+                        },
+                    )?;
+
+                if last_block_mined.header.consensus_hash == stacks_tip_ch
+                    && last_block_mined.header.block_hash() == stacks_tip_bh
+                {
+                    break;
+                }
+
+                thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
+                if self.check_burn_tip_changed(&sort_db).is_err() {
+                    return Err(NakamotoNodeError::BurnchainTipChanged);
+                }
             }
         }
 
