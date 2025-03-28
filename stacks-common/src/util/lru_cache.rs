@@ -51,6 +51,18 @@ impl std::fmt::Display for LruCacheCorrupted {
 
 impl std::error::Error for LruCacheCorrupted {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlushError<E> {
+    LruCacheCorrupted,
+    FlushError(E),
+}
+
+impl<E> From<E> for FlushError<E> {
+    fn from(e: E) -> Self {
+        FlushError::FlushError(e)
+    }
+}
+
 /// LRU cache
 pub struct LruCache<K, V> {
     capacity: usize,
@@ -197,14 +209,12 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
     pub fn flush<E>(
         &mut self,
         mut f: impl FnMut(&K, V) -> Result<(), E>,
-    ) -> Result<Result<(), E>, LruCacheCorrupted> {
+    ) -> Result<(), FlushError<E>> {
         for node in self.order.iter_mut().filter(|n| n.dirty) {
-            match f(&node.key, node.value) {
-                Ok(()) => node.dirty = false,
-                Err(e) => return Ok(Err(e)),
-            }
+            f(&node.key, node.value)?;
+            node.dirty = false;
         }
-        Ok(Ok(()))
+        Ok(())
     }
 
     /// Helper function to remove a node from the linked list (by index)
@@ -338,8 +348,7 @@ mod tests {
                 flushed.push((*k, v));
                 Ok::<(), ()>(())
             })
-            .expect("cache corrupted")
-            .expect("flush failed");
+            .expect("cache corrupted or flush failed");
 
         assert_eq!(flushed, vec![(1, 1)]);
 
@@ -352,8 +361,7 @@ mod tests {
                 flushed.push((*k, v));
                 Ok::<(), ()>(())
             })
-            .expect("cache corrupted")
-            .expect("flush failed");
+            .expect("cache corrupted or flush failed");
 
         flushed.sort();
         assert_eq!(flushed, vec![(1, 3), (2, 2)]);
@@ -386,8 +394,7 @@ mod tests {
                 flushed.push((*k, v));
                 Ok::<(), ()>(())
             })
-            .expect("cache corrupted")
-            .expect("flush failed");
+            .expect("cache corrupted or flush failed");
 
         flushed.sort();
         assert_eq!(flushed, [(2, 2), (3, 3)]);
@@ -442,8 +449,7 @@ mod tests {
                 flushed.push((*k, v));
                 Ok::<(), ()>(())
             })
-            .expect("cache corrupted")
-            .expect("flush failed");
+            .expect("cache corrupted or flush failed");
 
         assert_eq!(flushed, vec![(1, 1)]);
 
@@ -455,8 +461,7 @@ mod tests {
                 flushed.push((*k, v));
                 Ok::<(), ()>(())
             })
-            .expect("cache corrupted")
-            .expect("flush failed");
+            .expect("cache corrupted or flush failed");
 
         assert_eq!(flushed, vec![(2, 2)]);
     }
@@ -548,7 +553,7 @@ mod property_tests {
                     CacheOp::Insert(k, v) => { cache.insert(k, v).expect("cache corrupted"); }
                     CacheOp::Get(k) => { cache.get(&k).expect("cache corrupted"); }
                     CacheOp::InsertClean(k, v) => { cache.insert_clean(k, v).expect("cache corrupted"); }
-                    CacheOp::Flush => { cache.flush(|_, _| Ok::<(), ()>(())).expect("cache corrupted").expect("flush failed"); }
+                    CacheOp::Flush => { cache.flush(|_, _| Ok::<(), ()>(())).expect("cache corrupted or flush failed"); }
                 }
             }
         }
@@ -572,7 +577,7 @@ mod property_tests {
                     CacheOp::Insert(k, v) => { cache.insert(k, v).expect("cache corrupted"); }
                     CacheOp::Get(k) => { cache.get(&k).expect("cache corrupted"); }
                     CacheOp::InsertClean(k, v) => { cache.insert_clean(k, v).expect("cache corrupted"); }
-                    CacheOp::Flush => { cache.flush(|_, _| Ok::<(), ()>(())).expect("cache corrupted").expect("flush failed"); }
+                    CacheOp::Flush => { cache.flush(|_, _| Ok::<(), ()>(())).expect("cache corrupted or flush failed"); }
                 }
                 // Verify linked list integrity
                 if !cache.order.is_empty() {
@@ -617,7 +622,7 @@ mod property_tests {
                         cache.flush(|k, v| {
                             flushed.push((*k, v));
                             Ok::<(), ()>(())
-                        }).expect("cache corrupted").expect("flush failed");
+                        }).expect("cache corrupted or flush failed");
                         simple.flush(|k, v| {
                             simple_flushed.push((*k, v));
                             Ok::<(), ()>(())

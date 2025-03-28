@@ -18,7 +18,7 @@ use std::thread;
 use std::time::Duration;
 
 use clarity::types::chainstate::StacksAddress;
-use clarity::util::lru_cache::LruCache;
+use clarity::util::lru_cache::{FlushError, LruCache, LruCacheCorrupted};
 use clarity::vm::clarity::ClarityConnection;
 use rand::Rng;
 use rusqlite::params;
@@ -181,13 +181,14 @@ impl NonceCache {
             tx.execute(sql, params![addr, nonce])?;
             Ok::<(), db_error>(())
         }) {
-            Ok(inner) => inner?,
-            Err(_) => {
+            Ok(_) => {}
+            Err(FlushError::LruCacheCorrupted) => {
                 drop(tx);
                 // The cache is corrupt, reset it and return
                 self.reset_cache(conn);
                 return Ok(());
             }
+            Err(FlushError::FlushError(e)) => return Err(e),
         };
 
         tx.commit()?;
