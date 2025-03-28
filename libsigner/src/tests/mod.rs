@@ -28,7 +28,7 @@ use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::util_lib::boot::boot_code_id;
-use clarity::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
+use clarity::types::chainstate::{ConsensusHash, StacksBlockId, StacksPublicKey, TrieHash};
 use clarity::util::hash::Sha512Trunc256Sum;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -188,8 +188,11 @@ fn test_simple_signer() {
         .iter()
         .map(|chunk| {
             let msg = chunk.modified_slots[0].data.clone();
+            let pubkey = chunk.modified_slots[0]
+                .recover_pk()
+                .expect("Faield to recover public key of slot");
             let signer_message = read_next::<SignerMessage, _>(&mut &msg[..]).unwrap();
-            SignerEvent::SignerMessages(0, vec![signer_message])
+            SignerEvent::SignerMessages(0, vec![(pubkey, signer_message)])
         })
         .collect();
 

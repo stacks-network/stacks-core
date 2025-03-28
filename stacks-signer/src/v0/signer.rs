@@ -227,21 +227,29 @@ impl SignerTrait<SignerMessage> for Signer {
                     sortition_state,
                 )
             }
-            SignerEvent::SignerMessages(_signer_set, messages) => {
+            SignerEvent::SignerMessages(_, messages) => {
                 debug!(
                     "{self}: Received {} messages from the other signers",
                     messages.len()
                 );
                 // try and gather signatures
-                for message in messages {
+                for (signer_public_key, message) in messages {
                     match message {
                         SignerMessage::BlockResponse(block_response) => self.handle_block_response(
                             stacks_client,
                             block_response,
                             sortition_state,
                         ),
-                        SignerMessage::StateMachineUpdate(_update) => {
+                        SignerMessage::StateMachineUpdate(update) => {
                             // TODO: should make note of this update view point to determine if there is an agreed upon global state
+                            // We don't need to check the message parity again because of the check at the start of process_event
+                            if let Err(e) = self.signer_db.insert_state_machine_update(
+                                self.reward_cycle,
+                                &StacksAddress::p2pkh(self.mainnet, signer_public_key),
+                                update,
+                            ) {
+                                warn!("{self}: Failed to update global state in signerdb: {e}");
+                            }
                         }
                         _ => {}
                     }

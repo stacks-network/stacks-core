@@ -767,7 +767,6 @@ impl MultipleMinerTest {
         contract_src: &str,
     ) -> String {
         let http_origin = self.node_http();
-        let sender_addr = tests::to_addr(&self.sender_sk);
         let contract_tx = make_contract_publish(
             &self.sender_sk,
             sender_nonce,

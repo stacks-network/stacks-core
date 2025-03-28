@@ -255,7 +255,7 @@ impl StackerDBListener {
                 "slot_ids" => ?slot_ids,
             );
 
-            for (message, slot_id) in messages.into_iter().zip(slot_ids) {
+            for ((_, message), slot_id) in messages.into_iter().zip(slot_ids) {
                 let Some(signer_entry) = &self.signer_entries.get(&slot_id) else {
                     return Err(NakamotoNodeError::SignerSignatureError(
                         "Signer entry not found".into(),
