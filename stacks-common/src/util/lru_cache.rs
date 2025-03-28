@@ -461,7 +461,7 @@ mod tests {
         assert_eq!(flushed, vec![(2, 2)]);
     }
 
-    /// Simple LRU implementation for testing
+    /// Simple LRU implementation for property testing
     pub struct SimpleLRU {
         pub cache: Vec<Node<u32, u32>>,
         capacity: usize,
