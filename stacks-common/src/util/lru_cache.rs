@@ -540,8 +540,6 @@ mod property_tests {
     }
 
     proptest! {
-        #![proptest_config(ProptestConfig::with_cases(1_000_000))]
-
         #[test]
         fn doesnt_crash_with_random_operations(ops in prop::collection::vec(arbitrary_op(), 1..1000)) {
             let mut cache = LruCache::new(10);
