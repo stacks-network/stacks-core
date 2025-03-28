@@ -126,6 +126,17 @@
           }
         );
 
+        stacks-common = craneLib.buildPackage (
+          individualCrateArgs
+          // rec {
+            version = (builtins.fromTOML (builtins.readFile ../../stacks-common/Cargo.toml)).package.version;
+            pname = "stacks-common";
+            cargoFeatures = "--features slog_json";
+            cargoExtraArgs = "${cargoFeatures} -p ${pname}";
+            src = fileSetForCrate ../../stacks-common;
+          }
+        );
+
         # Build the actual crate itself, reusing the dependency
         # artifacts from above.
         stacks-core = craneLib.buildPackage (
@@ -143,7 +154,7 @@
       with pkgs;
       {
         packages = {
-          inherit stacks-signer;
+          inherit stacks-signer stacks-common;
           default = stacks-core;
         };
 
