@@ -1553,7 +1553,7 @@ fn missed_block_commits_2_1() {
             // did we have a bad missed commit in this window?
             // bad missed commits land in the prepare phase.
             let have_bad_missed_commit = b.is_in_prepare_phase(last_bad_op_height)
-                && ix >= MINING_COMMITMENT_WINDOW.into()
+                && ix >= usize::from(MINING_COMMITMENT_WINDOW)
                 && last_bad_op_height + (MINING_COMMITMENT_WINDOW as u64) > tip.block_height;
             if have_bad_missed_commit {
                 // bad commit breaks the chain if its PoX outputs are invalid
@@ -5164,7 +5164,7 @@ fn test_epoch_verify_active_pox_contract() {
 
         let active_pox_contract = b.pox_constants.active_pox_contract(burn_block_height);
 
-        if burn_block_height <= pox_v1_unlock_ht.into() {
+        if burn_block_height <= u64::from(pox_v1_unlock_ht) {
             assert_eq!(active_pox_contract, POX_1_NAME);
             if curr_reward_cycle == 1 {
                 // This is a result of the first stack stx sent.

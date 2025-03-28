@@ -578,7 +578,7 @@ fn check_inv_state(
 ) {
     for (i, (tenure_rc, tenure_inv)) in inv_state.tenures_inv.iter().enumerate() {
         for bit in 0..(rc_len as usize) {
-            let msg_bit = if bit / 8 >= tenure_inv.len().into() {
+            let msg_bit = if bit / 8 >= usize::from(tenure_inv.len()) {
                 // only allowed at the end
                 debug!(
                     "bit = {}, tenure_rc = {}, tenure_inv = {:?}",

@@ -132,7 +132,7 @@ impl NakamotoTenureStream {
         self.total_sent = self
             .total_sent
             .saturating_add(self.block_stream.total_bytes);
-        if self.total_sent.saturating_add(parent_size) > MAX_PAYLOAD_LEN.into() {
+        if self.total_sent.saturating_add(parent_size) > u64::from(MAX_PAYLOAD_LEN) {
             // out of space to send this
             return Ok(false);
         }

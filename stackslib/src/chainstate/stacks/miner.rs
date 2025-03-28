@@ -997,7 +997,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             ));
         }
 
-        if bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+        if bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
             info!(
                 "Adding microblock tx {} would exceed epoch data size",
                 &tx.txid()
@@ -1675,7 +1675,7 @@ impl StacksBlockBuilder {
             .map_err(Error::CodecError)?;
         let tx_len = u64::try_from(tx_bytes.len()).expect("tx len exceeds 2^64 bytes");
 
-        if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+        if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
             warn!(
                 "Epoch size is {} >= {}",
                 self.bytes_so_far + tx_len,
@@ -2733,7 +2733,7 @@ impl BlockBuilder for StacksBlockBuilder {
         limit_behavior: &BlockLimitFunction,
         ast_rules: ASTRules,
     ) -> TransactionResult {
-        if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+        if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
             return TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError);
         }
 

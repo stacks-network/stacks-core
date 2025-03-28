@@ -947,7 +947,7 @@ impl<'a> MemPoolTx<'a> {
             // the error rate at or below the target error rate
             let evict_txid = {
                 let num_recents = MemPoolDB::get_num_recent_txs(dbtx)?;
-                if num_recents >= MAX_BLOOM_COUNTER_TXS.into() {
+                if num_recents >= u64::from(MAX_BLOOM_COUNTER_TXS) {
                     // remove lowest-fee tx (they're paying the least, so replication is
                     // deprioritized)
                     let sql = "SELECT a.txid FROM mempool AS a LEFT OUTER JOIN removed_txids AS b ON a.txid = b.txid WHERE b.txid IS NULL AND a.height > ?1 ORDER BY a.tx_fee ASC LIMIT 1";
@@ -2761,7 +2761,7 @@ impl MemPoolDB {
     /// Otherwise, use a MemPoolSyncData::BloomFilter variant
     pub fn make_mempool_sync_data(&self) -> Result<MemPoolSyncData, db_error> {
         let num_tags = MemPoolDB::get_num_recent_txs(self.conn())?;
-        if num_tags < self.max_tx_tags.into() {
+        if num_tags < u64::from(self.max_tx_tags) {
             let seed = self.bloom_counter.get_seed().clone();
             let tags = self.get_txtags(&seed)?;
             Ok(MemPoolSyncData::TxTags(seed, tags))

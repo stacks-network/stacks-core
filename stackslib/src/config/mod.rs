@@ -2477,8 +2477,8 @@ pub struct NodeConfigFile {
     pub stacker_dbs: Option<Vec<String>>,
     /// fault injection: fail to push blocks with this probability (0-100)
     pub fault_injection_block_push_fail_probability: Option<u8>,
-    /// enable transactions indexing
-    pub txindex: bool,
+    /// enable transactions indexing, note this will require additional storage (in the order of gigabytes)
+    pub txindex: Option<bool>,
 }
 
 impl NodeConfigFile {
@@ -2578,7 +2578,7 @@ impl NodeConfigFile {
                 default_node_config.fault_injection_block_push_fail_probability
             },
 
-            txindex: self.txindex,
+            txindex: self.txindex.unwrap_or(default_node_config.txindex),
         };
         Ok(node_config)
     }
