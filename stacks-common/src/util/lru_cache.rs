@@ -15,7 +15,7 @@
 
 use std::fmt::Display;
 
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashMap;
 
 /// Node in the doubly linked list
 struct Node<K, V> {
@@ -198,30 +198,11 @@ impl<K: Eq + std::hash::Hash + Clone, V: Copy> LruCache<K, V> {
         &mut self,
         mut f: impl FnMut(&K, V) -> Result<(), E>,
     ) -> Result<Result<(), E>, LruCacheCorrupted> {
-        let mut current = self.head;
-
-        // Keep track of visited nodes to detect cycles
-        let mut visited = HashSet::new();
-
-        while current != self.capacity {
-            // Detect cycles
-            if !visited.insert(current) {
-                return Err(LruCacheCorrupted);
+        for node in self.order.iter_mut().filter(|n| n.dirty) {
+            match f(&node.key, node.value) {
+                Ok(()) => node.dirty = false,
+                Err(e) => return Ok(Err(e)),
             }
-
-            let node = self.order.get_mut(current).ok_or(LruCacheCorrupted)?;
-            let next = node.next;
-            if node.dirty {
-                let value = node.value;
-
-                // Call the flush function
-                match f(&node.key, value) {
-                    Ok(()) => node.dirty = false,
-                    Err(e) => return Ok(Err(e)),
-                }
-                node.dirty = false;
-            }
-            current = next;
         }
         Ok(Ok(()))
     }
@@ -374,7 +355,8 @@ mod tests {
             .expect("cache corrupted")
             .expect("flush failed");
 
-        assert_eq!(flushed, vec![(2, 2), (1, 3)]);
+        flushed.sort();
+        assert_eq!(flushed, vec![(1, 3), (2, 2)]);
     }
 
     #[test]
@@ -407,7 +389,8 @@ mod tests {
             .expect("cache corrupted")
             .expect("flush failed");
 
-        assert_eq!(flushed, [(3, 3), (2, 2)]);
+        flushed.sort();
+        assert_eq!(flushed, [(2, 2), (3, 3)]);
     }
 
     /// Simple LRU implementation for testing
@@ -573,6 +556,8 @@ mod property_tests {
                             simple_flushed.push((*k, v));
                             Ok::<(), ()>(())
                         }).unwrap();
+                        flushed.sort();
+                        simple_flushed.sort();
                         prop_assert_eq!(flushed, simple_flushed);
                     }
                 };
