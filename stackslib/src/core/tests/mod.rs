@@ -39,6 +39,7 @@ use stacks_common::util::secp256k1::{MessageSignature, *};
 use stacks_common::util::vrf::VRFProof;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log, sleep_ms};
 
+use super::mempool::MemPoolWalkStrategy;
 use super::MemPoolDB;
 use crate::burnchains::{Address, Txid};
 use crate::chainstate::burn::ConsensusHash;
@@ -64,6 +65,7 @@ use crate::core::mempool::{
     db_get_all_nonces, MemPoolSyncData, MemPoolWalkSettings, MemPoolWalkTxTypes, TxTag,
     BLOOM_COUNTER_DEPTH, BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS,
 };
+use crate::core::test_util::{insert_tx_in_mempool, make_stacks_transfer, to_addr};
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::net::Error as NetError;
 use crate::util_lib::bloom::test::setup_bloom_counter;
@@ -332,7 +334,7 @@ fn mempool_walk_over_fork() {
     );
 
     mempool
-        .reset_nonce_cache()
+        .reset_mempool_caches()
         .expect("Should be able to reset nonces");
 
     chainstate.with_read_only_clarity_tx(
@@ -371,7 +373,7 @@ fn mempool_walk_over_fork() {
     );
 
     mempool
-        .reset_nonce_cache()
+        .reset_mempool_caches()
         .expect("Should be able to reset nonces");
 
     // The mempool iterator no longer does any consideration of what block accepted
@@ -412,7 +414,7 @@ fn mempool_walk_over_fork() {
     );
 
     mempool
-        .reset_nonce_cache()
+        .reset_mempool_caches()
         .expect("Should be able to reset nonces");
 
     chainstate.with_read_only_clarity_tx(
@@ -451,7 +453,7 @@ fn mempool_walk_over_fork() {
     );
 
     mempool
-        .reset_nonce_cache()
+        .reset_mempool_caches()
         .expect("Should be able to reset nonces");
 
     // let's test replace-across-fork while we're here.
@@ -673,7 +675,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
     );
 
     // Next with 0%
-    let _ = mempool.reset_nonce_cache();
+    let _ = mempool.reset_mempool_caches();
     mempool_settings.consider_no_estimate_tx_prob = 0;
 
     chainstate.with_read_only_clarity_tx(
@@ -709,7 +711,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
     );
 
     // Then with with 100%
-    let _ = mempool.reset_nonce_cache();
+    let _ = mempool.reset_mempool_caches();
     mempool_settings.consider_no_estimate_tx_prob = 100;
 
     chainstate.with_read_only_clarity_tx(
@@ -2760,6 +2762,90 @@ fn test_filter_txs_by_type() {
                 )
                 .unwrap();
             assert_eq!(count_txs, 10);
+        },
+    );
+}
+
+#[test]
+fn large_mempool() {
+    let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+    let chainstate_path = chainstate_path(function_name!());
+    let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+
+    let mut senders = (0..1024)
+        .map(|_| (StacksPrivateKey::random(), 0))
+        .collect::<Vec<_>>();
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let b = make_block(
+        &mut chainstate,
+        ConsensusHash([0x2; 20]),
+        &(
+            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+            FIRST_STACKS_BLOCK_HASH.clone(),
+        ),
+        2,
+        2,
+    );
+    let block_height = 10;
+
+    println!("Adding transactions to mempool");
+    let mempool_tx = mempool.tx_begin().unwrap();
+    for _ in 0..25 {
+        for (sender_sk, nonce) in senders.iter_mut() {
+            let sender_addr = to_addr(sender_sk);
+            let fee = thread_rng().gen_range(180..2000);
+            let transfer_tx =
+                make_stacks_transfer(sender_sk, *nonce, fee, 0x80000000, &recipient, 1);
+            insert_tx_in_mempool(
+                &mempool_tx,
+                transfer_tx,
+                &sender_addr,
+                *nonce,
+                fee,
+                &ConsensusHash([0x2; 20]),
+                &FIRST_STACKS_BLOCK_HASH,
+                block_height,
+            );
+            *nonce += 1;
+        }
+    }
+    mempool_tx.commit().unwrap();
+
+    let mut mempool_settings = MemPoolWalkSettings::default();
+    mempool_settings.strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
+    let mut tx_events = Vec::new();
+
+    println!("Iterating mempool");
+    chainstate.with_read_only_clarity_tx(
+        &TEST_BURN_STATE_DB,
+        &StacksBlockHeader::make_index_block_hash(&b.0, &b.1),
+        |clarity_conn| {
+            let mut count_txs = 0;
+            mempool
+                .iterate_candidates::<_, ChainstateError, _>(
+                    clarity_conn,
+                    &mut tx_events,
+                    mempool_settings.clone(),
+                    |_, available_tx, _| {
+                        count_txs += 1;
+                        Ok(Some(
+                            // Generate any success result
+                            TransactionResult::success(
+                                &available_tx.tx.tx,
+                                StacksTransactionReceipt::from_stx_transfer(
+                                    available_tx.tx.tx.clone(),
+                                    vec![],
+                                    Value::okay(Value::Bool(true)).unwrap(),
+                                    ExecutionCost::ZERO,
+                                ),
+                            )
+                            .convert_to_event(),
+                        ))
+                    },
+                )
+                .unwrap();
+            // It should be able to iterate through at least 10000 transactions in 5s
+            assert!(count_txs > 10000);
         },
     );
 }
