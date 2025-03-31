@@ -3562,7 +3562,7 @@ impl NakamotoChainState {
         }
     }
 
-    // Get index_block_hash and transaction payload hex by txid from the transactions table
+    /// Get index_block_hash and transaction payload hex by txid from the transactions table
     pub fn get_tx_info_from_txid(
         conn: &Connection,
         txid: Txid,
