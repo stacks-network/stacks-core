@@ -771,7 +771,6 @@ impl MultipleMinerTest {
         contract_src: &str,
     ) -> String {
         let http_origin = self.node_http();
-        let sender_addr = tests::to_addr(&self.sender_sk);
         let contract_tx = make_contract_publish(
             &self.sender_sk,
             sender_nonce,
@@ -6095,7 +6094,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
         None,
         None,
     );
-    let all_signers = signer_test.signer_public_keys();
+    let all_signers = signer_test.signer_test_pks();
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
     let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
@@ -6265,7 +6264,7 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
         None,
         None,
     );
-    let all_signers = signer_test.signer_public_keys();
+    let all_signers = signer_test.signer_test_pks();
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
     let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
@@ -6485,7 +6484,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     info!("Submitted tx {tx} in to attempt to mine block N+1");
     let block_n_1 = wait_for_block_proposal(30, info_before.stacks_tip_height + 1, &miner_pk)
         .expect("Timed out waiting for block N+1 to be proposed");
-    let all_signers = signer_test.signer_public_keys();
+    let all_signers = signer_test.signer_test_pks();
     wait_for_block_global_acceptance_from_signers(
         30,
         &block_n_1.header.signer_signature_hash(),
@@ -6642,7 +6641,7 @@ fn continue_after_fast_block_no_sortition() {
     let burnchain = conf_1.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
-    let all_signers = miners.signer_test.signer_public_keys();
+    let all_signers = miners.signer_test.signer_test_pks();
     let get_burn_height = || {
         SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
@@ -6930,7 +6929,7 @@ fn signing_in_0th_tenure_of_reward_cycle() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
-    let signer_public_keys = signer_test.signer_public_keys();
+    let signer_public_keys = signer_test.signer_test_pks();
     let long_timeout = Duration::from_secs(200);
     signer_test.boot_to_epoch_3();
     let curr_reward_cycle = signer_test.get_current_reward_cycle();
@@ -7198,7 +7197,7 @@ fn block_commit_delay() {
     .expect("Timed out waiting for block commit after new Stacks block");
 
     // Prevent a block from being mined by making signers reject it.
-    let all_signers = signer_test.signer_public_keys();
+    let all_signers = signer_test.signer_test_pks();
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(all_signers);
 
     info!("------------------------- Test Mine Burn Block  -------------------------");
@@ -7464,7 +7463,7 @@ fn block_validation_check_rejection_timeout_heuristic() {
     );
     let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
-    let all_signers = signer_test.signer_public_keys();
+    let all_signers = signer_test.signer_test_pks();
 
     signer_test.boot_to_epoch_3();
 
@@ -7682,7 +7681,7 @@ fn block_validation_pending_table() {
     .expect("Timed out waiting for pending block validation to be removed");
 
     // for test cleanup we need to wait for block rejections
-    let signer_keys = signer_test.signer_public_keys();
+    let signer_keys = signer_test.signer_test_pks();
     wait_for_block_rejections_from_signers(30, &block.header.signer_signature_hash(), &signer_keys)
         .expect("Timed out waiting for block rejections");
 
@@ -8411,7 +8410,7 @@ fn global_acceptance_depends_on_block_announcement() {
         None,
     );
 
-    let all_signers = signer_test.signer_public_keys();
+    let all_signers = signer_test.signer_test_pks();
     let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
@@ -8914,7 +8913,7 @@ fn incoming_signers_ignore_block_proposals() {
     info!("------------------------- Test Attempt to Mine Invalid Block {signer_signature_hash_1} -------------------------");
 
     let short_timeout = Duration::from_secs(30);
-    let all_signers = signer_test.signer_public_keys();
+    let all_signers = signer_test.signer_test_pks();
     test_observer::clear();
 
     // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
@@ -10711,7 +10710,7 @@ fn interrupt_miner_on_new_stacks_tip() {
     let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
 
-    let all_signers = miners.signer_test.signer_public_keys();
+    let all_signers = miners.signer_test.signer_test_pks();
 
     // Pause Miner 2's commits to ensure Miner 1 wins the first sortition.
     skip_commit_op_rl2.set(true);
@@ -11936,7 +11935,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected() {
             config.miner.block_commit_delay = Duration::from_secs(0);
         },
     );
-    let all_signers = miners.signer_test.signer_public_keys();
+    let all_signers = miners.signer_test.signer_test_pks();
     let mut approving_signers = vec![];
     let mut rejecting_signers = vec![];
     for (i, signer_config) in miners.signer_test.signer_configs.iter().enumerate() {

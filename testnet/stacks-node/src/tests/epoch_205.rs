@@ -14,8 +14,7 @@ use stacks::chainstate::stacks::{
 };
 use stacks::config::{EventKeyType, InitialBalance};
 use stacks::core::test_util::{
-    make_contract_call, make_contract_call_mblock_only, make_contract_publish,
-    make_contract_publish_microblock_only, to_addr,
+    make_contract_call, make_contract_call_mblock_only, make_contract_publish, to_addr,
 };
 use stacks::core::{
     self, EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
