@@ -224,6 +224,8 @@ pub struct BlockMinerThread {
     burn_tip_at_start: ConsensusHash,
     /// flag to indicate an abort driven from the relayer
     abort_flag: Arc<AtomicBool>,
+    /// Should the nonce cache be reset before mining the next block?
+    reset_nonce_cache: bool,
 }
 
 impl BlockMinerThread {
@@ -257,6 +259,7 @@ impl BlockMinerThread {
             abort_flag: Arc::new(AtomicBool::new(false)),
             tenure_cost: ExecutionCost::ZERO,
             tenure_budget: ExecutionCost::ZERO,
+            reset_nonce_cache: true,
         }
     }
 
@@ -506,6 +509,14 @@ impl BlockMinerThread {
         }
 
         let new_block = loop {
+            if self.reset_nonce_cache {
+                let mut mem_pool = self
+                    .config
+                    .connect_mempool_db()
+                    .expect("Database failure opening mempool");
+                mem_pool.reset_mempool_caches()?;
+            }
+
             // If we're mock mining, we may not have processed the block that the
             // actual tenure winner committed to yet. So, before attempting to
             // mock mine, check if the parent is processed.
@@ -550,6 +561,7 @@ impl BlockMinerThread {
                     }
 
                     info!("Miner interrupted while mining, will try again");
+
                     // sleep, and try again. if the miner was interrupted because the burnchain
                     // view changed, the next `mine_block()` invocation will error
                     thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
@@ -557,6 +569,7 @@ impl BlockMinerThread {
                 }
                 Err(NakamotoNodeError::MiningFailure(ChainstateError::NoTransactionsToMine)) => {
                     debug!("Miner did not find any transactions to mine");
+                    self.reset_nonce_cache = false;
                     break None;
                 }
                 Err(e) => {
@@ -1263,6 +1276,11 @@ impl BlockMinerThread {
             //  all the pre-mining checks (burnchain tip changes, signal interrupts, etc.)
             return Err(ChainstateError::MinerAborted.into());
         }
+
+        // If we attempt to build a block, we should reset the nonce cache.
+        // In the special case where no transactions are found, this flag will
+        // be reset to false.
+        self.reset_nonce_cache = true;
 
         // build the block itself
         let mut block_metadata = NakamotoBlockBuilder::build_nakamoto_block(

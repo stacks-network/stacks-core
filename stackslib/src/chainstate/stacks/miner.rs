@@ -1252,7 +1252,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let deadline = get_epoch_time_ms() + u128::from(self.settings.max_miner_time_ms);
         let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
 
-        mem_pool.reset_nonce_cache()?;
+        mem_pool.reset_mempool_caches()?;
         let stacks_epoch_id = clarity_tx.get_epoch();
         let block_limit = clarity_tx
             .block_limit()
@@ -2310,13 +2310,10 @@ impl StacksBlockBuilder {
             }
         }
 
-        mempool.reset_nonce_cache()?;
         mempool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
 
         let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
         let mut considered = HashSet::new(); // txids of all transactions we looked at
-        let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
-        let mut mined_sponsor_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction sponsors to the nonces we used
 
         let mut invalidated_txs = vec![];
         let mut to_drop_and_blacklist = vec![];
@@ -2331,6 +2328,17 @@ impl StacksBlockBuilder {
             let mut loop_result = Ok(());
             while block_limit_hit != BlockLimitFunction::LIMIT_REACHED {
                 let mut num_considered = 0;
+
+                // Check if we've been preempted before we attempt mining.
+                // This is important because otherwise, we will add unnecessary
+                // contention on the mempool DB.
+                blocked =
+                    (*settings.miner_status.lock().expect("FATAL: mutex poisoned")).is_blocked();
+                if blocked {
+                    info!("Miner stopping due to preemption");
+                    break;
+                }
+
                 let intermediate_result = mempool.iterate_candidates(
                     epoch_tx,
                     &mut tx_events,
@@ -2340,7 +2348,7 @@ impl StacksBlockBuilder {
                         blocked = (*settings.miner_status.lock().expect("FATAL: mutex poisoned"))
                             .is_blocked();
                         if blocked {
-                            debug!("Miner stopping due to preemption");
+                            info!("Miner stopping due to preemption");
                             return Ok(None);
                         }
 
@@ -2348,16 +2356,20 @@ impl StacksBlockBuilder {
                         let update_estimator = to_consider.update_estimate;
 
                         if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
+                            info!("Miner stopping due to limit reached");
                             return Ok(None);
                         }
                         let time_now = get_epoch_time_ms();
                         if time_now >= deadline {
-                            debug!("Miner mining time exceeded ({} ms)", max_miner_time_ms);
+                            info!(
+                                "Miner stopping due to mining time exceeded ({} ms)",
+                                max_miner_time_ms
+                            );
                             return Ok(None);
                         }
                         if let Some(time_estimate) = txinfo.metadata.time_estimate_ms {
                             if time_now.saturating_add(time_estimate.into()) > deadline {
-                                debug!("Mining tx would cause us to exceed our deadline, skipping";
+                                info!("Mining tx would cause us to exceed our deadline, skipping";
                                        "txid" => %txinfo.tx.txid(),
                                        "deadline" => deadline,
                                        "now" => time_now,
@@ -2381,40 +2393,6 @@ impl StacksBlockBuilder {
                                 )
                                 .convert_to_event(),
                             ));
-                        }
-
-                        if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
-                            if *nonce >= txinfo.tx.get_origin_nonce() {
-                                return Ok(Some(
-                                    TransactionResult::skipped(
-                                        &txinfo.tx,
-                                        format!(
-                                            "Bad origin nonce, tx nonce {} versus {}.",
-                                            txinfo.tx.get_origin_nonce(),
-                                            *nonce
-                                        ),
-                                    )
-                                    .convert_to_event(),
-                                ));
-                            }
-                        }
-                        if let Some(sponsor_addr) = txinfo.tx.sponsor_address() {
-                            if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
-                                if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
-                                    if *nonce >= sponsor_nonce {
-                                        return Ok(Some(
-                                            TransactionResult::skipped(
-                                                &txinfo.tx,
-                                                format!(
-                                                    "Bad sponsor nonce, tx nonce {} versus {}.",
-                                                    sponsor_nonce, *nonce
-                                                ),
-                                            )
-                                            .convert_to_event(),
-                                        ));
-                                    }
-                                }
-                            }
                         }
 
                         considered.insert(txinfo.tx.txid());
@@ -2469,15 +2447,7 @@ impl StacksBlockBuilder {
                                               "error" => ?e);
                                     }
                                 }
-                                mined_origin_nonces.insert(
-                                    txinfo.tx.origin_address(),
-                                    txinfo.tx.get_origin_nonce(),
-                                );
-                                if let (Some(sponsor_addr), Some(sponsor_nonce)) =
-                                    (txinfo.tx.sponsor_address(), txinfo.tx.get_sponsor_nonce())
-                                {
-                                    mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
-                                }
+
                                 if soft_limit_reached {
                                     // done mining -- our soft limit execution budget is exceeded.
                                     // Make the block from the transactions we did manage to get
@@ -2508,9 +2478,7 @@ impl StacksBlockBuilder {
                                         } else if block_limit_hit
                                             == BlockLimitFunction::CONTRACT_LIMIT_HIT
                                         {
-                                            debug!(
-                                                "Stop mining anchored block due to limit exceeded"
-                                            );
+                                            info!("Miner stopping due to limit reached");
                                             block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
                                             return Ok(None);
                                         }
@@ -2676,6 +2644,7 @@ impl StacksBlockBuilder {
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
 
+        mempool.reset_mempool_caches()?;
         let (blocked, tx_events) = match Self::select_and_apply_transactions(
             &mut epoch_tx,
             &mut builder,
