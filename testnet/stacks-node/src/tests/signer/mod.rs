@@ -32,6 +32,7 @@ use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
+use stacks::core::test_util::{make_contract_call, make_contract_publish, make_stacks_transfer};
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
@@ -54,7 +55,6 @@ use super::nakamoto_integrations::{
     check_nakamoto_empty_block_heuristics, next_block_and, wait_for,
 };
 use super::neon_integrations::{get_account, get_sortition_info_ch, submit_tx_fallible};
-use super::{make_contract_call, make_contract_publish, make_stacks_transfer};
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
@@ -1219,13 +1219,6 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         stackerdb
             .send_message_with_retry::<SignerMessage>(accepted.into())
             .expect("Failed to send accept signature");
-    }
-
-    pub fn signer_public_keys(&self) -> Vec<StacksPublicKey> {
-        self.signer_stacks_private_keys
-            .iter()
-            .map(StacksPublicKey::from_private)
-            .collect()
     }
 }
 

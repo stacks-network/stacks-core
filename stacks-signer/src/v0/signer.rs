@@ -129,7 +129,7 @@ impl std::fmt::Display for Signer {
 impl SignerTrait<SignerMessage> for Signer {
     /// Create a new signer from the given configuration
     fn new(stacks_client: &StacksClient, signer_config: SignerConfig) -> Self {
-        let mut stackerdb = StackerDB::from(&signer_config);
+        let stackerdb = StackerDB::from(&signer_config);
         let mode = match signer_config.signer_mode {
             SignerConfigMode::DryRun => SignerMode::DryRun,
             SignerConfigMode::Normal { signer_id, .. } => SignerMode::Normal { signer_id },
@@ -141,12 +141,11 @@ impl SignerTrait<SignerMessage> for Signer {
             SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
         let proposal_config = ProposalEvalConfig::from(&signer_config);
 
-        let signer_state =
-            LocalStateMachine::new(&signer_db, &mut stackerdb, stacks_client, &proposal_config)
-                .unwrap_or_else(|e| {
-                    warn!("Failed to initialize local state machine for signer: {e:?}");
-                    LocalStateMachine::Uninitialized
-                });
+        let signer_state = LocalStateMachine::new(&signer_db, stacks_client, &proposal_config)
+            .unwrap_or_else(|e| {
+                warn!("Failed to initialize local state machine for signer: {e:?}");
+                LocalStateMachine::Uninitialized
+            });
         Self {
             private_key: signer_config.stacks_private_key,
             stackerdb,
@@ -213,8 +212,9 @@ impl SignerTrait<SignerMessage> for Signer {
             return;
         }
 
+        let prior_state = self.local_state_machine.clone();
         if self.reward_cycle <= current_reward_cycle {
-            self.local_state_machine.handle_pending_update(&self.signer_db, &mut self.stackerdb, stacks_client, &self.proposal_config)
+            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client, &self.proposal_config)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
         }
 
@@ -346,7 +346,7 @@ impl SignerTrait<SignerMessage> for Signer {
                         panic!("{self} Failed to write burn block event to signerdb: {e}");
                     });
                 self.local_state_machine
-                    .bitcoin_block_arrival(&self.signer_db, &mut self.stackerdb, stacks_client, &self.proposal_config, Some(*burn_height))
+                    .bitcoin_block_arrival(&self.signer_db, stacks_client, &self.proposal_config, Some(*burn_height))
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
                 *sortition_state = None;
             }
@@ -368,7 +368,7 @@ impl SignerTrait<SignerMessage> for Signer {
                     "block_height" => block_height
                 );
                 self.local_state_machine
-                    .stacks_block_arrival(&mut self.stackerdb, consensus_hash, *block_height, block_id)
+                    .stacks_block_arrival(consensus_hash, *block_height, block_id)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest stacks block arrival"; "err" => ?e));
 
                 if let Ok(Some(mut block_info)) = self
@@ -389,6 +389,10 @@ impl SignerTrait<SignerMessage> for Signer {
                     }
                 }
             }
+        }
+        if prior_state != self.local_state_machine {
+            self.local_state_machine
+                .send_signer_update_message(&mut self.stackerdb);
         }
     }
 
