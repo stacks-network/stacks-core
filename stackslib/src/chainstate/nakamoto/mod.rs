@@ -2156,10 +2156,9 @@ impl NakamotoChainState {
                 Self::record_transaction(&stacks_db_tx, &block_id, tx_receipt);
             }
 
-            let commit = stacks_db_tx.commit();
-            if commit.is_err() {
-                error!("Could not index transactions: {}", commit.err().unwrap());
-            }
+            let _ = stacks_db_tx.commit().inspect_err(|e| {
+                error!("Could not index transactions: {}", e);
+            });
         }
 
         // announce the block, if we're connected to an event dispatcher
