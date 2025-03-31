@@ -20,6 +20,7 @@ use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+use blockstack_lib::codec::StacksMessageCodec;
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
     TOO_MANY_REQUESTS_STATUS,
@@ -37,9 +38,9 @@ use clarity::util::sleep_ms;
 use clarity::util::tests::TestFlag;
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
-    RejectReason, RejectReasonPrefix, SignerMessage,
+    RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate, StateMachineUpdateContent,
 };
-use libsigner::{BlockProposal, SignerEvent};
+use libsigner::{BlockProposal, SignerEvent, SignerSession};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
@@ -129,7 +130,7 @@ impl std::fmt::Display for Signer {
 impl SignerTrait<SignerMessage> for Signer {
     /// Create a new signer from the given configuration
     fn new(stacks_client: &StacksClient, signer_config: SignerConfig) -> Self {
-        let stackerdb = StackerDB::from(&signer_config);
+        let mut stackerdb = StackerDB::from(&signer_config);
         let mode = match signer_config.signer_mode {
             SignerConfigMode::DryRun => SignerMode::DryRun,
             SignerConfigMode::Normal { signer_id, .. } => SignerMode::Normal { signer_id },
@@ -141,11 +142,12 @@ impl SignerTrait<SignerMessage> for Signer {
             SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
         let proposal_config = ProposalEvalConfig::from(&signer_config);
 
-        let signer_state = LocalStateMachine::new(&signer_db, stacks_client, &proposal_config)
-            .unwrap_or_else(|e| {
-                warn!("Failed to initialize local state machine for signer: {e:?}");
-                LocalStateMachine::Uninitialized
-            });
+        let signer_state =
+            LocalStateMachine::new(&signer_db, &mut stackerdb, stacks_client, &proposal_config)
+                .unwrap_or_else(|e| {
+                    warn!("Failed to initialize local state machine for signer: {e:?}");
+                    LocalStateMachine::Uninitialized
+                });
         Self {
             private_key: signer_config.stacks_private_key,
             stackerdb,
@@ -213,7 +215,7 @@ impl SignerTrait<SignerMessage> for Signer {
         }
 
         if self.reward_cycle <= current_reward_cycle {
-            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client, &self.proposal_config)
+            self.local_state_machine.handle_pending_update(&self.signer_db, &mut self.stackerdb, stacks_client, &self.proposal_config)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
         }
 
@@ -233,10 +235,18 @@ impl SignerTrait<SignerMessage> for Signer {
                 );
                 // try and gather signatures
                 for message in messages {
-                    let SignerMessage::BlockResponse(block_response) = message else {
-                        continue;
-                    };
-                    self.handle_block_response(stacks_client, block_response, sortition_state);
+                    match message {
+                        SignerMessage::BlockResponse(block_response) => self.handle_block_response(
+                            stacks_client,
+                            block_response,
+                            sortition_state,
+                        ),
+                        SignerMessage::StateMachineUpdate(update) => {
+                            // TODO: should make note of this update view point to determine if there is an agreed upon global state
+                            self.handle_state_machine_update(stacks_client, update);
+                        }
+                        _ => {}
+                    }
                 }
             }
             SignerEvent::MinerMessages(messages) => {
@@ -330,7 +340,7 @@ impl SignerTrait<SignerMessage> for Signer {
                         panic!("{self} Failed to write burn block event to signerdb: {e}");
                     });
                 self.local_state_machine
-                    .bitcoin_block_arrival(&self.signer_db, stacks_client, &self.proposal_config, Some(*burn_height))
+                    .bitcoin_block_arrival(&self.signer_db, &mut self.stackerdb, stacks_client, &self.proposal_config, Some(*burn_height))
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
                 *sortition_state = None;
             }
@@ -352,7 +362,7 @@ impl SignerTrait<SignerMessage> for Signer {
                     "block_height" => block_height
                 );
                 self.local_state_machine
-                    .stacks_block_arrival(consensus_hash, *block_height, block_id)
+                    .stacks_block_arrival(&mut self.stackerdb, consensus_hash, *block_height, block_id)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest stacks block arrival"; "err" => ?e));
 
                 if let Ok(Some(mut block_info)) = self
@@ -1461,7 +1471,53 @@ impl Signer {
         }
     }
 
-    pub fn state_is_global(&self) {
+    /// manage StateMachineUpdate messages from signers
+    fn handle_state_machine_update(
+        &mut self,
+        _stacks_client: &StacksClient,
+        _state_machine_update: &StateMachineUpdate,
+    ) {
+        let mut slot_ids: Vec<u32> = vec![];
+        for slot_id in &self.signer_slot_ids {
+            slot_ids.push(slot_id.0);
+        }
+        let messages = self
+            .stackerdb
+            .get_session_mut(&MessageSlotID::StateMachineUpdate)
+            .unwrap()
+            .get_latest_chunks(&slot_ids)
+            .unwrap();
+
+        let mut state_machine_status: HashMap<StateMachineUpdateContent, u32> = HashMap::new();
+
+        for message_opt in messages {
+            let message = message_opt.unwrap();
+            let Ok(SignerMessage::StateMachineUpdate(state_machine_update)) =
+                SignerMessage::consensus_deserialize(&mut message.as_slice())
+            else {
+                continue;
+            };
+
+            if !state_machine_status.contains_key(&state_machine_update.content) {
+                state_machine_status.insert(state_machine_update.content, 1);
+            } else {
+                state_machine_status
+                    .entry(state_machine_update.content)
+                    .and_modify(|counter| *counter = counter.saturating_add(1));
+            }
+        }
+
+        for entry in state_machine_status {
+            // TODO check for the right amount of values
+            println!(
+                "\n\n\nSTATEMACHINESTATUS: {:?} = {}\n\n\n",
+                entry.0, entry.1
+            );
+        }
+    }
+
+    /// check if the current state machien status is globally agreed
+    pub fn state_is_global(&self) -> bool {
         false
     }
 }

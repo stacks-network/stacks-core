@@ -559,7 +559,7 @@ pub struct StateMachineUpdate {
 }
 
 /// Versioning enum for StateMachineUpdate messages
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Hash, Eq)]
 pub enum StateMachineUpdateContent {
     /// Version 0
     V0 {
@@ -573,7 +573,7 @@ pub enum StateMachineUpdateContent {
 }
 
 /// Message for update the Signer State infos
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Hash, Eq)]
 pub enum StateMachineUpdateMinerState {
     /// There is an active miner
     ActiveMiner {
@@ -1702,6 +1702,12 @@ impl std::fmt::Display for RejectReason {
 impl From<BlockResponse> for SignerMessage {
     fn from(block_response: BlockResponse) -> Self {
         Self::BlockResponse(block_response)
+    }
+}
+
+impl From<StateMachineUpdate> for SignerMessage {
+    fn from(update: StateMachineUpdate) -> Self {
+        Self::StateMachineUpdate(update)
     }
 }
 

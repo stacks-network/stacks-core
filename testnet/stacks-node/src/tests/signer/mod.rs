@@ -1220,6 +1220,13 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .send_message_with_retry::<SignerMessage>(accepted.into())
             .expect("Failed to send accept signature");
     }
+
+    pub fn signer_public_keys(&self) -> Vec<StacksPublicKey> {
+        self.signer_stacks_private_keys
+            .iter()
+            .map(StacksPublicKey::from_private)
+            .collect()
+    }
 }
 
 fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
