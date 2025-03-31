@@ -447,7 +447,7 @@ impl LocalStateMachine {
         // set self to uninitialized so that if this function errors,
         //  self is left as uninitialized.
         let prior_state = std::mem::replace(self, Self::Uninitialized);
-        let prior_state_machine = match prior_state.clone() {
+        let prior_state_machine = match prior_state {
             // if the local state machine was uninitialized, just initialize it
             LocalStateMachine::Uninitialized => Self::place_holder(),
             LocalStateMachine::Initialized(signer_state_machine) => signer_state_machine,
@@ -525,6 +525,7 @@ impl LocalStateMachine {
             current_miner: miner_state,
             active_signer_protocol_version: prior_state_machine.active_signer_protocol_version,
         });
+
         Ok(())
     }
 }
