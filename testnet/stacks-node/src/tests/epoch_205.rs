@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
 use std::{env, thread};
 
 use clarity::vm::costs::ExecutionCost;
@@ -15,8 +14,7 @@ use stacks::chainstate::stacks::{
 };
 use stacks::config::{EventKeyType, InitialBalance};
 use stacks::core::test_util::{
-    make_contract_call, make_contract_call_mblock_only, make_contract_publish,
-    make_contract_publish_microblock_only, to_addr,
+    make_contract_call, make_contract_call_mblock_only, make_contract_publish, to_addr,
 };
 use stacks::core::{
     self, EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
@@ -25,7 +23,6 @@ use stacks::core::{
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
 use stacks_common::util::hash::hex_bytes;
-use stacks_common::util::sleep_ms;
 
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::neon_integrations::*;
