@@ -12052,7 +12052,6 @@ fn larger_mempool() {
     run_loop_thread.join().unwrap();
 }
 
-
 /// Test `/v3/transaction/txid` API endpoint
 ///
 /// This endpoint returns a JSON with index_block_hash,
