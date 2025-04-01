@@ -866,13 +866,13 @@ paths:
               schema:
                 type: integer
                 example: 7
-  /v3/transactions/{txid}:
+  /v3/transaction/{txid}:
     post:
       summary: Returns index_block_hash, transaction body and result given a TXID
       tags:
         - Transactions
       description: Get a JSON with the index_block_hash, the Transaction body as hex and the result.
-      operationId: get_transactions
+      operationId: get_transaction
       parameters:
       - name: txid
         in: path
@@ -886,7 +886,7 @@ paths:
           content:
             application/json:
               example:
-                $ref: ./api/core-node/get_transactions.json
+                $ref: ./api/core-node/get_transaction.json
         "404":
           description: Transaction not found
           content:

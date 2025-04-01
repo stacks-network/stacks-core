@@ -579,7 +579,7 @@ Get number of blocks signed by signer during a given reward cycle
 
 Returns a non-negative integer
 
-### GET /v3/transactions/[Transaction ID]
+### GET /v3/transaction/[Transaction ID]
 
 Returns the index_block_hash, the transaction body (as hex) and the result given the TXID.
 
