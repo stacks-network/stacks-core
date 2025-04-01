@@ -212,6 +212,7 @@ impl SignerTrait<SignerMessage> for Signer {
             return;
         }
 
+        let prior_state = self.local_state_machine.clone();
         if self.reward_cycle <= current_reward_cycle {
             self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client, &self.proposal_config)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
@@ -233,10 +234,17 @@ impl SignerTrait<SignerMessage> for Signer {
                 );
                 // try and gather signatures
                 for message in messages {
-                    let SignerMessage::BlockResponse(block_response) = message else {
-                        continue;
-                    };
-                    self.handle_block_response(stacks_client, block_response, sortition_state);
+                    match message {
+                        SignerMessage::BlockResponse(block_response) => self.handle_block_response(
+                            stacks_client,
+                            block_response,
+                            sortition_state,
+                        ),
+                        SignerMessage::StateMachineUpdate(_update) => {
+                            // TODO: should make note of this update view point to determine if there is an agreed upon global state
+                        }
+                        _ => {}
+                    }
                 }
             }
             SignerEvent::MinerMessages(messages) => {
@@ -373,6 +381,10 @@ impl SignerTrait<SignerMessage> for Signer {
                     }
                 }
             }
+        }
+        if prior_state != self.local_state_machine {
+            self.local_state_machine
+                .send_signer_update_message(&mut self.stackerdb);
         }
     }
 
