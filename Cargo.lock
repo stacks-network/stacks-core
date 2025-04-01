@@ -3169,7 +3169,6 @@ dependencies = [
  "ed25519-dalek",
  "hashbrown 0.15.2",
  "lazy_static",
- "libc",
  "libsecp256k1",
  "nix",
  "proptest",
