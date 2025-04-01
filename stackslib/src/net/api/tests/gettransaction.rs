@@ -64,7 +64,7 @@ fn test_try_parse_request() {
     debug!("Request:\n{}\n", std::str::from_utf8(&bytes).unwrap());
 
     let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
-    let mut handler = gettransactions::RPCGetTransactionRequestHandler::new();
+    let mut handler = gettransaction::RPCGetTransactionRequestHandler::new();
     let mut parsed_request = http
         .handle_try_parse_request(
             &mut handler,

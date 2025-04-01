@@ -87,7 +87,7 @@ mod gettenure;
 mod gettenureinfo;
 mod gettenuretip;
 mod gettransaction_unconfirmed;
-mod gettransactions;
+mod gettransaction;
 mod liststackerdbreplicas;
 mod postblock;
 mod postblock_proposal;

@@ -69,11 +69,11 @@ impl HttpRequest for RPCGetTransactionRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v3/transactions/(?P<txid>[0-9a-f]{64})$"#).unwrap()
+        Regex::new(r#"^/v3/transaction/(?P<txid>[0-9a-f]{64})$"#).unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v3/transactions/:txid"
+        "/v3/transaction/:txid"
     }
 
     /// Try to decode this request.
@@ -183,7 +183,7 @@ impl StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
-            format!("/v3/transactions/{}", &txid),
+            format!("/v3/transaction/{}", &txid),
             HttpRequestContents::new(),
         )
         .expect("FATAL: failed to construct request from infallible data")
