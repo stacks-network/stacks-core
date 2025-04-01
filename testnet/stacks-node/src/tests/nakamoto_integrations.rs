@@ -12036,7 +12036,6 @@ fn v3_transaction_api_endpoint() {
 
     let password = "12345".to_string();
     conf.connection_options.auth_token = Some(password.clone());
-    conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let stacker_sk = setup_stacker(&mut conf);
     let signer_sk = Secp256k1PrivateKey::random();
     let signer_addr = tests::to_addr(&signer_sk);
