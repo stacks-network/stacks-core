@@ -103,21 +103,6 @@ jobs:
       is_node_release: ${{ needs.check-release.outputs.is_node_release }}
       is_signer_release: ${{ needs.check-release.outputs.is_signer_release }}
 
-  ## Build and push Debian image built from source
-  ##
-  ## Runs when:
-  ##  - it is not a node or signer-only release run
-  docker-image:
-    if: |
-      needs.check-release.outputs.is_node_release != 'true' ||
-      needs.check-release.outputs.is_signer_release != 'true'
-    name: Docker Image (Source)
-    uses: ./.github/workflows/image-build-source.yml
-    needs:
-      - rustfmt
-      - check-release
-    secrets: inherit
-
   ## Create a reusable cache for tests
   ##
   ## Runs when:
