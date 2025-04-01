@@ -1176,7 +1176,7 @@ fn test_tenure_start_end_from_inventory() {
         .unwrap();
         let bits = invs.tenures_inv.get(&rc).unwrap();
         for (i, wt) in wanted_tenures.iter().enumerate() {
-            if i >= (rc_len - 1).into() {
+            if i >= usize::from(rc_len - 1) {
                 // nothing here
                 assert!(!available.contains_key(&wt.tenure_id_consensus_hash));
                 continue;

@@ -518,6 +518,7 @@ where
             .with_test_signers(test_signers)
             .with_test_stackers(test_stackers),
     );
+
     plan.initial_balances.append(&mut initial_balances);
 
     let (peer, other_peers) = plan.boot_into_nakamoto_peers(boot_tenures, Some(observer));
@@ -578,7 +579,7 @@ fn check_inv_state(
 ) {
     for (i, (tenure_rc, tenure_inv)) in inv_state.tenures_inv.iter().enumerate() {
         for bit in 0..(rc_len as usize) {
-            let msg_bit = if bit / 8 >= tenure_inv.len().into() {
+            let msg_bit = if bit / 8 >= usize::from(tenure_inv.len()) {
                 // only allowed at the end
                 debug!(
                     "bit = {}, tenure_rc = {}, tenure_inv = {:?}",

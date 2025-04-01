@@ -1397,6 +1397,7 @@ impl TestPeer<'_> {
                 self.sortdb.as_mut().unwrap(),
                 &sort_tip,
                 None,
+                self.config.txindex,
             )?
         else {
             return Ok(false);
