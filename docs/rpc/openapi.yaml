@@ -868,10 +868,10 @@ paths:
                 example: 7
   /v3/transaction/{txid}:
     post:
-      summary: Returns index_block_hash, transaction body and result given a TXID
+      summary: Retrieve transaction details by TXID
       tags:
         - Transactions
-      description: Get a JSON with the index_block_hash, the Transaction body as hex and the result.
+      description: Get a JSON with the transaction details including the `index_block_hash`, the hex-encoded transaction body, and the `result`.
       operationId: get_transaction
       parameters:
       - name: txid
