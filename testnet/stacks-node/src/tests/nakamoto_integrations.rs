@@ -11507,17 +11507,22 @@ fn v3_transactions_api_endpoint() {
     };
 
     let get_transaction_from_block = |index_block_hash: String, txid: String| {
-        for block_json in test_observer::get_blocks() {
-            if block_json["index_block_hash"].as_str().unwrap() == format!("0x{}", index_block_hash)
-            {
-                for transaction_json in block_json["transactions"].as_array().unwrap() {
-                    if transaction_json["txid"].as_str().unwrap() == format!("0x{}", txid) {
-                        return Some(transaction_json["raw_tx"].as_str().unwrap().to_string());
-                    }
-                }
-            }
-        }
-        None
+        test_observer::get_blocks()
+            .into_iter()
+            .find(|block_json| {
+                block_json["index_block_hash"].as_str().unwrap()
+                    == format!("0x{}", index_block_hash)
+            })
+            .and_then(|block_json| {
+                block_json["transactions"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|transaction| {
+                        transaction["txid"].as_str().unwrap() == format!("0x{}", txid)
+                    })
+                    .map(|transaction| transaction["raw_tx"].as_str().unwrap().to_string())
+            })
     };
 
     let block_events = test_observer::get_mined_nakamoto_blocks();
