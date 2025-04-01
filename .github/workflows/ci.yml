@@ -102,7 +102,6 @@ jobs:
       signer_docker_tag: ${{ needs.check-release.outputs.signer_docker_tag }}
       is_node_release: ${{ needs.check-release.outputs.is_node_release }}
       is_signer_release: ${{ needs.check-release.outputs.is_signer_release }}
-    secrets: inherit
 
   ## Build and push Debian image built from source
   ##
