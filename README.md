@@ -77,6 +77,8 @@ _Warning, this typically takes a few minutes_
 cargo nextest run
 ```
 
+_On Windows, many tests will fail, mainly due to parallelism. To mitigate the issue you may need to run the tests individually._
+
 ## Run the testnet
 
 You can observe the state machine in action locally by running:
@@ -84,8 +86,6 @@ You can observe the state machine in action locally by running:
 ```bash
 cargo run --bin stacks-node -- start --config ./sample/conf/testnet-follower-conf.toml
 ```
-
-_On Windows, many tests will fail if the line endings aren't `LF`. Please ensure that you have git's `core.autocrlf` set to `input` when you clone the repository to avoid any potential issues. This is due to the Clarity language currently being sensitive to line endings._
 
 Additional testnet documentation is available [here](./docs/testnet.md) and [here](https://docs.stacks.co/docs/nodes-and-miners/miner-testnet)
 

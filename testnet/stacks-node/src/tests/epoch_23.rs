@@ -17,8 +17,10 @@ use std::collections::HashMap;
 use std::{env, thread};
 
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::Value;
 use stacks::burnchains::{Burnchain, PoxConstants};
 use stacks::config::InitialBalance;
+use stacks::core::test_util::make_contract_call;
 use stacks::core::{self, EpochList, STACKS_EPOCH_MAX};
 use stacks_common::util::sleep_ms;
 

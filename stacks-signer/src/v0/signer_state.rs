@@ -18,8 +18,8 @@ use std::time::{Duration, UNIX_EPOCH};
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use libsigner::v0::messages::{
-    StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,
-    StateMachineUpdateMinerState,
+    MessageSlotID, SignerMessage, StateMachineUpdate as StateMachineUpdateMessage,
+    StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
 use serde::{Deserialize, Serialize};
 use stacks_common::bitvec::BitVec;
@@ -32,11 +32,11 @@ use stacks_common::{info, warn};
 use crate::chainstate::{
     ProposalEvalConfig, SignerChainstateError, SortitionState, SortitionsView,
 };
-use crate::client::{ClientError, CurrentAndLastSortition, StacksClient};
+use crate::client::{ClientError, CurrentAndLastSortition, StackerDB, StacksClient};
 use crate::signerdb::SignerDb;
 
 /// This is the latest supported protocol version for this signer binary
-pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 1;
+pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 0;
 
 /// A signer state machine view. This struct can
 ///  be used to encode the local signer's view or
@@ -158,7 +158,22 @@ impl LocalStateMachine {
             burn_block: ConsensusHash::empty(),
             burn_block_height: 0,
             current_miner: MinerState::NoValidMiner,
-            active_signer_protocol_version: 1,
+            active_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        }
+    }
+
+    /// Send the local state machine as a signer update message to stackerdb
+    pub fn send_signer_update_message(&self, stackerdb: &mut StackerDB<MessageSlotID>) {
+        let update: Result<StateMachineUpdateMessage, _> = self.try_into();
+        match update {
+            Ok(update) => {
+                if let Err(e) = stackerdb.send_message_with_retry::<SignerMessage>(update.into()) {
+                    warn!("Failed to send signer update to stacker-db: {e:?}",);
+                }
+            }
+            Err(e) => {
+                warn!("Failed to convert local signer state to a signer message: {e:?}");
+            }
         }
     }
 
@@ -256,7 +271,6 @@ impl LocalStateMachine {
                 "inactive_tenure_ch" => %inactive_tenure_ch,
                 "new_active_tenure_ch" => %new_active_tenure_ch
             );
-
             Ok(())
         } else {
             warn!("Current miner timed out due to inactivity, but prior miner is not valid. Allowing current miner to continue");

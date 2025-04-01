@@ -1363,6 +1363,37 @@ pub fn sign_standard_singlesig_tx(
     tx_signer.get_tx().unwrap()
 }
 
+pub fn sign_sponsored_singlesig_tx(
+    payload: TransactionPayload,
+    origin: &StacksPrivateKey,
+    sponsor: &StacksPrivateKey,
+    origin_nonce: u64,
+    sponsor_nonce: u64,
+    tx_fee: u64,
+) -> StacksTransaction {
+    let mut origin_spending_condition =
+        TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(origin))
+            .expect("Failed to create p2pkh spending condition from public key.");
+    origin_spending_condition.set_nonce(origin_nonce);
+    origin_spending_condition.set_tx_fee(tx_fee);
+    let mut sponsored_spending_condition =
+        TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sponsor))
+            .expect("Failed to create p2pkh spending condition from public key.");
+    sponsored_spending_condition.set_nonce(sponsor_nonce);
+    sponsored_spending_condition.set_tx_fee(tx_fee);
+    let auth = TransactionAuth::Sponsored(origin_spending_condition, sponsored_spending_condition);
+    let mut unsigned_tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
+
+    unsigned_tx.chain_id = 0x80000000;
+    unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
+
+    let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+    tx_signer.sign_origin(origin).unwrap();
+    tx_signer.sign_sponsor(sponsor).unwrap();
+
+    tx_signer.get_tx().unwrap()
+}
+
 pub fn get_stacks_account(peer: &mut TestPeer, addr: &PrincipalData) -> StacksAccount {
     let account = peer
         .with_db_state(|ref mut sortdb, ref mut chainstate, _, _| {

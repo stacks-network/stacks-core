@@ -1,2 +1,6 @@
 legacy/* linguist-vendored
-* text=lf
+# Enforcing 'lf' eol mainly for:
+# - 'stx-genesis' package, where txt files need hash computation and comparison
+# - 'clarity' package, where clarity language is sensitive to line endings for .clar files
+# anyhow, setting eol for all text files to have a homogeneous management over the whole code base
+* text eol=lf
