@@ -3263,6 +3263,7 @@ name = "stackslib"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff 1.1.0",
+ "chrono",
  "clarity",
  "ed25519-dalek",
  "hashbrown 0.15.2",
