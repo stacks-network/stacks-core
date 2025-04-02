@@ -105,7 +105,7 @@ jobs:
           signer_docker_tag: ${{ inputs.signer_docker_tag }}
           is_node_release: ${{ inputs.is_node_release }}
           is_signer_release: ${{ inputs.is_signer_release }}
-          GH_TOKEN: ${{ github.TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 
   ## Builds arch dependent Docker images from binaries
@@ -162,4 +162,4 @@ jobs:
         id: create-pr
         uses: stacks-network/actions/stacks-core/release/downstream-pr@main
         with:
-          token: ${{ github.TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
