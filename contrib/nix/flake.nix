@@ -185,7 +185,7 @@
       with pkgs;
       {
         packages = {
-          inherit stacks-signer stacks-common cargoArtifacts stacks-core;
+          inherit stacks-signer stacks-common;
           default = stacks-core;
         };
 
