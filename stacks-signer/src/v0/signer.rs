@@ -82,6 +82,8 @@ pub struct Signer {
     #[cfg(not(any(test, feature = "testing")))]
     /// The private key of the signer
     private_key: StacksPrivateKey,
+    /// The signer address
+    pub stacks_address: StacksAddress,
     /// The stackerdb client
     pub stackerdb: StackerDB<MessageSlotID>,
     /// Whether the signer is a mainnet signer or not
@@ -146,8 +148,13 @@ impl SignerTrait<SignerMessage> for Signer {
                 warn!("Failed to initialize local state machine for signer: {e:?}");
                 LocalStateMachine::Uninitialized
             });
+        let stacks_address = StacksAddress::p2pkh(
+            signer_config.mainnet,
+            &StacksPublicKey::from_private(&signer_config.stacks_private_key),
+        );
         Self {
             private_key: signer_config.stacks_private_key,
+            stacks_address,
             stackerdb,
             mainnet: signer_config.mainnet,
             mode,
@@ -250,6 +257,12 @@ impl SignerTrait<SignerMessage> for Signer {
                             ) {
                                 warn!("{self}: Failed to update global state in signerdb: {e}");
                             }
+                            self.local_state_machine.capitulate_miner_view(
+                                &mut self.signer_db,
+                                self.reward_cycle,
+                                self.stacks_address,
+                                &self.signer_weights,
+                            );
                         }
                         _ => {}
                     }

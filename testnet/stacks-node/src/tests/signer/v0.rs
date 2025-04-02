@@ -1797,7 +1797,7 @@ fn forked_tenure_invalid() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
-    let result = forked_tenure_testing(Duration::from_secs(5), Duration::from_secs(7), false);
+    let result = forked_tenure_testing(Duration::from_secs(5), None, Duration::from_secs(7), false);
 
     assert_ne!(
         result.tip_b.index_block_hash(),
@@ -1864,7 +1864,8 @@ fn forked_tenure_okay() {
         return;
     }
 
-    let result = forked_tenure_testing(Duration::from_secs(360), Duration::from_secs(0), true);
+    let result =
+        forked_tenure_testing(Duration::from_secs(360), None, Duration::from_secs(0), true);
 
     assert_ne!(result.tip_b, result.tip_a);
     assert_ne!(result.tip_b, result.tip_c);
@@ -2050,6 +2051,7 @@ fn reloads_signer_set_in() {
 ///  * tenure C ignores b_0, and correctly builds off of block a_x.
 fn forked_tenure_testing(
     proposal_limit: Duration,
+    odd_proposal_limit: Option<Duration>,
     post_btc_block_pause: Duration,
     expect_tenure_c: bool,
 ) -> TenureForkingResult {
@@ -2069,7 +2071,17 @@ fn forked_tenure_testing(
         vec![(sender_addr, send_amt + send_fee)],
         |config| {
             // make the duration long enough that the reorg attempt will definitely be accepted
-            config.first_proposal_burn_block_timing = proposal_limit;
+            config.first_proposal_burn_block_timing = odd_proposal_limit
+                .map(|limit| {
+                    if config.endpoint.port() % 2 == 1 {
+                        // 2/5 or 40% of signers will have this seperate limit
+                        limit
+                    } else {
+                        // 3/5 or 60% of signers will have this original limit
+                        proposal_limit
+                    }
+                })
+                .unwrap_or(proposal_limit);
             // don't allow signers to post signed blocks (limits the amount of fault injection we
             // need)
             TEST_SKIP_BLOCK_BROADCAST.set(true);
@@ -13375,4 +13387,79 @@ fn signers_send_state_message_updates() {
         starting_peer_height + 1
     );
     miners.shutdown();
+}
+
+#[test]
+#[ignore]
+fn reorging_capitulate_to_nonreorging_signers_during_tenure_fork() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let result = forked_tenure_testing(
+        Duration::from_secs(360),
+        Some(Duration::from_secs(5)),
+        Duration::from_secs(7),
+        false,
+    );
+
+    assert_ne!(
+        result.tip_b.index_block_hash(),
+        result.tip_a.index_block_hash()
+    );
+    assert_eq!(
+        result.tip_b.index_block_hash(),
+        result.tip_c.index_block_hash()
+    );
+    assert_ne!(result.tip_c, result.tip_a);
+
+    // Block B was built atop block A
+    assert_eq!(
+        result.tip_b.stacks_block_height,
+        result.tip_a.stacks_block_height + 1
+    );
+    assert_eq!(
+        result.mined_b.parent_block_id,
+        result.tip_a.index_block_hash().to_string()
+    );
+
+    // Block C was built AFTER Block B was built, but BEFORE it was broadcasted, so it should be built off of Block A
+    assert_eq!(
+        result.mined_c.parent_block_id,
+        result.tip_a.index_block_hash().to_string()
+    );
+    assert_ne!(
+        result
+            .tip_c
+            .anchored_header
+            .as_stacks_nakamoto()
+            .unwrap()
+            .signer_signature_hash(),
+        result.mined_c.signer_signature_hash,
+        "Mined block during tenure C should not have become the chain tip"
+    );
+
+    assert!(result.tip_c_2.is_none());
+    assert!(result.mined_c_2.is_none());
+
+    // Tenure D should continue progress
+    assert_ne!(result.tip_c, result.tip_d);
+    assert_ne!(
+        result.tip_b.index_block_hash(),
+        result.tip_d.index_block_hash()
+    );
+    assert_ne!(result.tip_a, result.tip_d);
+
+    // Tenure D builds off of Tenure B
+    assert_eq!(
+        result.tip_d.stacks_block_height,
+        result.tip_b.stacks_block_height + 1,
+    );
+    assert_eq!(
+        result.mined_d.parent_block_id,
+        result.tip_b.index_block_hash().to_string()
+    );
+
+    // We should see all signers rejecting the forked block
+    wait_for_block_global_rejection(60, result.mined_c.signer_signature_hash, 5).unwrap();
 }
