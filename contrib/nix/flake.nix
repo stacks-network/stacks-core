@@ -48,7 +48,7 @@
         version = versions.stacks_node_version;
 
         # Common arguments can be set here to avoid repeating them later
-        commonArgs = {
+        baseArgs = {
           strictDeps = true;
 
           buildInputs =
@@ -59,6 +59,39 @@
               # Darwin specific inputs
               pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
             ];
+
+            src = fileSetForCrate ../..;
+            inherit version;
+        };
+
+         isClarityWASM = p: lib.hasPrefix "git+https://github.com/stacks-network/clarity-wasm.git" p.source;
+
+         cargoVendorDir = craneLib.vendorCargoDeps (
+           baseArgs
+           // {
+             # Use this function to override crates coming from git dependencies
+             overrideVendorGitCheckout =
+               ps: drv:
+               if lib.any (p: isClarityWASM p) ps then
+                 drv.overrideAttrs (_old: {
+                   patches = [
+                     (builtins.fetchurl {
+                       url = "https://github.com/stacks-network/clarity-wasm/pull/627.patch";
+                       sha256 = "sha256:161mx1m21770lrsc2lfqlwzyydhy8f9bc7pmqb26rcki7s2ar31r";
+                     })
+                   ];
+                 })
+               else
+                 # Nothing to change, leave the derivations as is
+                 drv;
+
+             # Use this function to override crates coming from any registry checkout
+             overrideVendorCargoPackage = p: drv: drv;
+           }
+         );
+
+        commonArgs = baseArgs // {
+          inherit cargoVendorDir;
         };
 
         # Build *just* the cargo dependencies, so we can reuse
@@ -66,9 +99,8 @@
         cargoArtifacts = craneLib.buildDepsOnly (
           commonArgs
           // {
-            inherit version;
             pname = name;
-            src = fileSetForCrate ../..;
+            dummySrc = commonArgs.src;
           }
         );
 
@@ -85,8 +117,8 @@
           lib.fileset.toSource {
             root = ../..;
             fileset = lib.fileset.unions [
-              ../../Cargo.toml
-              ../../Cargo.lock
+              (craneLib.fileset.commonCargoSources ../..)
+              (craneLib.fileset.configToml ../..)
               #
               ../../versions.toml
               #
@@ -154,7 +186,7 @@
       with pkgs;
       {
         packages = {
-          inherit stacks-signer stacks-common;
+          inherit stacks-signer stacks-common cargoArtifacts stacks-core;
           default = stacks-core;
         };
 
