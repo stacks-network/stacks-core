@@ -669,20 +669,18 @@ impl BlockMinerThread {
             return Ok(());
         };
 
-        // Wait for the last block to be processed before proceeding
         if let Some(last_block_mined) = &self.last_block_mined {
+            // Wait until the last block mined has been processed
             loop {
-                let (stacks_tip_ch, stacks_tip_bh) =
-                    SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).map_err(
-                        |e| {
-                            error!("Failed to load canonical Stacks tip: {e:?}");
-                            NakamotoNodeError::ParentNotFound
-                        },
-                    )?;
+                let (_, processed, _, _) = chain_state
+                    .nakamoto_blocks_db()
+                    .get_block_processed_and_signed_weight(
+                        &last_block_mined.header.consensus_hash,
+                        &last_block_mined.header.block_hash(),
+                    )?
+                    .ok_or_else(|| NakamotoNodeError::UnexpectedChainState)?;
 
-                if last_block_mined.header.consensus_hash == stacks_tip_ch
-                    && last_block_mined.header.block_hash() == stacks_tip_bh
-                {
+                if processed {
                     break;
                 }
 
