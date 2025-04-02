@@ -3290,7 +3290,6 @@ fn miner_writes_proposed_block_to_stackerdb() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    naka_conf.miner.min_time_between_blocks_ms = 1_000_000;
     let sender_sk = Secp256k1PrivateKey::random();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
