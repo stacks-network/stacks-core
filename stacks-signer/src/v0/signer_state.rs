@@ -29,7 +29,7 @@ use stacks_common::codec::Error as CodecError;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::{info, warn};
+use stacks_common::{debug, error, info, warn};
 
 use crate::chainstate::{
     ProposalEvalConfig, SignerChainstateError, SortitionState, SortitionsView,
@@ -565,6 +565,7 @@ impl LocalStateMachine {
         for (signer_address, update) in &updates {
             let StateMachineUpdateContent::V0 {
                 burn_block,
+                burn_block_height,
                 current_miner,
                 ..
             } = &update.content;
@@ -575,70 +576,99 @@ impl LocalStateMachine {
 
             let entry = bitcoin_blocks.entry(burn_block).or_insert_with(|| 0);
             *entry += weight;
-            if *entry >= total_weight * 7 / 10 {
-                let StateMachineUpdateMessage {
-                    active_signer_protocol_version,
-                    content:
-                        StateMachineUpdateContent::V0 {
-                            burn_block: local_burn_block,
-                            current_miner: local_current_miner,
-                            burn_block_height: local_burn_block_height,
-                        },
-                    ..
-                } = &local_update;
-                if local_burn_block != burn_block {
-                    // We are either ahead or behing...so we have to wait for us to either catch up or for others to catch up with me
-                    return;
+            if *entry < total_weight * 7 / 10 {
+                continue;
+            }
+            let StateMachineUpdateMessage {
+                active_signer_protocol_version,
+                content:
+                    StateMachineUpdateContent::V0 {
+                        burn_block: local_burn_block,
+                        burn_block_height: local_burn_block_height,
+                        current_miner: local_current_miner,
+                    },
+                ..
+            } = &local_update;
+            if local_burn_block != burn_block {
+                // We have a different burn view than the global burn view...we should not really do anything in this case but wait...
+                match local_burn_block_height.cmp(burn_block_height) {
+                    std::cmp::Ordering::Equal => {
+                        warn!("Local state machine has encountered a Bitcoin fork";
+                            "burn_block_height" => local_burn_block_height,
+                            "local_burn_block" => %local_burn_block,
+                            "global_burn_block" => %burn_block,
+                        )
+                    }
+                    std::cmp::Ordering::Greater => {
+                        debug!("Local state machine burn block height is ahead of the global signer state burn block height";
+                            "local_burn_block_height" => local_burn_block_height,
+                            "local_burn_block" => %local_burn_block,
+                            "global_burn_block_height" => burn_block_height,
+                            "global_burn_block" => %local_burn_block,
+                        )
+                    }
+                    std::cmp::Ordering::Less => {
+                        debug!("Local state machine burn block height is behind the global signer state burn block height";
+                            "local_burn_block_height" => local_burn_block_height,
+                            "local_burn_block" => %local_burn_block,
+                            "global_burn_block_height" => burn_block_height,
+                            "global_burn_block" => %local_burn_block,
+                        )
+                    }
                 }
-                // we have consensus on the bitcoin view therefore, so check if we have consensus on the active miner...
-                // This is safe to unwrap
-                if let Some(miners) = current_miners.get(burn_block) {
-                    for (miner_state, weight) in miners {
-                        if *miner_state == local_current_miner {
-                            continue;
-                        }
-                        // Is there really any benefit in viewing "NoValidMiner"? Prob not, so don't worry about that. Only care if we have
-                        // multiple viewpoints of different active miner states!
-                        if let StateMachineUpdateMinerState::ActiveMiner {
+                return;
+            }
+            // we have consensus on the bitcoin view therefore, so check if we have consensus on the active miner...
+            let Some(miners) = current_miners.get(burn_block) else {
+                // This shouldn't really ever hit, but lets just log an error for now.
+                error!("Consensus reached that burn block {burn_block} is the global view, but no corresponding miner view found. This should not happen and may be indicative of a logic issue.");
+                return;
+            };
+            for (miner_state, weight) in miners {
+                if *miner_state == local_current_miner {
+                    continue;
+                }
+                // Is there really any benefit in viewing "NoValidMiner"? Prob not, so don't worry about that. Only care if we have
+                // multiple viewpoints of different active miner states!
+                let StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh,
+                    tenure_id,
+                    parent_tenure_id,
+                    parent_tenure_last_block,
+                    parent_tenure_last_block_height,
+                } = **miner_state
+                else {
+                    continue;
+                };
+                let nmb_blocks = signerdb
+                    .get_globally_accepted_block_count_in_tenure(&tenure_id)
+                    .unwrap_or(0);
+                if (nmb_blocks > 0 && *weight >= total_weight * 3 / 10)
+                    || nmb_blocks == 0 && *weight >= total_weight * 7 / 10
+                {
+                    info!("Capitulating local state machine's current miner viewpoint";
+                        "current_miner_pkh" => %current_miner_pkh,
+                        "tenure_id" => %tenure_id,
+                        "parent_tenure_id" => %parent_tenure_id,
+                        "parent_tenure_last_block" => %parent_tenure_last_block,
+                        "parent_tenure_last_block_height" => parent_tenure_last_block_height,
+                        "nmb_globally_accepted_blocks" => nmb_blocks,
+                        "weight" => *weight,
+                        "total_weight" => total_weight
+                    );
+                    *self = Self::Initialized(SignerStateMachine {
+                        burn_block: *local_burn_block,
+                        burn_block_height: *local_burn_block_height,
+                        current_miner: MinerState::ActiveMiner {
                             current_miner_pkh,
                             tenure_id,
                             parent_tenure_id,
                             parent_tenure_last_block,
                             parent_tenure_last_block_height,
-                        } = **miner_state
-                        {
-                            let nmb_blocks = signerdb
-                                .get_globally_accepted_block_count_in_tenure(&tenure_id)
-                                .unwrap_or(0);
-                            if (nmb_blocks > 0 && *weight >= total_weight * 3 / 10)
-                                || nmb_blocks == 0 && *weight >= total_weight * 7 / 10
-                            {
-                                info!("Capitulating local state machine's current miner viewpoint";
-                                    "current_miner_pkh" => %current_miner_pkh,
-                                    "tenure_id" => %tenure_id,
-                                    "parent_tenure_id" => %parent_tenure_id,
-                                    "parent_tenure_last_block" => %parent_tenure_last_block,
-                                    "parent_tenure_last_block_height" => parent_tenure_last_block_height,
-                                    "nmb_globally_accepted_blocks" => nmb_blocks,
-                                    "weight" => *weight,
-                                    "total_weight" => total_weight
-                                );
-                                *self = Self::Initialized(SignerStateMachine {
-                                    burn_block: *local_burn_block,
-                                    burn_block_height: *local_burn_block_height,
-                                    current_miner: MinerState::ActiveMiner {
-                                        current_miner_pkh,
-                                        tenure_id,
-                                        parent_tenure_id,
-                                        parent_tenure_last_block,
-                                        parent_tenure_last_block_height,
-                                    },
-                                    active_signer_protocol_version: *active_signer_protocol_version,
-                                });
-                                return;
-                            }
-                        }
-                    }
+                        },
+                        active_signer_protocol_version: *active_signer_protocol_version,
+                    });
+                    return;
                 }
             }
         }

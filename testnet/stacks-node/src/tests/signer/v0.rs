@@ -13462,4 +13462,44 @@ fn reorging_capitulate_to_nonreorging_signers_during_tenure_fork() {
 
     // We should see all signers rejecting the forked block
     wait_for_block_global_rejection(60, result.mined_c.signer_signature_hash, 5).unwrap();
+
+    wait_for(60, || {
+        let stackerdb_events = test_observer::get_stackerdb_chunks();
+        let mut collected = HashSet::new();
+        for chunk in stackerdb_events
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+        {
+            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                .expect("Failed to deserialize SignerMessage");
+            let SignerMessage::StateMachineUpdate(update) = message else {
+                continue;
+            };
+            let StateMachineUpdateContent::V0 {
+                burn_block,
+                burn_block_height,
+                current_miner:
+                    StateMachineUpdateMinerState::ActiveMiner {
+                        tenure_id,
+                        parent_tenure_id,
+                        ..
+                    },
+            } = &update.content
+            else {
+                continue;
+            };
+            if *burn_block_height != result.tip_c.burn_header_height as u64
+                || *burn_block != result.tip_c.consensus_hash
+                || *tenure_id != result.tip_d.consensus_hash
+                || *parent_tenure_id != result.tip_a.consensus_hash
+            {
+                continue;
+            }
+            collected.insert(chunk.sig);
+        }
+        Ok(collected.len() == 5)
+    })
+    .expect(
+        "Timed out waiting for the expected updates from signers to arrive due to capitulation",
+    );
 }
