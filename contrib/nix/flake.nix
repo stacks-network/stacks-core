@@ -18,11 +18,10 @@
     crane = {
       url = "github:ipetkov/crane";
     };
-
   };
 
   outputs =
-    {
+    { self,
       nixpkgs,
       flake-utils,
       rust-overlay,
@@ -202,9 +201,7 @@
           default = stacks-node;
         };
 
-        checks = {
-          inherit stacks-core;
-        };
+        checks = self.packages."${system}";
 
         devShells.default = craneLib.devShell {
           RUSTFMT = "${toolchain}/bin/rustfmt";
