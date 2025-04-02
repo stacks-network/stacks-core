@@ -1907,7 +1907,7 @@ pub fn send_http_request(
         if Instant::now().saturating_duration_since(start) > timeout {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
-                "Timed out while receiving request",
+                "Timed out while sending request",
             ));
         }
         // Heartbeat log
@@ -1960,7 +1960,7 @@ pub fn send_http_request(
         if Instant::now().saturating_duration_since(start) > timeout {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
-                "Timed out while receiving request",
+                "Timed out while receiving response",
             ));
         }
         // Heartbeat log
