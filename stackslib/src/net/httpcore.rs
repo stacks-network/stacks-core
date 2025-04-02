@@ -70,6 +70,9 @@ pub const STACKS_REQUEST_ID: &str = "X-Request-Id";
 /// from non-Stacks nodes (like Gaia hubs, CDNs, vanilla HTTP servers, and so on).
 pub const HTTP_REQUEST_ID_RESERVED: u32 = 0;
 
+/// The interval at which to send heartbeat logs
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(60);
+
 /// All representations of the `tip=` query parameter value
 #[derive(Debug, Clone, PartialEq)]
 pub enum TipRequest {
@@ -1823,8 +1826,8 @@ pub fn send_http_request(
     stream.set_nodelay(true)?;
 
     let start = Instant::now();
-
-    debug!("send_request: Sending request"; "request" => %request.request_path());
+    let request_path = request.request_path();
+    debug!("send_request: Sending request"; "request" => request_path);
 
     // Some explanation of what's going on here is in order.
     //
@@ -1882,6 +1885,7 @@ pub fn send_http_request(
         .map_err(|e| handle_net_error(e, "Failed to serialize request body"))?;
 
     debug!("send_request(sending data)");
+    let mut last_heartbeat_time = start; // Initialize heartbeat timer for sending loop
     loop {
         let flushed = request_handle
             .try_flush()
@@ -1906,12 +1910,21 @@ pub fn send_http_request(
                 "Timed out while receiving request",
             ));
         }
+        // Heartbeat log
+        if Instant::now().saturating_duration_since(last_heartbeat_time) >= HEARTBEAT_INTERVAL {
+            info!(
+                "send_request(sending data): heartbeat - still sending request to {} path='{}' (elapsed: {:?})",
+                addr, request_path, start.elapsed()
+            );
+            last_heartbeat_time = Instant::now();
+        }
     }
 
     // Step 4: pull bytes from the socket back into the handle, and see if the connection decoded
     // and dispatched any new messages to the request handle.  If so, then extract the message and
     // check that it's a well-formed HTTP response.
     debug!("send_request(receiving data)");
+    last_heartbeat_time = Instant::now();
     let response = loop {
         // get back the reply
         debug!("send_request(receiving data): try to receive data");
@@ -1949,6 +1962,14 @@ pub fn send_http_request(
                 io::ErrorKind::WouldBlock,
                 "Timed out while receiving request",
             ));
+        }
+        // Heartbeat log
+        if Instant::now().saturating_duration_since(last_heartbeat_time) >= HEARTBEAT_INTERVAL {
+            info!(
+                "send_request(receiving data): heartbeat - still receiving response from {} path='{}' (elapsed: {:?})",
+                addr, request_path, start.elapsed()
+            );
+            last_heartbeat_time = Instant::now();
         }
     };
 
