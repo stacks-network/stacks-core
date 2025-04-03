@@ -163,7 +163,7 @@ impl LocalStateMachine {
         }
     }
 
-    /// Send the local tate machine as an signer update message to stackerdb
+    /// Send the local state machine as a signer update message to stackerdb
     pub fn send_signer_update_message(&self, stackerdb: &mut StackerDB<MessageSlotID>) {
         let update: Result<StateMachineUpdateMessage, _> = self.try_into();
         match update {

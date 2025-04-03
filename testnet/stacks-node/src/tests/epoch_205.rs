@@ -13,6 +13,9 @@ use stacks::chainstate::stacks::{
     StacksBlockHeader, StacksPrivateKey, StacksTransaction, TransactionPayload,
 };
 use stacks::config::{EventKeyType, InitialBalance};
+use stacks::core::test_util::{
+    make_contract_call, make_contract_call_mblock_only, make_contract_publish, to_addr,
+};
 use stacks::core::{
     self, EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,

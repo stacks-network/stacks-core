@@ -27,6 +27,7 @@ use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{Error, StacksTransaction, TransactionPayload};
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::config::InitialBalance;
+use stacks::core::test_util::{make_contract_call, to_addr};
 use stacks::core::{self, EpochList, StacksEpochId};
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::consts::STACKS_EPOCH_MAX;
@@ -42,7 +43,6 @@ use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_pox_info, neon_integration_test_conf, next_block_and_wait,
     submit_tx, test_observer, wait_for_runloop,
 };
-use crate::tests::{make_contract_call, to_addr};
 use crate::{neon, BitcoinRegtestController, BurnchainController};
 
 #[cfg(test)]
