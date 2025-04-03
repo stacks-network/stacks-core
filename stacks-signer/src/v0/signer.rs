@@ -142,12 +142,11 @@ impl SignerTrait<SignerMessage> for Signer {
             SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
         let proposal_config = ProposalEvalConfig::from(&signer_config);
 
-        let signer_state =
-            LocalStateMachine::new(&signer_db, stacks_client, &proposal_config)
-                .unwrap_or_else(|e| {
-                    warn!("Failed to initialize local state machine for signer: {e:?}");
-                    LocalStateMachine::Uninitialized
-                });
+        let signer_state = LocalStateMachine::new(&signer_db, stacks_client, &proposal_config)
+            .unwrap_or_else(|e| {
+                warn!("Failed to initialize local state machine for signer: {e:?}");
+                LocalStateMachine::Uninitialized
+            });
         Self {
             private_key: signer_config.stacks_private_key,
             stackerdb,
