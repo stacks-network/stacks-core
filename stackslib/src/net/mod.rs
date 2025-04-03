@@ -2883,9 +2883,10 @@ pub mod test {
         pub fn test_path(config: &TestPeerConfig) -> String {
             let random = thread_rng().gen::<u64>();
             let random_bytes = to_hex(&random.to_be_bytes());
+            let cleaned_config_test_name = config.test_name.replace("::", "_");
             format!(
                 "/tmp/stacks-node-tests/units-test-peer/{}-{}",
-                &config.test_name, random_bytes
+                &cleaned_config_test_name, random_bytes
             )
         }
 

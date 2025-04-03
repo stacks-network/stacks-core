@@ -782,7 +782,7 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b584a330336237c1eecd3e94266efb216c56ed91225d634cb2991c5f3fd1aeab"
 dependencies = [
- "generic-array 0.14.7",
+ "generic-array",
  "subtle",
 ]
 
@@ -1418,7 +1418,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17ea0a1394df5b6574da6e0c1ade9e78868c9fb0a4e5ef4428e32da4676b85b1"
 dependencies = [
  "digest 0.9.0",
- "generic-array 0.14.7",
+ "generic-array",
  "hmac 0.8.1",
 ]
 
@@ -1822,18 +1822,12 @@ dependencies = [
  "libc",
  "libstackerdb",
  "mutants",
- "prometheus",
  "rand 0.8.5",
  "rand_core 0.6.4",
- "secp256k1",
  "serde",
- "serde_derive",
  "serde_json",
- "serde_stacker",
  "sha2 0.10.8",
  "slog",
- "slog-json",
- "slog-term",
  "stacks-common",
  "stackslib",
  "thiserror",
@@ -1858,8 +1852,6 @@ dependencies = [
  "clarity",
  "secp256k1",
  "serde",
- "serde_derive",
- "serde_stacker",
  "sha2 0.10.8",
  "stacks-common",
 ]
@@ -3209,7 +3201,6 @@ dependencies = [
  "mutants",
  "pico-args",
  "rand 0.8.5",
- "rand_core 0.6.4",
  "regex",
  "reqwest",
  "rusqlite",
@@ -3252,9 +3243,7 @@ dependencies = [
  "rusqlite",
  "secp256k1",
  "serde",
- "serde_derive",
  "serde_json",
- "serde_stacker",
  "slog",
  "slog-json",
  "slog-term",
@@ -3277,9 +3266,7 @@ dependencies = [
  "clarity",
  "ed25519-dalek",
  "hashbrown 0.15.2",
- "integer-sqrt",
  "lazy_static",
- "libc",
  "libstackerdb",
  "mio 0.6.23",
  "mutants",
@@ -3300,13 +3287,9 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "serde_stacker",
  "sha2 0.10.8",
- "sha3",
  "siphasher",
  "slog",
- "slog-json",
- "slog-term",
  "stacks-common",
  "stdext",
  "stx-genesis",

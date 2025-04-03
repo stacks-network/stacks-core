@@ -25,7 +25,6 @@ regex = "1"
 libsigner = { path = "../../libsigner" }
 url = "2.1.0"
 rand = { workspace = true }
-rand_core = { workspace = true }
 hashbrown = { workspace = true }
 rusqlite = { workspace = true }
 async-h1 = { version = "2.3.2", optional = true }
@@ -62,7 +61,7 @@ name = "stacks-events"
 path = "src/stacks_events.rs"
 
 [features]
-monitoring_prom = ["stacks/monitoring_prom", "libsigner/monitoring_prom", "stacks-signer/monitoring_prom", "async-h1", "async-std", "http-types"]
+monitoring_prom = ["stacks/monitoring_prom", "stacks-signer/monitoring_prom", "async-h1", "async-std", "http-types"]
 slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []
