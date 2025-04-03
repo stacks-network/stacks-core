@@ -660,15 +660,6 @@ impl BlockMinerThread {
             self.mined_blocks += 1;
         }
 
-        let Ok(sort_db) = SortitionDB::open(
-            &self.config.get_burn_db_file_path(),
-            true,
-            self.burnchain.pox_constants.clone(),
-        ) else {
-            error!("Failed to open sortition DB. Will try mining again.");
-            return Ok(());
-        };
-
         if let Some(last_block_mined) = &self.last_block_mined {
             // Wait until the last block mined has been processed
             loop {
@@ -685,6 +676,16 @@ impl BlockMinerThread {
                 }
 
                 thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
+
+                // Check if the burnchain tip has changed
+                let Ok(sort_db) = SortitionDB::open(
+                    &self.config.get_burn_db_file_path(),
+                    false,
+                    self.burnchain.pox_constants.clone(),
+                ) else {
+                    error!("Failed to open sortition DB. Will try mining again.");
+                    return Ok(());
+                };
                 if self.check_burn_tip_changed(&sort_db).is_err() {
                     return Err(NakamotoNodeError::BurnchainTipChanged);
                 }
