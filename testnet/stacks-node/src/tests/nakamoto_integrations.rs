@@ -6012,6 +6012,10 @@ fn nakamoto_attempt_time() {
                 break account;
             };
 
+            // Stall the miner to make sure it waits until all transactions are
+            // submitted before it mines a block
+            TEST_MINE_STALL.set(true);
+
             let mut sender_nonce = account.nonce;
             for _ in 0..txs_per_block {
                 let transfer_tx = make_stacks_transfer(
@@ -6025,6 +6029,8 @@ fn nakamoto_attempt_time() {
                 sender_nonce += 1;
                 submit_tx(&http_origin, &transfer_tx);
             }
+
+            TEST_MINE_STALL.set(false);
 
             // Miner should have made a new block by now
             let wait_start = Instant::now();
