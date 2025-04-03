@@ -21,6 +21,7 @@ jobs:
   image:
     name: Build Image
     runs-on: ubuntu-latest
+    ## Requires the repo environment "Push to Docker", which will trigger a secondary approval step before running this workflow.
     environment: "Push to Docker"
     steps:
       ## Setup Docker for the builds

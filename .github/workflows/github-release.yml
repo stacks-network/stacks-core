@@ -39,7 +39,8 @@ run-name: ${{ inputs.node_tag || inputs.signer_tag }}
 
 jobs:
   ## This job's sole purpose is trigger a secondary approval outside of the matrix jobs below. 
-  ## If this job isn't approved to run, then the subsequent jobs will also not run - for this reason, we always exit 0
+  ##   - If this job isn't approved to run, then the subsequent jobs will also not run - for this reason, we always exit 0
+  ##   - `andon-cord` requires the repo environment "Build Release", which will trigger a secondary approval step before running this workflow.  
   andon-cord:
     if: |
       inputs.node_tag != '' ||
