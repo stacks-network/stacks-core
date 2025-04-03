@@ -26,10 +26,7 @@ use stacks_common::util::hash::hex_bytes;
 
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::neon_integrations::*;
-use crate::tests::{
-    make_contract_call, make_contract_call_mblock_only, make_contract_publish,
-    run_until_burnchain_height, select_transactions_where, to_addr,
-};
+use crate::tests::{run_until_burnchain_height, select_transactions_where};
 use crate::{neon, BitcoinRegtestController, BurnchainController, Keychain};
 
 #[test]

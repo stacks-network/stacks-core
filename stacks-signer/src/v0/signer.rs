@@ -143,7 +143,7 @@ impl SignerTrait<SignerMessage> for Signer {
         let proposal_config = ProposalEvalConfig::from(&signer_config);
 
         let signer_state =
-            LocalStateMachine::new(&signer_db, &mut stackerdb, stacks_client, &proposal_config)
+            LocalStateMachine::new(&signer_db, stacks_client, &proposal_config)
                 .unwrap_or_else(|e| {
                     warn!("Failed to initialize local state machine for signer: {e:?}");
                     LocalStateMachine::Uninitialized
@@ -216,7 +216,7 @@ impl SignerTrait<SignerMessage> for Signer {
 
         let prior_state = self.local_state_machine.clone();
         if self.reward_cycle <= current_reward_cycle {
-            self.local_state_machine.handle_pending_update(&self.signer_db, &mut self.stackerdb, stacks_client, &self.proposal_config)
+            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client, &self.proposal_config)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
         }
 
@@ -340,7 +340,7 @@ impl SignerTrait<SignerMessage> for Signer {
                         panic!("{self} Failed to write burn block event to signerdb: {e}");
                     });
                 self.local_state_machine
-                    .bitcoin_block_arrival(&self.signer_db, &mut self.stackerdb, stacks_client, &self.proposal_config, Some(*burn_height))
+                    .bitcoin_block_arrival(&self.signer_db, stacks_client, &self.proposal_config, Some(*burn_height))
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
                 *sortition_state = None;
             }

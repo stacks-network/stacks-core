@@ -144,12 +144,11 @@ impl LocalStateMachine {
     ///  and signerdb for the current sortition information
     pub fn new(
         db: &SignerDb,
-        stackerdb: &mut StackerDB<MessageSlotID>,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
     ) -> Result<Self, SignerChainstateError> {
         let mut instance = Self::Uninitialized;
-        instance.bitcoin_block_arrival(db, stackerdb, client, proposal_config, None)?;
+        instance.bitcoin_block_arrival(db, client, proposal_config, None)?;
 
         Ok(instance)
     }
@@ -182,21 +181,16 @@ impl LocalStateMachine {
     pub fn handle_pending_update(
         &mut self,
         db: &SignerDb,
-        stackerdb: &mut StackerDB<MessageSlotID>,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
     ) -> Result<(), SignerChainstateError> {
         let LocalStateMachine::Pending { update, .. } = self else {
-            return self.check_miner_inactivity(db, stackerdb, client, proposal_config);
+            return self.check_miner_inactivity(db, client, proposal_config);
         };
         match update.clone() {
-            StateMachineUpdate::BurnBlock(expected_burn_height) => self.bitcoin_block_arrival(
-                db,
-                stackerdb,
-                client,
-                proposal_config,
-                Some(expected_burn_height),
-            ),
+            StateMachineUpdate::BurnBlock(expected_burn_height) => {
+                self.bitcoin_block_arrival(db, client, proposal_config, Some(expected_burn_height))
+            }
         }
     }
 
@@ -237,7 +231,6 @@ impl LocalStateMachine {
     fn check_miner_inactivity(
         &mut self,
         db: &SignerDb,
-        stackerdb: &mut StackerDB<MessageSlotID>,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
     ) -> Result<(), SignerChainstateError> {
@@ -278,8 +271,6 @@ impl LocalStateMachine {
                 "inactive_tenure_ch" => %inactive_tenure_ch,
                 "new_active_tenure_ch" => %new_active_tenure_ch
             );
-            // We have updated our state, so let other signers know.
-            self.send_signer_update_message(stackerdb);
             Ok(())
         } else {
             warn!("Current miner timed out due to inactivity, but prior miner is not valid. Allowing current miner to continue");
@@ -347,7 +338,6 @@ impl LocalStateMachine {
     /// Handle a new stacks block arrival
     pub fn stacks_block_arrival(
         &mut self,
-        stackerdb: &mut StackerDB<MessageSlotID>,
         ch: &ConsensusHash,
         height: u64,
         block_id: &StacksBlockId,
@@ -403,8 +393,6 @@ impl LocalStateMachine {
         *parent_tenure_last_block = *block_id;
         *parent_tenure_last_block_height = height;
         *self = LocalStateMachine::Initialized(prior_state_machine);
-        // We updated the block id and/or the height. Let other signers know our view has changed
-        self.send_signer_update_message(stackerdb);
         Ok(())
     }
 
@@ -452,7 +440,6 @@ impl LocalStateMachine {
     pub fn bitcoin_block_arrival(
         &mut self,
         db: &SignerDb,
-        stackerdb: &mut StackerDB<MessageSlotID>,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         mut expected_burn_height: Option<u64>,
@@ -460,7 +447,7 @@ impl LocalStateMachine {
         // set self to uninitialized so that if this function errors,
         //  self is left as uninitialized.
         let prior_state = std::mem::replace(self, Self::Uninitialized);
-        let prior_state_machine = match prior_state.clone() {
+        let prior_state_machine = match prior_state {
             // if the local state machine was uninitialized, just initialize it
             LocalStateMachine::Uninitialized => Self::place_holder(),
             LocalStateMachine::Initialized(signer_state_machine) => signer_state_machine,
@@ -538,10 +525,6 @@ impl LocalStateMachine {
             current_miner: miner_state,
             active_signer_protocol_version: prior_state_machine.active_signer_protocol_version,
         });
-
-        if prior_state != *self {
-            self.send_signer_update_message(stackerdb);
-        }
 
         Ok(())
     }
