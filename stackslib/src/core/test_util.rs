@@ -269,6 +269,20 @@ pub fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
     StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sk))
 }
 
+pub fn make_stacks_transfer_tx(
+    sender: &StacksPrivateKey,
+    nonce: u64,
+    tx_fee: u64,
+    chain_id: u32,
+    recipient: &PrincipalData,
+    amount: u64,
+) -> StacksTransaction {
+    let payload =
+        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+    sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id)
+}
+
+/// Make a stacks transfer transaction, returning the serialized transaction bytes
 pub fn make_stacks_transfer(
     sender: &StacksPrivateKey,
     nonce: u64,
@@ -277,9 +291,7 @@ pub fn make_stacks_transfer(
     recipient: &PrincipalData,
     amount: u64,
 ) -> Vec<u8> {
-    let payload =
-        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
-    let tx = sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id);
+    let tx = make_stacks_transfer_tx(sender, nonce, tx_fee, chain_id, recipient, amount);
     let mut tx_bytes = vec![];
     tx.consensus_serialize(&mut tx_bytes).unwrap();
     tx_bytes

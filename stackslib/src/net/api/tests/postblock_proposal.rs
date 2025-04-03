@@ -14,48 +14,38 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::rc::Rc;
 use std::sync::{Arc, Condvar, Mutex};
 
-use clarity::types::chainstate::{StacksPrivateKey, TrieHash};
-use clarity::util::secp256k1::MessageSignature;
-use clarity::util::vrf::VRFProof;
+use clarity::consts::CHAIN_ID_TESTNET;
+use clarity::types::chainstate::StacksPrivateKey;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
-use clarity::vm::{ClarityName, ContractName, Value};
+use clarity::vm::types::StandardPrincipalData;
 use mempool::{MemPoolDB, MemPoolEventDispatcher, ProposalCallbackReceiver};
 use postblock_proposal::{NakamotoBlockProposal, ValidateRejectCode};
-use stacks_common::bitvec::BitVec;
-use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
-use stacks_common::types::net::PeerHost;
-use stacks_common::types::{Address, StacksEpochId};
-use stacks_common::util::hash::{hex_bytes, Hash160, MerkleTree, Sha512Trunc256Sum};
+use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::types::StacksEpochId;
 
 use super::TestRPC;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction};
-use crate::chainstate::stacks::test::{make_codec_test_block, make_codec_test_nakamoto_block};
-use crate::chainstate::stacks::{
-    CoinbasePayload, StacksBlockHeader, StacksTransactionSigner, TenureChangeCause,
-    TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
-    TransactionPayload, TransactionPostConditionMode, TransactionVersion,
+use crate::chainstate::stacks::test::make_codec_test_nakamoto_block;
+use crate::core::test_util::{make_stacks_transfer_tx, to_addr};
+use crate::net::api::postblock_proposal::{
+    BlockValidateOk, BlockValidateReject, TEST_REPLAY_TRANSACTIONS,
 };
-use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
-use crate::net::httpcore::{
-    HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
-};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
 use crate::net::relay::Relayer;
 use crate::net::test::TestEventObserver;
-use crate::net::{ProtocolFamily, TipRequest};
+use crate::net::ProtocolFamily;
 
+#[warn(unused)]
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
@@ -117,7 +107,7 @@ fn test_try_parse_request() {
     parsed_request.clear_headers();
     // but the authorization header should still be there
     parsed_request.add_header("authorization".into(), "password".into());
-    let (preamble, contents) = parsed_request.destruct();
+    let (preamble, _contents) = parsed_request.destruct();
 
     assert_eq!(&preamble, request.preamble());
 
@@ -252,31 +242,14 @@ fn test_try_make_response() {
                 .unwrap()
                 .unwrap();
 
-        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
-
-        let privk = StacksPrivateKey::from_hex(
-            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
-        )
-        .unwrap();
-
-        let stx_address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
-        let payload = TransactionPayload::TokenTransfer(
-            stx_address.into(),
+        let tx = make_stacks_transfer_tx(
+            miner_privk,
+            36,
+            300,
+            CHAIN_ID_TESTNET,
+            &StandardPrincipalData::transient().into(),
             123,
-            TokenTransferMemo([0u8; 34]),
         );
-
-        let auth = TransactionAuth::from_p2pkh(miner_privk).unwrap();
-        let addr = auth.origin().address_testnet();
-        let mut tx = StacksTransaction::new(TransactionVersion::Testnet, auth, payload);
-        tx.chain_id = 0x80000000;
-        tx.auth.set_origin_nonce(36);
-        tx.set_post_condition_mode(TransactionPostConditionMode::Allow);
-        tx.set_tx_fee(300);
-        let mut tx_signer = StacksTransactionSigner::new(&tx);
-        tx_signer.sign_origin(miner_privk).unwrap();
-        let tx = tx_signer.get_tx().unwrap();
 
         let mut builder = NakamotoBlockBuilder::new(
             &parent_stacks_header,
@@ -488,6 +461,421 @@ fn test_try_make_response() {
         }) => {
             assert_eq!(reason_code, ValidateRejectCode::InvalidBlock);
             assert_eq!(reason, "Block timestamp is too far into the future");
+        }
+    }
+}
+
+#[warn(unused)]
+fn replay_validation_test(
+    setup_fn: impl FnOnce(&mut TestRPC) -> (VecDeque<StacksTransaction>, Vec<StacksTransaction>),
+) -> Result<BlockValidateOk, BlockValidateReject> {
+    let test_observer = TestEventObserver::new();
+    let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
+
+    let (expected_replay_txs, block_txs) = setup_fn(&mut rpc_test);
+    let mut requests = vec![];
+
+    let (stacks_tip_ch, stacks_tip_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(
+        rpc_test.peer_1.sortdb.as_ref().unwrap().conn(),
+    )
+    .unwrap();
+    let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bhh);
+
+    let mut proposed_block = {
+        let chainstate = rpc_test.peer_1.chainstate();
+        let parent_stacks_header =
+            NakamotoChainState::get_block_header(chainstate.db(), &stacks_tip)
+                .unwrap()
+                .unwrap();
+
+        let mut builder = NakamotoBlockBuilder::new(
+            &parent_stacks_header,
+            &parent_stacks_header.consensus_hash,
+            26000,
+            None,
+            None,
+            8,
+            None,
+        )
+        .unwrap();
+
+        rpc_test
+            .peer_1
+            .with_db_state(
+                |sort_db: &mut SortitionDB,
+                 chainstate: &mut StacksChainState,
+                 _: &mut Relayer,
+                 _: &mut MemPoolDB| {
+                    let burn_dbconn = sort_db.index_handle_at_tip();
+                    let mut miner_tenure_info = builder
+                        .load_tenure_info(chainstate, &burn_dbconn, None)
+                        .unwrap();
+                    let mut tenure_tx = builder
+                        .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
+                        .unwrap();
+                    for tx in block_txs {
+                        builder.try_mine_tx_with_len(
+                            &mut tenure_tx,
+                            &tx,
+                            tx.tx_len(),
+                            &BlockLimitFunction::NO_LIMIT_HIT,
+                            ASTRules::PrecheckSize,
+                            None,
+                        );
+                    }
+                    let block = builder.mine_nakamoto_block(&mut tenure_tx);
+                    Ok(block)
+                },
+            )
+            .unwrap()
+    };
+
+    // Increment the timestamp by 1 to ensure it is different from the previous block
+    proposed_block.header.timestamp += 1;
+    rpc_test
+        .peer_1
+        .miner
+        .sign_nakamoto_block(&mut proposed_block);
+
+    // post the valid block proposal
+    let proposal = NakamotoBlockProposal {
+        block: proposed_block.clone(),
+        chain_id: 0x80000000,
+    };
+
+    let mut request = StacksHttpRequest::new_for_peer(
+        rpc_test.peer_1.to_peer_host(),
+        "POST".into(),
+        "/v3/block_proposal".into(),
+        HttpRequestContents::new().payload_json(serde_json::to_value(proposal).unwrap()),
+    )
+    .expect("failed to construct request");
+    request.add_header("authorization".into(), "password".into());
+    requests.push(request);
+
+    TEST_REPLAY_TRANSACTIONS.set(expected_replay_txs);
+
+    // Post the block proposal
+    let proposal = NakamotoBlockProposal {
+        block: proposed_block.clone(),
+        chain_id: 0x80000000,
+    };
+
+    let mut request = StacksHttpRequest::new_for_peer(
+        rpc_test.peer_1.to_peer_host(),
+        "POST".into(),
+        "/v3/block_proposal".into(),
+        HttpRequestContents::new().payload_json(serde_json::to_value(proposal).unwrap()),
+    )
+    .expect("failed to construct request");
+    request.add_header("authorization".into(), "password".into());
+    requests.push(request);
+
+    // Execute the request
+    let observer = ProposalTestObserver::new();
+    let proposal_observer = Arc::clone(&observer.proposal_observer);
+
+    info!("Run request with observer for replay mismatch test");
+    let responses = rpc_test.run_with_observer(requests, Some(&observer));
+
+    // Expect 202 Accepted initially
+    assert_eq!(responses[0].preamble().status_code, 202);
+
+    // Wait for the asynchronous validation result
+    let start = std::time::Instant::now();
+    loop {
+        info!("Wait for replay mismatch result to be non-empty");
+        if proposal_observer
+            .lock()
+            .unwrap()
+            .results
+            .lock()
+            .unwrap()
+            .len()
+            >= 1
+        // Expecting one result
+        {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        assert!(
+            start.elapsed().as_secs() < 60,
+            "Timed out waiting for replay mismatch result"
+        );
+    }
+
+    let observer_locked = proposal_observer.lock().unwrap();
+    let mut results = observer_locked.results.lock().unwrap();
+    let result = results.pop().unwrap();
+
+    TEST_REPLAY_TRANSACTIONS.set(Default::default());
+
+    result
+}
+
+#[test]
+#[ignore]
+/// Tx replay test with mismatching mineable transactions.
+fn replay_validation_test_transaction_mismatch() {
+    let result = replay_validation_test(|rpc_test| {
+        let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
+        // Transaction expected in the replay set (different amount)
+        let tx_for_replay = make_stacks_transfer_tx(
+            miner_privk,
+            36,
+            300,
+            CHAIN_ID_TESTNET,
+            &StandardPrincipalData::transient().into(),
+            1234,
+        );
+
+        let tx = make_stacks_transfer_tx(
+            miner_privk,
+            36,
+            300,
+            CHAIN_ID_TESTNET,
+            &StandardPrincipalData::transient().into(),
+            123,
+        );
+
+        (vec![tx_for_replay].into(), vec![tx])
+    });
+
+    match result {
+        Ok(_) => panic!("Expected error due to replay transaction mismatch, but got Ok"),
+        Err(postblock_proposal::BlockValidateReject { reason_code, .. }) => {
+            assert_eq!(
+                reason_code,
+                ValidateRejectCode::InvalidTransactionReplay,
+                "Expected InvalidTransactionReplay reason code"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore]
+/// Replay set has one unmineable tx, and one mineable tx.
+/// The block has the one mineable tx.
+fn replay_validation_test_transaction_unmineable_match() {
+    let result = replay_validation_test(|rpc_test| {
+        let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
+        // Transaction expected in the replay set (different amount)
+        let unmineable_tx = make_stacks_transfer_tx(
+            miner_privk,
+            37,
+            300,
+            CHAIN_ID_TESTNET,
+            &StandardPrincipalData::transient().into(),
+            1234,
+        );
+
+        let mineable_tx = make_stacks_transfer_tx(
+            miner_privk,
+            36,
+            300,
+            CHAIN_ID_TESTNET,
+            &StandardPrincipalData::transient().into(),
+            123,
+        );
+
+        (
+            vec![unmineable_tx, mineable_tx.clone()].into(),
+            vec![mineable_tx],
+        )
+    });
+
+    match result {
+        Ok(_) => {}
+        Err(rejection) => {
+            panic!("Expected validation to be OK, but got {:?}", rejection);
+        }
+    }
+}
+
+#[test]
+#[ignore]
+/// Replay set has [mineable, unmineable, mineable]
+/// The block has [mineable, mineable]
+fn replay_validation_test_transaction_unmineable_match_2() {
+    let result = replay_validation_test(|rpc_test| {
+        let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
+        // Unmineable tx
+        let unmineable_tx = make_stacks_transfer_tx(
+            miner_privk,
+            38,
+            300,
+            CHAIN_ID_TESTNET,
+            &StandardPrincipalData::transient().into(),
+            123,
+        );
+
+        let mineable_tx = make_stacks_transfer_tx(
+            miner_privk,
+            36,
+            300,
+            CHAIN_ID_TESTNET,
+            &StandardPrincipalData::transient().into(),
+            123,
+        );
+
+        let mineable_tx_2 = make_stacks_transfer_tx(
+            miner_privk,
+            37,
+            300,
+            CHAIN_ID_TESTNET,
+            &StandardPrincipalData::transient().into(),
+            123,
+        );
+
+        (
+            vec![unmineable_tx, mineable_tx.clone(), mineable_tx_2.clone()].into(),
+            vec![mineable_tx, mineable_tx_2],
+        )
+    });
+
+    match result {
+        Ok(_) => {
+            // pass
+        }
+        Err(rejection) => {
+            panic!("Expected validation to be OK, but got {:?}", rejection);
+        }
+    }
+}
+
+#[test]
+#[ignore]
+/// Replay set has [mineable, mineable, tx_a, mineable]
+/// The block has [mineable, mineable, tx_b, mineable]
+fn replay_validation_test_transaction_mineable_mismatch_series() {
+    let result = replay_validation_test(|rpc_test| {
+        let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
+        // Mineable tx
+        let mineable_tx_1 = make_stacks_transfer_tx(
+            miner_privk,
+            36,
+            300,
+            CHAIN_ID_TESTNET,
+            &StandardPrincipalData::transient().into(),
+            123,
+        );
+
+        let mineable_tx_2 = make_stacks_transfer_tx(
+            miner_privk,
+            37,
+            300,
+            CHAIN_ID_TESTNET,
+            &StandardPrincipalData::transient().into(),
+            123,
+        );
+
+        let tx_a = make_stacks_transfer_tx(
+            miner_privk,
+            38,
+            300,
+            CHAIN_ID_TESTNET,
+            &StandardPrincipalData::transient().into(),
+            123,
+        );
+
+        let tx_b = make_stacks_transfer_tx(
+            miner_privk,
+            38,
+            300,
+            CHAIN_ID_TESTNET,
+            &StandardPrincipalData::transient().into(),
+            1234, // different amount
+        );
+
+        let mineable_tx_3 = make_stacks_transfer_tx(
+            miner_privk,
+            39,
+            300,
+            CHAIN_ID_TESTNET,
+            &StandardPrincipalData::transient().into(),
+            123,
+        );
+
+        (
+            vec![
+                mineable_tx_1.clone(),
+                mineable_tx_2.clone(),
+                tx_a.clone(),
+                mineable_tx_3.clone(),
+            ]
+            .into(),
+            vec![mineable_tx_1, mineable_tx_2, tx_b, mineable_tx_3],
+        )
+    });
+
+    match result {
+        Ok(_) => {
+            panic!("Expected validation to be rejected, but got Ok");
+        }
+        Err(rejection) => {
+            assert_eq!(
+                rejection.reason_code,
+                ValidateRejectCode::InvalidTransactionReplay
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore]
+/// Replay set has [mineable, tx_b, tx_a]
+/// The block has [mineable, tx_a, tx_b]
+fn replay_validation_test_transaction_mineable_mismatch_series_2() {
+    let result = replay_validation_test(|rpc_test| {
+        let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
+
+        let recipient_sk = StacksPrivateKey::random();
+        let recipient_addr = to_addr(&recipient_sk);
+        let miner_addr = to_addr(miner_privk);
+
+        let mineable_tx_1 = make_stacks_transfer_tx(
+            miner_privk,
+            36,
+            300,
+            CHAIN_ID_TESTNET,
+            &recipient_addr.into(),
+            1000000,
+        );
+
+        let tx_b = make_stacks_transfer_tx(
+            &recipient_sk,
+            0,
+            300,
+            CHAIN_ID_TESTNET,
+            &miner_addr.into(),
+            123,
+        );
+
+        let tx_a = make_stacks_transfer_tx(
+            miner_privk,
+            37,
+            300,
+            CHAIN_ID_TESTNET,
+            &recipient_addr.into(),
+            123,
+        );
+
+        (
+            vec![mineable_tx_1.clone(), tx_b.clone(), tx_a.clone()].into(),
+            vec![mineable_tx_1, tx_a, tx_b],
+        )
+    });
+
+    match result {
+        Ok(_) => {
+            panic!("Expected validation to be rejected, but got Ok");
+        }
+        Err(rejection) => {
+            assert_eq!(
+                rejection.reason_code,
+                ValidateRejectCode::InvalidTransactionReplay
+            );
         }
     }
 }
