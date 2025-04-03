@@ -21,6 +21,7 @@ jobs:
   image:
     name: Build Image
     runs-on: ubuntu-latest
+    environment: "Push to Docker"
     steps:
       ## Setup Docker for the builds
       - name: Docker setup
