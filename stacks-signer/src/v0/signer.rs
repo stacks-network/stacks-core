@@ -130,7 +130,7 @@ impl std::fmt::Display for Signer {
 impl SignerTrait<SignerMessage> for Signer {
     /// Create a new signer from the given configuration
     fn new(stacks_client: &StacksClient, signer_config: SignerConfig) -> Self {
-        let mut stackerdb = StackerDB::from(&signer_config);
+        let stackerdb = StackerDB::from(&signer_config);
         let mode = match signer_config.signer_mode {
             SignerConfigMode::DryRun => SignerMode::DryRun,
             SignerConfigMode::Normal { signer_id, .. } => SignerMode::Normal { signer_id },
@@ -361,7 +361,7 @@ impl SignerTrait<SignerMessage> for Signer {
                     "block_height" => block_height
                 );
                 self.local_state_machine
-                    .stacks_block_arrival(&mut self.stackerdb, consensus_hash, *block_height, block_id)
+                    .stacks_block_arrival(consensus_hash, *block_height, block_id)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest stacks block arrival"; "err" => ?e));
 
                 if let Ok(Some(mut block_info)) = self
