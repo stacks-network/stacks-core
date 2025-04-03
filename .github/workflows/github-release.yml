@@ -42,7 +42,7 @@ jobs:
     if: |
       inputs.node_tag != '' ||
       inputs.signer_tag != ''
-    name: Build Binaries
+    name: Andon Cord
     runs-on: ubuntu-latest
     environment: "Build Release"
     steps:
