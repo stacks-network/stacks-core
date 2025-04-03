@@ -101,7 +101,7 @@ impl BlockHeader {
 
     /// Computes the target value in float format from Uint256 format.
     pub fn compact_target_from_u256(value: &Uint256) -> u32 {
-        let mut size = (value.bits() + 7) / 8;
+        let mut size = value.bits().div_ceil(8);
         let mut compact = if size <= 3 {
             (value.low_u64() << (8 * (3 - size))) as u32
         } else {

@@ -13,6 +13,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Add `max_execution_time_secs` to miner config for limiting duration of contract calls
 - When a miner's config file is updated (ie with a new fee rate), a new block commit is issued using
   the new values ([#5924](https://github.com/stacks-network/stacks-core/pull/5924))
+- Add `txindex` configuration option enabling the storage (and querying via api) of transactions. Note: the old STACKS_TRANSACTION_LOG environment var configuration is no longer available.
 
 ### Changed
 

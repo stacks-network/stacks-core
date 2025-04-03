@@ -693,7 +693,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
         ast_rules: ASTRules,
         max_execution_time: Option<std::time::Duration>,
     ) -> TransactionResult {
-        if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+        if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
             return TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError);
         }
 

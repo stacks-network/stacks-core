@@ -225,7 +225,7 @@ fn make_logger() -> Logger {
         let debug = env::var("STACKS_LOG_DEBUG") == Ok("1".into());
         let pretty_print = env::var("STACKS_LOG_PP") == Ok("1".into());
         let decorator = get_decorator();
-        let atty = isatty(Stream::Stderr);
+        let atty = isatty();
         let drain = TermFormat::new(decorator, pretty_print, debug, atty);
         Logger::root(drain.ignore_res(), o!())
     }
@@ -236,9 +236,21 @@ fn get_decorator() -> slog_term::PlainSyncDecorator<slog_term::TestStdoutWriter>
     slog_term::PlainSyncDecorator::new(slog_term::TestStdoutWriter)
 }
 
+#[cfg(any(test, feature = "testing"))]
+fn isatty() -> bool {
+    use std::io::IsTerminal;
+    io::stdout().is_terminal()
+}
+
 #[cfg(not(any(test, feature = "testing")))]
 fn get_decorator() -> slog_term::PlainSyncDecorator<std::io::Stderr> {
     slog_term::PlainSyncDecorator::new(std::io::stderr())
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+fn isatty() -> bool {
+    use std::io::IsTerminal;
+    io::stderr().is_terminal()
 }
 
 fn inner_get_loglevel() -> slog::Level {
@@ -331,21 +343,17 @@ fn color_if_tty(color: &str, isatty: bool) -> &str {
     }
 }
 
-enum Stream {
-    Stdout,
-    Stderr,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-#[cfg(unix)]
-fn isatty(stream: Stream) -> bool {
-    let fd = match stream {
-        Stream::Stdout => libc::STDOUT_FILENO,
-        Stream::Stderr => libc::STDERR_FILENO,
-    };
-    unsafe { libc::isatty(fd) != 0 }
-}
-
-#[cfg(not(unix))]
-fn isatty(stream: Stream) -> bool {
-    false
+    #[test]
+    #[ignore = "manual test"]
+    fn test_log_pretty_print() {
+        env::set_var("STACKS_LOG_PP", "1");
+        let logger: Logger = make_logger();
+        slog::slog_info!(logger, "Info test"); //equivalent to info!(..)
+        slog::slog_warn!(logger, "Warn test"); //equivalent to warn!(..)
+        slog::slog_error!(logger, "Erro test"); //equivalent to erro!(..)
+    }
 }
