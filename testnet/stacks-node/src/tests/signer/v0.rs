@@ -13522,8 +13522,9 @@ fn verify_mempool_caches() {
         // Look for a block with expected height
         let Some(block) = blocks
             .iter()
-            .find(|block| block["block_height"].as_u64() == Some(block_height_before + 2)) else {
-                return Ok(false) // Keep waiting if the block hasn't been observed yet
+            .find(|block| block["block_height"].as_u64() == Some(block_height_before + 2))
+        else {
+            return Ok(false); // Keep waiting if the block hasn't been observed yet
         };
 
         // This new block should have just the one new transfer
@@ -13531,7 +13532,9 @@ fn verify_mempool_caches() {
         if transfers_included_in_block == 1 {
             Ok(true)
         } else {
-            Err(format!("Expected only one transfer in block, found {transfers_included_in_block}"))
+            Err(format!(
+                "Expected only one transfer in block, found {transfers_included_in_block}"
+            ))
         }
     })
     .expect("Timed out waiting for block");
