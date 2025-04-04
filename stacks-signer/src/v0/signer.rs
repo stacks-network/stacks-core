@@ -1482,7 +1482,7 @@ impl Signer {
     ) {
     }
 
-    /// check if the current state machien status is globally agreed
+    /// get the currently globally agreed state machine status
     pub fn get_global_state_machine(&mut self) -> Option<StateMachineUpdate> {
         let mut state_machine_status: HashMap<StateMachineUpdate, u32> = HashMap::new();
 
