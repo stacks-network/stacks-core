@@ -29,7 +29,7 @@ use stacks_common::codec::Error as CodecError;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::{debug, error, info, warn};
+use stacks_common::{info, warn};
 
 use crate::chainstate::{
     ProposalEvalConfig, SignerChainstateError, SortitionState, SortitionsView,
@@ -39,6 +39,205 @@ use crate::signerdb::SignerDb;
 
 /// This is the latest supported protocol version for this signer binary
 pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 0;
+
+/// A struct used to determine the current global state
+#[derive(Debug)]
+pub struct GlobalStateEvaluator {
+    /// A mapping of signer addresses to their corresponding vote weight
+    address_weights: HashMap<StacksAddress, u32>,
+    /// A mapping of signer addresses to their corresponding updates
+    address_updates: HashMap<StacksAddress, StateMachineUpdateMessage>,
+    /// The total weight of all signers
+    total_weight: u32,
+}
+
+impl GlobalStateEvaluator {
+    /// Create a new state evaluator
+    pub fn new(
+        address_updates: HashMap<StacksAddress, StateMachineUpdateMessage>,
+        address_weights: HashMap<StacksAddress, u32>,
+    ) -> Self {
+        let total_weight = address_weights
+            .values()
+            .fold(0u32, |acc, val| acc.saturating_add(*val));
+        Self {
+            address_weights,
+            address_updates,
+            total_weight,
+        }
+    }
+
+    /// Determine what the active signer protocol version should be
+    ///
+    /// NOTE: do not call this function unless the evaluator has already been updated with the current local state
+    pub fn determine_active_signer_protocol_version(&self) -> Option<u64> {
+        let mut protocol_versions = HashMap::new();
+        for (address, update) in &self.address_updates {
+            let Some(weight) = self.address_weights.get(address) else {
+                continue;
+            };
+            let entry = protocol_versions
+                .entry(update.local_supported_signer_protocol_version)
+                .or_insert_with(|| 0);
+            *entry += weight;
+            if *entry >= self.total_weight * 7 / 10 {
+                return Some(update.local_supported_signer_protocol_version);
+            }
+        }
+        None
+    }
+
+    /// Determine what the global burn view is if there is one
+    ///
+    /// NOTE: do not call this function unless the evaluator has already been updated with the current local state
+    pub fn determine_global_burn_view(&self) -> Option<(ConsensusHash, u64)> {
+        let mut burn_blocks = HashMap::new();
+        for (address, update) in &self.address_updates {
+            let Some(weight) = self.address_weights.get(address) else {
+                continue;
+            };
+            let StateMachineUpdateContent::V0 {
+                burn_block,
+                burn_block_height,
+                ..
+            } = update.content;
+
+            let entry = burn_blocks.entry(burn_block).or_insert_with(|| 0);
+            *entry += weight;
+            if *entry >= self.total_weight * 7 / 10 {
+                return Some((burn_block, burn_block_height));
+            }
+        }
+        None
+    }
+
+    /// Check if there is an agreed upon global current miner viewpoint
+    ///
+    /// NOTE: do not call this function unless the evaluator has already been updated with the current local state
+    pub fn determine_global_state(&self) -> Option<SignerStateMachine> {
+        let active_signer_protocol_version = self.determine_active_signer_protocol_version()?;
+        let (global_burn_block, _) = self.determine_global_burn_view()?;
+        let mut miner_views = HashMap::new();
+        for (address, update) in &self.address_updates {
+            let Some(weight) = self.address_weights.get(address) else {
+                continue;
+            };
+            let StateMachineUpdateContent::V0 {
+                burn_block,
+                burn_block_height,
+                current_miner,
+                ..
+            } = &update.content;
+
+            if *burn_block != global_burn_block {
+                continue;
+            }
+
+            let entry = miner_views.entry(current_miner).or_insert_with(|| 0);
+            *entry += weight;
+            if *entry >= self.total_weight * 7 / 10 {
+                return Some(SignerStateMachine {
+                    burn_block: *burn_block,
+                    burn_block_height: *burn_block_height,
+                    current_miner: current_miner.into(),
+                    active_signer_protocol_version,
+                });
+            }
+        }
+        None
+    }
+
+    /// Check if there is an agreed upon global current miner viewpoint
+    ///
+    /// NOTE: do not call this function unless the evaluator has already been updated with the current local state
+    pub fn determine_global_current_miner(&self) -> Option<StateMachineUpdateMinerState> {
+        let (global_burn_block, _) = self.determine_global_burn_view()?;
+        let mut miner_views = HashMap::new();
+        for (address, update) in &self.address_updates {
+            let Some(weight) = self.address_weights.get(address) else {
+                continue;
+            };
+            let StateMachineUpdateContent::V0 {
+                burn_block,
+                current_miner,
+                ..
+            } = &update.content;
+
+            if *burn_block != global_burn_block {
+                continue;
+            }
+
+            let entry = miner_views.entry(current_miner).or_insert_with(|| 0);
+            *entry += weight;
+            if *entry >= self.total_weight * 7 / 10 {
+                return Some(current_miner.clone());
+            }
+        }
+        None
+    }
+
+    /// Determines whether a signer, based on the provided burn block view (`current_burn_block`),
+    /// should update (capitulate) its current miner view to a new state. This is not necessarily the same as the current global view
+    /// of the miner as it is up to signers to capitulate before this becomes the finalized view.
+    ///
+    /// NOTE: do not call this function unless the evaluator has already been updated with the current local state
+    pub fn capitulate_miner_view(
+        &self,
+        current_burn_block: ConsensusHash,
+        signerdb: &mut SignerDb,
+    ) -> Option<StateMachineUpdateMinerState> {
+        let (global_burn_view, _) = self.determine_global_burn_view()?;
+        if current_burn_block != global_burn_view {
+            return None;
+        }
+        let mut current_miners = HashMap::new();
+        for (address, update) in &self.address_updates {
+            let Some(weight) = self.address_weights.get(address) else {
+                continue;
+            };
+            let StateMachineUpdateContent::V0 {
+                burn_block,
+                current_miner,
+                ..
+            } = &update.content;
+
+            if *burn_block != global_burn_view {
+                continue;
+            }
+
+            let StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. } = current_miner.clone()
+            else {
+                continue;
+            };
+
+            let entry = current_miners.entry(current_miner).or_insert_with(|| 0);
+            *entry += weight;
+
+            if *weight >= self.total_weight * 3 / 10 {
+                let nmb_blocks = signerdb
+                    .get_globally_accepted_block_count_in_tenure(&tenure_id)
+                    .unwrap_or(0);
+                if nmb_blocks > 0 || *weight >= self.total_weight * 7 / 10 {
+                    return Some(current_miner.clone());
+                }
+            }
+        }
+        None
+    }
+
+    /// Will insert the update for the given address and weight only if the GlobalStateMachineEvaluator already is aware of this address
+    pub fn insert_update(
+        &mut self,
+        address: StacksAddress,
+        update: StateMachineUpdateMessage,
+    ) -> bool {
+        if !self.address_updates.contains_key(&address) {
+            return false;
+        }
+        self.address_updates.insert(address, update);
+        true
+    }
+}
 
 /// A signer state machine view. This struct can
 ///  be used to encode the local signer's view or
@@ -77,6 +276,27 @@ pub enum MinerState {
     },
     /// This signer doesn't believe there's any valid miner
     NoValidMiner,
+}
+
+impl From<&StateMachineUpdateMinerState> for MinerState {
+    fn from(val: &StateMachineUpdateMinerState) -> Self {
+        match *val {
+            StateMachineUpdateMinerState::NoValidMiner => MinerState::NoValidMiner,
+            StateMachineUpdateMinerState::ActiveMiner {
+                current_miner_pkh,
+                tenure_id,
+                parent_tenure_id,
+                parent_tenure_last_block,
+                parent_tenure_last_block_height,
+            } => MinerState::ActiveMiner {
+                current_miner_pkh,
+                tenure_id,
+                parent_tenure_id,
+                parent_tenure_last_block,
+                parent_tenure_last_block_height,
+            },
+        }
+    }
 }
 
 /// The local signer state machine
@@ -531,145 +751,57 @@ impl LocalStateMachine {
         Ok(())
     }
 
-    /// If there is disagreement about the current miner due to poorly timed blocks, make sure the local state machine updates to the correct global state
-    pub fn capitulate_miner_view(
+    /// Updates the local state machine's viewpoint as necessary based on the global state
+    pub fn capitulate_viewpoint(
         &mut self,
         signerdb: &mut SignerDb,
-        reward_cycle: u64,
+        eval: &mut GlobalStateEvaluator,
         local_address: StacksAddress,
-        signer_weights: &HashMap<StacksAddress, u32>,
     ) {
-        let mut updates = match signerdb.get_signer_state_machine_updates(reward_cycle) {
-            Ok(updates) => updates,
-            Err(e) => {
-                warn!("An error occurred retrieving the state machine updates from the signer db: {e}. Unable to check and resolve potential state machine conflicts");
-                return;
-            }
-        };
-        let mut current_miners: HashMap<
-            &ConsensusHash,
-            HashMap<&StateMachineUpdateMinerState, u32>,
-        > = HashMap::new();
+        // Before we ever access eval...we should update with our own viewpoint
         let local_update: Result<StateMachineUpdateMessage, _> = (&*self).try_into();
         let Ok(local_update) = local_update else {
             return;
         };
+        let old_protocol_version = local_update.active_signer_protocol_version;
+        let StateMachineUpdateContent::V0 {
+            burn_block,
+            burn_block_height,
+            current_miner,
+            ..
+        } = &local_update.content.clone();
 
-        updates.insert(local_address, local_update.clone());
+        eval.insert_update(local_address, local_update);
 
-        let total_weight = signer_weights
-            .values()
-            .fold(0u32, |acc, val| acc.saturating_add(*val));
+        let active_signer_protocol_version = eval
+            .determine_active_signer_protocol_version()
+            .unwrap_or(old_protocol_version);
+        let Some(new_miner) = eval.capitulate_miner_view(*burn_block, signerdb) else {
+            return;
+        };
 
-        let mut bitcoin_blocks = HashMap::new();
-        for (signer_address, update) in &updates {
-            let StateMachineUpdateContent::V0 {
-                burn_block,
-                burn_block_height,
-                current_miner,
-                ..
-            } = &update.content;
-
-            let weight = signer_weights.get(signer_address).unwrap_or(&0);
-            let miners = current_miners.entry(burn_block).or_default();
-            *miners.entry(current_miner).or_default() += weight;
-
-            let entry = bitcoin_blocks.entry(burn_block).or_insert_with(|| 0);
-            *entry += weight;
-            if *entry < total_weight * 7 / 10 {
-                continue;
+        if current_miner != &new_miner {
+            if active_signer_protocol_version != old_protocol_version {
+                info!("Updating active signer protocol version from {old_protocol_version} to {active_signer_protocol_version}");
             }
-            let StateMachineUpdateMessage {
+            info!("Capitulating local state machine's current miner viewpoint";
+                "current_miner" => ?current_miner,
+                "new_miner" => ?new_miner,
+            );
+            *self = Self::Initialized(SignerStateMachine {
+                burn_block: *burn_block,
+                burn_block_height: *burn_block_height,
+                current_miner: (&new_miner).into(),
                 active_signer_protocol_version,
-                content:
-                    StateMachineUpdateContent::V0 {
-                        burn_block: local_burn_block,
-                        burn_block_height: local_burn_block_height,
-                        current_miner: local_current_miner,
-                    },
-                ..
-            } = &local_update;
-            if local_burn_block != burn_block {
-                // We have a different burn view than the global burn view...we should not really do anything in this case but wait...
-                match local_burn_block_height.cmp(burn_block_height) {
-                    std::cmp::Ordering::Equal => {
-                        warn!("Local state machine has encountered a Bitcoin fork";
-                            "burn_block_height" => local_burn_block_height,
-                            "local_burn_block" => %local_burn_block,
-                            "global_burn_block" => %burn_block,
-                        )
-                    }
-                    std::cmp::Ordering::Greater => {
-                        debug!("Local state machine burn block height is ahead of the global signer state burn block height";
-                            "local_burn_block_height" => local_burn_block_height,
-                            "local_burn_block" => %local_burn_block,
-                            "global_burn_block_height" => burn_block_height,
-                            "global_burn_block" => %local_burn_block,
-                        )
-                    }
-                    std::cmp::Ordering::Less => {
-                        debug!("Local state machine burn block height is behind the global signer state burn block height";
-                            "local_burn_block_height" => local_burn_block_height,
-                            "local_burn_block" => %local_burn_block,
-                            "global_burn_block_height" => burn_block_height,
-                            "global_burn_block" => %local_burn_block,
-                        )
-                    }
-                }
-                return;
-            }
-            // we have consensus on the bitcoin view therefore, so check if we have consensus on the active miner...
-            let Some(miners) = current_miners.get(burn_block) else {
-                // This shouldn't really ever hit, but lets just log an error for now.
-                error!("Consensus reached that burn block {burn_block} is the global view, but no corresponding miner view found. This should not happen and may be indicative of a logic issue.");
-                return;
-            };
-            for (miner_state, weight) in miners {
-                if *miner_state == local_current_miner {
-                    continue;
-                }
-                // Is there really any benefit in viewing "NoValidMiner"? Prob not, so don't worry about that. Only care if we have
-                // multiple viewpoints of different active miner states!
-                let StateMachineUpdateMinerState::ActiveMiner {
-                    current_miner_pkh,
-                    tenure_id,
-                    parent_tenure_id,
-                    parent_tenure_last_block,
-                    parent_tenure_last_block_height,
-                } = **miner_state
-                else {
-                    continue;
-                };
-                let nmb_blocks = signerdb
-                    .get_globally_accepted_block_count_in_tenure(&tenure_id)
-                    .unwrap_or(0);
-                if (nmb_blocks > 0 && *weight >= total_weight * 3 / 10)
-                    || nmb_blocks == 0 && *weight >= total_weight * 7 / 10
-                {
-                    info!("Capitulating local state machine's current miner viewpoint";
-                        "current_miner_pkh" => %current_miner_pkh,
-                        "tenure_id" => %tenure_id,
-                        "parent_tenure_id" => %parent_tenure_id,
-                        "parent_tenure_last_block" => %parent_tenure_last_block,
-                        "parent_tenure_last_block_height" => parent_tenure_last_block_height,
-                        "nmb_globally_accepted_blocks" => nmb_blocks,
-                        "weight" => *weight,
-                        "total_weight" => total_weight
-                    );
-                    *self = Self::Initialized(SignerStateMachine {
-                        burn_block: *local_burn_block,
-                        burn_block_height: *local_burn_block_height,
-                        current_miner: MinerState::ActiveMiner {
-                            current_miner_pkh,
-                            tenure_id,
-                            parent_tenure_id,
-                            parent_tenure_last_block,
-                            parent_tenure_last_block_height,
-                        },
-                        active_signer_protocol_version: *active_signer_protocol_version,
-                    });
-                }
-            }
+            });
+        } else if active_signer_protocol_version != old_protocol_version {
+            info!("Updating active signer protocol version from {old_protocol_version} to {active_signer_protocol_version}");
+            *self = Self::Initialized(SignerStateMachine {
+                burn_block: *burn_block,
+                burn_block_height: *burn_block_height,
+                current_miner: current_miner.into(),
+                active_signer_protocol_version,
+            });
         }
     }
 }

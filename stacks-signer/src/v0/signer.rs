@@ -35,7 +35,7 @@ use clarity::util::sleep_ms;
 use clarity::util::tests::TestFlag;
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
-    RejectReason, RejectReasonPrefix, SignerMessage,
+    RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate,
 };
 use libsigner::{BlockProposal, SignerEvent};
 use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
@@ -43,7 +43,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error, info, warn};
 
-use super::signer_state::LocalStateMachine;
+use super::signer_state::{GlobalStateEvaluator, LocalStateMachine};
 use crate::chainstate::{ProposalEvalConfig, SortitionMinerStatus, SortitionsView};
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
@@ -109,6 +109,8 @@ pub struct Signer {
     pub block_proposal_max_age_secs: u64,
     /// The signer's local state machine used in signer set agreement
     pub local_state_machine: LocalStateMachine,
+    /// The signer's global state evaluator
+    pub global_state_evaluator: GlobalStateEvaluator,
 }
 
 impl std::fmt::Display for SignerMode {
@@ -137,7 +139,7 @@ impl SignerTrait<SignerMessage> for Signer {
 
         debug!("Reward cycle #{} {mode}", signer_config.reward_cycle);
 
-        let signer_db =
+        let mut signer_db =
             SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
         let proposal_config = ProposalEvalConfig::from(&signer_config);
 
@@ -149,6 +151,17 @@ impl SignerTrait<SignerMessage> for Signer {
         let stacks_address = StacksAddress::p2pkh(
             signer_config.mainnet,
             &StacksPublicKey::from_private(&signer_config.stacks_private_key),
+        );
+
+        let updates = signer_db
+            .get_signer_state_machine_updates(signer_config.reward_cycle)
+            .inspect_err(|e| {
+                warn!("An error occurred retrieving state machine updates from the db: {e}")
+            })
+            .unwrap_or_default();
+        let global_state_evaluator = GlobalStateEvaluator::new(
+            updates,
+            signer_config.signer_entries.signer_addr_to_weight.clone(),
         );
         Self {
             private_key: signer_config.stacks_private_key,
@@ -166,6 +179,7 @@ impl SignerTrait<SignerMessage> for Signer {
             block_proposal_validation_timeout: signer_config.block_proposal_validation_timeout,
             block_proposal_max_age_secs: signer_config.block_proposal_max_age_secs,
             local_state_machine: signer_state,
+            global_state_evaluator,
         }
     }
 
@@ -246,21 +260,7 @@ impl SignerTrait<SignerMessage> for Signer {
                             sortition_state,
                         ),
                         SignerMessage::StateMachineUpdate(update) => {
-                            // TODO: should make note of this update view point to determine if there is an agreed upon global state
-                            // We don't need to check the message parity again because of the check at the start of process_event
-                            if let Err(e) = self.signer_db.insert_state_machine_update(
-                                self.reward_cycle,
-                                &StacksAddress::p2pkh(self.mainnet, signer_public_key),
-                                update,
-                            ) {
-                                warn!("{self}: Failed to update global state in signerdb: {e}");
-                            }
-                            self.local_state_machine.capitulate_miner_view(
-                                &mut self.signer_db,
-                                self.reward_cycle,
-                                self.stacks_address,
-                                &self.signer_weights,
-                            );
+                            self.handle_state_machine_update(signer_public_key, update);
                         }
                         _ => {}
                     }
@@ -582,6 +582,31 @@ impl Signer {
     #[cfg(not(any(test, feature = "testing")))]
     fn send_block_response(&mut self, block_response: BlockResponse) {
         self.impl_send_block_response(block_response)
+    }
+
+    /// Handle signer state update message
+    fn handle_state_machine_update(
+        &mut self,
+        signer_public_key: &Secp256k1PublicKey,
+        update: &StateMachineUpdate,
+    ) {
+        let address = StacksAddress::p2pkh(self.mainnet, signer_public_key);
+        // Store the state machine update so we can reload it if we crash
+        if let Err(e) =
+            self.signer_db
+                .insert_state_machine_update(self.reward_cycle, &address, update)
+        {
+            warn!("{self}: Failed to update global state in signerdb: {e}");
+        }
+        self.global_state_evaluator
+            .insert_update(address, update.clone());
+
+        // See if this update means we should capitulate our viewpoint...
+        self.local_state_machine.capitulate_viewpoint(
+            &mut self.signer_db,
+            &mut self.global_state_evaluator,
+            self.stacks_address,
+        );
     }
 
     /// Handle block proposal messages submitted to signers stackerdb
