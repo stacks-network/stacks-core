@@ -663,20 +663,35 @@ impl BlockMinerThread {
             self.mined_blocks += 1;
         }
 
-        let Ok(sort_db) = SortitionDB::open(
-            &self.config.get_burn_db_file_path(),
-            true,
-            self.burnchain.pox_constants.clone(),
-        ) else {
-            error!("Failed to open sortition DB. Will try mining again.");
-            return Ok(());
-        };
+        if let Some(last_block_mined) = &self.last_block_mined {
+            // Wait until the last block mined has been processed
+            loop {
+                let (_, processed, _, _) = chain_state
+                    .nakamoto_blocks_db()
+                    .get_block_processed_and_signed_weight(
+                        &last_block_mined.header.consensus_hash,
+                        &last_block_mined.header.block_hash(),
+                    )?
+                    .ok_or_else(|| NakamotoNodeError::UnexpectedChainState)?;
 
-        let wait_start = Instant::now();
-        while wait_start.elapsed() < self.config.miner.wait_on_interim_blocks {
-            thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
-            if self.check_burn_tip_changed(&sort_db).is_err() {
-                return Err(NakamotoNodeError::BurnchainTipChanged);
+                if processed {
+                    break;
+                }
+
+                thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
+
+                // Check if the burnchain tip has changed
+                let Ok(sort_db) = SortitionDB::open(
+                    &self.config.get_burn_db_file_path(),
+                    false,
+                    self.burnchain.pox_constants.clone(),
+                ) else {
+                    error!("Failed to open sortition DB. Will try mining again.");
+                    return Ok(());
+                };
+                if self.check_burn_tip_changed(&sort_db).is_err() {
+                    return Err(NakamotoNodeError::BurnchainTipChanged);
+                }
             }
         }
 

@@ -539,7 +539,6 @@ impl MultipleMinerTest {
                 config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
                 config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
                 config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
-                config.miner.wait_on_interim_blocks = Duration::from_secs(5);
                 config.node.pox_sync_sample_secs = 30;
                 config.burnchain.pox_reward_length = Some(30);
 
@@ -3931,7 +3930,14 @@ fn idle_tenure_extend_active_mining() {
     );
     submit_tx(&http_origin, &contract_tx);
 
-    info!("----- Submitted deploy txs, mining BTC block -----");
+    // Wait for this transaction to be mined in a block
+    info!("----- Submitted deploy txs, waiting for block -----");
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &deployer_addr).nonce > deployer_nonce)
+    })
+    .unwrap();
+
+    info!("----- Mining BTC block -----");
 
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
     let mut last_response = signer_test.get_latest_block_response(slot_id);
@@ -3950,6 +3956,10 @@ fn idle_tenure_extend_active_mining() {
             info!("----- Mining nakamoto block {i} in tenure {t} -----");
 
             signer_test.wait_for_nakamoto_block(30, || {
+                // Stall the miner while we submit transactions, so that they
+                // are all included in the same block
+                TEST_MINE_STALL.set(true);
+
                 // Throw in a STX transfer to test mixed blocks
                 let sender_nonce = get_and_increment_nonce(&sender_sk, &mut sender_nonces);
                 let transfer_tx = make_stacks_transfer(
@@ -3985,6 +3995,7 @@ fn idle_tenure_extend_active_mining() {
                         }
                     }
                 }
+                TEST_MINE_STALL.set(false);
             });
             let latest_response = signer_test.get_latest_block_response(slot_id);
             let naka_blocks = test_observer::get_mined_nakamoto_blocks();
@@ -5470,7 +5481,6 @@ fn partial_tenure_fork() {
             config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
             config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
             config.node.p2p_address = format!("{localhost}:{node_1_p2p}");
-            config.miner.wait_on_interim_blocks = Duration::from_secs(5);
             config.node.pox_sync_sample_secs = 30;
             config.miner.block_commit_delay = Duration::from_secs(0);
 
@@ -12730,7 +12740,6 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         initial_balances,
         |_| {},
         |conf| {
-            conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
             conf.miner.mempool_walk_strategy = strategy;
         },
         None,
@@ -13018,7 +13027,6 @@ fn larger_mempool() {
         initial_balances,
         |_| {},
         |conf| {
-            conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
             conf.miner.mempool_walk_strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
         },
         None,
