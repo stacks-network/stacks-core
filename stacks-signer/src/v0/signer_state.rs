@@ -231,7 +231,7 @@ impl GlobalStateEvaluator {
         address: StacksAddress,
         update: StateMachineUpdateMessage,
     ) -> bool {
-        if !self.address_updates.contains_key(&address) {
+        if !self.address_weights.contains_key(&address) {
             return false;
         }
         self.address_updates.insert(address, update);
