@@ -13376,3 +13376,168 @@ fn signers_send_state_message_updates() {
     );
     miners.shutdown();
 }
+
+#[test]
+#[ignore]
+/// Verify that the mempool caching is working as expected
+///
+/// This test will boot to epoch 3 then pause mining and:
+/// 1. Set the signers to reject all blocks
+/// 2. Submit a transfer from the sender to the recipient
+/// 3. Wait for this block to be proposed
+/// 4. Pause mining
+/// 5. Wait for block rejection
+/// 6. Check the nonce cache to see if it cached the nonce (it is paused before
+///    the cache is cleared).
+/// 7. Set the signers to accept blocks and unpause mining
+/// 8. Wait for the block to be mined
+/// 9. Check the nonce cache and verify that it has correctly cached the nonce
+/// 10. Submit a second transfer and wait for it to be mined
+fn verify_mempool_caches() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let mut signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new(num_signers, vec![(sender_addr, (send_amt + send_fee) * 3)]);
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_pk = StacksPublicKey::from_private(&miner_sk);
+
+    signer_test.boot_to_epoch_3();
+
+    signer_test.mine_nakamoto_block(Duration::from_secs(60), true);
+
+    let info = get_chain_info(&signer_test.running_nodes.conf);
+    let block_height_before = info.stacks_tip_height;
+
+    // All signers reject all blocks
+    let rejecting_signers: Vec<_> = signer_test
+        .signer_stacks_private_keys
+        .iter()
+        .map(StacksPublicKey::from_private)
+        .collect();
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(rejecting_signers);
+
+    // submit a tx so that the miner will mine a block
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        0,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+
+    info!("Submitted transfer tx and waiting for block proposal");
+    let block = wait_for_block_proposal(30, block_height_before + 1, &miner_pk)
+        .expect("Timed out waiting for block proposal");
+
+    // Stall the miners so that this block is not re-proposed after being rejected
+    TEST_MINE_STALL.set(true);
+
+    // Wait for rejections
+    wait_for_block_rejections(30, block.header.signer_signature_hash(), num_signers)
+        .expect("Failed to get expected rejections for block");
+
+    // Check the nonce cache -- it should have the nonce cached because it will
+    // only be cleared after the miner is unpaused.
+    let mempool_db_path = format!(
+        "{}/nakamoto-neon/chainstate/mempool.sqlite",
+        signer_test.running_nodes.conf.node.working_dir
+    );
+    let conn = Connection::open(&mempool_db_path).unwrap();
+    let result = conn
+        .query_row(
+            "SELECT nonce FROM nonces WHERE address = ?1;",
+            [&sender_addr],
+            |row| {
+                let nonce: u64 = row.get(0)?;
+                Ok(nonce)
+            },
+        )
+        .expect("Failed to get nonce from cache");
+    assert_eq!(result, 1);
+
+    info!("Nonce cache has the expected nonce");
+
+    // Set signers to accept and unpause the miners
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![]);
+    TEST_MINE_STALL.set(false);
+
+    info!("Unpausing miners and waiting for block to be mined");
+
+    // Wait for the block to be mined
+    wait_for(60, || {
+        let is_next_block = test_observer::get_blocks()
+            .last()
+            .and_then(|block| block["block_height"].as_u64())
+            .map_or(false, |h| h == block_height_before + 1);
+
+        Ok(is_next_block)
+    })
+    .expect("Timed out waiting for block to be mined");
+
+    // Check the nonce cache again -- it should still have the nonce cached
+    let result = conn
+        .query_row(
+            "SELECT nonce FROM nonces WHERE address = ?1;",
+            [&sender_addr],
+            |row| {
+                let nonce: u64 = row.get(0)?;
+                Ok(nonce)
+            },
+        )
+        .expect("Failed to get nonce from cache");
+    assert_eq!(result, 1);
+
+    info!("Nonce cache has the expected nonce after successfully mining block");
+
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        1,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+
+    info!("Waiting for the second block to be mined");
+    wait_for(60, || {
+        let blocks = test_observer::get_blocks();
+
+        // Look for a block with expected height
+        let Some(block) = blocks
+            .iter()
+            .find(|block| block["block_height"].as_u64() == Some(block_height_before + 2))
+        else {
+            return Ok(false); // Keep waiting if the block hasn't been observed yet
+        };
+
+        // This new block should have just the one new transfer
+        let transfers_included_in_block = transfers_in_block(block);
+        if transfers_included_in_block == 1 {
+            Ok(true)
+        } else {
+            Err(format!(
+                "Expected only one transfer in block, found {transfers_included_in_block}"
+            ))
+        }
+    })
+    .expect("Timed out waiting for block");
+
+    signer_test.shutdown();
+}

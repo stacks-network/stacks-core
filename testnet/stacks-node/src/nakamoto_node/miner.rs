@@ -643,6 +643,9 @@ impl BlockMinerThread {
                     "block_height" => new_block.header.chain_length,
                     "consensus_hash" => %new_block.header.consensus_hash,
                 );
+
+                // We successfully mined, so the mempool caches are valid.
+                self.reset_nonce_cache = false;
             }
 
             // update mined-block counters and mined-tenure counters
