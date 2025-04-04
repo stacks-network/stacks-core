@@ -3930,7 +3930,14 @@ fn idle_tenure_extend_active_mining() {
     );
     submit_tx(&http_origin, &contract_tx);
 
-    info!("----- Submitted deploy txs, mining BTC block -----");
+    // Wait for this transaction to be mined in a block
+    info!("----- Submitted deploy txs, waiting for block -----");
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &deployer_addr).nonce > deployer_nonce)
+    })
+    .unwrap();
+
+    info!("----- Mining BTC block -----");
 
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
     let mut last_response = signer_test.get_latest_block_response(slot_id);
