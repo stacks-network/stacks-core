@@ -1904,14 +1904,13 @@ pub fn send_http_request(
             break;
         }
 
-        if Instant::now().saturating_duration_since(start) > timeout {
+        if start.elapsed() >= timeout {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
                 "Timed out while sending request",
             ));
         }
-        // Heartbeat log
-        if Instant::now().saturating_duration_since(last_heartbeat_time) >= HEARTBEAT_INTERVAL {
+        if last_heartbeat_time.elapsed() >= HEARTBEAT_INTERVAL {
             info!(
                 "send_request(sending data): heartbeat - still sending request to {} path='{}' (elapsed: {:?})",
                 addr, request_path, start.elapsed()
@@ -1957,14 +1956,13 @@ pub fn send_http_request(
         };
         request_handle = rh;
 
-        if Instant::now().saturating_duration_since(start) > timeout {
+        if start.elapsed() >= timeout {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
                 "Timed out while receiving response",
             ));
         }
-        // Heartbeat log
-        if Instant::now().saturating_duration_since(last_heartbeat_time) >= HEARTBEAT_INTERVAL {
+        if last_heartbeat_time.elapsed() >= HEARTBEAT_INTERVAL {
             info!(
                 "send_request(receiving data): heartbeat - still receiving response from {} path='{}' (elapsed: {:?})",
                 addr, request_path, start.elapsed()
