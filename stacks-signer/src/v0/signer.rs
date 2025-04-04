@@ -1480,48 +1480,61 @@ impl Signer {
         _stacks_client: &StacksClient,
         _state_machine_update: &StateMachineUpdate,
     ) {
-        let mut slot_ids: Vec<u32> = vec![];
-        for slot_id in &self.signer_slot_ids {
-            slot_ids.push(slot_id.0);
-        }
-        let messages = self
-            .stackerdb
-            .get_session_mut(&MessageSlotID::StateMachineUpdate)
-            .unwrap()
-            .get_latest_chunks(&slot_ids)
-            .unwrap();
-
-        let mut state_machine_status: HashMap<StateMachineUpdateContent, u32> = HashMap::new();
-
-        for message_opt in messages {
-            let message = message_opt.unwrap();
-            let Ok(SignerMessage::StateMachineUpdate(state_machine_update)) =
-                SignerMessage::consensus_deserialize(&mut message.as_slice())
-            else {
-                continue;
-            };
-
-            if !state_machine_status.contains_key(&state_machine_update.content) {
-                state_machine_status.insert(state_machine_update.content, 1);
-            } else {
-                state_machine_status
-                    .entry(state_machine_update.content)
-                    .and_modify(|counter| *counter = counter.saturating_add(1));
-            }
-        }
-
-        for entry in state_machine_status {
-            // TODO check for the right amount of values
-            println!(
-                "\n\n\nSTATEMACHINESTATUS: {:?} = {}\n\n\n",
-                entry.0, entry.1
-            );
-        }
     }
 
     /// check if the current state machien status is globally agreed
-    pub fn state_is_global(&self) -> bool {
-        false
+    pub fn get_global_state_machine(&mut self) -> Option<StateMachineUpdate> {
+        let mut state_machine_status: HashMap<StateMachineUpdate, u32> = HashMap::new();
+
+        for slot_id in &self.signer_slot_ids {
+            let _ = self
+                .stackerdb
+                .get_session_mut(&MessageSlotID::StateMachineUpdate)
+                .unwrap()
+                .get_latest_chunk(slot_id.0)
+                .iter()
+                .map(|message_opt| {
+                    if let Some(message) = message_opt {
+                        if let Ok(SignerMessage::StateMachineUpdate(state_machine_update)) =
+                            SignerMessage::consensus_deserialize(&mut message.as_slice())
+                        {
+                            let stack_address = self.signer_addresses[slot_id.0 as usize];
+                            if !state_machine_status.contains_key(&state_machine_update) {
+                                state_machine_status.insert(state_machine_update, 1);
+                            } else {
+                                state_machine_status.entry(state_machine_update).and_modify(
+                                    |weight| {
+                                        *weight = weight.saturating_add(
+                                            *self.signer_weights.get(&stack_address).unwrap(),
+                                        )
+                                    },
+                                );
+                            }
+                        }
+                    }
+                });
+        }
+
+        let total_weight = self.signer_weights.values().sum::<u32>();
+
+        match state_machine_status
+            .iter()
+            .max_by_key(|&(_, weight)| weight)
+            .map(|(state_machine_update, weight)| (state_machine_update, weight))
+        {
+            None => None,
+            Some((state_machine_update, weight)) => {
+                let min_weight = NakamotoBlockHeader::compute_voting_weight_threshold(total_weight)
+                    .unwrap_or_else(|_| {
+                        panic!("{self}: Failed to compute threshold weight for {total_weight}")
+                    });
+                if weight.saturating_add(min_weight) <= total_weight {
+                    Some(state_machine_update.clone())
+                } else {
+                    None
+                }
+            }
+        }
     }
 }
 

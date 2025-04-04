@@ -546,7 +546,7 @@ impl StacksMessageCodec for MockBlock {
 }
 
 /// Message for updates to the Signer State machine
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Hash, Eq)]
 pub struct StateMachineUpdate {
     /// The active signing protocol version
     pub active_signer_protocol_version: u64,
