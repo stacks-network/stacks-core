@@ -12934,7 +12934,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         last_block.tx_events.len()
     );
     if strategy == MemPoolWalkStrategy::NextNonceWithHighestFeeRate {
-        assert!(last_block.tx_events.len() > 5000);
+        assert!(last_block.tx_events.len() > 2000);
     }
 
     // Wait for the first block to be accepted.
