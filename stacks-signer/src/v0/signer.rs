@@ -38,7 +38,7 @@ use clarity::util::sleep_ms;
 use clarity::util::tests::TestFlag;
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
-    RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate, StateMachineUpdateContent,
+    RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate,
 };
 use libsigner::{BlockProposal, SignerEvent, SignerSession};
 use stacks_common::types::chainstate::StacksAddress;
