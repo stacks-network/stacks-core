@@ -1499,17 +1499,14 @@ impl Signer {
                             SignerMessage::consensus_deserialize(&mut message.as_slice())
                         {
                             let stack_address = self.signer_addresses[slot_id.0 as usize];
-                            if !state_machine_status.contains_key(&state_machine_update) {
-                                state_machine_status.insert(state_machine_update, 1);
-                            } else {
-                                state_machine_status.entry(state_machine_update).and_modify(
-                                    |weight| {
-                                        *weight = weight.saturating_add(
-                                            *self.signer_weights.get(&stack_address).unwrap(),
-                                        )
-                                    },
-                                );
-                            }
+                            state_machine_status
+                                .entry(state_machine_update)
+                                .and_modify(|weight| {
+                                    *weight = weight.saturating_add(
+                                        *self.signer_weights.get(&stack_address).unwrap(),
+                                    )
+                                })
+                                .or_insert(1);
                         }
                     }
                 });
