@@ -3949,6 +3949,10 @@ fn idle_tenure_extend_active_mining() {
             info!("----- Mining nakamoto block {i} in tenure {t} -----");
 
             signer_test.wait_for_nakamoto_block(30, || {
+                // Stall the miner while we submit transactions, so that they
+                // are all included in the same block
+                TEST_MINE_STALL.set(true);
+
                 // Throw in a STX transfer to test mixed blocks
                 let sender_nonce = get_and_increment_nonce(&sender_sk, &mut sender_nonces);
                 let transfer_tx = make_stacks_transfer(
@@ -3984,6 +3988,7 @@ fn idle_tenure_extend_active_mining() {
                         }
                     }
                 }
+                TEST_MINE_STALL.set(false);
             });
             let latest_response = signer_test.get_latest_block_response(slot_id);
             let naka_blocks = test_observer::get_mined_nakamoto_blocks();
