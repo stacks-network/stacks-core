@@ -26,8 +26,6 @@ use blockstack_lib::net::api::postblock_proposal::{
 };
 use blockstack_lib::util_lib::db::Error as DBError;
 use clarity::types::chainstate::StacksPrivateKey;
-#[cfg(any(test, feature = "testing"))]
-use clarity::types::chainstate::StacksPublicKey;
 use clarity::types::{PrivateKey, StacksEpochId};
 use clarity::util::hash::{MerkleHashFunc, Sha512Trunc256Sum};
 use clarity::util::secp256k1::Secp256k1PublicKey;
@@ -40,7 +38,7 @@ use libsigner::v0::messages::{
     RejectReason, RejectReasonPrefix, SignerMessage,
 };
 use libsigner::{BlockProposal, SignerEvent};
-use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error, info, warn};

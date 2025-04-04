@@ -570,7 +570,7 @@ impl LocalStateMachine {
                 ..
             } = &update.content;
 
-            let weight = signer_weights.get(&signer_address).unwrap_or(&0);
+            let weight = signer_weights.get(signer_address).unwrap_or(&0);
             let miners = current_miners.entry(burn_block).or_default();
             *miners.entry(current_miner).or_default() += weight;
 
@@ -668,7 +668,6 @@ impl LocalStateMachine {
                         },
                         active_signer_protocol_version: *active_signer_protocol_version,
                     });
-                    return;
                 }
             }
         }
