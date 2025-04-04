@@ -1517,7 +1517,6 @@ impl Signer {
         match state_machine_status
             .iter()
             .max_by_key(|&(_, weight)| weight)
-            .map(|(state_machine_update, weight)| (state_machine_update, weight))
         {
             None => None,
             Some((state_machine_update, weight)) => {
