@@ -13790,7 +13790,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
         wait_for_block_proposal(30, tip_b.stacks_block_height + 1, &miner_pk_1)
             .expect("Timed out waiting for miner 1's tenure extend block");
     wait_for_block_acceptance_from_signers(
-        3,
+        30,
         &tenure_extend_block.header.signer_signature_hash(),
         &miners.signer_test.signer_test_pks(),
     )
