@@ -55,6 +55,7 @@ fn test_try_parse_request() {
     let proposal = NakamotoBlockProposal {
         block: block.clone(),
         chain_id: 0x80000000,
+        replay_txs: None,
     };
     let mut request = StacksHttpRequest::new_for_peer(
         addr.into(),
@@ -99,7 +100,8 @@ fn test_try_parse_request() {
         handler.block_proposal,
         Some(NakamotoBlockProposal {
             block,
-            chain_id: 0x80000000
+            chain_id: 0x80000000,
+            replay_txs: None,
         })
     );
 
@@ -299,6 +301,7 @@ fn test_try_make_response() {
     let proposal = NakamotoBlockProposal {
         block: good_block.clone(),
         chain_id: 0x80000000,
+        replay_txs: None,
     };
 
     let mut request = StacksHttpRequest::new_for_peer(
@@ -323,6 +326,7 @@ fn test_try_make_response() {
     let proposal = NakamotoBlockProposal {
         block: early_time_block,
         chain_id: 0x80000000,
+        replay_txs: None,
     };
 
     let mut request = StacksHttpRequest::new_for_peer(
@@ -347,6 +351,7 @@ fn test_try_make_response() {
     let proposal = NakamotoBlockProposal {
         block: late_time_block,
         chain_id: 0x80000000,
+        replay_txs: None,
     };
 
     let mut request = StacksHttpRequest::new_for_peer(
@@ -368,6 +373,7 @@ fn test_try_make_response() {
     let proposal = NakamotoBlockProposal {
         block: stale_block,
         chain_id: 0x80000000,
+        replay_txs: None,
     };
 
     let mut request = StacksHttpRequest::new_for_peer(
@@ -537,28 +543,10 @@ fn replay_validation_test(
         .miner
         .sign_nakamoto_block(&mut proposed_block);
 
-    // post the valid block proposal
     let proposal = NakamotoBlockProposal {
         block: proposed_block.clone(),
         chain_id: 0x80000000,
-    };
-
-    let mut request = StacksHttpRequest::new_for_peer(
-        rpc_test.peer_1.to_peer_host(),
-        "POST".into(),
-        "/v3/block_proposal".into(),
-        HttpRequestContents::new().payload_json(serde_json::to_value(proposal).unwrap()),
-    )
-    .expect("failed to construct request");
-    request.add_header("authorization".into(), "password".into());
-    requests.push(request);
-
-    TEST_REPLAY_TRANSACTIONS.set(expected_replay_txs);
-
-    // Post the block proposal
-    let proposal = NakamotoBlockProposal {
-        block: proposed_block.clone(),
-        chain_id: 0x80000000,
+        replay_txs: Some(expected_replay_txs.into()),
     };
 
     let mut request = StacksHttpRequest::new_for_peer(

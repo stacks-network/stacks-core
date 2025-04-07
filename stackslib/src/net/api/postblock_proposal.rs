@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::VecDeque;
 use std::io::{Read, Write};
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
@@ -215,6 +216,8 @@ pub struct NakamotoBlockProposal {
     pub block: NakamotoBlock,
     /// Identifies which chain block is for (Mainnet, Testnet, etc.)
     pub chain_id: u32,
+    /// Optional transaction replay set
+    pub replay_txs: Option<Vec<StacksTransaction>>,
 }
 
 impl NakamotoBlockProposal {
@@ -554,11 +557,8 @@ impl NakamotoBlockProposal {
             builder.load_tenure_info(chainstate, &burn_dbconn, tenure_cause)?;
         let mut tenure_tx = builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info)?;
 
-        // TODO: get replay set from stackerdb
-        #[cfg(any(test, feature = "testing"))]
-        let mut replay_txs_maybe = TEST_REPLAY_TRANSACTIONS.0.lock().unwrap().clone();
-        #[cfg(not(any(test, feature = "testing")))]
-        let mut replay_txs_maybe = None;
+        let mut replay_txs_maybe: Option<VecDeque<StacksTransaction>> =
+            self.replay_txs.clone().map(|txs| txs.into());
 
         for (i, tx) in self.block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
