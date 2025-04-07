@@ -9819,7 +9819,11 @@ fn skip_mining_long_tx() {
 
             // Sleep for longer than the miner's attempt time, so that the miner will
             // mark this tx as long-running and skip it in the next attempt
-            sleep_ms(naka_conf.miner.nakamoto_attempt_time_ms + 1000);
+            sleep_ms(
+                naka_conf.miner.nakamoto_attempt_time_ms
+                    + naka_conf.miner.empty_mempool_sleep_time.as_millis() as u64
+                    + 1000,
+            );
 
             TEST_TX_STALL.set(false);
 
