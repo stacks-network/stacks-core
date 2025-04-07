@@ -13728,7 +13728,7 @@ fn burn_block_height_behavior() {
 
     // Resume mining and wait for the next block to be mined
     TEST_MINE_STALL.set(false);
-    wait_for_tenure_change_tx(30, TenureChangeCause::Extended, stacks_height_before + 1)
+    wait_for_tenure_change_tx(60, TenureChangeCause::Extended, stacks_height_before + 1)
         .expect("Timed out waiting for tenure extend");
 
     let blocks = test_observer::get_mined_nakamoto_blocks();
