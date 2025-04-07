@@ -164,8 +164,11 @@ jobs:
   ## Create the downstream PR for the release branch to master,develop
   create-pr:
     if: |
-      inputs.node_tag != '' ||
-      inputs.signer_tag != ''
+      !contains(github.ref, '-rc') &&
+      (
+        inputs.node_tag != '' ||
+        inputs.signer_tag != ''
+      )
     name: Create Downstream PR (${{ github.ref_name }})
     runs-on: ubuntu-latest
     needs:

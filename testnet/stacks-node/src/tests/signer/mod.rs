@@ -1270,7 +1270,6 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     }
     naka_conf.initial_balances.append(&mut initial_balances);
     naka_conf.node.stacker = true;
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(5);
 
     for signer_set in 0..2 {
         for message_id in 0..SIGNER_SLOTS_PER_USER {
