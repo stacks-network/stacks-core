@@ -213,7 +213,7 @@ impl GlobalStateEvaluator {
             let entry = current_miners.entry(current_miner).or_insert_with(|| 0);
             *entry += weight;
 
-            if *weight >= self.total_weight * 3 / 10 {
+            if *entry >= self.total_weight * 3 / 10 {
                 let nmb_blocks = signerdb
                     .get_globally_accepted_block_count_in_tenure(&tenure_id)
                     .unwrap_or(0);
