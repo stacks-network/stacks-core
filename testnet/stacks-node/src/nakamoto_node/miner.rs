@@ -568,8 +568,13 @@ impl BlockMinerThread {
                     continue;
                 }
                 Err(NakamotoNodeError::MiningFailure(ChainstateError::NoTransactionsToMine)) => {
-                    debug!("Miner did not find any transactions to mine");
+                    debug!(
+                        "Miner did not find any transactions to mine, sleeping for {:?}",
+                        self.config.miner.empty_mempool_sleep_time
+                    );
                     self.reset_nonce_cache = false;
+
+                    thread::sleep(self.config.miner.empty_mempool_sleep_time);
                     break None;
                 }
                 Err(e) => {
