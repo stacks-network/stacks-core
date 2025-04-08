@@ -13447,7 +13447,7 @@ fn verify_mempool_caches() {
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(rejecting_signers);
 
     // submit a tx so that the miner will mine a block
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         0,
         send_fee,
@@ -13521,7 +13521,7 @@ fn verify_mempool_caches() {
 
     info!("Nonce cache has the expected nonce after successfully mining block");
 
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         1,
         send_fee,
