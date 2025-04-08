@@ -64,7 +64,8 @@ use stacks::chainstate::stacks::{
 use stacks::config::{EventKeyType, InitialBalance};
 use stacks::core::mempool::{MemPoolWalkStrategy, MAXIMUM_MEMPOOL_TX_CHAINING};
 use stacks::core::test_util::{
-    insert_tx_in_mempool, make_contract_call, make_contract_publish_versioned, make_stacks_transfer,
+    insert_tx_in_mempool, make_contract_call, make_contract_publish_versioned,
+    make_stacks_transfer_serialized,
 };
 use stacks::core::{
     EpochList, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20,
@@ -1579,7 +1580,7 @@ fn simple_neon_integration() {
     assert_eq!(prior_commits + 15, post_commits, "There should have been exactly {tenures_count} submitted commits during the {tenures_count} tenures");
 
     // Submit a TX
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         0,
         send_fee,
@@ -2042,7 +2043,7 @@ fn flash_blocks_on_epoch_3_FLAKY() {
     }
 
     // Submit a TX
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         0,
         send_fee,
@@ -2268,7 +2269,7 @@ fn mine_multiple_per_tenure_integration() {
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
                 send_fee,
@@ -2521,7 +2522,7 @@ fn multiple_miners() {
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
                 send_fee,
@@ -3066,7 +3067,7 @@ fn block_proposal_api_endpoint() {
             .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
             .unwrap();
 
-        let tx = make_stacks_transfer(
+        let tx = make_stacks_transfer_serialized(
             &account_keys[0],
             0,
             100,
@@ -3790,7 +3791,7 @@ fn follower_bootup_simple() {
             let sender_nonce = account
                 .nonce
                 .max(last_nonce.as_ref().map(|ln| *ln + 1).unwrap_or(0));
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
                 send_fee,
@@ -4334,7 +4335,7 @@ fn follower_bootup_custom_chain_id() {
             let sender_nonce = account
                 .nonce
                 .max(last_nonce.as_ref().map(|ln| *ln + 1).unwrap_or(0));
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
                 send_fee,
@@ -4900,7 +4901,7 @@ fn burn_ops_integration_test() {
                 .expect("Mutex poisoned")
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
                 200,
@@ -5320,7 +5321,7 @@ fn forked_tenure_is_ignored() {
 
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -5737,7 +5738,7 @@ fn check_block_heights() {
                 .expect("Mutex poisoned")
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
                 send_fee,
@@ -6029,7 +6030,7 @@ fn nakamoto_attempt_time() {
 
             let mut sender_nonce = account.nonce;
             for _ in 0..txs_per_block {
-                let transfer_tx = make_stacks_transfer(
+                let transfer_tx = make_stacks_transfer_serialized(
                     &sender_sk,
                     sender_nonce,
                     tx_fee,
@@ -6128,7 +6129,7 @@ fn nakamoto_attempt_time() {
     'submit_txs: loop {
         let acct = &mut account[acct_idx];
         for _ in 0..MAXIMUM_MEMPOOL_TX_CHAINING {
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &acct.privk,
                 acct.nonce,
                 tx_fee,
@@ -6680,7 +6681,7 @@ fn signer_chainstate() {
 
         // submit a tx to trigger an intermediate block
         let sender_nonce = i;
-        let transfer_tx = make_stacks_transfer(
+        let transfer_tx = make_stacks_transfer_serialized(
             &sender_sk,
             sender_nonce,
             send_fee,
@@ -7150,7 +7151,7 @@ fn continue_tenure_extend() {
     assert!(sortition.was_sortition);
 
     // Submit a TX
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         transfer_nonce,
         send_fee,
@@ -7216,7 +7217,7 @@ fn continue_tenure_extend() {
     for i in 0..3 {
         info!("Triggering Nakamoto blocks after extend ({})", i + 1);
         transfer_nonce += 1;
-        let transfer_tx = make_stacks_transfer(
+        let transfer_tx = make_stacks_transfer_serialized(
             &sender_sk,
             transfer_nonce,
             send_fee,
@@ -7664,7 +7665,7 @@ fn check_block_times() {
         info!("Mining Nakamoto block");
 
         // submit a tx so that the miner will mine an extra block
-        let transfer_tx = make_stacks_transfer(
+        let transfer_tx = make_stacks_transfer_serialized(
             &sender_sk,
             sender_nonce,
             send_fee,
@@ -7715,7 +7716,7 @@ fn check_block_times() {
         info!("Mining Nakamoto block");
 
         // submit a tx so that the miner will mine an extra block
-        let transfer_tx = make_stacks_transfer(
+        let transfer_tx = make_stacks_transfer_serialized(
             &sender_sk,
             sender_nonce,
             send_fee,
@@ -8209,7 +8210,7 @@ fn check_block_info() {
     // Now we want to test the behavior of a new nakamoto block within the same tenure
     // We'll force a nakamoto block by submitting a transfer, then waiting for the nonce to bump
     info!("Mining an interim nakamoto block");
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -8308,7 +8309,7 @@ fn check_block_info() {
     // Now we'll mine one more interim block so that we can test that the stacks-block-info outputs update
     //  again.
     info!("Mining a second interim nakamoto block");
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -8670,7 +8671,7 @@ fn check_block_info_rewards() {
         .get_stacks_blocks_processed();
 
     // submit a tx so that the miner will mine an extra block
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -8703,7 +8704,7 @@ fn check_block_info_rewards() {
         .get_stacks_blocks_processed();
 
     // submit a tx so that the miner will mine an extra block
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -9018,7 +9019,7 @@ fn mock_mining() {
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
                 send_fee,
@@ -9398,7 +9399,7 @@ fn v3_signer_api_endpoint() {
         .get_stacks_blocks_processed();
     // submit a tx so that the miner will mine an extra stacks block
     let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -9663,7 +9664,7 @@ fn nakamoto_lockup_events() {
             "height" => %height_before,
             "nonce" => %sender_nonce,
         );
-        let transfer_tx = make_stacks_transfer(
+        let transfer_tx = make_stacks_transfer_serialized(
             &sender_sk,
             sender_nonce,
             send_fee,
@@ -9850,7 +9851,7 @@ fn skip_mining_long_tx() {
 
             TEST_P2P_BROADCAST_SKIP.set(false);
         } else {
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_1_sk,
                 i - 1,
                 send_fee,
@@ -11530,7 +11531,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
             let recipient_sk = StacksPrivateKey::random();
             let recipient_addr = tests::to_addr(&recipient_sk);
             let sender_addr = tests::to_addr(sender_sk);
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 sender_sk,
                 *nonce,
                 transfer_fee,
@@ -11586,7 +11587,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
             let sender_addr = tests::to_addr(sender_sk);
             let recipient_sk = StacksPrivateKey::random();
             let recipient_addr = tests::to_addr(&recipient_sk);
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 sender_sk,
                 *nonce,
                 transfer_fee,
@@ -11647,7 +11648,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
             let sender_addr = tests::to_addr(sender_sk);
             let fee = set_fee();
             assert!(fee >= 180 && fee <= 2000);
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 sender_sk,
                 *nonce,
                 fee,
@@ -11868,7 +11869,7 @@ fn larger_mempool() {
             let recipient_sk = StacksPrivateKey::random();
             let recipient_addr = tests::to_addr(&recipient_sk);
             let sender_addr = tests::to_addr(sender_sk);
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 sender_sk,
                 *nonce,
                 transfer_fee,
@@ -11924,7 +11925,7 @@ fn larger_mempool() {
             let sender_addr = tests::to_addr(sender_sk);
             let recipient_sk = StacksPrivateKey::random();
             let recipient_addr = tests::to_addr(&recipient_sk);
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 sender_sk,
                 *nonce,
                 transfer_fee,
@@ -11985,7 +11986,7 @@ fn larger_mempool() {
             for (sender_sk, nonce) in senders.iter_mut() {
                 let sender_addr = tests::to_addr(sender_sk);
                 let fee = thread_rng().gen_range(180..2000);
-                let transfer_tx = make_stacks_transfer(
+                let transfer_tx = make_stacks_transfer_serialized(
                     sender_sk,
                     *nonce,
                     fee,

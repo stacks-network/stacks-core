@@ -283,7 +283,7 @@ pub fn make_stacks_transfer_tx(
 }
 
 /// Make a stacks transfer transaction, returning the serialized transaction bytes
-pub fn make_stacks_transfer(
+pub fn make_stacks_transfer_serialized(
     sender: &StacksPrivateKey,
     nonce: u64,
     tx_fee: u64,

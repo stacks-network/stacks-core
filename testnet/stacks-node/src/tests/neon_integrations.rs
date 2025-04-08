@@ -42,7 +42,7 @@ use stacks::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, Initia
 use stacks::core::mempool::MemPoolWalkTxTypes;
 use stacks::core::test_util::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
-    make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr,
+    make_microblock, make_stacks_transfer_mblock_only, make_stacks_transfer_serialized, to_addr,
 };
 use stacks::core::{
     self, EpochList, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205,
@@ -3338,7 +3338,7 @@ fn filter_low_fee_tx_integration_test() {
 
             if ix < 5 {
                 // low-fee
-                make_stacks_transfer(
+                make_stacks_transfer_serialized(
                     spender_sk,
                     0,
                     1000 + (ix as u64),
@@ -3348,7 +3348,7 @@ fn filter_low_fee_tx_integration_test() {
                 )
             } else {
                 // high-fee
-                make_stacks_transfer(
+                make_stacks_transfer_serialized(
                     spender_sk,
                     0,
                     2000 + (ix as u64),
@@ -3438,7 +3438,7 @@ fn filter_long_runtime_tx_integration_test() {
         .enumerate()
         .map(|(ix, spender_sk)| {
             let recipient = StacksAddress::from_string(ADDR_4).unwrap();
-            make_stacks_transfer(
+            make_stacks_transfer_serialized(
                 spender_sk,
                 0,
                 1000 + (ix as u64),
@@ -3833,7 +3833,7 @@ fn block_replay_integration_test() {
     assert_eq!(account.nonce, 0);
 
     let recipient = StacksAddress::from_string(ADDR_4).unwrap();
-    let tx = make_stacks_transfer(
+    let tx = make_stacks_transfer_serialized(
         &spender_sk,
         0,
         1000,
@@ -4557,7 +4557,7 @@ fn block_limit_hit_integration_test() {
         &max_contract_src,
     );
     // included in first block
-    let tx_4 = make_stacks_transfer(
+    let tx_4 = make_stacks_transfer_serialized(
         &third_spender_sk,
         0,
         180,
