@@ -1656,52 +1656,220 @@ impl BurnchainConfigFile {
 
 #[derive(Clone, Debug)]
 pub struct NodeConfig {
-    pub name: String,
-    pub seed: Vec<u8>,
-    pub working_dir: String,
-    pub rpc_bind: String,
-    pub p2p_bind: String,
-    pub data_url: String,
-    pub p2p_address: String,
-    pub local_peer_seed: Vec<u8>,
-    pub bootstrap_node: Vec<Neighbor>,
-    pub deny_nodes: Vec<Neighbor>,
-    pub miner: bool,
-    pub stacker: bool,
-    pub mock_mining: bool,
-    /// Where to output blocks from mock mining
-    pub mock_mining_output_dir: Option<PathBuf>,
-    pub mine_microblocks: bool,
-    pub microblock_frequency: u64,
-    pub max_microblocks: u64,
-    pub wait_time_for_microblocks: u64,
-    pub wait_time_for_blocks: u64,
-    /// Controls how frequently, in milliseconds, the nakamoto miner's relay thread acts on its own initiative
-    /// (as opposed to responding to an event from the networking thread, etc.). This is roughly
-    /// how frequently the miner checks if a new burnchain block has been processed.
+    /// Human-readable name for the node. Primarily used for identification in testing environments
+    /// (e.g., deriving log file names, temporary directory names).
     ///
-    /// Default value of 10 seconds is reasonable in mainnet (where bitcoin blocks are ~10 minutes),
-    /// but environments where burn blocks are more frequent may want to decrease this value.
+    /// Default: `"helium-node"`
+    pub name: String,
+    /// The node's Bitcoin wallet private key, provided as a hex string in the config file.
+    /// Used to initialize the node's keychain for signing operations.
+    /// If `miner.mining_key` is not set, this seed may also be used for mining-related signing.
+    /// Required if the node is configured as a miner (`node.miner = true`) and `miner.mining_key` is absent.
+    ///
+    /// Default: Randomly generated 32 bytes.
+    pub seed: Vec<u8>,
+    /// The file system absolute path to the node's working directory.
+    /// All persistent data, including chainstate, burnchain databases, and potentially other stores,
+    /// will be located within this directory.
+    /// This path can be overridden by setting the `STACKS_WORKING_DIR` environment variable.
+    ///
+    /// Default: `/tmp/stacks-node-{current_timestamp}`.
+    pub working_dir: String,
+    /// The IPv4 address and port (e.g., "0.0.0.0:20443") on which the node's HTTP RPC server
+    /// should bind and listen for incoming API requests.
+    ///
+    /// Default: `"0.0.0.0:20443"`
+    pub rpc_bind: String,
+    /// The IPv4 address and port (e.g., "0.0.0.0:20444") on which the node's P2P networking
+    /// service should bind and listen for incoming connections from other peers.
+    ///
+    /// Default: `"0.0.0.0:20444"`
+    pub p2p_bind: String,
+    /// The publicly accessible URL that this node advertises to peers during the P2P handshake
+    /// as its HTTP RPC endpoint. Other nodes or services might use this URL to query the node's API.
+    ///
+    /// Default: `http://{rpc_bind}` (e.g., "http://127.0.0.1:20443" if rpc_bind is default and resolves locally).
+    pub data_url: String,
+    /// The publicly accessible IPv4 address and port that this node advertises to peers for P2P connections.
+    /// This might differ from `p2p_bind` if the node is behind NAT or a proxy.
+    /// Note: The default value derivation might be unexpected, potentially using the `rpc_bind` address; explicit configuration is recommended if needed.
+    ///
+    /// Default: Derived from `rpc_bind` (e.g., "127.0.0.1:20443" with default settings).
+    pub p2p_address: String,
+    /// The private key seed, provided as a hex string in the config file, used specifically for the
+    /// node's identity and message signing within the P2P networking layer.
+    /// This is separate from the main `node.seed`.
+    ///
+    /// Default: Randomly generated 32 bytes.
+    pub local_peer_seed: Vec<u8>,
+    /// A list of initial peer nodes used to bootstrap connections into the Stacks P2P network.
+    /// Peers are specified as comma-separated strings in the format "PUBKEY@IP:PORT" or "PUBKEY@HOSTNAME:PORT"
+    /// in the configuration file. DNS hostnames are resolved during configuration loading.
+    /// If empty on mainnet, default Hiro and Stacks seed nodes are used.
+    ///
+    /// Default: Empty vector `[]`.
+    pub bootstrap_node: Vec<Neighbor>,
+    /// A list of peer addresses that this node should explicitly deny connections from.
+    /// Peers are specified as comma-separated strings in the format "IP:PORT" or "HOSTNAME:PORT"
+    /// in the configuration file. DNS hostnames are resolved during configuration loading.
+    ///
+    /// Default: Empty vector `[]`.
+    pub deny_nodes: Vec<Neighbor>,
+    /// Flag indicating whether this node should activate its mining logic and attempt to produce Stacks blocks.
+    /// Setting this to `true` typically requires providing necessary private keys (either `node.seed` or `miner.mining_key`).
+    /// It also influences default behavior for settings like `require_affirmed_anchor_blocks`.
+    ///
+    /// Default: `false`
+    pub miner: bool,
+    /// Flag indicating whether this node is configured to operate with Stacker responsibilities,
+    /// such as participating in (PoX) by signaling support via StackerDB interactions.
+    /// Setting this to `true` requires also running a signer.
+    ///
+    /// Default: `false`
+    pub stacker: bool,
+    /// Enables a simulated mining mode, primarily for local testing and development.
+    /// When `true`, the node may generate blocks locally without participating in the real
+    /// burn chain consensus or P2P block production process.
+    ///
+    /// Default: `false`
+    pub mock_mining: bool,
+    /// If `mock_mining` is enabled, this specifies an optional directory path where the
+    /// generated mock Stacks blocks will be saved. (pre-Nakamoto)
+    /// The path is canonicalized on load.
+    ///
+    /// Default: `None`
+    /// Deprecated: This setting was only used in the neon node and is ignored in Epoch 3.0+.
+    pub mock_mining_output_dir: Option<PathBuf>,
+    /// Enable microblock mining.
+    ///
+    /// Default: `true`
+    /// Deprecated: Microblocks were removed in the Nakamoto upgrade. This setting is ignored in Epoch 3.0+.
+    pub mine_microblocks: bool,
+    /// How often to attempt producing microblocks, in milliseconds (pre-Nakamoto).
+    /// Only applies when `mine_microblocks` is true and before Epoch 3.0.
+    ///
+    /// Default: `30_000`
+    /// Deprecated: Microblocks were removed in the Nakamoto upgrade. This setting is ignored in Epoch 3.0+.
+    pub microblock_frequency: u64,
+    /// The maximum number of microblocks allowed per Stacks block (pre-Nakamoto).
+    ///
+    /// Default: `65535` (u16::MAX)
+    /// Deprecated: Microblocks were removed in the Nakamoto upgrade. This setting is ignored in Epoch 3.0+.
+    pub max_microblocks: u64,
+    /// Cooldown period after a microblock is produced, in milliseconds (pre-Nakamoto).
+    /// Only applies when `mine_microblocks` is true and before Epoch 3.0.
+    ///
+    /// Default: `30_000`
+    /// Deprecated: Microblocks were removed in the Nakamoto upgrade. This setting is ignored in Epoch 3.0+.
+    pub wait_time_for_microblocks: u64,
+    /// Maximum time (in milliseconds) to wait between mining blocks.
+    ///
+    /// Default: `30_000`
+    pub wait_time_for_blocks: u64,
+    /// Controls how frequently, in milliseconds, the Nakamoto miner's relay thread polls for work
+    /// or takes periodic actions when idle (e.g., checking for new burnchain blocks).
+    /// Default value of 10 seconds is reasonable in mainnet (where bitcoin blocks are ~10 minutes)
+    /// A lower value might be useful in other environments with faster burn blocks.
+    ///
+    /// Default: `10_000` (10 seconds)
     pub next_initiative_delay: u64,
+    /// Optional network address and port (e.g., "127.0.0.1:9153") for binding the Prometheus metrics server.
+    /// If set, the node will start an HTTP server on this address to expose internal metrics
+    /// for scraping by a Prometheus instance.
+    ///
+    /// Default: `None` (Prometheus server disabled).
     pub prometheus_bind: Option<String>,
+    /// The strategy to use for MARF trie node caching in memory.
+    /// Controls the trade-off between memory usage and performance for state access.
+    ///
+    /// Possible values:
+    /// - `"noop"`: No caching (least memory).
+    /// - `"everything"`: Cache all nodes (most memory, potentially fastest).
+    /// - `"node256"`: Cache only larger `TrieNode256` nodes.
+    ///
+    /// If the value is `None` or an unrecognized string, it defaults to `"noop"`.
+    ///
+    /// Default: `None` (effectively `"noop"`).
     pub marf_cache_strategy: Option<String>,
+    /// Controls the timing of hash calculations for MARF trie nodes.
+    /// If `true`, hashes are calculated only when the MARF is flushed to disk (deferred hashing).
+    /// If `false`, hashes are calculated immediately as leaf nodes are inserted or updated (immediate hashing).
+    /// Deferred hashing might improve write performance.
+    ///
+    /// Default: `true`
     pub marf_defer_hashing: bool,
+    /// Sampling interval in seconds for the PoX synchronization watchdog thread (pre-Nakamoto).
+    /// Determines how often the watchdog checked PoX state consistency in the Neon run loop.
+    ///
+    /// Default: `30`
+    /// Deprecated: Unused after the Nakamoto upgrade. This setting is ignored in Epoch 3.0+.
     pub pox_sync_sample_secs: u64,
+    /// If set to `true`, the node initializes its state using an alternative test genesis block definition,
+    /// loading different initial balances, names, and lockups than the standard network genesis.
+    /// This is intended strictly for testing purposes and is disallowed on mainnet.
+    ///
+    /// Default: `None` (uses standard network genesis).
     pub use_test_genesis_chainstate: Option<bool>,
+    /// Controls if Stacks Epoch 2.1+ affirmation map logic should be applied even before Epoch 2.1.
+    /// If `true` (default), the node consistently uses the newer (Epoch 2.1) rules for PoX anchor block
+    /// validation and affirmation-based reorg handling, even in earlier epochs.
+    /// If `false`, the node strictly follows the rules defined for the specific epoch it is currently
+    /// processing, only applying 2.1+ logic from Epoch 2.1 onwards.
+    /// Differences in this setting between nodes prior to Epoch 2.1 could lead to consensus forks.
+    ///
+    /// Default: `true`
     pub always_use_affirmation_maps: bool,
+    /// Controls if the node must wait for locally missing but burnchain-affirmed PoX anchor blocks.
+    /// If an anchor block is confirmed by the affirmation map but not yet processed by this node:
+    /// - If `true`: Burnchain processing halts until the affirmed block is acquired. Ensures strict
+    /// adherence to the affirmed canonical chain, typical for followers.
+    /// - If `false`: Burnchain processing continues without waiting. Allows miners to operate optimistically
+    /// but may necessitate unwinding later if the affirmed block alters the chain state.
+    ///
+    /// Default: default is `true` for followers and `false` for miners (when not explicitly configured).
     pub require_affirmed_anchor_blocks: bool,
+    /// Controls if the node must strictly wait for any PoX anchor block selected by the core consensus mechanism.
+    /// - If `true`: Halts burnchain processing immediately whenever a selected anchor block is missing locally
+    ///   (`SelectedAndUnknown` status), regardless of affirmation status. This is always true in Nakamoto (Epoch 3.0+)
+    /// and runs *before* affirmation checks.
+    /// - If `false` (primarily for testing): Skips this immediate halt, allowing processing to proceed to
+    ///   affirmation map checks.
+    /// Normal operation requires this to be `true`; setting to `false` will likely break consensus adherence.
+    /// This parameter cannot be set via the configuration file; it must be modified programmatically.
+
+    /// Default: `true`
     pub assume_present_anchor_blocks: bool,
-    /// Fault injection for failing to push blocks
+    /// Fault injection setting for testing purposes. If set to `Some(p)`, where `p` is between 0 and 100,
+    /// the node will have a `p` percent chance of intentionally *not* pushing a newly processed block
+    /// to its peers.
+    ///
+    /// Default: `None` (no fault injection).
     pub fault_injection_block_push_fail_probability: Option<u8>,
-    // fault injection for hiding blocks.
-    // not part of the config file.
+    /// Fault injection setting for testing purposes. If `true`, the node's chainstate database
+    /// access layer may intentionally fail to retrieve block data, even if it exists,
+    /// simulating block hiding or data unavailability.
+    /// This parameter cannot be set via the configuration file; it must be modified programmatically.
+    ///
+    /// Default: `false`
     pub fault_injection_hide_blocks: bool,
-    /// At most, how often should the chain-liveness thread
-    ///  wake up the chains-coordinator. Defaults to 300s (5 min).
+    /// The polling interval, in seconds, for the background thread that monitors chain liveness.
+    /// This thread periodically wakes up the main coordinator to check for chain progress or
+    /// other conditions requiring action.
+    ///
+    /// Default: `300` (5 minutes)
     pub chain_liveness_poll_time_secs: u64,
-    /// stacker DBs we replicate
+    /// A list of specific StackerDB contracts (identified by their qualified contract identifiers,
+    /// e.g., "SP000000000000000000002Q6VF78.pox-3") that this node should actively replicate.
+    /// If the node is configured as a miner (`node.miner = true`) or stacker (`node.stacker = true`),
+    /// relevant system contracts (like `.miners` and `.signers-*`) are typically added automatically.
+    ///
+    /// Default: Empty vector `[]`.
     pub stacker_dbs: Vec<QualifiedContractIdentifier>,
-    /// enable transactions indexing
+    /// Enables the transaction index, which maps transaction IDs to the blocks containing them.
+    /// Setting this to `true` allows the use of RPC endpoints that look up transactions by ID
+    /// (e.g., `/extended/v1/tx/{txid}`), but requires substantial additional disk space for the index database.
+    ///
+    /// Default: `false`
     pub txindex: bool,
 }
 
@@ -2119,14 +2287,25 @@ impl NodeConfig {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MinerConfig {
+    /// Time to wait (in milliseconds) before the first attempt to mine a block.
     pub first_attempt_time_ms: u64,
+    /// Time to wait (in milliseconds) for subsequent attempts to mine a block,
+    /// after the first attempt fails.
     pub subsequent_attempt_time_ms: u64,
+    /// Time to wait (in milliseconds) to mine a microblock,
+    /// In epochs >= 3.0, this field is ignored.
     pub microblock_attempt_time_ms: u64,
     /// Max time to assemble Nakamoto block
     pub nakamoto_attempt_time_ms: u64,
     /// Strategy to follow when picking next mempool transactions to consider.
     pub mempool_walk_strategy: MemPoolWalkStrategy,
+    /// Probability percentage to consider a transaction which has not received a cost estimate.
+    /// Only used when walk strategy is `GlobalFeeRate`.
     pub probability_pick_no_estimate_tx: u8,
+    /// Optional recipient of the coinbase block reward.
+    /// If set and the current Stacks epoch is ≥ 2.1, the block reward will be
+    /// sent to this principal address instead of the default miner address.
+    /// In epochs prior to 2.1, this field is ignored.
     pub block_reward_recipient: Option<PrincipalData>,
     /// If possible, mine with a p2wpkh address
     pub segwit: bool,
