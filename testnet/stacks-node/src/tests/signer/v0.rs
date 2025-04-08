@@ -13693,6 +13693,12 @@ fn burn_block_height_behavior() {
     // Stall mining, so that the next call will get included in the tenure extend block
     TEST_MINE_STALL.set(true);
 
+    // Wait to ensure the miner reaches the stalled state
+    // This is necessary because it's possible that the miner will mine the
+    // following transaction before reaching the stall state, causing the test
+    // to be flaky.
+    sleep_ms(5000);
+
     info!("------------------------- submit contract call 2 -------------------------");
     let call_tx = make_contract_call(
         &deployer_sk,
