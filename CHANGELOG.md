@@ -9,6 +9,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
+### Changed
+
+## [3.1.0.0.8]
+
+### Added
+
 - Add fee information to transaction log ending with "success" or "skipped", while building a new block
 - Add `max_execution_time_secs` to miner config for limiting duration of contract calls
 - When a miner's config file is updated (ie with a new fee rate), a new block commit is issued using

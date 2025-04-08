@@ -7,6 +7,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
+## [3.1.0.0.8.0]
+
 ### Changed
 
 - For some rejection reasons, a signer will reconsider a block proposal that it previously rejected ([#5880](https://github.com/stacks-network/stacks-core/pull/5880))
