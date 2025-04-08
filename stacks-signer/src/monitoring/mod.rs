@@ -14,38 +14,26 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::define_named_enum;
+
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;
 
 #[cfg(feature = "monitoring_prom")]
 mod server;
 
+define_named_enum!(
 /// Represent different state change reason on signer agreement protocol
-pub enum SignerAgreementStateChangeReason {
+SignerAgreementStateChangeReason {
     /// A new burn block has arrived
-    BurnBlockArrival,
+    BurnBlockArrival("burn_block_arrival"),
     /// A new stacks block has arrived
-    StacksBlockArrival,
+    StacksBlockArrival("stacks_block_arrival"),
     /// A miner is inactive when it should be starting its tenure
-    InactiveMiner,
+    InactiveMiner("inactive_miner"),
     /// Signer agreement protocol version has been upgraded
-    ProtocalUpgrade,
-}
-
-impl std::fmt::Display for SignerAgreementStateChangeReason {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                SignerAgreementStateChangeReason::BurnBlockArrival => "burn_block_arrival",
-                SignerAgreementStateChangeReason::StacksBlockArrival => "stacks_block_arrival",
-                SignerAgreementStateChangeReason::InactiveMiner => "inactive_miner",
-                SignerAgreementStateChangeReason::ProtocalUpgrade => "protocol_upgrade",
-            }
-        )
-    }
-}
+    ProtocalUpgrade("protocol_upgrade"),
+});
 
 /// Actions for updating metrics
 #[cfg(feature = "monitoring_prom")]
@@ -140,7 +128,7 @@ pub mod actions {
     pub fn increment_signer_agreement_state_change_reason(
         reason: SignerAgreementStateChangeReason,
     ) {
-        let label_value = reason.to_string();
+        let label_value = reason.get_name();
         SIGNER_AGREEMENT_STATE_CHANGE_REASONS
             .with_label_values(&[&label_value])
             .inc();
