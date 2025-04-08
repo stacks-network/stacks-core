@@ -567,6 +567,10 @@ impl NakamotoBlockProposal {
             if let Some(ref mut replay_txs) = replay_txs_maybe {
                 loop {
                     let Some(replay_tx) = replay_txs.pop_front() else {
+                        // During transaction replay, we expect that the block only
+                        // contains transactions from the replay set. Thus, if we're here,
+                        // the block contains a transaction that is not in the replay set,
+                        // and we should reject the block.
                         return Err(BlockValidateRejectReason {
                             reason_code: ValidateRejectCode::InvalidTransactionReplay,
                             reason: "Transaction is not in the replay set".into(),
