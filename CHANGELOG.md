@@ -20,6 +20,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - When a miner times out waiting for signatures, it will re-propose the same block instead of building a new block ([#5877](https://github.com/stacks-network/stacks-core/pull/5877))
 - Improve tenure downloader trace verbosity applying proper logging level depending on the tenure state ("debug" if unconfirmed, "info" otherwise) ([#5871](https://github.com/stacks-network/stacks-core/issues/5871))
 - Remove warning log about missing UTXOs when a node is configured as `miner` with `mock_mining` mode enabled ([#5841](https://github.com/stacks-network/stacks-core/issues/5841)) 
+- Deprecated the `wait_on_interim_blocks` option in the miner config file. This option is no longer needed, as the miner will always wait for interim blocks to be processed before mining a new block. To wait extra time in between blocks, use the `min_time_between_blocks_ms` option instead.
 
 ## [3.1.0.0.7]
 

@@ -2306,7 +2306,8 @@ pub struct MinerConfig {
     pub unprocessed_block_deadline_secs: u64,
     pub mining_key: Option<Secp256k1PrivateKey>,
     /// Amount of time while mining in nakamoto to wait in between mining interim blocks
-    pub wait_on_interim_blocks: Duration,
+    /// DEPRECATED: use `min_time_between_blocks_ms` instead
+    pub wait_on_interim_blocks: Option<Duration>,
     /// minimum number of transactions that must be in a block if we're going to replace a pending
     /// block-commit with a new block-commit
     pub min_tx_count: u64,
@@ -2377,7 +2378,7 @@ impl Default for MinerConfig {
             candidate_retry_cache_size: 1024 * 1024,
             unprocessed_block_deadline_secs: 30,
             mining_key: None,
-            wait_on_interim_blocks: Duration::from_millis(2_500),
+            wait_on_interim_blocks: None,
             min_tx_count: 0,
             only_increase_tx_count: false,
             unconfirmed_commits_helper: None,
@@ -2901,8 +2902,7 @@ impl MinerConfigFile {
                 .transpose()?,
             wait_on_interim_blocks: self
                 .wait_on_interim_blocks_ms
-                .map(Duration::from_millis)
-                .unwrap_or(miner_default_config.wait_on_interim_blocks),
+                .map(Duration::from_millis),
             min_tx_count: self
                 .min_tx_count
                 .unwrap_or(miner_default_config.min_tx_count),
@@ -2957,7 +2957,7 @@ impl MinerConfigFile {
             pre_nakamoto_mock_signing: self
                 .pre_nakamoto_mock_signing
                 .unwrap_or(pre_nakamoto_mock_signing), // Should only default true if mining key is set
-                min_time_between_blocks_ms: self.min_time_between_blocks_ms.map(|ms| if ms < DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS {
+            min_time_between_blocks_ms: self.min_time_between_blocks_ms.map(|ms| if ms < DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS {
                 warn!("miner.min_time_between_blocks_ms is less than the minimum allowed value of {DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS} ms. Using the default value instead.");
                 DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS
             } else {

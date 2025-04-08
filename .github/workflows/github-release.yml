@@ -38,6 +38,21 @@ concurrency:
 run-name: ${{ inputs.node_tag || inputs.signer_tag }}
 
 jobs:
+  ## This job's sole purpose is trigger a secondary approval outside of the matrix jobs below. 
+  ##   - If this job isn't approved to run, then the subsequent jobs will also not run - for this reason, we always exit 0
+  ##   - `andon-cord` requires the repo environment "Build Release", which will trigger a secondary approval step before running this workflow.  
+  andon-cord:
+    if: |
+      inputs.node_tag != '' ||
+      inputs.signer_tag != ''
+    name: Andon Cord
+    runs-on: ubuntu-latest
+    environment: "Build Release"
+    steps:
+      - name: Check Approval
+        id: check
+        run: |
+          exit 0
   ## Build arch dependent binaries from source
   ##
   ## Runs when the following is true:
@@ -48,7 +63,8 @@ jobs:
       inputs.signer_tag != ''
     name: Build Binaries
     runs-on: ubuntu-latest
-    environment: "Build Release"
+    needs:
+      - andon-cord
     strategy:
       ## Run a maximum of 10 builds concurrently, using the matrix defined in inputs.arch
       max-parallel: 10
@@ -91,6 +107,7 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     needs:
+      - andon-cord
       - build-binaries
     permissions:
       contents: write
@@ -107,7 +124,6 @@ jobs:
           is_signer_release: ${{ inputs.is_signer_release }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-
   ## Builds arch dependent Docker images from binaries
   ##
   ## Note: this step requires the binaries in the create-release step to be uploaded
@@ -120,6 +136,7 @@ jobs:
     name: Docker Image (Binary)
     runs-on: ubuntu-latest
     needs:
+      - andon-cord
       - build-binaries
       - create-release
     strategy:
@@ -147,11 +164,15 @@ jobs:
   ## Create the downstream PR for the release branch to master,develop
   create-pr:
     if: |
-      inputs.node_tag != '' ||
-      inputs.signer_tag != ''
+      !contains(github.ref, '-rc') &&
+      (
+        inputs.node_tag != '' ||
+        inputs.signer_tag != ''
+      )
     name: Create Downstream PR (${{ github.ref_name }})
     runs-on: ubuntu-latest
     needs:
+      - andon-cord
       - build-binaries
       - create-release
       - docker-image

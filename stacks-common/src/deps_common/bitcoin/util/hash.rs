@@ -436,7 +436,7 @@ pub fn bitcoin_merkle_root(data: Vec<Sha256dHash>) -> Sha256dHash {
         return data[0];
     }
     // Recursion
-    let iterations = (data.len() + 1) / 2;
+    let iterations = data.len().div_ceil(2);
     let mut next = Vec::with_capacity(iterations);
     for idx in 0..iterations {
         let idx1 = 2 * idx;

@@ -1264,7 +1264,7 @@ impl SignerDb {
         // Plus (ms + 999)/1000 to round up to the nearest second
         let tenure_extend_timestamp = tenure_start_time
             .saturating_add(tenure_idle_timeout_secs)
-            .saturating_add(tenure_process_time_ms.saturating_add(999) / 1000);
+            .saturating_add(tenure_process_time_ms.div_ceil(1000));
         debug!("Calculated tenure extend timestamp";
             "tenure_extend_timestamp" => tenure_extend_timestamp,
             "tenure_start_time" => tenure_start_time,
