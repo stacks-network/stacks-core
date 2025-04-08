@@ -2287,25 +2287,14 @@ impl NodeConfig {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MinerConfig {
-    /// Time to wait (in milliseconds) before the first attempt to mine a block.
     pub first_attempt_time_ms: u64,
-    /// Time to wait (in milliseconds) for subsequent attempts to mine a block,
-    /// after the first attempt fails.
     pub subsequent_attempt_time_ms: u64,
-    /// Time to wait (in milliseconds) to mine a microblock,
-    /// In epochs >= 3.0, this field is ignored.
     pub microblock_attempt_time_ms: u64,
     /// Max time to assemble Nakamoto block
     pub nakamoto_attempt_time_ms: u64,
     /// Strategy to follow when picking next mempool transactions to consider.
     pub mempool_walk_strategy: MemPoolWalkStrategy,
-    /// Probability percentage to consider a transaction which has not received a cost estimate.
-    /// Only used when walk strategy is `GlobalFeeRate`.
     pub probability_pick_no_estimate_tx: u8,
-    /// Optional recipient of the coinbase block reward.
-    /// If set and the current Stacks epoch is ≥ 2.1, the block reward will be
-    /// sent to this principal address instead of the default miner address.
-    /// In epochs prior to 2.1, this field is ignored.
     pub block_reward_recipient: Option<PrincipalData>,
     /// If possible, mine with a p2wpkh address
     pub segwit: bool,
