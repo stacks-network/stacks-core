@@ -164,7 +164,6 @@ jobs:
   ## Create the downstream PR for the release branch to master,develop
   create-pr:
     if: |
-      !contains(github.ref, '-rc') &&
       (
         inputs.node_tag != '' ||
         inputs.signer_tag != ''
