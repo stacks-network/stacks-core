@@ -73,7 +73,7 @@ impl GlobalStateEvaluator {
         local_address: StacksAddress,
         local_update: StateMachineUpdateMessage,
     ) -> Option<u64> {
-        self.insert_update(local_address.clone(), local_update);
+        self.insert_update(local_address, local_update);
         let mut protocol_versions = HashMap::new();
         for (address, update) in &self.address_updates {
             let Some(weight) = self.address_weights.get(address) else {
@@ -94,7 +94,7 @@ impl GlobalStateEvaluator {
                 return Some(version);
             }
         }
-        return None;
+        None
     }
 
     /// Determine what the global burn view is if there is one
@@ -103,7 +103,7 @@ impl GlobalStateEvaluator {
         local_address: StacksAddress,
         local_update: StateMachineUpdateMessage,
     ) -> Option<(ConsensusHash, u64)> {
-        self.insert_update(local_address.clone(), local_update);
+        self.insert_update(local_address, local_update);
         let mut burn_blocks = HashMap::new();
         for (address, update) in &self.address_updates {
             let Some(weight) = self.address_weights.get(address) else {
