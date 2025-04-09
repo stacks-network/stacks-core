@@ -71,9 +71,9 @@ impl GlobalStateEvaluator {
     fn determine_latest_supported_signer_protocol_version(
         &mut self,
         local_address: StacksAddress,
-        local_update: StateMachineUpdateMessage,
+        local_update: &StateMachineUpdateMessage,
     ) -> Option<u64> {
-        self.insert_update(local_address, local_update);
+        self.insert_update(local_address, local_update.clone());
         let mut protocol_versions = HashMap::new();
         for (address, update) in &self.address_updates {
             let Some(weight) = self.address_weights.get(address) else {
@@ -101,9 +101,9 @@ impl GlobalStateEvaluator {
     pub fn determine_global_burn_view(
         &mut self,
         local_address: StacksAddress,
-        local_update: StateMachineUpdateMessage,
+        local_update: &StateMachineUpdateMessage,
     ) -> Option<(ConsensusHash, u64)> {
-        self.insert_update(local_address, local_update);
+        self.insert_update(local_address, local_update.clone());
         let mut burn_blocks = HashMap::new();
         for (address, update) in &self.address_updates {
             let Some(weight) = self.address_weights.get(address) else {
@@ -126,11 +126,11 @@ impl GlobalStateEvaluator {
         None
     }
 
-    /// Check if there is an agreed upon global current miner viewpoint
+    /// Check if there is an agreed upon global state
     pub fn determine_global_state(
         &mut self,
         local_address: StacksAddress,
-        local_update: StateMachineUpdateMessage,
+        local_update: &StateMachineUpdateMessage,
     ) -> Option<SignerStateMachine> {
         let active_signer_protocol_version =
             self.determine_latest_supported_signer_protocol_version(local_address, local_update)?;
@@ -169,12 +169,12 @@ impl GlobalStateEvaluator {
         &mut self,
         signerdb: &mut SignerDb,
         local_address: StacksAddress,
-        local_update: StateMachineUpdateMessage,
+        local_update: &StateMachineUpdateMessage,
     ) -> Option<StateMachineUpdateMinerState> {
         let StateMachineUpdateContent::V0 {
             burn_block: current_burn_block,
             ..
-        } = local_update.content.clone();
+        } = local_update.content;
         let (global_burn_view, _) = self.determine_global_burn_view(local_address, local_update)?;
         if current_burn_block != global_burn_view {
             return None;
@@ -194,8 +194,7 @@ impl GlobalStateEvaluator {
                 continue;
             }
 
-            let StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. } = current_miner.clone()
-            else {
+            let StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. } = current_miner else {
                 continue;
             };
 
@@ -204,7 +203,7 @@ impl GlobalStateEvaluator {
 
             if *entry >= self.total_weight * 3 / 10 {
                 let nmb_blocks = signerdb
-                    .get_globally_accepted_block_count_in_tenure(&tenure_id)
+                    .get_globally_accepted_block_count_in_tenure(tenure_id)
                     .unwrap_or(0);
                 if nmb_blocks > 0 || self.reached_agreement(*entry) {
                     return Some(current_miner.clone());
@@ -762,7 +761,7 @@ impl LocalStateMachine {
         let old_protocol_version = local_update.active_signer_protocol_version;
         // First check if we should update our active protocol version
         let active_signer_protocol_version = eval
-            .determine_latest_supported_signer_protocol_version(local_address, local_update.clone())
+            .determine_latest_supported_signer_protocol_version(local_address, &local_update)
             .unwrap_or(old_protocol_version);
 
         let StateMachineUpdateContent::V0 {
@@ -789,8 +788,7 @@ impl LocalStateMachine {
         }
 
         // Check if we should also capitulate our miner viewpoint
-        let Some(new_miner) =
-            eval.capitulate_miner_view(signerdb, local_address, local_update.clone())
+        let Some(new_miner) = eval.capitulate_miner_view(signerdb, local_address, &local_update)
         else {
             return;
         };
@@ -884,14 +882,7 @@ mod tests {
             .clone();
         assert_eq!(
             global_eval
-                .determine_latest_supported_signer_protocol_version(
-                    local_address,
-                    global_eval
-                        .address_updates
-                        .get(&local_address)
-                        .unwrap()
-                        .clone(),
-                )
+                .determine_latest_supported_signer_protocol_version(local_address, &local_update,)
                 .unwrap(),
             local_update.local_supported_signer_protocol_version
         );
@@ -926,7 +917,7 @@ mod tests {
 
         assert_eq!(
             global_eval
-                .determine_latest_supported_signer_protocol_version(local_address, local_update)
+                .determine_latest_supported_signer_protocol_version(local_address, &local_update)
                 .unwrap(),
             local_supported_signer_protocol_version
         );
@@ -946,7 +937,7 @@ mod tests {
 
         assert_eq!(
             global_eval
-                .determine_latest_supported_signer_protocol_version(local_address, local_update)
+                .determine_latest_supported_signer_protocol_version(local_address, &local_update)
                 .unwrap(),
             local_supported_signer_protocol_version + 1
         );
@@ -977,7 +968,7 @@ mod tests {
 
         assert_eq!(
             global_eval
-                .determine_global_burn_view(local_address, local_update.clone(),)
+                .determine_global_burn_view(local_address, &local_update)
                 .unwrap(),
             (burn_block, burn_block_height)
         );
@@ -999,7 +990,7 @@ mod tests {
 
         assert!(
             global_eval
-                .determine_global_burn_view(local_address, local_update,)
+                .determine_global_burn_view(local_address, &local_update)
                 .is_none(),
             "We should not have reached agreement on the burn block height"
         );
@@ -1007,7 +998,7 @@ mod tests {
         // Let's tip the scales over to burn block height + 1
         assert_eq!(
             global_eval
-                .determine_global_burn_view(local_address, new_update,)
+                .determine_global_burn_view(local_address, &new_update)
                 .unwrap(),
             (burn_block, burn_block_height.wrapping_add(1))
         );
@@ -1045,7 +1036,7 @@ mod tests {
 
         assert_eq!(
             global_eval
-                .determine_global_state(local_address, local_update.clone(),)
+                .determine_global_state(local_address, &local_update)
                 .unwrap(),
             state_machine
         );
@@ -1075,7 +1066,7 @@ mod tests {
 
         assert!(
             global_eval
-                .determine_global_state(local_address, local_update,)
+                .determine_global_state(local_address, &local_update)
                 .is_none(),
             "We should have a disagreement about the current miner"
         );
@@ -1090,7 +1081,7 @@ mod tests {
         // Let's tip the scales over to a different miner
         assert_eq!(
             global_eval
-                .determine_global_state(local_address, new_update,)
+                .determine_global_state(local_address, &new_update)
                 .unwrap(),
             state_machine
         )
@@ -1152,7 +1143,7 @@ mod tests {
         // Let's update only our own view: the evaluator will tell me to revert my viewpoint to the original miner
         assert_eq!(
             global_eval
-                .capitulate_miner_view(&mut db, local_address, new_update.clone())
+                .capitulate_miner_view(&mut db, local_address, &new_update)
                 .unwrap(),
             current_miner
         );
@@ -1165,7 +1156,7 @@ mod tests {
         }
         assert!(
             global_eval
-                .capitulate_miner_view(&mut db, local_address, new_update.clone())
+                .capitulate_miner_view(&mut db, local_address, &new_update)
                 .is_none(),
             "Evaluator should have been unable to determine a majority view and return none"
         );
@@ -1177,7 +1168,7 @@ mod tests {
         // Now that the blocking minority references a tenure which would actually get reorged, lets capitulate to their view
         assert_eq!(
             global_eval
-                .capitulate_miner_view(&mut db, local_address, new_update)
+                .capitulate_miner_view(&mut db, local_address, &new_update)
                 .unwrap(),
             new_miner
         );
