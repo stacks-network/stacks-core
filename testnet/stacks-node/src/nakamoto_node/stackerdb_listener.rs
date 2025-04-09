@@ -235,7 +235,12 @@ impl StackerDBListener {
             }) else {
                 continue;
             };
-            let SignerEvent::SignerMessages(signer_set, messages) = signer_event else {
+            let SignerEvent::SignerMessages {
+                signer_set,
+                messages,
+                ..
+            } = signer_event
+            else {
                 debug!("StackerDBListener: Received signer event other than a signer message. Ignoring.");
                 continue;
             };

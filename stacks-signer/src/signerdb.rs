@@ -367,6 +367,10 @@ CREATE INDEX IF NOT EXISTS blocks_consensus_hash_status_height ON blocks (consen
 CREATE INDEX IF NOT EXISTS blocks_reward_cycle_state on blocks (reward_cycle, state);
 "#;
 
+static CREATE_INDEXES_11: &str = r#"
+CREATE INDEX IF NOT EXISTS signer_state_machine_updates_reward_cycle_received_time ON signer_state_machine_updates (reward_cycle, received_time ASC);
+"#;
+
 static CREATE_SIGNER_STATE_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS signer_states (
     reward_cycle INTEGER PRIMARY KEY,
@@ -524,6 +528,7 @@ CREATE TABLE IF NOT EXISTS signer_state_machine_updates (
     signer_addr TEXT NOT NULL,
     reward_cycle INTEGER NOT NULL,
     state_update TEXT NOT NULL,
+    received_time TEXT NOT NULL,
     PRIMARY KEY (signer_addr, reward_cycle)
 ) STRICT;"#;
 
@@ -604,6 +609,7 @@ static SCHEMA_10: &[&str] = &[
 
 static SCHEMA_11: &[&str] = &[
     CREATE_SIGNER_STATE_MACHINE_UPDATES_TABLE,
+    CREATE_INDEXES_11,
     "INSERT INTO db_config (version) VALUES (11);",
 ];
 
@@ -1355,7 +1361,12 @@ impl SignerDb {
         reward_cycle: u64,
         address: &StacksAddress,
         update: &StateMachineUpdate,
+        received_time: &SystemTime,
     ) -> Result<(), DBError> {
+        let received_ts = received_time
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| DBError::Other(format!("Bad system time: {e}")))?
+            .as_secs();
         let update_str =
             serde_json::to_string(&update).expect("Unable to serialize state machine update");
         debug!("Inserting update.";
@@ -1364,10 +1375,11 @@ impl SignerDb {
             "active_signer_protocol_version" => update.active_signer_protocol_version,
             "local_supported_signer_protocol_version" => update.local_supported_signer_protocol_version
         );
-        self.db.execute("INSERT OR REPLACE INTO signer_state_machine_updates (signer_addr, reward_cycle, state_update) VALUES (?1, ?2, ?3)", params![
+        self.db.execute("INSERT OR REPLACE INTO signer_state_machine_updates (signer_addr, reward_cycle, state_update, received_time) VALUES (?1, ?2, ?3, ?4)", params![
             address.to_string(),
             u64_to_sql(reward_cycle)?,
-            update_str
+            update_str,
+            u64_to_sql(received_ts)?
         ])?;
         Ok(())
     }
@@ -2450,12 +2462,17 @@ mod tests {
             "The database should be empty for reward_cycle {reward_cycle_1}"
         );
 
-        db.insert_state_machine_update(reward_cycle_1, &address_1, &update_1)
+        db.insert_state_machine_update(reward_cycle_1, &address_1, &update_1, &SystemTime::now())
             .expect("Unable to insert block into db");
-        db.insert_state_machine_update(reward_cycle_1, &address_2, &update_2)
+        db.insert_state_machine_update(reward_cycle_1, &address_2, &update_2, &SystemTime::now())
             .expect("Unable to insert block into db");
-        db.insert_state_machine_update(reward_cycle_1 + 1, &address_3, &update_3)
-            .expect("Unable to insert block into db");
+        db.insert_state_machine_update(
+            reward_cycle_1 + 1,
+            &address_3,
+            &update_3,
+            &SystemTime::now(),
+        )
+        .expect("Unable to insert block into db");
 
         let updates = db.get_signer_state_machine_updates(reward_cycle_1).unwrap();
         assert_eq!(updates.len(), 2);
@@ -2464,7 +2481,7 @@ mod tests {
         assert_eq!(updates.get(&address_2), Some(&update_2));
         assert_eq!(updates.get(&address_3), None);
 
-        db.insert_state_machine_update(reward_cycle_1, &address_2, &update_3)
+        db.insert_state_machine_update(reward_cycle_1, &address_2, &update_3, &SystemTime::now())
             .expect("Unable to insert block into db");
         let updates = db.get_signer_state_machine_updates(reward_cycle_1).unwrap();
         assert_eq!(updates.len(), 2);

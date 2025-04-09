@@ -574,7 +574,7 @@ pub enum StateMachineUpdateContent {
 }
 
 /// Message for update the Signer State infos
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq, Hash)]
 pub enum StateMachineUpdateMinerState {
     /// There is an active miner
     ActiveMiner {
@@ -593,29 +593,6 @@ pub enum StateMachineUpdateMinerState {
     },
     /// The signer doesn't believe there's any valid miner
     NoValidMiner,
-}
-
-impl Hash for StateMachineUpdateMinerState {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            StateMachineUpdateMinerState::ActiveMiner {
-                current_miner_pkh,
-                tenure_id,
-                parent_tenure_id,
-                parent_tenure_last_block,
-                parent_tenure_last_block_height,
-            } => {
-                current_miner_pkh.hash(state);
-                tenure_id.hash(state);
-                parent_tenure_id.hash(state);
-                parent_tenure_last_block.hash(state);
-                parent_tenure_last_block_height.hash(state);
-            }
-            StateMachineUpdateMinerState::NoValidMiner => {
-                0.hash(state);
-            }
-        }
-    }
 }
 
 impl StateMachineUpdate {

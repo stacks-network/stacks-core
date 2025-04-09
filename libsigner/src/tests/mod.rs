@@ -20,7 +20,7 @@ use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use std::{mem, thread};
 
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
@@ -192,7 +192,11 @@ fn test_simple_signer() {
                 .recover_pk()
                 .expect("Faield to recover public key of slot");
             let signer_message = read_next::<SignerMessage, _>(&mut &msg[..]).unwrap();
-            SignerEvent::SignerMessages(0, vec![(pubkey, signer_message)])
+            SignerEvent::SignerMessages {
+                signer_set: 0,
+                messages: vec![(pubkey, signer_message)],
+                received_time: SystemTime::now(),
+            }
         })
         .collect();
 

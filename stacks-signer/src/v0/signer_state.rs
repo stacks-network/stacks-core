@@ -104,7 +104,7 @@ impl GlobalStateEvaluator {
 
             let entry = burn_blocks.entry(burn_block).or_insert_with(|| 0);
             *entry += weight;
-            if *entry >= self.total_weight * 7 / 10 {
+            if self.reached_agreement(*entry) {
                 return Some((burn_block, burn_block_height));
             }
         }
@@ -116,8 +116,7 @@ impl GlobalStateEvaluator {
     /// NOTE: do not call this function unless the evaluator has already been updated with the current local state
     pub fn determine_global_state(&self) -> Option<SignerStateMachine> {
         let active_signer_protocol_version = self.determine_active_signer_protocol_version()?;
-        let (global_burn_block, _) = self.determine_global_burn_view()?;
-        let mut miner_views = HashMap::new();
+        let mut state_views = HashMap::new();
         for (address, update) in &self.address_updates {
             let Some(weight) = self.address_weights.get(address) else {
                 continue;
@@ -128,20 +127,18 @@ impl GlobalStateEvaluator {
                 current_miner,
                 ..
             } = &update.content;
-
-            if *burn_block != global_burn_block {
-                continue;
-            }
-
-            let entry = miner_views.entry(current_miner).or_insert_with(|| 0);
+            let state_machine = SignerStateMachine {
+                burn_block: *burn_block,
+                burn_block_height: *burn_block_height,
+                current_miner: current_miner.into(),
+                active_signer_protocol_version,
+            };
+            let entry = state_views
+                .entry(state_machine.clone())
+                .or_insert_with(|| 0);
             *entry += weight;
-            if *entry >= self.total_weight * 7 / 10 {
-                return Some(SignerStateMachine {
-                    burn_block: *burn_block,
-                    burn_block_height: *burn_block_height,
-                    current_miner: current_miner.into(),
-                    active_signer_protocol_version,
-                });
+            if self.reached_agreement(*entry) {
+                return Some(state_machine);
             }
         }
         None
@@ -169,7 +166,7 @@ impl GlobalStateEvaluator {
 
             let entry = miner_views.entry(current_miner).or_insert_with(|| 0);
             *entry += weight;
-            if *entry >= self.total_weight * 7 / 10 {
+            if self.reached_agreement(*entry) {
                 return Some(current_miner.clone());
             }
         }
@@ -217,7 +214,7 @@ impl GlobalStateEvaluator {
                 let nmb_blocks = signerdb
                     .get_globally_accepted_block_count_in_tenure(&tenure_id)
                     .unwrap_or(0);
-                if nmb_blocks > 0 || *weight >= self.total_weight * 7 / 10 {
+                if nmb_blocks > 0 || self.reached_agreement(*entry) {
                     return Some(current_miner.clone());
                 }
             }
@@ -237,12 +234,18 @@ impl GlobalStateEvaluator {
         self.address_updates.insert(address, update);
         true
     }
+
+    /// Check if the supplied vote weight crosses the global agreement threshold.
+    /// Returns true if it has, false otherwise.
+    fn reached_agreement(&self, vote_weight: u32) -> bool {
+        vote_weight >= self.total_weight * 7 / 10
+    }
 }
 
 /// A signer state machine view. This struct can
 ///  be used to encode the local signer's view or
 ///  the global view.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
 pub struct SignerStateMachine {
     /// The tip burn block (i.e., the latest bitcoin block) seen by this signer
     pub burn_block: ConsensusHash,
@@ -254,7 +257,7 @@ pub struct SignerStateMachine {
     pub active_signer_protocol_version: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
 /// Enum for capturing the signer state machine's view of who
 ///  should be the active miner and what their tenure should be
 ///  built on top of.

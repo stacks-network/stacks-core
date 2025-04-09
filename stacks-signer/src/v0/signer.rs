@@ -17,7 +17,7 @@ use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::net::api::postblock_proposal::{
@@ -206,7 +206,9 @@ impl SignerTrait<SignerMessage> for Signer {
             | Some(SignerEvent::NewBlock { .. })
             | Some(SignerEvent::StatusCheck)
             | None => None,
-            Some(SignerEvent::SignerMessages(msg_parity, ..)) => Some(u64::from(*msg_parity) % 2),
+            Some(SignerEvent::SignerMessages { signer_set, .. }) => {
+                Some(u64::from(*signer_set) % 2)
+            }
         };
         let other_signer_parity = (self.reward_cycle + 1) % 2;
         if event_parity == Some(other_signer_parity) {
@@ -246,7 +248,11 @@ impl SignerTrait<SignerMessage> for Signer {
                     sortition_state,
                 )
             }
-            SignerEvent::SignerMessages(_, messages) => {
+            SignerEvent::SignerMessages {
+                received_time,
+                messages,
+                ..
+            } => {
                 debug!(
                     "{self}: Received {} messages from the other signers",
                     messages.len()
@@ -260,7 +266,11 @@ impl SignerTrait<SignerMessage> for Signer {
                             sortition_state,
                         ),
                         SignerMessage::StateMachineUpdate(update) => {
-                            self.handle_state_machine_update(signer_public_key, update);
+                            self.handle_state_machine_update(
+                                signer_public_key,
+                                update,
+                                received_time,
+                            );
                         }
                         _ => {}
                     }
@@ -589,13 +599,16 @@ impl Signer {
         &mut self,
         signer_public_key: &Secp256k1PublicKey,
         update: &StateMachineUpdate,
+        received_time: &SystemTime,
     ) {
         let address = StacksAddress::p2pkh(self.mainnet, signer_public_key);
         // Store the state machine update so we can reload it if we crash
-        if let Err(e) =
-            self.signer_db
-                .insert_state_machine_update(self.reward_cycle, &address, update)
-        {
+        if let Err(e) = self.signer_db.insert_state_machine_update(
+            self.reward_cycle,
+            &address,
+            update,
+            received_time,
+        ) {
             warn!("{self}: Failed to update global state in signerdb: {e}");
         }
         self.global_state_evaluator
