@@ -1463,7 +1463,7 @@ impl SignerDb {
 
 /// Tests for SignerDb
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use std::fs;
     use std::path::PathBuf;
 
@@ -1487,7 +1487,8 @@ mod tests {
         }
     }
 
-    fn create_block_override(
+    /// Override the creation of a block from a block proposal with the provided function
+    pub fn create_block_override(
         overrides: impl FnOnce(&mut BlockProposal),
     ) -> (BlockInfo, BlockProposal) {
         let header = NakamotoBlockHeader::empty();
@@ -1509,7 +1510,8 @@ mod tests {
         create_block_override(|_| {})
     }
 
-    fn tmp_db_path() -> PathBuf {
+    /// Create a temporary db path for testing purposes
+    pub fn tmp_db_path() -> PathBuf {
         std::env::temp_dir().join(format!(
             "stacks-signer-test-{}.sqlite",
             rand::random::<u64>()

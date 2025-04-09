@@ -162,9 +162,9 @@ impl GlobalStateEvaluator {
         None
     }
 
-    /// Determines whether a signer with the `local_address` and `local_update` should
-    /// should capitulate its current miner view to a new state. This is not necessarily the same as the current global view
-    /// of the miner as it is up to signers to capitulate before this becomes the finalized view.
+    /// Determines whether a signer with the `local_address` and `local_update` should capitulate
+    /// its current miner view to a new state. This is not necessarily the same as the current global
+    /// view of the miner as it is up to signers to capitulate before this becomes the finalized view.
     pub fn capitulate_miner_view(
         &mut self,
         signerdb: &mut SignerDb,
@@ -825,6 +825,7 @@ mod tests {
     use libsigner::v0::messages::{StateMachineUpdateContent, StateMachineUpdateMinerState};
 
     use super::*;
+    use crate::signerdb::tests::{create_block_override, tmp_db_path};
 
     fn generate_global_state_evaluator(num_addresses: u32) -> GlobalStateEvaluator {
         let address_weights = generate_random_address_with_equal_weights(num_addresses);
@@ -1093,5 +1094,92 @@ mod tests {
                 .unwrap(),
             state_machine
         )
+    }
+
+    #[test]
+    fn check_capitulate_miner_view() {
+        let mut global_eval = generate_global_state_evaluator(5);
+
+        let addresses: Vec<_> = global_eval.address_weights.keys().cloned().collect();
+        let local_address = addresses[0];
+        let local_update = global_eval
+            .address_updates
+            .get(&local_address)
+            .unwrap()
+            .clone();
+        let StateMachineUpdateMessage {
+            active_signer_protocol_version,
+            local_supported_signer_protocol_version,
+            content:
+                StateMachineUpdateContent::V0 {
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                },
+            ..
+        } = local_update.clone();
+        // Let's create a new miner view
+        let new_tenure_id = ConsensusHash([0x00; 20]);
+        let new_miner = StateMachineUpdateMinerState::ActiveMiner {
+            current_miner_pkh: Hash160([0x00; 20]),
+            tenure_id: new_tenure_id,
+            parent_tenure_id: ConsensusHash([0x22; 20]),
+            parent_tenure_last_block: StacksBlockId([0x33; 32]),
+            parent_tenure_last_block_height: 1,
+        };
+
+        let new_update = StateMachineUpdateMessage::new(
+            active_signer_protocol_version,
+            local_supported_signer_protocol_version,
+            StateMachineUpdateContent::V0 {
+                burn_block,
+                burn_block_height,
+                current_miner: new_miner.clone(),
+            },
+        )
+        .unwrap();
+
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let (mut block_info_1, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = new_tenure_id;
+            b.block.header.miner_signature = MessageSignature([0x01; 65]);
+            b.block.header.chain_length = 1;
+            b.burn_height = 1;
+        });
+
+        db.insert_block(&block_info_1).unwrap();
+        // Let's update only our own view: the evaluator will tell me to revert my viewpoint to the original miner
+        assert_eq!(
+            global_eval
+                .capitulate_miner_view(&mut db, local_address, new_update.clone())
+                .unwrap(),
+            current_miner
+        );
+
+        // Let's set a blocking minority to this different view: evaluator should see no global blocks for the blocking majority and return none
+        // I.e. only if the blocking minority is attempting to reject an reorg should it take priority over the rest.
+        // Let's update 1 other signer to some new miner key (60 percent)
+        for address in addresses.into_iter().skip(1).take(1) {
+            global_eval.insert_update(address, new_update.clone());
+        }
+        assert!(
+            global_eval
+                .capitulate_miner_view(&mut db, local_address, new_update.clone())
+                .is_none(),
+            "Evaluator should have been unable to determine a majority view and return none"
+        );
+
+        db.mark_block_globally_accepted(&mut block_info_1).unwrap();
+
+        db.insert_block(&block_info_1).unwrap();
+
+        // Now that the blocking minority references a tenure which would actually get reorged, lets capitulate to their view
+        assert_eq!(
+            global_eval
+                .capitulate_miner_view(&mut db, local_address, new_update)
+                .unwrap(),
+            new_miner
+        );
     }
 }
