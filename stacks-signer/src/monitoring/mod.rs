@@ -32,7 +32,7 @@ SignerAgreementStateChangeReason {
     /// A miner is inactive when it should be starting its tenure
     InactiveMiner("inactive_miner"),
     /// Signer agreement protocol version has been upgraded
-    ProtocalUpgrade("protocol_upgrade"),
+    ProtocolUpgrade("protocol_upgrade"),
 });
 
 /// Actions for updating metrics
