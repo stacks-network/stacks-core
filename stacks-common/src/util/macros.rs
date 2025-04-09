@@ -40,16 +40,32 @@ macro_rules! iterable_enum {
 ///  and EnumType.get_name() for free.
 #[macro_export]
 macro_rules! define_named_enum {
-    ($Name:ident { $($Variant:ident($VarName:literal),)* }) =>
-    {
+    (
+        $(#[$enum_meta:meta])*
+        $Name:ident {
+            $(
+                $(#[$variant_meta:meta])*
+                $Variant:ident($VarName:literal),
+            )*
+        }
+    ) => {
+        $(#[$enum_meta])*
         #[derive(::serde::Serialize, ::serde::Deserialize, Debug, Hash, PartialEq, Eq, Copy, Clone)]
         pub enum $Name {
-            $($Variant),*,
+            $(
+                $(#[$variant_meta])*
+                $Variant,
+            )*
         }
+
         impl $Name {
+            /// All variants of the enum.
             pub const ALL: &[$Name] = &[$($Name::$Variant),*];
+
+            /// All names corresponding to the enum variants.
             pub const ALL_NAMES: &[&str] = &[$($VarName),*];
 
+            /// Looks up a variant by its name string.
             pub fn lookup_by_name(name: &str) -> Option<Self> {
                 match name {
                     $(
@@ -59,6 +75,7 @@ macro_rules! define_named_enum {
                 }
             }
 
+            /// Gets the name of the enum variant as a `String`.
             pub fn get_name(&self) -> String {
                 match self {
                     $(
@@ -67,6 +84,7 @@ macro_rules! define_named_enum {
                 }
             }
 
+            /// Gets the name of the enum variant as a static string slice.
             pub fn get_name_str(&self) -> &'static str {
                 match self {
                     $(
@@ -75,12 +93,13 @@ macro_rules! define_named_enum {
                 }
             }
         }
+
         impl ::std::fmt::Display for $Name {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 write!(f, "{}", self.get_name_str())
             }
         }
-    }
+    };
 }
 
 /// Define a "named" enum, i.e., each variant corresponds
@@ -738,4 +757,47 @@ macro_rules! function_name {
     () => {
         stdext::function_name!()
     };
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_macro_define_named_enum_without_docs() {
+        define_named_enum!(
+        MyEnum {
+            Variant1("variant1"),
+            Variant2("variant2"),
+        });
+
+        assert_eq!("variant1", MyEnum::Variant1.get_name());
+        assert_eq!("variant2", MyEnum::Variant2.get_name());
+
+        assert_eq!("variant1", MyEnum::Variant1.get_name_str());
+        assert_eq!("variant2", MyEnum::Variant2.get_name_str());
+
+        assert_eq!(Some(MyEnum::Variant1), MyEnum::lookup_by_name("variant1"));
+        assert_eq!(Some(MyEnum::Variant2), MyEnum::lookup_by_name("variant2"));
+        assert_eq!(None, MyEnum::lookup_by_name("inexistent"));
+    }
+    #[test]
+    fn test_macro_define_named_enum_with_docs() {
+        define_named_enum!(
+        /// MyEnum doc
+        MyEnum {
+            /// Variant1 doc
+            Variant1("variant1"),
+            /// Variant2 doc
+            Variant2("variant2"),
+        });
+
+        assert_eq!("variant1", MyEnum::Variant1.get_name());
+        assert_eq!("variant2", MyEnum::Variant2.get_name());
+
+        assert_eq!("variant1", MyEnum::Variant1.get_name_str());
+        assert_eq!("variant2", MyEnum::Variant2.get_name_str());
+
+        assert_eq!(Some(MyEnum::Variant1), MyEnum::lookup_by_name("variant1"));
+        assert_eq!(Some(MyEnum::Variant2), MyEnum::lookup_by_name("variant2"));
+        assert_eq!(None, MyEnum::lookup_by_name("inexistent"));
+    }
 }
