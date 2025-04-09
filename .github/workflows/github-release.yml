@@ -139,6 +139,7 @@ jobs:
       - andon-cord
       - build-binaries
       - create-release
+    environment: "Push to Docker"
     strategy:
       fail-fast: false
       ## Build a maximum of 2 images concurrently based on matrix.dist
