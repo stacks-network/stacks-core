@@ -9360,10 +9360,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
     }
 
     info!("---- Manually mine a single burn block to force the signers to update ----");
-    next_block_and_wait(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        &signer_test.running_nodes.counters.blocks_processed,
-    );
+    signer_test.mine_nakamoto_block(Duration::from_secs(60), true);
 
     signer_test.wait_for_registered_both_reward_cycles();
 
