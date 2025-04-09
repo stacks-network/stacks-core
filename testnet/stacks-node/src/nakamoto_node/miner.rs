@@ -574,7 +574,32 @@ impl BlockMinerThread {
                     );
                     self.reset_nonce_cache = false;
 
-                    thread::sleep(self.config.miner.empty_mempool_sleep_time);
+                    // Pause the miner to wait for transactions to arrive
+                    let now = Instant::now();
+                    while now.elapsed() < self.config.miner.empty_mempool_sleep_time {
+                        if self.abort_flag.load(Ordering::SeqCst) {
+                            info!("Miner interrupted while mining in order to shut down");
+                            self.globals
+                                .raise_initiative(format!("MiningFailure: aborted by node"));
+                            return Err(ChainstateError::MinerAborted.into());
+                        }
+
+                        // Check if the burnchain tip has changed
+                        let Ok(sort_db) = SortitionDB::open(
+                            &self.config.get_burn_db_file_path(),
+                            false,
+                            self.burnchain.pox_constants.clone(),
+                        ) else {
+                            error!("Failed to open sortition DB. Will try mining again.");
+                            continue;
+                        };
+                        if self.check_burn_tip_changed(&sort_db).is_err() {
+                            return Err(NakamotoNodeError::BurnchainTipChanged);
+                        }
+
+                        thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
+                    }
+
                     break None;
                 }
                 Err(e) => {
@@ -684,6 +709,13 @@ impl BlockMinerThread {
                 }
 
                 thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
+
+                if self.abort_flag.load(Ordering::SeqCst) {
+                    info!("Miner interrupted while mining in order to shut down");
+                    self.globals
+                        .raise_initiative(format!("MiningFailure: aborted by node"));
+                    return Err(ChainstateError::MinerAborted.into());
+                }
 
                 // Check if the burnchain tip has changed
                 let Ok(sort_db) = SortitionDB::open(
