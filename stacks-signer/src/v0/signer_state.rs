@@ -67,8 +67,8 @@ impl GlobalStateEvaluator {
         }
     }
 
-    /// Determine what the active signer protocol version should be
-    fn determine_active_signer_protocol_version(
+    /// Determine what the maximum signer protocol version that a majority of signers can support
+    fn determine_latest_supported_signer_protocol_version(
         &mut self,
         local_address: StacksAddress,
         local_update: StateMachineUpdateMessage,
@@ -131,7 +131,7 @@ impl GlobalStateEvaluator {
         local_update: StateMachineUpdateMessage,
     ) -> Option<SignerStateMachine> {
         let active_signer_protocol_version =
-            self.determine_active_signer_protocol_version(local_address, local_update)?;
+            self.determine_latest_supported_signer_protocol_version(local_address, local_update)?;
         let mut state_views = HashMap::new();
         for (address, update) in &self.address_updates {
             let Some(weight) = self.address_weights.get(address) else {
@@ -792,7 +792,7 @@ impl LocalStateMachine {
         let old_protocol_version = local_update.active_signer_protocol_version;
         // First check if we should update our active protocol version
         let active_signer_protocol_version = eval
-            .determine_active_signer_protocol_version(local_address, local_update.clone())
+            .determine_latest_supported_signer_protocol_version(local_address, local_update.clone())
             .unwrap_or(old_protocol_version);
 
         let StateMachineUpdateContent::V0 {
@@ -844,5 +844,127 @@ impl LocalStateMachine {
                 active_signer_protocol_version,
             });
         }
+    }
+}
+
+/// Tests for SignerDb
+#[cfg(test)]
+mod tests {
+    use clarity::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
+    use clarity::util::hash::Hash160;
+    use libsigner::v0::messages::{StateMachineUpdateContent, StateMachineUpdateMinerState};
+
+    use super::*;
+
+    fn generate_random_address_with_equal_weights(
+        num_addresses: u32,
+    ) -> HashMap<StacksAddress, u32> {
+        let mut address_weights = HashMap::new();
+        for _ in 0..num_addresses {
+            let stacks_address = StacksAddress::p2pkh(
+                false,
+                &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+            );
+            address_weights.insert(stacks_address, 10);
+        }
+        address_weights
+    }
+
+    #[test]
+    fn determine_latest_supported_signer_protocol_versions() {
+        let address_weights = generate_random_address_with_equal_weights(5);
+        let active_protocol_version = 0;
+        let local_supported_signer_protocol_version = 1;
+
+        let addresses: Vec<_> = address_weights.keys().cloned().collect();
+        let local_address = addresses[0];
+
+        let local_update = StateMachineUpdateMessage::new(
+            active_protocol_version,
+            local_supported_signer_protocol_version,
+            StateMachineUpdateContent::V0 {
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh: Hash160([0xab; 20]),
+                    tenure_id: ConsensusHash([0x44; 20]),
+                    parent_tenure_id: ConsensusHash([0x22; 20]),
+                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                    parent_tenure_last_block_height: 1,
+                },
+            },
+        )
+        .unwrap();
+
+        let mut address_updates = HashMap::new();
+        for address in &addresses {
+            address_updates.insert(*address, local_update.clone());
+        }
+
+        let mut global_eval = GlobalStateEvaluator::new(address_updates, address_weights);
+        assert_eq!(
+            global_eval
+                .determine_latest_supported_signer_protocol_version(
+                    local_address,
+                    local_update.clone()
+                )
+                .unwrap(),
+            local_supported_signer_protocol_version
+        );
+
+        // Let's update 3 signers (60 percent) to support seperate but greater protocol versions
+        for (i, address) in addresses.into_iter().skip(1).take(3).enumerate() {
+            let new_version = local_supported_signer_protocol_version + i as u64 + 1;
+            let new_update = StateMachineUpdateMessage::new(
+                0,
+                new_version,
+                StateMachineUpdateContent::V0 {
+                    burn_block: ConsensusHash([0x55; 20]),
+                    burn_block_height: 100,
+                    current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                        current_miner_pkh: Hash160([0xab; 20]),
+                        tenure_id: ConsensusHash([0x44; 20]),
+                        parent_tenure_id: ConsensusHash([0x22; 20]),
+                        parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                        parent_tenure_last_block_height: 1,
+                    },
+                },
+            )
+            .unwrap();
+            global_eval.insert_update(address, new_update);
+        }
+
+        assert_eq!(
+            global_eval
+                .determine_latest_supported_signer_protocol_version(local_address, local_update)
+                .unwrap(),
+            local_supported_signer_protocol_version
+        );
+
+        // Let's tip the scales over to version number 2 by updating the local signer's version...
+        // i.e. > 70% will have version 2 or higher in their map
+        let local_update = StateMachineUpdateMessage::new(
+            active_protocol_version,
+            3,
+            StateMachineUpdateContent::V0 {
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh: Hash160([0xab; 20]),
+                    tenure_id: ConsensusHash([0x44; 20]),
+                    parent_tenure_id: ConsensusHash([0x22; 20]),
+                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                    parent_tenure_last_block_height: 1,
+                },
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            global_eval
+                .determine_latest_supported_signer_protocol_version(local_address, local_update)
+                .unwrap(),
+            local_supported_signer_protocol_version + 1
+        );
     }
 }
