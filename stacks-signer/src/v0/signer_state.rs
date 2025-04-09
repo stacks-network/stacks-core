@@ -271,6 +271,11 @@ impl LocalStateMachine {
                 "inactive_tenure_ch" => %inactive_tenure_ch,
                 "new_active_tenure_ch" => %new_active_tenure_ch
             );
+
+            crate::monitoring::actions::increment_signer_agreement_state_change_reason(
+                crate::monitoring::SignerAgreementStateChangeReason::InactiveMiner,
+            );
+
             Ok(())
         } else {
             warn!("Current miner timed out due to inactivity, but prior miner is not valid. Allowing current miner to continue");
@@ -393,6 +398,11 @@ impl LocalStateMachine {
         *parent_tenure_last_block = *block_id;
         *parent_tenure_last_block_height = height;
         *self = LocalStateMachine::Initialized(prior_state_machine);
+
+        crate::monitoring::actions::increment_signer_agreement_state_change_reason(
+            crate::monitoring::SignerAgreementStateChangeReason::StacksBlockArrival,
+        );
+
         Ok(())
     }
 
@@ -447,7 +457,7 @@ impl LocalStateMachine {
         // set self to uninitialized so that if this function errors,
         //  self is left as uninitialized.
         let prior_state = std::mem::replace(self, Self::Uninitialized);
-        let prior_state_machine = match prior_state {
+        let prior_state_machine = match prior_state.clone() {
             // if the local state machine was uninitialized, just initialize it
             LocalStateMachine::Uninitialized => Self::place_holder(),
             LocalStateMachine::Initialized(signer_state_machine) => signer_state_machine,
@@ -525,6 +535,12 @@ impl LocalStateMachine {
             current_miner: miner_state,
             active_signer_protocol_version: prior_state_machine.active_signer_protocol_version,
         });
+
+        if prior_state != *self {
+            crate::monitoring::actions::increment_signer_agreement_state_change_reason(
+                crate::monitoring::SignerAgreementStateChangeReason::BurnBlockArrival,
+            );
+        }
 
         Ok(())
     }
