@@ -38,9 +38,9 @@ concurrency:
 run-name: ${{ inputs.node_tag || inputs.signer_tag }}
 
 jobs:
-  ## This job's sole purpose is trigger a secondary approval outside of the matrix jobs below. 
+  ## This job's sole purpose is trigger a secondary approval outside of the matrix jobs below.
   ##   - If this job isn't approved to run, then the subsequent jobs will also not run - for this reason, we always exit 0
-  ##   - `andon-cord` requires the repo environment "Build Release", which will trigger a secondary approval step before running this workflow.  
+  ##   - `andon-cord` requires the repo environment "Build Release", which will trigger a secondary approval step before running this workflow.
   andon-cord:
     if: |
       inputs.node_tag != '' ||
@@ -135,11 +135,14 @@ jobs:
       inputs.signer_tag != ''
     name: Docker Image (Binary)
     runs-on: ubuntu-latest
+    environment: "Push to Docker"
+    permissions:
+      id-token: write
+      attestations: write
     needs:
       - andon-cord
       - build-binaries
       - create-release
-    environment: "Push to Docker"
     strategy:
       fail-fast: false
       ## Build a maximum of 2 images concurrently based on matrix.dist

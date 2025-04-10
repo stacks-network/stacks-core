@@ -77,8 +77,7 @@ jobs:
         id: attest_primary
         uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
         with:
-          # subject-name: index.docker.io/${{ env.docker-org }}/${{ github.event.repository.name }}
-          subject-name:  |
+          subject-name: |
             index.docker.io/${{env.docker-org}}/${{ github.event.repository.name }}
           subject-digest: ${{ steps.docker_build.outputs.digest }}
           push-to-registry: true
@@ -87,8 +86,7 @@ jobs:
         id: attest_secondary
         uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
         with:
-          # subject-name: index.docker.io/${{ env.docker-org }}/${{ github.event.repository.name }}
-          subject-name:  |
+          subject-name: |
             index.docker.io/${{env.docker-org}}/stacks-blockchain
           subject-digest: ${{ steps.docker_build.outputs.digest }}
           push-to-registry: true
