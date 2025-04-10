@@ -1672,6 +1672,8 @@ pub struct NodeConfig {
     /// All persistent data, including chainstate, burnchain databases, and potentially other stores,
     /// will be located within this directory.
     /// This path can be overridden by setting the `STACKS_WORKING_DIR` environment variable.
+    /// Note: For persistent mainnet or testnet nodes, this path must be explicitly
+    /// configured to a non-temporary location in the configuration file.
     ///
     /// Default: `/tmp/stacks-node-{current_timestamp}`.
     pub working_dir: String,
@@ -1688,13 +1690,13 @@ pub struct NodeConfig {
     /// The publicly accessible URL that this node advertises to peers during the P2P handshake
     /// as its HTTP RPC endpoint. Other nodes or services might use this URL to query the node's API.
     ///
-    /// Default: `http://{rpc_bind}` (e.g., "http://127.0.0.1:20443" if rpc_bind is default and resolves locally).
+    /// Default: `http://{rpc_bind}` (e.g., "http://0.0.0.0:20443" if rpc_bind is default).
     pub data_url: String,
     /// The publicly accessible IPv4 address and port that this node advertises to peers for P2P connections.
     /// This might differ from `p2p_bind` if the node is behind NAT or a proxy.
     /// Note: The default value derivation might be unexpected, potentially using the `rpc_bind` address; explicit configuration is recommended if needed.
     ///
-    /// Default: Derived from `rpc_bind` (e.g., "127.0.0.1:20443" with default settings).
+    /// Default: Derived from `rpc_bind` (e.g., "0.0.0.0:20443" if rpc_bind is default).
     pub p2p_address: String,
     /// The private key seed, provided as a hex string in the config file, used specifically for the
     /// node's identity and message signing within the P2P networking layer.
@@ -1703,11 +1705,14 @@ pub struct NodeConfig {
     /// Default: Randomly generated 32 bytes.
     pub local_peer_seed: Vec<u8>,
     /// A list of initial peer nodes used to bootstrap connections into the Stacks P2P network.
-    /// Peers are specified as comma-separated strings in the format "PUBKEY@IP:PORT" or "PUBKEY@HOSTNAME:PORT"
-    /// in the configuration file. DNS hostnames are resolved during configuration loading.
-    /// If empty on mainnet, default Hiro and Stacks seed nodes are used.
+    /// Peers are specified in a configuration file as comma-separated strings in the
+    /// format `"PUBKEY@IP:PORT"` or `"PUBKEY@HOSTNAME:PORT"`. DNS hostnames are resolved
+    /// during configuration loading.
     ///
-    /// Default: Empty vector `[]`.
+    /// Default: The effective initial list depends on how the node is started:
+    /// - `mainnet` subcommand: Uses the default Hiro and Stacks mainnet seed nodes
+    /// - `testnet` subcommand: Uses the default Hiro testnet seed node
+    /// - Other subcommands (`start`, `mocknet`, `helium`, etc.): Empty vector `[]`.
     pub bootstrap_node: Vec<Neighbor>,
     /// A list of peer addresses that this node should explicitly deny connections from.
     /// Peers are specified as comma-separated strings in the format "IP:PORT" or "HOSTNAME:PORT"
@@ -1792,8 +1797,8 @@ pub struct NodeConfig {
     /// Default: `None` (effectively `"noop"`).
     pub marf_cache_strategy: Option<String>,
     /// Controls the timing of hash calculations for MARF trie nodes.
-    /// If `true`, hashes are calculated only when the MARF is flushed to disk (deferred hashing).
-    /// If `false`, hashes are calculated immediately as leaf nodes are inserted or updated (immediate hashing).
+    /// - If `true`, hashes are calculated only when the MARF is flushed to disk (deferred hashing).
+    /// - If `false`, hashes are calculated immediately as leaf nodes are inserted or updated (immediate hashing).
     /// Deferred hashing might improve write performance.
     ///
     /// Default: `true`
@@ -1811,10 +1816,10 @@ pub struct NodeConfig {
     /// Default: `None` (uses standard network genesis).
     pub use_test_genesis_chainstate: Option<bool>,
     /// Controls if Stacks Epoch 2.1+ affirmation map logic should be applied even before Epoch 2.1.
-    /// If `true` (default), the node consistently uses the newer (Epoch 2.1) rules for PoX anchor block
-    /// validation and affirmation-based reorg handling, even in earlier epochs.
-    /// If `false`, the node strictly follows the rules defined for the specific epoch it is currently
-    /// processing, only applying 2.1+ logic from Epoch 2.1 onwards.
+    /// - If `true` (default), the node consistently uses the newer (Epoch 2.1) rules for PoX anchor block
+    ///   validation and affirmation-based reorg handling, even in earlier epochs.
+    /// - If `false`, the node strictly follows the rules defined for the specific epoch it is currently
+    ///   processing, only applying 2.1+ logic from Epoch 2.1 onwards.
     /// Differences in this setting between nodes prior to Epoch 2.1 could lead to consensus forks.
     ///
     /// Default: `true`
@@ -1822,11 +1827,11 @@ pub struct NodeConfig {
     /// Controls if the node must wait for locally missing but burnchain-affirmed PoX anchor blocks.
     /// If an anchor block is confirmed by the affirmation map but not yet processed by this node:
     /// - If `true`: Burnchain processing halts until the affirmed block is acquired. Ensures strict
-    /// adherence to the affirmed canonical chain, typical for followers.
+    ///   adherence to the affirmed canonical chain, typical for followers.
     /// - If `false`: Burnchain processing continues without waiting. Allows miners to operate optimistically
-    /// but may necessitate unwinding later if the affirmed block alters the chain state.
+    ///   but may necessitate unwinding later if the affirmed block alters the chain state.
     ///
-    /// Default: default is `true` for followers and `false` for miners (when not explicitly configured).
+    /// Default: `true` for followers, `false` for miners (when not explicitly configured).
     pub require_affirmed_anchor_blocks: bool,
     /// Controls if the node must strictly wait for any PoX anchor block selected by the core consensus mechanism.
     /// - If `true`: Halts burnchain processing immediately whenever a selected anchor block is missing locally
@@ -1860,10 +1865,12 @@ pub struct NodeConfig {
     pub chain_liveness_poll_time_secs: u64,
     /// A list of specific StackerDB contracts (identified by their qualified contract identifiers,
     /// e.g., "SP000000000000000000002Q6VF78.pox-3") that this node should actively replicate.
-    /// If the node is configured as a miner (`node.miner = true`) or stacker (`node.stacker = true`),
-    /// relevant system contracts (like `.miners` and `.signers-*`) are typically added automatically.
     ///
-    /// Default: Empty vector `[]`.
+    /// Default: The initial list depends on the `node.miner` and `node.stacker` settings:
+    /// - If `miner = true` or `stacker = true`: Relevant system contracts (like `.miners`
+    ///   and `.signers-*`) are automatically added during configuration loading, in addition
+    ///   to any contracts specified in the configuration file.
+    /// - If `miner = false` and `stacker = false`: Empty vector `[]`.
     pub stacker_dbs: Vec<QualifiedContractIdentifier>,
     /// Enables the transaction index, which maps transaction IDs to the blocks containing them.
     /// Setting this to `true` allows the use of RPC endpoints that look up transactions by ID
