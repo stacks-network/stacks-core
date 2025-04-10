@@ -142,6 +142,13 @@ fn test_simple_signer() {
         chunks.push(chunk_event);
     }
 
+    chunks.sort_by(|ev1, ev2| {
+        ev1.modified_slots[0]
+            .slot_id
+            .partial_cmp(&ev2.modified_slots[0].slot_id)
+            .unwrap()
+    });
+
     let thread_chunks = chunks.clone();
 
     // simulate a node that's trying to push data
@@ -176,13 +183,6 @@ fn test_simple_signer() {
     let running_signer = signer.spawn(endpoint).unwrap();
     sleep_ms(5000);
     let accepted_events = running_signer.stop().unwrap();
-
-    chunks.sort_by(|ev1, ev2| {
-        ev1.modified_slots[0]
-            .slot_id
-            .partial_cmp(&ev2.modified_slots[0].slot_id)
-            .unwrap()
-    });
 
     let sent_events: Vec<SignerEvent<SignerMessage>> = chunks
         .iter()
