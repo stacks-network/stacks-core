@@ -200,7 +200,28 @@ fn test_simple_signer() {
         })
         .collect();
 
-    assert_eq!(sent_events, accepted_events);
+    for (sent_event, accepted_event) in sent_events.iter().zip(accepted_events.iter()) {
+        let SignerEvent::SignerMessages {
+            signer_set,
+            messages,
+            received_time,
+        } = sent_event
+        else {
+            panic!("BUG: should not have sent anything but a signer message");
+        };
+        let SignerEvent::SignerMessages {
+            signer_set: accepted_signer_set,
+            messages: accepted_messages,
+            received_time: accepted_time,
+        } = accepted_event
+        else {
+            panic!("BUG: should not have accepted anything but a signer message");
+        };
+
+        assert_eq!(signer_set, accepted_signer_set);
+        assert_eq!(messages, accepted_messages);
+        assert_ne!(received_time, accepted_time);
+    }
     mock_stacks_node.join().unwrap();
 }
 

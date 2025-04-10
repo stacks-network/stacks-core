@@ -4009,6 +4009,7 @@ fn idle_tenure_extend_active_mining() {
                 }
                 TEST_MINE_STALL.set(false);
             });
+
             let latest_response = signer_test.get_latest_block_response(slot_id);
             let naka_blocks = test_observer::get_mined_nakamoto_blocks();
             info!(
