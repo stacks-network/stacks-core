@@ -123,6 +123,9 @@ const DEFAULT_TENURE_TIMEOUT_SECS: u64 = 180;
 /// Default percentage of block budget that must be used before attempting a
 /// time-based tenure extend
 const DEFAULT_TENURE_EXTEND_COST_THRESHOLD: u64 = 50;
+/// Default number of milliseconds that the miner should sleep between mining
+/// attempts when the mempool is empty.
+const DEFAULT_EMPTY_MEMPOOL_SLEEP_MS: u64 = 2_500;
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
@@ -2172,6 +2175,9 @@ pub struct MinerConfig {
     /// The minimum time to wait between mining blocks in milliseconds. The value must be greater than or equal to 1000 ms because if a block is mined
     /// within the same second as its parent, it will be rejected by the signers.
     pub min_time_between_blocks_ms: u64,
+    /// The amount of time that the miner should sleep in between attempts to
+    /// mine a block when the mempool is empty
+    pub empty_mempool_sleep_time: Duration,
     /// Time in milliseconds to pause after receiving the first threshold rejection, before proposing a new block.
     pub first_rejection_pause_ms: u64,
     /// Time in milliseconds to pause after receiving subsequent threshold rejections, before proposing a new block.
@@ -2224,6 +2230,7 @@ impl Default for MinerConfig {
             max_reorg_depth: 3,
             pre_nakamoto_mock_signing: false, // Should only default true if mining key is set
             min_time_between_blocks_ms: DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS,
+            empty_mempool_sleep_time: Duration::from_millis(DEFAULT_EMPTY_MEMPOOL_SLEEP_MS),
             first_rejection_pause_ms: DEFAULT_FIRST_REJECTION_PAUSE_MS,
             subsequent_rejection_pause_ms: DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS,
             block_commit_delay: Duration::from_millis(DEFAULT_BLOCK_COMMIT_DELAY_MS),
@@ -2639,6 +2646,7 @@ pub struct MinerConfigFile {
     pub max_reorg_depth: Option<u64>,
     pub pre_nakamoto_mock_signing: Option<bool>,
     pub min_time_between_blocks_ms: Option<u64>,
+    pub empty_mempool_sleep_ms: Option<u64>,
     pub first_rejection_pause_ms: Option<u64>,
     pub subsequent_rejection_pause_ms: Option<u64>,
     pub block_commit_delay_ms: Option<u64>,
@@ -2795,6 +2803,7 @@ impl MinerConfigFile {
             } else {
                 ms
             }).unwrap_or(miner_default_config.min_time_between_blocks_ms),
+            empty_mempool_sleep_time: self.empty_mempool_sleep_ms.map(Duration::from_millis).unwrap_or(miner_default_config.empty_mempool_sleep_time),
             first_rejection_pause_ms: self.first_rejection_pause_ms.unwrap_or(miner_default_config.first_rejection_pause_ms),
             subsequent_rejection_pause_ms: self.subsequent_rejection_pause_ms.unwrap_or(miner_default_config.subsequent_rejection_pause_ms),
             block_commit_delay: self.block_commit_delay_ms.map(Duration::from_millis).unwrap_or(miner_default_config.block_commit_delay),
