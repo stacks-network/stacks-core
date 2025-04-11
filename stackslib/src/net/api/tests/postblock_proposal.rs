@@ -34,7 +34,11 @@ use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction};
 use crate::chainstate::stacks::test::make_codec_test_nakamoto_block;
-use crate::core::test_util::{make_stacks_transfer_tx, to_addr};
+use crate::core::test_util::{
+    make_big_read_count_contract, make_contract_call, make_contract_publish,
+    make_stacks_transfer_tx, to_addr,
+};
+use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, TEST_REPLAY_TRANSACTIONS,
 };
@@ -852,6 +856,84 @@ fn replay_validation_test_transaction_mineable_mismatch_series_2() {
         (
             vec![mineable_tx_1.clone(), tx_b.clone(), tx_a.clone()].into(),
             vec![mineable_tx_1, tx_a, tx_b],
+        )
+    });
+
+    match result {
+        Ok(_) => {
+            panic!("Expected validation to be rejected, but got Ok");
+        }
+        Err(rejection) => {
+            assert_eq!(
+                rejection.reason_code,
+                ValidateRejectCode::InvalidTransactionReplay
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore]
+/// Replay set has [deploy, big_a, big_b, c]
+/// The block has [deploy, big_a, c]
+///
+/// The block should have ended at big_a, because big_b would
+/// have cost too much to include.
+fn replay_validation_test_budget_exceeded() {
+    let result = replay_validation_test(|rpc_test| {
+        let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
+        let miner_addr = to_addr(miner_privk);
+
+        let contract_code = make_big_read_count_contract(BLOCK_LIMIT_MAINNET_21, 50);
+
+        let deploy_tx_bytes = make_contract_publish(
+            miner_privk,
+            36,
+            1000,
+            CHAIN_ID_TESTNET,
+            &"big-contract",
+            &contract_code,
+        );
+
+        let big_a_bytes = make_contract_call(
+            miner_privk,
+            37,
+            1000,
+            CHAIN_ID_TESTNET,
+            &miner_addr,
+            &"big-contract",
+            "big-tx",
+            &vec![],
+        );
+
+        let big_b_bytes = make_contract_call(
+            miner_privk,
+            38,
+            1000,
+            CHAIN_ID_TESTNET,
+            &miner_addr,
+            &"big-contract",
+            "big-tx",
+            &vec![],
+        );
+
+        let deploy_tx =
+            StacksTransaction::consensus_deserialize(&mut deploy_tx_bytes.as_slice()).unwrap();
+        let big_a = StacksTransaction::consensus_deserialize(&mut big_a_bytes.as_slice()).unwrap();
+        let big_b = StacksTransaction::consensus_deserialize(&mut big_b_bytes.as_slice()).unwrap();
+
+        let transfer_tx = make_stacks_transfer_tx(
+            miner_privk,
+            38,
+            1000,
+            CHAIN_ID_TESTNET,
+            &StandardPrincipalData::transient().into(),
+            100,
+        );
+
+        (
+            vec![deploy_tx.clone(), big_a.clone(), big_b.clone()].into(),
+            vec![deploy_tx, big_a, transfer_tx],
         )
     });
 

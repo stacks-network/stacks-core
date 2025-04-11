@@ -5,6 +5,7 @@ use clarity::codec::StacksMessageCodec;
 use clarity::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::tests::BurnStateDB;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
@@ -523,4 +524,26 @@ pub fn insert_tx_in_mempool(
     db_tx
         .execute(sql, args)
         .expect("Failed to insert transaction into mempool");
+}
+
+/// Generate source code for a contract that exposes a public function
+/// `big-tx`. This function uses `proportion` of read_count when called
+pub fn make_big_read_count_contract(limit: ExecutionCost, proportion: u64) -> String {
+    let read_count = (limit.read_count * proportion) / 100;
+
+    let read_lines = (0..read_count)
+        .map(|_| format!("(var-get my-var)"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    format!(
+        "
+(define-data-var my-var uint u0)
+(define-public (big-tx)
+(begin
+{}
+(ok true)))
+        ",
+        read_lines
+    )
 }

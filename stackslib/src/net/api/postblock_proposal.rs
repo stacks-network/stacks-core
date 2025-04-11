@@ -50,7 +50,8 @@ use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NAKAMOTO_BL
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::miner::{
-    BlockBuilder, BlockLimitFunction, TransactionError, TransactionResult,
+    BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic, TransactionResult,
+    TransactionSkipped,
 };
 use crate::chainstate::stacks::{
     Error as ChainError, StacksBlock, StacksBlockHeader, StacksTransaction, TransactionPayload,
@@ -579,6 +580,10 @@ impl NakamotoBlockProposal {
                     if replay_tx.txid() == tx.txid() {
                         break;
                     }
+
+                    // The included tx doesn't match the next tx in the
+                    // replay set. Check to see if the tx is skipped because
+                    // it was unmineable.
                     let tx_result = builder.try_mine_tx_with_len(
                         &mut tenure_tx,
                         &replay_tx,
@@ -588,30 +593,42 @@ impl NakamotoBlockProposal {
                         None,
                     );
                     match tx_result {
-                        TransactionResult::ProcessingError(e) => {
-                            // The tx wasn't able to be mined. Check `TransactionError`, to
-                            // see if we should error or allow the tx to be dropped from the replay set.
+                        TransactionResult::Skipped(TransactionSkipped { error, .. })
+                        | TransactionResult::ProcessingError(TransactionError { error, .. })
+                        | TransactionResult::Problematic(TransactionProblematic {
+                            error, ..
+                        }) => {
+                            // The tx wasn't able to be mined. Check the underlying error, to
+                            // see if we should reject the block or allow the tx to be
+                            // dropped from the replay set.
 
-                            // TODO: handle TransactionError cases
-                            match e.error {
-                                ChainError::BlockCostExceeded => {
+                            match error {
+                                ChainError::CostOverflowError(..)
+                                | ChainError::BlockTooBigError => {
                                     // block limit reached; add tx back to replay set.
                                     // BUT we know that the block should have ended at this point, so
                                     // return an error.
+                                    let txid = replay_tx.txid();
                                     replay_txs.push_front(replay_tx);
+
+                                    warn!("Rejecting block proposal. Next replay tx exceeds cost limits, so should have been in the next block.";
+                                        "error" => %error,
+                                        "txid" => %txid,
+                                    );
 
                                     return Err(BlockValidateRejectReason {
                                         reason_code: ValidateRejectCode::InvalidTransactionReplay,
                                         reason: "Transaction is not in the replay set".into(),
                                     });
                                 }
+                                // TODO: handle other ChainError cases
                                 _ => {
                                     // it's ok, drop it
                                     continue;
                                 }
                             }
                         }
-                        _ => {
+                        TransactionResult::Success(_) => {
                             // Tx should have been included
                             return Err(BlockValidateRejectReason {
                                 reason_code: ValidateRejectCode::InvalidTransactionReplay,
