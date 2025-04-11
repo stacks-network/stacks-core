@@ -1787,7 +1787,7 @@ fn test_deploy_smart_contract(
             content,
             None,
             |_, _| false,
-            None
+            None,
         )?;
         tx.save_analysis(contract_id, &analysis)?;
         return Ok(());
