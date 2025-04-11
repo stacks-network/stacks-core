@@ -866,3 +866,32 @@ paths:
               schema:
                 type: integer
                 example: 7
+  /v3/transaction/{txid}:
+    post:
+      summary: Retrieve transaction details by TXID
+      tags:
+        - Transactions
+      description: Get a JSON with the transaction details including the `index_block_hash`, the hex-encoded transaction body, and the `result`.
+      operationId: get_transaction
+      parameters:
+      - name: txid
+        in: path
+        required: true
+        description: Transaction ID
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Transaction JSON with index_block_hash, transaction body and result
+          content:
+            application/json:
+              example:
+                $ref: ./api/core-node/get_transaction.json
+        "404":
+          description: Transaction not found
+          content:
+            application/text-plain: {}
+        "501":
+          description: Transaction indexing not enabled
+          content:
+            application/text-plain: {}

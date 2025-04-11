@@ -285,7 +285,7 @@ impl StackerDBListener {
                             info!(
                                 "StackerDBListener: Received signature for block that we did not request. Ignoring.";
                                 "signature" => %signature,
-                                "block_signer_sighash" => %block_sighash,
+                                "signer_signature_hash" => %block_sighash,
                                 "slot_id" => slot_id,
                                 "signer_set" => self.signer_set,
                             );
@@ -303,7 +303,7 @@ impl StackerDBListener {
                             warn!(
                                 "StackerDBListener: Processed signature but didn't validate over the expected block. Ignoring";
                                 "signature" => %signature,
-                                "block_signer_signature_hash" => %block_sighash,
+                                "signer_signature_hash" => %block_sighash,
                                 "slot_id" => slot_id,
                             );
                             continue;
@@ -311,7 +311,7 @@ impl StackerDBListener {
 
                         if Self::fault_injection_ignore_signatures() {
                             warn!("StackerDBListener: fault injection: ignoring well-formed signature for block";
-                                "block_signer_sighash" => %block_sighash,
+                                "signer_signature_hash" => %block_sighash,
                                 "signer_pubkey" => signer_pubkey.to_hex(),
                                 "signer_slot_id" => slot_id,
                                 "signature" => %signature,
@@ -332,7 +332,7 @@ impl StackerDBListener {
                         }
 
                         info!("StackerDBListener: Signature Added to block";
-                            "block_signer_sighash" => %block_sighash,
+                            "signer_signature_hash" => %block_sighash,
                             "signer_pubkey" => signer_pubkey.to_hex(),
                             "signer_slot_id" => slot_id,
                             "signature" => %signature,
@@ -368,7 +368,7 @@ impl StackerDBListener {
                         else {
                             info!(
                                 "StackerDBListener: Received rejection for block that we did not request. Ignoring.";
-                                "block_signer_sighash" => %rejected_data.signer_signature_hash,
+                                "signer_signature_hash" => %rejected_data.signer_signature_hash,
                                 "slot_id" => slot_id,
                                 "signer_set" => self.signer_set,
                             );
@@ -397,7 +397,7 @@ impl StackerDBListener {
                         }
 
                         info!("StackerDBListener: Signer rejected block";
-                            "block_signer_sighash" => %rejected_data.signer_signature_hash,
+                            "signer_signature_hash" => %rejected_data.signer_signature_hash,
                             "signer_pubkey" => rejected_pubkey.to_hex(),
                             "signer_slot_id" => slot_id,
                             "signature" => %rejected_data.signature,

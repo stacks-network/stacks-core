@@ -1040,14 +1040,14 @@ impl std::fmt::Display for BlockResponse {
             BlockResponse::Accepted(a) => {
                 write!(
                     f,
-                    "BlockAccepted: signer_sighash = {}, signature = {}, version = {}",
+                    "BlockAccepted: signer_signature_hash = {}, signature = {}, version = {}",
                     a.signer_signature_hash, a.signature, a.metadata.server_version
                 )
             }
             BlockResponse::Rejected(r) => {
                 write!(
                     f,
-                    "BlockRejected: signer_sighash = {}, code = {}, reason = {}, signature = {}, version = {}",
+                    "BlockRejected: signer_signature_hash = {}, code = {}, reason = {}, signature = {}, version = {}",
                     r.reason_code, r.reason, r.signer_signature_hash, r.signature, r.metadata.server_version
                 )
             }
@@ -1702,6 +1702,12 @@ impl std::fmt::Display for RejectReason {
 impl From<BlockResponse> for SignerMessage {
     fn from(block_response: BlockResponse) -> Self {
         Self::BlockResponse(block_response)
+    }
+}
+
+impl From<StateMachineUpdate> for SignerMessage {
+    fn from(update: StateMachineUpdate) -> Self {
+        Self::StateMachineUpdate(update)
     }
 }
 

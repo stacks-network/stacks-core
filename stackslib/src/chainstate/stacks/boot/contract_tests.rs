@@ -1178,6 +1178,7 @@ fn pox_2_delegate_extend_units() {
                     Value::UInt(0),
                 ],
                 |_, _| false,
+                None,
             )
         })
         .unwrap();
@@ -1392,7 +1393,6 @@ fn pox_2_delegate_extend_units() {
             "(err 11)".to_string(),
             "Delegate still does not have enough aggregate locked up for cycle 3",
         );
-
 
         assert_eq!(
             env.execute_transaction(
@@ -1787,6 +1787,7 @@ fn test_deploy_smart_contract(
             content,
             None,
             |_, _| false,
+            None
         )?;
         tx.save_analysis(contract_id, &analysis)?;
         return Ok(());

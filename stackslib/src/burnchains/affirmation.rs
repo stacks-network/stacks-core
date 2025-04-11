@@ -896,7 +896,7 @@ fn inner_find_heaviest_block_commit_ptr(
     // consider ancestor candidates in _highest_-first order
     for ((height, vtxindex), (block_set, burnt)) in ancestor_confirmations.iter().rev() {
         let confs = block_set.len() as u64;
-        if confs < anchor_threshold.into() {
+        if confs < u64::from(anchor_threshold) {
             continue;
         }
 

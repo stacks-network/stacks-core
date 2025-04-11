@@ -18,11 +18,10 @@ use std::time::{Duration, UNIX_EPOCH};
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use libsigner::v0::messages::{
-    StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,
-    StateMachineUpdateMinerState,
+    MessageSlotID, SignerMessage, StateMachineUpdate as StateMachineUpdateMessage,
+    StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
 use serde::{Deserialize, Serialize};
-use slog::{slog_info, slog_warn};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::Error as CodecError;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
@@ -33,11 +32,11 @@ use stacks_common::{info, warn};
 use crate::chainstate::{
     ProposalEvalConfig, SignerChainstateError, SortitionState, SortitionsView,
 };
-use crate::client::{ClientError, CurrentAndLastSortition, StacksClient};
+use crate::client::{ClientError, CurrentAndLastSortition, StackerDB, StacksClient};
 use crate::signerdb::SignerDb;
 
 /// This is the latest supported protocol version for this signer binary
-pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 1;
+pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 0;
 
 /// A signer state machine view. This struct can
 ///  be used to encode the local signer's view or
@@ -159,7 +158,22 @@ impl LocalStateMachine {
             burn_block: ConsensusHash::empty(),
             burn_block_height: 0,
             current_miner: MinerState::NoValidMiner,
-            active_signer_protocol_version: 1,
+            active_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        }
+    }
+
+    /// Send the local state machine as a signer update message to stackerdb
+    pub fn send_signer_update_message(&self, stackerdb: &mut StackerDB<MessageSlotID>) {
+        let update: Result<StateMachineUpdateMessage, _> = self.try_into();
+        match update {
+            Ok(update) => {
+                if let Err(e) = stackerdb.send_message_with_retry::<SignerMessage>(update.into()) {
+                    warn!("Failed to send signer update to stacker-db: {e:?}",);
+                }
+            }
+            Err(e) => {
+                warn!("Failed to convert local signer state to a signer message: {e:?}");
+            }
         }
     }
 
@@ -256,6 +270,10 @@ impl LocalStateMachine {
                 "Current tenure timed out, setting the active miner to the prior tenure";
                 "inactive_tenure_ch" => %inactive_tenure_ch,
                 "new_active_tenure_ch" => %new_active_tenure_ch
+            );
+
+            crate::monitoring::actions::increment_signer_agreement_state_change_reason(
+                crate::monitoring::SignerAgreementStateChangeReason::InactiveMiner,
             );
 
             Ok(())
@@ -380,6 +398,11 @@ impl LocalStateMachine {
         *parent_tenure_last_block = *block_id;
         *parent_tenure_last_block_height = height;
         *self = LocalStateMachine::Initialized(prior_state_machine);
+
+        crate::monitoring::actions::increment_signer_agreement_state_change_reason(
+            crate::monitoring::SignerAgreementStateChangeReason::StacksBlockArrival,
+        );
+
         Ok(())
     }
 
@@ -434,7 +457,7 @@ impl LocalStateMachine {
         // set self to uninitialized so that if this function errors,
         //  self is left as uninitialized.
         let prior_state = std::mem::replace(self, Self::Uninitialized);
-        let prior_state_machine = match prior_state {
+        let prior_state_machine = match prior_state.clone() {
             // if the local state machine was uninitialized, just initialize it
             LocalStateMachine::Uninitialized => Self::place_holder(),
             LocalStateMachine::Initialized(signer_state_machine) => signer_state_machine,
@@ -512,6 +535,12 @@ impl LocalStateMachine {
             current_miner: miner_state,
             active_signer_protocol_version: prior_state_machine.active_signer_protocol_version,
         });
+
+        if prior_state != *self {
+            crate::monitoring::actions::increment_signer_agreement_state_change_reason(
+                crate::monitoring::SignerAgreementStateChangeReason::BurnBlockArrival,
+            );
+        }
 
         Ok(())
     }

@@ -17,8 +17,6 @@ path = "./src/libstackerdb.rs"
 
 [dependencies]
 serde = "1"
-serde_derive = "1"
-serde_stacker = "0.1"
 stacks-common = { path = "../stacks-common" }
 clarity = { path = "../clarity" }
 
