@@ -51,6 +51,9 @@ pub struct SignerStateMachine {
     pub current_miner: MinerState,
     /// The active signing protocol version
     pub active_signer_protocol_version: u64,
+    /// Whether or not we're in a tx replay state
+    /// TODO: just a placeholder for now
+    pub tx_replay_state: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -97,7 +100,16 @@ pub enum LocalStateMachine {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum StateMachineUpdate {
     /// A new burn block at height u64 is expected
-    BurnBlock(u64),
+    BurnBlock(NewBurnBlock),
+}
+
+/// Minimal struct for a new burn block
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewBurnBlock {
+    /// The height of the new burn block
+    pub height: u64,
+    /// The hash of the new burn block
+    pub consensus_hash: ConsensusHash,
 }
 
 impl TryInto<StateMachineUpdateMessage> for &LocalStateMachine {
@@ -159,6 +171,7 @@ impl LocalStateMachine {
             burn_block_height: 0,
             current_miner: MinerState::NoValidMiner,
             active_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
+            tx_replay_state: false,
         }
     }
 
@@ -442,8 +455,20 @@ impl LocalStateMachine {
         db: &SignerDb,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
-        mut expected_burn_height: Option<u64>,
+        mut expected_burn_block: Option<NewBurnBlock>,
     ) -> Result<(), SignerChainstateError> {
+        // TODO: test only, remove
+        match expected_burn_block.clone() {
+            Some(expected_burn_block) => {
+                if expected_burn_block.height > 230 {
+                    info!(
+                        "---- bitcoin_block_arrival {} {} ----",
+                        expected_burn_block.height, expected_burn_block.consensus_hash
+                    );
+                }
+            }
+            None => {}
+        }
         // set self to uninitialized so that if this function errors,
         //  self is left as uninitialized.
         let prior_state = std::mem::replace(self, Self::Uninitialized);
@@ -456,31 +481,56 @@ impl LocalStateMachine {
                 //  but if we have other kinds of pending updates, this logic will need
                 //  to be changed.
                 match update {
-                    StateMachineUpdate::BurnBlock(pending_burn_height) => {
-                        if pending_burn_height > expected_burn_height.unwrap_or(0) {
-                            expected_burn_height = Some(pending_burn_height);
+                    StateMachineUpdate::BurnBlock(pending_burn_block) => {
+                        match expected_burn_block {
+                            None => expected_burn_block = Some(pending_burn_block),
+                            Some(ref expected) => {
+                                if pending_burn_block.height > expected.height {
+                                    expected_burn_block = Some(pending_burn_block);
+                                }
+                            }
                         }
                     }
                 }
 
-                prior
+                prior.clone()
             }
         };
 
         let peer_info = client.get_peer_info()?;
         let next_burn_block_height = peer_info.burn_block_height;
         let next_burn_block_hash = peer_info.pox_consensus;
+        let mut fork_detected = prior_state_machine.tx_replay_state;
 
-        if let Some(expected_burn_height) = expected_burn_height {
-            if next_burn_block_height < expected_burn_height {
+        if let Some(expected_burn_block) = expected_burn_block {
+            // If the next height is less than the expected height, we need to wait.
+            // OR if the next height is the same, but with a different hash, we need to wait.
+            if next_burn_block_height < expected_burn_block.height || {
+                next_burn_block_height == expected_burn_block.height
+                    && next_burn_block_hash != expected_burn_block.consensus_hash
+            } {
+                let err_msg = format!(
+                    "Node has not processed the next burn block ({}) yet",
+                    expected_burn_block.height
+                );
                 *self = Self::Pending {
-                    update: StateMachineUpdate::BurnBlock(expected_burn_height),
+                    update: StateMachineUpdate::BurnBlock(expected_burn_block),
                     prior: prior_state_machine,
                 };
-                return Err(ClientError::InvalidResponse(
-                    "Node has not processed the next burn block yet".into(),
-                )
-                .into());
+                return Err(ClientError::InvalidResponse(err_msg).into());
+            }
+            if expected_burn_block.height <= prior_state_machine.burn_block_height
+                && expected_burn_block.consensus_hash != prior_state_machine.burn_block
+            {
+                fork_detected = true;
+                info!("---- Signer State: Possible fork! ----";
+                    "expected_burn_block.height" => expected_burn_block.height,
+                    "expected_burn_block.hash" => %expected_burn_block.consensus_hash,
+                    "next_burn_block_height" => next_burn_block_height,
+                    "next_burn_block_hash" => %next_burn_block_hash,
+                    "prior_state_machine.burn_block_height" => prior_state_machine.burn_block_height,
+                    "prior_state_machine.burn_block" => %prior_state_machine.burn_block,
+                );
             }
         }
 
@@ -524,6 +574,7 @@ impl LocalStateMachine {
             burn_block_height: next_burn_block_height,
             current_miner: miner_state,
             active_signer_protocol_version: prior_state_machine.active_signer_protocol_version,
+            tx_replay_state: fork_detected,
         });
 
         Ok(())
