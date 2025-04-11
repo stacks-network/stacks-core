@@ -428,6 +428,30 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
             .collect())
     }
 
+    /// Get all nakamoto blocks in a tenure
+    pub fn get_nakamoto_blocks_in_tenure(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Vec<NakamotoBlock>, ChainstateError> {
+        let qry =
+            "SELECT data FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND processed = 1";
+        let args = params![consensus_hash];
+        let block_data: Vec<Vec<u8>> = query_rows(self, qry, args)?;
+        Ok(block_data
+            .into_iter()
+            .filter_map(|block_vec| {
+                NakamotoBlock::consensus_deserialize(&mut &block_vec[..])
+                    .map_err(|e| {
+                        error!("Failed to deserialize block from DB, likely database corruption";
+                               "consensus_hash" => %consensus_hash,
+                               "error" => ?e);
+                        e
+                    })
+                    .ok()
+            })
+            .collect())
+    }
+
     /// Find the next ready-to-process Nakamoto block, given a connection to the staging blocks DB.
     /// NOTE: the relevant field queried from `nakamoto_staging_blocks` are updated by a separate
     /// tx from block-processing, so it's imperative that the thread that calls this function is

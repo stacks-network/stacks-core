@@ -24,6 +24,7 @@ use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::HexError;
 
 use crate::burnchains::Txid;
+use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::{StacksMicroblock, StacksTransaction};
 use crate::core::mempool;
 use crate::cost_estimates::FeeRateEstimate;
@@ -222,6 +223,82 @@ pub mod prefix_hex {
             ));
         };
         T::try_from(hex_str).map_err(serde::de::Error::custom)
+    }
+}
+
+/// This module serde encode and decodes structs that
+/// implement StacksMessageCodec as a 0x-prefixed hex string.
+pub mod prefix_hex_codec {
+    use clarity::codec::StacksMessageCodec;
+    use clarity::util::hash::{hex_bytes, to_hex};
+
+    pub fn serialize<S: serde::Serializer, T: StacksMessageCodec>(
+        val: &T,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        let mut bytes = vec![];
+        val.consensus_serialize(&mut bytes)
+            .map_err(serde::ser::Error::custom)?;
+        s.serialize_str(&format!("0x{}", to_hex(&bytes)))
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>, T: StacksMessageCodec>(
+        d: D,
+    ) -> Result<T, D::Error> {
+        let inst_str: String = serde::Deserialize::deserialize(d)?;
+        let Some(hex_str) = inst_str.get(2..) else {
+            return Err(serde::de::Error::invalid_length(
+                inst_str.len(),
+                &"at least length 2 string",
+            ));
+        };
+        let bytes = hex_bytes(hex_str).map_err(serde::de::Error::custom)?;
+        T::consensus_deserialize(&mut &bytes[..]).map_err(serde::de::Error::custom)
+    }
+}
+
+/// This module serde encode and decodes structs that
+/// implement StacksMessageCodec as a 0x-prefixed hex string.
+/// This is the same as prefix_hex_codec, but for Option<T>.
+pub mod prefix_opt_hex_codec {
+    use clarity::codec::StacksMessageCodec;
+    use clarity::util::hash::{hex_bytes, to_hex};
+
+    use super::prefix_hex_codec;
+
+    pub fn serialize<S: serde::Serializer, T: StacksMessageCodec>(
+        val: &Option<T>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        match val {
+            Some(ref some_val) => {
+                let mut bytes = vec![];
+                some_val
+                    .consensus_serialize(&mut bytes)
+                    .map_err(serde::ser::Error::custom)?;
+                let hex_string = format!("0x{}", to_hex(&bytes));
+                s.serialize_some(&hex_string)
+            }
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>, T: StacksMessageCodec>(
+        d: D,
+    ) -> Result<Option<T>, D::Error> {
+        let opt_inst_str: Option<String> = serde::Deserialize::deserialize(d)?;
+        let Some(inst_string) = opt_inst_str else {
+            return Ok(None);
+        };
+        let Some(hex_str) = inst_string.get(2..) else {
+            return Err(serde::de::Error::invalid_length(
+                inst_string.len(),
+                &"at least length 2 string",
+            ));
+        };
+        let bytes = hex_bytes(hex_str).map_err(serde::de::Error::custom)?;
+        let val = T::consensus_deserialize(&mut &bytes[..]).map_err(serde::de::Error::custom)?;
+        Ok(Some(val))
     }
 }
 
