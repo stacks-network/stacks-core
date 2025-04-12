@@ -29,6 +29,8 @@ use libsigner::v0::messages::{
 use libsigner::{
     BlockProposal, BlockProposalData, SignerSession, StackerDBSession, VERSION_STRING,
 };
+use madhouse::{execute_commands, prop_allof, scenario, Command};
+use proptest::prelude::Strategy;
 use rand::{thread_rng, Rng};
 use rusqlite::Connection;
 use stacks::address::AddressHashMode;
@@ -51,6 +53,7 @@ use stacks::core::test_util::{
 };
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::libstackerdb::StackerDBChunkData;
+use stacks::net::api::getinfo::RPCPeerInfoData;
 use stacks::net::api::getsigner::GetSignerResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateResponse, ValidateRejectCode, TEST_VALIDATE_DELAY_DURATION_SECS,
@@ -93,7 +96,7 @@ use crate::nakamoto_node::miner::{
     TEST_P2P_BROADCAST_STALL,
 };
 use crate::nakamoto_node::stackerdb_listener::TEST_IGNORE_SIGNERS;
-use crate::neon::Counters;
+use crate::neon::{Counters, RunLoopCounter};
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
     boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, next_block_and_controller,
@@ -104,8 +107,17 @@ use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, get_sortition_info, get_sortition_info_ch,
     next_block_and_wait, run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer,
 };
+use crate::tests::signer::commands::*;
 use crate::tests::{self, gen_random_port};
 use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
+
+pub fn get_chain_info_wrapper(conf: &Config) -> RPCPeerInfoData {
+    get_chain_info(conf)
+}
+
+pub fn test_mine_stall_set(value: bool) {
+    TEST_MINE_STALL.set(value)
+}
 
 impl SignerTest<SpawnedSigner> {
     /// Run the test until the first epoch 2.5 reward cycle.
@@ -614,6 +626,32 @@ impl MultipleMinerTest {
             rl2_stopper,
             rl2_coord_channels,
         }
+    }
+
+    pub fn get_primary_skip_commit_flag(&self) -> stacks::util::tests::TestFlag<bool> {
+        self.signer_test
+            .running_nodes
+            .counters
+            .naka_skip_commit_op
+            .clone()
+    }
+
+    pub fn get_secondary_skip_commit_flag(&self) -> stacks::util::tests::TestFlag<bool> {
+        self.rl2_counters.naka_skip_commit_op.clone()
+    }
+
+    pub fn get_primary_last_stacks_tip_counter(&self) -> RunLoopCounter {
+        self.signer_test
+            .running_nodes
+            .counters
+            .naka_submitted_commit_last_stacks_tip
+            .clone()
+    }
+
+    pub fn get_secondary_last_stacks_tip_counter(&self) -> RunLoopCounter {
+        self.rl2_counters
+            .naka_submitted_commit_last_stacks_tip
+            .clone()
     }
 
     /// Boot node 1 to epoch 3.0 and wait for node 2 to catch up.
@@ -1160,7 +1198,7 @@ fn wait_for_block_pushed(
 }
 
 /// Waits for a block with the provided expected height to be proposed and pushed by the miner with the provided public key.
-fn wait_for_block_pushed_by_miner_key(
+pub fn wait_for_block_pushed_by_miner_key(
     timeout_secs: u64,
     expected_height: u64,
     miner_key: &StacksPublicKey,
