@@ -24,6 +24,7 @@
 //! and the `SignerMessage` enum.
 
 use std::fmt::{Debug, Display};
+use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -573,7 +574,7 @@ pub enum StateMachineUpdateContent {
 }
 
 /// Message for update the Signer State infos
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq, Hash)]
 pub enum StateMachineUpdateMinerState {
     /// There is an active miner
     ActiveMiner {
