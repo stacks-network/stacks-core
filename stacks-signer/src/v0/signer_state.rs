@@ -789,6 +789,9 @@ impl LocalStateMachine {
 
         if active_signer_protocol_version != old_protocol_version {
             info!("Updating active signer protocol version from {old_protocol_version} to {active_signer_protocol_version}");
+            crate::monitoring::actions::increment_signer_agreement_state_change_reason(
+                crate::monitoring::SignerAgreementStateChangeReason::ProtocolUpgrade,
+            );
             *self = Self::Initialized(SignerStateMachine {
                 burn_block: *burn_block,
                 burn_block_height: *burn_block_height,
