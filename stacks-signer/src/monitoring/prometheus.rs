@@ -85,6 +85,12 @@ lazy_static! {
         &["reason"]
     ).unwrap();
 
+    pub static ref SIGNER_AGREEMENT_STATE_CONFLICTS: IntCounterVec = register_int_counter_vec!(
+        "stacks_signer_agreement_state_conflicts",
+        "The number of state machine conflicts in signer agreement protocol. `conflict` can be one of: 'burn_block_delay', 'stacks_block_delay', 'reorg_disallowed'",
+        &["conflict"]
+    ).unwrap();
+
     pub static ref SIGNER_LOCAL_STATE_MACHINE: Mutex<Option<LocalStateMachine>> = Mutex::new(None);
 }
 

@@ -177,6 +177,9 @@ impl GlobalStateEvaluator {
         } = local_update.content;
         let (global_burn_view, _) = self.determine_global_burn_view(local_address, local_update)?;
         if current_burn_block != global_burn_view {
+            crate::monitoring::actions::increment_signer_agreement_state_conflict(
+                crate::monitoring::SignerAgreementStateConflict::BurnBlockDelay,
+            );
             return None;
         }
         let mut current_miners = HashMap::new();
@@ -210,6 +213,9 @@ impl GlobalStateEvaluator {
                 }
             }
         }
+        crate::monitoring::actions::increment_signer_agreement_state_conflict(
+            crate::monitoring::SignerAgreementStateConflict::ReorgDisallowed,
+        );
         None
     }
 

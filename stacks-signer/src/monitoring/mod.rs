@@ -35,6 +35,17 @@ SignerAgreementStateChangeReason {
     ProtocolUpgrade("protocol_upgrade"),
 });
 
+define_named_enum!(
+/// Represent different conflict types on signer agreement protocol
+SignerAgreementStateConflict {
+    /// Waiting for burn block propagation to be aligned with the signer set
+    BurnBlockDelay("burn_block_delay"),
+    /// Waiting for stacks block propagation to be aligned with the signer set
+    StacksBlockDelay("stacks_block_delay"),
+    /// Not allowing reorg to a new miner
+    ReorgDisallowed("reorg_disallowed"),
+});
+
 /// Actions for updating metrics
 #[cfg(feature = "monitoring_prom")]
 pub mod actions {
@@ -44,7 +55,7 @@ pub mod actions {
 
     use crate::config::GlobalConfig;
     use crate::monitoring::prometheus::*;
-    use crate::monitoring::SignerAgreementStateChangeReason;
+    use crate::monitoring::{SignerAgreementStateChangeReason, SignerAgreementStateConflict};
     use crate::v0::signer_state::LocalStateMachine;
 
     /// Update stacks tip height gauge
@@ -134,6 +145,14 @@ pub mod actions {
             .inc();
     }
 
+    /// Increment signer agreement state conflict counter
+    pub fn increment_signer_agreement_state_conflict(conflict: SignerAgreementStateConflict) {
+        let label_value = conflict.get_name();
+        SIGNER_AGREEMENT_STATE_CONFLICTS
+            .with_label_values(&[&label_value])
+            .inc();
+    }
+
     /// Start serving monitoring metrics.
     /// This will only serve the metrics if the `monitoring_prom` feature is enabled.
     pub fn start_serving_monitoring_metrics(config: GlobalConfig) -> Result<(), String> {
@@ -157,7 +176,7 @@ pub mod actions {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
     use stacks_common::info;
 
-    use crate::monitoring::SignerAgreementStateChangeReason;
+    use crate::monitoring::{SignerAgreementStateChangeReason, SignerAgreementStateConflict};
     use crate::v0::signer_state::LocalStateMachine;
     use crate::GlobalConfig;
 
@@ -211,6 +230,9 @@ pub mod actions {
         _reason: SignerAgreementStateChangeReason,
     ) {
     }
+
+    /// Increment signer agreement state conflict counter
+    pub fn increment_signer_agreement_state_conflict(_conflict: SignerAgreementStateConflict) {}
 
     /// Start serving monitoring metrics.
     /// This will only serve the metrics if the `monitoring_prom` feature is enabled.
