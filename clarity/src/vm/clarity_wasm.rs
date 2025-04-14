@@ -542,10 +542,12 @@ pub fn call_function<'a>(
         .get_memory(&mut store, "memory")
         .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-    // Determine how much space is needed for arguments
+    // The only argument that needs space to be written at `offset` is the list
+    // type according to pass_argument_to_wasm, the function that writes to
+    // memory. Because of this we only allocate space for lists.
     let mut arg_size = 0;
-    for arg in func_types.get_arg_types() {
-        arg_size += get_type_in_memory_size(arg, false);
+    for arg in args {
+        arg_size += get_list_size(arg);
     }
     let mut in_mem_offset = offset + arg_size;
 
@@ -612,6 +614,25 @@ pub const STANDARD_PRINCIPAL_BYTES: usize = PRINCIPAL_BYTES + CONTRACT_NAME_LENG
 pub const CONTRACT_NAME_MAX_LENGTH: usize = 128;
 // Standard principal, but at most 128 character function name
 pub const PRINCIPAL_BYTES_MAX: usize = STANDARD_PRINCIPAL_BYTES + CONTRACT_NAME_MAX_LENGTH;
+
+// Return the number of bytes required to represent a list in memory.
+fn get_list_size(val: &Value) -> i32 {
+    match val {
+        Value::Sequence(SequenceData::List(list)) =>
+        // 8 bytes for the offset and length
+        {
+            8 + list
+                .data
+                .iter()
+                .map(|item| match item {
+                    Value::Sequence(SequenceData::List(_)) => get_list_size(item),
+                    _ => get_type_size(list.type_signature.get_list_item_type()),
+                })
+                .sum::<i32>()
+        }
+        _ => 0,
+    }
+}
 
 /// Return the number of bytes required to representation of a value of the
 /// type `ty`. For in-memory types, this is just the size of the offset and
