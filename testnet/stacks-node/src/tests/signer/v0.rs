@@ -10433,6 +10433,40 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     miners.shutdown();
 }
 
+#[test]
+#[ignore]
+fn allow_reorg_within_first_proposal_burn_block_timing_secs_scenario() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let num_transfer_txs = 3;
+
+    let test_context = Arc::new(SignerTestContext::new(num_signers, num_transfer_txs));
+
+    scenario![
+        test_context,
+        SkipCommitOpSecondaryMiner,
+        BootToEpoch3,
+        SkipCommitOpPrimaryMiner,
+        MineBitcoinBlockTenureChangePrimaryMinerCommand,
+        SubmitBlockCommitSecondaryMinerCommand,
+        StallMiningCommand,
+        MineTenureCommand,
+        SubmitBlockCommitPrimaryMinerCommand,
+        RecoverFromStallCommand,
+        WaitForBlockFromMiner2Command,
+        MineTenureCommand,
+        WaitForBlockFromMiner1Command,
+        SubmitBlockCommitPrimaryMinerCommand,
+        SendTransferTxCommand,
+        WaitForBlockFromMiner1Command,
+        MineBitcoinBlockTenureChangePrimaryMinerCommand,
+        ShutdownMinersCommand
+    ]
+}
+
 /// Test a scenario where:
 /// Two miners boot to Nakamoto.
 /// Sortition occurs. Miner 1 wins.
