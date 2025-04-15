@@ -756,60 +756,6 @@ impl StacksClient {
     fn tenure_tip_path(&self, consensus_hash: &ConsensusHash) -> String {
         format!("{}/v3/tenures/tip/{}", self.http_origin, consensus_hash)
     }
-
-    /// Helper function to create a stacks transaction for a modifying contract call
-    #[allow(clippy::too_many_arguments)]
-    pub fn build_unsigned_contract_call_transaction(
-        contract_addr: &StacksAddress,
-        contract_name: ContractName,
-        function_name: ClarityName,
-        function_args: &[ClarityValue],
-        stacks_private_key: &StacksPrivateKey,
-        tx_version: TransactionVersion,
-        chain_id: u32,
-        nonce: u64,
-    ) -> Result<StacksTransaction, ClientError> {
-        let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
-            address: *contract_addr,
-            contract_name,
-            function_name,
-            function_args: function_args.to_vec(),
-        });
-        let public_key = StacksPublicKey::from_private(stacks_private_key);
-        let tx_auth = TransactionAuth::Standard(
-            TransactionSpendingCondition::new_singlesig_p2pkh(public_key).ok_or(
-                ClientError::TransactionGenerationFailure(format!(
-                    "Failed to create spending condition from public key: {}",
-                    public_key.to_hex()
-                )),
-            )?,
-        );
-
-        let mut unsigned_tx = StacksTransaction::new(tx_version, tx_auth, tx_payload);
-        unsigned_tx.set_origin_nonce(nonce);
-
-        unsigned_tx.anchor_mode = TransactionAnchorMode::Any;
-        unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
-        unsigned_tx.chain_id = chain_id;
-        Ok(unsigned_tx)
-    }
-
-    /// Sign an unsigned transaction
-    pub fn sign_transaction(
-        &self,
-        unsigned_tx: StacksTransaction,
-    ) -> Result<StacksTransaction, ClientError> {
-        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
-        tx_signer
-            .sign_origin(&self.stacks_private_key)
-            .map_err(|e| ClientError::TransactionGenerationFailure(e.to_string()))?;
-
-        tx_signer
-            .get_tx()
-            .ok_or(ClientError::TransactionGenerationFailure(
-                "Failed to generate transaction from a transaction signer".to_string(),
-            ))
-    }
 }
 
 #[cfg(test)]
