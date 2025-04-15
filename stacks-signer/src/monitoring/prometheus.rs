@@ -79,6 +79,12 @@ lazy_static! {
         vec![0.005, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0]
     ), &[]).unwrap();
 
+    pub static ref SIGNER_AGREEMENT_STATE_CHANGE_REASONS: IntCounterVec = register_int_counter_vec!(
+        "stacks_signer_agreement_state_change_reasons",
+        "The number of state machine changes in signer agreement protocol. `reason` can be one of: 'burn_block_arrival', 'stacks_block_arrival', 'inactive_miner', 'protocol_upgrade'",
+        &["reason"]
+    ).unwrap();
+
     pub static ref SIGNER_LOCAL_STATE_MACHINE: Mutex<Option<LocalStateMachine>> = Mutex::new(None);
 }
 

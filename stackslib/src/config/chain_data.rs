@@ -722,6 +722,7 @@ pub mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn test_get_unconfirmed_commits() {
         use std::os::unix::fs::PermissionsExt;
         let shell_code = r#"#!/bin/bash
@@ -754,6 +755,87 @@ EOF
 
             fs::set_permissions(path, permissions).unwrap();
             f.sync_all().unwrap();
+        }
+
+        let ms = MinerStats {
+            unconfirmed_commits_helper: path.to_string(),
+        };
+
+        let mut commits = ms.get_unconfirmed_commits(123, &[]).unwrap();
+        assert_eq!(commits.len(), 1);
+        let commit = commits.pop().unwrap();
+
+        assert_eq!(
+            commit.txid,
+            Txid::from_hex("73c318be8cd272a73200b9630089d77a44342d84b2c0d81c937da714152cf402")
+                .unwrap()
+        );
+        assert_eq!(commit.burn_fee, 555000);
+        assert_eq!(
+            commit.apparent_sender.0,
+            "1FCcoFSKWvNyhjazNvVdLLw8mGkGdcRMux".to_string()
+        );
+        assert_eq!(
+            commit.input.0,
+            Txid::from_hex("ef0dbf0fc4755de5e94843a4da7c1d943571299afb15f32b76bac5d18d8668ce")
+                .unwrap()
+        );
+        assert_eq!(commit.input.1, 3);
+        assert_eq!(commit.block_height, 123);
+
+        assert_eq!(
+            commit.commit_outs,
+            vec![
+                PoxAddress::Addr20(
+                    true,
+                    PoxAddressType20::P2WPKH,
+                    [
+                        219, 20, 19, 58, 157, 187, 29, 14, 22, 182, 5, 19, 69, 62, 72, 182, 255,
+                        40, 71, 169
+                    ]
+                ),
+                PoxAddress::Standard(
+                    StacksAddress::new(
+                        20,
+                        Hash160([
+                            0x18, 0xc4, 0x20, 0x80, 0xa1, 0xe8, 0x7f, 0xd0, 0x2d, 0xd3, 0xfc, 0xa9,
+                            0x4c, 0x45, 0x13, 0xf9, 0xec, 0xfe, 0x74, 0x14
+                        ])
+                    )
+                    .unwrap(),
+                    None
+                )
+            ]
+        );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_get_unconfirmed_commits() {
+        let shell_code = r#"@echo off
+(
+echo [
+echo  {
+echo   "txid": "73c318be8cd272a73200b9630089d77a44342d84b2c0d81c937da714152cf402",
+echo   "burn": 555000,
+echo   "address": "1FCcoFSKWvNyhjazNvVdLLw8mGkGdcRMux",
+echo   "input_txid": "ef0dbf0fc4755de5e94843a4da7c1d943571299afb15f32b76bac5d18d8668ce",
+echo   "input_index": 3,
+echo   "pox_addrs": [
+echo       "0014db14133a9dbb1d0e16b60513453e48b6ff2847a9",
+echo       "a91418c42080a1e87fd02dd3fca94c4513f9ecfe741487"
+echo   ]
+echo  }
+echo ]
+)
+"#;
+        let path = "/tmp/test-get-unconfirmed-commits.bat";
+        if fs::metadata(path).is_ok() {
+            fs::remove_file(path).unwrap();
+        }
+        {
+            let mut f = fs::File::create(path).unwrap();
+            f.write_all(shell_code.as_bytes()).unwrap();
         }
 
         let ms = MinerStats {

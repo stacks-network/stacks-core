@@ -14,22 +14,37 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::define_named_enum;
+
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;
 
 #[cfg(feature = "monitoring_prom")]
 mod server;
 
+define_named_enum!(
+/// Represent different state change reason on signer agreement protocol
+SignerAgreementStateChangeReason {
+    /// A new burn block has arrived
+    BurnBlockArrival("burn_block_arrival"),
+    /// A new stacks block has arrived
+    StacksBlockArrival("stacks_block_arrival"),
+    /// A miner is inactive when it should be starting its tenure
+    InactiveMiner("inactive_miner"),
+    /// Signer agreement protocol version has been upgraded
+    ProtocolUpgrade("protocol_upgrade"),
+});
+
 /// Actions for updating metrics
 #[cfg(feature = "monitoring_prom")]
 pub mod actions {
     use ::prometheus::HistogramTimer;
     use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-    use slog::slog_error;
     use stacks_common::error;
 
     use crate::config::GlobalConfig;
     use crate::monitoring::prometheus::*;
+    use crate::monitoring::SignerAgreementStateChangeReason;
     use crate::v0::signer_state::LocalStateMachine;
 
     /// Update stacks tip height gauge
@@ -109,6 +124,16 @@ pub mod actions {
             .replace(state);
     }
 
+    /// Increment signer agreement state change reason counter
+    pub fn increment_signer_agreement_state_change_reason(
+        reason: SignerAgreementStateChangeReason,
+    ) {
+        let label_value = reason.get_name();
+        SIGNER_AGREEMENT_STATE_CHANGE_REASONS
+            .with_label_values(&[&label_value])
+            .inc();
+    }
+
     /// Start serving monitoring metrics.
     /// This will only serve the metrics if the `monitoring_prom` feature is enabled.
     pub fn start_serving_monitoring_metrics(config: GlobalConfig) -> Result<(), String> {
@@ -130,9 +155,9 @@ pub mod actions {
 #[cfg(not(feature = "monitoring_prom"))]
 pub mod actions {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-    use slog::slog_info;
     use stacks_common::info;
 
+    use crate::monitoring::SignerAgreementStateChangeReason;
     use crate::v0::signer_state::LocalStateMachine;
     use crate::GlobalConfig;
 
@@ -180,6 +205,12 @@ pub mod actions {
 
     /// Record the current local state machine
     pub fn record_local_state(_state: LocalStateMachine) {}
+
+    /// Increment signer agreement state change reason counter
+    pub fn increment_signer_agreement_state_change_reason(
+        _reason: SignerAgreementStateChangeReason,
+    ) {
+    }
 
     /// Start serving monitoring metrics.
     /// This will only serve the metrics if the `monitoring_prom` feature is enabled.

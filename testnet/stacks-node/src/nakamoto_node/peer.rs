@@ -285,6 +285,7 @@ impl PeerThread {
                 ibd,
                 poll_ms,
                 &handler_args,
+                self.config.node.txindex,
             )
         };
         match p2p_res {

@@ -26,6 +26,10 @@ use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::codec::StacksMessageCodec;
 use stacks::config::InitialBalance;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
+use stacks::core::test_util::{
+    make_contract_call, make_contract_publish, make_sponsored_stacks_transfer_on_testnet,
+    make_stacks_transfer, to_addr,
+};
 use stacks::core::{
     EpochList, StacksEpoch, StacksEpochId, CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_0,
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
@@ -37,12 +41,8 @@ use stacks::net::api::getistraitimplemented::GetIsTraitImplementedResponse;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, VRFSeed};
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum};
 
-use super::{
-    make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, ADDR_4, SK_1, SK_2,
-    SK_3,
-};
+use super::{ADDR_4, SK_1, SK_2, SK_3};
 use crate::helium::RunLoop;
-use crate::tests::make_sponsored_stacks_transfer_on_testnet;
 
 const OTHER_CONTRACT: &str = "
   (define-data-var x uint u0)

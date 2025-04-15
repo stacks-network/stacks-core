@@ -414,6 +414,7 @@ pub enum CostErrors {
     CostContractLoadFailure,
     InterpreterFailure,
     Expect(String),
+    ExecutionTimeExpired,
 }
 
 impl CostErrors {

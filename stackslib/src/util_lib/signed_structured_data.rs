@@ -254,6 +254,7 @@ pub mod pox4 {
                             body,
                             None,
                             |_, _| false,
+                            None,
                         )
                         .unwrap();
                     clarity_db

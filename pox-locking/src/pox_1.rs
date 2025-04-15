@@ -23,7 +23,6 @@ use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::Value;
-use slog::slog_debug;
 use stacks_common::debug;
 
 use crate::LockingError;

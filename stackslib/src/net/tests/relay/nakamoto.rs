@@ -120,6 +120,7 @@ impl ExitedPeer {
             ibd,
             100,
             &RPCHandlerArgs::default(),
+            self.config.txindex,
         )?;
         let receipts_res = self.relayer.process_network_result(
             self.network.get_local_peer(),
