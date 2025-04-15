@@ -42,8 +42,8 @@ SignerAgreementStateConflict {
     BurnBlockDelay("burn_block_delay"),
     /// Waiting for stacks block propagation to be aligned with the signer set
     StacksBlockDelay("stacks_block_delay"),
-    /// Not allowing reorg to a new miner
-    ReorgDisallowed("reorg_disallowed"),
+    /// No agreement on miner view with the signer set
+    MinerView("miner_view"),
 });
 
 /// Actions for updating metrics

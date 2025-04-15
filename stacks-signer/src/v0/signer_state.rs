@@ -214,7 +214,7 @@ impl GlobalStateEvaluator {
             }
         }
         crate::monitoring::actions::increment_signer_agreement_state_conflict(
-            crate::monitoring::SignerAgreementStateConflict::ReorgDisallowed,
+            crate::monitoring::SignerAgreementStateConflict::MinerView,
         );
         None
     }
