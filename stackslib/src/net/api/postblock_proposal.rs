@@ -564,7 +564,8 @@ impl NakamotoBlockProposal {
         for (i, tx) in self.block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
 
-            // Check if tx is in the replay set, if required
+            // If a list of replay transactions is set, this transaction must be the next
+            // mineable transaction from this list.
             if let Some(ref mut replay_txs) = replay_txs_maybe {
                 loop {
                     let Some(replay_tx) = replay_txs.pop_front() else {
