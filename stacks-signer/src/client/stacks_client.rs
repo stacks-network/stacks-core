@@ -20,11 +20,7 @@ use std::time::{Duration, Instant};
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
-use blockstack_lib::chainstate::stacks::{
-    StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
-    TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
-    TransactionSpendingCondition, TransactionVersion,
-};
+use blockstack_lib::chainstate::stacks::TransactionVersion;
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
 use blockstack_lib::net::api::get_tenures_fork_info::{
     TenureForkingInfo, RPC_TENURE_FORKING_INFO_PATH,
@@ -61,8 +57,6 @@ use crate::runloop::RewardCycleInfo;
 pub struct StacksClient {
     /// The stacks address of the signer
     stacks_address: StacksAddress,
-    /// The private key used in all stacks node communications
-    stacks_private_key: StacksPrivateKey,
     /// The stacks node HTTP base endpoint
     http_origin: String,
     /// The types of transactions
@@ -94,7 +88,6 @@ pub struct CurrentAndLastSortition {
 impl From<&GlobalConfig> for StacksClient {
     fn from(config: &GlobalConfig) -> Self {
         Self {
-            stacks_private_key: config.stacks_private_key,
             stacks_address: config.stacks_address,
             http_origin: format!("http://{}", config.node_host),
             tx_version: config.network.to_transaction_version(),
@@ -123,7 +116,6 @@ impl StacksClient {
         };
         let stacks_address = StacksAddress::p2pkh(mainnet, &pubkey);
         Self {
-            stacks_private_key,
             stacks_address,
             http_origin: format!("http://{}", node_host),
             tx_version,
