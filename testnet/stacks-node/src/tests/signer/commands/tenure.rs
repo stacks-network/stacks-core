@@ -4,12 +4,12 @@ use madhouse::{Command, CommandWrapper};
 use proptest::prelude::Strategy;
 use std::sync::{Arc, Mutex};
 
-pub struct MineTenureCommand {
+pub struct MineBitcoinBlock {
     miners: Arc<Mutex<MultipleMinerTest>>,
     timeout_secs: u64,
 }
 
-impl MineTenureCommand {
+impl MineBitcoinBlock {
     pub fn new(miners: Arc<Mutex<MultipleMinerTest>>, timeout_secs: u64) -> Self {
         Self {
             miners,
@@ -18,7 +18,7 @@ impl MineTenureCommand {
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for MineTenureCommand {
+impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlock {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!("Checking: Mining tenure. Result: {:?}", true);
         true
@@ -47,14 +47,14 @@ impl Command<SignerTestState, SignerTestContext> for MineTenureCommand {
     }
 
     fn label(&self) -> String {
-        "MINE_TENURE".to_string()
+        "MINE_BITCOIN_BLOCK".to_string()
     }
 
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (60u64..90u64).prop_map(move |timeout_secs| {
-            CommandWrapper::new(MineTenureCommand::new(ctx.miners.clone(), timeout_secs))
+            CommandWrapper::new(MineBitcoinBlock::new(ctx.miners.clone(), timeout_secs))
         })
     }
 }

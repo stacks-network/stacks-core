@@ -21,5 +21,5 @@ pub use commit_ops::{SkipCommitOpPrimaryMiner, SkipCommitOpSecondaryMiner};
 pub use mining::MineBitcoinBlockTenureChangePrimaryMinerCommand;
 pub use shutdown::ShutdownMinersCommand;
 pub use stalling::{RecoverFromStallCommand, StallMiningCommand};
-pub use tenure::MineTenureCommand;
+pub use tenure::MineBitcoinBlock;
 pub use transfer::SendTransferTxCommand;
