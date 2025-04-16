@@ -4,6 +4,7 @@ use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+#[derive(Clone)]
 pub struct SignerTestContext {
     pub miners: Arc<Mutex<MultipleMinerTest>>,
 }
@@ -11,14 +12,6 @@ pub struct SignerTestContext {
 impl Debug for SignerTestContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SignerTestContext").finish()
-    }
-}
-
-impl Clone for SignerTestContext {
-    fn clone(&self) -> Self {
-        Self {
-            miners: self.miners.clone(),
-        }
     }
 }
 
