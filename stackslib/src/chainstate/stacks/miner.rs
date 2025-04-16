@@ -650,8 +650,10 @@ impl TransactionResult {
                         clarity_err
                     }
                 }
-                ClarityRuntimeTxError::AbortedByCallback(val, assets, events) => {
-                    Error::ClarityError(clarity_error::AbortedByCallback(val, assets, events))
+                ClarityRuntimeTxError::AbortedByCallback(val, assets, events, reason) => {
+                    Error::ClarityError(clarity_error::AbortedByCallback(
+                        val, assets, events, reason,
+                    ))
                 }
             },
             Error::InvalidFee => {

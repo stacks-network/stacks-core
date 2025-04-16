@@ -20,7 +20,7 @@ pub enum Error {
     Interpreter(InterpreterError),
     BadTransaction(String),
     CostError(ExecutionCost, ExecutionCost),
-    AbortedByCallback(Option<Value>, AssetMap, Vec<StacksTransactionEvent>),
+    AbortedByCallback(Option<Value>, AssetMap, Vec<StacksTransactionEvent>, String),
 }
 
 impl fmt::Display for Error {
@@ -175,9 +175,9 @@ pub trait TransactionConnection: ClarityConnection {
         &mut self,
         to_do: F,
         abort_call_back: A,
-    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, bool), E>
+    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, Option<String>), E>
     where
-        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
+        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
         F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
         E: From<InterpreterError>;
 
@@ -283,7 +283,7 @@ pub trait TransactionConnection: ClarityConnection {
                     .stx_transfer(from, to, amount, memo)
                     .map_err(Error::from)
             },
-            |_, _| false,
+            |_, _| None,
         )
         .map(|(value, assets, events, _)| (value, assets, events))
     }
@@ -305,7 +305,7 @@ pub trait TransactionConnection: ClarityConnection {
         max_execution_time: Option<std::time::Duration>,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error>
     where
-        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
+        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
     {
         let expr_args: Vec<_> = args
             .iter()
@@ -332,8 +332,13 @@ pub trait TransactionConnection: ClarityConnection {
             abort_call_back,
         )
         .and_then(|(value, assets, events, aborted)| {
-            if aborted {
-                Err(Error::AbortedByCallback(Some(value), assets, events))
+            if let Some(aborted) = aborted {
+                Err(Error::AbortedByCallback(
+                    Some(value),
+                    assets,
+                    events,
+                    aborted,
+                ))
             } else {
                 Ok((value, assets, events))
             }
@@ -357,7 +362,7 @@ pub trait TransactionConnection: ClarityConnection {
         max_execution_time: Option<std::time::Duration>,
     ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), Error>
     where
-        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
+        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
     {
         let (_, asset_map, events, aborted) = self.with_abort_callback(
             |vm_env| {
@@ -378,8 +383,8 @@ pub trait TransactionConnection: ClarityConnection {
             },
             abort_call_back,
         )?;
-        if aborted {
-            Err(Error::AbortedByCallback(None, asset_map, events))
+        if let Some(aborted) = aborted {
+            Err(Error::AbortedByCallback(None, asset_map, events, aborted))
         } else {
             Ok((asset_map, events))
         }

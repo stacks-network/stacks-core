@@ -386,7 +386,7 @@ impl ClarityInstance {
                     &ast,
                     BOOT_CODE_COSTS,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -408,7 +408,7 @@ impl ClarityInstance {
                     &ast,
                     &*BOOT_CODE_COST_VOTING,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -434,7 +434,7 @@ impl ClarityInstance {
                     &ast,
                     &*BOOT_CODE_POX_TESTNET,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -486,7 +486,7 @@ impl ClarityInstance {
                     &ast,
                     BOOT_CODE_COSTS_2,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -508,7 +508,7 @@ impl ClarityInstance {
                     &ast,
                     BOOT_CODE_COSTS_3,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -530,7 +530,7 @@ impl ClarityInstance {
                     &ast,
                     &*POX_2_TESTNET_CODE,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -1019,7 +1019,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                         &pox_2_contract_id,
                         "set-burnchain-parameters",
                         &params,
-                        |_, _| false,
+                        |_, _| None,
                         None,
                     )
                     .expect("Failed to set burnchain parameters in PoX-2 contract");
@@ -1263,7 +1263,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                         &pox_3_contract_id,
                         "set-burnchain-parameters",
                         &params,
-                        |_, _| false,
+                        |_, _| None,
                         None,
                     )
                     .expect("Failed to set burnchain parameters in PoX-3 contract");
@@ -1381,7 +1381,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                         &pox_4_contract_id,
                         "set-burnchain-parameters",
                         &params,
-                        |_, _| false,
+                        |_, _| None,
                         None,
                     )
                     .expect("Failed to set burnchain parameters in PoX-3 contract");
@@ -1719,9 +1719,9 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
         &mut self,
         to_do: F,
         abort_call_back: A,
-    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, bool), E>
+    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, Option<String>), E>
     where
-        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
+        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
         F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
         E: From<InterpreterError>,
     {
@@ -1753,7 +1753,11 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
                 let result = match result {
                     Ok((value, asset_map, events)) => {
                         let aborted = abort_call_back(&asset_map, &mut db);
-                        let db_result = if aborted { db.roll_back() } else { db.commit() };
+                        let db_result = if aborted.is_some() {
+                            db.roll_back()
+                        } else {
+                            db.commit()
+                        };
                         match db_result {
                             Ok(_) => Ok((value, asset_map, events, aborted)),
                             Err(e) => Err(e.into()),
@@ -1848,7 +1852,7 @@ impl ClarityTransactionConnection<'_, '_> {
                     })
                     .map_err(Error::from)
             },
-            |_, _| false,
+            |_, _| None,
         )
         .map(|(value, ..)| value)
     }
@@ -1908,7 +1912,7 @@ impl ClarityTransactionConnection<'_, '_> {
                     )
                     .map_err(Error::from)
             },
-            |_, _| true,
+            |_, _| Some("read-only".to_string()),
         )?;
         Ok(result)
     }
@@ -1918,7 +1922,7 @@ impl ClarityTransactionConnection<'_, '_> {
     pub fn clarity_eval_raw(&mut self, code: &str) -> Result<Value, Error> {
         let (result, _, _, _) = self.with_abort_callback(
             |vm_env| vm_env.eval_raw(code).map_err(Error::from),
-            |_, _| false,
+            |_, _| None,
         )?;
         Ok(result)
     }
@@ -1931,7 +1935,7 @@ impl ClarityTransactionConnection<'_, '_> {
     ) -> Result<Value, Error> {
         let (result, _, _, _) = self.with_abort_callback(
             |vm_env| vm_env.eval_read_only(contract, code).map_err(Error::from),
-            |_, _| false,
+            |_, _| None,
         )?;
         Ok(result)
     }
@@ -2056,7 +2060,7 @@ mod tests {
                     &ct_ast,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -2110,7 +2114,7 @@ mod tests {
                     &ct_ast,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -2139,7 +2143,7 @@ mod tests {
                     &ct_ast,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -2172,7 +2176,7 @@ mod tests {
                         &ct_ast,
                         contract,
                         None,
-                        |_, _| false,
+                        |_, _| None,
                         None
                     )
                     .unwrap_err()
@@ -2225,7 +2229,7 @@ mod tests {
                     &ct_ast,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -2240,7 +2244,7 @@ mod tests {
                     &contract_identifier,
                     "foo",
                     &[Value::Int(1)],
-                    |_, _| false,
+                    |_, _| None,
                     None
                 ))
                 .unwrap()
@@ -2287,7 +2291,7 @@ mod tests {
                     &ct_ast,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -2380,7 +2384,7 @@ mod tests {
                     &ct_ast,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -2512,7 +2516,7 @@ mod tests {
                     &ct_ast,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -2527,7 +2531,7 @@ mod tests {
                     &contract_identifier,
                     "get-bar",
                     &[],
-                    |_, _| false,
+                    |_, _| None,
                     None
                 ))
                 .unwrap()
@@ -2542,7 +2546,7 @@ mod tests {
                     &contract_identifier,
                     "set-bar",
                     &[Value::Int(1), Value::Int(1)],
-                    |_, _| false,
+                    |_, _| None,
                     None
                 ))
                 .unwrap()
@@ -2558,7 +2562,7 @@ mod tests {
                         &contract_identifier,
                         "set-bar",
                         &[Value::Int(10), Value::Int(1)],
-                        |_, _| true,
+                        |_, _| Some("testing rollback".to_string()),
                         None,
                     )
                 })
@@ -2579,7 +2583,7 @@ mod tests {
                     &contract_identifier,
                     "get-bar",
                     &[],
-                    |_, _| false,
+                    |_, _| None,
                     None
                 ))
                 .unwrap()
@@ -2595,7 +2599,7 @@ mod tests {
                     &contract_identifier,
                     "set-bar",
                     &[Value::Int(10), Value::Int(0)],
-                    |_, _| true,
+                    |_, _| Some("testing rollback".to_string()),
                     None
                 ))
                 .unwrap_err()
@@ -2610,7 +2614,7 @@ mod tests {
                     &contract_identifier,
                     "get-bar",
                     &[],
-                    |_, _| false,
+                    |_, _| None,
                     None
                 ))
                 .unwrap()
@@ -2904,7 +2908,7 @@ mod tests {
                     &ct_ast,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -2929,7 +2933,7 @@ mod tests {
                     &contract_identifier,
                     "do-expand",
                     &[],
-                    |_, _| false,
+                    |_, _| None,
                     None
                 ))
                 .unwrap_err()
