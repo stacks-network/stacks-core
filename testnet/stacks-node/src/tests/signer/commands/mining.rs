@@ -151,3 +151,58 @@ impl Command<SignerTestState, SignerTestContext>
         ))
     }
 }
+
+pub struct MineBitcoinBlock {
+    miners: Arc<Mutex<MultipleMinerTest>>,
+    timeout_secs: u64,
+}
+
+impl MineBitcoinBlock {
+    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>, timeout_secs: u64) -> Self {
+        Self {
+            miners,
+            timeout_secs,
+        }
+    }
+}
+
+impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlock {
+    fn check(&self, _state: &SignerTestState) -> bool {
+        info!("Checking: Mining tenure. Result: {:?}", true);
+        true
+    }
+
+    fn apply(&self, _state: &mut SignerTestState) {
+        info!(
+            "Applying: Mining tenure and waiting for it for {:?} seconds",
+            self.timeout_secs
+        );
+
+        let sortdb = {
+            let miners = self.miners.lock().unwrap();
+            let (conf_1, _) = miners.get_node_configs();
+            let burnchain = conf_1.get_burnchain();
+            let sortdb = burnchain.open_sortition_db(true).unwrap();
+            sortdb
+        };
+
+        {
+            let mut miners = self.miners.lock().unwrap();
+            miners
+                .mine_bitcoin_blocks_and_confirm(&sortdb, 1, self.timeout_secs)
+                .expect("Failed to mine BTC block");
+        }
+    }
+
+    fn label(&self) -> String {
+        "MINE_BITCOIN_BLOCK".to_string()
+    }
+
+    fn build(
+        ctx: Arc<SignerTestContext>,
+    ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
+        (60u64..90u64).prop_map(move |timeout_secs| {
+            CommandWrapper::new(MineBitcoinBlock::new(ctx.miners.clone(), timeout_secs))
+        })
+    }
+}
