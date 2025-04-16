@@ -4,17 +4,17 @@ use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 use std::sync::{atomic::Ordering, Arc, Mutex};
 
-pub struct WaitForBlockFromMiner1Command {
+pub struct WaitForBlockFromMiner1 {
     miners: Arc<Mutex<MultipleMinerTest>>,
 }
 
-impl WaitForBlockFromMiner1Command {
+impl WaitForBlockFromMiner1 {
     pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
         Self { miners }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for WaitForBlockFromMiner1Command {
+impl Command<SignerTestState, SignerTestContext> for WaitForBlockFromMiner1 {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Waiting for Nakamoto block from miner 1. Result: {:?}",
@@ -56,23 +56,23 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockFromMiner1Comma
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(WaitForBlockFromMiner1Command::new(
+        Just(CommandWrapper::new(WaitForBlockFromMiner1::new(
             ctx.miners.clone(),
         )))
     }
 }
 
-pub struct WaitForBlockFromMiner2Command {
+pub struct WaitForBlockFromMiner2 {
     miners: Arc<Mutex<MultipleMinerTest>>,
 }
 
-impl WaitForBlockFromMiner2Command {
+impl WaitForBlockFromMiner2 {
     pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
         Self { miners }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for WaitForBlockFromMiner2Command {
+impl Command<SignerTestState, SignerTestContext> for WaitForBlockFromMiner2 {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Waiting for Nakamoto block from miner 2. Result: {:?}",
@@ -115,7 +115,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockFromMiner2Comma
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(WaitForBlockFromMiner2Command::new(
+        Just(CommandWrapper::new(WaitForBlockFromMiner2::new(
             ctx.miners.clone(),
         )))
     }

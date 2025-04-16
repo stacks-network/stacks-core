@@ -13,13 +13,13 @@ mod transfer;
 pub use context::{SignerTestContext};
 
 pub use block_commit::{
-    SubmitBlockCommitPrimaryMinerCommand, SubmitBlockCommitSecondaryMinerCommand,
+    SubmitBlockCommitPrimaryMiner, SubmitBlockCommitSecondaryMiner,
 };
-pub use block_wait::{WaitForBlockFromMiner1Command, WaitForBlockFromMiner2Command};
+pub use block_wait::{WaitForBlockFromMiner1, WaitForBlockFromMiner2};
 pub use boot::BootToEpoch3;
 pub use commit_ops::{SkipCommitOpPrimaryMiner, SkipCommitOpSecondaryMiner};
-pub use mining::MineBitcoinBlockTenureChangePrimaryMinerCommand;
-pub use shutdown::ShutdownMinersCommand;
-pub use stalling::{RecoverFromStallCommand, StallMiningCommand};
+pub use mining::MineBitcoinBlockTenureChangePrimaryMiner;
+pub use shutdown::ShutdownMiners;
+pub use stalling::{RecoverFromStall, StallMining};
 pub use tenure::MineBitcoinBlock;
-pub use transfer::SendTransferTxCommand;
+pub use transfer::SendTransferTx;

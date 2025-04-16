@@ -4,17 +4,17 @@ use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 use std::sync::{Arc, Mutex};
 
-pub struct SubmitBlockCommitSecondaryMinerCommand {
+pub struct SubmitBlockCommitSecondaryMiner {
     miners: Arc<Mutex<MultipleMinerTest>>,
 }
 
-impl SubmitBlockCommitSecondaryMinerCommand {
+impl SubmitBlockCommitSecondaryMiner {
     pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
         Self { miners }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitSecondaryMinerCommand {
+impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitSecondaryMiner {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Submitting block commit miner 2. Result: {:?}",
@@ -41,22 +41,22 @@ impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitSecondaryM
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         Just(CommandWrapper::new(
-            SubmitBlockCommitSecondaryMinerCommand::new(ctx.miners.clone()),
+            SubmitBlockCommitSecondaryMiner::new(ctx.miners.clone()),
         ))
     }
 }
 
-pub struct SubmitBlockCommitPrimaryMinerCommand {
+pub struct SubmitBlockCommitPrimaryMiner {
     miners: Arc<Mutex<MultipleMinerTest>>,
 }
 
-impl SubmitBlockCommitPrimaryMinerCommand {
+impl SubmitBlockCommitPrimaryMiner {
     pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
         Self { miners }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitPrimaryMinerCommand {
+impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitPrimaryMiner {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Submitting block commit miner 1. Result: {:?}",
@@ -83,7 +83,7 @@ impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitPrimaryMin
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         Just(CommandWrapper::new(
-            SubmitBlockCommitPrimaryMinerCommand::new(ctx.miners.clone()),
+            SubmitBlockCommitPrimaryMiner::new(ctx.miners.clone()),
         ))
     }
 }

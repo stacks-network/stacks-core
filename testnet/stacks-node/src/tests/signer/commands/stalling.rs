@@ -3,9 +3,9 @@ use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 use std::sync::Arc;
 
-pub struct StallMiningCommand;
+pub struct StallMining;
 
-impl Command<SignerTestState, SignerTestContext> for StallMiningCommand {
+impl Command<SignerTestState, SignerTestContext> for StallMining {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Stalling mining. Result: {:?}",
@@ -27,13 +27,13 @@ impl Command<SignerTestState, SignerTestContext> for StallMiningCommand {
     fn build(
         _ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(StallMiningCommand))
+        Just(CommandWrapper::new(StallMining))
     }
 }
 
-pub struct RecoverFromStallCommand;
+pub struct RecoverFromStall;
 
-impl Command<SignerTestState, SignerTestContext> for RecoverFromStallCommand {
+impl Command<SignerTestState, SignerTestContext> for RecoverFromStall {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Recovering from mining stall. Result: {:?}",
@@ -55,6 +55,6 @@ impl Command<SignerTestState, SignerTestContext> for RecoverFromStallCommand {
     fn build(
         _ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(RecoverFromStallCommand))
+        Just(CommandWrapper::new(RecoverFromStall))
     }
 }

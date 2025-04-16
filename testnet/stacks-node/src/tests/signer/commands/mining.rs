@@ -8,18 +8,18 @@ use stacks::chainstate::stacks::TenureChangeCause;
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
-pub struct MineBitcoinBlockTenureChangePrimaryMinerCommand {
+pub struct MineBitcoinBlockTenureChangePrimaryMiner {
     miners: Arc<Mutex<MultipleMinerTest>>,
 }
 
-impl MineBitcoinBlockTenureChangePrimaryMinerCommand {
+impl MineBitcoinBlockTenureChangePrimaryMiner {
     pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
         Self { miners }
     }
 }
 
 impl Command<SignerTestState, SignerTestContext>
-    for MineBitcoinBlockTenureChangePrimaryMinerCommand
+    for MineBitcoinBlockTenureChangePrimaryMiner
 {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
@@ -77,23 +77,23 @@ impl Command<SignerTestState, SignerTestContext>
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         Just(CommandWrapper::new(
-            MineBitcoinBlockTenureChangePrimaryMinerCommand::new(ctx.miners.clone()),
+            MineBitcoinBlockTenureChangePrimaryMiner::new(ctx.miners.clone()),
         ))
     }
 }
 
-pub struct MineBitcoinBlockTenureChangeSecondaryMinerCommand {
+pub struct MineBitcoinBlockTenureChangeSecondaryMiner {
     miners: Arc<Mutex<MultipleMinerTest>>,
 }
 
-impl MineBitcoinBlockTenureChangeSecondaryMinerCommand {
+impl MineBitcoinBlockTenureChangeSecondaryMiner {
     pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
         Self { miners }
     }
 }
 
 impl Command<SignerTestState, SignerTestContext>
-    for MineBitcoinBlockTenureChangeSecondaryMinerCommand
+    for MineBitcoinBlockTenureChangeSecondaryMiner
 {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
@@ -147,7 +147,7 @@ impl Command<SignerTestState, SignerTestContext>
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         Just(CommandWrapper::new(
-            MineBitcoinBlockTenureChangeSecondaryMinerCommand::new(ctx.miners.clone()),
+            MineBitcoinBlockTenureChangeSecondaryMiner::new(ctx.miners.clone()),
         ))
     }
 }

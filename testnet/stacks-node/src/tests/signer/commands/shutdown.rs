@@ -4,17 +4,17 @@ use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 use std::sync::{Arc, Mutex};
 
-pub struct ShutdownMinersCommand {
+pub struct ShutdownMiners {
     miners: Arc<Mutex<MultipleMinerTest>>,
 }
 
-impl ShutdownMinersCommand {
+impl ShutdownMiners {
     pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
         Self { miners }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for ShutdownMinersCommand {
+impl Command<SignerTestState, SignerTestContext> for ShutdownMiners {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!("Checking: Shutting down miners. Result: {:?}", true);
         true
@@ -37,7 +37,7 @@ impl Command<SignerTestState, SignerTestContext> for ShutdownMinersCommand {
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(ShutdownMinersCommand::new(
+        Just(CommandWrapper::new(ShutdownMiners::new(
             ctx.miners.clone(),
         )))
     }

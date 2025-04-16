@@ -4,17 +4,17 @@ use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 use std::sync::{Arc, Mutex};
 
-pub struct SendTransferTxCommand {
+pub struct SendTransferTx {
     miners: Arc<Mutex<MultipleMinerTest>>,
 }
 
-impl SendTransferTxCommand {
+impl SendTransferTx {
     pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
         Self { miners }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for SendTransferTxCommand {
+impl Command<SignerTestState, SignerTestContext> for SendTransferTx {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!("Checking: Sending transfer tx. Result: {:?}", true);
         true
@@ -33,7 +33,7 @@ impl Command<SignerTestState, SignerTestContext> for SendTransferTxCommand {
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(SendTransferTxCommand::new(
+        Just(CommandWrapper::new(SendTransferTx::new(
             ctx.miners.clone(),
         )))
     }

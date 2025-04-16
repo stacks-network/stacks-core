@@ -10450,20 +10450,20 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs_scenario() {
         SkipCommitOpSecondaryMiner,
         BootToEpoch3,
         SkipCommitOpPrimaryMiner,
-        MineBitcoinBlockTenureChangePrimaryMinerCommand,
-        SubmitBlockCommitSecondaryMinerCommand,
-        StallMiningCommand,
+        MineBitcoinBlockTenureChangePrimaryMiner,
+        SubmitBlockCommitSecondaryMiner,
+        StallMining,
         MineBitcoinBlock,
-        SubmitBlockCommitPrimaryMinerCommand,
-        RecoverFromStallCommand,
-        WaitForBlockFromMiner2Command,
+        SubmitBlockCommitPrimaryMiner,
+        RecoverFromStall,
+        WaitForBlockFromMiner2,
         MineBitcoinBlock,
-        WaitForBlockFromMiner1Command,
-        SubmitBlockCommitPrimaryMinerCommand,
-        SendTransferTxCommand,
-        WaitForBlockFromMiner1Command,
-        MineBitcoinBlockTenureChangePrimaryMinerCommand,
-        ShutdownMinersCommand
+        WaitForBlockFromMiner1,
+        SubmitBlockCommitPrimaryMiner,
+        SendTransferTx,
+        WaitForBlockFromMiner1,
+        MineBitcoinBlockTenureChangePrimaryMiner,
+        ShutdownMiners
     ]
 }
 
