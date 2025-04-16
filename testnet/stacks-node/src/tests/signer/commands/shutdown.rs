@@ -37,8 +37,6 @@ impl Command<SignerTestState, SignerTestContext> for ShutdownMiners {
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(ShutdownMiners::new(
-            ctx.miners.clone(),
-        )))
+        Just(CommandWrapper::new(ShutdownMiners::new(ctx.miners.clone())))
     }
 }

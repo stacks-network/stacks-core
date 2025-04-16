@@ -33,8 +33,6 @@ impl Command<SignerTestState, SignerTestContext> for SendTransferTx {
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(SendTransferTx::new(
-            ctx.miners.clone(),
-        )))
+        Just(CommandWrapper::new(SendTransferTx::new(ctx.miners.clone())))
     }
 }

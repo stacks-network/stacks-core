@@ -18,9 +18,7 @@ impl MineBitcoinBlockTenureChangePrimaryMiner {
     }
 }
 
-impl Command<SignerTestState, SignerTestContext>
-    for MineBitcoinBlockTenureChangePrimaryMiner
-{
+impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChangePrimaryMiner {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Miner 1 mining Bitcoin block and tenure change tx. Result: {:?}",
@@ -92,9 +90,7 @@ impl MineBitcoinBlockTenureChangeSecondaryMiner {
     }
 }
 
-impl Command<SignerTestState, SignerTestContext>
-    for MineBitcoinBlockTenureChangeSecondaryMiner
-{
+impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChangeSecondaryMiner {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Miner 2 mining Bitcoin block and tenure change tx. Result: {:?}",

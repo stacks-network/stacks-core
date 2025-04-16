@@ -40,9 +40,9 @@ impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitSecondaryM
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(
-            SubmitBlockCommitSecondaryMiner::new(ctx.miners.clone()),
-        ))
+        Just(CommandWrapper::new(SubmitBlockCommitSecondaryMiner::new(
+            ctx.miners.clone(),
+        )))
     }
 }
 
@@ -82,8 +82,8 @@ impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitPrimaryMin
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(
-            SubmitBlockCommitPrimaryMiner::new(ctx.miners.clone()),
-        ))
+        Just(CommandWrapper::new(SubmitBlockCommitPrimaryMiner::new(
+            ctx.miners.clone(),
+        )))
     }
 }

@@ -9,11 +9,9 @@ mod shutdown;
 mod stalling;
 mod transfer;
 
-pub use context::{SignerTestContext};
+pub use context::SignerTestContext;
 
-pub use block_commit::{
-    SubmitBlockCommitPrimaryMiner, SubmitBlockCommitSecondaryMiner,
-};
+pub use block_commit::{SubmitBlockCommitPrimaryMiner, SubmitBlockCommitSecondaryMiner};
 pub use block_wait::{WaitForBlockFromMiner1, WaitForBlockFromMiner2};
 pub use boot::BootToEpoch3;
 pub use commit_ops::{SkipCommitOpPrimaryMiner, SkipCommitOpSecondaryMiner};
