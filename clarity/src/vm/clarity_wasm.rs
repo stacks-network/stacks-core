@@ -542,12 +542,14 @@ pub fn call_function<'a>(
         .get_memory(&mut store, "memory")
         .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-    // The only argument that needs space to be written at `offset` is the list
-    // type according to pass_argument_to_wasm, the function that writes to
-    // memory. Because of this we only allocate space for lists.
+    // Values that need space to be written at `offset` are lists according to
+    // pass_argument_to_wasm, the function that writes to memory. Tuples,
+    // optionals and response types can also include lists, thus the function
+    // recursively checks the nested types to calculate the total space needed
+    // for representations in memory.
     let mut arg_size = 0;
     for arg in args {
-        arg_size += get_list_size(arg);
+        arg_size += get_arg_repr_size(arg);
     }
     let mut in_mem_offset = offset + arg_size;
 
@@ -615,9 +617,17 @@ pub const CONTRACT_NAME_MAX_LENGTH: usize = 128;
 // Standard principal, but at most 128 character function name
 pub const PRINCIPAL_BYTES_MAX: usize = STANDARD_PRINCIPAL_BYTES + CONTRACT_NAME_MAX_LENGTH;
 
-// Return the number of bytes required to represent a list in memory.
-fn get_list_size(val: &Value) -> i32 {
+// Return the number of bytes required to represent arguments in memory.
+fn get_arg_repr_size(val: &Value) -> i32 {
     match val {
+        Value::Optional(OptionalData { data }) => match data {
+            Some(val) => get_arg_repr_size(val),
+            None => 0,
+        },
+        Value::Response(ResponseData { data, .. }) => get_arg_repr_size(&data),
+        Value::Tuple(TupleData { data_map, .. }) => {
+            data_map.iter().map(|(_, val)| get_arg_repr_size(val)).sum()
+        }
         Value::Sequence(SequenceData::List(list)) =>
         // 8 bytes for the offset and length
         {
@@ -625,7 +635,7 @@ fn get_list_size(val: &Value) -> i32 {
                 .data
                 .iter()
                 .map(|item| match item {
-                    Value::Sequence(SequenceData::List(_)) => get_list_size(item),
+                    Value::Sequence(SequenceData::List(_)) => get_arg_repr_size(item),
                     _ => get_type_size(list.type_signature.get_list_item_type()),
                 })
                 .sum::<i32>()
