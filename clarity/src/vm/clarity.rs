@@ -20,18 +20,30 @@ pub enum Error {
     Interpreter(InterpreterError),
     BadTransaction(String),
     CostError(ExecutionCost, ExecutionCost),
-    AbortedByCallback(Option<Value>, AssetMap, Vec<StacksTransactionEvent>, String),
+    AbortedByCallback {
+        /// What the output value of the transaction would have been.
+        /// This will be a Some for contract-calls, and None for contract initialization txs.
+        output: Option<Value>,
+        /// The asset map which was evaluated by the abort callback
+        assets_modified: AssetMap,
+        /// The events from the transaction processing
+        tx_events: Vec<StacksTransactionEvent>,
+        /// A human-readable explanation for aborting the transaction
+        reason: String,
+    },
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self {
             Error::CostError(ref a, ref b) => {
-                write!(f, "Cost Error: {} cost exceeded budget of {} cost", a, b)
+                write!(f, "Cost Error: {a} cost exceeded budget of {b} cost")
             }
             Error::Analysis(ref e) => fmt::Display::fmt(e, f),
             Error::Parse(ref e) => fmt::Display::fmt(e, f),
-            Error::AbortedByCallback(..) => write!(f, "Post condition aborted transaction"),
+            Error::AbortedByCallback { reason, .. } => {
+                write!(f, "Post condition aborted transaction: {reason}")
+            }
             Error::Interpreter(ref e) => fmt::Display::fmt(e, f),
             Error::BadTransaction(ref s) => fmt::Display::fmt(s, f),
         }
@@ -42,7 +54,7 @@ impl std::error::Error for Error {
     fn cause(&self) -> Option<&dyn std::error::Error> {
         match *self {
             Error::CostError(ref _a, ref _b) => None,
-            Error::AbortedByCallback(..) => None,
+            Error::AbortedByCallback { .. } => None,
             Error::Analysis(ref e) => Some(e),
             Error::Parse(ref e) => Some(e),
             Error::Interpreter(ref e) => Some(e),
@@ -331,16 +343,16 @@ pub trait TransactionConnection: ClarityConnection {
             },
             abort_call_back,
         )
-        .and_then(|(value, assets, events, aborted)| {
-            if let Some(aborted) = aborted {
-                Err(Error::AbortedByCallback(
-                    Some(value),
-                    assets,
-                    events,
-                    aborted,
-                ))
+        .and_then(|(value, assets_modified, tx_events, reason)| {
+            if let Some(reason) = reason {
+                Err(Error::AbortedByCallback {
+                    output: Some(value),
+                    assets_modified,
+                    tx_events,
+                    reason,
+                })
             } else {
-                Ok((value, assets, events))
+                Ok((value, assets_modified, tx_events))
             }
         })
     }
@@ -364,7 +376,7 @@ pub trait TransactionConnection: ClarityConnection {
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
     {
-        let (_, asset_map, events, aborted) = self.with_abort_callback(
+        let (_, assets_modified, tx_events, reason) = self.with_abort_callback(
             |vm_env| {
                 if let Some(max_execution_time_duration) = max_execution_time {
                     vm_env
@@ -383,10 +395,15 @@ pub trait TransactionConnection: ClarityConnection {
             },
             abort_call_back,
         )?;
-        if let Some(aborted) = aborted {
-            Err(Error::AbortedByCallback(None, asset_map, events, aborted))
+        if let Some(reason) = reason {
+            Err(Error::AbortedByCallback {
+                output: None,
+                assets_modified,
+                tx_events,
+                reason,
+            })
         } else {
-            Ok((asset_map, events))
+            Ok((assets_modified, tx_events))
         }
     }
 }

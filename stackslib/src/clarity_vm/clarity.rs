@@ -2567,8 +2567,8 @@ mod tests {
                     )
                 })
                 .unwrap_err();
-            let result_value = if let Error::AbortedByCallback(v, ..) = e {
-                v.unwrap()
+            let result_value = if let Error::AbortedByCallback { output, .. } = e {
+                output.unwrap()
             } else {
                 panic!("Expects a AbortedByCallback error")
             };

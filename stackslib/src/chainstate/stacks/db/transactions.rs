@@ -370,7 +370,17 @@ pub enum ClarityRuntimeTxError {
         error: clarity_error,
         err_type: &'static str,
     },
-    AbortedByCallback(Option<Value>, AssetMap, Vec<StacksTransactionEvent>, String),
+    AbortedByCallback {
+        /// What the output value of the transaction would have been.
+        /// This will be a Some for contract-calls, and None for contract initialization txs.
+        output: Option<Value>,
+        /// The asset map which was evaluated by the abort callback
+        assets_modified: AssetMap,
+        /// The events from the transaction processing
+        tx_events: Vec<StacksTransactionEvent>,
+        /// A human-readable explanation for aborting the transaction
+        reason: String,
+    },
     CostError(ExecutionCost, ExecutionCost),
     AnalysisError(CheckErrors),
     Rejectable(clarity_error),
@@ -400,9 +410,17 @@ pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxErr
                 ClarityRuntimeTxError::AnalysisError(check_error)
             }
         }
-        clarity_error::AbortedByCallback(val, assets, events, reason) => {
-            ClarityRuntimeTxError::AbortedByCallback(val, assets, events, reason)
-        }
+        clarity_error::AbortedByCallback {
+            output,
+            assets_modified,
+            tx_events,
+            reason,
+        } => ClarityRuntimeTxError::AbortedByCallback {
+            output,
+            assets_modified,
+            tx_events,
+            reason,
+        },
         clarity_error::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
         unhandled_error => ClarityRuntimeTxError::Rejectable(unhandled_error),
     }
@@ -1105,7 +1123,12 @@ impl StacksChainState {
                                 Some(error.to_string()),
                             )
                         }
-                        ClarityRuntimeTxError::AbortedByCallback(value, assets, events, reason) => {
+                        ClarityRuntimeTxError::AbortedByCallback {
+                            output,
+                            assets_modified,
+                            tx_events,
+                            reason,
+                        } => {
                             info!("Contract-call aborted by post-condition";
                                       "txid" => %tx.txid(),
                                       "origin" => %origin_account.principal,
@@ -1115,9 +1138,9 @@ impl StacksChainState {
                                       "function_args" => %VecDisplay(&contract_call.function_args));
                             let receipt = StacksTransactionReceipt::from_condition_aborted_contract_call(
                                     tx.clone(),
-                                    events,
-                                    value.expect("BUG: Post condition contract call must provide would-have-been-returned value"),
-                                    assets.get_stx_burned_total()?,
+                                    tx_events,
+                                    output.expect("BUG: Post condition contract call must provide would-have-been-returned value"),
+                                    assets_modified.get_stx_burned_total()?,
                                     total_cost,
                                     reason,
                                 );
@@ -1352,12 +1375,17 @@ impl StacksChainState {
                             };
                             return Ok(receipt);
                         }
-                        ClarityRuntimeTxError::AbortedByCallback(_, assets, events, reason) => {
+                        ClarityRuntimeTxError::AbortedByCallback {
+                            assets_modified,
+                            tx_events,
+                            reason,
+                            ..
+                        } => {
                             let receipt =
                                 StacksTransactionReceipt::from_condition_aborted_smart_contract(
                                     tx.clone(),
-                                    events,
-                                    assets.get_stx_burned_total()?,
+                                    tx_events,
+                                    assets_modified.get_stx_burned_total()?,
                                     contract_analysis,
                                     total_cost,
                                     reason,

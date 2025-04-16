@@ -650,11 +650,17 @@ impl TransactionResult {
                         clarity_err
                     }
                 }
-                ClarityRuntimeTxError::AbortedByCallback(val, assets, events, reason) => {
-                    Error::ClarityError(clarity_error::AbortedByCallback(
-                        val, assets, events, reason,
-                    ))
-                }
+                ClarityRuntimeTxError::AbortedByCallback {
+                    output,
+                    assets_modified,
+                    tx_events,
+                    reason,
+                } => Error::ClarityError(clarity_error::AbortedByCallback {
+                    output,
+                    assets_modified,
+                    tx_events,
+                    reason,
+                }),
             },
             Error::InvalidFee => {
                 // The transaction didn't have enough STX left over after it was run.

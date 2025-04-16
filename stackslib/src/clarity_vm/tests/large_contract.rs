@@ -1018,7 +1018,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                 )
                 .unwrap_err()
             {
-                ClarityError::AbortedByCallback(..) => true,
+                ClarityError::AbortedByCallback { .. } => true,
                 _ => false,
             });
         });
