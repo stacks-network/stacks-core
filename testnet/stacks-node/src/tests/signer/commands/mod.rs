@@ -6,7 +6,7 @@ mod boot;
 mod commit_ops;
 mod mining;
 mod shutdown;
-mod stalling;
+mod stacks_mining;
 mod transfer;
 
 pub use context::SignerTestContext;
@@ -17,5 +17,5 @@ pub use boot::BootToEpoch3;
 pub use commit_ops::{SkipCommitOpPrimaryMiner, SkipCommitOpSecondaryMiner};
 pub use mining::{MineBitcoinBlock, MineBitcoinBlockTenureChangePrimaryMiner};
 pub use shutdown::ShutdownMiners;
-pub use stalling::{PauseStacksMining, ResumeStacksMining};
+pub use stacks_mining::{PauseStacksMining, ResumeStacksMining};
 pub use transfer::SendTransferTx;
