@@ -207,24 +207,17 @@ fn test_simple_signer() {
         else {
             panic!("We expect ONLY signer messages");
         };
-        assert!(accepted_events
-            .iter()
-            .find_map(|e| {
-                let SignerEvent::SignerMessages {
-                    signer_set: accepted_signer_set,
-                    messages: accepted_messages,
-                    ..
-                } = e.clone()
-                else {
-                    panic!("We expect ONLY signer messages");
-                };
-                if accepted_signer_set == sent_signer_set && sent_messages == accepted_messages {
-                    Some(e)
-                } else {
-                    None
-                }
-            })
-            .is_some())
+        assert!(accepted_events.iter().any(|e| {
+            let SignerEvent::SignerMessages {
+                signer_set: accepted_signer_set,
+                messages: accepted_messages,
+                ..
+            } = e
+            else {
+                panic!("We expect ONLY signer messages");
+            };
+            *accepted_signer_set == sent_signer_set && *accepted_messages == sent_messages
+        }))
     }
     mock_stacks_node.join().unwrap();
 }
