@@ -3,9 +3,9 @@ use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 use std::sync::Arc;
 
-pub struct StallMining;
+pub struct PauseStacksMining;
 
-impl Command<SignerTestState, SignerTestContext> for StallMining {
+impl Command<SignerTestState, SignerTestContext> for PauseStacksMining {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Stalling mining. Result: {:?}",
@@ -21,19 +21,19 @@ impl Command<SignerTestState, SignerTestContext> for StallMining {
     }
 
     fn label(&self) -> String {
-        "STALL_MINING".to_string()
+        "PAUSE_STACKS_MINING".to_string()
     }
 
     fn build(
         _ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(StallMining))
+        Just(CommandWrapper::new(PauseStacksMining))
     }
 }
 
-pub struct RecoverFromStall;
+pub struct ResumeStacksMining;
 
-impl Command<SignerTestState, SignerTestContext> for RecoverFromStall {
+impl Command<SignerTestState, SignerTestContext> for ResumeStacksMining {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Recovering from mining stall. Result: {:?}",
@@ -49,12 +49,12 @@ impl Command<SignerTestState, SignerTestContext> for RecoverFromStall {
     }
 
     fn label(&self) -> String {
-        "RECOVER_FROM_STALL".to_string()
+        "RESUME_STACKS_MINING".to_string()
     }
 
     fn build(
         _ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(RecoverFromStall))
+        Just(CommandWrapper::new(ResumeStacksMining))
     }
 }

@@ -17,5 +17,5 @@ pub use boot::BootToEpoch3;
 pub use commit_ops::{SkipCommitOpPrimaryMiner, SkipCommitOpSecondaryMiner};
 pub use mining::{MineBitcoinBlock, MineBitcoinBlockTenureChangePrimaryMiner};
 pub use shutdown::ShutdownMiners;
-pub use stalling::{RecoverFromStall, StallMining};
+pub use stalling::{PauseStacksMining, ResumeStacksMining};
 pub use transfer::SendTransferTx;
