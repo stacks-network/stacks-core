@@ -208,6 +208,9 @@ pub struct ChainsCoordinatorConfig {
     /// true: always wait for canonical anchor blocks, even if it stalls the chain
     /// false: proceed to process new chain history even if we're missing an anchor block.
     pub require_affirmed_anchor_blocks: bool,
+    /// true: enable transactions indexing
+    /// false: no transactions indexing
+    pub txindex: bool,
 }
 
 impl ChainsCoordinatorConfig {
@@ -216,14 +219,16 @@ impl ChainsCoordinatorConfig {
             always_use_affirmation_maps: true,
             require_affirmed_anchor_blocks: true,
             assume_present_anchor_blocks: true,
+            txindex: false,
         }
     }
 
-    pub fn test_new() -> ChainsCoordinatorConfig {
+    pub fn test_new(txindex: bool) -> ChainsCoordinatorConfig {
         ChainsCoordinatorConfig {
             always_use_affirmation_maps: false,
             require_affirmed_anchor_blocks: false,
             assume_present_anchor_blocks: false,
+            txindex,
         }
     }
 }
@@ -249,7 +254,7 @@ pub struct ChainsCoordinator<
     pub reward_set_provider: R,
     pub notifier: N,
     pub atlas_config: AtlasConfig,
-    config: ChainsCoordinatorConfig,
+    pub config: ChainsCoordinatorConfig,
     burnchain_indexer: B,
     /// Used to tell the P2P thread that the stackerdb
     ///  needs to be refreshed.
@@ -646,6 +651,7 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
         path: &str,
         reward_set_provider: U,
         indexer: B,
+        txindex: bool,
     ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
         ChainsCoordinator::test_new_full(
             burnchain,
@@ -655,6 +661,7 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
             None,
             indexer,
             None,
+            txindex,
         )
     }
 
@@ -668,6 +675,7 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
         dispatcher: Option<&'a T>,
         burnchain_indexer: B,
         atlas_config: Option<AtlasConfig>,
+        txindex: bool,
     ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
         let burnchain = burnchain.clone();
 
@@ -713,7 +721,7 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
             notifier: (),
             atlas_config,
             atlas_db: Some(atlas_db),
-            config: ChainsCoordinatorConfig::test_new(),
+            config: ChainsCoordinatorConfig::test_new(txindex),
             burnchain_indexer,
             refresh_stacker_db: Arc::new(AtomicBool::new(false)),
             in_nakamoto_epoch: false,

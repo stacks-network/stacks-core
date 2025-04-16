@@ -24,8 +24,9 @@ use clarity::vm::contexts::{
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{
-    parse_cost, ClarityCostFunctionEvaluator, ClarityCostFunctionReference, CostErrors,
-    DefaultVersion, ExecutionCost, LimitedCostTracker, COSTS_1_NAME, COSTS_2_NAME, COSTS_3_NAME,
+    compute_cost, parse_cost, ClarityCostFunctionEvaluator, ClarityCostFunctionReference,
+    CostErrors, DefaultVersion, ExecutionCost, LimitedCostTracker, COSTS_1_NAME, COSTS_2_NAME,
+    COSTS_3_NAME,
 };
 use clarity::vm::database::{ClarityDatabase, MemoryBackingStore};
 use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
@@ -885,19 +886,16 @@ fn eval_cost_fn(
     let mainnet = owned_env.is_mainnet();
     let boot_costs_id = boot_code_id(cost_contract_name, mainnet);
     let cost_fn_name = cost_fn.get_name_str();
-
-    let exec = format!("({cost_fn_name} u{argument})");
-
-    let exec_result = owned_env
-        .eval_read_only(&boot_costs_id, &exec)
-        .map(|(value, _, _)| Some(value));
-
+    let cost_tracker = owned_env.mut_cost_tracker();
+    let data = match cost_tracker {
+        LimitedCostTracker::Free => panic!(),
+        LimitedCostTracker::Limited(data) => data,
+    };
     let clarity_cost_fn_ref = ClarityCostFunctionReference {
         contract_id: boot_costs_id,
         function_name: cost_fn_name.to_string(),
     };
-
-    parse_cost(&clarity_cost_fn_ref.to_string(), exec_result)
+    compute_cost(data, clarity_cost_fn_ref, &[argument], data.epoch)
 }
 
 fn eval_replaced_cost_fn(
@@ -926,7 +924,13 @@ fn proptest_cost_fn(cost_fn: &ClarityCostFunction, cost_contract_name: &str) {
         inputs.push(2u64.pow(i) + 1);
     });
     for use_mainnet in [true, false] {
-        with_owned_env(StacksEpochId::latest(), use_mainnet, |mut owned_env| {
+        let epoch = match cost_contract_name {
+            COSTS_1_NAME => StacksEpochId::Epoch20,
+            COSTS_2_NAME => StacksEpochId::Epoch2_05,
+            COSTS_3_NAME => StacksEpochId::latest(),
+            _ => panic!(),
+        };
+        with_owned_env(epoch, use_mainnet, |mut owned_env| {
             for i in inputs.iter() {
                 eprintln!("Evaluating {cost_contract_name}.{cost_fn}({i})");
                 let clar_evaled = eval_cost_fn(&mut owned_env, cost_contract_name, cost_fn, *i);
@@ -1180,6 +1184,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
                     contract_src,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
                 tx.save_analysis(contract_name, &analysis).unwrap();
@@ -1464,6 +1469,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
                     contract_src,
                     None,
                     |_, _| false,
+                    None,
                 )
                 .unwrap();
                 tx.save_analysis(contract_name, &analysis).unwrap();

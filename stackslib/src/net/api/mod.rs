@@ -20,7 +20,7 @@ use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId,
 };
-use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::HexError;
 
 use crate::burnchains::Txid;
@@ -68,6 +68,7 @@ pub mod getstxtransfercost;
 pub mod gettenure;
 pub mod gettenureinfo;
 pub mod gettenuretip;
+pub mod gettransaction;
 pub mod gettransaction_unconfirmed;
 pub mod liststackerdbreplicas;
 pub mod postblock;
@@ -134,6 +135,7 @@ impl StacksHttp {
         self.register_rpc_endpoint(
             gettransaction_unconfirmed::RPCGetTransactionUnconfirmedRequestHandler::new(),
         );
+        self.register_rpc_endpoint(gettransaction::RPCGetTransactionRequestHandler::new());
         self.register_rpc_endpoint(getsigner::GetSignerRequestHandler::default());
         self.register_rpc_endpoint(
             liststackerdbreplicas::RPCListStackerDBReplicasRequestHandler::new(),
@@ -244,3 +246,4 @@ impl_hex_deser!(VRFSeed);
 impl_hex_deser!(ConsensusHash);
 impl_hex_deser!(BlockHeaderHash);
 impl_hex_deser!(Hash160);
+impl_hex_deser!(Sha512Trunc256Sum);

@@ -70,30 +70,13 @@ jobs:
           - test-name: tests::neon_integrations::lockup_integration
           - test-name: tests::neon_integrations::most_recent_utxo_integration_test
           - test-name: tests::neon_integrations::run_with_custom_wallet
-          - test-name: tests::neon_integrations::test_competing_miners_build_anchor_blocks_and_microblocks_on_same_chain
           - test-name: tests::neon_integrations::test_competing_miners_build_anchor_blocks_on_same_chain_without_rbf
           - test-name: tests::neon_integrations::test_one_miner_build_anchor_blocks_on_same_chain_without_rbf
           - test-name: tests::signer::v0::tenure_extend_after_2_bad_commits
           - test-name: tests::stackerdb::test_stackerdb_event_observer
           - test-name: tests::stackerdb::test_stackerdb_load_store
-          # Microblock tests that are no longer needed on every CI run
-          #  (microblocks are unsupported starting in Epoch 2.5)
-          - test-name: tests::neon_integrations::bad_microblock_pubkey
-          - test-name: tests::neon_integrations::microblock_fork_poison_integration_test
-          - test-name: tests::neon_integrations::microblock_integration_test
-          - test-name: tests::neon_integrations::microblock_large_tx_integration_test_FLAKY
-          - test-name: tests::neon_integrations::microblock_limit_hit_integration_test
-          - test-name: tests::neon_integrations::microblock_miner_multiple_attempts
-          - test-name: tests::neon_integrations::test_problematic_microblocks_are_not_mined
-          - test-name: tests::neon_integrations::test_problematic_microblocks_are_not_relayed_or_stored
-          - test-name: tests::neon_integrations::runtime_overflow_unconfirmed_microblocks_integration_test
-          - test-name: tests::neon_integrations::size_overflow_unconfirmed_invalid_stream_microblocks_integration_test
-          - test-name: tests::neon_integrations::size_overflow_unconfirmed_microblocks_integration_test
-          - test-name: tests::neon_integrations::size_overflow_unconfirmed_stream_microblocks_integration_test
-          - test-name: tests::epoch_25::microblocks_disabled
           # Epoch tests are covered by the epoch-tests CI workflow, and don't need to run
           #  on every PR (for older epochs)
-          - test-name: tests::epoch_205::bigger_microblock_streams_in_2_05
           - test-name: tests::epoch_205::test_cost_limit_switch_version205
           - test-name: tests::epoch_205::test_dynamic_db_method_costs
           - test-name: tests::epoch_205::test_exact_block_costs
@@ -123,6 +106,13 @@ jobs:
           - test-name: tests::epoch_24::verify_auto_unlock_behavior
           # Disable this flaky test. We don't need continue testing Epoch 2 -> 3 transition
           - test-name: tests::nakamoto_integrations::flash_blocks_on_epoch_3_FLAKY
+          # These mempool tests take a long time to run, and are meant to be run manually
+          - test-name: tests::nakamoto_integrations::large_mempool_original_constant_fee
+          - test-name: tests::nakamoto_integrations::large_mempool_original_random_fee
+          - test-name: tests::nakamoto_integrations::large_mempool_next_constant_fee
+          - test-name: tests::nakamoto_integrations::large_mempool_next_random_fee
+          - test-name: tests::nakamoto_integrations::larger_mempool
+          - test-name: tests::signer::v0::larger_mempool
 
     steps:
       ## Setup test environment

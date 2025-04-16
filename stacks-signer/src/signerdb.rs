@@ -35,7 +35,6 @@ use rusqlite::{
     params, Connection, Error as SqliteError, OpenFlags, OptionalExtension, Transaction,
 };
 use serde::{Deserialize, Serialize};
-use slog::{slog_debug, slog_error};
 use stacks_common::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::util::get_epoch_time_secs;
@@ -167,6 +166,8 @@ pub struct BlockInfo {
     pub validation_time_ms: Option<u64>,
     /// Extra data specific to v0, v1, etc.
     pub ext: ExtraBlockInfo,
+    /// If this signer rejected this block, what was the reason
+    pub reject_reason: Option<RejectReason>,
 }
 
 impl From<BlockProposal> for BlockInfo {
@@ -184,6 +185,7 @@ impl From<BlockProposal> for BlockInfo {
             ext: ExtraBlockInfo::default(),
             state: BlockState::Unprocessed,
             validation_time_ms: None,
+            reject_reason: None,
         }
     }
 }
@@ -507,6 +509,15 @@ ALTER TABLE block_rejection_signer_addrs
     ADD COLUMN reject_code INTEGER;
 "#;
 
+static ADD_CONSENSUS_HASH: &str = r#"
+ALTER TABLE burn_blocks
+    ADD COLUMN consensus_hash TEXT;
+"#;
+
+static ADD_CONSENSUS_HASH_INDEX: &str = r#"
+CREATE INDEX IF NOT EXISTS burn_blocks_ch on burn_blocks (consensus_hash);
+"#;
+
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
     CREATE_DB_CONFIG,
@@ -576,9 +587,15 @@ static SCHEMA_9: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (9);",
 ];
 
+static SCHEMA_10: &[&str] = &[
+    ADD_CONSENSUS_HASH,
+    ADD_CONSENSUS_HASH_INDEX,
+    "INSERT INTO db_config (version) VALUES (10);",
+];
+
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 9;
+    pub const SCHEMA_VERSION: u32 = 10;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -720,7 +737,7 @@ impl SignerDb {
         Ok(())
     }
 
-    /// Migrate from schema 9 to schema 9
+    /// Migrate from schema 8 to schema 9
     fn schema_9_migration(tx: &Transaction) -> Result<(), DBError> {
         if Self::get_schema_version(tx)? >= 9 {
             // no migration necessary
@@ -728,6 +745,20 @@ impl SignerDb {
         }
 
         for statement in SCHEMA_9.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
+    /// Migrate from schema 9 to schema 10
+    fn schema_10_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 10 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_10.iter() {
             tx.execute_batch(statement)?;
         }
 
@@ -776,7 +807,8 @@ impl SignerDb {
                 6 => Self::schema_7_migration(&sql_tx)?,
                 7 => Self::schema_8_migration(&sql_tx)?,
                 8 => Self::schema_9_migration(&sql_tx)?,
-                9 => break,
+                9 => Self::schema_10_migration(&sql_tx)?,
+                10 => break,
                 x => return Err(DBError::Other(format!(
                     "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
                     Self::SCHEMA_VERSION,
@@ -908,6 +940,7 @@ impl SignerDb {
     pub fn insert_burn_block(
         &mut self,
         burn_hash: &BurnchainHeaderHash,
+        consensus_hash: &ConsensusHash,
         burn_height: u64,
         received_time: &SystemTime,
     ) -> Result<(), DBError> {
@@ -915,11 +948,12 @@ impl SignerDb {
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|e| DBError::Other(format!("Bad system time: {e}")))?
             .as_secs();
-        debug!("Inserting burn block info"; "burn_block_height" => burn_height, "burn_hash" => %burn_hash, "received" => received_ts);
+        debug!("Inserting burn block info"; "burn_block_height" => burn_height, "burn_hash" => %burn_hash, "received" => received_ts, "ch" => %consensus_hash);
         self.db.execute(
-            "INSERT OR REPLACE INTO burn_blocks (block_hash, block_height, received_time) VALUES (?1, ?2, ?3)",
+            "INSERT OR REPLACE INTO burn_blocks (block_hash, consensus_hash, block_height, received_time) VALUES (?1, ?2, ?3, ?4)",
             params![
                 burn_hash,
+                consensus_hash,
                 u64_to_sql(burn_height)?,
                 u64_to_sql(received_ts)?,
             ],
@@ -927,7 +961,7 @@ impl SignerDb {
         Ok(())
     }
 
-    /// Get timestamp (epoch seconds) at which a burn block was received over the event dispatcheer by this signer
+    /// Get timestamp (epoch seconds) at which a burn block was received over the event dispatcher by this signer
     /// if that burn block has been received.
     pub fn get_burn_block_receive_time(
         &self,
@@ -935,6 +969,23 @@ impl SignerDb {
     ) -> Result<Option<u64>, DBError> {
         let query = "SELECT received_time FROM burn_blocks WHERE block_hash = ? LIMIT 1";
         let Some(receive_time_i64) = query_row::<i64, _>(&self.db, query, &[burn_hash])? else {
+            return Ok(None);
+        };
+        let receive_time = u64::try_from(receive_time_i64).map_err(|e| {
+            error!("Failed to parse db received_time as u64: {e}");
+            DBError::Corruption
+        })?;
+        Ok(Some(receive_time))
+    }
+
+    /// Get timestamp (epoch seconds) at which a burn block was received over the event dispatcher by this signer
+    /// if that burn block has been received.
+    pub fn get_burn_block_receive_time_ch(
+        &self,
+        ch: &ConsensusHash,
+    ) -> Result<Option<u64>, DBError> {
+        let query = "SELECT received_time FROM burn_blocks WHERE consensus_hash = ? LIMIT 1";
+        let Some(receive_time_i64) = query_row::<i64, _>(&self.db, query, &[ch])? else {
             return Ok(None);
         };
         let receive_time = u64::try_from(receive_time_i64).map_err(|e| {
@@ -960,7 +1011,7 @@ impl SignerDb {
         debug!("Inserting block_info.";
             "reward_cycle" => %block_info.reward_cycle,
             "burn_block_height" => %block_info.burn_block_height,
-            "sighash" => %hash,
+            "signer_signature_hash" => %hash,
             "block_id" => %block_id,
             "signed" => %signed_over,
             "broadcasted" => ?broadcasted,
@@ -1013,7 +1064,7 @@ impl SignerDb {
         ];
 
         debug!("Inserting block signature.";
-            "sighash" => %block_sighash,
+            "signer_signature_hash" => %block_sighash,
             "signature" => %signature);
 
         self.db.execute(qry, args)?;
@@ -1049,7 +1100,7 @@ impl SignerDb {
         ];
 
         debug!("Inserting block rejection.";
-            "block_sighash" => %block_sighash,
+            "signer_signature_hash" => %block_sighash,
             "signer_address" => %addr,
             "reject_reason" => %reject_reason
         );
@@ -1213,7 +1264,7 @@ impl SignerDb {
         // Plus (ms + 999)/1000 to round up to the nearest second
         let tenure_extend_timestamp = tenure_start_time
             .saturating_add(tenure_idle_timeout_secs)
-            .saturating_add(tenure_process_time_ms.saturating_add(999) / 1000);
+            .saturating_add(tenure_process_time_ms.div_ceil(1000));
         debug!("Calculated tenure extend timestamp";
             "tenure_extend_timestamp" => tenure_extend_timestamp,
             "tenure_start_time" => tenure_start_time,
@@ -1494,12 +1545,14 @@ mod tests {
         let db_path = tmp_db_path();
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let test_burn_hash = BurnchainHeaderHash([10; 32]);
+        let test_consensus_hash = ConsensusHash([13; 20]);
         let stime = SystemTime::now();
         let time_to_epoch = stime
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        db.insert_burn_block(&test_burn_hash, 10, &stime).unwrap();
+        db.insert_burn_block(&test_burn_hash, &test_consensus_hash, 10, &stime)
+            .unwrap();
 
         let stored_time = db
             .get_burn_block_receive_time(&test_burn_hash)
@@ -2192,5 +2245,78 @@ mod tests {
             .get_last_activity_time(&consensus_hash_2)
             .unwrap()
             .is_none());
+    }
+
+    /// BlockInfo without the `reject_reason` field for backwards compatibility testing
+    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    pub struct BlockInfoPrev {
+        /// The block we are considering
+        pub block: NakamotoBlock,
+        /// The burn block height at which the block was proposed
+        pub burn_block_height: u64,
+        /// The reward cycle the block belongs to
+        pub reward_cycle: u64,
+        /// Our vote on the block if we have one yet
+        pub vote: Option<NakamotoBlockVote>,
+        /// Whether the block contents are valid
+        pub valid: Option<bool>,
+        /// Whether this block is already being signed over
+        pub signed_over: bool,
+        /// Time at which the proposal was received by this signer (epoch time in seconds)
+        pub proposed_time: u64,
+        /// Time at which the proposal was signed by this signer (epoch time in seconds)
+        pub signed_self: Option<u64>,
+        /// Time at which the proposal was signed by a threshold in the signer set (epoch time in seconds)
+        pub signed_group: Option<u64>,
+        /// The block state relative to the signer's view of the stacks blockchain
+        pub state: BlockState,
+        /// Consumed processing time in milliseconds to validate this block
+        pub validation_time_ms: Option<u64>,
+        /// Extra data specific to v0, v1, etc.
+        pub ext: ExtraBlockInfo,
+    }
+
+    /// Verify that we can deserialize the old BlockInfo struct into the new version
+    #[test]
+    fn deserialize_old_block_info() {
+        let block_info_prev = BlockInfoPrev {
+            block: NakamotoBlock {
+                header: NakamotoBlockHeader::genesis(),
+                txs: vec![],
+            },
+            burn_block_height: 2,
+            reward_cycle: 3,
+            vote: None,
+            valid: None,
+            signed_over: true,
+            proposed_time: 4,
+            signed_self: None,
+            signed_group: None,
+            state: BlockState::Unprocessed,
+            validation_time_ms: Some(5),
+            ext: ExtraBlockInfo::default(),
+        };
+
+        let block_info: BlockInfo =
+            serde_json::from_value(serde_json::to_value(&block_info_prev).unwrap()).unwrap();
+        assert_eq!(block_info.block, block_info_prev.block);
+        assert_eq!(
+            block_info.burn_block_height,
+            block_info_prev.burn_block_height
+        );
+        assert_eq!(block_info.reward_cycle, block_info_prev.reward_cycle);
+        assert_eq!(block_info.vote, block_info_prev.vote);
+        assert_eq!(block_info.valid, block_info_prev.valid);
+        assert_eq!(block_info.signed_over, block_info_prev.signed_over);
+        assert_eq!(block_info.proposed_time, block_info_prev.proposed_time);
+        assert_eq!(block_info.signed_self, block_info_prev.signed_self);
+        assert_eq!(block_info.signed_group, block_info_prev.signed_group);
+        assert_eq!(block_info.state, block_info_prev.state);
+        assert_eq!(
+            block_info.validation_time_ms,
+            block_info_prev.validation_time_ms
+        );
+        assert_eq!(block_info.ext, block_info_prev.ext);
+        assert!(block_info.reject_reason.is_none());
     }
 }

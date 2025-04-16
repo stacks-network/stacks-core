@@ -91,10 +91,11 @@ impl RunLoop {
             config.burnchain.burn_fee_cap,
         )));
 
-        let mut event_dispatcher = EventDispatcher::new();
+        let mut event_dispatcher = EventDispatcher::new(Some(config.get_working_dir()));
         for observer in config.events_observers.iter() {
-            event_dispatcher.register_observer(observer, config.get_working_dir());
+            event_dispatcher.register_observer(observer);
         }
+        event_dispatcher.process_pending_payloads();
 
         Self {
             config,
@@ -324,6 +325,7 @@ impl RunLoop {
                     require_affirmed_anchor_blocks: moved_config
                         .node
                         .require_affirmed_anchor_blocks,
+                    txindex: moved_config.node.txindex,
                 };
                 ChainsCoordinator::run(
                     coord_config,
@@ -401,7 +403,7 @@ impl RunLoop {
     /// This function will block by looping infinitely.
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and
-    /// the nodes, taking turns on tenures.  
+    /// the nodes, taking turns on tenures.
     pub fn start(
         &mut self,
         burnchain_opt: Option<Burnchain>,

@@ -5645,7 +5645,8 @@ impl SortitionHandleTx<'_> {
                     "ACCEPTED({}) leader block commit {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex;
                     "apparent_sender" => %op.apparent_sender,
-                    "stacks_block_hash" => %op.block_header_hash
+                    "stacks_block_hash" => %op.block_header_hash,
+                    "parent_burn_block" => %op.parent_block_ptr
                 );
                 self.insert_block_commit(op, sort_id)
             }

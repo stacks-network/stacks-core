@@ -46,7 +46,7 @@ use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
 use crate::chainstate::stacks::MAX_BLOCK_LEN;
 use crate::config::chain_data::MinerStats;
-use crate::core::mempool::{MemPoolWalkSettings, MemPoolWalkTxTypes};
+use crate::core::mempool::{MemPoolWalkSettings, MemPoolWalkStrategy, MemPoolWalkTxTypes};
 use crate::core::{
     MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId,
     BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT, BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
@@ -123,6 +123,9 @@ const DEFAULT_TENURE_TIMEOUT_SECS: u64 = 180;
 /// Default percentage of block budget that must be used before attempting a
 /// time-based tenure extend
 const DEFAULT_TENURE_EXTEND_COST_THRESHOLD: u64 = 50;
+/// Default number of milliseconds that the miner should sleep between mining
+/// attempts when the mempool is empty.
+const DEFAULT_EMPTY_MEMPOOL_SLEEP_MS: u64 = 2_500;
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
@@ -1093,6 +1096,7 @@ impl Config {
         BlockBuilderSettings {
             max_miner_time_ms: miner_config.nakamoto_attempt_time_ms,
             mempool_settings: MemPoolWalkSettings {
+                strategy: miner_config.mempool_walk_strategy,
                 max_walk_time_ms: miner_config.nakamoto_attempt_time_ms,
                 consider_no_estimate_tx_prob: miner_config.probability_pick_no_estimate_tx,
                 nonce_cache_size: miner_config.nonce_cache_size,
@@ -1104,6 +1108,9 @@ impl Config {
             },
             miner_status,
             confirm_microblocks: false,
+            max_execution_time: miner_config
+                .max_execution_time_secs
+                .map(Duration::from_secs),
         }
     }
 
@@ -1136,6 +1143,7 @@ impl Config {
                     // second or later attempt to mine a block -- give it some time
                     miner_config.subsequent_attempt_time_ms
                 },
+                strategy: miner_config.mempool_walk_strategy,
                 consider_no_estimate_tx_prob: miner_config.probability_pick_no_estimate_tx,
                 nonce_cache_size: miner_config.nonce_cache_size,
                 candidate_retry_cache_size: miner_config.candidate_retry_cache_size,
@@ -1146,6 +1154,9 @@ impl Config {
             },
             miner_status,
             confirm_microblocks: true,
+            max_execution_time: miner_config
+                .max_execution_time_secs
+                .map(Duration::from_secs),
         }
     }
 
@@ -1197,7 +1208,7 @@ impl std::default::Default for Config {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct BurnchainConfig {
     pub chain: String,
     pub mode: String,
@@ -1693,6 +1704,8 @@ pub struct NodeConfig {
     pub chain_liveness_poll_time_secs: u64,
     /// stacker DBs we replicate
     pub stacker_dbs: Vec<QualifiedContractIdentifier>,
+    /// enable transactions indexing
+    pub txindex: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1956,6 +1969,7 @@ impl Default for NodeConfig {
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
             stacker_dbs: vec![],
+            txindex: false,
         }
     }
 }
@@ -2113,6 +2127,8 @@ pub struct MinerConfig {
     pub microblock_attempt_time_ms: u64,
     /// Max time to assemble Nakamoto block
     pub nakamoto_attempt_time_ms: u64,
+    /// Strategy to follow when picking next mempool transactions to consider.
+    pub mempool_walk_strategy: MemPoolWalkStrategy,
     pub probability_pick_no_estimate_tx: u8,
     pub block_reward_recipient: Option<PrincipalData>,
     /// If possible, mine with a p2wpkh address
@@ -2120,12 +2136,13 @@ pub struct MinerConfig {
     /// Wait for a downloader pass before mining.
     /// This can only be disabled in testing; it can't be changed in the config file.
     pub wait_for_block_download: bool,
-    pub nonce_cache_size: u64,
-    pub candidate_retry_cache_size: u64,
+    pub nonce_cache_size: usize,
+    pub candidate_retry_cache_size: usize,
     pub unprocessed_block_deadline_secs: u64,
     pub mining_key: Option<Secp256k1PrivateKey>,
     /// Amount of time while mining in nakamoto to wait in between mining interim blocks
-    pub wait_on_interim_blocks: Duration,
+    /// DEPRECATED: use `min_time_between_blocks_ms` instead
+    pub wait_on_interim_blocks: Option<Duration>,
     /// minimum number of transactions that must be in a block if we're going to replace a pending
     /// block-commit with a new block-commit
     pub min_tx_count: u64,
@@ -2158,6 +2175,9 @@ pub struct MinerConfig {
     /// The minimum time to wait between mining blocks in milliseconds. The value must be greater than or equal to 1000 ms because if a block is mined
     /// within the same second as its parent, it will be rejected by the signers.
     pub min_time_between_blocks_ms: u64,
+    /// The amount of time that the miner should sleep in between attempts to
+    /// mine a block when the mempool is empty
+    pub empty_mempool_sleep_time: Duration,
     /// Time in milliseconds to pause after receiving the first threshold rejection, before proposing a new block.
     pub first_rejection_pause_ms: u64,
     /// Time in milliseconds to pause after receiving subsequent threshold rejections, before proposing a new block.
@@ -2177,6 +2197,8 @@ pub struct MinerConfig {
     pub tenure_extend_cost_threshold: u64,
     /// Define the timeout to apply while waiting for signers responses, based on the amount of rejections
     pub block_rejection_timeout_steps: HashMap<u32, Duration>,
+    /// Define max execution time for contract calls: transactions taking more than the specified amount of seconds will be rejected
+    pub max_execution_time_secs: Option<u64>,
 }
 
 impl Default for MinerConfig {
@@ -2194,7 +2216,7 @@ impl Default for MinerConfig {
             candidate_retry_cache_size: 1024 * 1024,
             unprocessed_block_deadline_secs: 30,
             mining_key: None,
-            wait_on_interim_blocks: Duration::from_millis(2_500),
+            wait_on_interim_blocks: None,
             min_tx_count: 0,
             only_increase_tx_count: false,
             unconfirmed_commits_helper: None,
@@ -2202,11 +2224,13 @@ impl Default for MinerConfig {
             activated_vrf_key_path: None,
             fast_rampup: false,
             underperform_stop_threshold: None,
+            mempool_walk_strategy: MemPoolWalkStrategy::GlobalFeeRate,
             txs_to_consider: MemPoolWalkTxTypes::all(),
             filter_origins: HashSet::new(),
             max_reorg_depth: 3,
             pre_nakamoto_mock_signing: false, // Should only default true if mining key is set
             min_time_between_blocks_ms: DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS,
+            empty_mempool_sleep_time: Duration::from_millis(DEFAULT_EMPTY_MEMPOOL_SLEEP_MS),
             first_rejection_pause_ms: DEFAULT_FIRST_REJECTION_PAUSE_MS,
             subsequent_rejection_pause_ms: DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS,
             block_commit_delay: Duration::from_millis(DEFAULT_BLOCK_COMMIT_DELAY_MS),
@@ -2226,6 +2250,7 @@ impl Default for MinerConfig {
                 rejections_timeouts_default_map.insert(30, Duration::from_secs(0));
                 rejections_timeouts_default_map
             },
+            max_execution_time_secs: None,
         }
     }
 }
@@ -2474,6 +2499,8 @@ pub struct NodeConfigFile {
     pub stacker_dbs: Option<Vec<String>>,
     /// fault injection: fail to push blocks with this probability (0-100)
     pub fault_injection_block_push_fail_probability: Option<u8>,
+    /// enable transactions indexing, note this will require additional storage (in the order of gigabytes)
+    pub txindex: Option<bool>,
 }
 
 impl NodeConfigFile {
@@ -2572,6 +2599,8 @@ impl NodeConfigFile {
             } else {
                 default_node_config.fault_injection_block_push_fail_probability
             },
+
+            txindex: self.txindex.unwrap_or(default_node_config.txindex),
         };
         Ok(node_config)
     }
@@ -2596,11 +2625,12 @@ pub struct MinerConfigFile {
     pub subsequent_attempt_time_ms: Option<u64>,
     pub microblock_attempt_time_ms: Option<u64>,
     pub nakamoto_attempt_time_ms: Option<u64>,
+    pub mempool_walk_strategy: Option<String>,
     pub probability_pick_no_estimate_tx: Option<u8>,
     pub block_reward_recipient: Option<String>,
     pub segwit: Option<bool>,
-    pub nonce_cache_size: Option<u64>,
-    pub candidate_retry_cache_size: Option<u64>,
+    pub nonce_cache_size: Option<usize>,
+    pub candidate_retry_cache_size: Option<usize>,
     pub unprocessed_block_deadline_secs: Option<u64>,
     pub mining_key: Option<String>,
     pub wait_on_interim_blocks_ms: Option<u64>,
@@ -2616,6 +2646,7 @@ pub struct MinerConfigFile {
     pub max_reorg_depth: Option<u64>,
     pub pre_nakamoto_mock_signing: Option<bool>,
     pub min_time_between_blocks_ms: Option<u64>,
+    pub empty_mempool_sleep_ms: Option<u64>,
     pub first_rejection_pause_ms: Option<u64>,
     pub subsequent_rejection_pause_ms: Option<u64>,
     pub block_commit_delay_ms: Option<u64>,
@@ -2625,6 +2656,7 @@ pub struct MinerConfigFile {
     pub tenure_timeout_secs: Option<u64>,
     pub tenure_extend_cost_threshold: Option<u64>,
     pub block_rejection_timeout_steps: Option<HashMap<String, u64>>,
+    pub max_execution_time_secs: Option<u64>,
 }
 
 impl MinerConfigFile {
@@ -2658,6 +2690,14 @@ impl MinerConfigFile {
             } else {
                 miner_default_config.tenure_cost_limit_per_block_percentage
             };
+
+        let nonce_cache_size = self
+            .nonce_cache_size
+            .unwrap_or(miner_default_config.nonce_cache_size);
+        if nonce_cache_size == 0 {
+            return Err("miner.nonce_cache_size must be greater than 0".to_string());
+        }
+
         Ok(MinerConfig {
             first_attempt_time_ms: self
                 .first_attempt_time_ms
@@ -2702,8 +2742,7 @@ impl MinerConfigFile {
                 .transpose()?,
             wait_on_interim_blocks: self
                 .wait_on_interim_blocks_ms
-                .map(Duration::from_millis)
-                .unwrap_or(miner_default_config.wait_on_interim_blocks),
+                .map(Duration::from_millis),
             min_tx_count: self
                 .min_tx_count
                 .unwrap_or(miner_default_config.min_tx_count),
@@ -2717,6 +2756,9 @@ impl MinerConfigFile {
             activated_vrf_key_path: self.activated_vrf_key_path.clone(),
             fast_rampup: self.fast_rampup.unwrap_or(miner_default_config.fast_rampup),
             underperform_stop_threshold: self.underperform_stop_threshold,
+            mempool_walk_strategy: self.mempool_walk_strategy
+                .map(|s| str::parse(&s).unwrap_or_else(|e| panic!("Could not parse '{s}': {e}")))
+                .unwrap_or(MemPoolWalkStrategy::GlobalFeeRate),
             txs_to_consider: {
                 if let Some(txs_to_consider) = &self.txs_to_consider {
                     txs_to_consider
@@ -2755,12 +2797,13 @@ impl MinerConfigFile {
             pre_nakamoto_mock_signing: self
                 .pre_nakamoto_mock_signing
                 .unwrap_or(pre_nakamoto_mock_signing), // Should only default true if mining key is set
-                min_time_between_blocks_ms: self.min_time_between_blocks_ms.map(|ms| if ms < DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS {
+            min_time_between_blocks_ms: self.min_time_between_blocks_ms.map(|ms| if ms < DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS {
                 warn!("miner.min_time_between_blocks_ms is less than the minimum allowed value of {DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS} ms. Using the default value instead.");
                 DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS
             } else {
                 ms
             }).unwrap_or(miner_default_config.min_time_between_blocks_ms),
+            empty_mempool_sleep_time: self.empty_mempool_sleep_ms.map(Duration::from_millis).unwrap_or(miner_default_config.empty_mempool_sleep_time),
             first_rejection_pause_ms: self.first_rejection_pause_ms.unwrap_or(miner_default_config.first_rejection_pause_ms),
             subsequent_rejection_pause_ms: self.subsequent_rejection_pause_ms.unwrap_or(miner_default_config.subsequent_rejection_pause_ms),
             block_commit_delay: self.block_commit_delay_ms.map(Duration::from_millis).unwrap_or(miner_default_config.block_commit_delay),
@@ -2786,7 +2829,9 @@ impl MinerConfigFile {
                 } else{
                     miner_default_config.block_rejection_timeout_steps
                 }
-            }
+            },
+
+            max_execution_time_secs: self.max_execution_time_secs
         })
     }
 }

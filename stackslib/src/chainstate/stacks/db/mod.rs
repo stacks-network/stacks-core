@@ -97,11 +97,6 @@ pub mod headers;
 pub mod transactions;
 pub mod unconfirmed;
 
-lazy_static! {
-    pub static ref TRANSACTION_LOG: bool =
-        std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
-}
-
 /// Fault injection struct for various kinds of faults we'd like to introduce into the system
 pub struct StacksChainStateFaults {
     // if true, then the envar STACKS_HIDE_BLOCKS_AT_HEIGHT will be consulted to get a list of
@@ -636,24 +631,7 @@ impl<'a> ChainstateTx<'a> {
         &self.config
     }
 
-    pub fn log_transactions_processed(
-        &self,
-        block_id: &StacksBlockId,
-        events: &[StacksTransactionReceipt],
-    ) {
-        if *TRANSACTION_LOG {
-            let insert =
-                "INSERT INTO transactions (txid, index_block_hash, tx_hex, result) VALUES (?, ?, ?, ?)";
-            for tx_event in events.iter() {
-                let txid = tx_event.transaction.txid();
-                let tx_hex = tx_event.transaction.serialize_to_dbstring();
-                let result = tx_event.result.to_string();
-                let params = params![txid, block_id, tx_hex, result];
-                if let Err(e) = self.tx.tx().execute(insert, params) {
-                    warn!("Failed to log TX: {}", e);
-                }
-            }
-        }
+    pub fn log_transactions_processed(&self, events: &[StacksTransactionReceipt]) {
         for tx_event in events.iter() {
             let txid = tx_event.transaction.txid();
             if let Err(e) = monitoring::log_transaction_processed(&txid, &self.root_path) {
@@ -1323,6 +1301,7 @@ impl StacksChainState {
                         &boot_code_smart_contract,
                         &boot_code_account,
                         ASTRules::PrecheckSize,
+                        None,
                     )
                 })?;
                 receipts.push(tx_receipt);
@@ -1646,6 +1625,7 @@ impl StacksChainState {
                     "set-burnchain-parameters",
                     &params,
                     |_, _| false,
+                    None,
                 )
                 .expect("Failed to set burnchain parameters in PoX contract");
             });

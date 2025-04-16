@@ -42,6 +42,7 @@ use stacks::chainstate::stacks::miner::{
     set_mining_spend_amount, signal_mining_blocked, signal_mining_ready,
 };
 use stacks::chainstate::stacks::Error as ChainstateError;
+use stacks::config::BurnchainConfig;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::STACKS_EPOCH_3_1_MARKER;
 use stacks::monitoring::increment_stx_blocks_mined_counter;
@@ -1101,29 +1102,7 @@ impl RelayerThread {
             return Err(NakamotoNodeError::SnapshotNotFoundForChainTip);
         };
 
-        let burnchain_config = self.config.get_burnchain_config();
-        let last_miner_spend_opt = self.globals.get_last_miner_spend_amount();
-        let force_remine = if let Some(last_miner_spend_amount) = last_miner_spend_opt {
-            last_miner_spend_amount != burnchain_config.burn_fee_cap
-        } else {
-            false
-        };
-        if force_remine {
-            info!(
-                "Miner config changed; updating spend amount {}",
-                burnchain_config.burn_fee_cap
-            );
-        }
-
-        self.globals
-            .set_last_miner_spend_amount(burnchain_config.burn_fee_cap);
-
-        set_mining_spend_amount(
-            self.globals.get_miner_status(),
-            burnchain_config.burn_fee_cap,
-        );
-        // amount of burnchain tokens (e.g. sats) we'll spend across the PoX outputs
-        let burn_fee_cap = burnchain_config.burn_fee_cap;
+        let (_, burnchain_config) = self.check_burnchain_config_changed();
 
         // let's commit, but target the current burnchain tip with our modulus so the commit is
         // only valid if it lands in the targeted burnchain block height
@@ -1155,7 +1134,7 @@ impl RelayerThread {
                 highest_tenure_start_block_header.index_block_hash().0,
             ),
             // the rest of this is the same as epoch2x commits, modulo the new epoch marker
-            burn_fee: burn_fee_cap,
+            burn_fee: burnchain_config.burn_fee_cap,
             apparent_sender: sender,
             key_block_ptr: u32::try_from(key.block_height)
                 .expect("FATAL: burn block height exceeded u32"),
@@ -1703,9 +1682,11 @@ impl RelayerThread {
 
         // update local state
         last_committed.set_txid(&txid);
-        self.globals
-            .counters
-            .bump_naka_submitted_commits(last_committed.burn_tip.block_height, tip_height);
+        self.globals.counters.bump_naka_submitted_commits(
+            last_committed.burn_tip.block_height,
+            tip_height,
+            last_committed.block_commit.burn_fee,
+        );
         self.last_committed = Some(last_committed);
 
         Ok(())
@@ -1767,6 +1748,21 @@ impl RelayerThread {
                "last-commit ongoing tenure" => %self.last_committed.as_ref().map(|cmt| cmt.get_tenure_id().to_string()).unwrap_or("(not set)".to_string()),
                "burnchain view changed?" => %burnchain_changed,
                "highest tenure changed?" => %highest_tenure_changed);
+
+        // If the miner spend or config has changed, we want to RBF with new config values.
+        let (burnchain_config_changed, _) = self.check_burnchain_config_changed();
+        let miner_config_changed = self.check_miner_config_changed();
+
+        if burnchain_config_changed || miner_config_changed {
+            info!("Miner spend or config changed; issuing block commit with new values";
+                "miner_spend_changed" => %burnchain_config_changed,
+                "miner_config_changed" => %miner_config_changed,
+            );
+            return Ok(Some(RelayerDirective::IssueBlockCommit(
+                stacks_tip_ch,
+                stacks_tip_bh,
+            )));
+        }
 
         if !burnchain_changed && !highest_tenure_changed {
             // nothing to do
@@ -2135,6 +2131,45 @@ impl RelayerThread {
         };
         debug!("Relayer: handled directive"; "continue_running" => continue_running);
         continue_running
+    }
+
+    /// Reload config.burnchain to see if burn_fee_cap has changed.
+    /// If it has, update the miner spend amount and return true.
+    pub fn check_burnchain_config_changed(&self) -> (bool, BurnchainConfig) {
+        let burnchain_config = self.config.get_burnchain_config();
+        let last_burnchain_config_opt = self.globals.get_last_burnchain_config();
+        let burnchain_config_changed =
+            if let Some(last_burnchain_config) = last_burnchain_config_opt {
+                last_burnchain_config != burnchain_config
+            } else {
+                false
+            };
+
+        self.globals
+            .set_last_miner_spend_amount(burnchain_config.burn_fee_cap);
+        self.globals
+            .set_last_burnchain_config(burnchain_config.clone());
+
+        set_mining_spend_amount(
+            self.globals.get_miner_status(),
+            burnchain_config.burn_fee_cap,
+        );
+
+        (burnchain_config_changed, burnchain_config)
+    }
+
+    pub fn check_miner_config_changed(&self) -> bool {
+        let miner_config = self.config.get_miner_config();
+        let last_miner_config_opt = self.globals.get_last_miner_config();
+        let miner_config_changed = if let Some(last_miner_config) = last_miner_config_opt {
+            last_miner_config != miner_config
+        } else {
+            false
+        };
+
+        self.globals.set_last_miner_config(miner_config);
+
+        miner_config_changed
     }
 }
 

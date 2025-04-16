@@ -61,6 +61,9 @@ impl From<CheckError> for Error {
             CheckErrors::MemoryBalanceExceeded(_a, _b) => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
+            CheckErrors::ExecutionTimeExpired => {
+                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+            }
             _ => Error::Analysis(e),
         }
     }
@@ -73,6 +76,9 @@ impl From<InterpreterError> for Error {
                 Error::CostError(a.clone(), b.clone())
             }
             InterpreterError::Unchecked(CheckErrors::CostOverflow) => {
+                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+            }
+            InterpreterError::Unchecked(CheckErrors::ExecutionTimeExpired) => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => Error::Interpreter(e),
@@ -88,6 +94,9 @@ impl From<ParseError> for Error {
             }
             ParseErrors::CostBalanceExceeded(a, b) => Error::CostError(a, b),
             ParseErrors::MemoryBalanceExceeded(_a, _b) => {
+                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+            }
+            ParseErrors::ExecutionTimeExpired => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => Error::Parse(e),
@@ -284,6 +293,7 @@ pub trait TransactionConnection: ClarityConnection {
     /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
     ///   if abort_call_back returns true, all modifications from this transaction will be rolled back.
     ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
+    #[allow(clippy::too_many_arguments)]
     fn run_contract_call<F>(
         &mut self,
         sender: &PrincipalData,
@@ -292,6 +302,7 @@ pub trait TransactionConnection: ClarityConnection {
         public_function: &str,
         args: &[Value],
         abort_call_back: F,
+        max_execution_time: Option<std::time::Duration>,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error>
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
@@ -303,6 +314,11 @@ pub trait TransactionConnection: ClarityConnection {
 
         self.with_abort_callback(
             |vm_env| {
+                if let Some(max_execution_time_duration) = max_execution_time {
+                    vm_env
+                        .context
+                        .set_max_execution_time(max_execution_time_duration);
+                }
                 vm_env
                     .execute_transaction(
                         sender.clone(),
@@ -329,6 +345,7 @@ pub trait TransactionConnection: ClarityConnection {
     /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
     ///   if abort_call_back returns true, all modifications from this transaction will be rolled back.
     ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
+    #[allow(clippy::too_many_arguments)]
     fn initialize_smart_contract<F>(
         &mut self,
         identifier: &QualifiedContractIdentifier,
@@ -337,12 +354,18 @@ pub trait TransactionConnection: ClarityConnection {
         contract_str: &str,
         sponsor: Option<PrincipalData>,
         abort_call_back: F,
+        max_execution_time: Option<std::time::Duration>,
     ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), Error>
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
     {
         let (_, asset_map, events, aborted) = self.with_abort_callback(
             |vm_env| {
+                if let Some(max_execution_time_duration) = max_execution_time {
+                    vm_env
+                        .context
+                        .set_max_execution_time(max_execution_time_duration);
+                }
                 vm_env
                     .initialize_contract_from_ast(
                         identifier.clone(),

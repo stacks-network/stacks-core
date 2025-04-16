@@ -1730,6 +1730,17 @@ impl BlockMinerThread {
             )
         };
 
+        let Some(vrf_proof) = vrf_proof else {
+            error!(
+                "Unable to generate VRF proof, will be unable to mine";
+                "burn_block_sortition_hash" => %self.burn_block.sortition_hash,
+                "burn_block_block_height" => %self.burn_block.block_height,
+                "burn_block_hash" => %self.burn_block.burn_header_hash,
+                "vrf_pubkey" => &self.registered_key.vrf_public_key.to_hex()
+            );
+            return None;
+        };
+
         debug!(
             "Generated VRF Proof: {} over {} ({},{}) with key {}",
             vrf_proof.to_hex(),
@@ -4480,6 +4491,8 @@ impl PeerThread {
             p2p_thread.globals.recv_unconfirmed_txs(chainstate);
         });
 
+        let txindex = self.config.node.txindex;
+
         // do one pass
         let p2p_res = self.with_chainstate(|p2p_thread, sortdb, chainstate, mempool| {
             // NOTE: handler_args must be created such that it outlives the inner net.run() call and
@@ -4505,6 +4518,7 @@ impl PeerThread {
                     ibd,
                     poll_ms,
                     &handler_args,
+                    txindex,
                 )
             })
         });

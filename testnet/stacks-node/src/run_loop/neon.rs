@@ -117,6 +117,7 @@ pub struct Counters {
     pub naka_signer_pushed_blocks: RunLoopCounter,
     pub naka_miner_directives: RunLoopCounter,
     pub naka_submitted_commit_last_stacks_tip: RunLoopCounter,
+    pub naka_submitted_commit_last_commit_amount: RunLoopCounter,
 
     pub naka_miner_current_rejections: RunLoopCounter,
     pub naka_miner_current_rejections_timeout_secs: RunLoopCounter,
@@ -178,6 +179,7 @@ impl Counters {
         &self,
         committed_burn_height: u64,
         committed_stacks_height: u64,
+        committed_sats_amount: u64,
     ) {
         Counters::inc(&self.naka_submitted_commits);
         Counters::set(
@@ -187,6 +189,10 @@ impl Counters {
         Counters::set(
             &self.naka_submitted_commit_last_stacks_tip,
             committed_stacks_height,
+        );
+        Counters::set(
+            &self.naka_submitted_commit_last_commit_amount,
+            committed_sats_amount,
         );
     }
 
@@ -274,10 +280,11 @@ impl RunLoop {
             config.burnchain.burn_fee_cap,
         )));
 
-        let mut event_dispatcher = EventDispatcher::new();
+        let mut event_dispatcher = EventDispatcher::new(Some(config.get_working_dir()));
         for observer in config.events_observers.iter() {
-            event_dispatcher.register_observer(observer, config.get_working_dir());
+            event_dispatcher.register_observer(observer);
         }
+        event_dispatcher.process_pending_payloads();
 
         Self {
             config,
@@ -657,6 +664,7 @@ impl RunLoop {
                     require_affirmed_anchor_blocks: moved_config
                         .node
                         .require_affirmed_anchor_blocks,
+                    txindex: moved_config.node.txindex,
                 };
                 ChainsCoordinator::run(
                     coord_config,

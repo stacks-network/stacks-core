@@ -118,14 +118,38 @@ impl Keychain {
 
     /// Generate a VRF proof over a given byte message.
     /// `block_height` must be the _same_ block height called to make_vrf_keypair()
-    pub fn generate_proof(&self, block_height: u64, bytes: &[u8; 32]) -> VRFProof {
+    pub fn generate_proof(&self, block_height: u64, bytes: &[u8; 32]) -> Option<VRFProof> {
         let (pk, sk) = self.make_vrf_keypair(block_height);
-        let proof = VRF::prove(&sk, bytes.as_ref());
+        let Some(proof) = VRF::prove(&sk, bytes.as_ref()) else {
+            error!(
+                "Failed to generate proof with keypair, will be unable to mine.";
+                "block_height" => block_height,
+                "pk" => ?pk
+            );
+            return None;
+        };
 
         // Ensure that the proof is valid by verifying
-        let is_valid = VRF::verify(&pk, &proof, bytes.as_ref()).unwrap_or(false);
-        assert!(is_valid);
-        proof
+        let is_valid = VRF::verify(&pk, &proof, bytes.as_ref())
+            .inspect_err(|e| {
+                error!(
+                    "Failed to validate generated proof, will be unable to mine.";
+                    "block_height" => block_height,
+                    "pk" => ?pk,
+                    "err" => %e,
+                );
+            })
+            .ok()?;
+        if !is_valid {
+            error!(
+                "Generated invalidat proof, will be unable to mine.";
+                "block_height" => block_height,
+                "pk" => ?pk,
+            );
+            None
+        } else {
+            Some(proof)
+        }
     }
 
     /// Generate a microblock signing key for this burnchain block height.
@@ -367,7 +391,7 @@ mod tests {
             };
 
             // Generate the proof
-            let proof = VRF::prove(vrf_sk, bytes.as_ref());
+            let proof = VRF::prove(vrf_sk, bytes.as_ref())?;
             // Ensure that the proof is valid by verifying
             let is_valid = VRF::verify(vrf_pk, &proof, bytes.as_ref()).unwrap_or(false);
             assert!(is_valid);

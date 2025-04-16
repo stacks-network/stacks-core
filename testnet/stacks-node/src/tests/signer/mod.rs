@@ -32,10 +32,11 @@ use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
+use stacks::core::test_util::{make_contract_call, make_contract_publish, make_stacks_transfer};
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
-use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
+use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPublicKey};
 use stacks::types::PrivateKey;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::MerkleHashFunc;
@@ -47,9 +48,13 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_signer::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::{SignerResult, State, StateInfo};
+use stacks_signer::v0::signer_state::{LocalStateMachine, MinerState};
 use stacks_signer::{Signer, SpawnedSigner};
 
-use super::nakamoto_integrations::{check_nakamoto_empty_block_heuristics, wait_for};
+use super::nakamoto_integrations::{
+    check_nakamoto_empty_block_heuristics, next_block_and, wait_for,
+};
+use super::neon_integrations::{get_account, get_sortition_info_ch, submit_tx_fallible};
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
@@ -209,13 +214,11 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Send a status request to each spawned signer
     pub fn send_status_request(&self, exclude: &HashSet<usize>) {
-        for signer_ix in 0..self.spawned_signers.len() {
+        for (signer_ix, signer_config) in self.signer_configs.iter().enumerate() {
             if exclude.contains(&signer_ix) {
                 continue;
             }
-            let port = 3000 + signer_ix;
-            let endpoint = format!("http://localhost:{port}");
-            let path = format!("{endpoint}/status");
+            let path = format!("http://{}/status", signer_config.endpoint);
 
             debug!("Issue status request to {path}");
             let client = reqwest::blocking::Client::new();
@@ -227,9 +230,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         }
     }
 
-    pub fn wait_for_registered(&mut self, timeout_secs: u64) {
+    pub fn wait_for_registered(&mut self) {
         let mut finished_signers = HashSet::new();
-        wait_for(timeout_secs, || {
+        wait_for(120, || {
             self.send_status_request(&finished_signers);
             thread::sleep(Duration::from_secs(1));
             let latest_states = self.get_states(&finished_signers);
@@ -247,9 +250,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     /// Send a status request to the signers to ensure they are registered for both reward cycles.
-    pub fn wait_for_registered_both_reward_cycles(&mut self, timeout_secs: u64) {
+    pub fn wait_for_registered_both_reward_cycles(&mut self) {
         let mut finished_signers = HashSet::new();
-        wait_for(timeout_secs, || {
+        wait_for(120, || {
             self.send_status_request(&finished_signers);
             thread::sleep(Duration::from_secs(1));
             let latest_states = self.get_states(&finished_signers);
@@ -293,6 +296,500 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         }).unwrap();
     }
 
+    pub fn mine_bitcoin_block(&mut self) {
+        let info = self.get_peer_info();
+        next_block_and(&mut self.running_nodes.btc_regtest_controller, 60, || {
+            Ok(get_chain_info(&self.running_nodes.conf).burn_block_height > info.burn_block_height)
+        })
+        .unwrap();
+    }
+
+    /// Fetch the local signer state machine for all the signers,
+    ///  waiting until every signer has processed the latest burn block.
+    /// Then, check that every signer's state machine corresponds to the
+    ///  latest burn block:
+    ///    1. Having a valid sortition
+    ///    2. The active miner is the winner of that sortition
+    ///    3. The active miner is building off of the prior tenure
+    pub fn check_signer_states_normal(&mut self) {
+        let (state_machines, info_cur) = self.get_burn_updated_states();
+
+        let sortition_latest =
+            get_sortition_info_ch(&self.running_nodes.conf, &info_cur.pox_consensus);
+        let sortition_prior = get_sortition_info_ch(
+            &self.running_nodes.conf,
+            sortition_latest.last_sortition_ch.as_ref().unwrap(),
+        );
+
+        info!("Latest sortition: {sortition_latest:?}");
+        info!("Prior sortition: {sortition_prior:?}");
+
+        assert_eq!(
+            sortition_latest.last_sortition_ch,
+            sortition_latest.stacks_parent_ch
+        );
+        let latest_block = self
+            .stacks_client
+            .get_tenure_tip(&sortition_prior.consensus_hash)
+            .unwrap();
+        let latest_block_id =
+            StacksBlockId::new(&sortition_prior.consensus_hash, &latest_block.block_hash());
+
+        state_machines
+            .into_iter()
+            .enumerate()
+            .for_each(|(ix, state_machine)| {
+                let LocalStateMachine::Initialized(state_machine) = state_machine else {
+                    error!("Local state machine was not initialized");
+                    panic!();
+                };
+
+                info!("Evaluating Signer #{ix}"; "state_machine" => ?state_machine);
+
+                assert_eq!(state_machine.burn_block, info_cur.pox_consensus,);
+                assert_eq!(state_machine.burn_block_height, info_cur.burn_block_height,);
+                let MinerState::ActiveMiner {
+                    current_miner_pkh,
+                    parent_tenure_id,
+                    parent_tenure_last_block,
+                    parent_tenure_last_block_height,
+                    ..
+                } = state_machine.current_miner
+                else {
+                    error!("State machine for Signer #{ix} did not have an active miner");
+                    panic!();
+                };
+                assert_eq!(Some(current_miner_pkh), sortition_latest.miner_pk_hash160);
+                assert_eq!(parent_tenure_id, sortition_prior.consensus_hash);
+                assert_eq!(parent_tenure_last_block, latest_block_id);
+                assert_eq!(parent_tenure_last_block_height, latest_block.height());
+            });
+    }
+
+    /// Fetch the local signer state machine for all the signers,
+    ///  waiting until every signer has processed the latest burn block.
+    /// Then, check that every signer's state machine corresponds to the
+    ///  latest burn block:
+    ///    1. Having an invalid miner
+    ///    2. The active miner is the winner of the prior sortition
+    pub fn check_signer_states_revert_to_prior(&mut self) {
+        let (state_machines, info_cur) = self.get_burn_updated_states();
+
+        let sortition_latest =
+            get_sortition_info_ch(&self.running_nodes.conf, &info_cur.pox_consensus);
+        let sortition_prior = get_sortition_info_ch(
+            &self.running_nodes.conf,
+            sortition_latest.last_sortition_ch.as_ref().unwrap(),
+        );
+
+        info!("Latest sortition: {sortition_latest:?}");
+        info!("Prior sortition: {sortition_prior:?}");
+
+        let latest_block = self
+            .stacks_client
+            .get_tenure_tip(sortition_prior.stacks_parent_ch.as_ref().unwrap())
+            .unwrap();
+        let latest_block_id = StacksBlockId::new(
+            sortition_prior.stacks_parent_ch.as_ref().unwrap(),
+            &latest_block.block_hash(),
+        );
+
+        state_machines
+            .into_iter()
+            .enumerate()
+            .for_each(|(ix, state_machine)| {
+                let LocalStateMachine::Initialized(state_machine) = state_machine else {
+                    error!("Local state machine was not initialized");
+                    panic!();
+                };
+
+                info!("Evaluating Signer #{ix}"; "state_machine" => ?state_machine);
+
+                assert_eq!(state_machine.burn_block, info_cur.pox_consensus,);
+                assert_eq!(state_machine.burn_block_height, info_cur.burn_block_height,);
+                let MinerState::ActiveMiner {
+                    current_miner_pkh,
+                    parent_tenure_id,
+                    parent_tenure_last_block,
+                    parent_tenure_last_block_height,
+                    tenure_id,
+                } = state_machine.current_miner
+                else {
+                    error!("State machine for Signer #{ix} did not have an active miner");
+                    panic!();
+                };
+                assert_eq!(tenure_id, sortition_prior.consensus_hash);
+                assert_eq!(Some(current_miner_pkh), sortition_prior.miner_pk_hash160);
+                assert_eq!(Some(parent_tenure_id), sortition_prior.stacks_parent_ch);
+                assert_eq!(parent_tenure_last_block, latest_block_id);
+                assert_eq!(parent_tenure_last_block_height, latest_block.height());
+            });
+    }
+
+    /// Submit a stacks transfer just to trigger block production
+    pub fn submit_transfer_tx(
+        &mut self,
+        sender_sk: &StacksPrivateKey,
+        send_fee: u64,
+        send_amt: u64,
+    ) -> Result<(String, u64), String> {
+        let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
+        let sender_addr = to_addr(&sender_sk);
+        let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
+        let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+        let transfer_tx = make_stacks_transfer(
+            &sender_sk,
+            sender_nonce,
+            send_fee,
+            self.running_nodes.conf.burnchain.chain_id,
+            &recipient,
+            send_amt,
+        );
+        submit_tx_fallible(&http_origin, &transfer_tx).map(|resp| (resp, sender_nonce))
+    }
+
+    /// Submit a burn block dependent contract for publishing
+    ///  and wait until it is included in a block
+    pub fn submit_burn_block_contract_and_wait(
+        &mut self,
+        sender_sk: &StacksPrivateKey,
+    ) -> Result<String, String> {
+        let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
+        let sender_addr = to_addr(&sender_sk);
+        let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
+        let burn_height_contract = "
+         (define-data-var local-burn-block-ht uint u0)
+         (define-public (run-update)
+           (ok (var-set local-burn-block-ht burn-block-height)))
+        ";
+        let contract_tx = make_contract_publish(
+            &sender_sk,
+            0,
+            1000,
+            self.running_nodes.conf.burnchain.chain_id,
+            "burn-height-local",
+            burn_height_contract,
+        );
+        let txid = submit_tx_fallible(&http_origin, &contract_tx)?;
+
+        wait_for(120, || {
+            let next_nonce = get_account(&http_origin, &sender_addr).nonce;
+            Ok(next_nonce > sender_nonce)
+        })
+        .map(|()| txid)
+    }
+
+    /// Submit a burn block dependent contract-call
+    ///  and wait until it is included in a block
+    pub fn submit_burn_block_call_and_wait(
+        &mut self,
+        sender_sk: &StacksPrivateKey,
+    ) -> Result<String, String> {
+        let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
+        let sender_addr = to_addr(&sender_sk);
+        let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
+        let contract_call_tx = make_contract_call(
+            &sender_sk,
+            sender_nonce,
+            1000,
+            self.running_nodes.conf.burnchain.chain_id,
+            &sender_addr,
+            "burn-height-local",
+            "run-update",
+            &[],
+        );
+        let txid = submit_tx_fallible(&http_origin, &contract_call_tx)?;
+
+        wait_for(120, || {
+            let next_nonce = get_account(&http_origin, &sender_addr).nonce;
+            Ok(next_nonce > sender_nonce)
+        })
+        .map(|()| txid)
+    }
+
+    /// Get the local state machines and most recent peer info from the stacks-node,
+    ///  waiting until all of the signers have updated their state machines to
+    ///  reflect the most recent burn block.
+    pub fn get_burn_updated_states(&mut self) -> (Vec<LocalStateMachine>, PeerInfo) {
+        let info_cur = self.get_peer_info();
+        let current_rc = self.get_current_reward_cycle();
+        let mut states = Vec::with_capacity(0);
+        // fetch all the state machines *twice*
+        //  we do this because the state machines return before the signer runloop
+        //  invokes run_one_pass(), which is necessary to handle any pending updates to
+        //  the state machine.
+        // we get around this by just doing this twice
+        for _i in 0..2 {
+            wait_for(120, || {
+                states = self.get_all_states();
+                Ok(states.iter().enumerate().all(|(ix, signer_state)| {
+                    let Some(Some(state_machine)) = signer_state
+                        .signer_state_machines
+                        .iter()
+                        .find_map(|(rc, state)| {
+                            if current_rc % 2 == *rc {
+                                Some(state.as_ref())
+                            } else {
+                                None
+                            }
+                        })
+                    else {
+                        let rcs_set: Vec<_> = signer_state.signer_state_machines.iter().map(|(rc, state)| {
+                            (rc, state.is_some())
+                        }).collect();
+                        warn!(
+                            "Local state machine for signer #{ix} not set for reward cycle #{current_rc} yet";
+                            "burn_block_height" => info_cur.burn_block_height,
+                            "rcs_set" => ?rcs_set
+                        );
+                        return false;
+                    };
+
+                    let LocalStateMachine::Initialized(state_machine) = state_machine else {
+                        warn!("Local state machine for signer #{ix} not initialized");
+                        return false;
+                    };
+                    state_machine.burn_block_height >= info_cur.burn_block_height
+                }))
+            })
+                .expect("Timed out while waiting to fetch local state machines from the signer set");
+        }
+
+        let state_machines = states
+            .into_iter()
+            .map(|signer_state| {
+                signer_state
+                    .signer_state_machines
+                    .into_iter()
+                    .find_map(|(rc, state)| if current_rc % 2 == rc { Some(state) } else { None })
+                    .expect(
+                        "BUG: should be able to find signer state machine at the current reward cycle",
+                    )
+                    .expect("BUG: signer state machine should exist at the current reward cycle")
+            })
+            .collect();
+
+        (state_machines, info_cur)
+    }
+
+    /// Fetch the local signer state machine for all the signers,
+    ///  waiting until every signer has processed the latest burn block.
+    /// Then, check that every signer's state machine corresponds to the
+    ///  latest burn block:
+    ///    1. Not having a sortition!
+    ///    2. The active miner is the winner of the last sortition
+    ///    3. The active miner is building off of the prior tenure
+    pub fn check_signer_states_normal_missed_sortition(&mut self) {
+        let (state_machines, info_cur) = self.get_burn_updated_states();
+        let non_sortition_latest =
+            get_sortition_info_ch(&self.running_nodes.conf, &info_cur.pox_consensus);
+
+        assert!(
+            !non_sortition_latest.was_sortition,
+            "Most recent burn block should have no sortition",
+        );
+
+        let sortition_latest = get_sortition_info_ch(
+            &self.running_nodes.conf,
+            &non_sortition_latest.last_sortition_ch.as_ref().unwrap(),
+        );
+        let sortition_prior = get_sortition_info_ch(
+            &self.running_nodes.conf,
+            sortition_latest.last_sortition_ch.as_ref().unwrap(),
+        );
+
+        info!("Latest non-sortition: {non_sortition_latest:?}");
+        info!("Latest sortition: {sortition_latest:?}");
+        info!("Prior sortition: {sortition_prior:?}");
+
+        assert_eq!(
+            sortition_latest.last_sortition_ch,
+            sortition_latest.stacks_parent_ch
+        );
+        let latest_block = self
+            .stacks_client
+            .get_tenure_tip(&sortition_prior.consensus_hash)
+            .unwrap();
+        let latest_block_id =
+            StacksBlockId::new(&sortition_prior.consensus_hash, &latest_block.block_hash());
+
+        state_machines
+            .into_iter()
+            .enumerate()
+            .for_each(|(ix, state_machine)| {
+                let LocalStateMachine::Initialized(state_machine) = state_machine else {
+                    error!("Local state machine was not initialized");
+                    panic!();
+                };
+
+                assert_eq!(state_machine.burn_block, info_cur.pox_consensus,);
+                assert_eq!(state_machine.burn_block_height, info_cur.burn_block_height,);
+                let MinerState::ActiveMiner {
+                    current_miner_pkh,
+                    parent_tenure_id,
+                    parent_tenure_last_block,
+                    parent_tenure_last_block_height,
+                    ..
+                } = state_machine.current_miner
+                else {
+                    error!("State machine for Signer #{ix} did not have an active miner");
+                    panic!();
+                };
+                assert_eq!(Some(current_miner_pkh), sortition_latest.miner_pk_hash160);
+                assert_eq!(parent_tenure_id, sortition_prior.consensus_hash);
+                assert_eq!(parent_tenure_last_block, latest_block_id);
+                assert_eq!(parent_tenure_last_block_height, latest_block.height());
+            });
+    }
+
+    /// Fetch the local signer state machine for all the signers,
+    ///  waiting until every signer has processed the latest burn block.
+    /// Then, check that every signer's state machine corresponds to the
+    ///  latest burn block:
+    ///    1. Having a valid sortition
+    ///    2. The active miner is the winner of that sortition
+    ///    3. The active miner is building off of the prior tenure
+    pub fn check_signer_states_reorg(
+        &mut self,
+        accepting_reorg: &[StacksPublicKey],
+        rejecting_reorg: &[StacksPublicKey],
+    ) {
+        let accepting_reorg: Vec<_> = accepting_reorg
+            .iter()
+            .map(|pk| {
+                self.signer_stacks_private_keys
+                    .iter()
+                    .position(|sk| &StacksPublicKey::from_private(&sk) == pk)
+                    .unwrap()
+            })
+            .collect();
+        let rejecting_reorg: Vec<_> = rejecting_reorg
+            .iter()
+            .map(|pk| {
+                self.signer_stacks_private_keys
+                    .iter()
+                    .position(|sk| &StacksPublicKey::from_private(&sk) == pk)
+                    .unwrap()
+            })
+            .collect();
+
+        let (state_machines, info_cur) = self.get_burn_updated_states();
+
+        let sortition_latest =
+            get_sortition_info_ch(&self.running_nodes.conf, &info_cur.pox_consensus);
+        let sortition_parent = get_sortition_info_ch(
+            &self.running_nodes.conf,
+            sortition_latest.stacks_parent_ch.as_ref().unwrap(),
+        );
+        let sortition_prior = get_sortition_info_ch(
+            &self.running_nodes.conf,
+            sortition_latest.last_sortition_ch.as_ref().unwrap(),
+        );
+        assert!(sortition_latest.last_sortition_ch != sortition_latest.stacks_parent_ch);
+        let latest_block = self
+            .stacks_client
+            .get_tenure_tip(&sortition_parent.consensus_hash)
+            .unwrap();
+        let latest_block_id =
+            StacksBlockId::new(&sortition_parent.consensus_hash, &latest_block.block_hash());
+
+        state_machines
+            .into_iter()
+            .enumerate()
+            .for_each(|(ix, state_machine)| {
+                let LocalStateMachine::Initialized(state_machine) = state_machine else {
+                    error!("Local state machine was not initialized");
+                    panic!();
+                };
+
+                info!("Signer #{ix} has state machine: {state_machine:?}");
+
+                assert_eq!(state_machine.burn_block, info_cur.pox_consensus,);
+                assert_eq!(state_machine.burn_block_height, info_cur.burn_block_height,);
+                let MinerState::ActiveMiner { current_miner_pkh, parent_tenure_id, parent_tenure_last_block, parent_tenure_last_block_height, .. } =
+                    state_machine.current_miner
+                else {
+                    error!("State machine for Signer #{ix} did not have an active miner");
+                    panic!();
+                };
+                if accepting_reorg.contains(&ix) {
+                    assert_eq!(Some(current_miner_pkh), sortition_latest.miner_pk_hash160);
+                    assert_eq!(parent_tenure_id, sortition_parent.consensus_hash);
+                    assert_eq!(parent_tenure_last_block, latest_block_id);
+                    assert_eq!(parent_tenure_last_block_height, latest_block.height());
+                } else if rejecting_reorg.contains(&ix) {
+                    assert_eq!(Some(current_miner_pkh), sortition_prior.miner_pk_hash160);
+                } else {
+                    error!("Signer #{ix} was not supplied in either the approving or rejecting vectors");
+                    panic!();
+                }
+            });
+    }
+
+    /// Get status check results (if returned) from each signer (blocks on the receipt)
+    /// Returns Some() or None() for each signer, in order of `self.spawned_signers`
+    pub fn get_all_states(&mut self) -> Vec<StateInfo> {
+        let mut finished_signers = HashSet::new();
+        let mut output_states = Vec::new();
+        let mut sent_request = false;
+        wait_for(120, || {
+            if !sent_request {
+                // clear any stale states
+                if self
+                    .get_states(&finished_signers)
+                    .iter()
+                    .any(|s| s.is_some())
+                {
+                    info!("Had stale state responses, trying again to clear");
+                    return Ok(false);
+                }
+                self.send_status_request(&finished_signers);
+                sent_request = true;
+                thread::sleep(Duration::from_secs(1));
+            }
+
+            let latest_states = self.get_states(&finished_signers);
+            for (ix, state) in latest_states.into_iter().enumerate() {
+                let Some(state) = state else {
+                    continue;
+                };
+
+                finished_signers.insert(ix);
+                output_states.push((ix, state));
+            }
+            info!(
+                "Finished signers: {:?}",
+                finished_signers.iter().collect::<Vec<_>>()
+            );
+            Ok(finished_signers.len() == self.spawned_signers.len())
+        })
+        .expect("Timed out waiting for state responses from signer set");
+
+        output_states.sort_by_key(|(ix, _state)| *ix);
+        output_states
+            .into_iter()
+            .map(|(_ix, state)| state)
+            .collect()
+    }
+
+    /// Replace the test's configured signer st
+    pub fn replace_signers(
+        &mut self,
+        new_signers: Vec<SpawnedSigner<S, T>>,
+        new_signers_sks: Vec<StacksPrivateKey>,
+        new_signer_configs: Vec<SignerConfig>,
+    ) -> (
+        Vec<SpawnedSigner<S, T>>,
+        Vec<StacksPrivateKey>,
+        Vec<SignerConfig>,
+    ) {
+        let old_signers = std::mem::replace(&mut self.spawned_signers, new_signers);
+        let old_signers_sks =
+            std::mem::replace(&mut self.signer_stacks_private_keys, new_signers_sks);
+        let old_signers_confs = std::mem::replace(&mut self.signer_configs, new_signer_configs);
+        (old_signers, old_signers_sks, old_signers_confs)
+    }
+
     /// Get status check results (if returned) from each signer without blocking
     /// Returns Some() or None() for each signer, in order of `self.spawned_signers`
     pub fn get_states(&mut self, exclude: &HashSet<usize>) -> Vec<Option<StateInfo>> {
@@ -302,17 +799,14 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 output.push(None);
                 continue;
             }
-            let Ok(mut results) = signer.res_recv.try_recv() else {
-                debug!("Could not receive latest state from signer #{ix}");
+            let Ok(results) = signer.res_recv.try_recv() else {
+                info!("Could not receive latest state from signer #{ix}");
                 output.push(None);
                 continue;
             };
-            assert!(results.len() <= 1, "Received multiple states from the signer receiver: this test function assumes it should only ever receive 1");
-            let Some(SignerResult::StatusCheck(state_info)) = results.pop() else {
-                debug!("Could not receive latest state from signer #{ix}");
-                output.push(None);
-                continue;
-            };
+            // Note: if we ever add more signer result enum variants, this function
+            //  should push None and continue for non-StatusCheck variants
+            let SignerResult::StatusCheck(state_info) = results;
             output.push(Some(state_info));
         }
         output
@@ -557,6 +1051,15 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .collect::<Vec<_>>()
     }
 
+    /// Get the signer public keys by directly computing them from this signer test's
+    ///  signer private keys.
+    pub fn signer_test_pks(&self) -> Vec<StacksPublicKey> {
+        self.signer_stacks_private_keys
+            .iter()
+            .map(StacksPublicKey::from_private)
+            .collect()
+    }
+
     /// Get the signer public keys for the given reward cycle
     fn get_signer_public_keys(&self, reward_cycle: u64) -> Vec<StacksPublicKey> {
         let entries = self.get_reward_set_signers(reward_cycle);
@@ -767,7 +1270,6 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     }
     naka_conf.initial_balances.append(&mut initial_balances);
     naka_conf.node.stacker = true;
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(5);
 
     for signer_set in 0..2 {
         for message_id in 0..SIGNER_SLOTS_PER_USER {
