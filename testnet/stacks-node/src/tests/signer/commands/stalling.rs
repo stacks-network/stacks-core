@@ -7,7 +7,7 @@ pub struct StallMiningCommand;
 
 impl Command<SignerTestState, SignerTestContext> for StallMiningCommand {
     fn check(&self, state: &SignerTestState) -> bool {
-        println!(
+        info!(
             "Checking: Stalling mining. Result: {:?}",
             !state.mining_stalled
         );
@@ -15,7 +15,7 @@ impl Command<SignerTestState, SignerTestContext> for StallMiningCommand {
     }
 
     fn apply(&self, state: &mut SignerTestState) {
-        println!("Applying: Stalling mining");
+        info!("Applying: Stalling mining");
         crate::tests::signer::v0::test_mine_stall_set(true);
         state.mining_stalled = true;
     }
@@ -35,7 +35,7 @@ pub struct RecoverFromStallCommand;
 
 impl Command<SignerTestState, SignerTestContext> for RecoverFromStallCommand {
     fn check(&self, state: &SignerTestState) -> bool {
-        println!(
+        info!(
             "Checking: Recovering from mining stall. Result: {:?}",
             state.mining_stalled
         );
@@ -43,7 +43,7 @@ impl Command<SignerTestState, SignerTestContext> for RecoverFromStallCommand {
     }
 
     fn apply(&self, state: &mut SignerTestState) {
-        println!("Applying: Recovering from mining stall");
+        info!("Applying: Recovering from mining stall");
         crate::tests::signer::v0::test_mine_stall_set(false);
         state.mining_stalled = false;
     }

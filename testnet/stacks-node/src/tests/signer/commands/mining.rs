@@ -22,7 +22,7 @@ impl Command<SignerTestState, SignerTestContext>
     for MineBitcoinBlockTenureChangePrimaryMinerCommand
 {
     fn check(&self, state: &SignerTestState) -> bool {
-        println!(
+        info!(
             "Checking: Miner 1 mining Bitcoin block and tenure change tx. Result: {:?}",
             state.is_booted_to_nakamoto
         );
@@ -30,7 +30,7 @@ impl Command<SignerTestState, SignerTestContext>
     }
 
     fn apply(&self, _state: &mut SignerTestState) {
-        println!("Applying: Miner 1 mining Bitcoin block and tenure change tx");
+        info!("Applying: Miner 1 mining Bitcoin block and tenure change tx");
 
         let (stacks_height_before, conf_1, miner_pk_1) = {
             let mut miners = self.miners.lock().unwrap();
@@ -48,7 +48,7 @@ impl Command<SignerTestState, SignerTestContext>
             (stacks_height_before, conf_1, miner_pk_1)
         };
 
-        println!(
+        info!(
             "Waiting for Nakamoto block {} pushed by miner 1",
             stacks_height_before + 1
         );
@@ -96,7 +96,7 @@ impl Command<SignerTestState, SignerTestContext>
     for MineBitcoinBlockTenureChangeSecondaryMinerCommand
 {
     fn check(&self, state: &SignerTestState) -> bool {
-        println!(
+        info!(
             "Checking: Miner 2 mining Bitcoin block and tenure change tx. Result: {:?}",
             state.is_booted_to_nakamoto
         );
@@ -104,7 +104,7 @@ impl Command<SignerTestState, SignerTestContext>
     }
 
     fn apply(&self, _state: &mut SignerTestState) {
-        println!("Applying: Miner 2 mining Bitcoin block and tenure change tx");
+        info!("Applying: Miner 2 mining Bitcoin block and tenure change tx");
 
         let stacks_height_before = self.miners.lock().unwrap().get_peer_stacks_tip_height();
 
@@ -119,7 +119,7 @@ impl Command<SignerTestState, SignerTestContext>
 
         let (_, miner_pk_2) = self.miners.lock().unwrap().get_miner_public_keys();
 
-        println!(
+        info!(
             "Waiting for Nakamoto block {} pushed by miner 2",
             stacks_height_before + 1
         );

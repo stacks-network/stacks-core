@@ -20,12 +20,12 @@ impl MineTenureCommand {
 
 impl Command<SignerTestState, SignerTestContext> for MineTenureCommand {
     fn check(&self, _state: &SignerTestState) -> bool {
-        println!("Checking: Mining tenure. Result: {:?}", true);
+        info!("Checking: Mining tenure. Result: {:?}", true);
         true
     }
 
     fn apply(&self, _state: &mut SignerTestState) {
-        println!(
+        info!(
             "Applying: Mining tenure and waiting for it for {:?} seconds",
             self.timeout_secs
         );

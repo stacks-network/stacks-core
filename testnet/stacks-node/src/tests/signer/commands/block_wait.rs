@@ -16,7 +16,7 @@ impl WaitForBlockFromMiner1Command {
 
 impl Command<SignerTestState, SignerTestContext> for WaitForBlockFromMiner1Command {
     fn check(&self, state: &SignerTestState) -> bool {
-        println!(
+        info!(
             "Checking: Waiting for Nakamoto block from miner 1. Result: {:?}",
             !state.mining_stalled
         );
@@ -24,7 +24,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockFromMiner1Comma
     }
 
     fn apply(&self, _state: &mut SignerTestState) {
-        println!("Applying: Waiting for Nakamoto block from miner 1");
+        info!("Applying: Waiting for Nakamoto block from miner 1");
 
         let miners_arc = self.miners.clone();
 
@@ -40,7 +40,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockFromMiner1Comma
             .load(Ordering::SeqCst);
         let expected_height = last_confirmed_height + 1;
 
-        println!(
+        info!(
             "Waiting for Nakamoto block {} pushed by miner 1",
             expected_height
         );
@@ -74,7 +74,7 @@ impl WaitForBlockFromMiner2Command {
 
 impl Command<SignerTestState, SignerTestContext> for WaitForBlockFromMiner2Command {
     fn check(&self, state: &SignerTestState) -> bool {
-        println!(
+        info!(
             "Checking: Waiting for Nakamoto block from miner 2. Result: {:?}",
             !state.mining_stalled
         );
@@ -82,7 +82,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockFromMiner2Comma
     }
 
     fn apply(&self, _state: &mut SignerTestState) {
-        println!("Applying: Waiting for Nakamoto block from miner 2");
+        info!("Applying: Waiting for Nakamoto block from miner 2");
 
         let miners_arc = self.miners.clone();
 
@@ -98,7 +98,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockFromMiner2Comma
             .load(Ordering::SeqCst);
         let expected_stacks_height = last_confirmed_height + 1;
 
-        println!(
+        info!(
             "Waiting for Nakamoto block {} pushed by miner 2",
             expected_stacks_height
         );

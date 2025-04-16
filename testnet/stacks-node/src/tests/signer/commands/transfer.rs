@@ -16,12 +16,12 @@ impl SendTransferTxCommand {
 
 impl Command<SignerTestState, SignerTestContext> for SendTransferTxCommand {
     fn check(&self, _state: &SignerTestState) -> bool {
-        println!("Checking: Sending transfer tx. Result: {:?}", true);
+        info!("Checking: Sending transfer tx. Result: {:?}", true);
         true
     }
 
     fn apply(&self, _state: &mut SignerTestState) {
-        println!("Applying: Sending transfer tx");
+        info!("Applying: Sending transfer tx");
 
         self.miners.lock().unwrap().send_transfer_tx();
     }

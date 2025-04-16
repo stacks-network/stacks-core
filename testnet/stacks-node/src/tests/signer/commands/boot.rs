@@ -16,7 +16,7 @@ impl BootToEpoch3 {
 
 impl Command<SignerTestState, SignerTestContext> for BootToEpoch3 {
     fn check(&self, state: &SignerTestState) -> bool {
-        println!(
+        info!(
             "Checking: Booting miners to Nakamoto. Result: {:?}",
             !state.is_booted_to_nakamoto
         );
@@ -24,7 +24,7 @@ impl Command<SignerTestState, SignerTestContext> for BootToEpoch3 {
     }
 
     fn apply(&self, state: &mut SignerTestState) {
-        println!("Applying: Booting miners to Nakamoto");
+        info!("Applying: Booting miners to Nakamoto");
 
         self.miners.lock().unwrap().boot_to_epoch_3();
 

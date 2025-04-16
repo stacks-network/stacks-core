@@ -18,7 +18,7 @@ impl SkipCommitOpPrimaryMiner {
 
 impl Command<SignerTestState, SignerTestContext> for SkipCommitOpPrimaryMiner {
     fn check(&self, state: &SignerTestState) -> bool {
-        println!(
+        info!(
             "Checking: Skipping commit operations for miner 1. Result: {:?}",
             !state.is_primary_miner_skip_commit_op
         );
@@ -26,7 +26,7 @@ impl Command<SignerTestState, SignerTestContext> for SkipCommitOpPrimaryMiner {
     }
 
     fn apply(&self, state: &mut SignerTestState) {
-        println!("Applying: Skipping commit operations for miner 1");
+        info!("Applying: Skipping commit operations for miner 1");
 
         self.miner_1_skip_commit_flag.set(true);
 
@@ -60,7 +60,7 @@ impl SkipCommitOpSecondaryMiner {
 
 impl Command<SignerTestState, SignerTestContext> for SkipCommitOpSecondaryMiner {
     fn check(&self, state: &SignerTestState) -> bool {
-        println!(
+        info!(
             "Checking: Skipping commit operations for miner 2. Result: {:?}",
             !state.is_secondary_miner_skip_commit_op
         );
@@ -68,7 +68,7 @@ impl Command<SignerTestState, SignerTestContext> for SkipCommitOpSecondaryMiner 
     }
 
     fn apply(&self, state: &mut SignerTestState) {
-        println!("Applying: Skipping commit operations for miner 2");
+        info!("Applying: Skipping commit operations for miner 2");
 
         self.miner_2_skip_commit_flag.set(true);
 

@@ -16,12 +16,12 @@ impl ShutdownMinersCommand {
 
 impl Command<SignerTestState, SignerTestContext> for ShutdownMinersCommand {
     fn check(&self, _state: &SignerTestState) -> bool {
-        println!("Checking: Shutting down miners. Result: {:?}", true);
+        info!("Checking: Shutting down miners. Result: {:?}", true);
         true
     }
 
     fn apply(&self, _state: &mut SignerTestState) {
-        println!("Applying: Shutting down miners");
+        info!("Applying: Shutting down miners");
 
         if let Ok(miners_arc) = Arc::try_unwrap(self.miners.clone()) {
             if let Ok(miners) = miners_arc.into_inner() {

@@ -16,7 +16,7 @@ impl SubmitBlockCommitSecondaryMinerCommand {
 
 impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitSecondaryMinerCommand {
     fn check(&self, state: &SignerTestState) -> bool {
-        println!(
+        info!(
             "Checking: Submitting block commit miner 2. Result: {:?}",
             state.is_secondary_miner_skip_commit_op
         );
@@ -24,7 +24,7 @@ impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitSecondaryM
     }
 
     fn apply(&self, _state: &mut SignerTestState) {
-        println!("Applying: Submitting block commit miner 2");
+        info!("Applying: Submitting block commit miner 2");
 
         let (conf_1, _) = self.miners.lock().unwrap().get_node_configs();
         let burnchain = conf_1.get_burnchain();
@@ -58,7 +58,7 @@ impl SubmitBlockCommitPrimaryMinerCommand {
 
 impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitPrimaryMinerCommand {
     fn check(&self, state: &SignerTestState) -> bool {
-        println!(
+        info!(
             "Checking: Submitting block commit miner 1. Result: {:?}",
             state.is_primary_miner_skip_commit_op
         );
@@ -66,7 +66,7 @@ impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitPrimaryMin
     }
 
     fn apply(&self, _state: &mut SignerTestState) {
-        println!("Applying: Submitting block commit miner 1");
+        info!("Applying: Submitting block commit miner 1");
 
         let (conf_1, _) = self.miners.lock().unwrap().get_node_configs();
         let burnchain = conf_1.get_burnchain();
