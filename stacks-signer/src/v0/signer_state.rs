@@ -150,6 +150,7 @@ impl GlobalStateEvaluator {
                 burn_block_height: *burn_block_height,
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
+                tx_replay_state: false,
             };
             let entry = state_views
                 .entry(state_machine.clone())
@@ -845,6 +846,7 @@ impl LocalStateMachine {
                 burn_block_height: *burn_block_height,
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
+                tx_replay_state: false,
             });
             // Because we updated our active signer protocol version, update local_update so its included in the subsequent evaluations
             let update: Result<StateMachineUpdateMessage, _> = (&*self).try_into();
@@ -877,6 +879,7 @@ impl LocalStateMachine {
                 burn_block_height,
                 current_miner: (&new_miner).into(),
                 active_signer_protocol_version,
+                tx_replay_state: false,
             });
         }
     }

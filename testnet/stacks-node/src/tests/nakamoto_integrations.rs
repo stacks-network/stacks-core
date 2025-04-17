@@ -12271,7 +12271,7 @@ fn handle_considered_txs_foreign_key_failure() {
     next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
         .unwrap();
 
-    let good_transfer_tx = make_stacks_transfer(
+    let good_transfer_tx = make_stacks_transfer_serialized(
         &good_sender_sk,
         0,
         send_fee,
@@ -12293,7 +12293,7 @@ fn handle_considered_txs_foreign_key_failure() {
     TEST_MINE_STALL.set(true);
     TEST_TX_STALL.set(true);
 
-    let bad_transfer_tx = make_stacks_transfer(
+    let bad_transfer_tx = make_stacks_transfer_serialized(
         &bad_sender_sk,
         0,
         send_fee,
@@ -12421,7 +12421,7 @@ fn empty_mempool_sleep_ms() {
     info!("------------------------- Submit a transaction -------------------------");
     let proposals_before = naka_proposed_blocks.load(Ordering::SeqCst);
 
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         0,
         send_fee,
