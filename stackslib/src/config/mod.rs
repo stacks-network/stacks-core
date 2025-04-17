@@ -2171,7 +2171,7 @@ pub struct MinerConfig {
     ///
     /// By default (`None`), the reward is sent to the miner's primary address ([`NodeConfig::seed`]).
     /// If set to some principal address *and* the current Stacks epoch is 2.1+,
-    /// the reward will be directed to the specified `principal` instead.
+    /// the reward will be directed to the specified address instead.
     ///
     /// Default: `None`
     pub block_reward_recipient: Option<PrincipalData>,
