@@ -1,8 +1,11 @@
-use super::context::{SignerTestContext, SignerTestState};
-use crate::tests::signer::v0::{wait_for_block_pushed_by_miner_key, MultipleMinerTest};
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
+
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
-use std::sync::{atomic::Ordering, Arc, Mutex};
+
+use super::context::{SignerTestContext, SignerTestState};
+use crate::tests::signer::v0::{wait_for_block_pushed_by_miner_key, MultipleMinerTest};
 
 pub struct WaitForBlockFromMiner1 {
     miners: Arc<Mutex<MultipleMinerTest>>,

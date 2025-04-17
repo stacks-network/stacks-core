@@ -1,12 +1,14 @@
+use std::sync::{Arc, Mutex};
+
+use madhouse::{Command, CommandWrapper};
+use proptest::prelude::{Just, Strategy};
+use stacks::chainstate::stacks::TenureChangeCause;
+use tracing::info;
+
 use super::context::{SignerTestContext, SignerTestState};
 use crate::tests::signer::v0::{
     get_chain_info_wrapper, wait_for_block_pushed_by_miner_key, MultipleMinerTest,
 };
-use madhouse::{Command, CommandWrapper};
-use proptest::prelude::{Just, Strategy};
-use stacks::chainstate::stacks::TenureChangeCause;
-use std::sync::{Arc, Mutex};
-use tracing::info;
 
 pub struct MineBitcoinBlockTenureChangePrimaryMiner {
     miners: Arc<Mutex<MultipleMinerTest>>,

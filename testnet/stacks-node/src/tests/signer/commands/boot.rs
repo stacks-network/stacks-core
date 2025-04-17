@@ -1,8 +1,10 @@
-use super::context::{SignerTestContext, SignerTestState};
-use crate::tests::signer::v0::{get_chain_info_wrapper, MultipleMinerTest};
+use std::sync::{Arc, Mutex};
+
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
-use std::sync::{Arc, Mutex};
+
+use super::context::{SignerTestContext, SignerTestState};
+use crate::tests::signer::v0::{get_chain_info_wrapper, MultipleMinerTest};
 
 pub struct BootToEpoch3 {
     miners: Arc<Mutex<MultipleMinerTest>>,

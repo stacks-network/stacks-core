@@ -1,8 +1,10 @@
-use crate::tests::signer::v0::MultipleMinerTest;
-use madhouse::{State, TestContext};
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+use madhouse::{State, TestContext};
+
+use crate::tests::signer::v0::MultipleMinerTest;
 
 #[derive(Clone)]
 pub struct SignerTestContext {

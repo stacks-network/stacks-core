@@ -3,9 +3,9 @@ use std::sync::{Arc, Mutex};
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 
+use super::context::SignerTestState;
+use super::SignerTestContext;
 use crate::tests::signer::v0::{verify_sortition_winner, MultipleMinerTest};
-
-use super::{context::SignerTestState, SignerTestContext};
 
 pub struct VerifyMiner1WonSortition {
     miners: Arc<Mutex<MultipleMinerTest>>,

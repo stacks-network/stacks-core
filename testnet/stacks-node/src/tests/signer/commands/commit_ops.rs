@@ -1,8 +1,10 @@
-use super::context::{SignerTestContext, SignerTestState};
+use std::sync::Arc;
+
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 use stacks::util::tests::TestFlag;
-use std::sync::Arc;
+
+use super::context::{SignerTestContext, SignerTestState};
 
 pub struct SkipCommitOpPrimaryMiner {
     miner_1_skip_commit_flag: TestFlag<bool>,

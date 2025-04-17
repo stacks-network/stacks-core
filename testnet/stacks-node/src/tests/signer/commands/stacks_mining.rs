@@ -1,7 +1,9 @@
-use super::context::{SignerTestContext, SignerTestState};
+use std::sync::Arc;
+
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
-use std::sync::Arc;
+
+use super::context::{SignerTestContext, SignerTestState};
 
 pub struct PauseStacksMining;
 

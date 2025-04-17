@@ -1,8 +1,10 @@
-use super::context::{SignerTestContext, SignerTestState};
-use crate::tests::signer::v0::MultipleMinerTest;
+use std::sync::{Arc, Mutex};
+
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
-use std::sync::{Arc, Mutex};
+
+use super::context::{SignerTestContext, SignerTestState};
+use crate::tests::signer::v0::MultipleMinerTest;
 
 pub struct ShutdownMiners {
     miners: Arc<Mutex<MultipleMinerTest>>,
