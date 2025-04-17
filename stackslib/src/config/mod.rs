@@ -2130,7 +2130,7 @@ pub struct MinerConfig {
     /// Time to wait (in milliseconds) for subsequent attempts to mine a block,
     /// after the first attempt fails.
     ///
-    /// Default: 12_0000 ms (2 minutes)
+    /// Default: 120_0000 ms (2 minutes)
     /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub subsequent_attempt_time_ms: u64,
     /// Time to wait (in milliseconds) to mine a microblock,
@@ -2224,7 +2224,7 @@ pub struct MinerConfig {
     /// Amount of time while mining in nakamoto to wait in between mining interim blocks
     ///
     /// Default: `None`
-    /// Deprecated: use `min_time_between_blocks_ms` instead.
+    /// Deprecated: use [`MinerConfig::min_time_between_blocks_ms`] instead.
     pub wait_on_interim_blocks: Option<Duration>,
     /// minimum number of transactions that must be in a block if we're going to replace a pending
     /// block-commit with a new block-commit
@@ -2252,7 +2252,7 @@ pub struct MinerConfig {
     ///
     /// Default: `None` (feature disabled).
     /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode and
-    /// by the "get-spend-amount" cli subcommand.
+    /// by the `get-spend-amount` cli subcommand.
     pub unconfirmed_commits_helper: Option<String>,
     /// The minimum win probability this miner aims to achieve in block sortitions.
     ///
@@ -2266,11 +2266,17 @@ pub struct MinerConfig {
     /// Default: `0.0`
     /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub target_win_probability: f64,
-    /// Path to a serialized RegisteredKey struct, which points to an already-registered VRF key
-    /// (so we don't have to go make a new one)
+    /// Path to a file for storing and loading the currently active, registered VRF leader key.
+    ///
+    /// Loading: On startup or when needing to register a key, if this path is set, the relayer first
+    /// attempts to load a serialized [`RegisteredKey`] from this file. If successful, it uses the
+    /// loaded key and skips the on-chain VRF key registration transaction, saving time and fees.
+    /// Saving: After a new VRF key registration transaction is confirmed and activated on the burnchain,
+    /// if this path is set, the node saves the details of the newly activated [`RegisteredKey`] to this file.
+    /// This allows the miner to persist its active VRF key across restarts.
+    /// If the file doesn't exist during load, or the path is `None`, the node proceeds with a new registration.
     ///
     /// Default: `None`
-    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub activated_vrf_key_path: Option<String>,
     /// Controls how the miner estimates its win probability when checking for underperformance.
     ///
@@ -2286,7 +2292,7 @@ pub struct MinerConfig {
     ///
     /// Default: `false`
     /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode and
-    /// by the "get-spend-amount" cli subcommand.
+    /// by the `get-spend-amount` cli subcommand.
     pub fast_rampup: bool,
     /// The maximum number of consecutive Bitcoin blocks the miner will tolerate underperforming
     /// (i.e., having a calculated win probability below [`MinerConfig::target_win_probability`])
