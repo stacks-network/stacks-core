@@ -1726,15 +1726,14 @@ pub struct NodeConfig {
     ///
     /// Default: `false`
     pub miner: bool,
-    /// Flag indicating whether this node is configured to operate with Stacker responsibilities,
-    /// such as participating in (PoX) by signaling support via StackerDB interactions.
-    /// Setting this to `true` requires also running a signer.
+    /// Setting this to `true` enables the node to replicate the miner and signer Stacker DBs
+    /// required for signing, and is required if the node is connected to a signer.
     ///
     /// Default: `false`
     pub stacker: bool,
     /// Enables a simulated mining mode, primarily for local testing and development.
-    /// When `true`, the node may generate blocks locally without participating in the real
-    /// burn chain consensus or P2P block production process.
+    /// When `true`, *and* [`NodeConfig::miner`] is also `true`, the node may generate blocks
+    /// locally without participating in the real bitcoin consensus or P2P block production process.
     ///
     /// Default: `false`
     pub mock_mining: bool,
@@ -1767,7 +1766,12 @@ pub struct NodeConfig {
     /// Default: `30_000`
     /// Deprecated: Microblocks were removed in the Nakamoto upgrade. This setting is ignored in Epoch 3.0+.
     pub wait_time_for_microblocks: u64,
-    /// Maximum time (in milliseconds) to wait between mining blocks.
+    /// When operating as a miner, this specifies the maximum time (in milliseconds)
+    /// the node waits after detecting a new burnchain block to synchronize corresponding
+    /// Stacks block data from the network before resuming mining attempts.
+    /// If synchronization doesn't complete within this duration, mining resumes anyway
+    /// to prevent stalling. This setting is loaded by all nodes but primarily affects
+    /// miner behavior within the relayer thread.
     ///
     /// Default: `30_000`
     pub wait_time_for_blocks: u64,
@@ -1841,7 +1845,7 @@ pub struct NodeConfig {
     ///   affirmation map checks.
     /// Normal operation requires this to be `true`; setting to `false` will likely break consensus adherence.
     /// This parameter cannot be set via the configuration file; it must be modified programmatically.
-
+    ///
     /// Default: `true`
     pub assume_present_anchor_blocks: bool,
     /// Fault injection setting for testing purposes. If set to `Some(p)`, where `p` is between 0 and 100,
