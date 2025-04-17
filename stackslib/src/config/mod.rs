@@ -1502,7 +1502,7 @@ pub struct BurnchainConfig {
     /// Primarily used for testing or recovering from network issues.
     ///
     /// Default: Empty `HashMap`.
-    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon-node.
+    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub affirmation_overrides: HashMap<u64, AffirmationMap>,
     /// Fault injection setting for testing. Introduces an artificial delay (in milliseconds)
     /// before processing each burnchain block download. Simulates a slow burnchain connection.
