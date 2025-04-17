@@ -2953,7 +2953,18 @@ pub fn try_flush_considered_txs(
     let db_tx = conn.transaction()?;
 
     for txid in considered_txs {
-        db_tx.execute(sql, params![txid])?;
+        match db_tx.execute(sql, params![txid]) {
+            Ok(_) => {}
+            Err(rusqlite::Error::SqliteFailure(err, _))
+                if err.code == rusqlite::ErrorCode::ConstraintViolation =>
+            {
+                // Ignore constraint violations (e.g., foreign key failure)
+                // This can happen if the txid was removed from the mempool DB
+                // before we could flush it to the considered_txs table.
+                continue;
+            }
+            Err(e) => return Err(e.into()),
+        }
     }
 
     db_tx.commit()?;

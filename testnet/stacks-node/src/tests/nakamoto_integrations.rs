@@ -9821,7 +9821,11 @@ fn skip_mining_long_tx() {
 
             // Sleep for longer than the miner's attempt time, so that the miner will
             // mark this tx as long-running and skip it in the next attempt
-            sleep_ms(naka_conf.miner.nakamoto_attempt_time_ms + 1000);
+            sleep_ms(
+                naka_conf.miner.nakamoto_attempt_time_ms
+                    + naka_conf.miner.empty_mempool_sleep_time.as_millis() as u64
+                    + 1000,
+            );
 
             TEST_TX_STALL.set(false);
 
@@ -12181,6 +12185,273 @@ fn v3_transaction_api_endpoint() {
         .lock()
         .expect("Mutex poisoned")
         .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// This test verifies that the miner can continue even if an insertion into
+/// the `considered_txs` table fails due to a foreign key failure.
+fn handle_considered_txs_foreign_key_failure() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let prom_bind = "127.0.0.1:6000".to_string();
+    naka_conf.node.prometheus_bind = Some(prom_bind);
+    naka_conf.miner.nakamoto_attempt_time_ms = 5_000;
+    naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
+    naka_conf.miner.mempool_walk_strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
+    // setup senders
+    let send_amt = 1000;
+    let send_fee = 180;
+    let bad_sender_sk = Secp256k1PrivateKey::from_seed(&[30]);
+    let bad_sender_addr = tests::to_addr(&bad_sender_sk);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(bad_sender_addr).to_string(),
+        send_amt + send_fee,
+    );
+    let good_sender_sk = Secp256k1PrivateKey::from_seed(&[31]);
+    let good_sender_addr = tests::to_addr(&good_sender_sk);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(good_sender_addr).to_string(),
+        (send_amt + send_fee) * 2,
+    );
+
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let stacker_sk = setup_stacker(&mut naka_conf);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        .unwrap();
+
+    let good_transfer_tx = make_stacks_transfer(
+        &good_sender_sk,
+        0,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    submit_tx(&http_origin, &good_transfer_tx);
+
+    wait_for(60, || {
+        let nonce = get_account(&http_origin, &good_sender_addr).nonce;
+        Ok(nonce == 1)
+    })
+    .expect("Timed out waiting for first block");
+
+    let height_before = get_chain_info(&naka_conf).stacks_tip_height;
+
+    // Initiate the transaction stall, then submit transactions.
+    TEST_MINE_STALL.set(true);
+    TEST_TX_STALL.set(true);
+
+    let bad_transfer_tx = make_stacks_transfer(
+        &bad_sender_sk,
+        0,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    let txid = submit_tx(&http_origin, &bad_transfer_tx);
+    info!("Bad transaction submitted: {txid}");
+
+    TEST_MINE_STALL.set(false);
+
+    // Sleep long enough to ensure that the miner has started processing the tx
+    sleep_ms(5_000);
+
+    info!("--------------------- Deleting tx from the mempool ---------------------");
+    // Delete the bad transaction from the mempool.
+    let mempool_db_path = format!(
+        "{}/nakamoto-neon/chainstate/mempool.sqlite",
+        naka_conf.node.working_dir
+    );
+    let conn = Connection::open(&mempool_db_path).unwrap();
+    conn.execute("DELETE FROM mempool WHERE txid = ?", [txid])
+        .unwrap();
+
+    // Unstall the transaction processing, so that the miner will resume.
+    TEST_TX_STALL.set(false);
+
+    info!("--------------------- Waiting for the block ---------------------");
+
+    // Now wait for the next block to be mined.
+    wait_for(30, || {
+        let height = get_chain_info(&naka_conf).stacks_tip_height;
+        Ok(height > height_before)
+    })
+    .expect("Timed out waiting for block");
+
+    let good_sender_nonce = get_account(&http_origin, &good_sender_addr).nonce;
+    let bad_sender_nonce = get_account(&http_origin, &bad_sender_addr).nonce;
+
+    assert_eq!(good_sender_nonce, 1);
+    assert_eq!(bad_sender_nonce, 1);
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+fn empty_mempool_sleep_ms() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, _miner_account) = naka_neon_integration_conf(None);
+    let password = "12345".to_string();
+    conf.connection_options.auth_token = Some(password.clone());
+    let stacker_sk = setup_stacker(&mut conf);
+    let signer_sk = Secp256k1PrivateKey::random();
+    let signer_addr = tests::to_addr(&signer_sk);
+    let sender_sk = Secp256k1PrivateKey::random();
+    // setup sender + recipient for a stx transfer
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    conf.add_initial_balance(
+        PrincipalData::from(sender_addr).to_string(),
+        send_amt + send_fee,
+    );
+    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+
+    // Set the empty mempool sleep time to something long enough that we can
+    // see the effect in the test.
+    conf.miner.empty_mempool_sleep_time = Duration::from_secs(30);
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks,
+        ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    let mut signers = TestSigners::new(vec![signer_sk]);
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    blind_signer(&conf, &signers, &counters);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // Sleep for 5 seconds to ensure that the miner tries to mine and sees an
+    // empty mempool.
+    thread::sleep(Duration::from_secs(5));
+
+    info!("------------------------- Submit a transaction -------------------------");
+    let proposals_before = naka_proposed_blocks.load(Ordering::SeqCst);
+
+    let transfer_tx = make_stacks_transfer(
+        &sender_sk,
+        0,
+        send_fee,
+        conf.burnchain.chain_id,
+        &signer_addr.into(),
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+
+    // The miner should have slept for 30 seconds after seeing an empty mempool
+    // before trying to mine again. Let's check that there was at least 10s
+    // before the next block proposal.
+    wait_for(10, || {
+        let proposals_after = naka_proposed_blocks.load(Ordering::SeqCst);
+        Ok(proposals_after > proposals_before)
+    })
+    .expect_err("Expected to wait for 30 seconds before mining a block");
+
+    // Wait for the transaction to be mined
+    wait_for(60, || {
+        let account = get_account(&http_origin, &sender_addr);
+        Ok(account.nonce == 1)
+    })
+    .expect("Timed out waiting for transaction to be mined after delay");
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+
     run_loop_stopper.store(false, Ordering::SeqCst);
 
     run_loop_thread.join().unwrap();

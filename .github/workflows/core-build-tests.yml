@@ -24,7 +24,7 @@ jobs:
       - name: Build the binaries
         id: build
         run: |
-          cargo build
+          cargo build --bin stacks-inspect
       - name: Dump constants JSON
         id: consts-dump
         run: cargo run --bin stacks-inspect -- dump-consts | tee out.json
