@@ -624,7 +624,6 @@ impl NakamotoBlockProposal {
                                         reason: "Transaction is not in the replay set".into(),
                                     });
                                 }
-                                // TODO: handle other ChainError cases
                                 _ => {
                                     // it's ok, drop it
                                     continue;
