@@ -17,7 +17,7 @@ use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::net::api::postblock_proposal::{
@@ -26,8 +26,6 @@ use blockstack_lib::net::api::postblock_proposal::{
 };
 use blockstack_lib::util_lib::db::Error as DBError;
 use clarity::types::chainstate::StacksPrivateKey;
-#[cfg(any(test, feature = "testing"))]
-use clarity::types::chainstate::StacksPublicKey;
 use clarity::types::{PrivateKey, StacksEpochId};
 use clarity::util::hash::{MerkleHashFunc, Sha512Trunc256Sum};
 use clarity::util::secp256k1::Secp256k1PublicKey;
@@ -37,15 +35,15 @@ use clarity::util::sleep_ms;
 use clarity::util::tests::TestFlag;
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
-    RejectReason, RejectReasonPrefix, SignerMessage,
+    RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate,
 };
 use libsigner::{BlockProposal, SignerEvent};
-use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error, info, warn};
 
-use super::signer_state::LocalStateMachine;
+use super::signer_state::{GlobalStateEvaluator, LocalStateMachine};
 use crate::chainstate::{ProposalEvalConfig, SortitionMinerStatus, SortitionsView};
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
@@ -83,6 +81,8 @@ pub struct Signer {
     #[cfg(not(any(test, feature = "testing")))]
     /// The private key of the signer
     private_key: StacksPrivateKey,
+    /// The signer address
+    pub stacks_address: StacksAddress,
     /// The stackerdb client
     pub stackerdb: StackerDB<MessageSlotID>,
     /// Whether the signer is a mainnet signer or not
@@ -110,6 +110,8 @@ pub struct Signer {
     pub block_proposal_max_age_secs: u64,
     /// The signer's local state machine used in signer set agreement
     pub local_state_machine: LocalStateMachine,
+    /// The signer's global state evaluator
+    pub global_state_evaluator: GlobalStateEvaluator,
 }
 
 impl std::fmt::Display for SignerMode {
@@ -138,7 +140,7 @@ impl SignerTrait<SignerMessage> for Signer {
 
         debug!("Reward cycle #{} {mode}", signer_config.reward_cycle);
 
-        let signer_db =
+        let mut signer_db =
             SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
         let proposal_config = ProposalEvalConfig::from(&signer_config);
 
@@ -147,8 +149,24 @@ impl SignerTrait<SignerMessage> for Signer {
                 warn!("Failed to initialize local state machine for signer: {e:?}");
                 LocalStateMachine::Uninitialized
             });
+        let stacks_address = StacksAddress::p2pkh(
+            signer_config.mainnet,
+            &StacksPublicKey::from_private(&signer_config.stacks_private_key),
+        );
+
+        let updates = signer_db
+            .get_signer_state_machine_updates(signer_config.reward_cycle)
+            .inspect_err(|e| {
+                warn!("An error occurred retrieving state machine updates from the db: {e}")
+            })
+            .unwrap_or_default();
+        let global_state_evaluator = GlobalStateEvaluator::new(
+            updates,
+            signer_config.signer_entries.signer_addr_to_weight.clone(),
+        );
         Self {
             private_key: signer_config.stacks_private_key,
+            stacks_address,
             stackerdb,
             mainnet: signer_config.mainnet,
             mode,
@@ -162,6 +180,7 @@ impl SignerTrait<SignerMessage> for Signer {
             block_proposal_validation_timeout: signer_config.block_proposal_validation_timeout,
             block_proposal_max_age_secs: signer_config.block_proposal_max_age_secs,
             local_state_machine: signer_state,
+            global_state_evaluator,
         }
     }
 
@@ -188,7 +207,9 @@ impl SignerTrait<SignerMessage> for Signer {
             | Some(SignerEvent::NewBlock { .. })
             | Some(SignerEvent::StatusCheck)
             | None => None,
-            Some(SignerEvent::SignerMessages(msg_parity, ..)) => Some(u64::from(*msg_parity) % 2),
+            Some(SignerEvent::SignerMessages { signer_set, .. }) => {
+                Some(u64::from(*signer_set) % 2)
+            }
         };
         let other_signer_parity = (self.reward_cycle + 1) % 2;
         if event_parity == Some(other_signer_parity) {
@@ -228,21 +249,29 @@ impl SignerTrait<SignerMessage> for Signer {
                     sortition_state,
                 )
             }
-            SignerEvent::SignerMessages(_signer_set, messages) => {
+            SignerEvent::SignerMessages {
+                received_time,
+                messages,
+                ..
+            } => {
                 debug!(
                     "{self}: Received {} messages from the other signers",
                     messages.len()
                 );
                 // try and gather signatures
-                for message in messages {
+                for (signer_public_key, message) in messages {
                     match message {
                         SignerMessage::BlockResponse(block_response) => self.handle_block_response(
                             stacks_client,
                             block_response,
                             sortition_state,
                         ),
-                        SignerMessage::StateMachineUpdate(_update) => {
-                            // TODO: should make note of this update view point to determine if there is an agreed upon global state
+                        SignerMessage::StateMachineUpdate(update) => {
+                            self.handle_state_machine_update(
+                                signer_public_key,
+                                update,
+                                received_time,
+                            );
                         }
                         _ => {}
                     }
@@ -567,6 +596,34 @@ impl Signer {
     #[cfg(not(any(test, feature = "testing")))]
     fn send_block_response(&mut self, block_response: BlockResponse) {
         self.impl_send_block_response(block_response)
+    }
+
+    /// Handle signer state update message
+    fn handle_state_machine_update(
+        &mut self,
+        signer_public_key: &Secp256k1PublicKey,
+        update: &StateMachineUpdate,
+        received_time: &SystemTime,
+    ) {
+        let address = StacksAddress::p2pkh(self.mainnet, signer_public_key);
+        // Store the state machine update so we can reload it if we crash
+        if let Err(e) = self.signer_db.insert_state_machine_update(
+            self.reward_cycle,
+            &address,
+            update,
+            received_time,
+        ) {
+            warn!("{self}: Failed to update global state in signerdb: {e}");
+        }
+        self.global_state_evaluator
+            .insert_update(address, update.clone());
+
+        // See if this update means we should capitulate our viewpoint...
+        self.local_state_machine.capitulate_viewpoint(
+            &mut self.signer_db,
+            &mut self.global_state_evaluator,
+            self.stacks_address,
+        );
     }
 
     /// Handle block proposal messages submitted to signers stackerdb

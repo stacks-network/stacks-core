@@ -56,6 +56,7 @@ use crate::chainstate::stacks::miner::{
 use crate::chainstate::stacks::{
     Error as ChainError, StacksBlock, StacksBlockHeader, StacksTransaction, TransactionPayload,
 };
+use crate::clarity_vm::clarity::Error as ClarityError;
 use crate::core::mempool::{MemPoolDB, ProposalCallbackReceiver};
 use crate::cost_estimates::FeeRateEstimate;
 use crate::net::http::{
@@ -564,7 +565,8 @@ impl NakamotoBlockProposal {
         for (i, tx) in self.block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
 
-            // Check if tx is in the replay set, if required
+            // If a list of replay transactions is set, this transaction must be the next
+            // mineable transaction from this list.
             if let Some(ref mut replay_txs) = replay_txs_maybe {
                 loop {
                     let Some(replay_tx) = replay_txs.pop_front() else {
@@ -604,7 +606,8 @@ impl NakamotoBlockProposal {
 
                             match error {
                                 ChainError::CostOverflowError(..)
-                                | ChainError::BlockTooBigError => {
+                                | ChainError::BlockTooBigError
+                                | ChainError::ClarityError(ClarityError::CostError(..)) => {
                                     // block limit reached; add tx back to replay set.
                                     // BUT we know that the block should have ended at this point, so
                                     // return an error.
@@ -621,7 +624,6 @@ impl NakamotoBlockProposal {
                                         reason: "Transaction is not in the replay set".into(),
                                     });
                                 }
-                                // TODO: handle other ChainError cases
                                 _ => {
                                     // it's ok, drop it
                                     continue;

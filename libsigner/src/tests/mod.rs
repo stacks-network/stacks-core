@@ -20,7 +20,7 @@ use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use std::{mem, thread};
 
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
@@ -28,7 +28,7 @@ use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::util_lib::boot::boot_code_id;
-use clarity::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
+use clarity::types::chainstate::{ConsensusHash, StacksBlockId, StacksPublicKey, TrieHash};
 use clarity::util::hash::Sha512Trunc256Sum;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -142,6 +142,13 @@ fn test_simple_signer() {
         chunks.push(chunk_event);
     }
 
+    chunks.sort_by(|ev1, ev2| {
+        ev1.modified_slots[0]
+            .slot_id
+            .partial_cmp(&ev2.modified_slots[0].slot_id)
+            .unwrap()
+    });
+
     let thread_chunks = chunks.clone();
 
     // simulate a node that's trying to push data
@@ -177,23 +184,44 @@ fn test_simple_signer() {
     sleep_ms(5000);
     let accepted_events = running_signer.stop().unwrap();
 
-    chunks.sort_by(|ev1, ev2| {
-        ev1.modified_slots[0]
-            .slot_id
-            .partial_cmp(&ev2.modified_slots[0].slot_id)
-            .unwrap()
-    });
-
     let sent_events: Vec<SignerEvent<SignerMessage>> = chunks
         .iter()
         .map(|chunk| {
             let msg = chunk.modified_slots[0].data.clone();
+            let pubkey = chunk.modified_slots[0]
+                .recover_pk()
+                .expect("Faield to recover public key of slot");
             let signer_message = read_next::<SignerMessage, _>(&mut &msg[..]).unwrap();
-            SignerEvent::SignerMessages(0, vec![signer_message])
+            SignerEvent::SignerMessages {
+                signer_set: 0,
+                messages: vec![(pubkey, signer_message)],
+                received_time: SystemTime::now(),
+            }
         })
         .collect();
 
-    assert_eq!(sent_events, accepted_events);
+    for (sent_event, accepted_event) in sent_events.iter().zip(accepted_events.iter()) {
+        let SignerEvent::SignerMessages {
+            signer_set,
+            messages,
+            received_time,
+        } = sent_event
+        else {
+            panic!("BUG: should not have sent anything but a signer message");
+        };
+        let SignerEvent::SignerMessages {
+            signer_set: accepted_signer_set,
+            messages: accepted_messages,
+            received_time: accepted_time,
+        } = accepted_event
+        else {
+            panic!("BUG: should not have accepted anything but a signer message");
+        };
+
+        assert_eq!(signer_set, accepted_signer_set);
+        assert_eq!(messages, accepted_messages);
+        assert_ne!(received_time, accepted_time);
+    }
     mock_stacks_node.join().unwrap();
 }
 
