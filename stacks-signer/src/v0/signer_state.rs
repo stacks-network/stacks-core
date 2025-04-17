@@ -833,6 +833,27 @@ impl LocalStateMachine {
             crate::monitoring::actions::increment_signer_agreement_state_change_reason(
                 crate::monitoring::SignerAgreementStateChangeReason::MinerViewUpdate,
             );
+            #[cfg(feature = "monitoring_prom")]
+            match (&current_miner, &new_miner) {
+                (
+                    StateMachineUpdateMinerState::ActiveMiner {
+                        parent_tenure_id: current_parent_tenure,
+                        ..
+                    },
+                    StateMachineUpdateMinerState::ActiveMiner {
+                        parent_tenure_id: new_parent_tenure,
+                        ..
+                    },
+                ) => {
+                    if current_parent_tenure != new_parent_tenure {
+                        crate::monitoring::actions::increment_signer_agreement_state_change_reason(
+                            crate::monitoring::SignerAgreementStateChangeReason::MinerParentTenureUpdate,
+                        );
+                    }
+                }
+                _ => {}
+            }
+
             *self = Self::Initialized(SignerStateMachine {
                 burn_block,
                 burn_block_height,

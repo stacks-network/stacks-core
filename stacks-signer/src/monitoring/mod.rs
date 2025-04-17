@@ -35,6 +35,8 @@ SignerAgreementStateChangeReason {
     ProtocolUpgrade("protocol_upgrade"),
     /// An update related to the Miner view
     MinerViewUpdate("miner_view_update"),
+    /// A specific Miner View update related to the parent tenure
+    MinerParentTenureUpdate("miner_parent_tenure_update"),
 });
 
 define_named_enum!(
