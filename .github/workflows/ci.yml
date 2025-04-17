@@ -206,15 +206,7 @@ jobs:
       needs.check-release.outputs.is_release == 'true' || (
         github.event_name == 'workflow_dispatch' ||
         github.event_name == 'pull_request' ||
-        github.event_name == 'merge_group' ||
-        (
-          contains('
-            refs/heads/master
-            refs/heads/develop
-            refs/heads/next
-          ', github.event.pull_request.head.ref) &&
-          github.event_name == 'push'
-        )
+        github.event_name == 'merge_group'
       )
     name: Stacks Signer Unit Tests
     needs:
