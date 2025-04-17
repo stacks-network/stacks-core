@@ -180,7 +180,8 @@ pub trait TransactionConnection: ClarityConnection {
     /// * the asset changes during `to_do` in an `AssetMap`
     /// * the Stacks events during the transaction
     ///
-    /// and a `bool` value which is `true` if the `abort_call_back` caused the changes to abort.
+    /// and an optional string value which is the result of `abort_call_back`,
+    /// containing a human-readable reason for aborting the transaction.
     ///
     /// If `to_do` returns an `Err` variant, then the changes are aborted.
     fn with_abort_callback<F, A, R, E>(
@@ -301,10 +302,10 @@ pub trait TransactionConnection: ClarityConnection {
     }
 
     /// Execute a contract call in the current block.
-    ///  If an error occurs while processing the transaction, its modifications will be rolled back.
-    /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
-    ///   if abort_call_back returns true, all modifications from this transaction will be rolled back.
-    ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
+    /// If an error occurs while processing the transaction, its modifications will be rolled back.
+    /// `abort_call_back` is called with an `AssetMap` and a `ClarityDatabase` reference,
+    /// If `abort_call_back` returns `Some(reason)`, all modifications from this transaction will be rolled back.
+    /// Otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
     #[allow(clippy::too_many_arguments)]
     fn run_contract_call<F>(
         &mut self,
@@ -359,9 +360,9 @@ pub trait TransactionConnection: ClarityConnection {
 
     /// Initialize a contract in the current block.
     ///  If an error occurs while processing the initialization, it's modifications will be rolled back.
-    /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
-    ///   if abort_call_back returns true, all modifications from this transaction will be rolled back.
-    ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
+    /// `abort_call_back` is called with an `AssetMap` and a `ClarityDatabase` reference,
+    /// If `abort_call_back` returns `Some(reason)`, all modifications from this transaction will be rolled back.
+    /// Otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
     #[allow(clippy::too_many_arguments)]
     fn initialize_smart_contract<F>(
         &mut self,
