@@ -56,6 +56,7 @@ use crate::chainstate::stacks::miner::{
 use crate::chainstate::stacks::{
     Error as ChainError, StacksBlock, StacksBlockHeader, StacksTransaction, TransactionPayload,
 };
+use crate::clarity_vm::clarity::Error as ClarityError;
 use crate::core::mempool::{MemPoolDB, ProposalCallbackReceiver};
 use crate::cost_estimates::FeeRateEstimate;
 use crate::net::http::{
@@ -605,7 +606,8 @@ impl NakamotoBlockProposal {
 
                             match error {
                                 ChainError::CostOverflowError(..)
-                                | ChainError::BlockTooBigError => {
+                                | ChainError::BlockTooBigError
+                                | ChainError::ClarityError(ClarityError::CostError(..)) => {
                                     // block limit reached; add tx back to replay set.
                                     // BUT we know that the block should have ended at this point, so
                                     // return an error.
