@@ -830,6 +830,9 @@ impl LocalStateMachine {
                 "current_miner" => ?current_miner,
                 "new_miner" => ?new_miner,
             );
+            crate::monitoring::actions::increment_signer_agreement_state_change_reason(
+                crate::monitoring::SignerAgreementStateChangeReason::MinerViewUpdate,
+            );
             *self = Self::Initialized(SignerStateMachine {
                 burn_block,
                 burn_block_height,

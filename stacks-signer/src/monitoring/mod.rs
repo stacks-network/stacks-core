@@ -33,6 +33,8 @@ SignerAgreementStateChangeReason {
     InactiveMiner("inactive_miner"),
     /// Signer agreement protocol version has been upgraded
     ProtocolUpgrade("protocol_upgrade"),
+    /// An update related to the Miner view
+    MinerViewUpdate("miner_view_update"),
 });
 
 define_named_enum!(
