@@ -1056,6 +1056,12 @@ impl MultipleMinerTest {
         })
         .expect("Timed out waiting for boostrapped node to catch up to the miner");
     }
+
+    pub fn assert_last_sortition_winner_reorged(&self) {
+        let (conf_1, _) = self.get_node_configs();
+        let latest_sortition = get_sortition_info(&conf_1);
+        assert!(latest_sortition.stacks_parent_ch != latest_sortition.last_sortition_ch);
+    }
 }
 
 /// Returns whether the last block in the test observer contains a tenure change
@@ -1099,7 +1105,7 @@ fn verify_last_block_contains_tenure_change_tx(cause: TenureChangeCause) {
 }
 
 /// Verifies that the tip of the sortition database was won by the provided miner public key hash
-fn verify_sortition_winner(sortdb: &SortitionDB, miner_pkh: &Hash160) {
+pub fn verify_sortition_winner(sortdb: &SortitionDB, miner_pkh: &Hash160) {
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     assert!(tip.sortition);
     assert_eq!(&tip.miner_pk_hash.unwrap(), miner_pkh);
@@ -10450,19 +10456,16 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs_scenario() {
         SkipCommitOpSecondaryMiner,
         BootToEpoch3,
         SkipCommitOpPrimaryMiner,
-        MineBitcoinBlockTenureChangePrimaryMiner,
-        SubmitBlockCommitSecondaryMiner,
         PauseStacksMining,
         MineBitcoinBlock,
-        SubmitBlockCommitPrimaryMiner,
+        VerifyMiner1WonSortition,
+        SubmitBlockCommitSecondaryMiner,
         ResumeStacksMining,
-        WaitForBlockFromMiner2,
+        WaitForBlockFromMiner1,
         MineBitcoinBlock,
-        WaitForBlockFromMiner1,
-        SubmitBlockCommitPrimaryMiner,
-        SendTransferTx,
-        WaitForBlockFromMiner1,
-        MineBitcoinBlockTenureChangePrimaryMiner,
+        VerifyMiner2WonSortition,
+        VerifyLastSortitionWinnerReorged,
+        WaitForBlockFromMiner2,
         ShutdownMiners
     ]
 }
