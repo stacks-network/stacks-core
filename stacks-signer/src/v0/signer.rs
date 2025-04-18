@@ -17,6 +17,7 @@ use std::fmt::Debug;
 use std::sync::mpsc::Sender;
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
@@ -1407,6 +1408,7 @@ impl Signer {
     /// is busy with a previous request.
     fn submit_block_for_validation(&mut self, stacks_client: &StacksClient, block: &NakamotoBlock) {
         let signer_signature_hash = block.header.signer_signature_hash();
+        thread::sleep(self.proposal_config.proposal_wait_time);
         match stacks_client.submit_block_for_validation(block.clone()) {
             Ok(_) => {
                 self.submitted_block_proposal = Some((signer_signature_hash, Instant::now()));

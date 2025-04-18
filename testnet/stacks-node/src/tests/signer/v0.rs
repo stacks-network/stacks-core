@@ -1467,6 +1467,7 @@ fn block_proposal_rejection() {
 
     info!("------------------------- Send Block Proposal To Signers -------------------------");
     let proposal_conf = ProposalEvalConfig {
+        proposal_wait_time: Duration::from_secs(0),
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
@@ -7326,6 +7327,7 @@ fn block_validation_response_timeout() {
 
     info!("------------------------- Propose Another Block Before Hitting the Timeout -------------------------");
     let proposal_conf = ProposalEvalConfig {
+        proposal_wait_time: Duration::from_secs(0),
         first_proposal_burn_block_timing: Duration::from_secs(0),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
         block_proposal_timeout: Duration::from_secs(100),
@@ -7614,6 +7616,7 @@ fn block_validation_pending_table() {
 
     info!("----- Proposing a concurrent block -----");
     let proposal_conf = ProposalEvalConfig {
+        proposal_wait_time: Duration::from_secs(0),
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
@@ -8902,6 +8905,7 @@ fn incoming_signers_ignore_block_proposals() {
     no_next_signer_messages();
 
     let proposal_conf = ProposalEvalConfig {
+        proposal_wait_time: Duration::from_secs(0),
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
@@ -9082,6 +9086,7 @@ fn outgoing_signers_ignore_block_proposals() {
     old_signers_ignore_block_proposals(new_signature_hash);
 
     let proposal_conf = ProposalEvalConfig {
+        proposal_wait_time: Duration::from_secs(0),
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),

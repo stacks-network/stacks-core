@@ -175,6 +175,8 @@ pub struct SignerConfig {
     pub reorg_attempts_activity_timeout: Duration,
     /// The running mode for the signer (dry-run or normal)
     pub signer_mode: SignerConfigMode,
+    /// Time to wait before submitting a block proposal to the stacks-node
+    pub proposal_wait_time: Duration,
 }
 
 /// The parsed configuration for the signer
@@ -221,6 +223,8 @@ pub struct GlobalConfig {
     /// Time following the last block of the previous tenure's global acceptance that a signer will consider an attempt by
     /// the new miner to reorg it as valid towards miner activity
     pub reorg_attempts_activity_timeout: Duration,
+    /// Time to wait before submitting a block proposal to the stacks-node
+    pub proposal_wait_time: Duration,
     /// Is this signer binary going to be running in dry-run mode?
     pub dry_run: bool,
 }
@@ -268,6 +272,8 @@ struct RawConfigFile {
     /// Time (in millisecs) following a block's global acceptance that a signer will consider an attempt by a miner
     /// to reorg the block as valid towards miner activity
     pub reorg_attempts_activity_timeout_ms: Option<u64>,
+    /// Time to wait (in millisecs) before submitting a block proposal to the stacks-node
+    pub proposal_wait_time_ms: Option<u64>,
     /// Is this signer binary going to be running in dry-run mode?
     pub dry_run: Option<bool>,
 }
@@ -385,6 +391,8 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(DEFAULT_TENURE_IDLE_TIMEOUT_BUFFER_SECS),
         );
 
+        let proposal_wait_time = Duration::from_millis(raw_data.proposal_wait_time_ms.unwrap_or(0));
+
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
@@ -405,6 +413,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             reorg_attempts_activity_timeout,
             dry_run,
             tenure_idle_timeout_buffer,
+            proposal_wait_time,
         })
     }
 }
