@@ -644,7 +644,10 @@ impl EventObserver {
             status,
             raw_result: receipt.result.clone(),
             raw_tx,
-            contract_interface: receipt.contract_analysis.as_ref().map(|analysis| build_contract_interface(analysis).expect("FATAL: failed to serialize contract publish receipt")),
+            contract_interface: receipt.contract_analysis.as_ref().map(|analysis| {
+                build_contract_interface(analysis)
+                    .expect("FATAL: failed to serialize contract publish receipt")
+            }),
             burnchain_op,
             execution_cost: receipt.execution_cost.clone(),
             microblock_sequence: receipt.microblock_header.as_ref().map(|x| x.sequence),
