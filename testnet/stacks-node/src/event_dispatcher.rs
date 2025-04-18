@@ -342,7 +342,7 @@ pub struct TransactionEventPayload<'a> {
     #[serde(with = "prefix_hex_codec")]
     /// The raw transaction result
     pub raw_result: Value,
-    /// The hex encoded raw transaction
+    /// The 0x prefixed, hex encoded raw transaction
     pub raw_tx: String,
     /// The contract interface
     pub contract_interface: Option<ContractInterface>,
@@ -644,10 +644,7 @@ impl EventObserver {
             status,
             raw_result: receipt.result.clone(),
             raw_tx,
-            contract_interface: receipt.contract_analysis.as_ref().map(|analysis| {
-                build_contract_interface(analysis)
-                    .expect("FATAL: failed to serialize contract publish receipt")
-            }),
+            contract_interface: receipt.contract_analysis.as_ref().map(|analysis| build_contract_interface(analysis).expect("FATAL: failed to serialize contract publish receipt")),
             burnchain_op,
             execution_cost: receipt.execution_cost.clone(),
             microblock_sequence: receipt.microblock_header.as_ref().map(|x| x.sequence),
