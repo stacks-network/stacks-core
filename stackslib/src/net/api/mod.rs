@@ -225,6 +225,37 @@ pub mod prefix_hex {
     }
 }
 
+/// This module serde encode and decodes structs that
+/// implement StacksMessageCodec as a 0x-prefixed hex string.
+pub mod prefix_hex_codec {
+    use clarity::codec::StacksMessageCodec;
+    use clarity::util::hash::{hex_bytes, to_hex};
+
+    pub fn serialize<S: serde::Serializer, T: StacksMessageCodec>(
+        val: &T,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        let mut bytes = vec![];
+        val.consensus_serialize(&mut bytes)
+            .map_err(serde::ser::Error::custom)?;
+        s.serialize_str(&format!("0x{}", to_hex(&bytes)))
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>, T: StacksMessageCodec>(
+        d: D,
+    ) -> Result<T, D::Error> {
+        let inst_str: String = serde::Deserialize::deserialize(d)?;
+        let Some(hex_str) = inst_str.get(2..) else {
+            return Err(serde::de::Error::invalid_length(
+                inst_str.len(),
+                &"at least length 2 string",
+            ));
+        };
+        let bytes = hex_bytes(hex_str).map_err(serde::de::Error::custom)?;
+        T::consensus_deserialize(&mut &bytes[..]).map_err(serde::de::Error::custom)
+    }
+}
+
 pub trait HexDeser: Sized {
     fn try_from(hex: &str) -> Result<Self, HexError>;
 }
@@ -247,3 +278,4 @@ impl_hex_deser!(ConsensusHash);
 impl_hex_deser!(BlockHeaderHash);
 impl_hex_deser!(Hash160);
 impl_hex_deser!(Sha512Trunc256Sum);
+impl_hex_deser!(Txid);
