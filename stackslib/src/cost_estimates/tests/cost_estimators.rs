@@ -123,6 +123,7 @@ fn make_dummy_cc_tx(
         Value::okay(Value::Bool(true)).unwrap(),
         0,
         execution_cost,
+        None,
     )
 }
 

@@ -252,7 +252,7 @@ pub mod pox4 {
                             &ast,
                             body,
                             None,
-                            |_, _| false,
+                            |_, _| None,
                             None,
                         )
                         .unwrap();

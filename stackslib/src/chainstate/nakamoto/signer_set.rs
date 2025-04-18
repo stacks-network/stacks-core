@@ -335,7 +335,7 @@ impl NakamotoSigners {
                         )
                     })
                 },
-                |_, _| false,
+                |_, _| None,
             )
             .expect("FATAL: failed to update signer stackerdb");
 
