@@ -375,8 +375,8 @@ pub fn stacks_addr_serialize(addr: &StacksAddress) -> serde_json::Value {
 }
 
 /// Serialization function for serializing extended information within the BlockstackOperationType
-/// that is not printed via the standard serde implenentation. Specifically serializes additional
-/// StacksAddress information that is normally lost.
+/// that is not printed via the standard serde implementation. Specifically, serializes additional
+/// StacksAddress information.
 pub fn blockstack_op_extended_serialize_opt<S: Serializer>(
     op: &Option<BlockstackOperationType>,
     s: S,
