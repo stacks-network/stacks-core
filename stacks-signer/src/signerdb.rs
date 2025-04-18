@@ -2581,7 +2581,7 @@ pub mod tests {
             },
         )
         .unwrap();
-        let time_1 = system_time_from_ymd_hms(2025, 04, 17, 12, 30, 00);
+        let time_1 = system_time_from_ymd_hms(2025, 4, 17, 12, 30, 0);
 
         let address_2 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
         let update_2 = StateMachineUpdate::new(
@@ -2594,7 +2594,7 @@ pub mod tests {
             },
         )
         .unwrap();
-        let time_2 = system_time_from_ymd_hms(2025, 04, 17, 12, 30, 01);
+        let time_2 = system_time_from_ymd_hms(2025, 4, 17, 12, 30, 1);
 
         let address_3 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
         let update_3 = StateMachineUpdate::new(
@@ -2607,7 +2607,7 @@ pub mod tests {
             },
         )
         .unwrap();
-        let time_3 = system_time_from_ymd_hms(2025, 04, 17, 12, 30, 10);
+        let time_3 = system_time_from_ymd_hms(2025, 4, 17, 12, 30, 10);
 
         assert_eq!(
             0,
