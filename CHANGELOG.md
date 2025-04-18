@@ -11,6 +11,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - Include a reason string in the transaction receipt when a transaction is rolled back due to a post-condition. This should help users in understanding what went wrong.
 
+### Changed
+
+- Reduce the default `block_rejection_timeout_steps` configuration so that miners will retry faster when blocks fail to reach 70% approved or 30% rejected.
+
 ## [3.1.0.0.8]
 
 ### Added
