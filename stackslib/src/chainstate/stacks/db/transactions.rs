@@ -593,8 +593,9 @@ impl StacksChainState {
     }
 
     /// Apply a post-conditions check.
-    /// Return true if they all pass.
-    /// Return false if at least one fails.
+    /// Return `Ok(None)` if the check passes.
+    /// Return `Ok(Some(reason))` if the check fails.
+    /// Return `Err` if the check cannot be performed.
     fn check_transaction_postconditions(
         post_conditions: &[TransactionPostCondition],
         post_condition_mode: &TransactionPostConditionMode,
