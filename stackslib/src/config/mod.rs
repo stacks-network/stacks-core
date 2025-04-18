@@ -1219,17 +1219,34 @@ pub struct BurnchainConfig {
     /// This setting determines network parameters (like chain ID, peer version),
     /// default configurations, genesis block definitions, and overall node behavior.
     ///
-    /// Supported values: `"mainnet"`, `"mocknet"`, `"helium"`, `"neon"`, `"argon"`, `"krypton"`, `"xenon"`, `"nakamoto-neon"`.
+    /// Supported values:
+    /// ```text
+    /// | Mode            | Network Type |
+    /// |-----------------|--------------|
+    /// | "mainnet"       | mainnet      |
+    /// | "xenon"         | testnet      |
+    /// | "mocknet"       | regtest      |
+    /// | "helium"        | regtest      |
+    /// | "neon"          | regtest      |
+    /// | "argon"         | regtest      |
+    /// | "krypton"       | regtest      |
+    /// | "nakamoto-neon" | regtest      |
+    /// ```
     ///
     /// Default: `"mocknet"`
     pub mode: String,
-    /// The network-specific identifier used in P2P communication and database initialization .
+    /// The network-specific identifier used in P2P communication and database initialization.
     /// Derived from `mode` during config load, unless explicitly overridden (for test purposes).
+    ///
+    /// **Warning:** Do not modify this unless you really know what you're doing.
+    /// This is intended strictly for testing purposes.
     ///
     /// Default: Derived from [`BurnchainConfig::mode`] ([`CHAIN_ID_MAINNET`] for `mainnet`, [`CHAIN_ID_TESTNET`] otherwise).
     pub chain_id: u32,
     /// The peer protocol version number used in P2P communication.
     /// This parameter cannot be set via the configuration file.
+    ///
+    /// **Warning:** Do not modify this unless you really know what you're doing.
     ///
     /// Default: Derived from [`BurnchainConfig::mode`] ([`PEER_VERSION_MAINNET`] for `mainnet`, [`PEER_VERSION_TESTNET`] otherwise).
     pub peer_version: u32,
@@ -1237,18 +1254,19 @@ pub struct BurnchainConfig {
     /// before the node attempts to build the anchored block for the new tenure.
     /// This duration effectively schedules the start of the block-building
     /// process relative to the tip's arrival time.
-    /// Only when [`BurnchainConfig::mode`] is `"helium"` or `"mocknet"`.
+    ///
+    /// This is intended strictly for testing purposes.
     ///
     /// Default: `5000` milliseconds.
     ///          `10000` milliseconds when launched with the `helium` or `mocknet` subcommands.
     pub commit_anchor_block_within: u64,
     /// The Maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election.
-    ///  Acts as a safety cap to limit the maximum amount spent on mining.
-    ///
+    /// Acts as a safety cap to limit the maximum amount spent on mining.
     /// It serves as both the target fee and a fallback if dynamic fee calculations fail or cannot be performed
     ///
-    /// This setting can be hot-reloaded from a miner's config file, allowing adjustment without restarting.
-    /// Primarily relevant for miners.
+    /// This setting can be hot-reloaded from the config file, allowing adjustment without restarting.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
     ///
     /// Default: `20000` satoshis
     pub burn_fee_cap: u64,
@@ -1292,24 +1310,32 @@ pub struct BurnchainConfig {
     /// These two-byte identifiers help ensure that nodes only connect to peers on the same network type.
     /// Common values include:
     /// - "X2" for mainnet
-    /// - "T2" for Xenon testnet
+    /// - "T2" for testnet (xenon)
     /// - Other values for specific test networks
     ///
     /// Configured as a 2-character ASCII string (e.g., "X2" for mainnet).
     ///
-    /// Default: [`BLOCKSTACK_MAGIC_MAINNET`] (corresponds to "X2") unless overridden by [`BurnchainConfig::mode`] (e.g., "T2" for Xenon testnet).
+    /// Default: [`BLOCKSTACK_MAGIC_MAINNET`] (corresponds to "X2") unless overridden by [`BurnchainConfig::mode`] (e.g., "T2" for testnet (xenon)).
     pub magic_bytes: MagicBytes,
-    /// The public key associated with the local mining address.
-    /// Provided as a hex string representing a public key.
-    /// This is intended strictly for testing purposes. Only used for [`BurnchainConfig::mode`] "helium".
+    /// The public key associated with the local mining address for the underlying Bitcoin regtest node.
+    /// Provided as a hex string representing an uncompressed public key.
     ///
-    /// Used to derive the mining address for generating and receiving coinbase rewards.
+    /// It is primarily used in modes that rely on a controlled Bitcoin regtest backend
+    /// (e.g., "helium", "mocknet", "neon") where the Stacks node itself needs to
+    /// instruct the Bitcoin node to generate blocks.
+    ///
+    /// The key is used to derive the Bitcoin address that receives the coinbase rewards
+    /// when generating blocks on the regtest network.
+    ///
+    /// Mandatory if [`BurnchainConfig::mode`] is "helium".
+    /// This is intended strictly for testing purposes.
     ///
     /// Default: `None`
     pub local_mining_public_key: Option<String>,
     /// Optional bitcoin block height at which the Stacks node process should gracefully exit.
     /// When bitcoin reaches this height, the node logs a message and initiates a graceful shutdown.
     ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
     /// This is intended strictly for testing purposes.
     ///
     /// Default: `None`
@@ -1323,7 +1349,8 @@ pub struct BurnchainConfig {
     pub poll_time_secs: u64,
     /// The default fee rate in satoshis per virtual byte (sats/vB) to use when estimating fees for miners
     /// to submit bitcoin transactions (like block commits or leader key registrations).
-    /// Primarily relevant for miners.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
     ///
     /// Default: [`DEFAULT_SATS_PER_VB`] (currently 50 satoshis per virtual byte)
     pub satoshis_per_byte: u64,
@@ -1331,25 +1358,29 @@ pub struct BurnchainConfig {
     /// Expressed as a percentage of the original [`BurnchainConfig::satoshis_per_byte`] rate (e.g.,
     /// 150 means the fee rate can be increased up to 1.5x). Used in mining logic for RBF decisions
     /// to cap the replacement fee rate.
-    /// Primarily relevant for miners.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
     ///
     /// Default: [`DEFAULT_MAX_RBF_RATE`] (currently 150, i.e., 1.5x)
     pub max_rbf: u64,
     /// Estimated size (in virtual bytes) of a leader key registration transaction on bitcoin.
     /// Used for fee calculation in mining logic by multiplying with the fee rate [`BurnchainConfig::satoshis_per_byte`].
-    /// Primarily relevant for miners.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
     ///
     /// Default: [`OP_TX_LEADER_KEY_ESTIM_SIZE`] (currently 290)
     pub leader_key_tx_estimated_size: u64,
     /// Estimated size (in virtual bytes) of a block commit transaction on bitcoin.
     /// Used for fee calculation in mining logic by multiplying with the fee rate [`BurnchainConfig::satoshis_per_byte`].
-    /// Primarily relevant for miners.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
     ///
     /// Default: [`OP_TX_BLOCK_COMMIT_ESTIM_SIZE`] (currently 380)
     pub block_commit_tx_estimated_size: u64,
     /// The incremental amount (in Sats/vByte) to add to the previous transaction's
     /// fee rate for RBF bitcoin transactions.
-    /// Primarily relevant for miners.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
     ///
     /// Default: [`DEFAULT_RBF_FEE_RATE_INCREMENT`] (currently 5 satoshis per virtual byte)
     pub rbf_fee_increment: u64,
@@ -1426,18 +1457,21 @@ pub struct BurnchainConfig {
     ///   - However, the height specified in `epochs` for Epoch 2.1 takes precedence.
     ///
     /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
     ///
     /// Default: `None`.
     pub pox_2_activation: Option<u32>,
     /// Overrides the length (in bitcoin blocks) of the PoX reward cycle.
     ///
     /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
     ///
     /// Default: `None` (uses the standard reward cycle length for the mode).
     pub pox_reward_length: Option<u32>,
     /// Overrides the length (in bitcoin blocks) of the PoX prepare phase.
     ///
     /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
     ///
     /// Default: `None` (uses the standard prepare phase length for the mode).
     pub pox_prepare_length: Option<u32>,
@@ -1447,6 +1481,7 @@ pub struct BurnchainConfig {
     /// testing the PoX sunset transition by explicitly setting its start height.
     ///
     /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
     ///
     /// Default: `None` (uses the standard sunset start height for the mode).
     /// Deprecated: The sunset phase was removed in Epoch 2.1. This parameter can still be used for testing purposes for epochs before 2.1.
@@ -1457,6 +1492,7 @@ pub struct BurnchainConfig {
     /// with `sunset_start` to define the full sunset transition period for PoX.
     ///
     /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
     ///
     /// Default: `None` (uses the standard sunset end height for the mode).
     /// Deprecated: The sunset phase was removed in Epoch 2.1. This parameter can still be used for testing purposes for epochs before 2.1.
@@ -1465,7 +1501,7 @@ pub struct BurnchainConfig {
     /// Used to interact with a specific named wallet if the bitcoin node manages multiple wallets.
     ///
     /// If the specified wallet doesn't exist, the node will attempt to create it via the createwallet RPC call.
-    /// This is particularly useful for miners who need to manage separate wallets for testing or organizational purposes.
+    /// This is particularly useful for miners who need to manage separate wallets.
     ///
     /// Primarily relevant for miners interacting with multi-wallet Bitcoin nodes.
     ///
@@ -1506,7 +1542,8 @@ pub struct BurnchainConfig {
     pub affirmation_overrides: HashMap<u64, AffirmationMap>,
     /// Fault injection setting for testing. Introduces an artificial delay (in milliseconds)
     /// before processing each burnchain block download. Simulates a slow burnchain connection.
-    /// Only intended for testing environments.
+    ///
+    /// This is intended strictly for testing purposes.
     ///
     /// Default: `0` (no delay).
     pub fault_injection_burnchain_block_delay: u64,
@@ -1522,7 +1559,8 @@ pub struct BurnchainConfig {
     /// for a transaction, even if sufficient funds exist across more UTXOs not returned by the limited query.
     ///
     /// This value must be `<= 1024`.
-    /// Primarily relevant for miners.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
     ///
     /// Default: `Some(1024)`
     pub max_unspent_utxos: Option<u64>,
