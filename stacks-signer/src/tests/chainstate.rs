@@ -209,6 +209,7 @@ fn reorg_timing_testing(
             consensus_hash: last_sortition.consensus_hash,
             was_sortition: true,
             first_block_mined: Some(StacksBlockId([1; 32])),
+            nakamoto_blocks: None,
         },
         TenureForkingInfo {
             burn_block_hash: BurnchainHeaderHash([128; 32]),
@@ -218,6 +219,7 @@ fn reorg_timing_testing(
             consensus_hash: view.cur_sortition.parent_tenure_id,
             was_sortition: true,
             first_block_mined: Some(StacksBlockId([2; 32])),
+            nakamoto_blocks: None,
         },
     ];
 

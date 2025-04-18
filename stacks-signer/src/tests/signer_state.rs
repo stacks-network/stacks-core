@@ -219,6 +219,7 @@ fn determine_global_states() {
         burn_block_height,
         current_miner: (&current_miner).into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
+        tx_replay_state: false,
     };
 
     assert_eq!(
@@ -263,6 +264,7 @@ fn determine_global_states() {
         burn_block_height,
         current_miner: (&new_miner).into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
+        tx_replay_state: false,
     };
 
     // Let's tip the scales over to a different miner
