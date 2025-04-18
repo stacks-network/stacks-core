@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased]
+
+### Changed
+
+- Reduce the default `block_rejection_timeout_steps` configuration so that miners will retry faster when blocks fail to reach 70% approved or 30% rejected.
+
 ## [3.1.0.0.8]
 
 ### Added
