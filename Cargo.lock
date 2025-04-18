@@ -3229,6 +3229,7 @@ name = "stacks-signer"
 version = "0.0.1"
 dependencies = [
  "backoff",
+ "chrono",
  "clap",
  "clarity",
  "hashbrown 0.15.2",
