@@ -24,7 +24,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
-use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
+use clarity::vm::analysis::contract_interface_builder::{
+    build_contract_interface, ContractInterface,
+};
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
@@ -34,7 +36,9 @@ use rand::Rng;
 use rusqlite::{params, Connection};
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
-use stacks::chainstate::burn::operations::BlockstackOperationType;
+use stacks::chainstate::burn::operations::{
+    blockstack_op_extended_serialize_opt, BlockstackOperationType,
+};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::nakamoto::NakamotoBlock;
@@ -59,6 +63,7 @@ use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
+use stacks::net::api::{prefix_hex, prefix_hex_codec, prefix_opt_hex};
 use stacks::net::atlas::{Attachment, AttachmentInstance};
 use stacks::net::http::HttpRequestContents;
 use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
@@ -93,15 +98,6 @@ pub struct EventObserver {
     /// If true, the stacks-node will not retry if event delivery fails for any reason.
     /// WARNING: This should not be set on observers that require successful delivery of all events.
     pub disable_retries: bool,
-}
-
-struct ReceiptPayloadInfo<'a> {
-    txid: String,
-    success: &'a str,
-    raw_result: String,
-    raw_tx: String,
-    contract_interface_json: serde_json::Value,
-    burnchain_op_json: serde_json::Value,
 }
 
 const STATUS_RESP_TRUE: &str = "success";
@@ -332,6 +328,39 @@ impl RewardSetEventPayload {
             pox_ustx_threshold: reward_set.pox_ustx_threshold,
         }
     }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct TransactionEventPayload<'a> {
+    #[serde(with = "prefix_hex")]
+    /// The transaction id
+    pub txid: Txid,
+    /// The transaction index
+    pub tx_index: u32,
+    /// The transaction status
+    pub status: &'a str,
+    #[serde(with = "prefix_hex_codec")]
+    /// The raw transaction result
+    pub raw_result: Value,
+    /// The hex encoded raw transaction
+    pub raw_tx: String,
+    /// The contract interface
+    pub contract_interface: Option<ContractInterface>,
+    /// The burnchain op
+    #[serde(serialize_with = "blockstack_op_extended_serialize_opt")]
+    pub burnchain_op: Option<BlockstackOperationType>,
+    /// The transaction execution cost
+    pub execution_cost: ExecutionCost,
+    /// The microblock sequence
+    pub microblock_sequence: Option<u16>,
+    #[serde(with = "prefix_opt_hex")]
+    /// The microblock hash
+    pub microblock_hash: Option<BlockHeaderHash>,
+    #[serde(with = "prefix_opt_hex")]
+    /// The microblock parent hash
+    pub microblock_parent_hash: Option<BlockHeaderHash>,
+    /// Error information if one occurred in the Clarity VM
+    pub vm_error: Option<String>,
 }
 
 #[cfg(test)]
@@ -573,11 +602,14 @@ impl EventObserver {
         })
     }
 
-    /// Returns tuple of (txid, success, raw_result, raw_tx, contract_interface_json)
-    fn generate_payload_info_for_receipt(receipt: &StacksTransactionReceipt) -> ReceiptPayloadInfo {
+    /// Returns transaction event payload to send for new block or microblock event
+    fn make_new_block_txs_payload(
+        receipt: &StacksTransactionReceipt,
+        tx_index: u32,
+    ) -> TransactionEventPayload {
         let tx = &receipt.transaction;
 
-        let success = match (receipt.post_condition_aborted, &receipt.result) {
+        let status = match (receipt.post_condition_aborted, &receipt.result) {
             (false, Value::Response(response_data)) => {
                 if response_data.committed {
                     STATUS_RESP_TRUE
@@ -587,75 +619,42 @@ impl EventObserver {
             }
             (true, Value::Response(_)) => STATUS_RESP_POST_CONDITION,
             _ => {
-                if let TransactionOrigin::Stacks(inner_tx) = &tx {
-                    if let TransactionPayload::PoisonMicroblock(..) = &inner_tx.payload {
-                        STATUS_RESP_TRUE
-                    } else {
-                        unreachable!() // Transaction results should otherwise always be a Value::Response type
-                    }
-                } else {
-                    unreachable!() // Transaction results should always be a Value::Response type
+                let TransactionOrigin::Stacks(inner_tx) = tx else {
+                    unreachable!("Transaction results should always be a Value::Response type");
+                };
+                if !matches!(inner_tx.payload, TransactionPayload::PoisonMicroblock(..)) {
+                    unreachable!("Transaction results should always be a Value::Response type");
                 }
+                STATUS_RESP_TRUE
             }
         };
 
-        let (txid, raw_tx, burnchain_op_json) = match tx {
-            TransactionOrigin::Burn(op) => (
-                op.txid().to_string(),
-                "00".to_string(),
-                BlockstackOperationType::blockstack_op_to_json(op),
-            ),
+        let (txid, raw_tx, burnchain_op) = match tx {
+            TransactionOrigin::Burn(op) => (op.txid(), "0x00".to_string(), Some(op.clone())),
             TransactionOrigin::Stacks(ref tx) => {
-                let txid = tx.txid().to_string();
-                let bytes = tx.serialize_to_vec();
-                (txid, bytes_to_hex(&bytes), json!(null))
+                let txid = tx.txid();
+                let bytes = bytes_to_hex(&tx.serialize_to_vec());
+                (txid, format!("0x{bytes}"), None)
             }
         };
 
-        let raw_result = {
-            let bytes = receipt
-                .result
-                .serialize_to_vec()
-                .expect("FATAL: failed to serialize transaction receipt");
-            bytes_to_hex(&bytes)
-        };
-        let contract_interface_json = {
-            match &receipt.contract_analysis {
-                Some(analysis) => json!(build_contract_interface(analysis)
-                    .expect("FATAL: failed to serialize contract publish receipt")),
-                None => json!(null),
-            }
-        };
-        ReceiptPayloadInfo {
+        TransactionEventPayload {
             txid,
-            success,
-            raw_result,
+            tx_index,
+            status,
+            raw_result: receipt.result.clone(),
             raw_tx,
-            contract_interface_json,
-            burnchain_op_json,
+            contract_interface: receipt.contract_analysis.as_ref().map(|analysis| {
+                build_contract_interface(analysis)
+                    .expect("FATAL: failed to serialize contract publish receipt")
+            }),
+            burnchain_op,
+            execution_cost: receipt.execution_cost.clone(),
+            microblock_sequence: receipt.microblock_header.as_ref().map(|x| x.sequence),
+            microblock_hash: receipt.microblock_header.as_ref().map(|x| x.block_hash()),
+            microblock_parent_hash: receipt.microblock_header.as_ref().map(|x| x.prev_block),
+            vm_error: receipt.vm_error.clone(),
         }
-    }
-
-    /// Returns json payload to send for new block or microblock event
-    fn make_new_block_txs_payload(
-        receipt: &StacksTransactionReceipt,
-        tx_index: u32,
-    ) -> serde_json::Value {
-        let receipt_payload_info = EventObserver::generate_payload_info_for_receipt(receipt);
-
-        json!({
-            "txid": format!("0x{}", &receipt_payload_info.txid),
-            "tx_index": tx_index,
-            "status": receipt_payload_info.success,
-            "raw_result": format!("0x{}", &receipt_payload_info.raw_result),
-            "raw_tx": format!("0x{}", &receipt_payload_info.raw_tx),
-            "contract_abi": receipt_payload_info.contract_interface_json,
-            "burnchain_op": receipt_payload_info.burnchain_op_json,
-            "execution_cost": receipt.execution_cost,
-            "microblock_sequence": receipt.microblock_header.as_ref().map(|x| x.sequence),
-            "microblock_hash": receipt.microblock_header.as_ref().map(|x| format!("0x{}", x.block_hash())),
-            "microblock_parent_hash": receipt.microblock_header.as_ref().map(|x| format!("0x{}", x.prev_block)),
-        })
     }
 
     fn make_new_attachment_payload(
@@ -686,7 +685,7 @@ impl EventObserver {
         &self,
         parent_index_block_hash: StacksBlockId,
         filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
-        serialized_txs: &Vec<serde_json::Value>,
+        serialized_txs: &Vec<TransactionEventPayload>,
         burn_block_hash: BurnchainHeaderHash,
         burn_block_height: u32,
         burn_block_timestamp: u64,

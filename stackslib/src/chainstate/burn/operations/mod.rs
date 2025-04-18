@@ -17,7 +17,7 @@
 use std::{error, fmt, fs, io};
 
 use clarity::vm::types::PrincipalData;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize, Serializer};
 use serde_json::json;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, TrieHash, VRFSeed,
@@ -372,6 +372,22 @@ pub fn stacks_addr_serialize(addr: &StacksAddress) -> serde_json::Value {
         "address_hash_bytes": format!("0x{}", addr.bytes()),
         "address_version": addr.version()
     })
+}
+
+/// Serialization function for serializing extended information within the BlockstackOperationType
+/// that is not printed via the standard serde implenentation. Specifically serializes additional
+/// StacksAddress information that is normally lost.
+pub fn blockstack_op_extended_serialize_opt<S: Serializer>(
+    op: &Option<BlockstackOperationType>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    match op {
+        Some(op) => {
+            let value = op.blockstack_op_to_json();
+            value.serialize(s)
+        }
+        None => s.serialize_none(),
+    }
 }
 
 impl BlockstackOperationType {
