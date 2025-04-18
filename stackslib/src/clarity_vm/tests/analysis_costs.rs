@@ -117,7 +117,7 @@ fn setup_tracked_cost_test(
         );
 
         conn.as_transaction(|conn| {
-            let (ct_ast, ct_analysis) = conn
+            let (mut ct_ast, ct_analysis) = conn
                 .analyze_smart_contract(
                     &trait_contract_id,
                     version,
@@ -128,7 +128,8 @@ fn setup_tracked_cost_test(
             conn.initialize_smart_contract(
                 &trait_contract_id,
                 version,
-                &ct_ast,
+                &mut ct_ast,
+                &ct_analysis,
                 contract_trait,
                 None,
                 |_, _| false,
@@ -151,7 +152,7 @@ fn setup_tracked_cost_test(
         );
 
         conn.as_transaction(|conn| {
-            let (ct_ast, ct_analysis) = conn
+            let (mut ct_ast, ct_analysis) = conn
                 .analyze_smart_contract(
                     &other_contract_id,
                     version,
@@ -162,7 +163,8 @@ fn setup_tracked_cost_test(
             conn.initialize_smart_contract(
                 &other_contract_id,
                 version,
-                &ct_ast,
+                &mut ct_ast,
+                &ct_analysis,
                 contract_other,
                 None,
                 |_, _| false,
@@ -227,7 +229,7 @@ fn test_tracked_costs(
         );
 
         conn.as_transaction(|conn| {
-            let (ct_ast, ct_analysis) = conn
+            let (mut ct_ast, ct_analysis) = conn
                 .analyze_smart_contract(
                     &self_contract_id,
                     version,
@@ -238,7 +240,8 @@ fn test_tracked_costs(
             conn.initialize_smart_contract(
                 &self_contract_id,
                 version,
-                &ct_ast,
+                &mut ct_ast,
+                &ct_analysis,
                 &contract_self,
                 None,
                 |_, _| false,

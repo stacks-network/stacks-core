@@ -28,6 +28,7 @@ pub mod pipe;
 pub mod retry;
 pub mod secp256k1;
 pub mod uint;
+#[cfg(feature = "vrf")]
 pub mod vrf;
 
 use std::fs::File;

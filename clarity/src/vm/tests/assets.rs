@@ -33,7 +33,7 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-read-only (my-ft-get-balance (account principal))
             (ft-get-balance stackaroos account))
          (define-read-only (get-total-supply)
-            (ft-get-supply stackaroos)) 
+            (ft-get-supply stackaroos))
          (define-public (my-token-transfer (to principal) (amount uint))
             (ft-transfer? stackaroos amount tx-sender to))
          (define-public (faucet)
@@ -42,11 +42,11 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-public (mint-after (block-to-release uint))
            (if (>= block-height block-to-release)
                (faucet)
-               (err \"must be in the future\")))
+               (err u100)))
          (define-public (burn (amount uint) (p principal))
            (ft-burn? stackaroos amount p))
-         (begin (ft-mint? stackaroos u10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-                (ft-mint? stackaroos u200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
+         (begin (is-ok (ft-mint? stackaroos u10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR))
+                (is-ok (ft-mint? stackaroos u200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G))
                 (ft-mint? stackaroos u4 .tokens))";
 
 const ASSET_NAMES: &str =
@@ -80,15 +80,15 @@ const ASSET_NAMES: &str =
            (nft-burn? names name p))
          (define-public (try-bad-transfers)
            (begin
-             (contract-call? .tokens my-token-transfer burn-address u50000)
-             (contract-call? .tokens my-token-transfer burn-address u1000)
-             (contract-call? .tokens my-token-transfer burn-address u1)
+             (is-ok (contract-call? .tokens my-token-transfer burn-address u50000))
+             (is-ok (contract-call? .tokens my-token-transfer burn-address u1000))
+             (is-ok (contract-call? .tokens my-token-transfer burn-address u1))
              (err u0)))
          (define-public (try-bad-transfers-but-ok)
            (begin
-             (contract-call? .tokens my-token-transfer burn-address u50000)
-             (contract-call? .tokens my-token-transfer burn-address u1000)
-             (contract-call? .tokens my-token-transfer burn-address u1)
+             (is-ok (contract-call? .tokens my-token-transfer burn-address u50000))
+             (is-ok (contract-call? .tokens my-token-transfer burn-address u1000))
+             (is-ok (contract-call? .tokens my-token-transfer burn-address u1))
              (ok 0)))
          (define-public (transfer (name int) (recipient principal))
            (let ((transfer-name-result (nft-transfer? names name tx-sender recipient))
@@ -97,8 +97,8 @@ const ASSET_NAMES: &str =
              (begin (unwrap! transfer-name-result transfer-name-result)
                     (unwrap! token-to-contract-result token-to-contract-result)
                     (unwrap! contract-to-burn-result contract-to-burn-result)
-                    (ok 0))))
-         (define-public (register 
+                    (ok true))))
+         (define-public (register
                         (recipient-principal principal)
                         (name int)
                         (salt int))
@@ -993,7 +993,7 @@ fn test_simple_naming_system(
         panic!("Expected principal data");
     };
 
-    let placeholder_context =
+    let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     let tokens_contract_id =
@@ -1094,7 +1094,7 @@ fn test_simple_naming_system(
     assert!(is_committed(&result));
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
         assert_eq!(
             env.eval_read_only(&names_contract_id.clone(), "(nft-get-owner? names 1)")
                 .unwrap(),
@@ -1365,7 +1365,7 @@ fn test_simple_naming_system(
     assert!(asset_map.to_table().is_empty());
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
         assert_eq!(
             env.eval_read_only(&names_contract_id.clone(), "(nft-get-owner? names 5)")
                 .unwrap(),
