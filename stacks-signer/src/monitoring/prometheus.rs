@@ -81,7 +81,7 @@ lazy_static! {
 
     pub static ref SIGNER_AGREEMENT_STATE_CHANGE_REASONS: IntCounterVec = register_int_counter_vec!(
         "stacks_signer_agreement_state_change_reasons",
-        "The number of state machine changes in signer agreement protocol. `reason` can be one of: 'burn_block_arrival', 'stacks_block_arrival', 'inactive_miner', 'protocol_upgrade'",
+        "The number of state machine changes in signer agreement protocol. `reason` can be one of: 'burn_block_arrival', 'stacks_block_arrival', 'inactive_miner', 'protocol_upgrade', 'miner_view_update', 'miner_parent_tenure_update'",
         &["reason"]
     ).unwrap();
 
