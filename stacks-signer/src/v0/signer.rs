@@ -619,6 +619,7 @@ impl Signer {
             &mut self.signer_db,
             &mut self.global_state_evaluator,
             self.stacks_address,
+            self.reward_cycle,
         );
     }
 
