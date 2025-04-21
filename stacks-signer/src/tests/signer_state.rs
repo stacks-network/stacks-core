@@ -220,6 +220,7 @@ fn determine_global_states() {
         current_miner: (&current_miner).into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
         tx_replay_state: false,
+        tx_replay_set: None,
     };
 
     assert_eq!(
@@ -265,6 +266,7 @@ fn determine_global_states() {
         current_miner: (&new_miner).into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
         tx_replay_state: false,
+        tx_replay_set: None,
     };
 
     // Let's tip the scales over to a different miner

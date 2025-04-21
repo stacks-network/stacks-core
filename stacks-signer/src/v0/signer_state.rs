@@ -18,6 +18,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
 use clarity::types::chainstate::StacksAddress;
 use libsigner::v0::messages::{
     MessageSlotID, SignerMessage, StateMachineUpdate as StateMachineUpdateMessage,
@@ -151,6 +152,7 @@ impl GlobalStateEvaluator {
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
                 tx_replay_state: false,
+                tx_replay_set: None,
             };
             let entry = state_views
                 .entry(state_machine.clone())
@@ -250,6 +252,8 @@ pub struct SignerStateMachine {
     /// Whether or not we're in a tx replay state
     /// TODO: just a placeholder for now
     pub tx_replay_state: bool,
+    /// Transaction replay set
+    pub tx_replay_set: Option<Vec<StacksTransaction>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
@@ -324,7 +328,7 @@ pub enum StateMachineUpdate {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewBurnBlock {
     /// The height of the new burn block
-    pub height: u64,
+    pub burn_block_height: u64,
     /// The hash of the new burn block
     pub consensus_hash: ConsensusHash,
 }
@@ -389,6 +393,7 @@ impl LocalStateMachine {
             current_miner: MinerState::NoValidMiner,
             active_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
             tx_replay_state: false,
+            tx_replay_set: None,
         }
     }
 
@@ -687,10 +692,10 @@ impl LocalStateMachine {
         // TODO: test only, remove
         match expected_burn_block.clone() {
             Some(expected_burn_block) => {
-                if expected_burn_block.height > 230 {
+                if expected_burn_block.burn_block_height > 230 {
                     info!(
                         "---- bitcoin_block_arrival {} {} ----",
-                        expected_burn_block.height, expected_burn_block.consensus_hash
+                        expected_burn_block.burn_block_height, expected_burn_block.consensus_hash
                     );
                 }
             }
@@ -712,7 +717,8 @@ impl LocalStateMachine {
                         match expected_burn_block {
                             None => expected_burn_block = Some(pending_burn_block),
                             Some(ref expected) => {
-                                if pending_burn_block.height > expected.height {
+                                if pending_burn_block.burn_block_height > expected.burn_block_height
+                                {
                                     expected_burn_block = Some(pending_burn_block);
                                 }
                             }
@@ -728,17 +734,18 @@ impl LocalStateMachine {
         let next_burn_block_height = peer_info.burn_block_height;
         let next_burn_block_hash = peer_info.pox_consensus;
         let mut fork_detected = prior_state_machine.tx_replay_state;
+        let mut tx_replay_set = prior_state_machine.tx_replay_set.clone();
 
         if let Some(expected_burn_block) = expected_burn_block {
             // If the next height is less than the expected height, we need to wait.
             // OR if the next height is the same, but with a different hash, we need to wait.
-            if next_burn_block_height < expected_burn_block.height || {
-                next_burn_block_height == expected_burn_block.height
+            if next_burn_block_height < expected_burn_block.burn_block_height || {
+                next_burn_block_height == expected_burn_block.burn_block_height
                     && next_burn_block_hash != expected_burn_block.consensus_hash
             } {
                 let err_msg = format!(
                     "Node has not processed the next burn block ({}) yet",
-                    expected_burn_block.height
+                    expected_burn_block.burn_block_height
                 );
                 *self = Self::Pending {
                     update: StateMachineUpdate::BurnBlock(expected_burn_block),
@@ -746,18 +753,61 @@ impl LocalStateMachine {
                 };
                 return Err(ClientError::InvalidResponse(err_msg).into());
             }
-            if expected_burn_block.height <= prior_state_machine.burn_block_height
+            if expected_burn_block.burn_block_height <= prior_state_machine.burn_block_height
                 && expected_burn_block.consensus_hash != prior_state_machine.burn_block
+                // TODO: handle fork while still in replay
+                && tx_replay_set.is_none()
             {
                 fork_detected = true;
                 info!("---- Signer State: Possible fork! ----";
-                    "expected_burn_block.height" => expected_burn_block.height,
+                    "expected_burn_block.height" => expected_burn_block.burn_block_height,
                     "expected_burn_block.hash" => %expected_burn_block.consensus_hash,
                     "next_burn_block_height" => next_burn_block_height,
                     "next_burn_block_hash" => %next_burn_block_hash,
                     "prior_state_machine.burn_block_height" => prior_state_machine.burn_block_height,
                     "prior_state_machine.burn_block" => %prior_state_machine.burn_block,
                 );
+                // Determine the tenures that were forked
+                let mut sortition_info =
+                    client.get_sortition_by_consensus_hash(&prior_state_machine.burn_block)?;
+                let last_forked_tenure = prior_state_machine.burn_block;
+                let mut first_forked_tenure = prior_state_machine.burn_block;
+                let mut forked_tenures = vec![(
+                    prior_state_machine.burn_block,
+                    prior_state_machine.burn_block_height,
+                )];
+                while sortition_info.burn_block_height > expected_burn_block.burn_block_height {
+                    let Some(stacks_parent_ch) = sortition_info.stacks_parent_ch else {
+                        info!("No stacks parent ch found for sortition info";
+                            "sortition_info" => ?sortition_info,
+                        );
+                        break;
+                    };
+                    sortition_info = client.get_sortition_by_consensus_hash(&stacks_parent_ch)?;
+                    first_forked_tenure = sortition_info.consensus_hash;
+                    forked_tenures.push((stacks_parent_ch, sortition_info.burn_block_height));
+                }
+                let fork_info =
+                    client.get_tenure_forking_info(&first_forked_tenure, &last_forked_tenure)?;
+                let forked_txs = fork_info
+                    .iter()
+                    .flat_map(|fork_info| {
+                        fork_info
+                            .nakamoto_blocks
+                            .iter()
+                            .flat_map(|blocks| blocks.iter())
+                            .flat_map(|block| block.txs.iter())
+                    })
+                    .cloned()
+                    .filter(|tx| match tx.payload {
+                        // Don't include Coinbase, TenureChange, or PoisonMicroblock transactions
+                        TransactionPayload::TenureChange(..)
+                        | TransactionPayload::Coinbase(..)
+                        | TransactionPayload::PoisonMicroblock(..) => false,
+                        _ => true,
+                    })
+                    .collect::<Vec<_>>();
+                tx_replay_set = Some(forked_txs);
             }
         }
 
@@ -802,6 +852,7 @@ impl LocalStateMachine {
             current_miner: miner_state,
             active_signer_protocol_version: prior_state_machine.active_signer_protocol_version,
             tx_replay_state: fork_detected,
+            tx_replay_set,
         });
 
         if prior_state != *self {
@@ -847,6 +898,7 @@ impl LocalStateMachine {
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
                 tx_replay_state: false,
+                tx_replay_set: None,
             });
             // Because we updated our active signer protocol version, update local_update so its included in the subsequent evaluations
             let update: Result<StateMachineUpdateMessage, _> = (&*self).try_into();
@@ -880,6 +932,7 @@ impl LocalStateMachine {
                 current_miner: (&new_miner).into(),
                 active_signer_protocol_version,
                 tx_replay_state: false,
+                tx_replay_set: None,
             });
         }
     }

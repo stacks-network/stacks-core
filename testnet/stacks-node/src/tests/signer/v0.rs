@@ -2666,6 +2666,15 @@ fn bitcoind_forking_test() {
 #[ignore]
 /// Trigger a Bitcoin fork and ensure that the signer
 /// both detects the fork and moves into a tx replay state
+///
+/// The test flow is:
+///
+/// - Mine 10 tenures after epoch 3
+/// - Include a STX transfer in the 10th tenure
+/// - Trigger a Bitcoin fork (3 blocks)
+/// - Verify that the signer moves into tx replay state
+/// - Verify that the signer correctly includes the stx transfer
+///   in the tx replay set
 fn tx_replay_forking_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -2731,7 +2740,7 @@ fn tx_replay_forking_test() {
 
     let burn_blocks = test_observer::get_burn_blocks();
     let forked_blocks = burn_blocks.iter().rev().take(2).collect::<Vec<_>>();
-    let start_tenure: ConsensusHash = hex_bytes(
+    let last_forked_tenure: ConsensusHash = hex_bytes(
         &forked_blocks[0]
             .get("consensus_hash")
             .unwrap()
@@ -2741,7 +2750,7 @@ fn tx_replay_forking_test() {
     .unwrap()
     .as_slice()
     .into();
-    let end_tenure: ConsensusHash = hex_bytes(
+    let first_forked_tenure: ConsensusHash = hex_bytes(
         &forked_blocks[1]
             .get("consensus_hash")
             .unwrap()
@@ -2754,7 +2763,7 @@ fn tx_replay_forking_test() {
 
     let tip = get_chain_info(&signer_test.running_nodes.conf);
     // Make a transfer tx (this will get forked)
-    signer_test
+    let (txid, _) = signer_test
         .submit_transfer_tx(&sender_sk, send_fee, send_amt)
         .unwrap();
 
@@ -2797,8 +2806,7 @@ fn tx_replay_forking_test() {
 
     let fork_info = signer_test
         .stacks_client
-        // .get_tenure_forking_info(&start_tenure, &end_tenure)
-        .get_tenure_forking_info(&end_tenure, &start_tenure)
+        .get_tenure_forking_info(&first_forked_tenure, &last_forked_tenure)
         .unwrap();
 
     info!("---- Fork info: {fork_info:?} ----");
@@ -2846,7 +2854,6 @@ fn tx_replay_forking_test() {
             },
         )
         .unwrap();
-        // signer_test.check_signer_states_normal_missed_sortition();
     }
 
     let post_fork_1_nonce = get_account(&http_origin, &sender_addr).nonce;
@@ -2867,6 +2874,14 @@ fn tx_replay_forking_test() {
         match state {
             LocalStateMachine::Initialized(signer_state_machine) => {
                 assert!(signer_state_machine.tx_replay_state);
+                let Some(tx_replay_set) = signer_state_machine.tx_replay_set else {
+                    panic!(
+                        "Signer state machine is in tx replay state, but tx replay set is not set"
+                    );
+                };
+                info!("---- Tx replay set: {:?} ----", tx_replay_set);
+                assert_eq!(tx_replay_set.len(), 1);
+                assert_eq!(tx_replay_set[0].txid().to_hex(), txid);
             }
             _ => {
                 panic!("Signer state is not in the initialized state");

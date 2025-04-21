@@ -369,7 +369,7 @@ impl SignerTrait<SignerMessage> for Signer {
                     });
                 self.local_state_machine
                     .bitcoin_block_arrival(&self.signer_db, stacks_client, &self.proposal_config, Some(NewBurnBlock {
-                        height: *burn_height,
+                        burn_block_height: *burn_height,
                         consensus_hash: *consensus_hash,
                     }))
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
