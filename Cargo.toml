@@ -11,7 +11,7 @@ members = [
     "libsigner",
     "stacks-signer",
     "testnet/stacks-node",
-    "stacks-block-parser"
+    "api-proxy"
 ]
 
 # Dependencies we want to keep the same between workspace members

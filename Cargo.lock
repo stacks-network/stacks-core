@@ -379,6 +379,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "080e9890a082662b09c1ad45f567faeeb47f22b5fb23895fbe1e651e718e25ca"
 
 [[package]]
+name = "api-proxy"
+version = "0.1.0"
+dependencies = [
+ "actix-rt",
+ "actix-web",
+ "anyhow",
+ "bitvec",
+ "hex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "stacks-common",
+ "stackslib",
+]
+
+[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3710,22 +3726,6 @@ dependencies = [
  "libc",
  "psm",
  "winapi 0.3.9",
-]
-
-[[package]]
-name = "stacks-block-parser"
-version = "0.1.0"
-dependencies = [
- "actix-rt",
- "actix-web",
- "anyhow",
- "bitvec",
- "hex",
- "reqwest",
- "serde",
- "serde_json",
- "stacks-common",
- "stackslib",
 ]
 
 [[package]]
