@@ -87,7 +87,10 @@ define_u8_enum![ValidateRejectCode {
     ChainstateError = 3,
     UnknownParent = 4,
     NonCanonicalTenure = 5,
-    NoSuchTenure = 6
+    NoSuchTenure = 6,
+    InvalidParentBlock = 7,
+    InvalidTimestamp = 8,
+    NetworkChainMismatch = 9
 }];
 
 pub static TOO_MANY_REQUESTS_STATUS: u16 = 429;
@@ -287,7 +290,7 @@ impl NakamotoBlockProposal {
                 "highest_header.height" => highest_header.anchored_header.height(),
             );
             return Err(BlockValidateRejectReason {
-                reason_code: ValidateRejectCode::InvalidBlock,
+                reason_code: ValidateRejectCode::InvalidParentBlock,
                 reason: "Block is not higher than the highest block in its tenure".into(),
             });
         }
@@ -405,7 +408,7 @@ impl NakamotoBlockProposal {
                 "received_mainnet" => mainnet,
             );
             return Err(BlockValidateRejectReason {
-                reason_code: ValidateRejectCode::InvalidBlock,
+                reason_code: ValidateRejectCode::NetworkChainMismatch,
                 reason: "Wrong network/chain_id".into(),
             });
         }
@@ -428,8 +431,8 @@ impl NakamotoBlockProposal {
             &self.block.header.parent_block_id,
         )?
         .ok_or_else(|| BlockValidateRejectReason {
-            reason_code: ValidateRejectCode::InvalidBlock,
-            reason: "Invalid parent block".into(),
+            reason_code: ValidateRejectCode::UnknownParent,
+            reason: "Unknown parent block".into(),
         })?;
 
         let burn_view_consensus_hash =
@@ -494,7 +497,7 @@ impl NakamotoBlockProposal {
                     "parent_block_timestamp" => parent_nakamoto_header.timestamp,
                 );
                 return Err(BlockValidateRejectReason {
-                    reason_code: ValidateRejectCode::InvalidBlock,
+                    reason_code: ValidateRejectCode::InvalidTimestamp,
                     reason: "Block timestamp is not greater than parent block".into(),
                 });
             }
@@ -507,7 +510,7 @@ impl NakamotoBlockProposal {
                 "current_time" => get_epoch_time_secs(),
             );
             return Err(BlockValidateRejectReason {
-                reason_code: ValidateRejectCode::InvalidBlock,
+                reason_code: ValidateRejectCode::InvalidTimestamp,
                 reason: "Block timestamp is too far into the future".into(),
             });
         }

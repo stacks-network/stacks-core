@@ -473,7 +473,7 @@ fn test_try_make_response() {
             reason,
             ..
         }) => {
-            assert_eq!(reason_code, ValidateRejectCode::InvalidBlock);
+            assert_eq!(reason_code, ValidateRejectCode::InvalidTimestamp);
             assert_eq!(reason, "Block timestamp is not greater than parent block");
         }
     }
@@ -486,7 +486,7 @@ fn test_try_make_response() {
             reason,
             ..
         }) => {
-            assert_eq!(reason_code, ValidateRejectCode::InvalidBlock);
+            assert_eq!(reason_code, ValidateRejectCode::InvalidTimestamp);
             assert_eq!(reason, "Block timestamp is too far into the future");
         }
     }

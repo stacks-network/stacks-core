@@ -1541,8 +1541,7 @@ fn should_reevaluate_block(block_info: &BlockInfo) -> bool {
             | RejectReason::TestingDirective
             | RejectReason::InvalidTenureExtend
             | RejectReason::NotRejected
-            | RejectReason::Unknown(_)
-            | RejectReason::InvalidParentBlock => true,
+            | RejectReason::Unknown(_) => true,
             RejectReason::ValidationFailed(_)
             | RejectReason::RejectedInPriorRound
             | RejectReason::SortitionViewMismatch
@@ -1551,6 +1550,7 @@ fn should_reevaluate_block(block_info: &BlockInfo) -> bool {
             | RejectReason::PubkeyHashMismatch
             | RejectReason::InvalidMiner
             | RejectReason::NotLatestSortitionWinner
+            | RejectReason::InvalidParentBlock
             | RejectReason::DuplicateBlockFound => {
                 // No need to re-validate these types of rejections.
                 false

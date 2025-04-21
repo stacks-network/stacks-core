@@ -1511,7 +1511,7 @@ fn block_proposal_rejection() {
         signer_test.wait_for_validate_reject_response(short_timeout, block_signer_signature_hash_2);
     assert!(matches!(
         reject.reason_code,
-        ValidateRejectCode::InvalidBlock
+        ValidateRejectCode::UnknownParent
     ));
 
     let start_polling = Instant::now();
@@ -1541,7 +1541,7 @@ fn block_proposal_rejection() {
                     found_signer_signature_hash_2 = true;
                     assert!(matches!(
                         reason_code,
-                        RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock)
+                        RejectCode::ValidationFailed(ValidateRejectCode::UnknownParent)
                     ));
                 } else {
                     continue;

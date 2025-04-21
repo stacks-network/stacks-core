@@ -3133,7 +3133,7 @@ fn block_proposal_api_endpoint() {
                 sign(&p)
             },
             HTTP_ACCEPTED,
-            Some(Err(ValidateRejectCode::InvalidBlock)),
+            Some(Err(ValidateRejectCode::NetworkChainMismatch)),
         ),
         (
             "Invalid `miner_signature`",
