@@ -45,6 +45,10 @@ const DEFAULT_REORG_ATTEMPTS_ACTIVITY_TIMEOUT_MS: u64 = 200_000;
 /// Default number of seconds to add to the tenure extend time, after computing the idle timeout,
 /// to allow for clock skew between the signer and the miner
 const DEFAULT_TENURE_IDLE_TIMEOUT_BUFFER_SECS: u64 = 2;
+/// Default time (in ms) to wait before submitting a proposal if we
+///  cannot determine that our stacks-node has processed the parent
+///  block
+const DEFAULT_PROPOSAL_WAIT_TIME_MS: u64 = 15_000;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -175,7 +179,8 @@ pub struct SignerConfig {
     pub reorg_attempts_activity_timeout: Duration,
     /// The running mode for the signer (dry-run or normal)
     pub signer_mode: SignerConfigMode,
-    /// Time to wait before submitting a block proposal to the stacks-node
+    /// Time to wait before submitting a block proposal to the stacks-node if we cannot
+    ///  determine that the stacks-node has processed the parent
     pub proposal_wait_time: Duration,
 }
 
@@ -223,7 +228,8 @@ pub struct GlobalConfig {
     /// Time following the last block of the previous tenure's global acceptance that a signer will consider an attempt by
     /// the new miner to reorg it as valid towards miner activity
     pub reorg_attempts_activity_timeout: Duration,
-    /// Time to wait before submitting a block proposal to the stacks-node
+    /// Time to wait before submitting a block proposal to the stacks-node if we cannot
+    ///  determine that the stacks-node has processed the parent
     pub proposal_wait_time: Duration,
     /// Is this signer binary going to be running in dry-run mode?
     pub dry_run: bool,
@@ -391,7 +397,11 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(DEFAULT_TENURE_IDLE_TIMEOUT_BUFFER_SECS),
         );
 
-        let proposal_wait_time = Duration::from_millis(raw_data.proposal_wait_time_ms.unwrap_or(0));
+        let proposal_wait_time = Duration::from_millis(
+            raw_data
+                .proposal_wait_time_ms
+                .unwrap_or(DEFAULT_PROPOSAL_WAIT_TIME_MS),
+        );
 
         Ok(Self {
             node_host: raw_data.node_host,

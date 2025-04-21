@@ -56,6 +56,8 @@ pub struct StateInfo {
     /// The local state machines for the running signers
     ///  as a pair of (reward-cycle, state-machine)
     pub signer_state_machines: Vec<(u64, Option<LocalStateMachine>)>,
+    /// The number of pending block proposals for this signer
+    pub pending_proposals_count: u64,
 }
 
 /// The signer result that can be sent across threads
@@ -524,6 +526,17 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                         )
                     })
                     .collect(),
+                pending_proposals_count: self
+                    .stacks_signers
+                    .values()
+                    .find_map(|signer| {
+                        if let ConfiguredSigner::RegisteredSigner(signer) = signer {
+                            Some(signer.get_pending_proposals_count())
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(0),
             };
             info!("Signer status check requested: {state_info:?}");
 
