@@ -619,11 +619,14 @@ impl EventObserver {
             }
             (true, Value::Response(_)) => STATUS_RESP_POST_CONDITION,
             _ => {
-                let TransactionOrigin::Stacks(inner_tx) = tx else {
-                    unreachable!("Transaction results should always be a Value::Response type");
-                };
-                if !matches!(inner_tx.payload, TransactionPayload::PoisonMicroblock(..)) {
-                    unreachable!("Transaction results should always be a Value::Response type");
+                if !matches!(
+                    tx,
+                    TransactionOrigin::Stacks(StacksTransaction {
+                        payload: TransactionPayload::PoisonMicroblock(_, _),
+                        ..
+                    })
+                ) {
+                    unreachable!("Unexpexted transaction result type");
                 }
                 STATUS_RESP_TRUE
             }
@@ -1841,13 +1844,21 @@ mod test {
     use std::time::Instant;
 
     use clarity::vm::costs::ExecutionCost;
+    use clarity::vm::types::StacksAddressExtensions;
     use serial_test::serial;
+    use stacks::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
     use stacks::burnchains::{PoxConstants, Txid};
+    use stacks::chainstate::burn::operations::TransferStxOp;
     use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
     use stacks::chainstate::stacks::events::StacksBlockEventData;
-    use stacks::chainstate::stacks::StacksBlock;
-    use stacks::types::chainstate::BlockHeaderHash;
+    use stacks::chainstate::stacks::{
+        StacksBlock, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
+        TransactionPostConditionMode, TransactionVersion,
+    };
+    use stacks::types::chainstate::{
+        BlockHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+    };
     use stacks::util::secp256k1::MessageSignature;
     use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
@@ -2657,5 +2668,72 @@ mod test {
         );
 
         assert_eq!(event_dispatcher.registered_observers.len(), 1);
+    }
+
+    #[test]
+    /// This test checks that tx payloads properly convert the stacks transaction receipt regardless of the presence of the vm_error
+    fn make_new_block_txs_payload_vm_error() {
+        let privkey = StacksPrivateKey::random();
+        let pubkey = StacksPublicKey::from_private(&privkey);
+        let addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![pubkey],
+        )
+        .unwrap();
+
+        let tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: 0x80000000,
+            auth: TransactionAuth::from_p2pkh(&privkey).unwrap(),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::TokenTransfer(
+                addr.to_account_principal(),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        };
+        let txid = tx.txid();
+
+        let mut receipt = StacksTransactionReceipt {
+            transaction: TransactionOrigin::Burn(BlockstackOperationType::TransferStx(
+                TransferStxOp {
+                    sender: addr,
+                    recipient: addr,
+                    memo: vec![],
+                    transfered_ustx: 123,
+                    txid,
+                    vtxindex: 0,
+                    block_height: 0,
+                    burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+                },
+            )),
+            events: vec![],
+            post_condition_aborted: true,
+            result: Value::okay_true(),
+            contract_analysis: None,
+            execution_cost: ExecutionCost {
+                write_length: 0,
+                write_count: 0,
+                read_length: 0,
+                read_count: 0,
+                runtime: 0,
+            },
+            microblock_header: None,
+            vm_error: None,
+            stx_burned: 0u128,
+            tx_index: 0,
+        };
+
+        let payload_no_error = EventObserver::make_new_block_txs_payload(&receipt, 0);
+        assert_eq!(payload_no_error.vm_error, receipt.vm_error);
+
+        receipt.vm_error = Some("Inconceivable!".into());
+
+        let payload_with_error = EventObserver::make_new_block_txs_payload(&receipt, 0);
+        assert_eq!(payload_with_error.vm_error, receipt.vm_error);
     }
 }
