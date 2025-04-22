@@ -266,6 +266,91 @@ impl SignerTrait<SignerMessage> for Signer {
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
         }
 
+        self.handle_event_match(stacks_client, sortition_state, event, current_reward_cycle);
+
+        self.check_submitted_block_proposal();
+        self.check_pending_block_validations(stacks_client);
+
+        if prior_state != self.local_state_machine {
+            self.local_state_machine
+                .send_signer_update_message(&mut self.stackerdb);
+        }
+    }
+
+    fn has_unprocessed_blocks(&self) -> bool {
+        self.signer_db
+            .has_unprocessed_blocks(self.reward_cycle)
+            .unwrap_or_else(|e| {
+                error!("{self}: Failed to check for pending blocks: {e:?}",);
+                // Assume we have pending blocks to prevent premature cleanup
+                true
+            })
+    }
+
+    fn get_local_state_machine(&self) -> &LocalStateMachine {
+        &self.local_state_machine
+    }
+
+    #[cfg(not(any(test, feature = "testing")))]
+    fn get_pending_proposals_count(&self) -> u64 {
+        0
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    fn get_pending_proposals_count(&self) -> u64 {
+        self.signer_db
+            .get_all_pending_block_validations()
+            .map(|results| u64::try_from(results.len()).unwrap())
+            .unwrap_or(0)
+    }
+}
+
+impl Signer {
+    /// Determine this signers response to a proposed block
+    /// Returns a BlockResponse if we have already validated the block
+    /// Returns None otherwise
+    fn determine_response(&mut self, block_info: &BlockInfo) -> Option<BlockResponse> {
+        let valid = block_info.valid?;
+        let response = if valid {
+            debug!("{self}: Accepting block {}", block_info.block.block_id());
+            self.create_block_acceptance(&block_info.block)
+        } else {
+            debug!("{self}: Rejecting block {}", block_info.block.block_id());
+            self.create_block_rejection(RejectReason::RejectedInPriorRound, &block_info.block)
+        };
+        Some(response)
+    }
+
+    /// Create a block acceptance response for a block
+    pub fn create_block_acceptance(&self, block: &NakamotoBlock) -> BlockResponse {
+        let signature = self
+            .private_key
+            .sign(block.header.signer_signature_hash().bits())
+            .expect("Failed to sign block");
+        BlockResponse::accepted(
+            block.header.signer_signature_hash(),
+            signature,
+            self.signer_db.calculate_tenure_extend_timestamp(
+                self.proposal_config
+                    .tenure_idle_timeout
+                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
+                block,
+                true,
+            ),
+        )
+    }
+
+    /// The actual switch-on-event processing of an event.
+    /// This is separated from the Signer trait implementation of process_event
+    /// so that the "do on every event" functionality can run after every event processing
+    /// (i.e. even if the event_match does an early return).
+    fn handle_event_match(
+        &mut self,
+        stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
+        event: &SignerEvent<SignerMessage>,
+        current_reward_cycle: u64,
+    ) {
         match event {
             SignerEvent::BlockValidationResponse(block_validate_response) => {
                 debug!("{self}: Received a block proposal result from the stacks node...");
@@ -431,74 +516,6 @@ impl SignerTrait<SignerMessage> for Signer {
                 }
             }
         }
-
-        if prior_state != self.local_state_machine {
-            self.local_state_machine
-                .send_signer_update_message(&mut self.stackerdb);
-        }
-    }
-
-    fn has_unprocessed_blocks(&self) -> bool {
-        self.signer_db
-            .has_unprocessed_blocks(self.reward_cycle)
-            .unwrap_or_else(|e| {
-                error!("{self}: Failed to check for pending blocks: {e:?}",);
-                // Assume we have pending blocks to prevent premature cleanup
-                true
-            })
-    }
-
-    fn get_local_state_machine(&self) -> &LocalStateMachine {
-        &self.local_state_machine
-    }
-
-    #[cfg(not(any(test, feature = "testing")))]
-    fn get_pending_proposals_count(&self) -> u64 {
-        0
-    }
-
-    #[cfg(any(test, feature = "testing"))]
-    fn get_pending_proposals_count(&self) -> u64 {
-        self.signer_db
-            .get_all_pending_block_validations()
-            .map(|results| u64::try_from(results.len()).unwrap())
-            .unwrap_or(0)
-    }
-}
-
-impl Signer {
-    /// Determine this signers response to a proposed block
-    /// Returns a BlockResponse if we have already validated the block
-    /// Returns None otherwise
-    fn determine_response(&mut self, block_info: &BlockInfo) -> Option<BlockResponse> {
-        let valid = block_info.valid?;
-        let response = if valid {
-            debug!("{self}: Accepting block {}", block_info.block.block_id());
-            self.create_block_acceptance(&block_info.block)
-        } else {
-            debug!("{self}: Rejecting block {}", block_info.block.block_id());
-            self.create_block_rejection(RejectReason::RejectedInPriorRound, &block_info.block)
-        };
-        Some(response)
-    }
-
-    /// Create a block acceptance response for a block
-    pub fn create_block_acceptance(&self, block: &NakamotoBlock) -> BlockResponse {
-        let signature = self
-            .private_key
-            .sign(block.header.signer_signature_hash().bits())
-            .expect("Failed to sign block");
-        BlockResponse::accepted(
-            block.header.signer_signature_hash(),
-            signature,
-            self.signer_db.calculate_tenure_extend_timestamp(
-                self.proposal_config
-                    .tenure_idle_timeout
-                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
-                block,
-                true,
-            ),
-        )
     }
 
     /// Create a block rejection response for a block with the given reject code
