@@ -47,7 +47,8 @@ use stacks::codec::StacksMessageCodec;
 use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig};
 use stacks::core::mempool::MemPoolWalkStrategy;
 use stacks::core::test_util::{
-    insert_tx_in_mempool, make_contract_call, make_contract_publish, make_stacks_transfer,
+    insert_tx_in_mempool, make_contract_call, make_contract_publish,
+    make_stacks_transfer_serialized,
 };
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::libstackerdb::StackerDBChunkData;
@@ -2341,7 +2342,7 @@ fn forked_tenure_testing(
         // Now let's produce a second block for tenure C and ensure it builds off of block C.
         // submit a tx so that the miner will mine an extra block
         let sender_nonce = 0;
-        let transfer_tx = make_stacks_transfer(
+        let transfer_tx = make_stacks_transfer_serialized(
             &sender_sk,
             sender_nonce,
             send_fee,
@@ -3115,7 +3116,7 @@ fn end_of_tenure() {
 
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -3230,7 +3231,7 @@ fn retry_on_rejection() {
     let start_time = Instant::now();
     // submit a tx so that the miner will mine a stacks block
     let mut sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -3264,7 +3265,7 @@ fn retry_on_rejection() {
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
 
     // submit a tx so that the miner will mine a block
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -3357,7 +3358,7 @@ fn signers_broadcast_signed_blocks() {
 
     // submit a tx so that the miner will mine a blockn
     let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -3488,7 +3489,7 @@ fn tenure_extend_with_other_transactions() {
     let stacks_tip_height = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
     // Submit a transaction to force a response from signers that indicate that the tenure extend timeout is exceeded
     let mut sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -3508,7 +3509,7 @@ fn tenure_extend_with_other_transactions() {
     TEST_MINE_STALL.set(true);
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
     // Submit a transaction to be included with the tenure extend
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -3780,7 +3781,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
     for i in 0..num_txs {
         info!("---- Mining interim block {} ----", i + 1);
         signer_test.wait_for_nakamoto_block(30, || {
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
                 send_fee,
@@ -3974,7 +3975,7 @@ fn idle_tenure_extend_active_mining() {
 
                 // Throw in a STX transfer to test mixed blocks
                 let sender_nonce = get_and_increment_nonce(&sender_sk, &mut sender_nonces);
-                let transfer_tx = make_stacks_transfer(
+                let transfer_tx = make_stacks_transfer_serialized(
                     &sender_sk,
                     sender_nonce,
                     send_fee,
@@ -4072,7 +4073,7 @@ fn idle_tenure_extend_active_mining() {
         signer_test.wait_for_nakamoto_block(30, || {
             // Throw in a STX transfer to test mixed blocks
             let sender_nonce = get_and_increment_nonce(&sender_sk, &mut sender_nonces);
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
                 send_fee,
@@ -4178,7 +4179,7 @@ fn empty_tenure_delayed() {
 
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -4375,7 +4376,7 @@ fn empty_sortition_before_approval() {
 
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -4529,7 +4530,7 @@ fn empty_sortition_before_proposal() {
 
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -4939,7 +4940,7 @@ fn signer_set_rollover() {
     info!("---- Mining a block to trigger the signer set -----");
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -5081,7 +5082,7 @@ fn signer_set_rollover() {
 
     info!("---- Mining a block to verify new signer set -----");
     let sender_nonce = 1;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -5159,7 +5160,7 @@ fn min_gap_between_blocks() {
     for interim_block_ix in 0..interim_blocks {
         let blocks_processed_before = mined_blocks.load(Ordering::SeqCst);
         // submit a tx so that the miner will mine an extra block
-        let transfer_tx = make_stacks_transfer(
+        let transfer_tx = make_stacks_transfer_serialized(
             &sender_sk,
             interim_block_ix, // same as the sender nonce
             send_fee,
@@ -5832,7 +5833,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     let info_before = signer_test.get_peer_info();
     // submit a tx so that the miner will mine a stacks block
     let mut sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -5865,7 +5866,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     let info_before = signer_test.get_peer_info();
     // Make a new stacks transaction to create a different block signature, but make sure to propose it
     // AFTER the signers are unfrozen so they don't inadvertently prevent the new block being accepted
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -5893,7 +5894,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(Vec::new());
     test_observer::clear();
 
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -5979,7 +5980,7 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
 
     // submit a tx so that the miner will mine a stacks block N
     let mut sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -6012,7 +6013,7 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
 
     // submit a tx so that the miner will mine a stacks block N+1
     let info_before = signer_test.get_peer_info();
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -6049,7 +6050,7 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(Vec::new());
 
     // submit a tx so that the miner will mine a stacks block N+2 and ensure ALL signers accept it
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -6128,7 +6129,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     let info_before = signer_test.get_peer_info();
     // submit a tx so that the miner will mine a stacks block
     let mut sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -6171,7 +6172,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
 
     let info_before = signer_test.get_peer_info();
     // submit a tx so that the miner will ATTEMPT to mine a stacks block N+1
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -6300,7 +6301,7 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
 
     // submit a tx so that the miner will mine a stacks block
     let mut sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -6341,7 +6342,7 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
 
     let info_before = signer_test.get_peer_info();
     // submit a tx so that the miner will ATTEMPT to mine a stacks block N+1
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -6459,7 +6460,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     let info_before = signer_test.get_peer_info();
     // submit a tx so that the miner will mine a stacks block
     let mut sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -6492,7 +6493,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     test_observer::clear();
     let info_before = signer_test.get_peer_info();
 
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -6561,7 +6562,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     .expect("Timed out waiting for block N+1' to be rejected");
 
     // Induce block N+2 to get mined
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -6916,7 +6917,7 @@ fn continue_after_tenure_extend() {
     for sender_nonce in 0..5 {
         let stacks_height_before = signer_test.get_peer_info().stacks_tip_height;
         // submit a tx so that the miner will mine an extra block
-        let transfer_tx = make_stacks_transfer(
+        let transfer_tx = make_stacks_transfer_serialized(
             &sender_sk,
             sender_nonce,
             send_fee,
@@ -7316,7 +7317,7 @@ fn block_validation_response_timeout() {
 
     // submit a tx so that the miner will attempt to mine an extra block
     let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -7607,7 +7608,7 @@ fn block_validation_pending_table() {
 
     // submit a tx so that the miner will attempt to mine an extra block
     let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -7772,7 +7773,7 @@ fn new_tenure_while_validating_previous_scenario() {
 
     // submit a tx so that the miner will attempt to mine an extra block
     let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -8446,7 +8447,7 @@ fn global_acceptance_depends_on_block_announcement() {
     test_observer::clear();
     // submit a tx so that the miner will mine a stacks block N
     let mut sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -8490,7 +8491,7 @@ fn global_acceptance_depends_on_block_announcement() {
 
     // submit a tx so that the miner will mine a stacks block N+1
     let info_before = signer_test.get_peer_info();
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -8863,7 +8864,7 @@ fn incoming_signers_ignore_block_proposals() {
     info!("------------------------- Test Mine A Valid Block -------------------------");
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -9039,7 +9040,7 @@ fn outgoing_signers_ignore_block_proposals() {
     info!("------------------------- Test Mine A Valid Block -------------------------");
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -9419,7 +9420,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
 
     let info_before = signer_test.get_peer_info();
     // submit a tx so that the miner will ATTEMPT to mine a stacks block N
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         0,
         send_fee,
@@ -9606,7 +9607,7 @@ fn reorg_attempts_count_towards_miner_validity() {
     test_observer::clear();
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -9760,7 +9761,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
     test_observer::clear();
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -9883,7 +9884,7 @@ fn fast_sortition() {
     signer_test.boot_to_epoch_3();
 
     info!("------------------------- Mine a Block -------------------------");
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -9913,7 +9914,7 @@ fn fast_sortition() {
     .expect("Failed to mine a block");
 
     info!("------------------------- Mine a Block -------------------------");
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -12153,7 +12154,7 @@ fn repeated_rejection() {
     let proposals_before = proposed_blocks.load(Ordering::SeqCst);
 
     // submit a tx so that the miner will mine a block
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         0,
         send_fee,
@@ -12279,7 +12280,7 @@ fn retry_proposal() {
     let proposals_before = proposed_blocks.load(Ordering::SeqCst);
 
     // submit a tx so that the miner will mine a block
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         0,
         send_fee,
@@ -12301,7 +12302,7 @@ fn retry_proposal() {
     info!(
         "Block proposed, submitting another transaction that should not get included in the block"
     );
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         1,
         send_fee,
@@ -12406,7 +12407,7 @@ fn signer_can_accept_rejected_block() {
     TEST_VALIDATE_STALL.set(true);
 
     // submit a tx so that the miner will mine a block
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         0,
         send_fee,
@@ -12435,7 +12436,7 @@ fn signer_can_accept_rejected_block() {
     info!(
         "Block proposed, submitting another transaction that should not get included in the block"
     );
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         1,
         send_fee,
@@ -12799,7 +12800,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
             let recipient_sk = StacksPrivateKey::random();
             let recipient_addr = tests::to_addr(&recipient_sk);
             let sender_addr = tests::to_addr(sender_sk);
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 sender_sk,
                 *nonce,
                 transfer_fee,
@@ -12855,7 +12856,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
             let sender_addr = tests::to_addr(sender_sk);
             let recipient_sk = StacksPrivateKey::random();
             let recipient_addr = tests::to_addr(&recipient_sk);
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 sender_sk,
                 *nonce,
                 transfer_fee,
@@ -12916,7 +12917,8 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
             let sender_addr = tests::to_addr(sender_sk);
             let fee = set_fee();
             assert!(fee >= 180 && fee <= 2000);
-            let transfer_tx = make_stacks_transfer(sender_sk, *nonce, fee, chain_id, &recipient, 1);
+            let transfer_tx =
+                make_stacks_transfer_serialized(sender_sk, *nonce, fee, chain_id, &recipient, 1);
             insert_tx_in_mempool(
                 &db_tx,
                 transfer_tx,
@@ -13086,7 +13088,7 @@ fn larger_mempool() {
             let recipient_sk = StacksPrivateKey::random();
             let recipient_addr = tests::to_addr(&recipient_sk);
             let sender_addr = tests::to_addr(sender_sk);
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 sender_sk,
                 *nonce,
                 transfer_fee,
@@ -13142,7 +13144,7 @@ fn larger_mempool() {
             let sender_addr = tests::to_addr(sender_sk);
             let recipient_sk = StacksPrivateKey::random();
             let recipient_addr = tests::to_addr(&recipient_sk);
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 sender_sk,
                 *nonce,
                 transfer_fee,
@@ -13202,8 +13204,14 @@ fn larger_mempool() {
         for _ in 0..25 {
             for (sender_sk, nonce) in senders.iter_mut() {
                 let sender_addr = tests::to_addr(sender_sk);
-                let transfer_tx =
-                    make_stacks_transfer(sender_sk, *nonce, transfer_fee, chain_id, &recipient, 1);
+                let transfer_tx = make_stacks_transfer_serialized(
+                    sender_sk,
+                    *nonce,
+                    transfer_fee,
+                    chain_id,
+                    &recipient,
+                    1,
+                );
                 insert_tx_in_mempool(
                     &db_tx,
                     transfer_tx,
@@ -13461,7 +13469,7 @@ fn verify_mempool_caches() {
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(rejecting_signers);
 
     // submit a tx so that the miner will mine a block
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         0,
         send_fee,
@@ -13535,7 +13543,7 @@ fn verify_mempool_caches() {
 
     info!("Nonce cache has the expected nonce after successfully mining block");
 
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         1,
         send_fee,
