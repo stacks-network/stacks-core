@@ -7,17 +7,17 @@ use proptest::prelude::{Just, Strategy};
 use super::context::{SignerTestContext, SignerTestState};
 use crate::tests::signer::v0::{wait_for_block_pushed_by_miner_key, MultipleMinerTest};
 
-pub struct WaitForBlockFromMiner1 {
+pub struct WaitForTenureChangeBlockFromMiner1 {
     miners: Arc<Mutex<MultipleMinerTest>>,
 }
 
-impl WaitForBlockFromMiner1 {
+impl WaitForTenureChangeBlockFromMiner1 {
     pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
         Self { miners }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for WaitForBlockFromMiner1 {
+impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlockFromMiner1 {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Waiting for Nakamoto block from miner 1. Result: {:?}",
@@ -53,29 +53,29 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockFromMiner1 {
     }
 
     fn label(&self) -> String {
-        "WAIT_FOR_BLOCK_FROM_MINER_1".to_string()
+        "WAIT_FOR_TENURE_CHANGE_BLOCK_FROM_MINER_1".to_string()
     }
 
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(WaitForBlockFromMiner1::new(
-            ctx.miners.clone(),
-        )))
+        Just(CommandWrapper::new(
+            WaitForTenureChangeBlockFromMiner1::new(ctx.miners.clone()),
+        ))
     }
 }
 
-pub struct WaitForBlockFromMiner2 {
+pub struct WaitForTenureChangeBlockFromMiner2 {
     miners: Arc<Mutex<MultipleMinerTest>>,
 }
 
-impl WaitForBlockFromMiner2 {
+impl WaitForTenureChangeBlockFromMiner2 {
     pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
         Self { miners }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for WaitForBlockFromMiner2 {
+impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlockFromMiner2 {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Waiting for Nakamoto block from miner 2. Result: {:?}",
@@ -112,14 +112,14 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockFromMiner2 {
     }
 
     fn label(&self) -> String {
-        "WAIT_FOR_BLOCK_FROM_MINER_2".to_string()
+        "WAIT_FOR_TENURE_CHANGE_BLOCK_FROM_MINER_2".to_string()
     }
 
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(WaitForBlockFromMiner2::new(
-            ctx.miners.clone(),
-        )))
+        Just(CommandWrapper::new(
+            WaitForTenureChangeBlockFromMiner2::new(ctx.miners.clone()),
+        ))
     }
 }

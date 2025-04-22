@@ -53,7 +53,6 @@ use stacks::core::test_util::{
 };
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::libstackerdb::StackerDBChunkData;
-use stacks::net::api::getinfo::RPCPeerInfoData;
 use stacks::net::api::getsigner::GetSignerResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateResponse, ValidateRejectCode, TEST_VALIDATE_DELAY_DURATION_SECS,
@@ -110,10 +109,6 @@ use crate::tests::neon_integrations::{
 use crate::tests::signer::commands::*;
 use crate::tests::{self, gen_random_port};
 use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
-
-pub fn get_chain_info_wrapper(conf: &Config) -> RPCPeerInfoData {
-    get_chain_info(conf)
-}
 
 pub fn test_mine_stall_set(value: bool) {
     TEST_MINE_STALL.set(value)
@@ -651,6 +646,20 @@ impl MultipleMinerTest {
     pub fn get_secondary_last_stacks_tip_counter(&self) -> RunLoopCounter {
         self.rl2_counters
             .naka_submitted_commit_last_stacks_tip
+            .clone()
+    }
+
+    pub fn get_primary_submitted_commit_last_burn_height(&self) -> RunLoopCounter {
+        self.signer_test
+            .running_nodes
+            .counters
+            .naka_submitted_commit_last_burn_height
+            .clone()
+    }
+
+    pub fn get_secondary_submitted_commit_last_burn_height(&self) -> RunLoopCounter {
+        self.rl2_counters
+            .naka_submitted_commit_last_burn_height
             .clone()
     }
 
@@ -10466,19 +10475,19 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs_scenario() {
 
     scenario![
         test_context,
-        SkipCommitOpSecondaryMiner,
+        SkipCommitOpMiner2,
         BootToEpoch3,
-        SkipCommitOpPrimaryMiner,
+        SkipCommitOpMiner1,
         PauseStacksMining,
         MineBitcoinBlock,
         VerifyMiner1WonSortition,
-        SubmitBlockCommitSecondaryMiner,
+        SubmitBlockCommitMiner2,
         ResumeStacksMining,
-        WaitForBlockFromMiner1,
+        WaitForTenureChangeBlockFromMiner1,
         MineBitcoinBlock,
         VerifyMiner2WonSortition,
         VerifyLastSortitionWinnerReorged,
-        WaitForBlockFromMiner2,
+        WaitForTenureChangeBlockFromMiner2,
         ShutdownMiners
     ]
 }

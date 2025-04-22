@@ -4,6 +4,7 @@ use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 
 use super::context::{SignerTestContext, SignerTestState};
+use crate::tests::neon_integrations::get_chain_info;
 use crate::tests::signer::v0::MultipleMinerTest;
 
 pub struct SendTransferTx {
@@ -22,10 +23,16 @@ impl Command<SignerTestState, SignerTestContext> for SendTransferTx {
         true
     }
 
-    fn apply(&self, _state: &mut SignerTestState) {
+    fn apply(&self, state: &mut SignerTestState) {
         info!("Applying: Sending transfer tx");
 
-        self.miners.lock().unwrap().send_transfer_tx();
+        let (conf_1, _) = self.miners.lock().unwrap().get_node_configs();
+        let stacks_height_before = get_chain_info(&conf_1).stacks_tip_height;
+        let (txid, _) = self.miners.lock().unwrap().send_transfer_tx();
+
+        state
+            .transfer_txs_submitted
+            .push((stacks_height_before, txid));
     }
 
     fn label(&self) -> String {

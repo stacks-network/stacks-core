@@ -43,12 +43,16 @@ impl SignerTestContext {
     }
 }
 
+type StacksHeightBefore = u64;
+type TxId = String;
+
 #[derive(Debug, Default)]
 pub struct SignerTestState {
     pub is_booted_to_nakamoto: bool,
     pub is_primary_miner_skip_commit_op: bool,
     pub is_secondary_miner_skip_commit_op: bool,
     pub mining_stalled: bool,
+    pub transfer_txs_submitted: Vec<(StacksHeightBefore, TxId)>,
 }
 
 impl State for SignerTestState {}

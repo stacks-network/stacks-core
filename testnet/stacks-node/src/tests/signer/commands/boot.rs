@@ -4,7 +4,8 @@ use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 
 use super::context::{SignerTestContext, SignerTestState};
-use crate::tests::signer::v0::{get_chain_info_wrapper, MultipleMinerTest};
+use crate::tests::neon_integrations::get_chain_info;
+use crate::tests::signer::v0::MultipleMinerTest;
 
 pub struct BootToEpoch3 {
     miners: Arc<Mutex<MultipleMinerTest>>,
@@ -31,7 +32,7 @@ impl Command<SignerTestState, SignerTestContext> for BootToEpoch3 {
         self.miners.lock().unwrap().boot_to_epoch_3();
 
         let (conf_1, _) = self.miners.lock().unwrap().get_node_configs();
-        let burn_block_height = get_chain_info_wrapper(&conf_1).burn_block_height;
+        let burn_block_height = get_chain_info(&conf_1).burn_block_height;
 
         assert_eq!(burn_block_height, 231);
 

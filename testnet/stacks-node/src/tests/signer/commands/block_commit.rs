@@ -6,22 +6,24 @@ use proptest::prelude::{Just, Strategy};
 use super::context::{SignerTestContext, SignerTestState};
 use crate::tests::signer::v0::MultipleMinerTest;
 
-pub struct SubmitBlockCommitSecondaryMiner {
+pub struct SubmitBlockCommitMiner2 {
     miners: Arc<Mutex<MultipleMinerTest>>,
 }
 
-impl SubmitBlockCommitSecondaryMiner {
+impl SubmitBlockCommitMiner2 {
     pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
         Self { miners }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitSecondaryMiner {
+impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitMiner2 {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Submitting block commit miner 2. Result: {:?}",
             state.is_secondary_miner_skip_commit_op
         );
+        // Ensure Miner 2's automatic commit ops are paused. If not, this may
+        // result in no commit being submitted.
         state.is_secondary_miner_skip_commit_op
     }
 
@@ -36,34 +38,36 @@ impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitSecondaryM
     }
 
     fn label(&self) -> String {
-        "SUBMIT_BLOCK_COMMIT_SECONDARY_MINER".to_string()
+        "SUBMIT_BLOCK_COMMIT_MINER_2".to_string()
     }
 
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(SubmitBlockCommitSecondaryMiner::new(
+        Just(CommandWrapper::new(SubmitBlockCommitMiner2::new(
             ctx.miners.clone(),
         )))
     }
 }
 
-pub struct SubmitBlockCommitPrimaryMiner {
+pub struct SubmitBlockCommitMiner1 {
     miners: Arc<Mutex<MultipleMinerTest>>,
 }
 
-impl SubmitBlockCommitPrimaryMiner {
+impl SubmitBlockCommitMiner1 {
     pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
         Self { miners }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitPrimaryMiner {
+impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitMiner1 {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Submitting block commit miner 1. Result: {:?}",
             state.is_primary_miner_skip_commit_op
         );
+        // Ensure Miner 1's automatic commit ops are paused. If not, this may
+        // result in no commit being submitted.
         state.is_primary_miner_skip_commit_op
     }
 
@@ -78,13 +82,13 @@ impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitPrimaryMin
     }
 
     fn label(&self) -> String {
-        "SUBMIT_BLOCK_COMMIT_PRIMARY_MINER".to_string()
+        "SUBMIT_BLOCK_COMMIT_MINER_1".to_string()
     }
 
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(SubmitBlockCommitPrimaryMiner::new(
+        Just(CommandWrapper::new(SubmitBlockCommitMiner1::new(
             ctx.miners.clone(),
         )))
     }
