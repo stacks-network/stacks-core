@@ -540,11 +540,9 @@ impl Signer {
             return false;
         };
 
-        if peer_info.stacks_tip_height >= block.header.chain_length.saturating_sub(1) {
-            true
-        } else {
-            false
-        }
+        // if our stacks node has processed block height >= block proposal's parent
+        //  return true
+        peer_info.stacks_tip_height >= block.header.chain_length.saturating_sub(1)
     }
 
     /// Check if block should be rejected based on sortition state
@@ -1533,7 +1531,7 @@ impl Signer {
                     });
                 return;
             } else {
-                debug!("{self}: Cannot confirm that we have processed parent, but we've waiting proposal_wait_for_parent_time, will submit proposal");
+                debug!("{self}: Cannot confirm that we have processed parent, but we've waited proposal_wait_for_parent_time, will submit proposal");
             }
         }
         match stacks_client.submit_block_for_validation(block.clone()) {

@@ -78,7 +78,7 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
     fn has_unprocessed_blocks(&self) -> bool;
     /// Get a reference to the local state machine of the signer
     fn get_local_state_machine(&self) -> &LocalStateMachine;
-    /// Get a reference to the local state machine of the signer
+    /// Get the number of pending block proposals
     fn get_pending_proposals_count(&self) -> u64;
 }
 
