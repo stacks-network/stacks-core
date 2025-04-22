@@ -7,9 +7,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
-### Changed
+### Added
 
 - Added new `ValidateRejectCode` values to the `/v3/block_proposal` endpoint
+
+### Changed
+
 - Reduce the default `block_rejection_timeout_steps` configuration so that miners will retry faster when blocks fail to reach 70% approved or 30% rejected.
 
 ## [3.1.0.0.8]
