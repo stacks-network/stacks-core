@@ -9,7 +9,7 @@ use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready};
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::config::{EventKeyType, EventObserverConfig, InitialBalance};
-use stacks::core::test_util::{make_contract_call, make_stacks_transfer};
+use stacks::core::test_util::{make_contract_call, make_stacks_transfer_serialized};
 use stacks::core::{self, EpochList, STACKS_EPOCH_MAX};
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
@@ -961,7 +961,7 @@ fn pox_2_unlock_all() {
     );
 
     // perform a transfer
-    let tx = make_stacks_transfer(
+    let tx = make_stacks_transfer_serialized(
         &spender_sk,
         5,
         tx_fee,

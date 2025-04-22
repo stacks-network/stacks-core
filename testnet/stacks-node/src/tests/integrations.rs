@@ -28,7 +28,7 @@ use stacks::config::InitialBalance;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::core::test_util::{
     make_contract_call, make_contract_publish, make_sponsored_stacks_transfer_on_testnet,
-    make_stacks_transfer, to_addr,
+    make_stacks_transfer_serialized, to_addr,
 };
 use stacks::core::{
     EpochList, StacksEpoch, StacksEpochId, CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_0,
@@ -336,7 +336,7 @@ fn integration_test_get_info() {
             }
 
             if round >= 1 {
-                let tx_xfer = make_stacks_transfer(
+                let tx_xfer = make_stacks_transfer_serialized(
                     &spender_sk,
                     round - 1,
                     10,
@@ -807,7 +807,7 @@ fn integration_test_get_info() {
                 eprintln!("Test: POST {path} (valid)");
 
                 // tx_xfer is 180 bytes long
-                let tx_xfer = make_stacks_transfer(
+                let tx_xfer = make_stacks_transfer_serialized(
                     &spender_sk,
                     round,
                     200,
@@ -845,7 +845,7 @@ fn integration_test_get_info() {
 
                 // tx_xfer_invalid is 180 bytes long
                 // bad nonce
-                let tx_xfer_invalid = make_stacks_transfer(&spender_sk, round + 30, 200, CHAIN_ID_TESTNET,
+                let tx_xfer_invalid = make_stacks_transfer_serialized(&spender_sk, round + 30, 200, CHAIN_ID_TESTNET,
                                                            &StacksAddress::from_string(ADDR_4).unwrap().into(), 456);
 
                 let tx_xfer_invalid_tx = StacksTransaction::consensus_deserialize(&mut &tx_xfer_invalid[..]).unwrap();
@@ -1126,7 +1126,7 @@ fn contract_stx_transfer() {
 
             if round == 1 {
                 // block-height = 2
-                let xfer_to_contract = make_stacks_transfer(
+                let xfer_to_contract = make_stacks_transfer_serialized(
                     &sk_3,
                     0,
                     10,
@@ -1221,7 +1221,7 @@ fn contract_stx_transfer() {
             } else if round == 4 {
                 // let's testing "chaining": submit MAXIMUM_MEMPOOL_TX_CHAINING - 1 txs, which should succeed
                 for i in 0..MAXIMUM_MEMPOOL_TX_CHAINING {
-                    let xfer_to_contract = make_stacks_transfer(
+                    let xfer_to_contract = make_stacks_transfer_serialized(
                         &sk_3,
                         1 + i,
                         200,
@@ -1247,7 +1247,7 @@ fn contract_stx_transfer() {
                         .unwrap();
                 }
                 // this one should fail because the nonce is already in the mempool
-                let xfer_to_contract = make_stacks_transfer(
+                let xfer_to_contract = make_stacks_transfer_serialized(
                     &sk_3,
                     3,
                     190,
@@ -1480,7 +1480,7 @@ fn mine_transactions_out_of_order() {
 
             if round == 1 {
                 // block-height = 2
-                let xfer_to_contract = make_stacks_transfer(
+                let xfer_to_contract = make_stacks_transfer_serialized(
                     &sk,
                     1,
                     10,
@@ -1517,7 +1517,7 @@ fn mine_transactions_out_of_order() {
                     )
                     .unwrap();
             } else if round == 3 {
-                let xfer_to_contract = make_stacks_transfer(
+                let xfer_to_contract = make_stacks_transfer_serialized(
                     &sk,
                     3,
                     10,
@@ -1538,7 +1538,7 @@ fn mine_transactions_out_of_order() {
                     )
                     .unwrap();
             } else if round == 4 {
-                let xfer_to_contract = make_stacks_transfer(
+                let xfer_to_contract = make_stacks_transfer_serialized(
                     &sk,
                     0,
                     10,
@@ -1745,7 +1745,7 @@ fn bad_contract_tx_rollback() {
 
             if round == 1 {
                 // block-height = 2
-                let xfer_to_contract = make_stacks_transfer(
+                let xfer_to_contract = make_stacks_transfer_serialized(
                     &sk_3,
                     0,
                     10,
@@ -1771,8 +1771,14 @@ fn bad_contract_tx_rollback() {
                     .unwrap();
             } else if round == 2 {
                 // block-height = 3
-                let xfer_to_contract =
-                    make_stacks_transfer(&sk_3, 1, 10, CHAIN_ID_TESTNET, &addr_2.into(), 1000);
+                let xfer_to_contract = make_stacks_transfer_serialized(
+                    &sk_3,
+                    1,
+                    10,
+                    CHAIN_ID_TESTNET,
+                    &addr_2.into(),
+                    1000,
+                );
                 let (consensus_hash, block_hash) = (
                     &tenure.parent_block.metadata.consensus_hash,
                     &tenure.parent_block.metadata.anchored_header.block_hash(),
@@ -1791,8 +1797,14 @@ fn bad_contract_tx_rollback() {
                     .unwrap();
 
                 // doesn't consistently get mined by the StacksBlockBuilder, because order matters!
-                let xfer_to_contract =
-                    make_stacks_transfer(&sk_3, 2, 10, CHAIN_ID_TESTNET, &addr_2.into(), 3000);
+                let xfer_to_contract = make_stacks_transfer_serialized(
+                    &sk_3,
+                    2,
+                    10,
+                    CHAIN_ID_TESTNET,
+                    &addr_2.into(),
+                    3000,
+                );
                 tenure
                     .mem_pool
                     .submit_raw(
@@ -2246,7 +2258,7 @@ fn mempool_errors() {
             if round == 1 {
                 // let's submit an invalid transaction!
                 eprintln!("Test: POST {path} (invalid)");
-                let tx_xfer_invalid = make_stacks_transfer(
+                let tx_xfer_invalid = make_stacks_transfer_serialized(
                     &spender_sk,
                     30, // bad nonce -- too much chaining
                     200,
@@ -2288,7 +2300,7 @@ fn mempool_errors() {
                 assert_eq!(data.get("expected").unwrap().as_i64().unwrap(), 26);
                 assert_eq!(data.get("actual").unwrap().as_i64().unwrap(), 30);
 
-                let tx_xfer_invalid = make_stacks_transfer(
+                let tx_xfer_invalid = make_stacks_transfer_serialized(
                     &spender_sk,
                     0,
                     1, // bad fee
@@ -2322,7 +2334,7 @@ fn mempool_errors() {
                 assert_eq!(data.get("expected").unwrap().as_u64().unwrap(), 180);
                 assert_eq!(data.get("actual").unwrap().as_u64().unwrap(), 1);
 
-                let tx_xfer_invalid = make_stacks_transfer(
+                let tx_xfer_invalid = make_stacks_transfer_serialized(
                     &contract_sk,
                     1,
                     2000, // not enough funds!

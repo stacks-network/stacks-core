@@ -414,6 +414,11 @@ impl RunLoop {
     /// If there's a network error, then assume that we're not a miner.
     fn check_is_miner(&mut self, burnchain: &mut BitcoinRegtestController) -> bool {
         if self.config.node.miner {
+            // If we are mock mining, then we don't need to check for UTXOs and
+            // we can just return true.
+            if self.config.get_node_config(false).mock_mining {
+                return true;
+            }
             let keychain = Keychain::default(self.config.node.seed.clone());
             let mut op_signer = keychain.generate_op_signer();
             if let Err(e) = burnchain.create_wallet_if_dne() {
@@ -453,10 +458,6 @@ impl RunLoop {
                         info!("UTXOs found - will run as a Miner node");
                         return true;
                     }
-                }
-                if self.config.get_node_config(false).mock_mining {
-                    info!("No UTXOs found, but configured to mock mine");
-                    return true;
                 }
                 thread::sleep(std::time::Duration::from_secs(Self::UTXO_RETRY_INTERVAL));
             }

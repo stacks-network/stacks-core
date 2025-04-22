@@ -5,6 +5,7 @@ use clarity::codec::StacksMessageCodec;
 use clarity::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::tests::BurnStateDB;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
@@ -269,7 +270,21 @@ pub fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
     StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sk))
 }
 
-pub fn make_stacks_transfer(
+pub fn make_stacks_transfer_tx(
+    sender: &StacksPrivateKey,
+    nonce: u64,
+    tx_fee: u64,
+    chain_id: u32,
+    recipient: &PrincipalData,
+    amount: u64,
+) -> StacksTransaction {
+    let payload =
+        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
+    sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id)
+}
+
+/// Make a stacks transfer transaction, returning the serialized transaction bytes
+pub fn make_stacks_transfer_serialized(
     sender: &StacksPrivateKey,
     nonce: u64,
     tx_fee: u64,
@@ -277,9 +292,7 @@ pub fn make_stacks_transfer(
     recipient: &PrincipalData,
     amount: u64,
 ) -> Vec<u8> {
-    let payload =
-        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
-    let tx = sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id);
+    let tx = make_stacks_transfer_tx(sender, nonce, tx_fee, chain_id, recipient, amount);
     let mut tx_bytes = vec![];
     tx.consensus_serialize(&mut tx_bytes).unwrap();
     tx_bytes
@@ -511,4 +524,26 @@ pub fn insert_tx_in_mempool(
     db_tx
         .execute(sql, args)
         .expect("Failed to insert transaction into mempool");
+}
+
+/// Generate source code for a contract that exposes a public function
+/// `big-tx`. This function uses `proportion` of read_count when called
+pub fn make_big_read_count_contract(limit: ExecutionCost, proportion: u64) -> String {
+    let read_count = (limit.read_count * proportion) / 100;
+
+    let read_lines = (0..read_count)
+        .map(|_| format!("(var-get my-var)"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    format!(
+        "
+(define-data-var my-var uint u0)
+(define-public (big-tx)
+(begin
+{}
+(ok true)))
+        ",
+        read_lines
+    )
 }
