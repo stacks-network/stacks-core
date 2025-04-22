@@ -589,6 +589,7 @@ struct BlockEvent {
     #[serde(with = "prefix_hex")]
     index_block_hash: StacksBlockId,
     #[serde(with = "prefix_opt_hex")]
+    #[serde(default)]
     signer_signature_hash: Option<Sha512Trunc256Sum>,
     #[serde(with = "prefix_hex")]
     consensus_hash: ConsensusHash,
