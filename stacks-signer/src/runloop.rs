@@ -322,7 +322,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             tenure_idle_timeout_buffer: self.config.tenure_idle_timeout_buffer,
             block_proposal_max_age_secs: self.config.block_proposal_max_age_secs,
             reorg_attempts_activity_timeout: self.config.reorg_attempts_activity_timeout,
-            proposal_wait_time: self.config.proposal_wait_time,
+            proposal_wait_for_parent_time: self.config.proposal_wait_for_parent_time,
         }))
     }
 

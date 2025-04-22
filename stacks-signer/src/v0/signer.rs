@@ -1520,7 +1520,9 @@ impl Signer {
         let signer_signature_hash = block.header.signer_signature_hash();
         if !self.maybe_processed_parent(stacks_client, block) {
             let time_elapsed = get_epoch_time_secs().saturating_sub(added_epoch_time);
-            if Duration::from_secs(time_elapsed) < self.proposal_config.proposal_wait_time {
+            if Duration::from_secs(time_elapsed)
+                < self.proposal_config.proposal_wait_for_parent_time
+            {
                 info!("{self}: Have not processed parent of block proposal yet, inserting pending block validation and will try again later";
                         "signer_signature_hash" => %signer_signature_hash,
                 );
@@ -1531,7 +1533,7 @@ impl Signer {
                     });
                 return;
             } else {
-                debug!("{self}: Cannot confirm that we have processed parent, but we've waiting proposal_wait_time, will submit proposal");
+                debug!("{self}: Cannot confirm that we have processed parent, but we've waiting proposal_wait_for_parent_time, will submit proposal");
             }
         }
         match stacks_client.submit_block_for_validation(block.clone()) {

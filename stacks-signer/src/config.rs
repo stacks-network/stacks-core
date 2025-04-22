@@ -48,7 +48,7 @@ const DEFAULT_TENURE_IDLE_TIMEOUT_BUFFER_SECS: u64 = 2;
 /// Default time (in ms) to wait before submitting a proposal if we
 ///  cannot determine that our stacks-node has processed the parent
 ///  block
-const DEFAULT_PROPOSAL_WAIT_TIME_MS: u64 = 15_000;
+const DEFAULT_PROPOSAL_WAIT_TIME_FOR_PARENT_SECS: u64 = 15;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -181,7 +181,7 @@ pub struct SignerConfig {
     pub signer_mode: SignerConfigMode,
     /// Time to wait before submitting a block proposal to the stacks-node if we cannot
     ///  determine that the stacks-node has processed the parent
-    pub proposal_wait_time: Duration,
+    pub proposal_wait_for_parent_time: Duration,
 }
 
 /// The parsed configuration for the signer
@@ -230,7 +230,7 @@ pub struct GlobalConfig {
     pub reorg_attempts_activity_timeout: Duration,
     /// Time to wait before submitting a block proposal to the stacks-node if we cannot
     ///  determine that the stacks-node has processed the parent
-    pub proposal_wait_time: Duration,
+    pub proposal_wait_for_parent_time: Duration,
     /// Is this signer binary going to be running in dry-run mode?
     pub dry_run: bool,
 }
@@ -279,7 +279,7 @@ struct RawConfigFile {
     /// to reorg the block as valid towards miner activity
     pub reorg_attempts_activity_timeout_ms: Option<u64>,
     /// Time to wait (in millisecs) before submitting a block proposal to the stacks-node
-    pub proposal_wait_time_ms: Option<u64>,
+    pub proposal_wait_for_parent_time_secs: Option<u64>,
     /// Is this signer binary going to be running in dry-run mode?
     pub dry_run: Option<bool>,
 }
@@ -397,10 +397,10 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(DEFAULT_TENURE_IDLE_TIMEOUT_BUFFER_SECS),
         );
 
-        let proposal_wait_time = Duration::from_millis(
+        let proposal_wait_for_parent_time = Duration::from_secs(
             raw_data
-                .proposal_wait_time_ms
-                .unwrap_or(DEFAULT_PROPOSAL_WAIT_TIME_MS),
+                .proposal_wait_for_parent_time_secs
+                .unwrap_or(DEFAULT_PROPOSAL_WAIT_TIME_FOR_PARENT_SECS),
         );
 
         Ok(Self {
@@ -423,7 +423,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             reorg_attempts_activity_timeout,
             dry_run,
             tenure_idle_timeout_buffer,
-            proposal_wait_time,
+            proposal_wait_for_parent_time,
         })
     }
 }

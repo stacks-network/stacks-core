@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [3.1.0.0.8.1]
+
+### Added
+
+- The signer will now check if their associated stacks-node has processed the parent block for a block proposal before submitting that block proposal. If it cannot confirm that the parent block has been processed, it waits a default time of 15s, configurable via `proposal_wait_for_parent_time_secs` in the signer config.toml.
+
 ## [3.1.0.0.8.0]
 
 ### Changed

@@ -91,7 +91,7 @@ fn setup_test_environment(
             tenure_idle_timeout: Duration::from_secs(300),
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(3),
-            proposal_wait_time: Duration::from_secs(0),
+            proposal_wait_for_parent_time: Duration::from_secs(0),
         },
     };
 
