@@ -51,6 +51,7 @@ http-types = "2.12"
 tempfile = "3.3"
 mockito = "1.5"
 serial_test = "3.2.0"
+pinny = { git = "https://github.com/BitcoinL2-Labs/pinny-rs.git", rev = "0a1bf618849ceb1b965bccccebb64e44cf4b3017" } #v0.0.1
 
 [[bin]]
 name = "stacks-node"
@@ -66,3 +67,6 @@ slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []
 testing = []
+
+[package.metadata.pinny] 
+allowed = ["fast", "slow", "signer", "bitcoind"]

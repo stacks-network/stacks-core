@@ -29,6 +29,7 @@ use libsigner::v0::messages::{
 use libsigner::{
     BlockProposal, BlockProposalData, SignerSession, StackerDBSession, VERSION_STRING,
 };
+use pinny::tag;
 use rand::{thread_rng, Rng};
 use rusqlite::Connection;
 use stacks::address::AddressHashMode;
@@ -1434,6 +1435,7 @@ pub fn wait_for_state_machine_update(
     })
 }
 
+#[tag(fast, signer, bitcoind)]
 #[test]
 #[ignore]
 /// Test that a signer can respond to an invalid block proposal
