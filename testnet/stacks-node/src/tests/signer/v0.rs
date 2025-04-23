@@ -12352,8 +12352,20 @@ fn repeated_rejection() {
     let send_amt = 100;
     let send_fee = 180;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let mut signer_test: SignerTest<SpawnedSigner> =
-        SignerTest::new(num_signers, vec![(sender_addr, (send_amt + send_fee) * 3)]);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr, (send_amt + send_fee) * 3)],
+        |_| {},
+        |config| {
+            config.miner.block_rejection_timeout_steps.clear();
+            config
+                .miner
+                .block_rejection_timeout_steps
+                .insert(0, Duration::from_secs(120));
+        },
+        None,
+        None,
+    );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
     signer_test.boot_to_epoch_3();
 
