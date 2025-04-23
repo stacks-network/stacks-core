@@ -2873,7 +2873,6 @@ fn tx_replay_forking_test() {
     for state in signer_states {
         match state {
             LocalStateMachine::Initialized(signer_state_machine) => {
-                assert!(signer_state_machine.tx_replay_state);
                 let Some(tx_replay_set) = signer_state_machine.tx_replay_set else {
                     panic!(
                         "Signer state machine is in tx replay state, but tx replay set is not set"

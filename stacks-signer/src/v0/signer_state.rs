@@ -151,7 +151,6 @@ impl GlobalStateEvaluator {
                 burn_block_height: *burn_block_height,
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
-                tx_replay_state: false,
                 tx_replay_set: None,
             };
             let entry = state_views
@@ -249,9 +248,6 @@ pub struct SignerStateMachine {
     pub current_miner: MinerState,
     /// The active signing protocol version
     pub active_signer_protocol_version: u64,
-    /// Whether or not we're in a tx replay state
-    /// TODO: just a placeholder for now
-    pub tx_replay_state: bool,
     /// Transaction replay set
     pub tx_replay_set: Option<Vec<StacksTransaction>>,
 }
@@ -392,7 +388,6 @@ impl LocalStateMachine {
             burn_block_height: 0,
             current_miner: MinerState::NoValidMiner,
             active_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
-            tx_replay_state: false,
             tx_replay_set: None,
         }
     }
@@ -689,18 +684,6 @@ impl LocalStateMachine {
         proposal_config: &ProposalEvalConfig,
         mut expected_burn_block: Option<NewBurnBlock>,
     ) -> Result<(), SignerChainstateError> {
-        // TODO: test only, remove
-        match expected_burn_block.clone() {
-            Some(expected_burn_block) => {
-                if expected_burn_block.burn_block_height > 230 {
-                    info!(
-                        "---- bitcoin_block_arrival {} {} ----",
-                        expected_burn_block.burn_block_height, expected_burn_block.consensus_hash
-                    );
-                }
-            }
-            None => {}
-        }
         // set self to uninitialized so that if this function errors,
         //  self is left as uninitialized.
         let prior_state = std::mem::replace(self, Self::Uninitialized);
@@ -733,7 +716,6 @@ impl LocalStateMachine {
         let peer_info = client.get_peer_info()?;
         let next_burn_block_height = peer_info.burn_block_height;
         let next_burn_block_hash = peer_info.pox_consensus;
-        let mut fork_detected = prior_state_machine.tx_replay_state;
         let mut tx_replay_set = prior_state_machine.tx_replay_set.clone();
 
         if let Some(expected_burn_block) = expected_burn_block {
@@ -758,8 +740,7 @@ impl LocalStateMachine {
                 // TODO: handle fork while still in replay
                 && tx_replay_set.is_none()
             {
-                fork_detected = true;
-                info!("---- Signer State: Possible fork! ----";
+                info!("Signer State: fork detected";
                     "expected_burn_block.height" => expected_burn_block.burn_block_height,
                     "expected_burn_block.hash" => %expected_burn_block.consensus_hash,
                     "next_burn_block_height" => next_burn_block_height,
@@ -851,7 +832,6 @@ impl LocalStateMachine {
             burn_block_height: next_burn_block_height,
             current_miner: miner_state,
             active_signer_protocol_version: prior_state_machine.active_signer_protocol_version,
-            tx_replay_state: fork_detected,
             tx_replay_set,
         });
 
@@ -897,7 +877,6 @@ impl LocalStateMachine {
                 burn_block_height: *burn_block_height,
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
-                tx_replay_state: false,
                 tx_replay_set: None,
             });
             // Because we updated our active signer protocol version, update local_update so its included in the subsequent evaluations
@@ -931,7 +910,6 @@ impl LocalStateMachine {
                 burn_block_height,
                 current_miner: (&new_miner).into(),
                 active_signer_protocol_version,
-                tx_replay_state: false,
                 tx_replay_set: None,
             });
         }
