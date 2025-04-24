@@ -51,7 +51,7 @@ http-types = "2.12"
 tempfile = "3.3"
 mockito = "1.5"
 serial_test = "3.2.0"
-pinny = { git = "https://github.com/BitcoinL2-Labs/pinny-rs.git", rev = "0a1bf618849ceb1b965bccccebb64e44cf4b3017" } #v0.0.1
+pinny = { git = "https://github.com/BitcoinL2-Labs/pinny-rs.git", rev = "bf3a985b877adbd062513ff93f880adc6fa6443d" } #v0.0.2
 
 [[bin]]
 name = "stacks-node"
