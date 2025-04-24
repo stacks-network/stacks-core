@@ -2204,8 +2204,8 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
 name = "pinny"
-version = "0.0.1"
-source = "git+https://github.com/BitcoinL2-Labs/pinny-rs.git?rev=bf3a985b877adbd062513ff93f880adc6fa6443d#bf3a985b877adbd062513ff93f880adc6fa6443d"
+version = "0.0.2"
+source = "git+https://github.com/BitcoinL2-Labs/pinny-rs.git?rev=54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49#54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49"
 dependencies = [
  "proc-macro2",
  "quote",
