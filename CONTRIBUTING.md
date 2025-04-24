@@ -361,16 +361,23 @@ A non-exhaustive list of examples of consensus-critical changes include:
 
 - Every consensus-critical change needs an integration test to verify that the feature activates only when the hard fork activates.
 
-PRs must include test coverage. However, if your PR includes large tests or tests which cannot run in parallel
+- PRs must include test coverage. However, if your PR includes large tests or tests which cannot run in parallel
 (which is the default operation of the `cargo test` command), these tests should be decorated with `#[ignore]`.
-
 A test should be marked `#[ignore]` if:
 
-1. It does not _always_ pass `cargo test` in a vanilla environment
+  1. It does not _always_ pass `cargo test` in a vanilla environment
    (i.e., it does not need to run with `--test-threads 1`).
 
-2. Or, it runs for over a minute via a normal `cargo test` execution
+  2. Or, it runs for over a minute via a normal `cargo test` execution
    (the `cargo test` command will warn if this is not the case).
+
+- Integration tests need to be properly tagged using [pinny-rs](https://github.com/BitcoinL2-Labs/pinny-rs/) crate. Tagging require two fundamental steps:
+  1. Define allowed tags in the package `Cargo.toml` file.
+  2. Use relevant tags for tests, picking from the allowd once
+  
+  Then will be possible to run test with filtering based on the tags using `cargo test` and `cargo nextest` runner.
+  
+  For more information and examples on how tagging works, refer to the [pinny-rs](https://github.com/BitcoinL2-Labs/pinny-rs/) readme.
 
 ## Formatting
 
