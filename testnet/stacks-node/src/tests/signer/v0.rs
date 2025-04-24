@@ -29,7 +29,9 @@ use libsigner::v0::messages::{
 use libsigner::{
     BlockProposal, BlockProposalData, SignerSession, StackerDBSession, VERSION_STRING,
 };
+use madhouse::{execute_commands, prop_allof, scenario, Command};
 use pinny::tag;
+use proptest::prelude::Strategy;
 use rand::{thread_rng, Rng};
 use rusqlite::Connection;
 use stacks::address::AddressHashMode;
@@ -95,7 +97,7 @@ use crate::nakamoto_node::miner::{
     TEST_P2P_BROADCAST_STALL,
 };
 use crate::nakamoto_node::stackerdb_listener::TEST_IGNORE_SIGNERS;
-use crate::neon::Counters;
+use crate::neon::{Counters, RunLoopCounter};
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
     boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, next_block_and_controller,
@@ -106,8 +108,13 @@ use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, get_sortition_info, get_sortition_info_ch,
     next_block_and_wait, run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer,
 };
+use crate::tests::signer::commands::*;
 use crate::tests::{self, gen_random_port};
 use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
+
+pub fn test_mine_stall_set(value: bool) {
+    TEST_MINE_STALL.set(value)
+}
 
 impl SignerTest<SpawnedSigner> {
     /// Run the test until the first epoch 2.5 reward cycle.
@@ -618,6 +625,46 @@ impl MultipleMinerTest {
         }
     }
 
+    pub fn get_primary_skip_commit_flag(&self) -> stacks::util::tests::TestFlag<bool> {
+        self.signer_test
+            .running_nodes
+            .counters
+            .naka_skip_commit_op
+            .clone()
+    }
+
+    pub fn get_secondary_skip_commit_flag(&self) -> stacks::util::tests::TestFlag<bool> {
+        self.rl2_counters.naka_skip_commit_op.clone()
+    }
+
+    pub fn get_primary_last_stacks_tip_counter(&self) -> RunLoopCounter {
+        self.signer_test
+            .running_nodes
+            .counters
+            .naka_submitted_commit_last_stacks_tip
+            .clone()
+    }
+
+    pub fn get_secondary_last_stacks_tip_counter(&self) -> RunLoopCounter {
+        self.rl2_counters
+            .naka_submitted_commit_last_stacks_tip
+            .clone()
+    }
+
+    pub fn get_primary_submitted_commit_last_burn_height(&self) -> RunLoopCounter {
+        self.signer_test
+            .running_nodes
+            .counters
+            .naka_submitted_commit_last_burn_height
+            .clone()
+    }
+
+    pub fn get_secondary_submitted_commit_last_burn_height(&self) -> RunLoopCounter {
+        self.rl2_counters
+            .naka_submitted_commit_last_burn_height
+            .clone()
+    }
+
     /// Boot node 1 to epoch 3.0 and wait for node 2 to catch up.
     pub fn boot_to_epoch_3(&mut self) {
         info!(
@@ -1020,6 +1067,12 @@ impl MultipleMinerTest {
         })
         .expect("Timed out waiting for boostrapped node to catch up to the miner");
     }
+
+    pub fn assert_last_sortition_winner_reorged(&self) {
+        let (conf_1, _) = self.get_node_configs();
+        let latest_sortition = get_sortition_info(&conf_1);
+        assert!(latest_sortition.stacks_parent_ch != latest_sortition.last_sortition_ch);
+    }
 }
 
 /// Returns whether the last block in the test observer contains a tenure change
@@ -1063,7 +1116,7 @@ fn verify_last_block_contains_tenure_change_tx(cause: TenureChangeCause) {
 }
 
 /// Verifies that the tip of the sortition database was won by the provided miner public key hash
-fn verify_sortition_winner(sortdb: &SortitionDB, miner_pkh: &Hash160) {
+pub fn verify_sortition_winner(sortdb: &SortitionDB, miner_pkh: &Hash160) {
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     assert!(tip.sortition);
     assert_eq!(&tip.miner_pk_hash.unwrap(), miner_pkh);
@@ -1162,7 +1215,7 @@ fn wait_for_block_pushed(
 }
 
 /// Waits for a block with the provided expected height to be proposed and pushed by the miner with the provided public key.
-fn wait_for_block_pushed_by_miner_key(
+pub fn wait_for_block_pushed_by_miner_key(
     timeout_secs: u64,
     expected_height: u64,
     miner_key: &StacksPublicKey,
@@ -10409,6 +10462,37 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     assert_eq!(peer_info.stacks_tip, miner_1_block_n_3.header.block_hash());
 
     miners.shutdown();
+}
+
+#[test]
+#[ignore]
+fn allow_reorg_within_first_proposal_burn_block_timing_secs_scenario() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let num_transfer_txs = 3;
+
+    let test_context = Arc::new(SignerTestContext::new(num_signers, num_transfer_txs));
+
+    scenario![
+        test_context,
+        SkipCommitOpMiner2,
+        BootToEpoch3,
+        SkipCommitOpMiner1,
+        PauseStacksMining,
+        MineBitcoinBlock,
+        VerifyMiner1WonSortition,
+        SubmitBlockCommitMiner2,
+        ResumeStacksMining,
+        WaitForTenureChangeBlockFromMiner1,
+        MineBitcoinBlock,
+        VerifyMiner2WonSortition,
+        VerifyLastSortitionWinnerReorged,
+        WaitForTenureChangeBlockFromMiner2,
+        ShutdownMiners
+    ]
 }
 
 /// Test a scenario where:
