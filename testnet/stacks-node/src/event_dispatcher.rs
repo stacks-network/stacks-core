@@ -626,7 +626,7 @@ impl EventObserver {
                         ..
                     })
                 ) {
-                    unreachable!("Unexpexted transaction result type");
+                    unreachable!("Unexpected transaction result type");
                 }
                 STATUS_RESP_TRUE
             }
