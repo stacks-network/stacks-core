@@ -14,13 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::io::{ErrorKind, Write};
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
+use std::sync::{Arc, LazyLock, Mutex};
 use std::{cmp, fmt, fs};
 
+use clarity::util::lru_cache::LruCache;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::representations::{ClarityName, ContractName};
@@ -94,6 +97,9 @@ pub const REWARD_WINDOW_START: u64 = 144 * 15;
 pub const REWARD_WINDOW_END: u64 = 144 * 90 + REWARD_WINDOW_START;
 
 pub type BlockHeaderCache = HashMap<ConsensusHash, (Option<BlockHeaderHash>, ConsensusHash)>;
+
+static DESCENDANCY_CACHE: LazyLock<Arc<Mutex<LruCache<(SortitionId, BlockHeaderHash), bool>>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(LruCache::new(2000))));
 
 pub enum FindIter<R> {
     Found(R),
@@ -1112,12 +1118,46 @@ pub trait SortitionHandle {
                 test_debug!("No snapshot at height {}", block_at_burn_height);
                 db_error::NotFoundError
             })?;
+        let top_sortition_id = sn.sortition_id;
+
+        let mut cache = DESCENDANCY_CACHE
+            .lock()
+            .expect("FATAL: lock poisoned in SortitionDB");
 
         while sn.block_height >= earliest_block_height {
+            match cache.get(&(sn.sortition_id, potential_ancestor.clone())) {
+                Ok(Some(result)) => {
+                    if sn.sortition_id != top_sortition_id {
+                        if let Err(_) = cache
+                            .insert_clean((top_sortition_id, potential_ancestor.clone()), result)
+                        {
+                            *cache = LruCache::new(2000);
+                        }
+                    }
+                    return Ok(result);
+                }
+                // not cached, don't need to do anything.
+                Ok(None) => {}
+                // cache is broken, create a new one
+                Err(_) => {
+                    *cache = LruCache::new(2000);
+                }
+            }
+
             if !sn.sortition {
+                if let Err(_) =
+                    cache.insert_clean((top_sortition_id, potential_ancestor.clone()), false)
+                {
+                    *cache = LruCache::new(2000);
+                }
                 return Ok(false);
             }
             if &sn.winning_stacks_block_hash == potential_ancestor {
+                if let Err(_) =
+                    cache.insert_clean((top_sortition_id, potential_ancestor.clone()), true)
+                {
+                    *cache = LruCache::new(2000);
+                }
                 return Ok(true);
             }
 
@@ -1152,6 +1192,9 @@ pub trait SortitionHandle {
                         .ok_or_else(|| db_error::NotFoundError)?;
                 }
             }
+        }
+        if let Err(_) = cache.insert_clean((top_sortition_id, potential_ancestor.clone()), false) {
+            *cache = LruCache::new(2000);
         }
         return Ok(false);
     }
