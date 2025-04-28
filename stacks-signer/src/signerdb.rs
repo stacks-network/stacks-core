@@ -72,6 +72,34 @@ impl StacksMessageCodec for NakamotoBlockVote {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+/// Struct for storing information about a burn block
+pub struct BurnBlockInfo {
+    /// The hash of the burn block
+    pub block_hash: BurnchainHeaderHash,
+    /// The height of the burn block
+    pub block_height: u64,
+    /// The consensus hash of the burn block
+    pub consensus_hash: ConsensusHash,
+    /// The hash of the parent burn block
+    pub parent_burn_block_hash: BurnchainHeaderHash,
+}
+
+impl FromRow<BurnBlockInfo> for BurnBlockInfo {
+    fn from_row(row: &rusqlite::Row) -> Result<Self, DBError> {
+        let block_hash: BurnchainHeaderHash = row.get(0)?;
+        let block_height: u64 = row.get(1)?;
+        let consensus_hash: ConsensusHash = row.get(2)?;
+        let parent_burn_block_hash: BurnchainHeaderHash = row.get(3)?;
+        Ok(BurnBlockInfo {
+            block_hash,
+            block_height,
+            consensus_hash,
+            parent_burn_block_hash,
+        })
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
 /// Store extra version-specific info in `BlockInfo`
 pub enum ExtraBlockInfo {
@@ -1066,6 +1094,26 @@ impl SignerDb {
             DBError::Corruption
         })?;
         Ok(Some(receive_time))
+    }
+
+    /// Lookup the burn block for a given burn block hash.
+    pub fn get_burn_block_by_hash(
+        &self,
+        burn_block_hash: &BurnchainHeaderHash,
+    ) -> Result<BurnBlockInfo, DBError> {
+        let query =
+            "SELECT block_hash, block_height, consensus_hash, parent_burn_block_hash FROM burn_blocks WHERE block_hash = ?";
+        let args = params![burn_block_hash];
+
+        query_row(&self.db, query, args)?.ok_or(DBError::NotFoundError)
+    }
+
+    /// Lookup the burn block for a given consensus hash.
+    pub fn get_burn_block_by_ch(&self, ch: &ConsensusHash) -> Result<BurnBlockInfo, DBError> {
+        let query = "SELECT block_hash, block_height, consensus_hash, parent_burn_block_hash FROM burn_blocks WHERE consensus_hash = ?";
+        let args = params![ch];
+
+        query_row(&self.db, query, args)?.ok_or(DBError::NotFoundError)
     }
 
     /// Insert or replace a block into the database.

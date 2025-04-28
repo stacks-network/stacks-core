@@ -749,24 +749,22 @@ impl LocalStateMachine {
                     "prior_state_machine.burn_block" => %prior_state_machine.burn_block,
                 );
                 // Determine the tenures that were forked
-                let mut sortition_info =
-                    client.get_sortition_by_consensus_hash(&prior_state_machine.burn_block)?;
+                let mut parent_burn_block_info =
+                    db.get_burn_block_by_ch(&prior_state_machine.burn_block)?;
                 let last_forked_tenure = prior_state_machine.burn_block;
                 let mut first_forked_tenure = prior_state_machine.burn_block;
                 let mut forked_tenures = vec![(
                     prior_state_machine.burn_block,
                     prior_state_machine.burn_block_height,
                 )];
-                while sortition_info.burn_block_height > expected_burn_block.burn_block_height {
-                    let Some(stacks_parent_ch) = sortition_info.stacks_parent_ch else {
-                        info!("No stacks parent ch found for sortition info";
-                            "sortition_info" => ?sortition_info,
-                        );
-                        break;
-                    };
-                    sortition_info = client.get_sortition_by_consensus_hash(&stacks_parent_ch)?;
-                    first_forked_tenure = sortition_info.consensus_hash;
-                    forked_tenures.push((stacks_parent_ch, sortition_info.burn_block_height));
+                while parent_burn_block_info.block_height > expected_burn_block.burn_block_height {
+                    parent_burn_block_info =
+                        db.get_burn_block_by_hash(&parent_burn_block_info.parent_burn_block_hash)?;
+                    first_forked_tenure = parent_burn_block_info.consensus_hash;
+                    forked_tenures.push((
+                        parent_burn_block_info.consensus_hash,
+                        parent_burn_block_info.block_height,
+                    ));
                 }
                 let fork_info =
                     client.get_tenure_forking_info(&first_forked_tenure, &last_forked_tenure)?;
