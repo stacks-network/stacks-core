@@ -41,7 +41,9 @@ use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoC
 use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
-use stacks::chainstate::stacks::miner::{TransactionEvent, TransactionSuccessEvent};
+use stacks::chainstate::stacks::miner::{
+    TransactionEvent, TransactionSuccessEvent, TEST_EXCLUDE_REPLAY_TXS,
+};
 use stacks::chainstate::stacks::{StacksTransaction, TenureChangeCause, TransactionPayload};
 use stacks::codec::StacksMessageCodec;
 use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig};
@@ -1394,11 +1396,19 @@ pub fn wait_for_state_machine_update(
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
-            let StateMachineUpdateContent::V0 {
-                burn_block,
-                burn_block_height,
-                current_miner,
-            } = &update.content;
+            let (burn_block, burn_block_height, current_miner) = match &update.content {
+                StateMachineUpdateContent::V0 {
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                }
+                | StateMachineUpdateContent::V1 {
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    ..
+                } => (burn_block, burn_block_height, current_miner),
+            };
             if *burn_block_height != expected_burn_block_height || burn_block != expected_burn_block
             {
                 continue;
@@ -2666,6 +2676,8 @@ fn bitcoind_forking_test() {
 #[ignore]
 /// Trigger a Bitcoin fork and ensure that the signer
 /// both detects the fork and moves into a tx replay state
+/// and causes the miner to mine the appropriate list of
+/// transactions in the subsequent blocks
 ///
 /// The test flow is:
 ///
@@ -2675,6 +2687,14 @@ fn bitcoind_forking_test() {
 /// - Verify that the signer moves into tx replay state
 /// - Verify that the signer correctly includes the stx transfer
 ///   in the tx replay set
+/// - Force the miner to ignore replay transactions and attempt
+///   to mine a regular block
+/// - Verify the signers reject this proposed block due to it
+///   missing the replay transactions
+/// - Allow the miner to consider the replay transactions
+/// - Verify the miner correctly constructs a block containing the
+///   tx replay set
+/// - Verify the signers approve subsequent blocks
 fn tx_replay_forking_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -2683,11 +2703,16 @@ fn tx_replay_forking_test() {
     let num_signers = 5;
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
+    let sender_sk2 = Secp256k1PrivateKey::random();
+    let sender_addr2 = tests::to_addr(&sender_sk2);
     let send_amt = 100;
     let send_fee = 180;
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, send_amt + send_fee)],
+        vec![
+            (sender_addr, send_amt + send_fee),
+            (sender_addr2, send_amt + send_fee),
+        ],
         |_| {},
         |node_config| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
@@ -2709,6 +2734,8 @@ fn tx_replay_forking_test() {
         .unwrap()
         .unwrap();
 
+    let stacks_miner_pk =
+        StacksPublicKey::from_private(&signer_test.running_nodes.conf.miner.mining_key.unwrap());
     let get_unconfirmed_commit_data = |btc_controller: &mut BitcoinRegtestController| {
         let unconfirmed_utxo = btc_controller
             .get_all_utxos(&miner_pk)
@@ -2891,7 +2918,99 @@ fn tx_replay_forking_test() {
     // We should have forked 1 tx
     assert_eq!(post_fork_1_nonce, pre_fork_1_nonce - 1);
 
+    let tip_after_fork = get_chain_info(&signer_test.running_nodes.conf);
+    let stacks_height_before = tip_after_fork.stacks_tip_height;
+
+    // Make sure the miner skips replay transactions in its considerations
+    TEST_EXCLUDE_REPLAY_TXS.set(true);
+    let (txid_2, _) = signer_test
+        .submit_transfer_tx(&sender_sk2, send_fee, send_amt)
+        .unwrap();
+    test_observer::clear();
+    std::thread::sleep(Duration::from_secs(30));
     TEST_MINE_STALL.set(false);
+    // First we will get the tenure change block. It shouldn't contain our two transfer transactions.
+    info!(
+        "---- Waiting for block pushed at height: {:?} ----",
+        stacks_height_before + 1
+    );
+    // This block will just be the tenure change block which signers will approve without issue.
+    let block = wait_for_block_pushed_by_miner_key(60, stacks_height_before + 1, &stacks_miner_pk)
+        .expect("Timed out waiting for block pushed after fork");
+    assert!(!block.txs.iter().any(|tx| tx.txid().to_string() == txid));
+    assert!(!block.txs.iter().any(|tx| tx.txid().to_string() == txid_2));
+    info!(
+        "---- Wait for block proposal at stacks block height {} ----",
+        stacks_height_before + 2
+    );
+    // Next the signers will attempt to propose a block that does not contain the necessary replay tx and signers will reject it
+    let rejected_block = wait_for_block_proposal(30, stacks_height_before + 2, &stacks_miner_pk)
+        .expect("Timed out waiting for block pushed after fork");
+    assert!(!rejected_block
+        .txs
+        .iter()
+        .any(|tx| tx.txid().to_string() == txid));
+    assert!(rejected_block
+        .txs
+        .iter()
+        .any(|tx| tx.txid().to_string() == txid_2));
+    info!(
+        "---- Ensure signers reject block {} due to an invalid transaction replay ----",
+        rejected_block.header.signer_signature_hash()
+    );
+    wait_for_block_global_rejection_with_reject_reason(
+        30,
+        rejected_block.header.signer_signature_hash(),
+        num_signers,
+        RejectReason::ValidationFailed(ValidateRejectCode::InvalidTransactionReplay),
+    )
+    .expect("Timed out waiting for global block rejection due to invalid transaction replay");
+    TEST_EXCLUDE_REPLAY_TXS.set(false);
+    info!(
+        "---- Wait for block pushed at stacks block height {} ----",
+        stacks_height_before + 2
+    );
+    let mut block = None;
+    wait_for(30, || {
+        let chunks = test_observer::get_stackerdb_chunks();
+        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
+            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+            else {
+                continue;
+            };
+            if let SignerMessage::BlockPushed(pushed_block) = message {
+                if pushed_block.header.signer_signature_hash()
+                    != rejected_block.header.signer_signature_hash()
+                    && pushed_block.header.chain_length == stacks_height_before + 2
+                {
+                    block = Some(pushed_block);
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    })
+    .expect("Timed out waiting for pushed block after fork");
+    let accepted_block = block.expect("No block found");
+    info!(
+        "---- Ensure signers accept block at height {:?} with a valid transaction replay ----",
+        stacks_height_before + 2
+    );
+    assert!(accepted_block
+        .txs
+        .iter()
+        .any(|tx| tx.txid().to_string() == txid));
+    assert!(!accepted_block
+        .txs
+        .iter()
+        .any(|tx| tx.txid().to_string() == txid_2));
+    info!(
+        "---- Ensure signers accept block at height {:?} with submitted tx ----",
+        stacks_height_before + 3
+    );
+    let block = wait_for_block_pushed_by_miner_key(30, stacks_height_before + 3, &stacks_miner_pk)
+        .expect("Timed out waiting for a block pushed after fork");
+    assert!(block.txs.iter().any(|tx| tx.txid().to_string() == txid_2));
 
     signer_test.shutdown();
 }

@@ -541,6 +541,7 @@ impl NakamotoBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         signer_bitvec_len: u16,
+        replay_transactions: &[StacksTransaction],
     ) -> Result<BlockMetadata, Error> {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
@@ -622,6 +623,7 @@ impl NakamotoBlockBuilder {
             settings,
             event_observer,
             ASTRules::PrecheckSize,
+            replay_transactions,
         ) {
             Ok(x) => x,
             Err(e) => {

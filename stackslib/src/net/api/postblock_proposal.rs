@@ -565,79 +565,89 @@ impl NakamotoBlockProposal {
         for (i, tx) in self.block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
 
-            // If a list of replay transactions is set, this transaction must be the next
-            // mineable transaction from this list.
-            if let Some(ref mut replay_txs) = replay_txs_maybe {
-                loop {
-                    let Some(replay_tx) = replay_txs.pop_front() else {
-                        // During transaction replay, we expect that the block only
-                        // contains transactions from the replay set. Thus, if we're here,
-                        // the block contains a transaction that is not in the replay set,
-                        // and we should reject the block.
-                        return Err(BlockValidateRejectReason {
-                            reason_code: ValidateRejectCode::InvalidTransactionReplay,
-                            reason: "Transaction is not in the replay set".into(),
-                        });
-                    };
-                    if replay_tx.txid() == tx.txid() {
-                        break;
-                    }
-
-                    // The included tx doesn't match the next tx in the
-                    // replay set. Check to see if the tx is skipped because
-                    // it was unmineable.
-                    let tx_result = builder.try_mine_tx_with_len(
-                        &mut tenure_tx,
-                        &replay_tx,
-                        replay_tx.tx_len(),
-                        &BlockLimitFunction::NO_LIMIT_HIT,
-                        ASTRules::PrecheckSize,
-                        None,
-                    );
-                    match tx_result {
-                        TransactionResult::Skipped(TransactionSkipped { error, .. })
-                        | TransactionResult::ProcessingError(TransactionError { error, .. })
-                        | TransactionResult::Problematic(TransactionProblematic {
-                            error, ..
-                        }) => {
-                            // The tx wasn't able to be mined. Check the underlying error, to
-                            // see if we should reject the block or allow the tx to be
-                            // dropped from the replay set.
-
-                            match error {
-                                ChainError::CostOverflowError(..)
-                                | ChainError::BlockTooBigError
-                                | ChainError::ClarityError(ClarityError::CostError(..)) => {
-                                    // block limit reached; add tx back to replay set.
-                                    // BUT we know that the block should have ended at this point, so
-                                    // return an error.
-                                    let txid = replay_tx.txid();
-                                    replay_txs.push_front(replay_tx);
-
-                                    warn!("Rejecting block proposal. Next replay tx exceeds cost limits, so should have been in the next block.";
-                                        "error" => %error,
-                                        "txid" => %txid,
-                                    );
-
-                                    return Err(BlockValidateRejectReason {
-                                        reason_code: ValidateRejectCode::InvalidTransactionReplay,
-                                        reason: "Transaction is not in the replay set".into(),
-                                    });
-                                }
-                                _ => {
-                                    // it's ok, drop it
-                                    continue;
-                                }
-                            }
-                        }
-                        TransactionResult::Success(_) => {
-                            // Tx should have been included
+            // We should only care about the reply txs if this is not a tenure change block. We allow those.
+            if self.block.txs.len() > 2
+                || tenure_change.is_none()
+                || (self.block.txs.len() > 1 && coinbase.is_none())
+            {
+                // If a list of replay transactions is set, this transaction must be the next
+                // mineable transaction from this list.
+                if let Some(ref mut replay_txs) = replay_txs_maybe {
+                    loop {
+                        let Some(replay_tx) = replay_txs.pop_front() else {
+                            // During transaction replay, we expect that the block only
+                            // contains transactions from the replay set. Thus, if we're here,
+                            // the block contains a transaction that is not in the replay set,
+                            // and we should reject the block.
                             return Err(BlockValidateRejectReason {
                                 reason_code: ValidateRejectCode::InvalidTransactionReplay,
                                 reason: "Transaction is not in the replay set".into(),
                             });
+                        };
+                        if replay_tx.txid() == tx.txid() {
+                            break;
                         }
-                    };
+
+                        // The included tx doesn't match the next tx in the
+                        // replay set. Check to see if the tx is skipped because
+                        // it was unmineable.
+                        let tx_result = builder.try_mine_tx_with_len(
+                            &mut tenure_tx,
+                            &replay_tx,
+                            replay_tx.tx_len(),
+                            &BlockLimitFunction::NO_LIMIT_HIT,
+                            ASTRules::PrecheckSize,
+                            None,
+                        );
+                        match tx_result {
+                            TransactionResult::Skipped(TransactionSkipped { error, .. })
+                            | TransactionResult::ProcessingError(TransactionError {
+                                error, ..
+                            })
+                            | TransactionResult::Problematic(TransactionProblematic {
+                                error,
+                                ..
+                            }) => {
+                                // The tx wasn't able to be mined. Check the underlying error, to
+                                // see if we should reject the block or allow the tx to be
+                                // dropped from the replay set.
+
+                                match error {
+                                    ChainError::CostOverflowError(..)
+                                    | ChainError::BlockTooBigError
+                                    | ChainError::ClarityError(ClarityError::CostError(..)) => {
+                                        // block limit reached; add tx back to replay set.
+                                        // BUT we know that the block should have ended at this point, so
+                                        // return an error.
+                                        let txid = replay_tx.txid();
+                                        replay_txs.push_front(replay_tx);
+
+                                        warn!("Rejecting block proposal. Next replay tx exceeds cost limits, so should have been in the next block.";
+                                            "error" => %error,
+                                            "txid" => %txid,
+                                        );
+
+                                        return Err(BlockValidateRejectReason {
+                                            reason_code:
+                                                ValidateRejectCode::InvalidTransactionReplay,
+                                            reason: "Transaction is not in the replay set".into(),
+                                        });
+                                    }
+                                    _ => {
+                                        // it's ok, drop it
+                                        continue;
+                                    }
+                                }
+                            }
+                            TransactionResult::Success(_) => {
+                                // Tx should have been included
+                                return Err(BlockValidateRejectReason {
+                                    reason_code: ValidateRejectCode::InvalidTransactionReplay,
+                                    reason: "Transaction is not in the replay set".into(),
+                                });
+                            }
+                        };
+                    }
                 }
             }
 

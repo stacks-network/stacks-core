@@ -7,6 +7,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+### Added
+
+- Miners will listen for signer's state machine updates and construct a stacks block containing any replay transactions that a 70% threshold of signers indicate must be replayed
+
 ### Changed
 
 - Reduce the default `block_rejection_timeout_steps` configuration so that miners will retry faster when blocks fail to reach 70% approved or 30% rejected.

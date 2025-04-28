@@ -28,7 +28,7 @@ use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::boot::{RewardSet, MINERS_NAME};
 use stacks::chainstate::stacks::db::StacksChainState;
-use stacks::chainstate::stacks::Error as ChainstateError;
+use stacks::chainstate::stacks::{Error as ChainstateError, StacksTransaction};
 use stacks::codec::StacksMessageCodec;
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::stackerdb::StackerDBs;
@@ -89,6 +89,14 @@ impl SignerCoordinator {
         info!("SignerCoordinator: starting up");
         let keep_running = Arc::new(AtomicBool::new(true));
 
+        let is_mainnet = config.is_mainnet();
+        let rpc_socket = config
+            .node
+            .get_rpc_loopback()
+            .ok_or_else(|| ChainstateError::MinerAborted)?;
+        let miners_contract_id = boot_code_id(MINERS_NAME, is_mainnet);
+        let miners_session = StackerDBSession::new(&rpc_socket.to_string(), miners_contract_id);
+
         // Create the stacker DB listener
         let mut listener = StackerDBListener::new(
             stackerdb_channel,
@@ -97,14 +105,8 @@ impl SignerCoordinator {
             reward_set,
             election_block,
             burnchain,
+            config,
         )?;
-        let is_mainnet = config.is_mainnet();
-        let rpc_socket = config
-            .node
-            .get_rpc_loopback()
-            .ok_or_else(|| ChainstateError::MinerAborted)?;
-        let miners_contract_id = boot_code_id(MINERS_NAME, is_mainnet);
-        let miners_session = StackerDBSession::new(&rpc_socket.to_string(), miners_contract_id);
 
         // build a BTreeMap of the various timeout steps
         let mut block_rejection_timeout_steps = BTreeMap::<u32, Duration>::new();
@@ -482,6 +484,13 @@ impl SignerCoordinator {
     pub fn get_tenure_extend_timestamp(&self) -> u64 {
         self.stackerdb_comms
             .get_tenure_extend_timestamp(self.weight_threshold)
+    }
+
+    /// Get the transactions that at least 70% of the signing power are
+    /// expecting to be replayed.
+    pub fn get_replay_transactions(&self) -> Vec<StacksTransaction> {
+        self.stackerdb_comms
+            .get_replay_transactions(self.weight_threshold)
     }
 
     /// Check if the tenure needs to change

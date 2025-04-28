@@ -20,6 +20,7 @@ use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
     TOO_MANY_REQUESTS_STATUS,
@@ -314,7 +315,7 @@ impl SignerTrait<SignerMessage> for Signer {
                             );
                             #[cfg(any(test, feature = "testing"))]
                             if self.test_skip_block_broadcast(b) {
-                                return;
+                                continue;
                             }
                             stacks_client.post_block_until_ok(self, b);
                         }
@@ -323,7 +324,7 @@ impl SignerTrait<SignerMessage> for Signer {
                                 Ok(epoch) => epoch,
                                 Err(e) => {
                                     warn!("{self}: Failed to determine node epoch. Cannot mock sign: {e}");
-                                    return;
+                                    continue;
                                 }
                             };
                             info!("{self}: received a mock block proposal.";
@@ -741,7 +742,11 @@ impl Signer {
 
                 #[cfg(any(test, feature = "testing"))]
                 self.test_stall_block_validation_submission();
-                self.submit_block_for_validation(stacks_client, &block_proposal.block);
+                self.submit_block_for_validation(
+                    stacks_client,
+                    &block_proposal.block,
+                    self.local_state_machine.get_tx_replay_set(),
+                );
             } else {
                 // Still store the block but log we can't submit it for validation. We may receive enough signatures/rejections
                 // from other signers to push the proposed block into a global rejection/acceptance regardless of our participation.
@@ -1076,7 +1081,11 @@ impl Signer {
                 info!("{self}: Found a pending block validation: {signer_sig_hash:?}");
                 match self.signer_db.block_lookup(&signer_sig_hash) {
                     Ok(Some(block_info)) => {
-                        self.submit_block_for_validation(stacks_client, &block_info.block);
+                        self.submit_block_for_validation(
+                            stacks_client,
+                            &block_info.block,
+                            self.local_state_machine.get_tx_replay_set(),
+                        );
                     }
                     Ok(None) => {
                         // This should never happen
@@ -1468,9 +1477,14 @@ impl Signer {
 
     /// Submit a block for validation, and mark it as pending if the node
     /// is busy with a previous request.
-    fn submit_block_for_validation(&mut self, stacks_client: &StacksClient, block: &NakamotoBlock) {
+    fn submit_block_for_validation(
+        &mut self,
+        stacks_client: &StacksClient,
+        block: &NakamotoBlock,
+        tx_replay_set: Option<Vec<StacksTransaction>>,
+    ) {
         let signer_signature_hash = block.header.signer_signature_hash();
-        match stacks_client.submit_block_for_validation(block.clone()) {
+        match stacks_client.submit_block_for_validation(block.clone(), tx_replay_set) {
             Ok(_) => {
                 self.submitted_block_proposal = Some((signer_signature_hash, Instant::now()));
             }
