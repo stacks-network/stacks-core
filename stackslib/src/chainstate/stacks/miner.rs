@@ -2340,16 +2340,32 @@ impl StacksBlockBuilder {
                 ignore_txs,
             )
         } else {
-            Ok((
-                select_and_apply_transactions_from_vec(
+            let txs = select_and_apply_transactions_from_vec(
+                epoch_tx,
+                builder,
+                tip_height,
+                ast_rules,
+                replay_transactions,
+            );
+            if initial_txs.is_empty()
+                && !txs
+                    .iter()
+                    .any(|tx| matches!(tx, TransactionEvent::Success(_)))
+            {
+                // We tried to apply the replay transactions but none were successful
+                select_and_apply_transactions_from_mempool(
                     epoch_tx,
                     builder,
+                    mempool,
                     tip_height,
+                    settings,
+                    event_observer,
                     ast_rules,
-                    replay_transactions,
-                ),
-                false,
-            ))
+                    ignore_txs,
+                )
+            } else {
+                Ok((txs, false))
+            }
         };
 
         match result {

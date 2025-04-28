@@ -562,6 +562,7 @@ impl NakamotoBlockProposal {
         let mut replay_txs_maybe: Option<VecDeque<StacksTransaction>> =
             self.replay_txs.clone().map(|txs| txs.into());
 
+        let mut contains_replay_tx = false;
         for (i, tx) in self.block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
 
@@ -576,8 +577,14 @@ impl NakamotoBlockProposal {
                     loop {
                         let Some(replay_tx) = replay_txs.pop_front() else {
                             // During transaction replay, we expect that the block only
-                            // contains transactions from the replay set. Thus, if we're here,
-                            // the block contains a transaction that is not in the replay set,
+                            // contains transactions from the replay set.
+                            // First check if there was even one valid replay tx.
+                            if !contains_replay_tx {
+                                // There was not one single replay tx that passed muster. So the miner can build
+                                // whatever they want
+                                break;
+                            }
+                            // if we're here, the block contains a transaction that is not in the replay set,
                             // and we should reject the block.
                             return Err(BlockValidateRejectReason {
                                 reason_code: ValidateRejectCode::InvalidTransactionReplay,
@@ -585,6 +592,7 @@ impl NakamotoBlockProposal {
                             });
                         };
                         if replay_tx.txid() == tx.txid() {
+                            contains_replay_tx = true;
                             break;
                         }
 
