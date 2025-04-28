@@ -349,6 +349,7 @@ impl SignerTrait<SignerMessage> for Signer {
                 burn_header_hash,
                 consensus_hash,
                 received_time,
+                parent_burn_block_hash,
             } => {
                 info!("{self}: Received a new burn block event for block height {burn_height}");
                 self.signer_db
@@ -357,6 +358,7 @@ impl SignerTrait<SignerMessage> for Signer {
                         consensus_hash,
                         *burn_height,
                         received_time,
+                        parent_burn_block_hash,
                     )
                     .unwrap_or_else(|e| {
                         error!(

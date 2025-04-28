@@ -532,6 +532,15 @@ CREATE TABLE IF NOT EXISTS signer_state_machine_updates (
     PRIMARY KEY (signer_addr, reward_cycle)
 ) STRICT;"#;
 
+static ADD_PARENT_BURN_BLOCK_HASH: &str = r#"
+ ALTER TABLE burn_blocks
+    ADD COLUMN parent_burn_block_hash TEXT;
+"#;
+
+static ADD_PARENT_BURN_BLOCK_HASH_INDEX: &str = r#"
+CREATE INDEX IF NOT EXISTS burn_blocks_parent_burn_block_hash_idx on burn_blocks (parent_burn_block_hash);
+"#;
+
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
     CREATE_DB_CONFIG,
@@ -613,9 +622,15 @@ static SCHEMA_11: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (11);",
 ];
 
+static SCHEMA_12: &[&str] = &[
+    ADD_PARENT_BURN_BLOCK_HASH,
+    ADD_PARENT_BURN_BLOCK_HASH_INDEX,
+    "INSERT INTO db_config (version) VALUES (12);",
+];
+
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 11;
+    pub const SCHEMA_VERSION: u32 = 12;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -799,6 +814,20 @@ impl SignerDb {
         Ok(())
     }
 
+    /// Migrate from schema 11 to schema 12
+    fn schema_12_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 12 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_12.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
     /// Register custom scalar functions used by the database
     fn register_scalar_functions(&self) -> Result<(), DBError> {
         // Register helper function for determining if a block is a tenure change transaction
@@ -843,7 +872,8 @@ impl SignerDb {
                 8 => Self::schema_9_migration(&sql_tx)?,
                 9 => Self::schema_10_migration(&sql_tx)?,
                 10 => Self::schema_11_migration(&sql_tx)?,
-                11 => break,
+                11 => Self::schema_12_migration(&sql_tx)?,
+                12 => break,
                 x => return Err(DBError::Other(format!(
                     "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
                     Self::SCHEMA_VERSION,
@@ -978,19 +1008,27 @@ impl SignerDb {
         consensus_hash: &ConsensusHash,
         burn_height: u64,
         received_time: &SystemTime,
+        parent_burn_block_hash: &BurnchainHeaderHash,
     ) -> Result<(), DBError> {
         let received_ts = received_time
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|e| DBError::Other(format!("Bad system time: {e}")))?
             .as_secs();
-        debug!("Inserting burn block info"; "burn_block_height" => burn_height, "burn_hash" => %burn_hash, "received" => received_ts, "ch" => %consensus_hash);
+        debug!("Inserting burn block info";
+            "burn_block_height" => burn_height,
+            "burn_hash" => %burn_hash,
+            "received" => received_ts,
+            "ch" => %consensus_hash,
+            "parent_burn_block_hash" => %parent_burn_block_hash
+        );
         self.db.execute(
-            "INSERT OR REPLACE INTO burn_blocks (block_hash, consensus_hash, block_height, received_time) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT OR REPLACE INTO burn_blocks (block_hash, consensus_hash, block_height, received_time, parent_burn_block_hash) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 burn_hash,
                 consensus_hash,
                 u64_to_sql(burn_height)?,
                 u64_to_sql(received_ts)?,
+                parent_burn_block_hash,
             ],
         )?;
         Ok(())
@@ -1641,8 +1679,14 @@ pub mod tests {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        db.insert_burn_block(&test_burn_hash, &test_consensus_hash, 10, &stime)
-            .unwrap();
+        db.insert_burn_block(
+            &test_burn_hash,
+            &test_consensus_hash,
+            10,
+            &stime,
+            &test_burn_hash,
+        )
+        .unwrap();
 
         let stored_time = db
             .get_burn_block_receive_time(&test_burn_hash)

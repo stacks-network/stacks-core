@@ -257,6 +257,7 @@ fn reorg_timing_testing(
             &view.cur_sortition.consensus_hash,
             3,
             &sortition_time,
+            &view.last_sortition.as_ref().unwrap().burn_block_hash,
         )
         .unwrap();
 
@@ -395,7 +396,13 @@ fn check_block_proposal_timeout() {
     let burn_height = 1;
     let received_time = SystemTime::now();
     signer_db
-        .insert_burn_block(&burn_hash, &consensus_hash, burn_height, &received_time)
+        .insert_burn_block(
+            &burn_hash,
+            &consensus_hash,
+            burn_height,
+            &received_time,
+            &view.last_sortition.as_ref().unwrap().burn_block_hash,
+        )
         .unwrap();
 
     view.check_proposal(
@@ -467,7 +474,13 @@ fn check_sortition_timeout() {
     let burn_height = 1;
     let received_time = SystemTime::now();
     signer_db
-        .insert_burn_block(&burn_hash, &consensus_hash, burn_height, &received_time)
+        .insert_burn_block(
+            &burn_hash,
+            &consensus_hash,
+            burn_height,
+            &received_time,
+            &BurnchainHeaderHash([0; 32]),
+        )
         .unwrap();
 
     std::thread::sleep(Duration::from_secs(1));
