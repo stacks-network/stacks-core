@@ -375,7 +375,7 @@ A test should be marked `#[ignore]` if:
   1. Define allowed tags in the package `Cargo.toml` file (if needed).
   2. Apply relevant tags to the tests, picking from the allowed set.
   
-  Then will be possible to run tests with filtering based on the tags using `cargo test` and `cargo nextest` runner.
+  Then it will be possible to run tests with filtering based on the tags using `cargo test` and `cargo nextest` runner.
   
   For more information and examples on how tagging works, refer to the [pinny-rs](https://github.com/BitcoinL2-Labs/pinny-rs/) readme.
 
