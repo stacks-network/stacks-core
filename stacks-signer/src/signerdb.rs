@@ -21,12 +21,12 @@ use std::time::{Duration, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::TransactionPayload;
+#[cfg(any(test, feature = "testing"))]
+use blockstack_lib::util_lib::db::FromColumn;
 use blockstack_lib::util_lib::db::{
     query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
-    Error as DBError,
+    Error as DBError, FromRow,
 };
-#[cfg(any(test, feature = "testing"))]
-use blockstack_lib::util_lib::db::{FromColumn, FromRow};
 use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress};
 use clarity::types::Address;
 use libsigner::v0::messages::{RejectReason, RejectReasonPrefix, StateMachineUpdate};

@@ -84,7 +84,10 @@ fn determine_latest_supported_signer_protocol_versions() {
                 current_miner,
             },
         ..
-    } = local_update.clone();
+    } = local_update.clone()
+    else {
+        panic!("Unexpected state machine update message version");
+    };
 
     // Let's update 3 signers (60 percent) to support seperate but greater protocol versions
     for (i, address) in addresses.into_iter().skip(1).take(3).enumerate() {
@@ -151,7 +154,10 @@ fn determine_global_burn_views() {
                 current_miner,
             },
         ..
-    } = local_update.clone();
+    } = local_update.clone()
+    else {
+        panic!("Unexpected state machine update message version");
+    };
 
     assert_eq!(
         global_eval
@@ -212,7 +218,10 @@ fn determine_global_states() {
                 current_miner,
             },
         ..
-    } = local_update.clone();
+    } = local_update.clone()
+    else {
+        panic!("Unexpected state machine update message version");
+    };
 
     let state_machine = SignerStateMachine {
         burn_block,
@@ -297,7 +306,10 @@ fn check_capitulate_miner_view() {
                 current_miner,
             },
         ..
-    } = local_update.clone();
+    } = local_update.clone()
+    else {
+        panic!("Unexpected state machine update message version");
+    };
     // Let's create a new miner view
     let new_tenure_id = ConsensusHash([0x00; 20]);
     let new_miner = StateMachineUpdateMinerState::ActiveMiner {

@@ -1394,11 +1394,19 @@ pub fn wait_for_state_machine_update(
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
-            let StateMachineUpdateContent::V0 {
-                burn_block,
-                burn_block_height,
-                current_miner,
-            } = &update.content;
+            let (burn_block, burn_block_height, current_miner) = match &update.content {
+                StateMachineUpdateContent::V0 {
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                }
+                | StateMachineUpdateContent::V1 {
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    ..
+                } => (burn_block, burn_block_height, current_miner),
+            };
             if *burn_block_height != expected_burn_block_height || burn_block != expected_burn_block
             {
                 continue;

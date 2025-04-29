@@ -463,7 +463,7 @@ impl StacksClient {
             return Err(ClientError::RequestFailure(response.status()));
         }
         let sortition_info = response.json::<Vec<SortitionInfo>>()?;
-        sortition_info.get(0).cloned().ok_or_else(|| {
+        sortition_info.first().cloned().ok_or_else(|| {
             ClientError::InvalidResponse("No sortition info found for given consensus hash".into())
         })
     }
