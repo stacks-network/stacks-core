@@ -373,7 +373,7 @@ A test should be marked `#[ignore]` if:
 
 - Integration tests need to be properly tagged using [pinny-rs](https://github.com/BitcoinL2-Labs/pinny-rs/) crate. Tagging requires two fundamental steps:
   1. Define allowed tags in the package `Cargo.toml` file (if needed).
-  2. Apply relevant tags to the tests, picking from the allowed onces.
+  2. Apply relevant tags to the tests, picking from the allowed set.
   
   Then will be possible to run tests with filtering based on the tags using `cargo test` and `cargo nextest` runner.
   
