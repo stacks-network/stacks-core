@@ -1096,7 +1096,10 @@ pub trait SortitionHandle {
     ///  descends from `key.1`
     ///
     /// If it does, return the cached entry
-    fn descendancy_cache_get(cache: &mut MutexGuard<'_, LruCache<(SortitionId, BlockHeaderHash), bool>>, key: &(SortitionId, BlockHeaderHash)) -> Option<bool> {
+    fn descendancy_cache_get(
+        cache: &mut MutexGuard<'_, LruCache<(SortitionId, BlockHeaderHash), bool>>,
+        key: &(SortitionId, BlockHeaderHash),
+    ) -> Option<bool> {
         match cache.get(key) {
             Ok(result) => result,
             // cache is broken, create a new one
@@ -1110,7 +1113,11 @@ pub trait SortitionHandle {
 
     /// Cache the result of the descendancy check on whether or not the winning block in `key.0`
     ///  descends from `key.1`
-    fn descendancy_cache_put(cache: &mut MutexGuard<'_, LruCache<(SortitionId, BlockHeaderHash), bool>>, key: (SortitionId, BlockHeaderHash), is_descended: bool) {
+    fn descendancy_cache_put(
+        cache: &mut MutexGuard<'_, LruCache<(SortitionId, BlockHeaderHash), bool>>,
+        key: (SortitionId, BlockHeaderHash),
+        is_descended: bool,
+    ) {
         if let Err(e) = cache.insert_clean(key, is_descended) {
             error!("SortitionDB's descendant cache errored. Will continue operation with cleared cache"; "err" => %e);
             **cache = LruCache::new(DESCENDANCY_CACHE_SIZE);
@@ -1155,7 +1162,11 @@ pub trait SortitionHandle {
             match Self::descendancy_cache_get(&mut cache, &cache_check_key) {
                 Some(result) => {
                     if sn.sortition_id != top_sortition_id {
-                        Self::descendancy_cache_put(&mut cache, (top_sortition_id, cache_check_key.1), result);
+                        Self::descendancy_cache_put(
+                            &mut cache,
+                            (top_sortition_id, cache_check_key.1),
+                            result,
+                        );
                     }
                     return Ok(result);
                 }
@@ -1164,11 +1175,19 @@ pub trait SortitionHandle {
             }
 
             if !sn.sortition {
-                Self::descendancy_cache_put(&mut cache, (top_sortition_id, cache_check_key.1), false);
+                Self::descendancy_cache_put(
+                    &mut cache,
+                    (top_sortition_id, cache_check_key.1),
+                    false,
+                );
                 return Ok(false);
             }
             if &sn.winning_stacks_block_hash == potential_ancestor {
-                Self::descendancy_cache_put(&mut cache, (top_sortition_id, cache_check_key.1), true);
+                Self::descendancy_cache_put(
+                    &mut cache,
+                    (top_sortition_id, cache_check_key.1),
+                    true,
+                );
                 return Ok(true);
             }
 
@@ -1204,7 +1223,11 @@ pub trait SortitionHandle {
                 }
             }
         }
-        Self::descendancy_cache_put(&mut cache, (top_sortition_id, potential_ancestor.clone()), false);
+        Self::descendancy_cache_put(
+            &mut cache,
+            (top_sortition_id, potential_ancestor.clone()),
+            false,
+        );
         return Ok(false);
     }
 }
