@@ -140,6 +140,12 @@ impl<const N: usize> std::fmt::Debug for RecentlyProcessedBlocks<N> {
     }
 }
 
+impl<const N: usize> Default for RecentlyProcessedBlocks<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const N: usize> RecentlyProcessedBlocks<N> {
     /// Construct a new recently processed blocks cache
     pub fn new() -> Self {
@@ -148,6 +154,7 @@ impl<const N: usize> RecentlyProcessedBlocks<N> {
             write_head: 0,
         }
     }
+
     /// Is `block` known to have been processed by our stacks-node?
     pub fn is_processed(&self, block: &StacksBlockId) -> bool {
         self.blocks.contains(block)
