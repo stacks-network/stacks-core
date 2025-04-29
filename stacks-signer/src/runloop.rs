@@ -469,9 +469,15 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
                 // We are either the current or a future reward cycle, so we are not stale.
                 continue;
             }
-            if let ConfiguredSigner::RegisteredSigner(signer) = signer {
-                if !signer.has_unprocessed_blocks() {
-                    debug!("{signer}: Signer's tenure has completed.");
+            match signer {
+                ConfiguredSigner::RegisteredSigner(signer) => {
+                    if !signer.has_unprocessed_blocks() {
+                        debug!("{signer}: Signer's tenure has completed.");
+                        to_delete.push(*idx);
+                    }
+                }
+                ConfiguredSigner::NotRegistered { .. } => {
+                    debug!("{signer}: Unregistered signer's tenure has completed.");
                     to_delete.push(*idx);
                 }
             }
