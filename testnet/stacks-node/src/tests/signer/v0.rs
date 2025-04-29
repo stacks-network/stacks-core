@@ -1958,7 +1958,7 @@ fn revalidate_unknown_parent() {
 
     let sender_nonce = get_account(&conf_node_2.node.data_url, &sender_addr).nonce;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,

@@ -25,8 +25,6 @@ use blockstack_lib::net::api::postblock_proposal::{
     TOO_MANY_REQUESTS_STATUS,
 };
 use blockstack_lib::util_lib::db::Error as DBError;
-#[cfg(any(test, feature = "testing"))]
-use clarity::types::chainstate::StacksPublicKey;
 use clarity::types::chainstate::{StacksBlockId, StacksPrivateKey};
 use clarity::types::{PrivateKey, StacksEpochId};
 use clarity::util::hash::{MerkleHashFunc, Sha512Trunc256Sum};
