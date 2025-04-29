@@ -18,6 +18,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+use blockstack_lib::chainstate::stacks::StacksTransaction;
 use clarity::types::chainstate::StacksAddress;
 use libsigner::v0::messages::{
     MessageSlotID, SignerMessage, StateMachineUpdate as StateMachineUpdateMessage,
@@ -38,7 +39,7 @@ use crate::client::{ClientError, CurrentAndLastSortition, StackerDB, StacksClien
 use crate::signerdb::SignerDb;
 
 /// This is the latest supported protocol version for this signer binary
-pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 0;
+pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 1;
 
 /// A struct used to determine the current global state
 #[derive(Debug)]
@@ -109,11 +110,18 @@ impl GlobalStateEvaluator {
             let Some(weight) = self.address_weights.get(address) else {
                 continue;
             };
-            let StateMachineUpdateContent::V0 {
-                burn_block,
-                burn_block_height,
-                ..
-            } = update.content;
+            let (burn_block, burn_block_height) = match update.content {
+                StateMachineUpdateContent::V0 {
+                    burn_block,
+                    burn_block_height,
+                    ..
+                }
+                | StateMachineUpdateContent::V1 {
+                    burn_block,
+                    burn_block_height,
+                    ..
+                } => (burn_block, burn_block_height),
+            };
 
             let entry = burn_blocks
                 .entry((burn_block, burn_block_height))
@@ -139,17 +147,32 @@ impl GlobalStateEvaluator {
             let Some(weight) = self.address_weights.get(address) else {
                 continue;
             };
-            let StateMachineUpdateContent::V0 {
-                burn_block,
-                burn_block_height,
-                current_miner,
-                ..
-            } = &update.content;
+            let (burn_block, burn_block_height, current_miner, tx_replay_set) =
+                match &update.content {
+                    StateMachineUpdateContent::V0 {
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                        ..
+                    } => (burn_block, burn_block_height, current_miner, None),
+                    StateMachineUpdateContent::V1 {
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                        replay_transactions,
+                    } => (
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                        Some(replay_transactions.clone()),
+                    ),
+                };
             let state_machine = SignerStateMachine {
                 burn_block: *burn_block,
                 burn_block_height: *burn_block_height,
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
+                tx_replay_set,
             };
             let entry = state_views
                 .entry(state_machine.clone())
@@ -171,10 +194,10 @@ impl GlobalStateEvaluator {
         local_address: StacksAddress,
         local_update: &StateMachineUpdateMessage,
     ) -> Option<StateMachineUpdateMinerState> {
-        let StateMachineUpdateContent::V0 {
-            burn_block: current_burn_block,
-            ..
-        } = local_update.content;
+        let current_burn_block = match local_update.content {
+            StateMachineUpdateContent::V0 { burn_block, .. }
+            | StateMachineUpdateContent::V1 { burn_block, .. } => burn_block,
+        };
         let (global_burn_view, _) = self.determine_global_burn_view(local_address, local_update)?;
         if current_burn_block != global_burn_view {
             return None;
@@ -184,11 +207,18 @@ impl GlobalStateEvaluator {
             let Some(weight) = self.address_weights.get(address) else {
                 continue;
             };
-            let StateMachineUpdateContent::V0 {
-                burn_block,
-                current_miner,
-                ..
-            } = &update.content;
+            let (burn_block, current_miner) = match &update.content {
+                StateMachineUpdateContent::V0 {
+                    burn_block,
+                    current_miner,
+                    ..
+                }
+                | StateMachineUpdateContent::V1 {
+                    burn_block,
+                    current_miner,
+                    ..
+                } => (burn_block, current_miner),
+            };
 
             if *burn_block != global_burn_view {
                 continue;
@@ -246,6 +276,8 @@ pub struct SignerStateMachine {
     pub current_miner: MinerState,
     /// The active signing protocol version
     pub active_signer_protocol_version: u64,
+    /// Transaction replay set
+    pub tx_replay_set: Option<Vec<StacksTransaction>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
@@ -343,14 +375,28 @@ impl TryInto<StateMachineUpdateMessage> for &LocalStateMachine {
             MinerState::NoValidMiner => StateMachineUpdateMinerState::NoValidMiner,
         };
 
-        StateMachineUpdateMessage::new(
-            state_machine.active_signer_protocol_version,
-            SUPPORTED_SIGNER_PROTOCOL_VERSION,
-            StateMachineUpdateContent::V0 {
+        let content = match state_machine.active_signer_protocol_version {
+            0 => StateMachineUpdateContent::V0 {
                 burn_block: state_machine.burn_block,
                 burn_block_height: state_machine.burn_block_height,
                 current_miner,
             },
+            1 => StateMachineUpdateContent::V1 {
+                burn_block: state_machine.burn_block,
+                burn_block_height: state_machine.burn_block_height,
+                current_miner,
+                replay_transactions: state_machine.tx_replay_set.clone().unwrap_or_default(),
+            },
+            other => {
+                return Err(CodecError::DeserializeError(format!(
+                    "Active signer ptocol version is unknown: {other}"
+                )))
+            }
+        };
+        StateMachineUpdateMessage::new(
+            state_machine.active_signer_protocol_version,
+            SUPPORTED_SIGNER_PROTOCOL_VERSION,
+            content,
         )
     }
 }
@@ -375,6 +421,7 @@ impl LocalStateMachine {
             burn_block_height: 0,
             current_miner: MinerState::NoValidMiner,
             active_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
+            tx_replay_set: None,
         }
     }
 
@@ -750,6 +797,7 @@ impl LocalStateMachine {
             burn_block_height: next_burn_block_height,
             current_miner: miner_state,
             active_signer_protocol_version: prior_state_machine.active_signer_protocol_version,
+            tx_replay_set: prior_state_machine.tx_replay_set,
         });
 
         if prior_state != *self {
@@ -780,12 +828,26 @@ impl LocalStateMachine {
             .determine_latest_supported_signer_protocol_version(local_address, &local_update)
             .unwrap_or(old_protocol_version);
 
-        let StateMachineUpdateContent::V0 {
-            burn_block,
-            burn_block_height,
-            current_miner,
-            ..
-        } = &local_update.content;
+        let (burn_block, burn_block_height, current_miner, tx_replay_set) =
+            match &local_update.content {
+                StateMachineUpdateContent::V0 {
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    ..
+                } => (burn_block, burn_block_height, current_miner, None),
+                StateMachineUpdateContent::V1 {
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    replay_transactions,
+                } => (
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    Some(replay_transactions),
+                ),
+            };
 
         if active_signer_protocol_version != old_protocol_version {
             info!("Updating active signer protocol version from {old_protocol_version} to {active_signer_protocol_version}");
@@ -794,6 +856,7 @@ impl LocalStateMachine {
                 burn_block_height: *burn_block_height,
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
+                tx_replay_set: tx_replay_set.cloned(),
             });
             // Because we updated our active signer protocol version, update local_update so its included in the subsequent evaluations
             let update: Result<StateMachineUpdateMessage, _> = (&*self).try_into();
@@ -809,12 +872,26 @@ impl LocalStateMachine {
             return;
         };
 
-        let StateMachineUpdateContent::V0 {
-            burn_block,
-            burn_block_height,
-            current_miner,
-            ..
-        } = local_update.content;
+        let (burn_block, burn_block_height, current_miner, tx_replay_set) =
+            match local_update.content {
+                StateMachineUpdateContent::V0 {
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    ..
+                } => (burn_block, burn_block_height, current_miner, None),
+                StateMachineUpdateContent::V1 {
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    replay_transactions,
+                } => (
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    Some(replay_transactions),
+                ),
+            };
 
         if current_miner != new_miner {
             info!("Capitulating local state machine's current miner viewpoint";
@@ -826,7 +903,16 @@ impl LocalStateMachine {
                 burn_block_height,
                 current_miner: (&new_miner).into(),
                 active_signer_protocol_version,
+                tx_replay_set,
             });
         }
+    }
+
+    /// Extract out the tx replay set if it exists
+    pub fn get_tx_replay_set(&self) -> Option<Vec<StacksTransaction>> {
+        let Self::Initialized(state) = self else {
+            return None;
+        };
+        state.tx_replay_set.clone()
     }
 }
