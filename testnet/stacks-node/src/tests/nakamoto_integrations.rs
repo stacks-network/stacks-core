@@ -10625,10 +10625,26 @@ fn consensus_hash_event_dispatcher() {
     let expected_consensus_hash = format!("0x{}", tip.consensus_hash);
 
     let burn_blocks = test_observer::get_burn_blocks();
+    let parent_burn_block = burn_blocks.get(burn_blocks.len() - 2).unwrap();
     let burn_block = burn_blocks.last().unwrap();
     assert_eq!(
         burn_block.get("consensus_hash").unwrap().as_str().unwrap(),
         expected_consensus_hash
+    );
+
+    let parent_burn_block_hash = parent_burn_block
+        .get("burn_block_hash")
+        .unwrap()
+        .as_str()
+        .unwrap();
+
+    assert_eq!(
+        burn_block
+            .get("parent_burn_block_hash")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        parent_burn_block_hash
     );
 
     let stacks_blocks = test_observer::get_blocks();
