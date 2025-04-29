@@ -1959,6 +1959,7 @@ mod tests {
     #[test]
     pub fn create_md_index() {
         let path_db = "/tmp/stacks-node-tests/creat_md_index";
+        std::fs::remove_dir_all(path_db);
         let mut path = PathBuf::from(path_db);
 
         std::fs::create_dir_all(&path).unwrap();
