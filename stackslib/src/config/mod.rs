@@ -2244,9 +2244,9 @@ impl Default for MinerConfig {
 
             block_rejection_timeout_steps: {
                 let mut rejections_timeouts_default_map = HashMap::<u32, Duration>::new();
-                rejections_timeouts_default_map.insert(0, Duration::from_secs(600));
-                rejections_timeouts_default_map.insert(10, Duration::from_secs(300));
-                rejections_timeouts_default_map.insert(20, Duration::from_secs(150));
+                rejections_timeouts_default_map.insert(0, Duration::from_secs(180));
+                rejections_timeouts_default_map.insert(10, Duration::from_secs(90));
+                rejections_timeouts_default_map.insert(20, Duration::from_secs(45));
                 rejections_timeouts_default_map.insert(30, Duration::from_secs(0));
                 rejections_timeouts_default_map
             },
@@ -2835,6 +2835,7 @@ impl MinerConfigFile {
         })
     }
 }
+
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct AtlasConfigFile {

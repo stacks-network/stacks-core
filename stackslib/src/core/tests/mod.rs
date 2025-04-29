@@ -65,7 +65,7 @@ use crate::core::mempool::{
     db_get_all_nonces, MemPoolSyncData, MemPoolWalkSettings, MemPoolWalkTxTypes, TxTag,
     BLOOM_COUNTER_DEPTH, BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS,
 };
-use crate::core::test_util::{insert_tx_in_mempool, make_stacks_transfer, to_addr};
+use crate::core::test_util::{insert_tx_in_mempool, make_stacks_transfer_serialized, to_addr};
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::net::Error as NetError;
 use crate::util_lib::bloom::test::setup_bloom_counter;
@@ -2795,7 +2795,7 @@ fn large_mempool() {
             let sender_addr = to_addr(sender_sk);
             let fee = thread_rng().gen_range(180..2000);
             let transfer_tx =
-                make_stacks_transfer(sender_sk, *nonce, fee, 0x80000000, &recipient, 1);
+                make_stacks_transfer_serialized(sender_sk, *nonce, fee, 0x80000000, &recipient, 1);
             insert_tx_in_mempool(
                 &mempool_tx,
                 transfer_tx,

@@ -704,7 +704,16 @@ impl BlockMinerThread {
                     )?
                     .ok_or_else(|| NakamotoNodeError::UnexpectedChainState)?;
 
-                if processed {
+                // Once the block has been processed and the miner is no longer
+                // blocked, we can continue mining.
+                if processed
+                    && !(*self
+                        .globals
+                        .get_miner_status()
+                        .lock()
+                        .expect("FATAL: mutex poisoned"))
+                    .is_blocked()
+                {
                     break;
                 }
 
