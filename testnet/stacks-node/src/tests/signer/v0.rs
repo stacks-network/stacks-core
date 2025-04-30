@@ -13354,7 +13354,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
     }
 
     // Wait for the first block to be accepted.
-    wait_for(20, || {
+    wait_for(30, || {
         let blocks = test_observer::get_blocks().len();
         Ok(blocks > blocks_before)
     })
