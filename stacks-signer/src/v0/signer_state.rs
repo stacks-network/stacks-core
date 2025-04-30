@@ -643,6 +643,9 @@ impl LocalStateMachine {
             }
         };
 
+        // No matter what, if we're in tx replay mode, remove the tx replay set
+        prior_state_machine.tx_replay_set = None;
+
         let MinerState::ActiveMiner {
             parent_tenure_id,
             parent_tenure_last_block,

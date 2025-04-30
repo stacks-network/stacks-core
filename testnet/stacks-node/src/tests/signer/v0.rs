@@ -2901,6 +2901,16 @@ fn tx_replay_forking_test() {
 
     TEST_MINE_STALL.set(false);
 
+    // Now, make a new stacks block, which should clear the tx replay set
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+    let (signer_states, _) = signer_test.get_burn_updated_states();
+    for state in signer_states {
+        assert!(
+            state.get_tx_replay_set().is_none(),
+            "Signer state is in tx replay state, when it shouldn't be"
+        );
+    }
+
     signer_test.shutdown();
 }
 
