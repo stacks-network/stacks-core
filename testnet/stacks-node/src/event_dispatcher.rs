@@ -37,7 +37,8 @@ use rusqlite::{params, Connection};
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::{
-    blockstack_op_extended_serialize_opt, BlockstackOperationType,
+    blockstack_op_extended_serialize_opt, deserialize_extended_blockstack_op,
+    BlockstackOperationType,
 };
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
@@ -330,6 +331,14 @@ impl RewardSetEventPayload {
     }
 }
 
+pub fn hex_prefix_string<S: serde::Serializer>(
+    hex_string: &String,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    let prefixed = format!("0x{hex_string}");
+    s.serialize_str(&prefixed)
+}
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct TransactionEventPayload<'a> {
     #[serde(with = "prefix_hex")]
@@ -342,12 +351,16 @@ pub struct TransactionEventPayload<'a> {
     #[serde(with = "prefix_hex_codec")]
     /// The raw transaction result
     pub raw_result: Value,
-    /// The 0x prefixed, hex encoded raw transaction
+    /// The hex encoded raw transaction
+    #[serde(serialize_with = "hex_prefix_string")]
     pub raw_tx: String,
     /// The contract interface
     pub contract_interface: Option<ContractInterface>,
     /// The burnchain op
-    #[serde(serialize_with = "blockstack_op_extended_serialize_opt")]
+    #[serde(
+        serialize_with = "blockstack_op_extended_serialize_opt",
+        deserialize_with = "deserialize_extended_blockstack_op"
+    )]
     pub burnchain_op: Option<BlockstackOperationType>,
     /// The transaction execution cost
     pub execution_cost: ExecutionCost,
@@ -633,11 +646,11 @@ impl EventObserver {
         };
 
         let (txid, raw_tx, burnchain_op) = match tx {
-            TransactionOrigin::Burn(op) => (op.txid(), "0x00".to_string(), Some(op.clone())),
+            TransactionOrigin::Burn(op) => (op.txid(), "00".to_string(), Some(op.clone())),
             TransactionOrigin::Stacks(ref tx) => {
                 let txid = tx.txid();
                 let bytes = bytes_to_hex(&tx.serialize_to_vec());
-                (txid, format!("0x{bytes}"), None)
+                (txid, bytes, None)
             }
         };
 
@@ -1843,22 +1856,27 @@ mod test {
     use std::thread;
     use std::time::Instant;
 
+    use clarity::boot_util::boot_code_id;
     use clarity::vm::costs::ExecutionCost;
+    use clarity::vm::events::SmartContractEventData;
     use clarity::vm::types::StacksAddressExtensions;
     use serial_test::serial;
     use stacks::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
     use stacks::burnchains::{PoxConstants, Txid};
-    use stacks::chainstate::burn::operations::TransferStxOp;
+    use stacks::chainstate::burn::operations::PreStxOp;
     use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
     use stacks::chainstate::stacks::events::StacksBlockEventData;
     use stacks::chainstate::stacks::{
-        StacksBlock, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
-        TransactionPostConditionMode, TransactionVersion,
+        SinglesigHashMode, SinglesigSpendingCondition, StacksBlock, TenureChangeCause,
+        TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
+        TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSpendingCondition,
+        TransactionVersion,
     };
     use stacks::types::chainstate::{
         BlockHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
     };
+    use stacks::util::hash::Hash160;
     use stacks::util::secp256k1::MessageSignature;
     use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
@@ -2696,21 +2714,15 @@ mod test {
                 TokenTransferMemo([0u8; 34]),
             ),
         };
-        let txid = tx.txid();
 
         let mut receipt = StacksTransactionReceipt {
-            transaction: TransactionOrigin::Burn(BlockstackOperationType::TransferStx(
-                TransferStxOp {
-                    sender: addr,
-                    recipient: addr,
-                    memo: vec![],
-                    transfered_ustx: 123,
-                    txid,
-                    vtxindex: 0,
-                    block_height: 0,
-                    burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-                },
-            )),
+            transaction: TransactionOrigin::Burn(BlockstackOperationType::PreStx(PreStxOp {
+                output: StacksAddress::new(0, Hash160([1; 20])).unwrap(),
+                txid: tx.txid(),
+                vtxindex: 0,
+                block_height: 1,
+                burn_header_hash: BurnchainHeaderHash([5u8; 32]),
+            })),
             events: vec![],
             post_condition_aborted: true,
             result: Value::okay_true(),
@@ -2734,6 +2746,116 @@ mod test {
         receipt.vm_error = Some("Inconceivable!".into());
 
         let payload_with_error = EventObserver::make_new_block_txs_payload(&receipt, 0);
+        let json = serde_json::to_string_pretty(&payload_with_error).unwrap();
+        println!("PAYLOAD: {json}");
+        assert!(false);
         assert_eq!(payload_with_error.vm_error, receipt.vm_error);
+    }
+
+    fn make_tenure_change_payload() -> TenureChangePayload {
+        TenureChangePayload {
+            tenure_consensus_hash: ConsensusHash([0; 20]),
+            prev_tenure_consensus_hash: ConsensusHash([0; 20]),
+            burn_view_consensus_hash: ConsensusHash([0; 20]),
+            previous_tenure_end: StacksBlockId([0; 32]),
+            previous_tenure_blocks: 1,
+            cause: TenureChangeCause::Extended,
+            pubkey_hash: Hash160([0; 20]),
+        }
+    }
+
+    fn make_tenure_change_tx(payload: TenureChangePayload) -> StacksTransaction {
+        StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: 1,
+            auth: TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(
+                SinglesigSpendingCondition {
+                    hash_mode: SinglesigHashMode::P2PKH,
+                    signer: Hash160([0; 20]),
+                    nonce: 0,
+                    tx_fee: 0,
+                    key_encoding: TransactionPublicKeyEncoding::Compressed,
+                    signature: MessageSignature([0; 65]),
+                },
+            )),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::TenureChange(payload),
+        }
+    }
+
+    #[test]
+    fn backwards_compatibility_transaction_event_payload() {
+        let tx = make_tenure_change_tx(make_tenure_change_payload());
+        let receipt = StacksTransactionReceipt {
+            transaction: TransactionOrigin::Burn(BlockstackOperationType::PreStx(PreStxOp {
+                output: StacksAddress::new(0, Hash160([1; 20])).unwrap(),
+                txid: tx.txid(),
+                vtxindex: 0,
+                block_height: 1,
+                burn_header_hash: BurnchainHeaderHash([5u8; 32]),
+            })),
+            events: vec![StacksTransactionEvent::SmartContractEvent(
+                SmartContractEventData {
+                    key: (boot_code_id("some-contract", false), "some string".into()),
+                    value: Value::Bool(false),
+                },
+            )],
+            post_condition_aborted: false,
+            result: Value::okay_true(),
+            stx_burned: 100,
+            contract_analysis: None,
+            execution_cost: ExecutionCost {
+                write_length: 1,
+                write_count: 2,
+                read_length: 3,
+                read_count: 4,
+                runtime: 5,
+            },
+            microblock_header: None,
+            tx_index: 1,
+            vm_error: None,
+        };
+        let payload = EventObserver::make_new_block_txs_payload(&receipt, 0);
+        let new_serialized_data = serde_json::to_string_pretty(&payload).expect("Failed");
+        let old_serialized_data = r#"
+        {
+            "burnchain_op": {
+                "pre_stx": {
+                    "burn_block_height": 1,
+                    "burn_header_hash": "0505050505050505050505050505050505050505050505050505050505050505",
+                    "burn_txid": "ace70e63009a2c2d22c0f948b146d8a28df13a2900f3b5f3cc78b56459ffef05",
+                    "output": {
+                        "address": "S0G2081040G2081040G2081040G2081054GYN98",
+                        "address_hash_bytes": "0x0101010101010101010101010101010101010101",
+                        "address_version": 0
+                    },
+                    "vtxindex": 0
+                }
+            },
+            "contract_abi": null,
+            "execution_cost": {
+                "read_count": 4,
+                "read_length": 3,
+                "runtime": 5,
+                "write_count": 2,
+                "write_length": 1
+            },
+            "microblock_hash": null,
+            "microblock_parent_hash": null,
+            "microblock_sequence": null,
+            "raw_result": "0x0703",
+            "raw_tx": "0x00",
+            "status": "success",
+            "tx_index": 0,
+            "txid": "0xace70e63009a2c2d22c0f948b146d8a28df13a2900f3b5f3cc78b56459ffef05"
+        }
+        "#;
+        let new_value: TransactionEventPayload = serde_json::from_str(&new_serialized_data)
+            .expect("Failed to deserialize new data as TransactionEventPayload");
+        let old_value: TransactionEventPayload = serde_json::from_str(&old_serialized_data)
+            .expect("Failed to deserialize old data as TransactionEventPayload");
+        assert_eq!(new_value, old_value);
     }
 }
