@@ -371,13 +371,20 @@ A test should be marked `#[ignore]` if:
   2. Or, it runs for over a minute via a normal `cargo test` execution
    (the `cargo test` command will warn if this is not the case).
 
-- Integration tests need to be properly tagged using [pinny-rs](https://github.com/BitcoinL2-Labs/pinny-rs/) crate. Tagging requires two fundamental steps:
+- **Integration tests need to be properly tagged** using [pinny-rs](https://github.com/BitcoinL2-Labs/pinny-rs/) crate. Tagging requires two fundamental steps:
   1. Define allowed tags in the package `Cargo.toml` file (if needed).
   2. Apply relevant tags to the tests, picking from the allowed set.
   
   Then it will be possible to run tests with filtering based on the tags using `cargo test` and `cargo nextest` runner.
+  > For more information and examples on how tagging works, refer to the [pinny-rs](https://github.com/BitcoinL2-Labs/pinny-rs/) readme.
   
-  For more information and examples on how tagging works, refer to the [pinny-rs](https://github.com/BitcoinL2-Labs/pinny-rs/) readme.
+  Below the tag set currently defined with related purpose:
+
+  | Tag             | Description                                  |
+  |-----------------|----------------------------------------------|
+  | `slow`          | tests running over a minute                  |
+  | `bitcoind`      | tests requiring bitcoin daemon               |
+  | `flaky`         | tests that exhibit flaky behavior            |
 
 ## Formatting
 
