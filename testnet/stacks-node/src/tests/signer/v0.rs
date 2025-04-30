@@ -1488,7 +1488,7 @@ pub fn wait_for_state_machine_update(
     })
 }
 
-#[tag(fast, signer, bitcoind)]
+#[tag(bitcoind)]
 #[test]
 #[ignore]
 /// Test that a signer can respond to an invalid block proposal
@@ -10122,6 +10122,7 @@ fn multiple_miners_empty_sortition() {
     miners.shutdown();
 }
 
+#[tag(bitcoind, flaky, slow)]
 #[test]
 #[ignore]
 /// This test spins up a single nakamoto node configured to mine.

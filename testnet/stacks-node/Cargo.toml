@@ -71,4 +71,4 @@ default = []
 testing = []
 
 [package.metadata.pinny] 
-allowed = ["fast", "slow", "signer", "bitcoind"]
+allowed = ["bitcoind", "flaky", "slow"]
