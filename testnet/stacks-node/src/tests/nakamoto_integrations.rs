@@ -3135,7 +3135,7 @@ fn block_proposal_api_endpoint() {
                 sign(&p)
             },
             HTTP_ACCEPTED,
-            Some(Err(ValidateRejectCode::InvalidBlock)),
+            Some(Err(ValidateRejectCode::NetworkChainMismatch)),
         ),
         (
             "Invalid `miner_signature`",
@@ -6579,6 +6579,7 @@ fn signer_chainstate() {
 
         // this config disallows any reorg due to poorly timed block commits
         let proposal_conf = ProposalEvalConfig {
+            proposal_wait_for_parent_time: Duration::from_secs(0),
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
@@ -6705,6 +6706,7 @@ fn signer_chainstate() {
 
         // this config disallows any reorg due to poorly timed block commits
         let proposal_conf = ProposalEvalConfig {
+            proposal_wait_for_parent_time: Duration::from_secs(0),
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
@@ -6782,6 +6784,7 @@ fn signer_chainstate() {
 
     // this config disallows any reorg due to poorly timed block commits
     let proposal_conf = ProposalEvalConfig {
+        proposal_wait_for_parent_time: Duration::from_secs(0),
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
@@ -10625,10 +10628,26 @@ fn consensus_hash_event_dispatcher() {
     let expected_consensus_hash = format!("0x{}", tip.consensus_hash);
 
     let burn_blocks = test_observer::get_burn_blocks();
+    let parent_burn_block = burn_blocks.get(burn_blocks.len() - 2).unwrap();
     let burn_block = burn_blocks.last().unwrap();
     assert_eq!(
         burn_block.get("consensus_hash").unwrap().as_str().unwrap(),
         expected_consensus_hash
+    );
+
+    let parent_burn_block_hash = parent_burn_block
+        .get("burn_block_hash")
+        .unwrap()
+        .as_str()
+        .unwrap();
+
+    assert_eq!(
+        burn_block
+            .get("parent_burn_block_hash")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        parent_burn_block_hash
     );
 
     let stacks_blocks = test_observer::get_blocks();

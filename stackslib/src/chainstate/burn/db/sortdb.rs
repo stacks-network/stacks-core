@@ -2103,15 +2103,15 @@ impl<'a> SortitionHandleConn<'a> {
         connection: &'a SortitionDBConn<'a>,
         chain_tip: &SortitionId,
     ) -> Result<SortitionHandleConn<'a>, db_error> {
-        Ok(SortitionHandleConn {
-            context: SortitionHandleContext {
+        Ok(SortitionHandleConn::new(
+            &connection.index,
+            SortitionHandleContext {
                 chain_tip: chain_tip.clone(),
                 first_block_height: connection.context.first_block_height,
                 pox_constants: connection.context.pox_constants.clone(),
                 dryrun: connection.context.dryrun,
             },
-            index: connection.index,
-        })
+        ))
     }
 
     fn get_tip_indexed(&self, key: &str) -> Result<Option<String>, db_error> {
@@ -3798,15 +3798,15 @@ impl SortitionDBTx<'_> {
 
 impl SortitionDBConn<'_> {
     pub fn as_handle<'b>(&'b self, chain_tip: &SortitionId) -> SortitionHandleConn<'b> {
-        SortitionHandleConn {
-            index: self.index,
-            context: SortitionHandleContext {
+        SortitionHandleConn::new(
+            &self.index,
+            SortitionHandleContext {
                 first_block_height: self.context.first_block_height.clone(),
                 chain_tip: chain_tip.clone(),
                 pox_constants: self.context.pox_constants.clone(),
                 dryrun: self.context.dryrun,
             },
-        }
+        )
     }
 
     /// Given a burnchain consensus hash,

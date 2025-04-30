@@ -205,6 +205,7 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _burns: u64,
         _slot_holders: Vec<PoxAddress>,
         _consensus_hash: &ConsensusHash,
+        _parent_burn_block_hash: &BurnchainHeaderHash,
     ) {
         error!("We should never try to announce to the dummy dispatcher");
         panic!();
