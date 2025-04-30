@@ -263,10 +263,7 @@ impl MarfedKV {
     }
 
     pub fn index_conn<C>(&self, context: C) -> IndexDBConn<'_, C, StacksBlockId> {
-        IndexDBConn {
-            index: &self.marf,
-            context,
-        }
+        IndexDBConn::new(&self.marf, context)
     }
 }
 
