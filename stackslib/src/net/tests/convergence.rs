@@ -52,7 +52,7 @@ fn stacker_db_id(i: usize) -> QualifiedContractIdentifier {
 
 fn make_stacker_db_ids(i: usize) -> Vec<QualifiedContractIdentifier> {
     let mut dbs = vec![];
-    for j in 0..i {
+    for j in 0..i+1 {
         dbs.push(stacker_db_id(j));
     }
     dbs
