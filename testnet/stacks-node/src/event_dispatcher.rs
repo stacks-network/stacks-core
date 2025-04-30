@@ -37,7 +37,7 @@ use rusqlite::{params, Connection};
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::{
-    blockstack_op_extended_serialize_opt, deserialize_extended_blockstack_op,
+    blockstack_op_extended_deserialize, blockstack_op_extended_serialize_opt,
     BlockstackOperationType,
 };
 use stacks::chainstate::burn::ConsensusHash;
@@ -359,7 +359,7 @@ pub struct TransactionEventPayload<'a> {
     /// The burnchain op
     #[serde(
         serialize_with = "blockstack_op_extended_serialize_opt",
-        deserialize_with = "deserialize_extended_blockstack_op"
+        deserialize_with = "blockstack_op_extended_deserialize"
     )]
     pub burnchain_op: Option<BlockstackOperationType>,
     /// The transaction execution cost

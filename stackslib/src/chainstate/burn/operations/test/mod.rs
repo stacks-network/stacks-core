@@ -17,7 +17,7 @@ use crate::burnchains::bitcoin::{
 };
 use crate::burnchains::{BurnchainBlockHeader, BurnchainSigner, BurnchainTransaction, Txid};
 use crate::chainstate::burn::operations::{
-    blockstack_op_extended_serialize_opt, deserialize_extended_blockstack_op,
+    blockstack_op_extended_deserialize, blockstack_op_extended_serialize_opt,
     BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
     StackStxOp, TransferStxOp, VoteForAggregateKeyOp,
 };
@@ -104,7 +104,7 @@ fn serde_blockstack_ops() {
     struct TestOpHolder {
         #[serde(
             serialize_with = "blockstack_op_extended_serialize_opt",
-            deserialize_with = "deserialize_extended_blockstack_op"
+            deserialize_with = "blockstack_op_extended_deserialize"
         )]
         burnchain_op: Option<BlockstackOperationType>,
     }

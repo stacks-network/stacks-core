@@ -418,7 +418,7 @@ pub fn blockstack_op_extended_serialize_opt<S: Serializer>(
 }
 
 /// Deserialize the burnchain op that was serialized with blockstack_op_to_json
-pub fn deserialize_extended_blockstack_op<'de, D>(
+pub fn blockstack_op_extended_deserialize<'de, D>(
     deserializer: D,
 ) -> Result<Option<BlockstackOperationType>, D::Error>
 where
@@ -476,40 +476,29 @@ where
         .map_err(serde::de::Error::custom)
 }
 
-macro_rules! normalize_common_fields {
-    ($map:ident, $de:ident) => {{
-        normalize_hex_field::<$de, _>(&mut $map, "burn_header_hash", |s| {
-            BurnchainHeaderHash::from_hex(s).map_err(DeError::custom)
-        })?;
-        rename_field(&mut $map, "burn_txid", "txid");
-        rename_field(&mut $map, "burn_block_height", "block_height");
-    }};
-}
-
-// Utility function to normalize a hex string to a BurnchainHeaderHash JSON value
-fn normalize_hex_field<'de, D, T>(
+fn normalize_common_fields<'de, D>(
     map: &mut serde_json::Map<String, serde_json::Value>,
-    field: &str,
-    from_hex: fn(&str) -> Result<T, D::Error>,
 ) -> Result<(), D::Error>
 where
     D: Deserializer<'de>,
-    T: serde::Serialize,
 {
-    if let Some(hex_str) = map.get(field).and_then(serde_json::Value::as_str) {
+    if let Some(hex_str) = map
+        .get("burn_header_hash")
+        .and_then(serde_json::Value::as_str)
+    {
         let cleaned = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-        let val = from_hex(cleaned).map_err(DeError::custom)?;
+        let val = BurnchainHeaderHash::from_hex(cleaned).map_err(DeError::custom)?;
         let ser_val = serde_json::to_value(val).map_err(DeError::custom)?;
-        map.insert(field.to_string(), ser_val);
+        map.insert("burn_header_hash".to_string(), ser_val);
+    }
+
+    if let Some(val) = map.remove("burn_txid") {
+        map.insert("txid".to_string(), val);
+    }
+    if let Some(val) = map.remove("burn_block_height") {
+        map.insert("block_height".to_string(), val);
     }
     Ok(())
-}
-
-// Normalize renamed field
-fn rename_field(map: &mut serde_json::Map<String, serde_json::Value>, from: &str, to: &str) {
-    if let Some(val) = map.remove(from) {
-        map.insert(to.to_string(), val);
-    }
 }
 
 impl BlockstackOperationType {
@@ -615,12 +604,12 @@ impl BlockstackOperationType {
 
     // Replace all the normalize_* functions with minimal implementations
     fn normalize_pre_stx_fields<'de, D>(
-        mut map: &mut serde_json::Map<String, serde_json::Value>,
+        map: &mut serde_json::Map<String, serde_json::Value>,
     ) -> Result<(), D::Error>
     where
         D: Deserializer<'de>,
     {
-        normalize_common_fields!(map, D);
+        normalize_common_fields::<D>(map)?;
         if let Some(serde_json::Value::Object(obj)) = map.get_mut("output") {
             normalize_stacks_addr_fields::<D>(obj)?;
         }
@@ -628,12 +617,12 @@ impl BlockstackOperationType {
     }
 
     fn normalize_stack_stx_fields<'de, D>(
-        mut map: &mut serde_json::Map<String, serde_json::Value>,
+        map: &mut serde_json::Map<String, serde_json::Value>,
     ) -> Result<(), D::Error>
     where
         D: Deserializer<'de>,
     {
-        normalize_common_fields!(map, D);
+        normalize_common_fields::<D>(map)?;
         if let Some(serde_json::Value::Object(obj)) = map.get_mut("sender") {
             normalize_stacks_addr_fields::<D>(obj)?;
         }
@@ -650,12 +639,12 @@ impl BlockstackOperationType {
     }
 
     fn normalize_transfer_stx_fields<'de, D>(
-        mut map: &mut serde_json::Map<String, serde_json::Value>,
+        map: &mut serde_json::Map<String, serde_json::Value>,
     ) -> Result<(), D::Error>
     where
         D: Deserializer<'de>,
     {
-        normalize_common_fields!(map, D);
+        normalize_common_fields::<D>(map)?;
         for field in ["recipient", "sender"] {
             if let Some(serde_json::Value::Object(obj)) = map.get_mut(field) {
                 normalize_stacks_addr_fields::<D>(obj)?;
@@ -671,12 +660,12 @@ impl BlockstackOperationType {
     }
 
     fn normalize_delegate_stx_fields<'de, D>(
-        mut map: &mut serde_json::Map<String, serde_json::Value>,
+        map: &mut serde_json::Map<String, serde_json::Value>,
     ) -> Result<(), D::Error>
     where
         D: Deserializer<'de>,
     {
-        normalize_common_fields!(map, D);
+        normalize_common_fields::<D>(map)?;
         if let Some(serde_json::Value::Array(arr)) = map.get("reward_addr") {
             if arr.len() == 2 {
                 let index = arr[0]
@@ -701,12 +690,12 @@ impl BlockstackOperationType {
     }
 
     fn normalize_vote_for_aggregate_key_fields<'de, D>(
-        mut map: &mut serde_json::Map<String, serde_json::Value>,
+        map: &mut serde_json::Map<String, serde_json::Value>,
     ) -> Result<(), D::Error>
     where
         D: Deserializer<'de>,
     {
-        normalize_common_fields!(map, D);
+        normalize_common_fields::<D>(map)?;
         for field in ["aggregate_key", "signer_key"] {
             if let Some(hex_str) = map.get(field).and_then(serde_json::Value::as_str) {
                 let cleaned = hex_str.strip_prefix("0x").unwrap_or(hex_str);
