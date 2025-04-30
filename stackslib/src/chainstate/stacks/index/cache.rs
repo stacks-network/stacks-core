@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::char::from_digit;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
@@ -135,6 +136,11 @@ impl<T: MarfTrieId> TrieCacheState<T> {
     /// Load up a block hash, given its ID
     pub fn load_block_hash(&self, block_id: u32) -> Option<T> {
         self.block_hash_cache.get(&block_id).cloned()
+    }
+
+    /// Return the HashMap Entry for a block_id
+    pub fn entry_block_hash(&mut self, block_id: u32) -> Entry<'_, u32, T> {
+        self.block_hash_cache.entry(block_id)
     }
 
     /// Cache a block hash, given its ID
@@ -307,6 +313,11 @@ impl<T: MarfTrieId> TrieCache<T> {
     /// Load a block's hash, given its block ID.
     pub fn load_block_hash(&mut self, block_id: u32) -> Option<T> {
         self.state_mut().load_block_hash(block_id)
+    }
+
+    /// Get entry for a block hash, given its ID
+    pub fn entry_block_hash<'a>(&'a mut self, block_id: u32) -> Entry<'a, u32, T> {
+        self.state_mut().entry_block_hash(block_id)
     }
 
     /// Store a block's ID and hash to teh cache.
