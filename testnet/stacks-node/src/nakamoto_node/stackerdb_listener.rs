@@ -22,14 +22,19 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use hashbrown::{HashMap, HashSet};
-use libsigner::v0::messages::{BlockAccepted, BlockResponse, SignerMessage as SignerMessageV0};
-use libsigner::SignerEvent;
+use libsigner::v0::messages::{
+    BlockAccepted, BlockResponse, MessageSlotID, SignerMessage as SignerMessageV0,
+    StateMachineUpdate, StateMachineUpdateContent,
+};
+use libsigner::{SignerEvent, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::nakamoto::NakamotoBlockHeader;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, RewardSet, SIGNERS_NAME};
 use stacks::chainstate::stacks::events::StackerDBChunksEvent;
-use stacks::chainstate::stacks::Error as ChainstateError;
+use stacks::chainstate::stacks::{Error as ChainstateError, StacksTransaction};
+use stacks::codec::StacksMessageCodec;
+use stacks::net::stackerdb::StackerDBs;
 use stacks::types::chainstate::StacksPublicKey;
 use stacks::types::PublicKey;
 use stacks::util::get_epoch_time_secs;
@@ -40,6 +45,7 @@ use stacks_common::util::tests::TestFlag;
 
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
+use crate::Config;
 
 #[cfg(test)]
 /// Fault injection flag to prevent the miner from seeing enough signer signatures.
@@ -65,6 +71,12 @@ pub struct BlockStatus {
 #[derive(Debug, Clone)]
 pub(crate) struct TimestampInfo {
     pub timestamp: u64,
+    pub weight: u32,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ReplayInfo {
+    pub transactions: Vec<StacksTransaction>,
     pub weight: u32,
 }
 
@@ -96,6 +108,11 @@ pub struct StackerDBListener {
     ///  - key: StacksPublicKey
     ///  - value: TimestampInfo
     pub(crate) signer_idle_timestamps: Arc<Mutex<HashMap<StacksPublicKey, TimestampInfo>>>,
+    /// Tracks any replay transactions from signers to decide when the miner should
+    /// attempt to replay reorged blocks
+    ///  - key: StacksPublicKey
+    ///  - value: Vec<StacksTransaction>
+    pub(crate) replay_info: Arc<Mutex<HashMap<StacksPublicKey, ReplayInfo>>>,
 }
 
 /// Interface for other threads to retrieve info from the StackerDBListener
@@ -109,6 +126,11 @@ pub struct StackerDBListenerComms {
     ///  - key: StacksPublicKey
     ///  - value: TimestampInfo
     signer_idle_timestamps: Arc<Mutex<HashMap<StacksPublicKey, TimestampInfo>>>,
+    /// Tracks any replay transactions from signers to decide when the miner should
+    /// attempt to replay reorged blocks
+    ///  - key: StacksPublicKey
+    ///  - value: ReplayInfo
+    replay_info: Arc<Mutex<HashMap<StacksPublicKey, ReplayInfo>>>,
 }
 
 impl StackerDBListener {
@@ -119,6 +141,7 @@ impl StackerDBListener {
         reward_set: &RewardSet,
         burn_tip: &BlockSnapshot,
         burnchain: &Burnchain,
+        config: &Config,
     ) -> Result<Self, ChainstateError> {
         let (receiver, replaced_other) = stackerdb_channel
             .lock()
@@ -161,6 +184,60 @@ impl StackerDBListener {
             })
             .collect::<Result<HashMap<_, _>, ChainstateError>>()?;
 
+        let reward_cycle = burnchain
+            .block_height_to_reward_cycle(burn_tip.block_height)
+            .expect("BUG: unknown reward cycle");
+        let signers_contract_id = MessageSlotID::StateMachineUpdate
+            .stacker_db_contract(config.is_mainnet(), reward_cycle);
+        let rpc_socket = config
+            .node
+            .get_rpc_loopback()
+            .ok_or_else(|| ChainstateError::MinerAborted)?;
+        let mut signers_session =
+            StackerDBSession::new(&rpc_socket.to_string(), signers_contract_id.clone());
+        let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), false)?;
+        let slot_ids: Vec<_> = stackerdbs
+            .get_signers(&signers_contract_id)
+            .expect("FATAL: could not get signers from stacker DB")
+            .into_iter()
+            .enumerate()
+            .map(|(slot_id, _)| {
+                u32::try_from(slot_id).expect("FATAL: too many signers to fit into u32 range")
+            })
+            .collect();
+        let chunks = signers_session
+            .get_latest_chunks(&slot_ids)
+            .inspect_err(|e| warn!("Unable to read the latest signer state from signer db: {e}."))
+            .unwrap_or_default();
+        let mut replay_infos = HashMap::new();
+        for (chunk, slot_id) in chunks.into_iter().zip(slot_ids) {
+            let Some(chunk) = chunk else {
+                continue;
+            };
+            let Some(signer_entry) = &signer_entries.get(&slot_id) else {
+                continue;
+            };
+            let Ok(signer_pubkey) = StacksPublicKey::from_slice(&signer_entry.signing_key) else {
+                continue;
+            };
+            if let Ok(SignerMessageV0::StateMachineUpdate(update)) =
+                SignerMessageV0::consensus_deserialize(&mut chunk.as_slice())
+            {
+                let transactions = match update.content {
+                    StateMachineUpdateContent::V0 { .. } => vec![],
+                    StateMachineUpdateContent::V1 {
+                        replay_transactions,
+                        ..
+                    } => replay_transactions,
+                };
+                let replay_info = ReplayInfo {
+                    transactions,
+                    weight: signer_entry.weight,
+                };
+                replay_infos.insert(signer_pubkey, replay_info);
+            }
+        }
+
         Ok(Self {
             stackerdb_channel,
             receiver: Some(receiver),
@@ -172,6 +249,7 @@ impl StackerDBListener {
             signer_entries,
             blocks: Arc::new((Mutex::new(HashMap::new()), Condvar::new())),
             signer_idle_timestamps: Arc::new(Mutex::new(HashMap::new())),
+            replay_info: Arc::new(Mutex::new(replay_infos)),
         })
     }
 
@@ -179,6 +257,7 @@ impl StackerDBListener {
         StackerDBListenerComms {
             blocks: self.blocks.clone(),
             signer_idle_timestamps: self.signer_idle_timestamps.clone(),
+            replay_info: self.replay_info.clone(),
         }
     }
 
@@ -445,8 +524,8 @@ impl StackerDBListener {
                     | SignerMessageV0::MockBlock(_) => {
                         debug!("Received mock message. Ignoring.");
                     }
-                    SignerMessageV0::StateMachineUpdate(_) => {
-                        debug!("Received state machine update message. Ignoring.");
+                    SignerMessageV0::StateMachineUpdate(update) => {
+                        self.update_replay_info(signer_pubkey, signer_entry.weight, update);
                     }
                 };
             }
@@ -470,6 +549,32 @@ impl StackerDBListener {
         // Update the map with the new timestamp and weight
         let timestamp_info = TimestampInfo { timestamp, weight };
         idle_timestamps.insert(signer_pubkey, timestamp_info);
+    }
+
+    fn update_replay_info(
+        &self,
+        signer_pubkey: StacksPublicKey,
+        weight: u32,
+        update: StateMachineUpdate,
+    ) {
+        let transactions = match update.content {
+            StateMachineUpdateContent::V0 { .. } => vec![],
+            StateMachineUpdateContent::V1 {
+                replay_transactions,
+                ..
+            } => replay_transactions,
+        };
+        let mut replay_infos = self
+            .replay_info
+            .lock()
+            .expect("FATAL: failed to lock idle timestamps");
+
+        // Update the map with the replay info and weight
+        let replay_info = ReplayInfo {
+            transactions,
+            weight,
+        };
+        replay_infos.insert(signer_pubkey, replay_info);
     }
 
     /// Do we ignore signer signatures?
@@ -596,5 +701,32 @@ impl StackerDBListenerComms {
         // time, so return u64::MAX to indicate that we should not extend the
         // tenure.
         u64::MAX
+    }
+
+    /// Get the transactions that at least 70% of the signing power expect to be replayed in
+    /// the next stacks block
+    pub fn get_replay_transactions(&self, weight_threshold: u32) -> Vec<StacksTransaction> {
+        let replay_info = self
+            .replay_info
+            .lock()
+            .expect("FATAL: failed to lock replay transactions");
+
+        let replay_info = replay_info.values().collect::<Vec<_>>();
+        let mut weights: HashMap<&Vec<StacksTransaction>, u32> = HashMap::new();
+        for info in replay_info {
+            // We only care about signers voting for us to replay a specific set of transactions
+            if info.transactions.is_empty() {
+                continue;
+            }
+            let entry = weights.entry(&info.transactions).or_default();
+            *entry += info.weight;
+            if *entry >= weight_threshold {
+                debug!("SignerCoordinator: 70% threshold reached to attempt replay transactions";
+                    "replay_transactions" => ?info.transactions,
+                );
+                return info.transactions.clone();
+            }
+        }
+        vec![]
     }
 }
