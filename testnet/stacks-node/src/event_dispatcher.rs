@@ -589,6 +589,7 @@ impl EventObserver {
         burns: u64,
         slot_holders: Vec<PoxAddress>,
         consensus_hash: &ConsensusHash,
+        parent_burn_block_hash: &BurnchainHeaderHash,
     ) -> serde_json::Value {
         let reward_recipients = rewards
             .into_iter()
@@ -612,6 +613,7 @@ impl EventObserver {
             "reward_slot_holders": serde_json::Value::Array(reward_slot_holders),
             "burn_amount": burns,
             "consensus_hash": format!("0x{consensus_hash}"),
+            "parent_burn_block_hash": format!("0x{parent_burn_block_hash}"),
         })
     }
 
@@ -1077,6 +1079,7 @@ impl BlockEventDispatcher for EventDispatcher {
         burns: u64,
         recipient_info: Vec<PoxAddress>,
         consensus_hash: &ConsensusHash,
+        parent_burn_block_hash: &BurnchainHeaderHash,
     ) {
         self.process_burn_block(
             burn_block,
@@ -1085,6 +1088,7 @@ impl BlockEventDispatcher for EventDispatcher {
             burns,
             recipient_info,
             consensus_hash,
+            parent_burn_block_hash,
         )
     }
 }
@@ -1129,6 +1133,7 @@ impl EventDispatcher {
         burns: u64,
         recipient_info: Vec<PoxAddress>,
         consensus_hash: &ConsensusHash,
+        parent_burn_block_hash: &BurnchainHeaderHash,
     ) {
         // lazily assemble payload only if we have observers
         let interested_observers = self.filter_observers(&self.burn_block_observers_lookup, true);
@@ -1143,6 +1148,7 @@ impl EventDispatcher {
             burns,
             recipient_info,
             consensus_hash,
+            parent_burn_block_hash,
         );
 
         for observer in interested_observers.iter() {

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::VecDeque;
 use std::io::{Read, Write};
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
@@ -48,10 +49,14 @@ use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NAKAMOTO_BLOCK_VERSION};
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
-use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
+use crate::chainstate::stacks::miner::{
+    BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic, TransactionResult,
+    TransactionSkipped,
+};
 use crate::chainstate::stacks::{
     Error as ChainError, StacksBlock, StacksBlockHeader, StacksTransaction, TransactionPayload,
 };
+use crate::clarity_vm::clarity::Error as ClarityError;
 use crate::core::mempool::{MemPoolDB, ProposalCallbackReceiver};
 use crate::cost_estimates::FeeRateEstimate;
 use crate::net::http::{
@@ -76,6 +81,11 @@ pub static TEST_VALIDATE_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFla
 /// Artificial delay to add to block validation.
 pub static TEST_VALIDATE_DELAY_DURATION_SECS: LazyLock<TestFlag<u64>> =
     LazyLock::new(TestFlag::default);
+#[cfg(any(test, feature = "testing"))]
+/// Mock for the set of transactions that must be replayed
+pub static TEST_REPLAY_TRANSACTIONS: LazyLock<
+    TestFlag<std::collections::VecDeque<StacksTransaction>>,
+> = LazyLock::new(TestFlag::default);
 
 // This enum is used to supply a `reason_code` for validation
 //  rejection responses. This is serialized as an enum with string
@@ -87,7 +97,11 @@ define_u8_enum![ValidateRejectCode {
     ChainstateError = 3,
     UnknownParent = 4,
     NonCanonicalTenure = 5,
-    NoSuchTenure = 6
+    NoSuchTenure = 6,
+    InvalidTransactionReplay = 7,
+    InvalidParentBlock = 8,
+    InvalidTimestamp = 9,
+    NetworkChainMismatch = 10
 }];
 
 pub static TOO_MANY_REQUESTS_STATUS: u16 = 429;
@@ -207,6 +221,8 @@ pub struct NakamotoBlockProposal {
     pub block: NakamotoBlock,
     /// Identifies which chain block is for (Mainnet, Testnet, etc.)
     pub chain_id: u32,
+    /// Optional transaction replay set
+    pub replay_txs: Option<Vec<StacksTransaction>>,
 }
 
 impl NakamotoBlockProposal {
@@ -287,7 +303,7 @@ impl NakamotoBlockProposal {
                 "highest_header.height" => highest_header.anchored_header.height(),
             );
             return Err(BlockValidateRejectReason {
-                reason_code: ValidateRejectCode::InvalidBlock,
+                reason_code: ValidateRejectCode::InvalidParentBlock,
                 reason: "Block is not higher than the highest block in its tenure".into(),
             });
         }
@@ -372,6 +388,11 @@ impl NakamotoBlockProposal {
     ///   - Miner signature is valid
     /// - Validation of transactions by executing them agains current chainstate.
     ///   This is resource intensive, and therefore done only if previous checks pass
+    ///
+    /// During transaction replay, we also check that the block only contains the unmined
+    /// transactions that need to be replayed, up until either:
+    /// - The set of transactions that must be replayed is exhausted
+    /// - A cost limit is hit
     pub fn validate(
         &self,
         sortdb: &SortitionDB,
@@ -405,7 +426,7 @@ impl NakamotoBlockProposal {
                 "received_mainnet" => mainnet,
             );
             return Err(BlockValidateRejectReason {
-                reason_code: ValidateRejectCode::InvalidBlock,
+                reason_code: ValidateRejectCode::NetworkChainMismatch,
                 reason: "Wrong network/chain_id".into(),
             });
         }
@@ -428,8 +449,8 @@ impl NakamotoBlockProposal {
             &self.block.header.parent_block_id,
         )?
         .ok_or_else(|| BlockValidateRejectReason {
-            reason_code: ValidateRejectCode::InvalidBlock,
-            reason: "Invalid parent block".into(),
+            reason_code: ValidateRejectCode::UnknownParent,
+            reason: "Unknown parent block".into(),
         })?;
 
         let burn_view_consensus_hash =
@@ -494,7 +515,7 @@ impl NakamotoBlockProposal {
                     "parent_block_timestamp" => parent_nakamoto_header.timestamp,
                 );
                 return Err(BlockValidateRejectReason {
-                    reason_code: ValidateRejectCode::InvalidBlock,
+                    reason_code: ValidateRejectCode::InvalidTimestamp,
                     reason: "Block timestamp is not greater than parent block".into(),
                 });
             }
@@ -507,7 +528,7 @@ impl NakamotoBlockProposal {
                 "current_time" => get_epoch_time_secs(),
             );
             return Err(BlockValidateRejectReason {
-                reason_code: ValidateRejectCode::InvalidBlock,
+                reason_code: ValidateRejectCode::InvalidTimestamp,
                 reason: "Block timestamp is too far into the future".into(),
             });
         }
@@ -541,8 +562,88 @@ impl NakamotoBlockProposal {
             builder.load_tenure_info(chainstate, &burn_dbconn, tenure_cause)?;
         let mut tenure_tx = builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info)?;
 
+        let mut replay_txs_maybe: Option<VecDeque<StacksTransaction>> =
+            self.replay_txs.clone().map(|txs| txs.into());
+
         for (i, tx) in self.block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
+
+            // If a list of replay transactions is set, this transaction must be the next
+            // mineable transaction from this list.
+            if let Some(ref mut replay_txs) = replay_txs_maybe {
+                loop {
+                    let Some(replay_tx) = replay_txs.pop_front() else {
+                        // During transaction replay, we expect that the block only
+                        // contains transactions from the replay set. Thus, if we're here,
+                        // the block contains a transaction that is not in the replay set,
+                        // and we should reject the block.
+                        return Err(BlockValidateRejectReason {
+                            reason_code: ValidateRejectCode::InvalidTransactionReplay,
+                            reason: "Transaction is not in the replay set".into(),
+                        });
+                    };
+                    if replay_tx.txid() == tx.txid() {
+                        break;
+                    }
+
+                    // The included tx doesn't match the next tx in the
+                    // replay set. Check to see if the tx is skipped because
+                    // it was unmineable.
+                    let tx_result = builder.try_mine_tx_with_len(
+                        &mut tenure_tx,
+                        &replay_tx,
+                        replay_tx.tx_len(),
+                        &BlockLimitFunction::NO_LIMIT_HIT,
+                        ASTRules::PrecheckSize,
+                        None,
+                    );
+                    match tx_result {
+                        TransactionResult::Skipped(TransactionSkipped { error, .. })
+                        | TransactionResult::ProcessingError(TransactionError { error, .. })
+                        | TransactionResult::Problematic(TransactionProblematic {
+                            error, ..
+                        }) => {
+                            // The tx wasn't able to be mined. Check the underlying error, to
+                            // see if we should reject the block or allow the tx to be
+                            // dropped from the replay set.
+
+                            match error {
+                                ChainError::CostOverflowError(..)
+                                | ChainError::BlockTooBigError
+                                | ChainError::ClarityError(ClarityError::CostError(..)) => {
+                                    // block limit reached; add tx back to replay set.
+                                    // BUT we know that the block should have ended at this point, so
+                                    // return an error.
+                                    let txid = replay_tx.txid();
+                                    replay_txs.push_front(replay_tx);
+
+                                    warn!("Rejecting block proposal. Next replay tx exceeds cost limits, so should have been in the next block.";
+                                        "error" => %error,
+                                        "txid" => %txid,
+                                    );
+
+                                    return Err(BlockValidateRejectReason {
+                                        reason_code: ValidateRejectCode::InvalidTransactionReplay,
+                                        reason: "Transaction is not in the replay set".into(),
+                                    });
+                                }
+                                _ => {
+                                    // it's ok, drop it
+                                    continue;
+                                }
+                            }
+                        }
+                        TransactionResult::Success(_) => {
+                            // Tx should have been included
+                            return Err(BlockValidateRejectReason {
+                                reason_code: ValidateRejectCode::InvalidTransactionReplay,
+                                reason: "Transaction is not in the replay set".into(),
+                            });
+                        }
+                    };
+                }
+            }
+
             let tx_result = builder.try_mine_tx_with_len(
                 &mut tenure_tx,
                 tx,
