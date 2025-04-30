@@ -6579,6 +6579,7 @@ fn signer_chainstate() {
 
         // this config disallows any reorg due to poorly timed block commits
         let proposal_conf = ProposalEvalConfig {
+            proposal_wait_for_parent_time: Duration::from_secs(0),
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
@@ -6705,6 +6706,7 @@ fn signer_chainstate() {
 
         // this config disallows any reorg due to poorly timed block commits
         let proposal_conf = ProposalEvalConfig {
+            proposal_wait_for_parent_time: Duration::from_secs(0),
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
@@ -6782,6 +6784,7 @@ fn signer_chainstate() {
 
     // this config disallows any reorg due to poorly timed block commits
     let proposal_conf = ProposalEvalConfig {
+        proposal_wait_for_parent_time: Duration::from_secs(0),
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
