@@ -2752,9 +2752,6 @@ mod test {
         receipt.vm_error = Some("Inconceivable!".into());
 
         let payload_with_error = EventObserver::make_new_block_txs_payload(&receipt, 0);
-        let json = serde_json::to_string_pretty(&payload_with_error).unwrap();
-        println!("PAYLOAD: {json}");
-        assert!(false);
         assert_eq!(payload_with_error.vm_error, receipt.vm_error);
     }
 
