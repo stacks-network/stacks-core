@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{ErrorKind, Write};
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::{cmp, fmt, fs};
 
 use clarity::util::lru_cache::LruCache;
@@ -98,8 +98,9 @@ pub const REWARD_WINDOW_END: u64 = 144 * 90 + REWARD_WINDOW_START;
 
 pub type BlockHeaderCache = HashMap<ConsensusHash, (Option<BlockHeaderHash>, ConsensusHash)>;
 
+const DESCENDANCY_CACHE_SIZE: usize = 2000;
 static DESCENDANCY_CACHE: LazyLock<Arc<Mutex<LruCache<(SortitionId, BlockHeaderHash), bool>>>> =
-    LazyLock::new(|| Arc::new(Mutex::new(LruCache::new(2000))));
+    LazyLock::new(|| Arc::new(Mutex::new(LruCache::new(DESCENDANCY_CACHE_SIZE))));
 
 pub enum FindIter<R> {
     Found(R),
@@ -1091,6 +1092,38 @@ pub trait SortitionHandle {
         Ok(Some(StacksBlockId::new(&ch, &bhh)))
     }
 
+    /// Check if the descendancy cache has an entry for whether or not the winning block in `key.0`
+    ///  descends from `key.1`
+    ///
+    /// If it does, return the cached entry
+    fn descendancy_cache_get(
+        cache: &mut MutexGuard<'_, LruCache<(SortitionId, BlockHeaderHash), bool>>,
+        key: &(SortitionId, BlockHeaderHash),
+    ) -> Option<bool> {
+        match cache.get(key) {
+            Ok(result) => result,
+            // cache is broken, create a new one
+            Err(e) => {
+                error!("SortitionDB's descendant cache errored. Will continue operation with cleared cache"; "err" => %e);
+                **cache = LruCache::new(DESCENDANCY_CACHE_SIZE);
+                None
+            }
+        }
+    }
+
+    /// Cache the result of the descendancy check on whether or not the winning block in `key.0`
+    ///  descends from `key.1`
+    fn descendancy_cache_put(
+        cache: &mut MutexGuard<'_, LruCache<(SortitionId, BlockHeaderHash), bool>>,
+        key: (SortitionId, BlockHeaderHash),
+        is_descended: bool,
+    ) {
+        if let Err(e) = cache.insert_clean(key, is_descended) {
+            error!("SortitionDB's descendant cache errored. Will continue operation with cleared cache"; "err" => %e);
+            **cache = LruCache::new(DESCENDANCY_CACHE_SIZE);
+        }
+    }
+
     /// is the given block a descendant of `potential_ancestor`?
     ///  * block_at_burn_height: the burn height of the sortition that chose the stacks block to check
     ///  * potential_ancestor: the stacks block hash of the potential ancestor
@@ -1125,39 +1158,36 @@ pub trait SortitionHandle {
             .expect("FATAL: lock poisoned in SortitionDB");
 
         while sn.block_height >= earliest_block_height {
-            match cache.get(&(sn.sortition_id, potential_ancestor.clone())) {
-                Ok(Some(result)) => {
+            let cache_check_key = (sn.sortition_id, potential_ancestor.clone());
+            match Self::descendancy_cache_get(&mut cache, &cache_check_key) {
+                Some(result) => {
                     if sn.sortition_id != top_sortition_id {
-                        if let Err(_) = cache
-                            .insert_clean((top_sortition_id, potential_ancestor.clone()), result)
-                        {
-                            *cache = LruCache::new(2000);
-                        }
+                        Self::descendancy_cache_put(
+                            &mut cache,
+                            (top_sortition_id, cache_check_key.1),
+                            result,
+                        );
                     }
                     return Ok(result);
                 }
                 // not cached, don't need to do anything.
-                Ok(None) => {}
-                // cache is broken, create a new one
-                Err(_) => {
-                    *cache = LruCache::new(2000);
-                }
+                None => {}
             }
 
             if !sn.sortition {
-                if let Err(_) =
-                    cache.insert_clean((top_sortition_id, potential_ancestor.clone()), false)
-                {
-                    *cache = LruCache::new(2000);
-                }
+                Self::descendancy_cache_put(
+                    &mut cache,
+                    (top_sortition_id, cache_check_key.1),
+                    false,
+                );
                 return Ok(false);
             }
             if &sn.winning_stacks_block_hash == potential_ancestor {
-                if let Err(_) =
-                    cache.insert_clean((top_sortition_id, potential_ancestor.clone()), true)
-                {
-                    *cache = LruCache::new(2000);
-                }
+                Self::descendancy_cache_put(
+                    &mut cache,
+                    (top_sortition_id, cache_check_key.1),
+                    true,
+                );
                 return Ok(true);
             }
 
@@ -1193,9 +1223,11 @@ pub trait SortitionHandle {
                 }
             }
         }
-        if let Err(_) = cache.insert_clean((top_sortition_id, potential_ancestor.clone()), false) {
-            *cache = LruCache::new(2000);
-        }
+        Self::descendancy_cache_put(
+            &mut cache,
+            (top_sortition_id, potential_ancestor.clone()),
+            false,
+        );
         return Ok(false);
     }
 }
