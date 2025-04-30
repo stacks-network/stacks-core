@@ -2224,7 +2224,7 @@ impl Default for MinerConfig {
             activated_vrf_key_path: None,
             fast_rampup: false,
             underperform_stop_threshold: None,
-            mempool_walk_strategy: MemPoolWalkStrategy::GlobalFeeRate,
+            mempool_walk_strategy: MemPoolWalkStrategy::NextNonceWithHighestFeeRate,
             txs_to_consider: MemPoolWalkTxTypes::all(),
             filter_origins: HashSet::new(),
             max_reorg_depth: 3,
@@ -2758,7 +2758,7 @@ impl MinerConfigFile {
             underperform_stop_threshold: self.underperform_stop_threshold,
             mempool_walk_strategy: self.mempool_walk_strategy
                 .map(|s| str::parse(&s).unwrap_or_else(|e| panic!("Could not parse '{s}': {e}")))
-                .unwrap_or(MemPoolWalkStrategy::GlobalFeeRate),
+                .unwrap_or(MemPoolWalkStrategy::NextNonceWithHighestFeeRate),
             txs_to_consider: {
                 if let Some(txs_to_consider) = &self.txs_to_consider {
                     txs_to_consider

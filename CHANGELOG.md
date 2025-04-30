@@ -16,6 +16,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Reduce the default `block_rejection_timeout_steps` configuration so that miners will retry faster when blocks fail to reach 70% approved or 30% rejected.
 - Added index for `next_ready_nakamoto_block()` which improves block processing performance.
 - Added a new field, `parent_burn_block_hash`, to the payload that is included in the `/new_burn_block` event observer payload.
+- Changed default mempool walk strategy to `NextNonceWithHighestFeeRate`
 
 ## [3.1.0.0.8]
 

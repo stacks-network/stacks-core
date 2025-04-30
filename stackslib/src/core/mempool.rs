@@ -575,7 +575,7 @@ pub struct MemPoolWalkSettings {
 impl Default for MemPoolWalkSettings {
     fn default() -> Self {
         MemPoolWalkSettings {
-            strategy: MemPoolWalkStrategy::GlobalFeeRate,
+            strategy: MemPoolWalkStrategy::NextNonceWithHighestFeeRate,
             max_walk_time_ms: u64::MAX,
             consider_no_estimate_tx_prob: 5,
             nonce_cache_size: 1024 * 1024,
@@ -589,7 +589,7 @@ impl Default for MemPoolWalkSettings {
 impl MemPoolWalkSettings {
     pub fn zero() -> MemPoolWalkSettings {
         MemPoolWalkSettings {
-            strategy: MemPoolWalkStrategy::GlobalFeeRate,
+            strategy: MemPoolWalkStrategy::NextNonceWithHighestFeeRate,
             max_walk_time_ms: u64::MAX,
             consider_no_estimate_tx_prob: 5,
             nonce_cache_size: 1024 * 1024,
