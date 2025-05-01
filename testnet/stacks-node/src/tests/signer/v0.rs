@@ -79,6 +79,7 @@ use stacks_signer::client::{SignerSlotID, StackerDB};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::signerdb::SignerDb;
 use stacks_signer::v0::signer::TEST_REPEAT_PROPOSAL_RESPONSE;
+use stacks_signer::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use stacks_signer::v0::tests::{
     TEST_IGNORE_ALL_BLOCK_PROPOSALS, TEST_PAUSE_BLOCK_BROADCAST, TEST_REJECT_ALL_BLOCK_PROPOSAL,
     TEST_SKIP_BLOCK_BROADCAST, TEST_SKIP_SIGNER_CLEANUP, TEST_STALL_BLOCK_VALIDATION_SUBMISSION,
@@ -1434,6 +1435,7 @@ pub fn wait_for_state_machine_update(
     expected_burn_block: &ConsensusHash,
     expected_burn_block_height: u64,
     expected_miner_info: Option<(Hash160, u64)>,
+    version: u64,
 ) -> Result<(), String> {
     wait_for(timeout_secs, || {
         let stackerdb_events = test_observer::get_stackerdb_chunks();
@@ -1446,18 +1448,25 @@ pub fn wait_for_state_machine_update(
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
-            let (burn_block, burn_block_height, current_miner) = match &update.content {
-                StateMachineUpdateContent::V0 {
-                    burn_block,
-                    burn_block_height,
-                    current_miner,
-                }
-                | StateMachineUpdateContent::V1 {
-                    burn_block,
-                    burn_block_height,
-                    current_miner,
-                    ..
-                } => (burn_block, burn_block_height, current_miner),
+            let (burn_block, burn_block_height, current_miner) = match (version, &update.content) {
+                (
+                    0,
+                    StateMachineUpdateContent::V0 {
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                    },
+                ) => (burn_block, burn_block_height, current_miner),
+                (
+                    1,
+                    StateMachineUpdateContent::V1 {
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                        ..
+                    },
+                ) => (burn_block, burn_block_height, current_miner),
+                (other, _) => panic!("Unsupported protocol version: {other}"),
             };
             if *burn_block_height != expected_burn_block_height || burn_block != expected_burn_block
             {
@@ -13747,6 +13756,7 @@ fn signers_send_state_message_updates() {
         &get_burn_consensus_hash(),
         starting_burn_height + 1,
         Some((miner_pkh_1, starting_peer_height)),
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
     .expect("Timed out waiting for signers to send a state update");
 
@@ -13775,6 +13785,7 @@ fn signers_send_state_message_updates() {
         &get_burn_consensus_hash(),
         starting_burn_height + 2,
         Some((miner_pkh_2, starting_peer_height + 1)),
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
     .expect("Timed out waiting for signers to send their state update");
 
@@ -13793,6 +13804,7 @@ fn signers_send_state_message_updates() {
         &get_burn_consensus_hash(),
         starting_burn_height + 2,
         Some((miner_pkh_1, starting_peer_height)),
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
     .expect("Timed out waiting for signers to send their state update");
 
@@ -14385,18 +14397,34 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
-            let StateMachineUpdateContent::V0 {
-                burn_block,
-                burn_block_height,
-                current_miner:
-                    StateMachineUpdateMinerState::ActiveMiner {
-                        current_miner_pkh, ..
-                    },
-                ..
-            } = update.content
-            else {
-                continue;
-            };
+            let (burn_block, burn_block_height, current_miner_pkh) =
+                match (SUPPORTED_SIGNER_PROTOCOL_VERSION, update.content) {
+                    (
+                        0,
+                        StateMachineUpdateContent::V0 {
+                            burn_block,
+                            burn_block_height,
+                            current_miner:
+                                StateMachineUpdateMinerState::ActiveMiner {
+                                    current_miner_pkh, ..
+                                },
+                            ..
+                        },
+                    )
+                    | (
+                        1,
+                        StateMachineUpdateContent::V1 {
+                            burn_block,
+                            burn_block_height,
+                            current_miner:
+                                StateMachineUpdateMinerState::ActiveMiner {
+                                    current_miner_pkh, ..
+                                },
+                            ..
+                        },
+                    ) => (burn_block, burn_block_height, current_miner_pkh),
+                    _ => continue,
+                };
             if burn_block == tenure_c_block_proposal.header.consensus_hash
                 && burn_block_height == burn_height_before + 1
                 && current_miner_pkh == miner_pkh_1
