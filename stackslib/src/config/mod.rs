@@ -2370,12 +2370,17 @@ pub struct ConnectionOptionsFile {
     pub soft_num_clients: Option<u64>,
     /// maximum number of neighbors per host we permit
     ///
+    /// Default: 1.
     /// Deprecated: it does not have any effect on the node's behavior.
     pub max_neighbors_per_host: Option<u64>,
     /// maximum number of inbound p2p connections per host we permit
+    ///
+    /// Default: 4.
+    /// Deprecated: it does not have any effect on the node's behavior.
     pub max_clients_per_host: Option<u64>,
     /// soft limit on the number of neighbors per host we permit
     ///
+    /// Default: 1.
     /// Deprecated: it does not have any effect on the node's behavior.
     pub soft_max_neighbors_per_host: Option<u64>,
     /// Soft limit on the number of outbound P2P connections per network organization (ASN).
@@ -2567,7 +2572,16 @@ pub struct ConnectionOptionsFile {
     ///
     /// Default: `None` (feature disabled).
     pub force_disconnect_interval: Option<u64>,
-    /// always push blocks, even if we're not NAT'ed
+    /// Controls whether a node with public inbound connections should still push blocks, even if not NAT'ed.
+    ///
+    /// In the Stacks 2.x anti-entropy logic, if a node detected it had inbound connections
+    /// from public IPs (suggesting it wasn't behind NAT) and this flag was set to `false`,
+    /// it would refrain from proactively pushing blocks and microblocks to peers.
+    /// The assumption was that publicly reachable nodes should primarily serve downloads.
+    /// If set to `true` (default), the node would push data regardless of its perceived reachability.
+    ///
+    /// Default: `true`.
+    /// Deprecated: This setting is ignored in Epoch 3.0+.
     pub antientropy_public: Option<bool>,
     /// Whether to allow connections and interactions with peers having private IP addresses.
     ///
