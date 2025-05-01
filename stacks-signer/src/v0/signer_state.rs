@@ -644,6 +644,8 @@ impl LocalStateMachine {
         };
 
         // No matter what, if we're in tx replay mode, remove the tx replay set
+        // TODO: in later versions, we will only clear the tx replay
+        // set when replay is completed.
         prior_state_machine.tx_replay_set = None;
 
         let MinerState::ActiveMiner {
@@ -780,59 +782,12 @@ impl LocalStateMachine {
                 };
                 return Err(ClientError::InvalidResponse(err_msg).into());
             }
-            if expected_burn_block.burn_block_height <= prior_state_machine.burn_block_height
-                && expected_burn_block.consensus_hash != prior_state_machine.burn_block
-                // TODO: handle fork while still in replay
-                && tx_replay_set.is_none()
-            {
-                info!("Signer State: fork detected";
-                    "expected_burn_block.height" => expected_burn_block.burn_block_height,
-                    "expected_burn_block.hash" => %expected_burn_block.consensus_hash,
-                    "next_burn_block_height" => next_burn_block_height,
-                    "next_burn_block_hash" => %next_burn_block_hash,
-                    "prior_state_machine.burn_block_height" => prior_state_machine.burn_block_height,
-                    "prior_state_machine.burn_block" => %prior_state_machine.burn_block,
-                );
-                // Determine the tenures that were forked
-                let mut parent_burn_block_info =
-                    db.get_burn_block_by_ch(&prior_state_machine.burn_block)?;
-                let last_forked_tenure = prior_state_machine.burn_block;
-                let mut first_forked_tenure = prior_state_machine.burn_block;
-                let mut forked_tenures = vec![(
-                    prior_state_machine.burn_block,
-                    prior_state_machine.burn_block_height,
-                )];
-                while parent_burn_block_info.block_height > expected_burn_block.burn_block_height {
-                    parent_burn_block_info =
-                        db.get_burn_block_by_hash(&parent_burn_block_info.parent_burn_block_hash)?;
-                    first_forked_tenure = parent_burn_block_info.consensus_hash;
-                    forked_tenures.push((
-                        parent_burn_block_info.consensus_hash,
-                        parent_burn_block_info.block_height,
-                    ));
-                }
-                let fork_info =
-                    client.get_tenure_forking_info(&first_forked_tenure, &last_forked_tenure)?;
-                let forked_txs = fork_info
-                    .iter()
-                    .flat_map(|fork_info| {
-                        fork_info
-                            .nakamoto_blocks
-                            .iter()
-                            .flat_map(|blocks| blocks.iter())
-                            .flat_map(|block| block.txs.iter())
-                    })
-                    .filter(|tx| match tx.payload {
-                        // Don't include Coinbase, TenureChange, or PoisonMicroblock transactions
-                        TransactionPayload::TenureChange(..)
-                        | TransactionPayload::Coinbase(..)
-                        | TransactionPayload::PoisonMicroblock(..) => false,
-                        _ => true,
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>();
-                tx_replay_set = Some(forked_txs);
-            }
+            tx_replay_set = self.handle_possible_bitcoin_fork(
+                db,
+                client,
+                &expected_burn_block,
+                &prior_state_machine,
+            )?;
         }
 
         let CurrentAndLastSortition {
@@ -992,5 +947,69 @@ impl LocalStateMachine {
             return None;
         };
         state.tx_replay_set.clone()
+    }
+
+    /// Handle a possible bitcoin fork. If a fork is detetected,
+    /// return the transactions that should be replayed.
+    pub fn handle_possible_bitcoin_fork(
+        &self,
+        db: &SignerDb,
+        client: &StacksClient,
+        expected_burn_block: &NewBurnBlock,
+        prior_state_machine: &SignerStateMachine,
+    ) -> Result<Option<Vec<StacksTransaction>>, SignerChainstateError> {
+        if expected_burn_block.burn_block_height <= prior_state_machine.burn_block_height
+                && expected_burn_block.consensus_hash != prior_state_machine.burn_block
+                // TODO: handle fork while still in replay
+                && prior_state_machine.tx_replay_set.is_none()
+        {
+            info!("Signer State: fork detected";
+                "expected_burn_block.height" => expected_burn_block.burn_block_height,
+                "expected_burn_block.hash" => %expected_burn_block.consensus_hash,
+                "prior_state_machine.burn_block_height" => prior_state_machine.burn_block_height,
+                "prior_state_machine.burn_block" => %prior_state_machine.burn_block,
+            );
+            // Determine the tenures that were forked
+            let mut parent_burn_block_info =
+                db.get_burn_block_by_ch(&prior_state_machine.burn_block)?;
+            let last_forked_tenure = prior_state_machine.burn_block;
+            let mut first_forked_tenure = prior_state_machine.burn_block;
+            let mut forked_tenures = vec![(
+                prior_state_machine.burn_block,
+                prior_state_machine.burn_block_height,
+            )];
+            while parent_burn_block_info.block_height > expected_burn_block.burn_block_height {
+                parent_burn_block_info =
+                    db.get_burn_block_by_hash(&parent_burn_block_info.parent_burn_block_hash)?;
+                first_forked_tenure = parent_burn_block_info.consensus_hash;
+                forked_tenures.push((
+                    parent_burn_block_info.consensus_hash,
+                    parent_burn_block_info.block_height,
+                ));
+            }
+            let fork_info =
+                client.get_tenure_forking_info(&first_forked_tenure, &last_forked_tenure)?;
+            let forked_txs = fork_info
+                .iter()
+                .flat_map(|fork_info| {
+                    fork_info
+                        .nakamoto_blocks
+                        .iter()
+                        .flat_map(|blocks| blocks.iter())
+                        .flat_map(|block| block.txs.iter())
+                })
+                .filter(|tx| match tx.payload {
+                    // Don't include Coinbase, TenureChange, or PoisonMicroblock transactions
+                    TransactionPayload::TenureChange(..)
+                    | TransactionPayload::Coinbase(..)
+                    | TransactionPayload::PoisonMicroblock(..) => false,
+                    _ => true,
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            Ok(Some(forked_txs))
+        } else {
+            Ok(None)
+        }
     }
 }
