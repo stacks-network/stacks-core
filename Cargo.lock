@@ -2203,6 +2203,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
+name = "pinny"
+version = "0.0.2"
+source = "git+https://github.com/BitcoinL2-Labs/pinny-rs.git?rev=54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49#54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "regex",
+ "syn 2.0.58",
+ "thiserror",
+ "toml",
+]
+
+[[package]]
 name = "piper"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3228,6 +3241,7 @@ dependencies = [
  "mockito",
  "mutants",
  "pico-args",
+ "pinny",
  "proptest 1.6.0 (git+https://github.com/proptest-rs/proptest.git?rev=c9bdf18c232665b2b740c667c81866b598d06dc7)",
  "rand 0.8.5",
  "regex",
