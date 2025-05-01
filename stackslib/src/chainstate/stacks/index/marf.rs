@@ -25,6 +25,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, TrieHash, TRIEHASH_ENCOD
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::log;
 
+use super::storage::ReopenedTrieStorageConnection;
 use crate::chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash, read_root_hash};
 use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, CursorError, TrieCursor, TrieNode, TrieNode16,
@@ -248,6 +249,20 @@ impl<T: MarfTrieId> MarfConnection<T> for MarfTransaction<'_, T> {
     }
     fn sqlite_conn(&self) -> &Connection {
         self.storage.sqlite_tx()
+    }
+}
+
+impl<T: MarfTrieId> MarfConnection<T> for ReopenedTrieStorageConnection<'_, T> {
+    fn with_conn<F, R>(&mut self, exec: F) -> R
+    where
+        F: FnOnce(&mut TrieStorageConnection<T>) -> R,
+    {
+        let mut conn = self.connection();
+        exec(&mut conn)
+    }
+
+    fn sqlite_conn(&self) -> &Connection {
+        self.db_conn()
     }
 }
 
@@ -1618,6 +1633,21 @@ impl<T: MarfTrieId> MARF<T> {
             storage: ro_storage,
             open_chain_tip: None,
         })
+    }
+
+    /// Build a read-only storage connection which can be used for reads without modifying the
+    ///  calling MARF struct (i.e., the tip pointer is only changed in the connection)
+    ///  but reusing self's existing SQLite Connection (avoiding the overhead of
+    ///   `reopen_readonly`).
+    pub fn reopen_connection(&self) -> Result<ReopenedTrieStorageConnection<'_, T>, Error> {
+        if self.open_chain_tip.is_some() {
+            error!(
+                "MARF at {} is already in the process of writing",
+                &self.storage.db_path
+            );
+            return Err(Error::InProgressError);
+        }
+        self.storage.reopen_connection()
     }
 
     /// Get the root trie hash at a particular block
