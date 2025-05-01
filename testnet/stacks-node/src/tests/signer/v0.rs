@@ -30,6 +30,7 @@ use libsigner::{
     BlockProposal, BlockProposalData, SignerSession, StackerDBSession, VERSION_STRING,
 };
 use madhouse::{execute_commands, prop_allof, scenario, Command};
+use pinny::tag;
 use proptest::prelude::Strategy;
 use rand::{thread_rng, Rng};
 use rusqlite::Connection;
@@ -1519,6 +1520,7 @@ pub fn wait_for_state_machine_update(
     })
 }
 
+#[tag(bitcoind)]
 #[test]
 #[ignore]
 /// Test that a signer can respond to an invalid block proposal
@@ -10448,6 +10450,7 @@ fn multiple_miners_empty_sortition() {
     miners.shutdown();
 }
 
+#[tag(bitcoind, flaky, slow)]
 #[test]
 #[ignore]
 /// This test spins up a single nakamoto node configured to mine.
