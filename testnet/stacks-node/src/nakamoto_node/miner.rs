@@ -563,9 +563,8 @@ impl BlockMinerThread {
         let mut burn_db =
             SortitionDB::open(&burn_db_path, true, self.burnchain.pox_constants.clone())
                 .expect("FATAL: could not open sortition DB");
-        let burn_tip_changed = self.check_burn_tip_changed(&burn_db);
-        match burn_tip_changed.and_then(|_| self.load_block_parent_info(&mut burn_db, chain_state))
-        {
+        self.check_burn_tip_changed(&burn_db)?;
+        match self.load_block_parent_info(&mut burn_db, chain_state) {
             Ok(..) => Ok(true),
             Err(NakamotoNodeError::ParentNotFound) => Ok(false),
             Err(e) => {
