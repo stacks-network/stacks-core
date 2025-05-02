@@ -80,8 +80,10 @@ use stacks_signer::client::{SignerSlotID, StackerDB};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::signerdb::SignerDb;
 use stacks_signer::v0::signer::TEST_REPEAT_PROPOSAL_RESPONSE;
+use stacks_signer::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use stacks_signer::v0::tests::{
-    TEST_IGNORE_ALL_BLOCK_PROPOSALS, TEST_PAUSE_BLOCK_BROADCAST, TEST_REJECT_ALL_BLOCK_PROPOSAL,
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS, TEST_PAUSE_BLOCK_BROADCAST,
+    TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION, TEST_REJECT_ALL_BLOCK_PROPOSAL,
     TEST_SKIP_BLOCK_BROADCAST, TEST_SKIP_SIGNER_CLEANUP, TEST_STALL_BLOCK_VALIDATION_SUBMISSION,
 };
 use stacks_signer::v0::SpawnedSigner;
@@ -1429,14 +1431,22 @@ pub fn wait_for_block_rejections_from_signers(
     Ok(result)
 }
 
-/// Waits for all of the provided signers to send an update for a block with the specificed burn block height and parent tenure stacks block height
+/// Waits for all of the provided signers to send an update for a block with the specificed burn block height and parent tenure stacks block height and message version
 pub fn wait_for_state_machine_update(
     timeout_secs: u64,
     expected_burn_block: &ConsensusHash,
     expected_burn_block_height: u64,
     expected_miner_info: Option<(Hash160, u64)>,
+    signer_keys: &[StacksPublicKey],
+    version: u64,
 ) -> Result<(), String> {
+    let addresses: Vec<_> = signer_keys
+        .iter()
+        .map(|key| StacksAddress::p2pkh(false, &key))
+        .collect();
+
     wait_for(timeout_secs, || {
+        let mut found_updates = HashSet::new();
         let stackerdb_events = test_observer::get_stackerdb_chunks();
         for chunk in stackerdb_events
             .into_iter()
@@ -1447,26 +1457,42 @@ pub fn wait_for_state_machine_update(
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
-            let StateMachineUpdateContent::V0 {
-                burn_block,
-                burn_block_height,
-                current_miner,
-            } = &update.content;
+            let Some(address) = addresses.iter().find(|addr| chunk.verify(addr).unwrap()) else {
+                continue;
+            };
+            let (burn_block, burn_block_height, current_miner) = match (version, &update.content) {
+                (
+                    0,
+                    StateMachineUpdateContent::V0 {
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                    },
+                )
+                | (
+                    1,
+                    StateMachineUpdateContent::V1 {
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                        ..
+                    },
+                ) => (burn_block, burn_block_height, current_miner),
+                (_, _) => continue,
+            };
             if *burn_block_height != expected_burn_block_height || burn_block != expected_burn_block
             {
                 continue;
             }
-            match current_miner {
-                StateMachineUpdateMinerState::ActiveMiner {
-                    current_miner_pkh,
-                    parent_tenure_last_block_height,
-                    ..
-                } => {
-                    if let Some((
-                        expected_miner_pkh,
-                        expected_miner_parent_tenure_last_block_height,
-                    )) = expected_miner_info
-                    {
+            if let Some((expected_miner_pkh, expected_miner_parent_tenure_last_block_height)) =
+                expected_miner_info
+            {
+                match current_miner {
+                    StateMachineUpdateMinerState::ActiveMiner {
+                        current_miner_pkh,
+                        parent_tenure_last_block_height,
+                        ..
+                    } => {
                         if expected_miner_pkh != *current_miner_pkh
                             || expected_miner_parent_tenure_last_block_height
                                 != *parent_tenure_last_block_height
@@ -1474,17 +1500,15 @@ pub fn wait_for_state_machine_update(
                             continue;
                         }
                     }
-                }
-                StateMachineUpdateMinerState::NoValidMiner => {
-                    if expected_miner_info.is_some() {
+                    StateMachineUpdateMinerState::NoValidMiner => {
                         continue;
-                    };
+                    }
                 }
-            }
+            };
             // We only need one update to match our conditions
-            return Ok(true);
+            found_updates.insert(address);
         }
-        Ok(false)
+        Ok(found_updates.len() == signer_keys.len())
     })
 }
 
@@ -6169,11 +6193,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
         vec![(sender_addr, (send_amt + send_fee) * nmb_txs)],
     );
 
-    let all_signers: Vec<_> = signer_test
-        .signer_stacks_private_keys
-        .iter()
-        .map(StacksPublicKey::from_private)
-        .collect();
+    let all_signers = signer_test.signer_test_pks();
 
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
     let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
@@ -13349,7 +13369,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
     }
 
     // Wait for the first block to be accepted.
-    wait_for(20, || {
+    wait_for(30, || {
         let blocks = test_observer::get_blocks().len();
         Ok(blocks > blocks_before)
     })
@@ -13687,6 +13707,13 @@ fn signers_send_state_message_updates() {
         },
     );
 
+    let all_signers: Vec<_> = miners
+        .signer_test
+        .signer_stacks_private_keys
+        .iter()
+        .map(StacksPublicKey::from_private)
+        .collect();
+
     let rl1_skip_commit_op = miners
         .signer_test
         .running_nodes
@@ -13737,11 +13764,14 @@ fn signers_send_state_message_updates() {
 
     info!("------------------------- Confirm Miner 1 is the Active Miner in Update -------------------------");
     // Verify that signers first sent a bitcoin block update
+
     wait_for_state_machine_update(
         60,
         &get_burn_consensus_hash(),
         starting_burn_height + 1,
         Some((miner_pkh_1, starting_peer_height)),
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
     .expect("Timed out waiting for signers to send a state update");
 
@@ -13770,6 +13800,8 @@ fn signers_send_state_message_updates() {
         &get_burn_consensus_hash(),
         starting_burn_height + 2,
         Some((miner_pkh_2, starting_peer_height + 1)),
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
     .expect("Timed out waiting for signers to send their state update");
 
@@ -13788,6 +13820,8 @@ fn signers_send_state_message_updates() {
         &get_burn_consensus_hash(),
         starting_burn_height + 2,
         Some((miner_pkh_1, starting_peer_height)),
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
     .expect("Timed out waiting for signers to send their state update");
 
@@ -14380,18 +14414,34 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
-            let StateMachineUpdateContent::V0 {
-                burn_block,
-                burn_block_height,
-                current_miner:
-                    StateMachineUpdateMinerState::ActiveMiner {
-                        current_miner_pkh, ..
-                    },
-                ..
-            } = update.content
-            else {
-                continue;
-            };
+            let (burn_block, burn_block_height, current_miner_pkh) =
+                match (SUPPORTED_SIGNER_PROTOCOL_VERSION, update.content) {
+                    (
+                        0,
+                        StateMachineUpdateContent::V0 {
+                            burn_block,
+                            burn_block_height,
+                            current_miner:
+                                StateMachineUpdateMinerState::ActiveMiner {
+                                    current_miner_pkh, ..
+                                },
+                            ..
+                        },
+                    )
+                    | (
+                        1,
+                        StateMachineUpdateContent::V1 {
+                            burn_block,
+                            burn_block_height,
+                            current_miner:
+                                StateMachineUpdateMinerState::ActiveMiner {
+                                    current_miner_pkh, ..
+                                },
+                            ..
+                        },
+                    ) => (burn_block, burn_block_height, current_miner_pkh),
+                    _ => continue,
+                };
             if burn_block == tenure_c_block_proposal.header.consensus_hash
                 && burn_block_height == burn_height_before + 1
                 && current_miner_pkh == miner_pkh_1
@@ -14437,4 +14487,116 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
         tenure_c_block_proposal.header.parent_block_id,
         tip_a.index_block_hash()
     );
+}
+
+/// Tests that signers are able to upgrade or downgrade their active protocol version numbers based on
+/// the majority of other signers current local supported version numbers
+#[test]
+#[ignore]
+fn rollover_signer_protocol_version() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    let num_signers = 5;
+
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    signer_test.boot_to_epoch_3();
+
+    let conf = signer_test.running_nodes.conf.clone();
+
+    let burnchain = conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+
+    let all_signers = signer_test.signer_test_pks();
+    info!(
+        "------------------------- Miner Tenure Starts and Mines Block N-------------------------"
+    );
+    test_observer::clear();
+    signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    let burn_consensus_hash = tip.consensus_hash;
+    let burn_height = tip.block_height;
+
+    info!("------------------------- Confirm Miner is the Active Miner in Update and All Signers Are Using Protocol Number {SUPPORTED_SIGNER_PROTOCOL_VERSION} -------------------------");
+    // Verify that signers first sent a bitcoin block update
+    wait_for_state_machine_update(
+        60,
+        &burn_consensus_hash,
+        burn_height,
+        None,
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Timed out waiting for signers to send a state update for block N");
+
+    test_observer::clear();
+    let downgraded_version = SUPPORTED_SIGNER_PROTOCOL_VERSION.saturating_sub(1);
+    info!("------------------------- Downgrading Signer Versions to {downgraded_version} for 20 Percent of Signers -------------------------");
+    // Take a non blocking minority of signers (20%) and downgrade their version number
+    let pinned_signers: Vec<_> = all_signers
+        .iter()
+        .take(num_signers * 2 / 10)
+        .cloned()
+        .collect();
+    let pinned_signers_versions: HashMap<StacksPublicKey, u64> = pinned_signers
+        .iter()
+        .map(|signer| (*signer, downgraded_version))
+        .collect();
+    TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(pinned_signers_versions);
+
+    info!("------------------------- Confirm Signers Still Manage to Sign a Stacks Block With Misaligned Version Numbers -------------------------");
+    signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    let burn_consensus_hash = tip.consensus_hash;
+    let burn_height = tip.block_height;
+    // Only one signer is downgraded so the active protocol version remains the same.
+    wait_for_state_machine_update(
+        60,
+        &burn_consensus_hash,
+        burn_height,
+        None,
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Timed out waiting for signers to send their downgraded state update for block N+1");
+
+    test_observer::clear();
+    info!("------------------------- Confirm Signer Version Downgrades Fully Once 70 percent of Signers Downgrade -------------------------");
+    let pinned_signers: Vec<_> = all_signers
+        .iter()
+        .take(num_signers * 7 / 10)
+        .cloned()
+        .collect();
+    let pinned_signers_versions: HashMap<StacksPublicKey, u64> = pinned_signers
+        .iter()
+        .map(|signer| (*signer, downgraded_version))
+        .collect();
+    TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(pinned_signers_versions);
+
+    info!("------------------------- Confirm Signers Sign The Block After Complete Downgraded Version Number -------------------------");
+    signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    let burn_consensus_hash = tip.consensus_hash;
+    let burn_height = tip.block_height;
+    // Confirm ALL signers downgrade their supported version and then send a corresponding message in that version message
+    wait_for_state_machine_update(
+        60,
+        &burn_consensus_hash,
+        burn_height,
+        None,
+        &all_signers,
+        downgraded_version,
+    )
+    .expect("Timed out waiting for signers to send their state update for block N+2");
+
+    info!("------------------------- Reset All Signers to {SUPPORTED_SIGNER_PROTOCOL_VERSION} -------------------------");
+    TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(HashMap::new());
+    test_observer::clear();
+    info!("------------------------- Confirm Signers Sign The Block After Upgraded Version Number -------------------------");
+    signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);
+
+    signer_test.shutdown();
 }
