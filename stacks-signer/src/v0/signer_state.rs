@@ -30,7 +30,7 @@ use stacks_common::codec::Error as CodecError;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::{info, warn};
+use stacks_common::{debug, info, warn};
 
 use crate::chainstate::{
     ProposalEvalConfig, SignerChainstateError, SortitionState, SortitionsView,
@@ -348,10 +348,25 @@ pub enum StateMachineUpdate {
     BurnBlock(u64),
 }
 
-impl TryInto<StateMachineUpdateMessage> for &LocalStateMachine {
-    type Error = CodecError;
+impl LocalStateMachine {
+    /// Initialize a local state machine by querying the local stacks-node
+    ///  and signerdb for the current sortition information
+    pub fn new(
+        db: &SignerDb,
+        client: &StacksClient,
+        proposal_config: &ProposalEvalConfig,
+    ) -> Result<Self, SignerChainstateError> {
+        let mut instance = Self::Uninitialized;
+        instance.bitcoin_block_arrival(db, client, proposal_config, None)?;
 
-    fn try_into(self) -> Result<StateMachineUpdateMessage, Self::Error> {
+        Ok(instance)
+    }
+
+    /// Convert the local state machine into update message with the specificed supported protocol version
+    pub fn try_into_update_message_with_version(
+        &self,
+        local_supported_signer_protocol_version: u64,
+    ) -> Result<StateMachineUpdateMessage, CodecError> {
         let LocalStateMachine::Initialized(state_machine) = self else {
             return Err(CodecError::SerializeError(
                 "Local state machine is not ready to be serialized into an update message".into(),
@@ -395,24 +410,9 @@ impl TryInto<StateMachineUpdateMessage> for &LocalStateMachine {
         };
         StateMachineUpdateMessage::new(
             state_machine.active_signer_protocol_version,
-            SUPPORTED_SIGNER_PROTOCOL_VERSION,
+            local_supported_signer_protocol_version,
             content,
         )
-    }
-}
-
-impl LocalStateMachine {
-    /// Initialize a local state machine by querying the local stacks-node
-    ///  and signerdb for the current sortition information
-    pub fn new(
-        db: &SignerDb,
-        client: &StacksClient,
-        proposal_config: &ProposalEvalConfig,
-    ) -> Result<Self, SignerChainstateError> {
-        let mut instance = Self::Uninitialized;
-        instance.bitcoin_block_arrival(db, client, proposal_config, None)?;
-
-        Ok(instance)
     }
 
     fn place_holder() -> SignerStateMachine {
@@ -426,10 +426,16 @@ impl LocalStateMachine {
     }
 
     /// Send the local state machine as a signer update message to stackerdb
-    pub fn send_signer_update_message(&self, stackerdb: &mut StackerDB<MessageSlotID>) {
-        let update: Result<StateMachineUpdateMessage, _> = self.try_into();
+    pub fn send_signer_update_message(
+        &self,
+        stackerdb: &mut StackerDB<MessageSlotID>,
+        version: u64,
+    ) {
+        let update: Result<StateMachineUpdateMessage, _> =
+            self.try_into_update_message_with_version(version);
         match update {
             Ok(update) => {
+                debug!("Sending signer update message to stackerdb: {update:?}");
                 if let Err(e) = stackerdb.send_message_with_retry::<SignerMessage>(update.into()) {
                     warn!("Failed to send signer update to stacker-db: {e:?}",);
                 }
@@ -815,10 +821,12 @@ impl LocalStateMachine {
         signerdb: &mut SignerDb,
         eval: &mut GlobalStateEvaluator,
         local_address: StacksAddress,
+        local_supported_signer_protocol_version: u64,
     ) {
         // Before we ever access eval...we should make sure to include our own local state machine update message in the evaluation
-        let local_update: Result<StateMachineUpdateMessage, _> = (&*self).try_into();
-        let Ok(mut local_update) = local_update else {
+        let Ok(mut local_update) =
+            self.try_into_update_message_with_version(local_supported_signer_protocol_version)
+        else {
             return;
         };
 
@@ -859,8 +867,9 @@ impl LocalStateMachine {
                 tx_replay_set: tx_replay_set.cloned(),
             });
             // Because we updated our active signer protocol version, update local_update so its included in the subsequent evaluations
-            let update: Result<StateMachineUpdateMessage, _> = (&*self).try_into();
-            let Ok(update) = update else {
+            let Ok(update) =
+                self.try_into_update_message_with_version(local_supported_signer_protocol_version)
+            else {
                 return;
             };
             local_update = update;
