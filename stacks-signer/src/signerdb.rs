@@ -1567,48 +1567,6 @@ pub mod tests {
         assert_eq!(BlockInfo::from(block_proposal_2), block_info);
     }
 
-    fn system_time_from_ymd_hms_optional(
-        year: u32,
-        month: u32,
-        day: u32,
-        hour: u32,
-        minute: u32,
-        second: u32,
-    ) -> Option<SystemTime> {
-        use std::time::{Duration, UNIX_EPOCH};
-
-        use chrono::NaiveDate;
-        // Make sure year is safe to cast
-        if year > i32::MAX as u32 {
-            return None;
-        }
-        // Cast year to i32 safely
-        let year_i32 = year as i32;
-        let naive =
-            NaiveDate::from_ymd_opt(year_i32, month, day)?.and_hms_opt(hour, minute, second)?;
-
-        let timestamp = naive.timestamp();
-        if timestamp < 0 {
-            return None;
-        }
-
-        // Convert to SystemTime
-        let duration = timestamp as u64;
-        Some(UNIX_EPOCH + Duration::from_secs(duration))
-    }
-
-    fn system_time_from_ymd_hms(
-        year: u32,
-        month: u32,
-        day: u32,
-        hour: u32,
-        minute: u32,
-        second: u32,
-    ) -> SystemTime {
-        system_time_from_ymd_hms_optional(year, month, day, hour, minute, second)
-            .expect("Invalid system time")
-    }
-
     #[test]
     fn test_basic_signer_db() {
         let db_path = tmp_db_path();
@@ -2581,7 +2539,7 @@ pub mod tests {
             },
         )
         .unwrap();
-        let time_1 = system_time_from_ymd_hms(2025, 4, 17, 12, 30, 0);
+        let time_1 = SystemTime::UNIX_EPOCH;
 
         let address_2 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
         let update_2 = StateMachineUpdate::new(
@@ -2594,7 +2552,7 @@ pub mod tests {
             },
         )
         .unwrap();
-        let time_2 = system_time_from_ymd_hms(2025, 4, 17, 12, 30, 1);
+        let time_2 = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
 
         let address_3 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
         let update_3 = StateMachineUpdate::new(
@@ -2607,7 +2565,7 @@ pub mod tests {
             },
         )
         .unwrap();
-        let time_3 = system_time_from_ymd_hms(2025, 4, 17, 12, 30, 10);
+        let time_3 = SystemTime::UNIX_EPOCH + Duration::from_secs(10);
 
         assert_eq!(
             0,
