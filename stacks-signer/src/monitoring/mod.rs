@@ -157,7 +157,7 @@ pub mod actions {
             .inc();
     }
 
-    /// Record the time (seconds) taken to a signer to agree with the signer set
+    /// Record the time (seconds) taken for a signer to agree with the signer set
     pub fn record_signer_agreement_capitulation_latency(latency_s: u64) {
         SIGNER_AGREEMENT_CAPITULATION_LATENCIES_HISTOGRAM
             .with_label_values(&[])
@@ -245,7 +245,7 @@ pub mod actions {
     /// Increment signer agreement state conflict counter
     pub fn increment_signer_agreement_state_conflict(_conflict: SignerAgreementStateConflict) {}
 
-    /// Record the time (seconds) taken to a signer to agree with the signer set
+    /// Record the time (seconds) taken for a signer to agree with the signer set
     pub fn record_signer_agreement_capitulation_latency(_latency_s: u64) {}
 
     /// Start serving monitoring metrics.
