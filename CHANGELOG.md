@@ -17,6 +17,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Added index for `next_ready_nakamoto_block()` which improves block processing performance.
 - Added a new field, `parent_burn_block_hash`, to the payload that is included in the `/new_burn_block` event observer payload.
 
+### Fixed
+
+- Fix regression in mock-mining, allowing the mock miner to continue mining blocks throughout a tenure instead of failing after mining the tenure change block.
+
 ## [3.1.0.0.8]
 
 ### Added
