@@ -34,7 +34,7 @@ use pinny::tag;
 use proptest::prelude::Strategy;
 use rand::{thread_rng, Rng};
 use rusqlite::Connection;
-use stacks::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks::address::AddressHashMode;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
@@ -1442,15 +1442,7 @@ pub fn wait_for_state_machine_update(
 ) -> Result<(), String> {
     let addresses: Vec<_> = signer_keys
         .iter()
-        .map(|key| {
-            StacksAddress::from_public_keys(
-                C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-                &AddressHashMode::SerializeP2PKH,
-                1,
-                &vec![*key],
-            )
-            .unwrap()
-        })
+        .map(|key| StacksAddress::p2pkh(false, &key))
         .collect();
 
     wait_for(timeout_secs, || {
@@ -14545,11 +14537,6 @@ fn rollover_signer_protocol_version() {
     let pinned_signers: Vec<_> = all_signers
         .iter()
         .take(num_signers * 2 / 10)
-        .cloned()
-        .collect();
-    let non_pinned_signers: Vec<_> = all_signers
-        .iter()
-        .skip(num_signers * 2 / 10)
         .cloned()
         .collect();
     let pinned_signers_versions: HashMap<StacksPublicKey, u64> = pinned_signers

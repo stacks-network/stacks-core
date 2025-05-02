@@ -30,7 +30,7 @@ use stacks_common::codec::Error as CodecError;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::{info, warn};
+use stacks_common::{debug, info, warn};
 
 use crate::chainstate::{
     ProposalEvalConfig, SignerChainstateError, SortitionState, SortitionsView,
@@ -435,7 +435,7 @@ impl LocalStateMachine {
             self.try_into_update_message_with_version(version);
         match update {
             Ok(update) => {
-                info!("SENDING SIGNER UPDATE MESSAGE HERE: {update:?}");
+                debug!("Sending signer update message to stackerdb: {update:?}");
                 if let Err(e) = stackerdb.send_message_with_retry::<SignerMessage>(update.into()) {
                     warn!("Failed to send signer update to stacker-db: {e:?}",);
                 }

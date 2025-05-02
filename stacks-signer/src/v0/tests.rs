@@ -28,7 +28,7 @@ use super::signer::Signer;
 use super::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use crate::signerdb::BlockInfo;
 
-/// A global variable that can be used to reject all block proposals if the signer's public key is in the provided list
+/// A global variable that can be used to pin a signer's highest supported protocol version if the signer's public key is in the provided list
 pub static TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION: LazyLock<
     TestFlag<HashMap<StacksPublicKey, u64>>,
 > = LazyLock::new(TestFlag::default);
