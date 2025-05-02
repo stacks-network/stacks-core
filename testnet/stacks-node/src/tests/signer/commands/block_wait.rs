@@ -233,6 +233,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForAndVerifyBlockReject
 /// ---------------------------------------------------------
 /// ---------------------------------------------------------
 /// ---------------------------------------------------------
+/// TODO: Maybe this should be in another commands/ file
 
 pub struct VerifyMiner1BlockCount {
     miners: Arc<Mutex<MultipleMinerTest>>,
