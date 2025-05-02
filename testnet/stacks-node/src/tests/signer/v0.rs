@@ -29,7 +29,7 @@ use libsigner::v0::messages::{
 use libsigner::{
     BlockProposal, BlockProposalData, SignerSession, StackerDBSession, VERSION_STRING,
 };
-use madhouse::{execute_commands, prop_allof, scenario, Command};
+use madhouse::{execute_commands, prop_allof, scenario, Command, CommandWrapper};
 use pinny::tag;
 use proptest::prelude::Strategy;
 use rand::{thread_rng, Rng};
@@ -1159,7 +1159,7 @@ fn wait_for_tenure_change_tx(
 
 /// Waits for a block proposal to be observed in the test_observer stackerdb chunks at the expected height
 /// and signed by the expected miner
-fn wait_for_block_proposal(
+pub fn wait_for_block_proposal(
     timeout_secs: u64,
     expected_height: u64,
     expected_miner: &StacksPublicKey,
@@ -1258,7 +1258,7 @@ fn wait_for_block_global_rejection(
 
 /// Waits for >30% of num_signers block rejection to be observed in the test_observer stackerdb chunks for a block
 /// with the provided signer signature hash and the specified reject_reason
-fn wait_for_block_global_rejection_with_reject_reason(
+pub fn wait_for_block_global_rejection_with_reject_reason(
     timeout_secs: u64,
     block_signer_signature_hash: Sha512Trunc256Sum,
     num_signers: usize,
@@ -3149,7 +3149,7 @@ fn multiple_miners() {
 
 /// Read processed nakamoto block IDs from the test observer, and use `config` to open
 ///  a chainstate DB and returns their corresponding StacksHeaderInfos
-fn get_nakamoto_headers(config: &Config) -> Vec<StacksHeaderInfo> {
+pub fn get_nakamoto_headers(config: &Config) -> Vec<StacksHeaderInfo> {
     let nakamoto_block_ids: HashSet<_> = test_observer::get_blocks()
         .into_iter()
         .filter_map(|block_json| {
@@ -10970,6 +10970,45 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
 
     info!("------------------------- Shutdown -------------------------");
     miners.shutdown();
+}
+
+#[test]
+#[ignore]
+fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one_block_scenario() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let num_txs = 3;
+
+    let test_context = Arc::new(SignerTestContext::new(num_signers, num_txs));
+
+    scenario![
+        test_context,
+        SkipCommitOpMiner2,
+        BootToEpoch3,
+        SkipCommitOpMiner1,
+        MineBitcoinBlockTenureChangeMiner1,
+        VerifyMiner1WonSortition,
+        SubmitBlockCommitMiner2,
+        PauseStacksMining,
+        MineBitcoinBlock,
+        SubmitBlockCommitMiner1,
+        ResumeStacksMining,
+        WaitForTenureChangeBlockFromMiner2,
+        VerifyMiner2WonSortition,
+        SendAndMineTransferTx,
+        SendAndMineTransferTx,
+        (BuildNextBitcoinBlock::new(test_context.miners.clone(), 1)),
+        (WaitForAndVerifyBlockRejection::new(
+            test_context.miners.clone(),
+            RejectReason::ReorgNotAllowed,
+            num_signers
+        )),
+        (VerifyMiner1BlockCount::new(test_context.miners.clone(), 1)),
+        ShutdownMiners,
+    ]
 }
 
 #[test]
