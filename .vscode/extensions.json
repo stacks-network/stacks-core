@@ -1,8 +1,9 @@
 {
-    "recommendations": [
-        "rust-lang.rust-analyzer",
-        "vadimcn.vscode-lldb",
-        "fill-labs.dependi",
-        "editorconfig.editorconfig",
-    ]
+  "recommendations": [
+    "rust-lang.rust-analyzer",
+    "vadimcn.vscode-lldb",
+    "fill-labs.dependi",
+    "editorconfig.editorconfig",
+    "augment.vscode-augment"
+  ]
 }

@@ -386,6 +386,7 @@ dependencies = [
  "actix-web",
  "anyhow",
  "bitvec",
+ "clarity",
  "hex",
  "reqwest",
  "serde",

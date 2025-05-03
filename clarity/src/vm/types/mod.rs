@@ -118,6 +118,10 @@ mod std_principals {
             let Self(version, bytes) = self;
             (version, bytes)
         }
+        
+        pub fn to_stacks_address(&self) -> String {
+            c32::c32_address(self.0, &self.1[..]).unwrap_or_else(|_| "INVALID_C32_ADDRESS".to_string())
+        }
     }
 
     impl fmt::Display for StandardPrincipalData {
@@ -1837,7 +1841,9 @@ mod test {
         assert_eq!(
             &format!(
                 "{}",
-                Value::from(TupleData::from_data(vec![("a".into(), Value::Int(2))]).unwrap())
+                Value::from(
+                    TupleData::from_data(vec![("a".into(), Value::Int(2))]).unwrap()
+                )
             ),
             "(tuple (a 2))"
         );
