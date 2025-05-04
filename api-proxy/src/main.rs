@@ -4,7 +4,6 @@ use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use anyhow::Result;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::codec::read_next;
-use clarity::vm::types::{PrincipalData, StandardPrincipalData};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{json, Map, Value};
 use stacks_common::address::c32;
@@ -14,25 +13,7 @@ struct BlockRequest {
     url: String,
 }
 
-async fn parse_block(height: web::Path<u64>) -> impl Responder {
-    match parse_block_data(height.into_inner()).await {
-        Ok(block) => {
-            // Convert the block to a JSON value and transform Principal arrays to addresses
-            let block_json = serde_json::to_value(&block).unwrap_or_else(|_| json!({}));
-            let transformed_json = transform_principal_arrays(block_json);
-            HttpResponse::Ok().json(transformed_json)
-        }
-        Err(e) => HttpResponse::BadRequest().body(format!("Error parsing block: {}", e)),
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct ParsedBlock {
-    block: NakamotoBlock,
-    tx_ids: Vec<String>,
-}
-
-async fn parse_block_data(height: u64) -> Result<ParsedBlock> {
+async fn fetch_nakamoto_block(height: u64) -> Result<NakamotoBlock> {
     let response = reqwest::get(&format!(
         "https://stacks-node-api.mainnet.stacks.co/v3/blocks/height/{}",
         height
@@ -43,13 +24,8 @@ async fn parse_block_data(height: u64) -> Result<ParsedBlock> {
     let mut cursor = Cursor::new(block_bytes);
     let block: NakamotoBlock = read_next(&mut cursor)?;
 
-    // Extract transaction IDs from the block
-    let tx_ids = block.txs.iter().map(|tx| tx.txid().to_string()).collect::<Vec<_>>();
 
-    Ok(ParsedBlock {
-        block,
-        tx_ids,
-    })
+    Ok(block)
 }
 
 /// Attempts to convert a JSON representation of a Standard Principal to a Stacks address
@@ -129,13 +105,40 @@ fn transform_principal_arrays(value: Value) -> Value {
     }
 }
 
+async fn handler_get_nakamoto_block(height: web::Path<u64>) -> impl Responder {
+    match fetch_nakamoto_block(height.into_inner()).await {
+        Ok(block) => {
+            // Convert the block to a JSON value and transform Principal arrays to addresses
+            let block_json = serde_json::to_value(&block).unwrap_or_else(|_| json!({}));
+            let transformed_json = transform_principal_arrays(block_json);
+            let response = json!({ "block": transformed_json });
+            HttpResponse::Ok().json(response)
+        }
+        Err(e) => HttpResponse::BadRequest().body(format!("Error parsing block: {}", e)),
+    }
+}
+
+
+async fn handler_get_block_txids(height: web::Path<u64>) -> impl Responder {
+    match fetch_nakamoto_block(height.into_inner()).await {
+        Ok(block) => {
+            // Extract transaction IDs from the block
+            let tx_ids = block.txs.iter().map(|tx| tx.txid().to_string()).collect::<Vec<_>>();
+            let response = json!({ "txids": tx_ids });
+            HttpResponse::Ok().json(response)
+        }
+        Err(e) => HttpResponse::BadRequest().body(format!("Error parsing block: {}", e)),
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     println!("Starting server at http://127.0.0.1:8080");
 
     HttpServer::new(|| {
         App::new()
-            .service(web::resource("/v3/blocks/height/{height}").route(web::get().to(parse_block)))
+            .service(web::resource("/v3/blocks/height/{height}").route(web::get().to(handler_get_nakamoto_block)))
+            .service(web::resource("/_custom/v1/blocks/height/{height}/txids").route(web::get().to(handler_get_block_txids)))
     })
     .bind("127.0.0.1:8080")?
     .run()
