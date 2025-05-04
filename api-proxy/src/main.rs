@@ -1,10 +1,11 @@
+use std::env;
 use std::io::Cursor;
 
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use anyhow::Result;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::codec::read_next;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use stacks_common::address::c32;
 
@@ -13,17 +14,23 @@ struct BlockRequest {
     url: String,
 }
 
+// Add this function to get the node URL from environment variables
+fn get_node_url() -> String {
+    env::var("STACKS_NODE_URL")
+        .unwrap_or_else(|_| "https://stacks-node-api.mainnet.stacks.co".to_string())
+}
+
 async fn fetch_nakamoto_block(height: u64) -> Result<NakamotoBlock> {
+    let node_url = get_node_url();
     let response = reqwest::get(&format!(
-        "https://stacks-node-api.mainnet.stacks.co/v3/blocks/height/{}",
-        height
+        "{}/v3/blocks/height/{}",
+        node_url, height
     ))
     .await?;
     let block_bytes = response.bytes().await?;
 
     let mut cursor = Cursor::new(block_bytes);
     let block: NakamotoBlock = read_next(&mut cursor)?;
-
 
     Ok(block)
 }
@@ -118,12 +125,15 @@ async fn handler_get_nakamoto_block(height: web::Path<u64>) -> impl Responder {
     }
 }
 
-
 async fn handler_get_block_txids(height: web::Path<u64>) -> impl Responder {
     match fetch_nakamoto_block(height.into_inner()).await {
         Ok(block) => {
             // Extract transaction IDs from the block
-            let tx_ids = block.txs.iter().map(|tx| tx.txid().to_string()).collect::<Vec<_>>();
+            let tx_ids = block
+                .txs
+                .iter()
+                .map(|tx| tx.txid().to_string())
+                .collect::<Vec<_>>();
             let response = json!({ "txids": tx_ids });
             HttpResponse::Ok().json(response)
         }
@@ -133,14 +143,24 @@ async fn handler_get_block_txids(height: web::Path<u64>) -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    println!("Starting server at http://127.0.0.1:8080");
+    // Load environment variables from .env file in the package directory
+    let env_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
+    // Print env_path for debugging
+    println!("Loading environment variables from: {:?}", env_path);
+    dotenv::from_path(env_path).ok();
+    
+    let bind_address = env::var("BIND_ADDRESS")
+        .unwrap_or_else(|_| "127.0.0.1:8080".to_string());
+    
+    println!("Starting server at http://{}", bind_address);
+    println!("Using Stacks node URL: {}", get_node_url());
 
     HttpServer::new(|| {
         App::new()
             .service(web::resource("/v3/blocks/height/{height}").route(web::get().to(handler_get_nakamoto_block)))
             .service(web::resource("/_custom/v1/blocks/height/{height}/txids").route(web::get().to(handler_get_block_txids)))
     })
-    .bind("127.0.0.1:8080")?
+    .bind(bind_address)?
     .run()
     .await
 }

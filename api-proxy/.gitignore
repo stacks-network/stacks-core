@@ -1,0 +1,5 @@
+# Rust project ignore file
+
+target/
+.env
+.env.local
