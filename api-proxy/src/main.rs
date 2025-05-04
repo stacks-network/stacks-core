@@ -26,7 +26,13 @@ async fn parse_block(height: web::Path<u64>) -> impl Responder {
     }
 }
 
-async fn parse_block_data(height: u64) -> Result<NakamotoBlock> {
+#[derive(Debug, Serialize, Deserialize)]
+struct ParsedBlock {
+    block: NakamotoBlock,
+    tx_ids: Vec<String>,
+}
+
+async fn parse_block_data(height: u64) -> Result<ParsedBlock> {
     let response = reqwest::get(&format!(
         "https://stacks-node-api.mainnet.stacks.co/v3/blocks/height/{}",
         height
@@ -37,7 +43,13 @@ async fn parse_block_data(height: u64) -> Result<NakamotoBlock> {
     let mut cursor = Cursor::new(block_bytes);
     let block: NakamotoBlock = read_next(&mut cursor)?;
 
-    Ok(block)
+    // Extract transaction IDs from the block
+    let tx_ids = block.txs.iter().map(|tx| tx.txid().to_string()).collect::<Vec<_>>();
+
+    Ok(ParsedBlock {
+        block,
+        tx_ids,
+    })
 }
 
 /// Attempts to convert a JSON representation of a Standard Principal to a Stacks address
