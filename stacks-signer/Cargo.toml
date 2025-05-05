@@ -49,7 +49,6 @@ rusqlite = { workspace = true, features = ["functions"] }
 clarity = { path = "../clarity", features = ["testing"] }
 stacks-common = { path = "../stacks-common", features = ["testing"] }
 num-traits = "0.2.18"
-chrono = "0.4.19"
 
 [dependencies.serde_json]
 version = "1.0"
