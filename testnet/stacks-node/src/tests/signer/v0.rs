@@ -10981,6 +10981,7 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
 
     let num_signers = 5;
     let num_txs = 3;
+    let num_blocks = 1;
 
     let test_context = Arc::new(SignerTestContext::new(num_signers, num_txs));
 
@@ -11000,13 +11001,13 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         VerifyMiner2WonSortition,
         SendAndMineTransferTx,
         SendAndMineTransferTx,
-        (BuildNextBitcoinBlock::new(test_context.miners.clone(), 1)),
+        (BuildNextBitcoinBlocks::new(test_context.miners.clone(), num_blocks)),
         (WaitForAndVerifyBlockRejection::new(
             test_context.miners.clone(),
             RejectReason::ReorgNotAllowed,
             num_signers
         )),
-        (VerifyMiner1BlockCount::new(test_context.miners.clone(), 1)),
+        (VerifyMiner1BlockCount::new(test_context.miners.clone(), num_blocks as usize)),
         ShutdownMiners,
     ]
 }

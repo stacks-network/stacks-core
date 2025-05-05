@@ -35,7 +35,6 @@ impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitMiner2 {
         let sortdb = burnchain.open_sortition_db(true).unwrap();
 
         self.miners.lock().unwrap().submit_commit_miner_2(&sortdb);
-        //TODO: ??? state.operations_counter += 1;
     }
 
     fn label(&self) -> String {
@@ -80,7 +79,6 @@ impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitMiner1 {
         let sortdb = burnchain.open_sortition_db(true).unwrap();
 
         self.miners.lock().unwrap().submit_commit_miner_1(&sortdb);
-        //TODO: ??? state.operations_counter += 1;
     }
 
     fn label(&self) -> String {
@@ -93,48 +91,5 @@ impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitMiner1 {
         Just(CommandWrapper::new(SubmitBlockCommitMiner1::new(
             ctx.miners.clone(),
         )))
-    }
-}
-
-pub struct BuildNextBitcoinBlock {
-    miners: Arc<Mutex<MultipleMinerTest>>,
-    num_blocks: u64,
-}
-
-impl BuildNextBitcoinBlock {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>, num_blocks: u64) -> Self {
-        Self { miners, num_blocks }
-    }
-}
-
-impl Command<SignerTestState, SignerTestContext> for BuildNextBitcoinBlock {
-    fn check(&self, _state: &SignerTestState) -> bool {
-        info!(
-            "Checking: Build next {} Bitcoin block(s). Result: {:?}",
-            self.num_blocks, true
-        );
-        true
-    }
-
-    fn apply(&self, _state: &mut SignerTestState) {
-        info!("Applying: Build next {} Bitcoin block(s)", self.num_blocks);
-
-        let mut miners = self.miners.lock().unwrap();
-        miners
-            .btc_regtest_controller_mut()
-            .build_next_block(self.num_blocks);
-        //TODO: ??? state.operations_counter += 1;
-    }
-
-    fn label(&self) -> String {
-        "BUILD_NEXT_BITCOIN_BLOCK".to_string()
-    }
-
-    fn build(
-        ctx: Arc<SignerTestContext>,
-    ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        (1u64..=5u64).prop_map(move |num_blocks| {
-            CommandWrapper::new(BuildNextBitcoinBlock::new(ctx.miners.clone(), num_blocks))
-        })
     }
 }

@@ -53,7 +53,7 @@ pub struct SignerTestState {
     pub is_secondary_miner_skip_commit_op: bool,
     pub mining_stalled: bool,
     pub transfer_txs_submitted: Vec<(StacksHeightBefore, TxId)>,
-    pub operations_counter: usize,
+    pub blocks_mined: usize,
 }
 
 impl State for SignerTestState {}

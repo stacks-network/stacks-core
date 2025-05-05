@@ -69,23 +69,22 @@ impl Command<SignerTestState, SignerTestContext> for SendAndMineTransferTx {
         true
     }
 
-    fn apply(&self, _state: &mut SignerTestState) {
+    fn apply(&self, state: &mut SignerTestState) {
         info!(
             "Applying: Send and mine transfer tx with timeout {} seconds",
             self.timeout_secs
         );
 
-        // Get the configs and check the stacks height before
         let (conf_1, _) = self.miners.lock().unwrap().get_node_configs();
         let stacks_height_before = get_chain_info(&conf_1).stacks_tip_height;
 
-        // Execute the send and mine operation
         let mut miners = self.miners.lock().unwrap();
         miners
             .send_and_mine_transfer_tx(self.timeout_secs)
             .expect("Failed to send and mine transfer tx");
+        state.blocks_mined += 1;
+        info!("Increased blocks mined count to {}", state.blocks_mined);
 
-        // Check that the stacks height has increased
         let stacks_height_after = get_chain_info(&conf_1).stacks_tip_height;
         assert_eq!(
             stacks_height_after,
@@ -101,7 +100,6 @@ impl Command<SignerTestState, SignerTestContext> for SendAndMineTransferTx {
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        // Generate a timeout between 20 and 40 seconds
         (20u64..40u64).prop_map(move |timeout_secs| {
             CommandWrapper::new(SendAndMineTransferTx::new(ctx.miners.clone(), timeout_secs))
         })

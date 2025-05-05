@@ -48,7 +48,7 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChang
             && burn_height > miner_2_submitted_commit_last_burn_height
     }
 
-    fn apply(&self, _state: &mut SignerTestState) {
+    fn apply(&self, state: &mut SignerTestState) {
         info!("Applying: Miner 1 mining Bitcoin block and tenure change tx");
 
         let (stacks_height_before, conf_1, miner_pk_1) = {
@@ -75,6 +75,9 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChang
         let miner_1_block =
             wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_1)
                 .expect("Failed to get block");
+        
+        state.blocks_mined += 1;
+        info!("Increased blocks mined count to {}", state.blocks_mined);
 
         let mined_block_height = miner_1_block.header.chain_length;
         info!(
@@ -139,7 +142,7 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChang
             && burn_height > miner_1_submitted_commit_last_burn_height
     }
 
-    fn apply(&self, _state: &mut SignerTestState) {
+    fn apply(&self, state: &mut SignerTestState) {
         info!("Applying: Miner 2 mining Bitcoin block and tenure change tx");
 
         let stacks_height_before = self.miners.lock().unwrap().get_peer_stacks_tip_height();
@@ -163,6 +166,9 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChang
         let secondary_miner_block =
             wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_2)
                 .expect("Failed to get block N");
+
+        state.blocks_mined += 1;
+        info!("Increased blocks mined count to {}", state.blocks_mined);
 
         let mined_block_height = secondary_miner_block.header.chain_length;
 
@@ -239,6 +245,48 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlock {
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (60u64..90u64).prop_map(move |timeout_secs| {
             CommandWrapper::new(MineBitcoinBlock::new(ctx.miners.clone(), timeout_secs))
+        })
+    }
+}
+
+pub struct BuildNextBitcoinBlocks {
+    miners: Arc<Mutex<MultipleMinerTest>>,
+    num_blocks: u64,
+}
+
+impl BuildNextBitcoinBlocks {
+    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>, num_blocks: u64) -> Self {
+        Self { miners, num_blocks }
+    }
+}
+
+impl Command<SignerTestState, SignerTestContext> for BuildNextBitcoinBlocks {
+    fn check(&self, _state: &SignerTestState) -> bool {
+        info!(
+            "Checking: Build next {} Bitcoin block(s). Result: {:?}",
+            self.num_blocks, true
+        );
+        true
+    }
+
+    fn apply(&self, _state: &mut SignerTestState) {
+        info!("Applying: Build next {} Bitcoin block(s)", self.num_blocks);
+
+        let mut miners = self.miners.lock().unwrap();
+        miners
+            .btc_regtest_controller_mut()
+            .build_next_block(self.num_blocks);
+    }
+
+    fn label(&self) -> String {
+        "BUILD_NEXT_BITCOIN_BLOCK".to_string()
+    }
+
+    fn build(
+        ctx: Arc<SignerTestContext>,
+    ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
+        (1u64..=5u64).prop_map(move |num_blocks| {
+            CommandWrapper::new(BuildNextBitcoinBlocks::new(ctx.miners.clone(), num_blocks))
         })
     }
 }
