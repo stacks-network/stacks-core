@@ -45,6 +45,7 @@ use stacks::net::api::poststackerdbchunk::StackerDBErrorCodes;
 use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
+use stacks::types::chainstate::BlockHeaderHash;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::secp256k1::MessageSignature;
 #[cfg(test)]
@@ -187,8 +188,8 @@ pub struct BlockMinerThread {
     keychain: Keychain,
     /// burnchain configuration
     burnchain: Burnchain,
-    /// Last block mined
-    last_block_mined: Option<NakamotoBlock>,
+    /// Consensus hash and header hash of the last block mined
+    last_block_mined: Option<(ConsensusHash, BlockHeaderHash)>,
     /// Number of blocks mined since a tenure change/extend was attempted
     mined_blocks: u64,
     /// Cost consumed by the current tenure
@@ -742,7 +743,10 @@ impl BlockMinerThread {
         Self::fault_injection_block_announce_stall(&new_block);
         self.globals.coord().announce_new_stacks_block();
 
-        self.last_block_mined = Some(new_block);
+        self.last_block_mined = Some((
+            new_block.header.consensus_hash,
+            new_block.header.block_hash(),
+        ));
         self.mined_blocks += 1;
         Ok(true)
     }
@@ -756,16 +760,24 @@ impl BlockMinerThread {
         &mut self,
         chain_state: &mut StacksChainState,
     ) -> Result<(), NakamotoNodeError> {
-        let Some(last_block_mined) = &self.last_block_mined else {
+        let Some((last_consensus_hash, last_bhh)) = &self.last_block_mined else {
             return Ok(());
         };
+
+        // If mock-mining, we don't need to wait for the last block to be
+        // processed (because it will never be). Instead just wait
+        // `min_time_between_blocks_ms`, then resume mining.
+        if self.config.node.mock_mining {
+            thread::sleep(Duration::from_millis(
+                self.config.miner.min_time_between_blocks_ms,
+            ));
+            return Ok(());
+        }
+
         loop {
             let (_, processed, _, _) = chain_state
                 .nakamoto_blocks_db()
-                .get_block_processed_and_signed_weight(
-                    &last_block_mined.header.consensus_hash,
-                    &last_block_mined.header.block_hash(),
-                )?
+                .get_block_processed_and_signed_weight(last_consensus_hash, &last_bhh)?
                 .ok_or_else(|| NakamotoNodeError::UnexpectedChainState)?;
 
             // Once the block has been processed and the miner is no longer
@@ -1379,6 +1391,30 @@ impl BlockMinerThread {
             warn!("Miner should be starting a new tenure, but failed to load parent tenure info");
             return Err(NakamotoNodeError::ParentNotFound);
         };
+
+        // If we're mock mining, we need to manipulate the `last_block_mined`
+        // to match what it should be based on the actual chainstate.
+        if self.config.node.mock_mining {
+            if let Some((last_block_consensus_hash, _)) = &self.last_block_mined {
+                // If the parent block is in the same tenure, then we should
+                // pretend that we mined it.
+                if last_block_consensus_hash
+                    == &parent_block_info.stacks_parent_header.consensus_hash
+                {
+                    self.last_block_mined = Some((
+                        parent_block_info.stacks_parent_header.consensus_hash,
+                        parent_block_info
+                            .stacks_parent_header
+                            .anchored_header
+                            .block_hash(),
+                    ));
+                } else {
+                    // If the parent block is not in the same tenure, then we
+                    // should act as though we haven't mined anything yet.
+                    self.last_block_mined = None;
+                }
+            }
+        }
 
         // create our coinbase if this is the first block we've mined this tenure
         let tenure_start_info = self.make_tenure_start_info(
