@@ -45,6 +45,7 @@ use stacks::net::api::poststackerdbchunk::StackerDBErrorCodes;
 use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
+use stacks::types::chainstate::BlockHeaderHash;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::secp256k1::MessageSignature;
 #[cfg(test)]
@@ -187,8 +188,8 @@ pub struct BlockMinerThread {
     keychain: Keychain,
     /// burnchain configuration
     burnchain: Burnchain,
-    /// Last block mined
-    last_block_mined: Option<NakamotoBlock>,
+    /// Consensus hash and header hash of the last block mined
+    last_block_mined: Option<(ConsensusHash, BlockHeaderHash)>,
     /// Number of blocks mined since a tenure change/extend was attempted
     mined_blocks: u64,
     /// Cost consumed by the current tenure
@@ -444,7 +445,7 @@ impl BlockMinerThread {
 
         // now, actually run this tenure
         loop {
-            if let Err(e) = self.miner_main_loop(
+            if let Err(e) = self.attempt_mine_and_propose_block(
                 &mut coordinator,
                 &sortdb,
                 &mut stackerdbs,
@@ -481,9 +482,14 @@ impl BlockMinerThread {
         *last_block_rejected = true;
     }
 
-    /// The main loop for the miner thread. This is where the miner will mine
-    /// blocks and then attempt to sign and broadcast them.
-    fn miner_main_loop(
+    /// Attempts to mine a block, propose it, and broadcast it if successful.
+    ///
+    /// Note: `Ok(())` does not guarantee that a block was mined, only that the
+    /// mining attempt completed and a subsequent attempt should be tried
+    ///
+    /// Returns `Ok(())` if mining completes successfully or should be retried.
+    /// Returns `Err` if the mining thread should exit (e.g., due to tenure changes or shutdown).
+    fn attempt_mine_and_propose_block(
         &mut self,
         coordinator: &mut SignerCoordinator,
         sortdb: &SortitionDB,
@@ -507,218 +513,88 @@ impl BlockMinerThread {
             info!("Miner: finished mining a late tenure");
             return Err(NakamotoNodeError::StacksTipChanged);
         }
-
-        let new_block = loop {
-            if self.reset_nonce_cache {
-                let mut mem_pool = self
-                    .config
-                    .connect_mempool_db()
-                    .expect("Database failure opening mempool");
-                mem_pool.reset_mempool_caches()?;
-            }
-
-            // If we're mock mining, we may not have processed the block that the
-            // actual tenure winner committed to yet. So, before attempting to
-            // mock mine, check if the parent is processed.
-            if self.config.get_node_config(false).mock_mining {
-                let burn_db_path = self.config.get_burn_db_file_path();
-                let mut burn_db =
-                    SortitionDB::open(&burn_db_path, true, self.burnchain.pox_constants.clone())
-                        .expect("FATAL: could not open sortition DB");
-                let burn_tip_changed = self.check_burn_tip_changed(&burn_db);
-                match burn_tip_changed
-                    .and_then(|_| self.load_block_parent_info(&mut burn_db, &mut chain_state))
-                {
-                    Ok(..) => {}
-                    Err(NakamotoNodeError::ParentNotFound) => {
-                        info!("Mock miner has not processed parent block yet, sleeping and trying again");
-                        thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
-                        continue;
-                    }
-                    Err(e) => {
-                        warn!("Mock miner failed to load parent info: {e:?}");
-                        return Err(e);
-                    }
-                }
-            }
-
-            match self.mine_block(coordinator) {
-                Ok(x) => {
-                    if !self.validate_timestamp(&x)? {
-                        info!("Block mined too quickly. Will try again.";
-                            "block_timestamp" => x.header.timestamp,
-                        );
-                        continue;
-                    }
-                    break Some(x);
-                }
-                Err(NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted)) => {
-                    if self.abort_flag.load(Ordering::SeqCst) {
-                        info!("Miner interrupted while mining in order to shut down");
-                        self.globals
-                            .raise_initiative(format!("MiningFailure: aborted by node"));
-                        return Err(ChainstateError::MinerAborted.into());
-                    }
-
-                    info!("Miner interrupted while mining, will try again");
-
-                    // sleep, and try again. if the miner was interrupted because the burnchain
-                    // view changed, the next `mine_block()` invocation will error
-                    thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
-                    continue;
-                }
-                Err(NakamotoNodeError::MiningFailure(ChainstateError::NoTransactionsToMine)) => {
-                    debug!(
-                        "Miner did not find any transactions to mine, sleeping for {:?}",
-                        self.config.miner.empty_mempool_sleep_time
-                    );
-                    self.reset_nonce_cache = false;
-
-                    // Pause the miner to wait for transactions to arrive
-                    let now = Instant::now();
-                    while now.elapsed() < self.config.miner.empty_mempool_sleep_time {
-                        if self.abort_flag.load(Ordering::SeqCst) {
-                            info!("Miner interrupted while mining in order to shut down");
-                            self.globals
-                                .raise_initiative(format!("MiningFailure: aborted by node"));
-                            return Err(ChainstateError::MinerAborted.into());
-                        }
-
-                        // Check if the burnchain tip has changed
-                        let Ok(sort_db) = SortitionDB::open(
-                            &self.config.get_burn_db_file_path(),
-                            false,
-                            self.burnchain.pox_constants.clone(),
-                        ) else {
-                            error!("Failed to open sortition DB. Will try mining again.");
-                            continue;
-                        };
-                        if self.check_burn_tip_changed(&sort_db).is_err() {
-                            return Err(NakamotoNodeError::BurnchainTipChanged);
-                        }
-
-                        thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
-                    }
-
-                    break None;
-                }
-                Err(e) => {
-                    warn!("Failed to mine block: {e:?}");
-
-                    // try again, in case a new sortition is pending
-                    self.globals
-                        .raise_initiative(format!("MiningFailure: {e:?}"));
-                    return Err(ChainstateError::MinerAborted.into());
-                }
-            }
-        };
-
-        if let Some(mut new_block) = new_block {
-            Self::fault_injection_block_proposal_stall(&new_block);
-
-            let signer_signature = match self.propose_block(
-                coordinator,
-                &mut new_block,
-                sortdb,
-                stackerdbs,
-            ) {
-                Ok(x) => x,
-                Err(e) => match e {
-                    NakamotoNodeError::StacksTipChanged => {
-                        info!("Stacks tip changed while waiting for signatures";
-                            "signer_signature_hash" => %new_block.header.signer_signature_hash(),
-                            "block_height" => new_block.header.chain_length,
-                            "consensus_hash" => %new_block.header.consensus_hash,
-                        );
-                        return Ok(());
-                    }
-                    NakamotoNodeError::BurnchainTipChanged => {
-                        info!("Burnchain tip changed while waiting for signatures";
-                            "signer_signature_hash" => %new_block.header.signer_signature_hash(),
-                            "block_height" => new_block.header.chain_length,
-                            "consensus_hash" => %new_block.header.consensus_hash,
-                        );
-                        return Err(e);
-                    }
-                    NakamotoNodeError::StackerDBUploadError(ref ack) => {
-                        if ack.code == Some(StackerDBErrorCodes::BadSigner.code()) {
-                            error!("Error while gathering signatures: failed to upload miner StackerDB data: {ack:?}. Giving up.";
-                                "signer_signature_hash" => %new_block.header.signer_signature_hash(),
-                                "block_height" => new_block.header.chain_length,
-                                "consensus_hash" => %new_block.header.consensus_hash,
-                            );
-                            return Err(e);
-                        }
-                        self.pause_and_retry(&new_block, last_block_rejected, e);
-                        return Ok(());
-                    }
-                    _ => {
-                        self.pause_and_retry(&new_block, last_block_rejected, e);
-                        return Ok(());
-                    }
-                },
-            };
-            *last_block_rejected = false;
-
-            new_block.header.signer_signature = signer_signature;
-            if let Err(e) = self.broadcast(new_block.clone(), reward_set, stackerdbs) {
-                warn!("Error accepting own block: {e:?}. Will try mining again.");
-                return Ok(());
-            } else {
-                info!(
-                    "Miner: Block signed by signer set and broadcasted";
-                    "signer_signature_hash" => %new_block.header.signer_signature_hash(),
-                    "stacks_block_hash" => %new_block.header.block_hash(),
-                    "stacks_block_id" => %new_block.header.block_id(),
-                    "block_height" => new_block.header.chain_length,
-                    "consensus_hash" => %new_block.header.consensus_hash,
-                );
-
-                // We successfully mined, so the mempool caches are valid.
-                self.reset_nonce_cache = false;
-            }
-
-            // update mined-block counters and mined-tenure counters
-            self.globals.counters.bump_naka_mined_blocks();
-            if self.last_block_mined.is_none() {
-                // this is the first block of the tenure, bump tenure counter
-                self.globals.counters.bump_naka_mined_tenures();
-            }
-
-            // wake up chains coordinator
-            Self::fault_injection_block_announce_stall(&new_block);
-            self.globals.coord().announce_new_stacks_block();
-
-            self.last_block_mined = Some(new_block);
-            self.mined_blocks += 1;
+        // If we're mock mining, we may not have processed the block that the
+        // actual tenure winner committed to yet. So, before attempting to
+        // mock mine, check if the parent is processed.
+        if self.config.get_node_config(false).mock_mining
+            && !self.is_parent_processed(&mut chain_state)?
+        {
+            info!("Mock miner has not processed parent block yet, sleeping and trying again");
+            thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
+            return Ok(());
         }
 
-        if let Some(last_block_mined) = &self.last_block_mined {
-            // Wait until the last block mined has been processed
-            loop {
-                let (_, processed, _, _) = chain_state
-                    .nakamoto_blocks_db()
-                    .get_block_processed_and_signed_weight(
-                        &last_block_mined.header.consensus_hash,
-                        &last_block_mined.header.block_hash(),
-                    )?
-                    .ok_or_else(|| NakamotoNodeError::UnexpectedChainState)?;
+        if self.reset_nonce_cache {
+            let mut mem_pool = self
+                .config
+                .connect_mempool_db()
+                .expect("Database failure opening mempool");
+            mem_pool.reset_mempool_caches()?;
+        }
 
-                // Once the block has been processed and the miner is no longer
-                // blocked, we can continue mining.
-                if processed
-                    && !(*self
-                        .globals
-                        .get_miner_status()
-                        .lock()
-                        .expect("FATAL: mutex poisoned"))
-                    .is_blocked()
-                {
-                    break;
+        let Some(new_block) = self.mine_block_and_handle_result(coordinator)? else {
+            // We should reattempt to mine
+            return Ok(());
+        };
+
+        if !self.propose_new_block_and_broadcast(
+            coordinator,
+            sortdb,
+            stackerdbs,
+            last_block_rejected,
+            reward_set,
+            new_block,
+        )? {
+            // We should reattempt to mine
+            return Ok(());
+        }
+
+        // Wait until the last block has been mined and processed
+        self.wait_for_last_block_mined_and_processed(&mut chain_state)?;
+
+        Ok(())
+    }
+
+    /// Check if the parent block has been processed
+    fn is_parent_processed(
+        &mut self,
+        chain_state: &mut StacksChainState,
+    ) -> Result<bool, NakamotoNodeError> {
+        let burn_db_path = self.config.get_burn_db_file_path();
+        let mut burn_db =
+            SortitionDB::open(&burn_db_path, true, self.burnchain.pox_constants.clone())
+                .expect("FATAL: could not open sortition DB");
+        self.check_burn_tip_changed(&burn_db)?;
+        match self.load_block_parent_info(&mut burn_db, chain_state) {
+            Ok(..) => Ok(true),
+            Err(NakamotoNodeError::ParentNotFound) => Ok(false),
+            Err(e) => {
+                warn!("Failed to load parent info: {e:?}");
+                Err(e)
+            }
+        }
+    }
+
+    /// Attempts to mine a block and handle the result.
+    ///
+    /// - Returns `Ok(Some(NakamotoBlock))` if a block is successfully mined and passes timestamp validation.
+    /// - Returns `Ok(None)` if mining should be retried (e.g. due to early block timestamp or no transactions).
+    /// - Returns `Err(NakamotoNodeError)` if mining should be aborted (e.g. shutdown signal or unexpected error).
+    fn mine_block_and_handle_result(
+        &mut self,
+        coordinator: &mut SignerCoordinator,
+    ) -> Result<Option<NakamotoBlock>, NakamotoNodeError> {
+        match self.mine_block(coordinator) {
+            Ok(x) => {
+                if !self.validate_timestamp(&x)? {
+                    info!("Block mined too quickly. Will try again.";
+                        "block_timestamp" => x.header.timestamp,
+                    );
+                    return Ok(None);
                 }
-
-                thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
-
+                Ok(Some(x))
+            }
+            Err(NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted)) => {
                 if self.abort_flag.load(Ordering::SeqCst) {
                     info!("Miner interrupted while mining in order to shut down");
                     self.globals
@@ -726,22 +602,219 @@ impl BlockMinerThread {
                     return Err(ChainstateError::MinerAborted.into());
                 }
 
-                // Check if the burnchain tip has changed
-                let Ok(sort_db) = SortitionDB::open(
-                    &self.config.get_burn_db_file_path(),
-                    false,
-                    self.burnchain.pox_constants.clone(),
-                ) else {
-                    error!("Failed to open sortition DB. Will try mining again.");
-                    return Ok(());
-                };
-                if self.check_burn_tip_changed(&sort_db).is_err() {
-                    return Err(NakamotoNodeError::BurnchainTipChanged);
+                info!("Miner interrupted while mining, will try again");
+
+                // sleep, and try again. if the miner was interrupted because the burnchain
+                // view changed, the next `mine_block()` invocation will error
+                thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
+                Ok(None)
+            }
+            Err(NakamotoNodeError::MiningFailure(ChainstateError::NoTransactionsToMine)) => {
+                debug!(
+                    "Miner did not find any transactions to mine, sleeping for {:?}",
+                    self.config.miner.empty_mempool_sleep_time
+                );
+                self.reset_nonce_cache = false;
+
+                // Pause the miner to wait for transactions to arrive
+                let now = Instant::now();
+                while now.elapsed() < self.config.miner.empty_mempool_sleep_time {
+                    if self.abort_flag.load(Ordering::SeqCst) {
+                        info!("Miner interrupted while mining in order to shut down");
+                        self.globals
+                            .raise_initiative(format!("MiningFailure: aborted by node"));
+                        return Err(ChainstateError::MinerAborted.into());
+                    }
+
+                    // Check if the burnchain tip has changed
+                    let Ok(sort_db) = SortitionDB::open(
+                        &self.config.get_burn_db_file_path(),
+                        false,
+                        self.burnchain.pox_constants.clone(),
+                    ) else {
+                        error!("Failed to open sortition DB. Will try mining again.");
+                        return Ok(None);
+                    };
+                    if self.check_burn_tip_changed(&sort_db).is_err() {
+                        return Err(NakamotoNodeError::BurnchainTipChanged);
+                    }
+
+                    thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
                 }
+                Ok(None)
+            }
+            Err(e) => {
+                warn!("Failed to mine block: {e:?}");
+
+                // try again, in case a new sortition is pending
+                self.globals
+                    .raise_initiative(format!("MiningFailure: {e:?}"));
+                Err(ChainstateError::MinerAborted.into())
             }
         }
+    }
 
-        Ok(())
+    /// Attempts to propose a new block and broadcast it upon success.
+    ///
+    /// - Returns `Ok(true)` if the block was successfully proposed and broadcasted.
+    /// - Returns `Ok(false)` if the proposal failed but the miner should retry (e.g. due to tip change or recoverable upload error).
+    /// - Returns `Err(NakamotoNodeError)` if the operation should be aborted (e.g. unrecoverable error during proposal or broadcasting).
+    fn propose_new_block_and_broadcast(
+        &mut self,
+        coordinator: &mut SignerCoordinator,
+        sortdb: &SortitionDB,
+        stackerdbs: &mut StackerDBs,
+        last_block_rejected: &mut bool,
+        reward_set: &RewardSet,
+        mut new_block: NakamotoBlock,
+    ) -> Result<bool, NakamotoNodeError> {
+        Self::fault_injection_block_proposal_stall(&new_block);
+
+        let signer_signature = match self.propose_block(
+            coordinator,
+            &mut new_block,
+            sortdb,
+            stackerdbs,
+        ) {
+            Ok(x) => x,
+            Err(e) => match e {
+                NakamotoNodeError::StacksTipChanged => {
+                    info!("Stacks tip changed while waiting for signatures";
+                        "signer_signature_hash" => %new_block.header.signer_signature_hash(),
+                        "block_height" => new_block.header.chain_length,
+                        "consensus_hash" => %new_block.header.consensus_hash,
+                    );
+                    return Ok(false);
+                }
+                NakamotoNodeError::BurnchainTipChanged => {
+                    info!("Burnchain tip changed while waiting for signatures";
+                        "signer_signature_hash" => %new_block.header.signer_signature_hash(),
+                        "block_height" => new_block.header.chain_length,
+                        "consensus_hash" => %new_block.header.consensus_hash,
+                    );
+                    return Err(e);
+                }
+                NakamotoNodeError::StackerDBUploadError(ref ack) => {
+                    if ack.code == Some(StackerDBErrorCodes::BadSigner.code()) {
+                        error!("Error while gathering signatures: failed to upload miner StackerDB data: {ack:?}. Giving up.";
+                            "signer_signature_hash" => %new_block.header.signer_signature_hash(),
+                            "block_height" => new_block.header.chain_length,
+                            "consensus_hash" => %new_block.header.consensus_hash,
+                        );
+                        return Err(e);
+                    }
+                    self.pause_and_retry(&new_block, last_block_rejected, e);
+                    return Ok(false);
+                }
+                _ => {
+                    self.pause_and_retry(&new_block, last_block_rejected, e);
+                    return Ok(false);
+                }
+            },
+        };
+        *last_block_rejected = false;
+
+        new_block.header.signer_signature = signer_signature;
+        if let Err(e) = self.broadcast(new_block.clone(), reward_set, stackerdbs) {
+            warn!("Error accepting own block: {e:?}. Will try mining again.");
+            return Ok(false);
+        } else {
+            info!(
+                "Miner: Block signed by signer set and broadcasted";
+                "signer_signature_hash" => %new_block.header.signer_signature_hash(),
+                "stacks_block_hash" => %new_block.header.block_hash(),
+                "stacks_block_id" => %new_block.header.block_id(),
+                "block_height" => new_block.header.chain_length,
+                "consensus_hash" => %new_block.header.consensus_hash,
+            );
+
+            // We successfully mined, so the mempool caches are valid.
+            self.reset_nonce_cache = false;
+        }
+
+        // update mined-block counters and mined-tenure counters
+        self.globals.counters.bump_naka_mined_blocks();
+        if self.last_block_mined.is_none() {
+            // this is the first block of the tenure, bump tenure counter
+            self.globals.counters.bump_naka_mined_tenures();
+        }
+
+        // wake up chains coordinator
+        Self::fault_injection_block_announce_stall(&new_block);
+        self.globals.coord().announce_new_stacks_block();
+
+        self.last_block_mined = Some((
+            new_block.header.consensus_hash,
+            new_block.header.block_hash(),
+        ));
+        self.mined_blocks += 1;
+        Ok(true)
+    }
+
+    /// Blocks until the most recently mined block has been fully processed by the chainstate
+    /// and the miner is unblocked.
+    ///
+    /// - Returns `Ok(())` when the block is processed and the miner is ready to continue.
+    /// - Returns `Err(NakamotoNodeError)` if mining is aborted or the chainstate is inconsistent.
+    fn wait_for_last_block_mined_and_processed(
+        &mut self,
+        chain_state: &mut StacksChainState,
+    ) -> Result<(), NakamotoNodeError> {
+        let Some((last_consensus_hash, last_bhh)) = &self.last_block_mined else {
+            return Ok(());
+        };
+
+        // If mock-mining, we don't need to wait for the last block to be
+        // processed (because it will never be). Instead just wait
+        // `min_time_between_blocks_ms`, then resume mining.
+        if self.config.node.mock_mining {
+            thread::sleep(Duration::from_millis(
+                self.config.miner.min_time_between_blocks_ms,
+            ));
+            return Ok(());
+        }
+
+        loop {
+            let (_, processed, _, _) = chain_state
+                .nakamoto_blocks_db()
+                .get_block_processed_and_signed_weight(last_consensus_hash, &last_bhh)?
+                .ok_or_else(|| NakamotoNodeError::UnexpectedChainState)?;
+
+            // Once the block has been processed and the miner is no longer
+            // blocked, we can continue mining.
+            if processed
+                && !(*self
+                    .globals
+                    .get_miner_status()
+                    .lock()
+                    .expect("FATAL: mutex poisoned"))
+                .is_blocked()
+            {
+                return Ok(());
+            }
+
+            thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
+
+            if self.abort_flag.load(Ordering::SeqCst) {
+                info!("Miner interrupted while mining in order to shut down");
+                self.globals
+                    .raise_initiative(format!("MiningFailure: aborted by node"));
+                return Err(ChainstateError::MinerAborted.into());
+            }
+
+            // Check if the burnchain tip has changed
+            let Ok(sort_db) = SortitionDB::open(
+                &self.config.get_burn_db_file_path(),
+                false,
+                self.burnchain.pox_constants.clone(),
+            ) else {
+                error!("Failed to open sortition DB. Will try mining again.");
+                return Ok(());
+            };
+            if self.check_burn_tip_changed(&sort_db).is_err() {
+                return Err(NakamotoNodeError::BurnchainTipChanged);
+            }
+        }
     }
 
     fn propose_block(
@@ -1318,6 +1391,30 @@ impl BlockMinerThread {
             warn!("Miner should be starting a new tenure, but failed to load parent tenure info");
             return Err(NakamotoNodeError::ParentNotFound);
         };
+
+        // If we're mock mining, we need to manipulate the `last_block_mined`
+        // to match what it should be based on the actual chainstate.
+        if self.config.node.mock_mining {
+            if let Some((last_block_consensus_hash, _)) = &self.last_block_mined {
+                // If the parent block is in the same tenure, then we should
+                // pretend that we mined it.
+                if last_block_consensus_hash
+                    == &parent_block_info.stacks_parent_header.consensus_hash
+                {
+                    self.last_block_mined = Some((
+                        parent_block_info.stacks_parent_header.consensus_hash,
+                        parent_block_info
+                            .stacks_parent_header
+                            .anchored_header
+                            .block_hash(),
+                    ));
+                } else {
+                    // If the parent block is not in the same tenure, then we
+                    // should act as though we haven't mined anything yet.
+                    self.last_block_mined = None;
+                }
+            }
+        }
 
         // create our coinbase if this is the first block we've mined this tenure
         let tenure_start_info = self.make_tenure_start_info(

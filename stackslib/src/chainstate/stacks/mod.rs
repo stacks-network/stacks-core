@@ -1012,6 +1012,14 @@ pub struct StacksTransaction {
     pub payload: TransactionPayload,
 }
 
+impl Hash for StacksTransaction {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.txid().hash(state)
+    }
+}
+
+impl Eq for StacksTransaction {}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksTransactionSigner {
     pub tx: StacksTransaction,

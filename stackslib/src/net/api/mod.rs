@@ -324,3 +324,4 @@ impl_hex_deser!(ConsensusHash);
 impl_hex_deser!(BlockHeaderHash);
 impl_hex_deser!(Hash160);
 impl_hex_deser!(Sha512Trunc256Sum);
+impl_hex_deser!(Txid);
