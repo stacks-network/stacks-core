@@ -11,7 +11,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - Added new `ValidateRejectCode` values to the `/v3/block_proposal` endpoint
 - Added `StateMachineUpdateContent::V1` to support a vector of `StacksTransaction` expected to be replayed in subsequent Stacks blocks
-- Updated `StackerDBListener` to listen for signers' state machine updates and store replay info to the side to enable a miner to perform transaction replay
+- Updated `StackerDBListener` to monitor signer state machine updates and store replay information separately, enabling miners to perform transaction replays.
+- Added a `replay_transactions` flag to the miner configuration to feature-gate transaction replay. When enabled, the miner will construct a replay block if a threshold of signers signals that a transaction set requires replay.
 
 ### Changed
 
