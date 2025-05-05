@@ -73,11 +73,8 @@ impl<T: MarfTrieId> BlockMap for TrieFileStorage<T> {
     }
 
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
-        if !self.is_block_hash_cached(id) {
-            let block_hash = self.get_block_hash(id)?;
-            self.cache.store_block_hash(id, block_hash);
-        }
-        self.cache.ref_block_hash(id).ok_or(Error::NotFoundError)
+        self.cache
+            .get_block_hash_caching(id, |id| trie_sql::get_block_hash(&self.db, id))
     }
 
     fn is_block_hash_cached(&self, id: u32) -> bool {
@@ -110,14 +107,8 @@ impl<T: MarfTrieId> BlockMap for TrieStorageConnection<'_, T> {
     }
 
     fn get_block_hash_caching<'a>(&'a mut self, id: u32) -> Result<&'a T, Error> {
-        match self.cache.entry_block_hash(id) {
-            Entry::Occupied(occupied_entry) => Ok(occupied_entry.into_mut()),
-            Entry::Vacant(vacant_entry) => {
-                let block_hash = trie_sql::get_block_hash(&self.db, id)?;
-                let block_hash_ref = vacant_entry.insert(block_hash);
-                Ok(block_hash_ref)
-            }
-        }
+        self.cache
+            .get_block_hash_caching(id, |id| trie_sql::get_block_hash(&self.db, id))
     }
 
     fn is_block_hash_cached(&self, id: u32) -> bool {
@@ -174,11 +165,8 @@ impl<T: MarfTrieId> BlockMap for TrieSqlHashMapCursor<'_, T> {
     }
 
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
-        if !self.is_block_hash_cached(id) {
-            let block_hash = self.get_block_hash(id)?;
-            self.cache.store_block_hash(id, block_hash);
-        }
-        self.cache.ref_block_hash(id).ok_or(Error::NotFoundError)
+        self.cache
+            .get_block_hash_caching(id, |id| trie_sql::get_block_hash(&self.db, id))
     }
 
     fn is_block_hash_cached(&self, id: u32) -> bool {
