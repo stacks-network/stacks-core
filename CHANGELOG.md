@@ -10,6 +10,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 - Added new `ValidateRejectCode` values to the `/v3/block_proposal` endpoint
+- Added `StateMachineUpdateContent::V1` to support a vector of `StacksTransaction` expected to be replayed in subsequent Stacks blocks
 - Include a reason string in the transaction receipt when a transaction is rolled back due to a post-condition. This should help users in understanding what went wrong.
 
 ### Changed

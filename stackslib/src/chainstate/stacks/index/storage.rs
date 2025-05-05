@@ -1310,6 +1310,50 @@ impl<T: MarfTrieId> TrieStorageTransientData<T> {
     }
 }
 
+pub struct ReopenedTrieStorageConnection<'a, T: MarfTrieId> {
+    pub db_path: &'a str,
+    db: &'a Connection,
+    blobs: Option<TrieFile>,
+    data: TrieStorageTransientData<T>,
+    cache: TrieCache<T>,
+    bench: TrieBenchmark,
+    pub hash_calculation_mode: TrieHashCalculationMode,
+
+    /// row ID of a trie that represents unconfirmed state (i.e. trie state that will never become
+    /// part of the MARF, but nevertheless represents a persistent scratch space).  If this field
+    /// is Some(..), then the storage connection here was used to (re-)open an unconfirmed trie
+    /// (via `open_unconfirmed()` or `open_block()` when `self.unconfirmed()` is `true`), or used
+    /// to create an unconfirmed trie (via `extend_to_unconfirmed_block()`).
+    unconfirmed_block_id: Option<u32>,
+
+    // used in testing in order to short-circuit block-height lookups
+    //   when the trie struct is tested outside of marf.rs usage
+    #[cfg(test)]
+    pub test_genesis_block: Option<T>,
+}
+
+impl<'a, T: MarfTrieId> ReopenedTrieStorageConnection<'a, T> {
+    pub fn db_conn(&self) -> &Connection {
+        self.db
+    }
+
+    pub fn connection(&mut self) -> TrieStorageConnection<'_, T> {
+        TrieStorageConnection {
+            db: SqliteConnection::ConnRef(&self.db),
+            db_path: self.db_path,
+            data: &mut self.data,
+            blobs: self.blobs.as_mut(),
+            cache: &mut self.cache,
+            bench: &mut self.bench,
+            hash_calculation_mode: self.hash_calculation_mode,
+            unconfirmed_block_id: None,
+
+            #[cfg(test)]
+            test_genesis_block: &mut self.test_genesis_block,
+        }
+    }
+}
+
 impl<T: MarfTrieId> TrieFileStorage<T> {
     pub fn connection(&mut self) -> TrieStorageConnection<'_, T> {
         TrieStorageConnection {
@@ -1325,6 +1369,54 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             #[cfg(test)]
             test_genesis_block: &mut self.test_genesis_block,
         }
+    }
+
+    /// Build a read-only storage connection which can be used for reads without modifying the
+    ///  calling TrieFileStorage struct (i.e., the tip pointer is only changed in the connection)
+    ///  but reusing the TrieFileStorage's existing SQLite Connection (avoiding the overhead of
+    ///   `reopen_readonly`).
+    pub fn reopen_connection(&self) -> Result<ReopenedTrieStorageConnection<'_, T>, Error> {
+        let data = TrieStorageTransientData {
+            uncommitted_writes: self.data.uncommitted_writes.clone(),
+            cur_block: self.data.cur_block.clone(),
+            cur_block_id: self.data.cur_block_id.clone(),
+
+            read_count: 0,
+            read_backptr_count: 0,
+            read_node_count: 0,
+            read_leaf_count: 0,
+
+            write_count: 0,
+            write_node_count: 0,
+            write_leaf_count: 0,
+
+            trie_ancestor_hash_bytes_cache: None,
+
+            readonly: true,
+            unconfirmed: self.unconfirmed(),
+        };
+        // perf note: should we attempt to clone the cache
+        let cache = TrieCache::default();
+        let blobs = if self.blobs.is_some() {
+            Some(TrieFile::from_db_path(&self.db_path, true)?)
+        } else {
+            None
+        };
+        let bench = TrieBenchmark::new();
+        let hash_calculation_mode = self.hash_calculation_mode;
+        let unconfirmed_block_id = None;
+        Ok(ReopenedTrieStorageConnection {
+            db_path: &self.db_path,
+            db: &self.db,
+            blobs,
+            data,
+            cache,
+            bench,
+            hash_calculation_mode,
+            unconfirmed_block_id,
+            #[cfg(test)]
+            test_genesis_block: self.test_genesis_block.clone(),
+        })
     }
 
     pub fn transaction(&mut self) -> Result<TrieStorageTransaction<'_, T>, Error> {

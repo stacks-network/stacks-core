@@ -25,7 +25,7 @@ use blockstack_lib::net::api::postblock_proposal::{
     TOO_MANY_REQUESTS_STATUS,
 };
 use blockstack_lib::util_lib::db::Error as DBError;
-use clarity::types::chainstate::StacksPrivateKey;
+use clarity::types::chainstate::{StacksBlockId, StacksPrivateKey};
 use clarity::types::{PrivateKey, StacksEpochId};
 use clarity::util::hash::{MerkleHashFunc, Sha512Trunc256Sum};
 use clarity::util::secp256k1::Secp256k1PublicKey;
@@ -43,6 +43,8 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error, info, warn};
 
+#[cfg(not(any(test, feature = "testing")))]
+use super::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use super::signer_state::{GlobalStateEvaluator, LocalStateMachine};
 use crate::chainstate::{ProposalEvalConfig, SortitionMinerStatus, SortitionsView};
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
@@ -69,6 +71,12 @@ pub enum SignerMode {
         /// The signer ID assigned to this signer (may be different from signer_slot_id)
         signer_id: u32,
     },
+}
+
+/// Track N most recently processed block identifiers
+pub struct RecentlyProcessedBlocks<const N: usize> {
+    blocks: Vec<StacksBlockId>,
+    write_head: usize,
 }
 
 /// The stacks signer registered for the reward cycle
@@ -109,6 +117,8 @@ pub struct Signer {
     pub block_proposal_max_age_secs: u64,
     /// The signer's local state machine used in signer set agreement
     pub local_state_machine: LocalStateMachine,
+    /// Cache of stacks block IDs for blocks recently processed by our stacks-node
+    recently_processed: RecentlyProcessedBlocks<100>,
     /// The signer's global state evaluator
     pub global_state_evaluator: GlobalStateEvaluator,
 }
@@ -125,6 +135,51 @@ impl std::fmt::Display for SignerMode {
 impl std::fmt::Display for Signer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Cycle #{} {}", self.reward_cycle, self.mode)
+    }
+}
+
+impl<const N: usize> std::fmt::Debug for RecentlyProcessedBlocks<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RecentlyProcessed({:?})", self.blocks)
+    }
+}
+
+impl<const N: usize> Default for RecentlyProcessedBlocks<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<const N: usize> RecentlyProcessedBlocks<N> {
+    /// Construct a new recently processed blocks cache
+    pub fn new() -> Self {
+        Self {
+            blocks: Vec::with_capacity(N),
+            write_head: 0,
+        }
+    }
+
+    /// Is `block` known to have been processed by our stacks-node?
+    pub fn is_processed(&self, block: &StacksBlockId) -> bool {
+        self.blocks.contains(block)
+    }
+
+    /// Add a block that we know has been processed by our stacks-node
+    pub fn add_block(&mut self, block: StacksBlockId) {
+        if self.blocks.len() < N {
+            self.blocks.push(block);
+            return;
+        }
+        let Some(location) = self.blocks.get_mut(self.write_head) else {
+            warn!(
+                "Failed to cache processing information about {block}, write_head {} was improperly set for cache size {N} with blocks length {}",
+                self.write_head,
+                self.blocks.len()
+            );
+            return;
+        };
+        *location = block;
+        self.write_head = (self.write_head + 1) % self.blocks.len();
     }
 }
 
@@ -179,6 +234,7 @@ impl SignerTrait<SignerMessage> for Signer {
             block_proposal_validation_timeout: signer_config.block_proposal_validation_timeout,
             block_proposal_max_age_secs: signer_config.block_proposal_max_age_secs,
             local_state_machine: signer_state,
+            recently_processed: RecentlyProcessedBlocks::new(),
             global_state_evaluator,
         }
     }
@@ -215,6 +271,7 @@ impl SignerTrait<SignerMessage> for Signer {
             return;
         }
         self.check_submitted_block_proposal();
+        self.check_pending_block_validations(stacks_client);
         debug!("{self}: Processing event: {event:?}");
         let Some(event) = event else {
             // No event. Do nothing.
@@ -239,6 +296,92 @@ impl SignerTrait<SignerMessage> for Signer {
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
         }
 
+        self.handle_event_match(stacks_client, sortition_state, event, current_reward_cycle);
+
+        self.check_submitted_block_proposal();
+        self.check_pending_block_validations(stacks_client);
+
+        if prior_state != self.local_state_machine {
+            let version = self.get_signer_protocol_version();
+            self.local_state_machine
+                .send_signer_update_message(&mut self.stackerdb, version);
+        }
+    }
+
+    fn has_unprocessed_blocks(&self) -> bool {
+        self.signer_db
+            .has_unprocessed_blocks(self.reward_cycle)
+            .unwrap_or_else(|e| {
+                error!("{self}: Failed to check for pending blocks: {e:?}",);
+                // Assume we have pending blocks to prevent premature cleanup
+                true
+            })
+    }
+
+    fn get_local_state_machine(&self) -> &LocalStateMachine {
+        &self.local_state_machine
+    }
+
+    #[cfg(not(any(test, feature = "testing")))]
+    fn get_pending_proposals_count(&self) -> u64 {
+        0
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    fn get_pending_proposals_count(&self) -> u64 {
+        self.signer_db
+            .get_all_pending_block_validations()
+            .map(|results| u64::try_from(results.len()).unwrap())
+            .unwrap_or(0)
+    }
+}
+
+impl Signer {
+    /// Determine this signers response to a proposed block
+    /// Returns a BlockResponse if we have already validated the block
+    /// Returns None otherwise
+    fn determine_response(&mut self, block_info: &BlockInfo) -> Option<BlockResponse> {
+        let valid = block_info.valid?;
+        let response = if valid {
+            debug!("{self}: Accepting block {}", block_info.block.block_id());
+            self.create_block_acceptance(&block_info.block)
+        } else {
+            debug!("{self}: Rejecting block {}", block_info.block.block_id());
+            self.create_block_rejection(RejectReason::RejectedInPriorRound, &block_info.block)
+        };
+        Some(response)
+    }
+
+    /// Create a block acceptance response for a block
+    pub fn create_block_acceptance(&self, block: &NakamotoBlock) -> BlockResponse {
+        let signature = self
+            .private_key
+            .sign(block.header.signer_signature_hash().bits())
+            .expect("Failed to sign block");
+        BlockResponse::accepted(
+            block.header.signer_signature_hash(),
+            signature,
+            self.signer_db.calculate_tenure_extend_timestamp(
+                self.proposal_config
+                    .tenure_idle_timeout
+                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
+                block,
+                true,
+            ),
+        )
+    }
+
+    /// The actual switch-on-event processing of an event.
+    /// This is separated from the Signer trait implementation of process_event
+    /// so that the "do on every event" functionality can run after every event processing
+    /// (i.e. even if the event_match does an early return).
+    fn handle_event_match(
+        &mut self,
+        stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
+        event: &SignerEvent<SignerMessage>,
+        current_reward_cycle: u64,
+    ) {
         match event {
             SignerEvent::BlockValidationResponse(block_validate_response) => {
                 debug!("{self}: Received a block proposal result from the stacks node...");
@@ -381,6 +524,7 @@ impl SignerTrait<SignerMessage> for Signer {
                     debug!("{self}: received a new block event for a pre-nakamoto block, no processing necessary");
                     return;
                 };
+                self.recently_processed.add_block(*block_id);
                 debug!(
                     "{self}: Received a new block event.";
                     "block_id" => %block_id,
@@ -411,60 +555,6 @@ impl SignerTrait<SignerMessage> for Signer {
                 }
             }
         }
-        if prior_state != self.local_state_machine {
-            self.local_state_machine
-                .send_signer_update_message(&mut self.stackerdb);
-        }
-    }
-
-    fn has_unprocessed_blocks(&self) -> bool {
-        self.signer_db
-            .has_unprocessed_blocks(self.reward_cycle)
-            .unwrap_or_else(|e| {
-                error!("{self}: Failed to check for pending blocks: {e:?}",);
-                // Assume we have pending blocks to prevent premature cleanup
-                true
-            })
-    }
-
-    fn get_local_state_machine(&self) -> &LocalStateMachine {
-        &self.local_state_machine
-    }
-}
-
-impl Signer {
-    /// Determine this signers response to a proposed block
-    /// Returns a BlockResponse if we have already validated the block
-    /// Returns None otherwise
-    fn determine_response(&mut self, block_info: &BlockInfo) -> Option<BlockResponse> {
-        let valid = block_info.valid?;
-        let response = if valid {
-            debug!("{self}: Accepting block {}", block_info.block.block_id());
-            self.create_block_acceptance(&block_info.block)
-        } else {
-            debug!("{self}: Rejecting block {}", block_info.block.block_id());
-            self.create_block_rejection(RejectReason::RejectedInPriorRound, &block_info.block)
-        };
-        Some(response)
-    }
-
-    /// Create a block acceptance response for a block
-    pub fn create_block_acceptance(&self, block: &NakamotoBlock) -> BlockResponse {
-        let signature = self
-            .private_key
-            .sign(block.header.signer_signature_hash().bits())
-            .expect("Failed to sign block");
-        BlockResponse::accepted(
-            block.header.signer_signature_hash(),
-            signature,
-            self.signer_db.calculate_tenure_extend_timestamp(
-                self.proposal_config
-                    .tenure_idle_timeout
-                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
-                block,
-                true,
-            ),
-        )
     }
 
     /// Create a block rejection response for a block with the given reject code
@@ -486,6 +576,29 @@ impl Signer {
                 false,
             ),
         )
+    }
+
+    /// Check some heuristics to see if our stacks-node has processed the parent of `block`.
+    ///  Note: this can be wrong in both directions. It may return false for some blocks that
+    ///  have been processed, and it may return true for some blocks that have not been processed.
+    ///  The caller should not depend on this being 100% accurate.
+    fn maybe_processed_parent(&self, client: &StacksClient, block: &NakamotoBlock) -> bool {
+        let parent_block_id = &block.header.parent_block_id;
+        if self.recently_processed.is_processed(parent_block_id) {
+            return true;
+        }
+        let Ok(peer_info) = client.get_peer_info().inspect_err(|e| {
+            warn!(
+                "Failed to fetch stacks-node peer info, assuming block not processed yet";
+                "error" => ?e
+            )
+        }) else {
+            return false;
+        };
+
+        // if our stacks node has processed block height >= block proposal's parent
+        //  return true
+        peer_info.stacks_tip_height >= block.header.chain_length.saturating_sub(1)
     }
 
     /// Check if block should be rejected based on sortition state
@@ -615,10 +728,12 @@ impl Signer {
             .insert_update(address, update.clone());
 
         // See if this update means we should capitulate our viewpoint...
+        let version = self.get_signer_protocol_version();
         self.local_state_machine.capitulate_viewpoint(
             &mut self.signer_db,
             &mut self.global_state_evaluator,
             self.stacks_address,
+            version,
         );
     }
 
@@ -735,7 +850,11 @@ impl Signer {
 
                 #[cfg(any(test, feature = "testing"))]
                 self.test_stall_block_validation_submission();
-                self.submit_block_for_validation(stacks_client, &block_proposal.block);
+                self.submit_block_for_validation(
+                    stacks_client,
+                    &block_proposal.block,
+                    get_epoch_time_secs(),
+                );
             } else {
                 // Still store the block but log we can't submit it for validation. We may receive enough signatures/rejections
                 // from other signers to push the proposed block into a global rejection/acceptance regardless of our participation.
@@ -1065,24 +1184,38 @@ impl Signer {
         };
 
         // Check if there is a pending block validation that we need to submit to the node
-        match self.signer_db.get_and_remove_pending_block_validation() {
-            Ok(Some(signer_sig_hash)) => {
-                info!("{self}: Found a pending block validation: {signer_sig_hash:?}");
-                match self.signer_db.block_lookup(&signer_sig_hash) {
-                    Ok(Some(block_info)) => {
-                        self.submit_block_for_validation(stacks_client, &block_info.block);
-                    }
-                    Ok(None) => {
-                        // This should never happen
-                        error!(
-                            "{self}: Pending block validation not found in DB: {signer_sig_hash:?}"
-                        );
-                    }
-                    Err(e) => error!("{self}: Failed to get block info: {e:?}"),
+        self.check_pending_block_validations(stacks_client);
+    }
+
+    /// Check if we can submit a block validation, and do so if we have pending block proposals
+    fn check_pending_block_validations(&mut self, stacks_client: &StacksClient) {
+        // if we're already waiting on a submitted block proposal, we cannot submit yet.
+        if self.submitted_block_proposal.is_some() {
+            return;
+        }
+
+        let (signer_sig_hash, insert_ts) =
+            match self.signer_db.get_and_remove_pending_block_validation() {
+                Ok(Some(x)) => x,
+                Ok(None) => {
+                    return;
                 }
+                Err(e) => {
+                    warn!("{self}: Failed to get pending block validation: {e:?}");
+                    return;
+                }
+            };
+
+        info!("{self}: Found a pending block validation: {signer_sig_hash:?}");
+        match self.signer_db.block_lookup(&signer_sig_hash) {
+            Ok(Some(block_info)) => {
+                self.submit_block_for_validation(stacks_client, &block_info.block, insert_ts);
             }
-            Ok(None) => {}
-            Err(e) => warn!("{self}: Failed to get pending block validation: {e:?}"),
+            Ok(None) => {
+                // This should never happen
+                error!("{self}: Pending block validation not found in DB: {signer_sig_hash:?}");
+            }
+            Err(e) => error!("{self}: Failed to get block info: {e:?}"),
         }
     }
 
@@ -1462,8 +1595,31 @@ impl Signer {
 
     /// Submit a block for validation, and mark it as pending if the node
     /// is busy with a previous request.
-    fn submit_block_for_validation(&mut self, stacks_client: &StacksClient, block: &NakamotoBlock) {
+    fn submit_block_for_validation(
+        &mut self,
+        stacks_client: &StacksClient,
+        block: &NakamotoBlock,
+        added_epoch_time: u64,
+    ) {
         let signer_signature_hash = block.header.signer_signature_hash();
+        if !self.maybe_processed_parent(stacks_client, block) {
+            let time_elapsed = get_epoch_time_secs().saturating_sub(added_epoch_time);
+            if Duration::from_secs(time_elapsed)
+                < self.proposal_config.proposal_wait_for_parent_time
+            {
+                info!("{self}: Have not processed parent of block proposal yet, inserting pending block validation and will try again later";
+                        "signer_signature_hash" => %signer_signature_hash,
+                );
+                self.signer_db
+                    .insert_pending_block_validation(&signer_signature_hash, added_epoch_time)
+                    .unwrap_or_else(|e| {
+                        warn!("{self}: Failed to insert pending block validation: {e:?}")
+                    });
+                return;
+            } else {
+                debug!("{self}: Cannot confirm that we have processed parent, but we've waited proposal_wait_for_parent_time, will submit proposal");
+            }
+        }
         match stacks_client.submit_block_for_validation(block.clone()) {
             Ok(_) => {
                 self.submitted_block_proposal = Some((signer_signature_hash, Instant::now()));
@@ -1474,10 +1630,7 @@ impl Signer {
                         "signer_signature_hash" => %signer_signature_hash,
                     );
                     self.signer_db
-                        .insert_pending_block_validation(
-                            &signer_signature_hash,
-                            get_epoch_time_secs(),
-                        )
+                        .insert_pending_block_validation(&signer_signature_hash, added_epoch_time)
                         .unwrap_or_else(|e| {
                             warn!("{self}: Failed to insert pending block validation: {e:?}")
                         });
@@ -1528,6 +1681,16 @@ impl Signer {
         } else {
             None
         }
+    }
+
+    #[cfg(not(any(test, feature = "testing")))]
+    fn get_signer_protocol_version(&self) -> u64 {
+        SUPPORTED_SIGNER_PROTOCOL_VERSION
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    fn get_signer_protocol_version(&self) -> u64 {
+        self.test_get_signer_protocol_version()
     }
 }
 

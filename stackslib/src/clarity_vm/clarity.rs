@@ -1944,6 +1944,7 @@ impl ClarityTransactionConnection<'_, '_> {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::PathBuf;
 
     use clarity::vm::analysis::errors::CheckErrors;
     use clarity::vm::database::{ClarityBackingStore, STXBalance};
@@ -1954,9 +1955,56 @@ mod tests {
     use stacks_common::types::sqlite::NO_PARAMS;
 
     use super::*;
+    use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection as _};
     use crate::chainstate::stacks::index::ClarityMarfTrieId;
     use crate::clarity_vm::database::marf::MarfedKV;
     use crate::core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
+
+    #[test]
+    pub fn create_md_index() {
+        let path_db = "/tmp/stacks-node-tests/creat_md_index";
+        std::fs::remove_dir_all(path_db);
+        let mut path = PathBuf::from(path_db);
+
+        std::fs::create_dir_all(&path).unwrap();
+
+        path.push("marf.sqlite");
+        let marf_path = path.to_str().unwrap().to_string();
+
+        let mut marf_opts = MARFOpenOpts::default();
+        marf_opts.external_blobs = true;
+
+        let mut marf: MARF<StacksBlockId> = MARF::from_path(&marf_path, marf_opts).unwrap();
+
+        let tx = marf.storage_tx().unwrap();
+
+        tx.query_row("PRAGMA journal_mode = WAL;", NO_PARAMS, |_row| Ok(()))
+            .unwrap();
+
+        tx.execute(
+            "CREATE TABLE IF NOT EXISTS data_table
+                      (key TEXT PRIMARY KEY, value TEXT)",
+            NO_PARAMS,
+        )
+        .unwrap();
+
+        tx.execute(
+            "CREATE TABLE IF NOT EXISTS metadata_table
+                      (key TEXT NOT NULL, blockhash TEXT, value TEXT,
+                       UNIQUE (key, blockhash))",
+            NO_PARAMS,
+        )
+        .unwrap();
+
+        tx.commit().unwrap();
+
+        assert!(SqliteConnection::check_schema(marf.sqlite_conn()).is_err());
+
+        MarfedKV::open(path_db, None, None).unwrap();
+
+        // schema should be good now
+        assert!(SqliteConnection::check_schema(marf.sqlite_conn()).is_ok());
+    }
 
     #[test]
     pub fn bad_syntax_test() {

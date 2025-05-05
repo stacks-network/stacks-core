@@ -13,6 +13,7 @@ use clarity::vm::types::{
 };
 use clarity::vm::{ClarityVersion, Value};
 use lazy_static::lazy_static;
+use pinny::tag;
 use reqwest;
 use serde_json::json;
 use stacks::burnchains::Address;
@@ -41,7 +42,7 @@ use stacks::net::api::getistraitimplemented::GetIsTraitImplementedResponse;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, VRFSeed};
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum};
 
-use super::{ADDR_4, SK_1, SK_2, SK_3};
+use super::{new_test_conf, ADDR_4, SK_1, SK_2, SK_3};
 use crate::helium::RunLoop;
 
 const OTHER_CONTRACT: &str = "
@@ -162,10 +163,11 @@ lazy_static! {
     static ref HTTP_BINDING: Mutex<Option<String>> = Mutex::new(None);
 }
 
+#[tag(slow)]
 #[test]
 #[ignore]
 fn integration_test_get_info() {
-    let mut conf = super::new_test_conf();
+    let mut conf = new_test_conf();
     let spender_addr = to_addr(&StacksPrivateKey::from_hex(SK_3).unwrap()).into();
     let principal_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
@@ -1086,9 +1088,10 @@ const FAUCET_CONTRACT: &str = "
       (print (as-contract (stx-transfer? u1 .faucet recipient)))))
 ";
 
+#[tag(slow)]
 #[test]
 fn contract_stx_transfer() {
-    let mut conf = super::new_test_conf();
+    let mut conf = new_test_conf();
 
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
@@ -1452,7 +1455,7 @@ fn contract_stx_transfer() {
 
 #[test]
 fn mine_transactions_out_of_order() {
-    let mut conf = super::new_test_conf();
+    let mut conf = new_test_conf();
 
     let sk = StacksPrivateKey::from_hex(SK_3).unwrap();
     let addr = to_addr(&sk);
@@ -1624,7 +1627,7 @@ fn mine_transactions_out_of_order() {
 ///   in the block it was processed for. Tests issue #1540
 #[test]
 fn mine_contract_twice() {
-    let mut conf = super::new_test_conf();
+    let mut conf = new_test_conf();
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
 
     conf.burnchain.commit_anchor_block_within = 1000;
@@ -1710,7 +1713,7 @@ fn mine_contract_twice() {
 
 #[test]
 fn bad_contract_tx_rollback() {
-    let mut conf = super::new_test_conf();
+    let mut conf = new_test_conf();
 
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
@@ -1994,7 +1997,7 @@ fn make_keys(seed: &str, count: u64) -> Vec<StacksPrivateKey> {
 
 #[test]
 fn block_limit_runtime_test() {
-    let mut conf = super::new_test_conf();
+    let mut conf = new_test_conf();
 
     conf.burnchain.epochs = Some(EpochList::new(&[
         StacksEpoch {
@@ -2179,7 +2182,7 @@ fn block_limit_runtime_test() {
 
 #[test]
 fn mempool_errors() {
-    let mut conf = super::new_test_conf();
+    let mut conf = new_test_conf();
 
     conf.burnchain.commit_anchor_block_within = 5000;
 
