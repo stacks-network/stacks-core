@@ -19,7 +19,7 @@ pub use block_wait::{
     WaitForTenureChangeBlockFromMiner2,
 };
 pub use boot::BootToEpoch3;
-pub use commit_ops::{SkipCommitOpMiner1, SkipCommitOpMiner2};
+pub use commit_ops::{MinerCommitOp, SkipCommitOpMiner1, SkipCommitOpMiner2};
 pub use context::SignerTestContext;
 pub use shutdown::ShutdownMiners;
 pub use sortition::{

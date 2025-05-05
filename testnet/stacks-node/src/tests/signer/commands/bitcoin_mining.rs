@@ -279,7 +279,7 @@ impl Command<SignerTestState, SignerTestContext> for BuildNextBitcoinBlocks {
     }
 
     fn label(&self) -> String {
-        "BUILD_NEXT_BITCOIN_BLOCK".to_string()
+        "BUILD_NEXT_BITCOIN_BLOCKS".to_string()
     }
 
     fn build(

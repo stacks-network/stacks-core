@@ -10987,9 +10987,9 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
 
     scenario![
         test_context,
-        SkipCommitOpMiner2,
+        (MinerCommitOp::new(test_context.clone(), 2, true)), // SkipCommitOpMiner2
         BootToEpoch3,
-        SkipCommitOpMiner1,
+        (MinerCommitOp::new(test_context.clone(), 1, true)), // SkipCommitOpMiner1
         MineBitcoinBlockTenureChangeMiner1,
         VerifyMiner1WonSortition,
         SubmitBlockCommitMiner2,

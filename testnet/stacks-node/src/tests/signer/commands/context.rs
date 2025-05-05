@@ -41,6 +41,21 @@ impl SignerTestContext {
             miners: Arc::new(Mutex::new(miners)),
         }
     }
+
+    pub fn get_miner_skip_commit_flag(
+        &self,
+        miner_index: usize,
+    ) -> stacks::util::tests::TestFlag<bool> {
+        let miners = self.miners.lock().unwrap();
+        match miner_index {
+            1 => miners.get_primary_skip_commit_flag(),
+            2 => miners.get_secondary_skip_commit_flag(),
+            _ => panic!(
+                "Invalid miner index: {}. Only miners 1 and 2 are supported.",
+                miner_index
+            ),
+        }
+    }
 }
 
 type StacksHeightBefore = u64;
