@@ -880,6 +880,9 @@ impl Config {
             None => miner_default_config,
         };
 
+        if is_mainnet && miner.replay_transactions {
+            return Err("Attempted to run mainnet node with `replay_transactions` set to true. This feature is still incomplete and may not be enabled on a mainnet node".into());
+        }
         let initial_balances: Vec<InitialBalance> = match config_file.ustx_balance {
             Some(balances) => {
                 if is_mainnet && !balances.is_empty() {
@@ -2199,6 +2202,9 @@ pub struct MinerConfig {
     pub block_rejection_timeout_steps: HashMap<u32, Duration>,
     /// Define max execution time for contract calls: transactions taking more than the specified amount of seconds will be rejected
     pub max_execution_time_secs: Option<u64>,
+    /// TODO: remove this option when its no longer a testing feature and it becomes default behaviour
+    /// The miner will attempt to replay transactions that a threshold number of signers are expecting in the next block
+    pub replay_transactions: bool,
 }
 
 impl Default for MinerConfig {
@@ -2251,6 +2257,7 @@ impl Default for MinerConfig {
                 rejections_timeouts_default_map
             },
             max_execution_time_secs: None,
+            replay_transactions: false,
         }
     }
 }
@@ -2657,6 +2664,8 @@ pub struct MinerConfigFile {
     pub tenure_extend_cost_threshold: Option<u64>,
     pub block_rejection_timeout_steps: Option<HashMap<String, u64>>,
     pub max_execution_time_secs: Option<u64>,
+    /// TODO: remove this config option once its no longer a testing feature
+    pub replay_transactions: Option<bool>,
 }
 
 impl MinerConfigFile {
@@ -2831,7 +2840,8 @@ impl MinerConfigFile {
                 }
             },
 
-            max_execution_time_secs: self.max_execution_time_secs
+            max_execution_time_secs: self.max_execution_time_secs,
+            replay_transactions: self.replay_transactions.unwrap_or_default(),
         })
     }
 }

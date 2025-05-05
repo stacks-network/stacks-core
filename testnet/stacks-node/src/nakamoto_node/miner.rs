@@ -1407,6 +1407,11 @@ impl BlockMinerThread {
         // be reset to false.
         self.reset_nonce_cache = true;
 
+        let replay_transactions = if self.config.miner.replay_transactions {
+            coordinator.get_replay_transactions()
+        } else {
+            vec![]
+        };
         // build the block itself
         let mut block_metadata = NakamotoBlockBuilder::build_nakamoto_block(
             &chain_state,
@@ -1424,6 +1429,7 @@ impl BlockMinerThread {
             //  correct signer_signature_hash for `process_mined_nakamoto_block_event`
             Some(&self.event_dispatcher),
             signer_bitvec_len.unwrap_or(0),
+            &replay_transactions,
         )
         .map_err(|e| {
             if !matches!(
