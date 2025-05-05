@@ -300,8 +300,9 @@ impl SignerTrait<SignerMessage> for Signer {
         self.check_pending_block_validations(stacks_client);
 
         if prior_state != self.local_state_machine {
+            let version = self.get_signer_protocol_version();
             self.local_state_machine
-                .send_signer_update_message(&mut self.stackerdb);
+                .send_signer_update_message(&mut self.stackerdb, version);
         }
     }
 
@@ -725,10 +726,12 @@ impl Signer {
             .insert_update(address, update.clone());
 
         // See if this update means we should capitulate our viewpoint...
+        let version = self.get_signer_protocol_version();
         self.local_state_machine.capitulate_viewpoint(
             &mut self.signer_db,
             &mut self.global_state_evaluator,
             self.stacks_address,
+            version,
         );
     }
 
@@ -1676,6 +1679,16 @@ impl Signer {
         } else {
             None
         }
+    }
+
+    #[cfg(not(any(test, feature = "testing")))]
+    fn get_signer_protocol_version(&self) -> u64 {
+        SUPPORTED_SIGNER_PROTOCOL_VERSION
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    fn get_signer_protocol_version(&self) -> u64 {
+        self.test_get_signer_protocol_version()
     }
 }
 
