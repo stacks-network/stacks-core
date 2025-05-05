@@ -55,7 +55,6 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlockFro
 
         let _miner_1_block = wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk_1)
             .expect(&format!("Failed to get block {}", expected_height));
-
     }
 
     fn label(&self) -> String {
@@ -115,7 +114,6 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlockFro
         let _miner_2_block_n_1 =
             wait_for_block_pushed_by_miner_key(30, expected_stacks_height, &miner_pk_2)
                 .expect(&format!("Failed to get block {:?}", expected_stacks_height));
-        
     }
 
     fn label(&self) -> String {

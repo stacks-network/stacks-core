@@ -10,7 +10,9 @@ mod sortition;
 mod stacks_mining;
 mod transfer;
 
-pub use bitcoin_mining::{MineBitcoinBlock, MineBitcoinBlockTenureChangeMiner1, BuildNextBitcoinBlocks};
+pub use bitcoin_mining::{
+    BuildNextBitcoinBlocks, MineBitcoinBlock, MineBitcoinBlockTenureChangeMiner1,
+};
 pub use block_commit::{SubmitBlockCommitMiner1, SubmitBlockCommitMiner2};
 pub use block_wait::{
     VerifyMiner1BlockCount, WaitForAndVerifyBlockRejection, WaitForTenureChangeBlockFromMiner1,

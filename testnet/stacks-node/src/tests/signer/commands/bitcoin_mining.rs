@@ -75,7 +75,7 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChang
         let miner_1_block =
             wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_1)
                 .expect("Failed to get block");
-        
+
         state.blocks_mined += 1;
         info!("Increased blocks mined count to {}", state.blocks_mined);
 
