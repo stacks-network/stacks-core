@@ -6,7 +6,7 @@
 
 
 # Signer code
-# require both blockchain-team and blockchain-team-signer to review PR's for the signer folder(s)
+# require both blockchain-team-codeowners and blockchain-team-signer to review PR's for the signer folder(s)
 libsigner/**/*.rs @stacks-network/blockchain-team-codeowners @stacks-network/blockchain-team-signer
 stacks-signer/**/*.rs @stacks-network/blockchain-team-codeowners @stacks-network/blockchain-team-signer
 
