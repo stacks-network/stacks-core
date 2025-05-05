@@ -408,13 +408,8 @@ impl Signer {
                             block_response,
                             sortition_state,
                         ),
-                        SignerMessage::StateMachineUpdate(update) => {
-                            self.handle_state_machine_update(
-                                signer_public_key,
-                                update,
-                                received_time,
-                            );
-                        }
+                        SignerMessage::StateMachineUpdate(update) => self
+                            .handle_state_machine_update(signer_public_key, update, received_time),
                         _ => {}
                     }
                 }
@@ -671,16 +666,30 @@ impl Signer {
     /// The actual `send_block_response` implementation. Declared so that we do
     /// not need to duplicate in testing.
     fn impl_send_block_response(&mut self, block_response: BlockResponse) {
-        let res = self
+        info!(
+            "{self}: Broadcasting a block response to stacks node: {block_response:?}";
+        );
+        let accepted = matches!(block_response, BlockResponse::Accepted(..));
+        let block_hash = block_response.get_signer_signature_hash();
+        match self
             .stackerdb
-            .send_message_with_retry::<SignerMessage>(block_response.clone().into());
-        match res {
-            Err(e) => warn!("{self}: Failed to send block rejection to stacker-db: {e:?}"),
-            Ok(ack) if !ack.accepted => warn!(
-                "{self}: Block rejection not accepted by stacker-db: {:?}",
-                ack.reason
-            ),
-            Ok(_) => debug!("{self}: Block rejection accepted by stacker-db"),
+            .send_message_with_retry::<SignerMessage>(block_response.into())
+        {
+            Ok(ack) => {
+                if !ack.accepted {
+                    warn!(
+                        "{self}: Block response not accepted by stacker-db: {:?}",
+                        ack.reason
+                    );
+                }
+                crate::monitoring::actions::increment_block_responses_sent(accepted);
+                if let Ok(Some(block_info)) = self.signer_db.block_lookup(&block_hash) {
+                    crate::monitoring::actions::record_block_response_latency(&block_info.block);
+                }
+            }
+            Err(e) => {
+                warn!("{self}: Failed to send block response to stacker-db: {e:?}",);
+            }
         }
     }
 
@@ -833,7 +842,6 @@ impl Signer {
 
         if let Some(block_response) = block_response {
             // We know proposal is invalid. Send rejection message, do not do further validation and do not store it.
-            debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
             self.send_block_response(block_response);
         } else {
             // Just in case check if the last block validation submission timed out.
@@ -888,19 +896,7 @@ impl Signer {
             return;
         };
 
-        // Submit a proposal response to the .signers contract for miners
-        debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
-
-        let accepted = matches!(block_response, BlockResponse::Accepted(..));
-        if let Err(e) = self
-            .stackerdb
-            .send_message_with_retry::<SignerMessage>(block_response.into())
-        {
-            warn!("{self}: Failed to send block response to stacker-db: {e:?}");
-        } else {
-            crate::monitoring::actions::increment_block_responses_sent(accepted);
-            crate::monitoring::actions::record_block_response_latency(&block_info.block);
-        }
+        self.impl_send_block_response(block_response);
     }
 
     /// Handle block response messages from a signer
@@ -1036,21 +1032,7 @@ impl Signer {
                     warn!("{self}: Failed to mark block as locally rejected: {e:?}");
                 }
             };
-            debug!("{self}: Broadcasting a block response to stacks node: {block_response:?}");
-            let res = self
-                .stackerdb
-                .send_message_with_retry::<SignerMessage>(block_response.into());
-
-            crate::monitoring::actions::record_block_response_latency(&block_info.block);
-
-            match res {
-                Err(e) => warn!("{self}: Failed to send block rejection to stacker-db: {e:?}"),
-                Ok(ack) if !ack.accepted => warn!(
-                    "{self}: Block rejection not accepted by stacker-db: {:?}",
-                    ack.reason
-                ),
-                Ok(_) => debug!("{self}: Block rejection accepted by stacker-db"),
-            }
+            self.impl_send_block_response(block_response);
             self.signer_db
                 .insert_block(&block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
@@ -1157,30 +1139,7 @@ impl Signer {
             .unwrap_or_else(|e| warn!("{self}: Failed to remove pending block validation: {e:?}"));
 
         if let Some(response) = block_response {
-            // Submit a proposal response to the .signers contract for miners
-            info!(
-                "{self}: Broadcasting a block response to stacks node: {response:?}";
-            );
-            let accepted = matches!(response, BlockResponse::Accepted(..));
-            match self
-                .stackerdb
-                .send_message_with_retry::<SignerMessage>(response.into())
-            {
-                Ok(_) => {
-                    crate::monitoring::actions::increment_block_responses_sent(accepted);
-                    if let Ok(Some(block_info)) = self
-                        .signer_db
-                        .block_lookup(&block_validate_response.signer_signature_hash())
-                    {
-                        crate::monitoring::actions::record_block_response_latency(
-                            &block_info.block,
-                        );
-                    }
-                }
-                Err(e) => {
-                    warn!("{self}: Failed to send block rejection to stacker-db: {e:?}",);
-                }
-            }
+            self.impl_send_block_response(response);
         };
 
         // Check if there is a pending block validation that we need to submit to the node
@@ -1273,21 +1232,7 @@ impl Signer {
                 warn!("{self}: Failed to mark block as locally rejected: {e:?}");
             }
         };
-        debug!("{self}: Broadcasting a block response to stacks node: {rejection:?}");
-        let res = self
-            .stackerdb
-            .send_message_with_retry::<SignerMessage>(rejection.into());
-
-        crate::monitoring::actions::record_block_response_latency(&block_info.block);
-
-        match res {
-            Err(e) => warn!("{self}: Failed to send block rejection to stacker-db: {e:?}"),
-            Ok(ack) if !ack.accepted => warn!(
-                "{self}: Block rejection not accepted by stacker-db: {:?}",
-                ack.reason
-            ),
-            Ok(_) => debug!("{self}: Block rejection accepted by stacker-db"),
-        }
+        self.impl_send_block_response(rejection);
 
         self.signer_db
             .insert_block(&block_info)
