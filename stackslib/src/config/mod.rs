@@ -2604,7 +2604,7 @@ pub struct ConnectionOptionsFile {
     /// `stacks-signer` instance.
     ///
     /// **Requirement:** This field **must** be configured if the node needs to receive block
-    /// proposals from a `stacks-signer` via the `/v3/block_proposal` endpoint. The value
+    /// proposals from a configured `stacks-signer`event_observer via the `/v3/block_proposal` endpoint. The value
     /// must match the token configured on the signer.
     ///
     /// It is also used to authenticate requests to `/v2/blocks?broadcast=1`.
