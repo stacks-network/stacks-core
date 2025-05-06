@@ -43,6 +43,8 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error, info, warn};
 
+#[cfg(not(any(test, feature = "testing")))]
+use super::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use super::signer_state::{GlobalStateEvaluator, LocalStateMachine};
 use crate::chainstate::{ProposalEvalConfig, SortitionMinerStatus, SortitionsView};
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
@@ -732,6 +734,7 @@ impl Signer {
             &mut self.global_state_evaluator,
             self.stacks_address,
             version,
+            self.reward_cycle,
         );
     }
 
