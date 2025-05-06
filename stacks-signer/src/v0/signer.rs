@@ -1217,7 +1217,7 @@ impl Signer {
             .unwrap_or_else(|e| self.handle_insert_block_error(e));
         self.handle_block_rejection(&block_rejection, sortition_state);
         let response = BlockResponse::Rejected(block_rejection);
-        self.send_block_response(&block_info.block, response);
+        self.impl_send_block_response(&block_info.block, response);
     }
 
     /// Handle the block validate response returned from our prior calls to submit a block for validation
