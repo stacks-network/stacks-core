@@ -1002,15 +1002,19 @@ impl LocalStateMachine {
             }
             let fork_info =
                 client.get_tenure_forking_info(&first_forked_tenure, &last_forked_tenure)?;
-            let forked_txs = fork_info
+            let mut forked_blocks = fork_info
                 .iter()
                 .flat_map(|fork_info| {
                     fork_info
                         .nakamoto_blocks
                         .iter()
                         .flat_map(|blocks| blocks.iter())
-                        .flat_map(|block| block.txs.iter())
                 })
+                .collect::<Vec<_>>();
+            forked_blocks.sort_by_key(|block| block.header.chain_length);
+            let forked_txs = forked_blocks
+                .iter()
+                .flat_map(|block| block.txs.iter())
                 .filter(|tx| match tx.payload {
                     // Don't include Coinbase, TenureChange, or PoisonMicroblock transactions
                     TransactionPayload::TenureChange(..)
