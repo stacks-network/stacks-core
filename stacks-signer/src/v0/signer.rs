@@ -721,7 +721,7 @@ impl Signer {
     #[cfg(not(any(test, feature = "testing")))]
     fn send_block_response(
         &mut self,
-        block: &Option<NakamotoBlock>,
+        block: Option<&NakamotoBlock>,
         block_response: BlockResponse,
     ) {
         self.impl_send_block_response(block, block_response)
