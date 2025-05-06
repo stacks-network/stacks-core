@@ -528,7 +528,7 @@ CREATE TABLE IF NOT EXISTS signer_state_machine_updates (
     signer_addr TEXT NOT NULL,
     reward_cycle INTEGER NOT NULL,
     state_update TEXT NOT NULL,
-    received_time TEXT NOT NULL,
+    received_time INTEGER NOT NULL,
     PRIMARY KEY (signer_addr, reward_cycle)
 ) STRICT;"#;
 
@@ -1411,6 +1411,22 @@ impl SignerDb {
             result.insert(address, update);
         }
         Ok(result)
+    }
+
+    /// Retrieve the elapsed time (in seconds) between
+    /// the oldest and the newest state machine update messages
+    /// produced by the signer set
+    pub fn get_signer_state_machine_updates_latency(
+        &self,
+        reward_cycle: u64,
+    ) -> Result<u64, DBError> {
+        let query = "SELECT COALESCE( (MAX(received_time) - MIN(received_time)), 0 ) AS elapsed_time FROM signer_state_machine_updates WHERE reward_cycle = ?1";
+        let args = params![u64_to_sql(reward_cycle)?];
+        let elapsed_time_opt: Option<u64> = query_row(&self.db, query, args)?;
+        match elapsed_time_opt {
+            Some(seconds) => Ok(seconds),
+            None => Ok(0),
+        }
     }
 }
 
@@ -2514,5 +2530,93 @@ pub mod tests {
         assert_eq!(updates.get(&address_1), None);
         assert_eq!(updates.get(&address_2), None);
         assert_eq!(updates.get(&address_3), Some(&update_3));
+    }
+
+    #[test]
+    fn retrieve_latency_for_signer_state_machine_updates() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let reward_cycle_1 = 1;
+        let address_1 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
+        let update_1 = StateMachineUpdate::new(
+            0,
+            3,
+            StateMachineUpdateContent::V0 {
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh: Hash160([0xab; 20]),
+                    tenure_id: ConsensusHash([0x44; 20]),
+                    parent_tenure_id: ConsensusHash([0x22; 20]),
+                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                    parent_tenure_last_block_height: 1,
+                },
+            },
+        )
+        .unwrap();
+        let time_1 = SystemTime::UNIX_EPOCH;
+
+        let address_2 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
+        let update_2 = StateMachineUpdate::new(
+            0,
+            4,
+            StateMachineUpdateContent::V0 {
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::NoValidMiner,
+            },
+        )
+        .unwrap();
+        let time_2 = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
+
+        let address_3 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
+        let update_3 = StateMachineUpdate::new(
+            0,
+            2,
+            StateMachineUpdateContent::V0 {
+                burn_block: ConsensusHash([0x66; 20]),
+                burn_block_height: 101,
+                current_miner: StateMachineUpdateMinerState::NoValidMiner,
+            },
+        )
+        .unwrap();
+        let time_3 = SystemTime::UNIX_EPOCH + Duration::from_secs(10);
+
+        assert_eq!(
+            0,
+            db.get_signer_state_machine_updates_latency(reward_cycle_1)
+                .unwrap(),
+            "latency on empty database should be 0 seconds for reward_cycle {reward_cycle_1}"
+        );
+
+        db.insert_state_machine_update(reward_cycle_1, &address_1, &update_1, &time_1)
+            .expect("Unable to insert block into db");
+
+        assert_eq!(
+            0,
+            db.get_signer_state_machine_updates_latency(reward_cycle_1)
+                .unwrap(),
+            "latency between same update should be 0 seconds"
+        );
+
+        db.insert_state_machine_update(reward_cycle_1, &address_2, &update_2, &time_2)
+            .expect("Unable to insert block into db");
+
+        assert_eq!(
+            1,
+            db.get_signer_state_machine_updates_latency(reward_cycle_1)
+                .unwrap(),
+            "latency between updates should be 1 second"
+        );
+
+        db.insert_state_machine_update(reward_cycle_1, &address_3, &update_3, &time_3)
+            .expect("Unable to insert block into db");
+
+        assert_eq!(
+            10,
+            db.get_signer_state_machine_updates_latency(reward_cycle_1)
+                .unwrap(),
+            "latency between updates should be 10 second"
+        );
     }
 }
