@@ -1292,10 +1292,14 @@ pub struct BurnchainConfig {
     /// The username for authenticating with the bitcoin node's RPC interface.
     /// Required if the bitcoin node requires RPC authentication.
     ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
     /// Default: `None`
     pub username: Option<String>,
     /// The password for authenticating with the bitcoin node's RPC interface.
     /// Required if the bitcoin node requires RPC authentication.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
     ///
     /// Default: `None`
     pub password: Option<String>,
