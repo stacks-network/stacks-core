@@ -12558,12 +12558,16 @@ fn miner_constructs_replay_block() {
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
-    // Mine 1 nakamoto tenure
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
-
     // Pause mining to prevent any of the submitted txs getting mined.
     info!("Stalling mining...");
     TEST_MINE_STALL.set(true);
+    let burn_height_before = get_chain_info(&naka_conf).burn_block_height;
+    // Mine 1 bitcoin block to trigger a new block found transaction
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let burn_height = get_chain_info(&naka_conf).burn_block_height;
+        Ok(burn_height > burn_height_before)
+    })
+    .expect("Failed to mine bitcoin block");
 
     info!(
         "Filling mempool with {} txs...",
@@ -12636,19 +12640,40 @@ fn miner_constructs_replay_block() {
     );
 
     let observed_before = test_observer::get_mined_nakamoto_blocks().len();
-    assert_eq!(observed_before, 1);
+    let blocks_before = test_observer::get_blocks().len();
+    assert_eq!(observed_before, 0);
     info!("Resuming mining...");
     TEST_MINE_STALL.set(false);
 
-    info!("Waiting for block to be mined...");
+    info!("Waiting for two stacks block to be mined...");
     wait_for(30, || {
-        Ok(test_observer::get_mined_nakamoto_blocks().len() > observed_before)
+        Ok(
+            test_observer::get_mined_nakamoto_blocks().len() > observed_before + 1
+                && test_observer::get_blocks().len() > blocks_before + 1,
+        )
     })
-    .expect("Timed out waiting for a block to be mined");
+    .expect("Timed out waiting for two stacks block to be mined");
 
+    info!("Verifying that a tenure change block was found BEFORE mining the replay txs...");
     let observed_blocks = test_observer::get_mined_nakamoto_blocks();
-    let block = observed_blocks.last().unwrap();
-    info!("Verifying block contains the expected txs...");
+    let blocks = test_observer::get_blocks();
+    let raw_block_found = &blocks[blocks_before];
+    let transactions = raw_block_found
+        .get("transactions")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    assert_eq!(transactions.len(), 2); // Should contain a block found and a coinbase
+    let tx = transactions.first().unwrap();
+    let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+    let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+    let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+    let tenure_change = parsed.try_as_tenure_change().unwrap();
+    assert_eq!(tenure_change.cause, TenureChangeCause::BlockFound);
+
+    info!("Verifying next block contains the expected replay txs...");
+    let block = &observed_blocks[observed_before + 1];
+    assert_eq!(block.tx_events.len(), 6);
     if let TransactionEvent::Success(tx) = &block.tx_events[0] {
         assert_eq!(tx.txid, succeed_tx_1.txid());
     } else {
