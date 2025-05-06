@@ -772,6 +772,7 @@ impl Signer {
             &mut self.global_state_evaluator,
             self.stacks_address,
             version,
+            self.reward_cycle,
         );
     }
 
