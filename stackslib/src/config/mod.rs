@@ -2611,15 +2611,14 @@ pub struct ConnectionOptionsFile {
     ///
     /// Default: `None` (authentication disabled for relevant endpoints).
     pub auth_token: Option<String>,
-    /// Controls whether a node with public inbound connections should still push blocks.
+    /// Minimum interval (in seconds) between attempts to run the Epoch 2.x anti-entropy data push mechanism.
     ///
-    /// In the Stacks 2.x anti-entropy logic, if a node detected it had inbound connections
-    /// from public IPs (suggesting it wasn't behind NAT) and this flag was set to `false`,
-    /// it would refrain from proactively pushing blocks and microblocks to peers.
-    /// The assumption was that publicly reachable nodes should primarily serve downloads.
-    /// If set to `true`, the node would push data regardless of its perceived reachability.
+    /// The Stacks 2.x anti-entropy protocol involves the node proactively pushing its known
+    /// Stacks blocks and microblocks to peers. This `antientropy_retry` value specifies the
+    /// cooldown period for this operation.
+    /// This prevents the node from excessively attempting to push data to its peers.
     ///
-    /// Default: `true`.
+    /// Default: 3600 seconds (1 hour).
     /// Deprecated: This setting is ignored in Epoch 3.0+.
     pub antientropy_retry: Option<u64>,
     /// Controls whether the node accepts Nakamoto blocks pushed proactively by peers.
