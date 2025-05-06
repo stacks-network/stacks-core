@@ -788,12 +788,15 @@ impl LocalStateMachine {
                 };
                 return Err(ClientError::InvalidResponse(err_msg).into());
             }
-            tx_replay_set = self.handle_possible_bitcoin_fork(
+            if let Some(new_replay_set) = self.handle_possible_bitcoin_fork(
                 db,
                 client,
                 &expected_burn_block,
                 &prior_state_machine,
-            )?;
+                tx_replay_set.is_some(),
+            )? {
+                tx_replay_set = Some(new_replay_set);
+            }
         }
 
         let CurrentAndLastSortition {
@@ -966,11 +969,12 @@ impl LocalStateMachine {
         client: &StacksClient,
         expected_burn_block: &NewBurnBlock,
         prior_state_machine: &SignerStateMachine,
+        is_in_tx_replay_mode: bool,
     ) -> Result<Option<Vec<StacksTransaction>>, SignerChainstateError> {
         if expected_burn_block.burn_block_height <= prior_state_machine.burn_block_height
                 && expected_burn_block.consensus_hash != prior_state_machine.burn_block
                 // TODO: handle fork while still in replay
-                && prior_state_machine.tx_replay_set.is_none()
+                && !is_in_tx_replay_mode
         {
             info!("Signer State: fork detected";
                 "expected_burn_block.height" => expected_burn_block.burn_block_height,

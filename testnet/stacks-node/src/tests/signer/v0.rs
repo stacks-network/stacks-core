@@ -3071,36 +3071,6 @@ fn tx_replay_forking_test() {
     );
     let conf = signer_test.running_nodes.conf.clone();
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let _miner_address = Keychain::default(conf.node.seed.clone())
-        .origin_address(conf.is_mainnet())
-        .unwrap();
-    let miner_pk = signer_test
-        .running_nodes
-        .btc_regtest_controller
-        .get_mining_pubkey()
-        .as_deref()
-        .map(Secp256k1PublicKey::from_hex)
-        .unwrap()
-        .unwrap();
-
-    let get_unconfirmed_commit_data = |btc_controller: &mut BitcoinRegtestController| {
-        let unconfirmed_utxo = btc_controller
-            .get_all_utxos(&miner_pk)
-            .into_iter()
-            .find(|utxo| utxo.confirmations == 0)?;
-        let unconfirmed_txid = Txid::from_bitcoin_tx_hash(&unconfirmed_utxo.txid);
-        let unconfirmed_tx = btc_controller.get_raw_transaction(&unconfirmed_txid);
-        let unconfirmed_tx_opreturn_bytes = unconfirmed_tx.output[0].script_pubkey.as_bytes();
-        info!(
-            "Unconfirmed tx bytes: {}",
-            stacks::util::hash::to_hex(unconfirmed_tx_opreturn_bytes)
-        );
-        let data = LeaderBlockCommitOp::parse_data(
-            &unconfirmed_tx_opreturn_bytes[unconfirmed_tx_opreturn_bytes.len() - 77..],
-        )
-        .unwrap();
-        Some(data)
-    };
 
     signer_test.boot_to_epoch_3();
     info!("------------------------- Reached Epoch 3.0 -------------------------");
@@ -3205,26 +3175,9 @@ fn tx_replay_forking_test() {
         next_block_and_controller(
             &mut signer_test.running_nodes.btc_regtest_controller,
             60,
-            |btc_controller| {
-                let commits_submitted = submitted_commits
-                    .load(Ordering::SeqCst);
-                if commits_submitted <= commits_count {
-                    // wait until a commit was submitted
-                    return Ok(false)
-                }
-                let Some(payload) = get_unconfirmed_commit_data(btc_controller) else {
-                    warn!("Commit submitted, but bitcoin doesn't see it in the unconfirmed UTXO set, will try to wait.");
-                    return Ok(false)
-                };
-                let burn_parent_modulus = payload.burn_parent_modulus;
-                let current_modulus = u8::try_from((current_burn_height + 1) % 5).unwrap();
-                info!(
-                    "Ongoing Commit Operation check";
-                    "burn_parent_modulus" => burn_parent_modulus,
-                    "current_modulus" => current_modulus,
-                    "payload" => ?payload,
-                );
-                Ok(burn_parent_modulus == current_modulus)
+            |_btc_controller| {
+                let commits_submitted = submitted_commits.load(Ordering::SeqCst);
+                Ok(commits_submitted > commits_count)
             },
         )
         .unwrap();
