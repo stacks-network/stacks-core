@@ -12,6 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+mod commands;
 mod v0;
 
 use std::collections::HashSet;
@@ -32,7 +33,9 @@ use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
-use stacks::core::test_util::{make_contract_call, make_contract_publish, make_stacks_transfer};
+use stacks::core::test_util::{
+    make_contract_call, make_contract_publish, make_stacks_transfer_serialized,
+};
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
@@ -437,7 +440,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         let sender_addr = to_addr(&sender_sk);
         let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
         let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-        let transfer_tx = make_stacks_transfer(
+        let transfer_tx = make_stacks_transfer_serialized(
             &sender_sk,
             sender_nonce,
             send_fee,
