@@ -1963,7 +1963,7 @@ mod tests {
     #[test]
     pub fn create_md_index() {
         let path_db = "/tmp/stacks-node-tests/creat_md_index";
-        std::fs::remove_dir_all(path_db);
+        let _ = std::fs::remove_dir_all(path_db);
         let mut path = PathBuf::from(path_db);
 
         std::fs::create_dir_all(&path).unwrap();
@@ -2085,7 +2085,7 @@ mod tests {
 
             // S1G2081040G2081040G2081040G208105NK8PE5 is the transient address
             let contract = "
-                (begin 
+                (begin
                     (asserts! (is-eq tx-sender 'S1G2081040G2081040G2081040G208105NK8PE5)
                         (err tx-sender))
 
