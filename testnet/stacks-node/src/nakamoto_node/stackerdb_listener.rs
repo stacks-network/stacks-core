@@ -448,6 +448,9 @@ impl StackerDBListener {
                     SignerMessageV0::StateMachineUpdate(_) => {
                         debug!("Received state machine update message. Ignoring.");
                     }
+                    SignerMessageV0::BlockPreCommit(_) => {
+                        debug!("Received block pre commit message. Ignorning.");
+                    }
                 };
             }
         }

@@ -71,6 +71,11 @@ pub mod actions {
         BLOCK_RESPONSES_SENT.with_label_values(&[label_value]).inc();
     }
 
+    /// Increment the block pre-commit sent counter
+    pub fn increment_block_pre_commits_sent() {
+        BLOCK_PRE_COMMITS_SENT.inc();
+    }
+
     /// Increment the number of block proposals received
     pub fn increment_block_proposals_received() {
         BLOCK_PROPOSALS_RECEIVED.inc();
@@ -172,6 +177,9 @@ pub mod actions {
 
     /// Increment the block responses sent counter
     pub fn increment_block_responses_sent(_accepted: bool) {}
+
+    /// Increment the block pre-commits sent counter
+    pub fn increment_block_pre_commits_sent() {}
 
     /// Increment the number of block proposals received
     pub fn increment_block_proposals_received() {}

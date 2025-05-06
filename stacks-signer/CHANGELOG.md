@@ -7,6 +7,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+### Added
+
+- Added `SignerMessage::BlockPreCommit` message handling; signers now collect until a threshold is reached before issuing a block signature, implementing a proper 2-phase commit.
+
 ### Changed
 
 - Upgraded `SUPPORTED_SIGNER_PROTOCOL_VERSION` to 1

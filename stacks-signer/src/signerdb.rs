@@ -532,6 +532,18 @@ CREATE TABLE IF NOT EXISTS signer_state_machine_updates (
     PRIMARY KEY (signer_addr, reward_cycle)
 ) STRICT;"#;
 
+static CREATE_BLOCK_PRE_COMMITS_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS block_pre_commits (
+    -- The block sighash commits to all of the stacks and burnchain state as of its parent,
+    -- as well as the tenure itself so there's no need to include the reward cycle.  Just
+    -- the sighash is sufficient to uniquely identify the block across all burnchain, PoX,
+    -- and stacks forks.
+    signer_signature_hash TEXT NOT NULL,
+    -- signer address committing to sign the block
+    signer_addr TEXT NOT NULL,
+    PRIMARY KEY (signer_signature_hash, signer_addr)
+) STRICT;"#;
+
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
     CREATE_DB_CONFIG,
@@ -613,9 +625,14 @@ static SCHEMA_11: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (11);",
 ];
 
+static SCHEMA_12: &[&str] = &[
+    CREATE_BLOCK_PRE_COMMITS_TABLE,
+    "INSERT INTO db_config (version) VALUES (12);",
+];
+
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 11;
+    pub const SCHEMA_VERSION: u32 = 12;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -799,6 +816,20 @@ impl SignerDb {
         Ok(())
     }
 
+    /// Migrate from schema 11 to schema 12
+    fn schema_12_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 12 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_12.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
     /// Register custom scalar functions used by the database
     fn register_scalar_functions(&self) -> Result<(), DBError> {
         // Register helper function for determining if a block is a tenure change transaction
@@ -843,7 +874,8 @@ impl SignerDb {
                 8 => Self::schema_9_migration(&sql_tx)?,
                 9 => Self::schema_10_migration(&sql_tx)?,
                 10 => Self::schema_11_migration(&sql_tx)?,
-                11 => break,
+                11 => Self::schema_12_migration(&sql_tx)?,
+                12 => break,
                 x => return Err(DBError::Other(format!(
                     "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
                     Self::SCHEMA_VERSION,
@@ -1411,6 +1443,39 @@ impl SignerDb {
             result.insert(address, update);
         }
         Ok(result)
+    }
+
+    /// Record an observed block pre commit
+    pub fn add_block_pre_commit(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+        address: &StacksAddress,
+    ) -> Result<(), DBError> {
+        let qry = "INSERT OR REPLACE INTO block_pre_commits (signer_signature_hash, signer_addr) VALUES (?1, ?2);";
+        let args = params![block_sighash, address.to_string()];
+
+        debug!("Inserting block pre commit.";
+            "signer_signature_hash" => %block_sighash,
+            "signer_addr" => %address);
+
+        self.db.execute(qry, args)?;
+        Ok(())
+    }
+
+    /// Get all pre committers for a block
+    pub fn get_block_pre_committers(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+    ) -> Result<Vec<StacksAddress>, DBError> {
+        let qry = "SELECT signer_addr FROM block_pre_commits WHERE signer_signature_hash = ?1";
+        let args = params![block_sighash];
+        let addrs_txt: Vec<String> = query_rows(&self.db, qry, args)?;
+
+        let res: Result<Vec<_>, _> = addrs_txt
+            .into_iter()
+            .map(|addr| StacksAddress::from_string(&addr).ok_or(DBError::Corruption))
+            .collect();
+        res
     }
 }
 
@@ -2514,5 +2579,51 @@ pub mod tests {
         assert_eq!(updates.get(&address_1), None);
         assert_eq!(updates.get(&address_2), None);
         assert_eq!(updates.get(&address_3), Some(&update_3));
+    }
+
+    #[test]
+    fn insert_and_get_state_block_pre_commits() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let block_sighash1 = Sha512Trunc256Sum([1u8; 32]);
+        let address1 = StacksAddress::p2pkh(
+            false,
+            &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+        );
+        let block_sighash2 = Sha512Trunc256Sum([2u8; 32]);
+        let address2 = StacksAddress::p2pkh(
+            false,
+            &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+        );
+        let address3 = StacksAddress::p2pkh(
+            false,
+            &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+        );
+        assert!(db
+            .get_block_pre_committers(&block_sighash1)
+            .unwrap()
+            .is_empty());
+
+        db.add_block_pre_commit(&block_sighash1, &address1).unwrap();
+        assert_eq!(
+            db.get_block_pre_committers(&block_sighash1).unwrap(),
+            vec![address1]
+        );
+
+        db.add_block_pre_commit(&block_sighash1, &address2).unwrap();
+        assert_eq!(
+            db.get_block_pre_committers(&block_sighash1).unwrap(),
+            vec![address2, address1]
+        );
+
+        db.add_block_pre_commit(&block_sighash2, &address3).unwrap();
+        assert_eq!(
+            db.get_block_pre_committers(&block_sighash1).unwrap(),
+            vec![address2, address1]
+        );
+        assert_eq!(
+            db.get_block_pre_committers(&block_sighash2).unwrap(),
+            vec![address3]
+        );
     }
 }
