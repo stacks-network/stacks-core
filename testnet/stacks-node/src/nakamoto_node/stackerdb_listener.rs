@@ -111,7 +111,7 @@ pub struct StackerDBListener {
     /// Tracks any replay transactions from signers to decide when the miner should
     /// attempt to replay reorged blocks
     ///  - key: StacksPublicKey
-    ///  - value: Vec<StacksTransaction>
+    ///  - value: Vec<ReplayInfo>
     pub(crate) replay_info: Arc<Mutex<HashMap<StacksPublicKey, ReplayInfo>>>,
 }
 
@@ -184,11 +184,8 @@ impl StackerDBListener {
             })
             .collect::<Result<HashMap<_, _>, ChainstateError>>()?;
 
-        let reward_cycle = burnchain
-            .block_height_to_reward_cycle(burn_tip.block_height)
-            .expect("BUG: unknown reward cycle");
         let signers_contract_id = MessageSlotID::StateMachineUpdate
-            .stacker_db_contract(config.is_mainnet(), reward_cycle);
+            .stacker_db_contract(config.is_mainnet(), reward_cycle_id);
         let rpc_socket = config
             .node
             .get_rpc_loopback()
