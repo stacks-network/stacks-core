@@ -200,6 +200,9 @@ impl GlobalStateEvaluator {
         };
         let (global_burn_view, _) = self.determine_global_burn_view(local_address, local_update)?;
         if current_burn_block != global_burn_view {
+            crate::monitoring::actions::increment_signer_agreement_state_conflict(
+                crate::monitoring::SignerAgreementStateConflict::BurnBlockDelay,
+            );
             return None;
         }
         let mut current_miners = HashMap::new();
@@ -240,6 +243,9 @@ impl GlobalStateEvaluator {
                 }
             }
         }
+        crate::monitoring::actions::increment_signer_agreement_state_conflict(
+            crate::monitoring::SignerAgreementStateConflict::MinerView,
+        );
         None
     }
 
@@ -858,6 +864,7 @@ impl LocalStateMachine {
         eval: &mut GlobalStateEvaluator,
         local_address: StacksAddress,
         local_supported_signer_protocol_version: u64,
+        reward_cycle: u64,
     ) {
         // Before we ever access eval...we should make sure to include our own local state machine update message in the evaluation
         let Ok(mut local_update) =
@@ -895,6 +902,9 @@ impl LocalStateMachine {
 
         if active_signer_protocol_version != old_protocol_version {
             info!("Updating active signer protocol version from {old_protocol_version} to {active_signer_protocol_version}");
+            crate::monitoring::actions::increment_signer_agreement_state_change_reason(
+                crate::monitoring::SignerAgreementStateChangeReason::ProtocolUpgrade,
+            );
             *self = Self::Initialized(SignerStateMachine {
                 burn_block: *burn_block,
                 burn_block_height: *burn_block_height,
@@ -943,6 +953,12 @@ impl LocalStateMachine {
                 "current_miner" => ?current_miner,
                 "new_miner" => ?new_miner,
             );
+            crate::monitoring::actions::increment_signer_agreement_state_change_reason(
+                crate::monitoring::SignerAgreementStateChangeReason::MinerViewUpdate,
+            );
+            Self::monitor_miner_parent_tenure_update(&current_miner, &new_miner);
+            Self::monitor_capitulation_latency(signerdb, reward_cycle);
+
             *self = Self::Initialized(SignerStateMachine {
                 burn_block,
                 burn_block_height,
@@ -950,6 +966,47 @@ impl LocalStateMachine {
                 active_signer_protocol_version,
                 tx_replay_set,
             });
+        }
+    }
+
+    #[allow(unused_variables)]
+    fn monitor_miner_parent_tenure_update(
+        current_miner: &StateMachineUpdateMinerState,
+        new_miner: &StateMachineUpdateMinerState,
+    ) {
+        #[cfg(feature = "monitoring_prom")]
+        if let (
+            StateMachineUpdateMinerState::ActiveMiner {
+                parent_tenure_id: current_parent_tenure,
+                ..
+            },
+            StateMachineUpdateMinerState::ActiveMiner {
+                parent_tenure_id: new_parent_tenure,
+                ..
+            },
+        ) = (&current_miner, &new_miner)
+        {
+            if current_parent_tenure != new_parent_tenure {
+                crate::monitoring::actions::increment_signer_agreement_state_change_reason(
+                    crate::monitoring::SignerAgreementStateChangeReason::MinerParentTenureUpdate,
+                );
+            }
+        }
+    }
+
+    #[allow(unused_variables)]
+    fn monitor_capitulation_latency(signer_db: &SignerDb, reward_cycle: u64) {
+        #[cfg(feature = "monitoring_prom")]
+        {
+            let latency_result = signer_db.get_signer_state_machine_updates_latency(reward_cycle);
+            match latency_result {
+                Ok(seconds) => {
+                    crate::monitoring::actions::record_signer_agreement_capitulation_latency(
+                        seconds,
+                    )
+                }
+                Err(e) => warn!("Failed to retrieve state updates latency in signerdb: {e}"),
+            }
         }
     }
 

@@ -1624,7 +1624,7 @@ impl StacksChainState {
                     &contract,
                     "set-burnchain-parameters",
                     &params,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .expect("Failed to set burnchain parameters in PoX contract");

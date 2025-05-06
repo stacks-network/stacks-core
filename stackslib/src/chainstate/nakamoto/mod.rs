@@ -4945,7 +4945,7 @@ impl NakamotoChainState {
                     &ast,
                     &contract_content,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
