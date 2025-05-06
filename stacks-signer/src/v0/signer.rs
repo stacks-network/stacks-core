@@ -670,12 +670,11 @@ impl Signer {
 
     /// The actual `send_block_response` implementation. Declared so that we do
     /// not need to duplicate in testing.
-    fn impl_send_block_response(&mut self, block_response: BlockResponse) {
+    fn impl_send_block_response(&mut self, block: &NakamotoBlock, block_response: BlockResponse) {
         info!(
             "{self}: Broadcasting a block response to stacks node: {block_response:?}";
         );
         let accepted = matches!(block_response, BlockResponse::Accepted(..));
-        let block_hash = block_response.get_signer_signature_hash();
         match self
             .stackerdb
             .send_message_with_retry::<SignerMessage>(block_response.into())
@@ -688,9 +687,7 @@ impl Signer {
                     );
                 }
                 crate::monitoring::actions::increment_block_responses_sent(accepted);
-                if let Ok(Some(block_info)) = self.signer_db.block_lookup(&block_hash) {
-                    crate::monitoring::actions::record_block_response_latency(&block_info.block);
-                }
+                crate::monitoring::actions::record_block_response_latency(block);
             }
             Err(e) => {
                 warn!("{self}: Failed to send block response to stacker-db: {e:?}",);
@@ -699,7 +696,7 @@ impl Signer {
     }
 
     #[cfg(any(test, feature = "testing"))]
-    fn send_block_response(&mut self, block_response: BlockResponse) {
+    fn send_block_response(&mut self, block: &NakamotoBlock, block_response: BlockResponse) {
         const NUM_REPEATS: usize = 1;
         let mut count = 0;
         let public_keys = TEST_REPEAT_PROPOSAL_RESPONSE.get();
@@ -709,7 +706,7 @@ impl Signer {
             count = NUM_REPEATS;
         }
         while count <= NUM_REPEATS {
-            self.impl_send_block_response(block_response.clone());
+            self.impl_send_block_response(block, block_response.clone());
 
             count += 1;
             sleep_ms(1000);
@@ -717,8 +714,8 @@ impl Signer {
     }
 
     #[cfg(not(any(test, feature = "testing")))]
-    fn send_block_response(&mut self, block_response: BlockResponse) {
-        self.impl_send_block_response(block_response)
+    fn send_block_response(&mut self, block: &NakamotoBlock, block_response: BlockResponse) {
+        self.impl_send_block_response(block, block_response)
     }
 
     /// Send a pre block commit message to signers to indicate that we will be signing the proposed block
@@ -859,7 +856,7 @@ impl Signer {
         if let Some(accepted) = block_response.as_block_accepted() {
             self.handle_block_signature(stacks_client, accepted);
         };
-        self.send_block_response(block_response);
+        self.impl_send_block_response(&block_info.block, block_response);
     }
 
     /// Handle block proposal messages submitted to signers stackerdb
@@ -958,7 +955,7 @@ impl Signer {
 
         if let Some(block_response) = block_response {
             // We know proposal is invalid. Send rejection message, do not do further validation and do not store it.
-            self.send_block_response(block_response);
+            self.send_block_response(&block_info.block, block_response);
         } else {
             // Just in case check if the last block validation submission timed out.
             self.check_submitted_block_proposal();
@@ -1012,7 +1009,7 @@ impl Signer {
             return;
         };
 
-        self.impl_send_block_response(block_response);
+        self.impl_send_block_response(&block_info.block, block_response);
     }
 
     /// Handle block response messages from a signer
@@ -1148,7 +1145,7 @@ impl Signer {
                     warn!("{self}: Failed to mark block as locally rejected: {e:?}");
                 }
             };
-            self.impl_send_block_response(block_response);
+            self.impl_send_block_response(&block_info.block, block_response);
             self.signer_db
                 .insert_block(&block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
@@ -1220,7 +1217,7 @@ impl Signer {
             .unwrap_or_else(|e| self.handle_insert_block_error(e));
         self.handle_block_rejection(&block_rejection, sortition_state);
         let response = BlockResponse::Rejected(block_rejection);
-        self.send_block_response(response);
+        self.send_block_response(&block_info.block, response);
     }
 
     /// Handle the block validate response returned from our prior calls to submit a block for validation
@@ -1337,7 +1334,7 @@ impl Signer {
                 warn!("{self}: Failed to mark block as locally rejected: {e:?}");
             }
         };
-        self.impl_send_block_response(rejection);
+        self.impl_send_block_response(&block_info.block, rejection);
 
         self.signer_db
             .insert_block(&block_info)
