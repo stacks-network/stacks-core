@@ -9823,7 +9823,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
         .collect();
     assert_eq!(ignoring_signers.len(), 3);
     assert_eq!(non_ignoring_signers.len(), 2);
-    TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(ignoring_signers.clone());
+    TEST_SIGNERS_SKIP_SIGNATURE_BROADCAST.set(ignoring_signers.clone());
 
     let info_before = signer_test.get_peer_info();
     // submit a tx so that the miner will ATTEMPT to mine a stacks block N
