@@ -671,6 +671,10 @@ impl Signer {
     /// The actual `send_block_response` implementation. Declared so that we do
     /// not need to duplicate in testing.
     fn impl_send_block_response(&mut self, block: &NakamotoBlock, block_response: BlockResponse) {
+        #[cfg(any(test, feature = "testing"))]
+        if self.test_skip_signature_broadcast(&block_response) {
+            return;
+        }
         info!(
             "{self}: Broadcasting a block response to stacks node: {block_response:?}";
         );
@@ -826,7 +830,7 @@ impl Signer {
 
         if min_weight > commit_weight {
             debug!(
-                "{self}: Not enough committed to block {block_hash} (have {commit_weight}, need at least {min_weight}/{total_weight})"
+                "{self}: Not enough pre-committed to block {block_hash} (have {commit_weight}, need at least {min_weight}/{total_weight})"
             );
             return;
         }
@@ -835,11 +839,12 @@ impl Signer {
         if block_info.valid == Some(false) {
             // We already marked this block as invalid. We should not do anything further as we do not change our votes on rejected blocks.
             debug!(
-                "{self}: Enough committed to block {block_hash}, but we do not view the block as valid. Doing nothing."
+                "{self}: Enough pre-committed to block {block_hash}, but we do not view the block as valid. Doing nothing."
             );
             return;
         }
         if block_info.signed_self.is_some() {
+            debug!("{self}: Already pre-committed and signed block {block_hash}. Will not broadcast again");
             // We already marked the block as locally accepted and signed over it. No need to sign again.
             return;
         }
@@ -1130,7 +1135,7 @@ impl Signer {
         // For mutability reasons, we need to take the block_info out of the map and add it back after processing
         let Some(mut block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) else {
             // We have not seen this block before. Why are we getting a response for it?
-            debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");
+            debug!("{self}: Received block validate response for a block we have not seen before. Ignoring...");
             return;
         };
         if block_info.is_locally_finalized() {
