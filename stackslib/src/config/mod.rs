@@ -1746,24 +1746,24 @@ pub struct NodeConfig {
     /// Enable microblock mining.
     ///
     /// Default: `true`
-    /// Deprecated: Microblocks were removed in the Nakamoto upgrade. This setting is ignored in Epoch 3.0+.
+    /// Deprecated: This setting is ignored in Epoch 2.5+.
     pub mine_microblocks: bool,
     /// How often to attempt producing microblocks, in milliseconds.
     /// Only applies when [`NodeConfig::mine_microblocks`] is true and before Epoch 2.5.
     ///
-    /// Default: `30_000`
-    /// Deprecated: Microblocks were removed in the Nakamoto upgrade. This setting is ignored in Epoch 3.0+.
+    /// Default: `30_000` ms (30 seconds)
+    /// Deprecated: This setting is ignored in Epoch 2.5+.
     pub microblock_frequency: u64,
-    /// The maximum number of microblocks allowed per Stacks block (pre-Nakamoto).
+    /// The maximum number of microblocks allowed per Stacks block.
     ///
     /// Default: `65535` (u16::MAX)
-    /// Deprecated: Microblocks were removed in the Nakamoto upgrade. This setting is ignored in Epoch 3.0+.
+    /// Deprecated: This setting is ignored in Epoch 2.5+.
     pub max_microblocks: u64,
     /// Cooldown period after a microblock is produced, in milliseconds.
     /// Only applies when [`NodeConfig::mine_microblocks`] is true and before Epoch 2.5.
     ///
-    /// Default: `30_000`
-    /// Deprecated: Microblocks were removed in the Nakamoto upgrade. This setting is ignored in Epoch 3.0+.
+    /// Default: `30_000` ms (30 seconds)
+    /// Deprecated: This setting is ignored in Epoch 2.5+.
     pub wait_time_for_microblocks: u64,
     /// When operating as a miner, this specifies the maximum time (in milliseconds)
     /// the node waits after detecting a new burnchain block to synchronize corresponding
@@ -1772,14 +1772,14 @@ pub struct NodeConfig {
     /// to prevent stalling. This setting is loaded by all nodes but primarily affects
     /// miner behavior within the relayer thread.
     ///
-    /// Default: `30_000`
+    /// Default: `30_000` ms (30 seconds)
     pub wait_time_for_blocks: u64,
     /// Controls how frequently, in milliseconds, the Nakamoto miner's relay thread polls for work
     /// or takes periodic actions when idle (e.g., checking for new burnchain blocks).
     /// Default value of 10 seconds is reasonable in mainnet (where bitcoin blocks are ~10 minutes)
     /// A lower value might be useful in other environments with faster burn blocks.
     ///
-    /// Default: `10_000` (10 seconds)
+    /// Default: `10_000` ms (10 seconds)
     pub next_initiative_delay: u64,
     /// Optional network address and port (e.g., "127.0.0.1:9153") for binding the Prometheus metrics server.
     /// If set, the node will start an HTTP server on this address to expose internal metrics
@@ -1809,7 +1809,7 @@ pub struct NodeConfig {
     /// Sampling interval in seconds for the PoX synchronization watchdog thread (pre-Nakamoto).
     /// Determines how often the watchdog checked PoX state consistency in the Neon run loop.
     ///
-    /// Default: `30`
+    /// Default: `30` seconds
     /// Deprecated: Unused after the Nakamoto upgrade. This setting is ignored in Epoch 3.0+.
     pub pox_sync_sample_secs: u64,
     /// If set to `true`, the node initializes its state using an alternative test genesis block definition,
