@@ -839,12 +839,14 @@ impl Signer {
             );
             return;
         }
+        if block_info.signed_self.is_some() {
+            // We already marked the block as locally accepted and signed over it. No need to sign again.
+            return;
+        }
         // It is only considered globally accepted IFF we receive a new block event confirming it OR see the chain tip of the node advance to it.
         if let Err(e) = block_info.mark_locally_accepted(false) {
             if !block_info.has_reached_consensus() {
                 warn!("{self}: Failed to mark block as locally accepted: {e:?}",);
-            } else {
-                block_info.signed_self.get_or_insert(get_epoch_time_secs());
             }
         }
 
