@@ -14632,3 +14632,74 @@ fn rollover_signer_protocol_version() {
 
     signer_test.shutdown();
 }
+
+// Basic test to ensure that signers will not issue a signature over a block proposal unless
+// a threshold number of signers have pre-committed to sign.
+#[test]
+#[ignore]
+fn signers_do_not_commit_unless_threshold_precommitted() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 20;
+
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_pk = StacksPublicKey::from_private(&miner_sk);
+    let all_signers = signer_test.signer_test_pks();
+
+    signer_test.boot_to_epoch_3();
+
+    // Make sure that more than 30% of signers are set to ignore any incoming proposals so that consensus is not reached
+    // on pre-commit round.
+    let ignore_signers: Vec<_> = all_signers
+        .iter()
+        .cloned()
+        .take(all_signers.len() / 2)
+        .collect();
+    let pre_commit_signers: Vec<_> = all_signers
+        .iter()
+        .cloned()
+        .skip(all_signers.len() / 2)
+        .collect();
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(ignore_signers);
+    test_observer::clear();
+    let blocks_before = test_observer::get_mined_nakamoto_blocks().len();
+    let height_before = signer_test.get_peer_info().stacks_tip_height;
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        30,
+        || Ok(test_observer::get_mined_nakamoto_blocks().len() > blocks_before),
+    )
+    .unwrap();
+
+    let proposal = wait_for_block_proposal(30, height_before + 1, &miner_pk)
+        .expect("Timed out waiting for block proposal");
+    let hash = proposal.header.signer_signature_hash();
+    wait_for_block_pre_commits_from_signers(30, &hash, &pre_commit_signers)
+        .expect("Timed out waiting for pre-commits");
+    assert!(
+        wait_for(30, || {
+            for chunk in test_observer::get_stackerdb_chunks()
+                .into_iter()
+                .flat_map(|chunk| chunk.modified_slots)
+            {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                if let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message {
+                    if accepted.signer_signature_hash == hash {
+                        return Ok(true);
+                    }
+                }
+            }
+            Ok(false)
+        })
+        .is_err(),
+        "Should not have found a single block accept for the block hash {hash}"
+    );
+
+    info!("------------------------- Shutdown -------------------------");
+    signer_test.shutdown();
+}
