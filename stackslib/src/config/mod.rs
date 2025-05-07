@@ -1664,7 +1664,7 @@ pub struct NodeConfig {
     /// The node's Bitcoin wallet private key, provided as a hex string in the config file.
     /// Used to initialize the node's keychain for signing operations.
     /// If `miner.mining_key` is not set, this seed may also be used for mining-related signing.
-    /// Required if the node is configured as a miner (`node.miner = true`) and `miner.mining_key` is absent.
+    /// Required if [`NodeConfig::miner`] is `true` and [`MinerConfig::mining_key`] is absent.
     ///
     /// Default: Randomly generated 32 bytes.
     pub seed: Vec<u8>,
@@ -1700,7 +1700,7 @@ pub struct NodeConfig {
     pub p2p_address: String,
     /// The private key seed, provided as a hex string in the config file, used specifically for the
     /// node's identity and message signing within the P2P networking layer.
-    /// This is separate from the main `node.seed`.
+    /// This is separate from the main [`NodeConfig::seed`].
     ///
     /// Default: Randomly generated 32 bytes.
     pub local_peer_seed: Vec<u8>,
@@ -1721,8 +1721,8 @@ pub struct NodeConfig {
     /// Default: Empty vector `[]`.
     pub deny_nodes: Vec<Neighbor>,
     /// Flag indicating whether this node should activate its mining logic and attempt to produce Stacks blocks.
-    /// Setting this to `true` typically requires providing necessary private keys (either `node.seed` or `miner.mining_key`).
-    /// It also influences default behavior for settings like `require_affirmed_anchor_blocks`.
+    /// Setting this to `true` typically requires providing necessary private keys (either [`NodeConfig::seed`] or [`MinerConfig::mining_key`]).
+    /// It also influences default behavior for settings like [`NodeConfig::require_affirmed_anchor_blocks`].
     ///
     /// Default: `false`
     pub miner: bool,
@@ -1732,12 +1732,14 @@ pub struct NodeConfig {
     /// Default: `false`
     pub stacker: bool,
     /// Enables a simulated mining mode, primarily for local testing and development.
-    /// When `true`, *and* [`NodeConfig::miner`] is also `true`, the node may generate blocks
-    /// locally without participating in the real bitcoin consensus or P2P block production process.
+    /// When `true`, the node may generate blocks locally without participating in the
+    /// real bitcoin consensus or P2P block production process.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
     ///
     /// Default: `false`
     pub mock_mining: bool,
-    /// If `mock_mining` is enabled, this specifies an optional directory path where the
+    /// If [`NodeConfig::mock_mining`] is enabled, this specifies an optional directory path where the
     /// generated mock Stacks blocks will be saved. (pre-Nakamoto)
     /// The path is canonicalized on load.
     ///
@@ -1749,8 +1751,8 @@ pub struct NodeConfig {
     /// Default: `true`
     /// Deprecated: Microblocks were removed in the Nakamoto upgrade. This setting is ignored in Epoch 3.0+.
     pub mine_microblocks: bool,
-    /// How often to attempt producing microblocks, in milliseconds (pre-Nakamoto).
-    /// Only applies when `mine_microblocks` is true and before Epoch 3.0.
+    /// How often to attempt producing microblocks, in milliseconds.
+    /// Only applies when [`NodeConfig::mine_microblocks`] is true and before Epoch 2.5.
     ///
     /// Default: `30_000`
     /// Deprecated: Microblocks were removed in the Nakamoto upgrade. This setting is ignored in Epoch 3.0+.
@@ -1760,8 +1762,8 @@ pub struct NodeConfig {
     /// Default: `65535` (u16::MAX)
     /// Deprecated: Microblocks were removed in the Nakamoto upgrade. This setting is ignored in Epoch 3.0+.
     pub max_microblocks: u64,
-    /// Cooldown period after a microblock is produced, in milliseconds (pre-Nakamoto).
-    /// Only applies when `mine_microblocks` is true and before Epoch 3.0.
+    /// Cooldown period after a microblock is produced, in milliseconds.
+    /// Only applies when [`NodeConfig::mine_microblocks`] is true and before Epoch 2.5.
     ///
     /// Default: `30_000`
     /// Deprecated: Microblocks were removed in the Nakamoto upgrade. This setting is ignored in Epoch 3.0+.
@@ -1865,12 +1867,12 @@ pub struct NodeConfig {
     /// This thread periodically wakes up the main coordinator to check for chain progress or
     /// other conditions requiring action.
     ///
-    /// Default: `300` (5 minutes)
+    /// Default: `300` seconds (5 minutes)
     pub chain_liveness_poll_time_secs: u64,
     /// A list of specific StackerDB contracts (identified by their qualified contract identifiers,
     /// e.g., "SP000000000000000000002Q6VF78.pox-3") that this node should actively replicate.
     ///
-    /// Default: The initial list depends on the `node.miner` and `node.stacker` settings:
+    /// Default: The initial list depends on the [`NodeConfig::miner`] and [`NodeConfig::stacker`] settings:
     /// - If `miner = true` or `stacker = true`: Relevant system contracts (like `.miners`
     ///   and `.signers-*`) are automatically added during configuration loading, in addition
     ///   to any contracts specified in the configuration file.
