@@ -9,14 +9,20 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
+- Added field `vm_error` to EventObserver transaction outputs
 - Added new `ValidateRejectCode` values to the `/v3/block_proposal` endpoint
 - Added `StateMachineUpdateContent::V1` to support a vector of `StacksTransaction` expected to be replayed in subsequent Stacks blocks
+- Include a reason string in the transaction receipt when a transaction is rolled back due to a post-condition. This should help users in understanding what went wrong.
 
 ### Changed
 
 - Reduce the default `block_rejection_timeout_steps` configuration so that miners will retry faster when blocks fail to reach 70% approved or 30% rejected.
 - Added index for `next_ready_nakamoto_block()` which improves block processing performance.
 - Added a new field, `parent_burn_block_hash`, to the payload that is included in the `/new_burn_block` event observer payload.
+
+### Fixed
+
+- Fix regression in mock-mining, allowing the mock miner to continue mining blocks throughout a tenure instead of failing after mining the tenure change block.
 
 ## [3.1.0.0.8]
 
