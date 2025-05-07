@@ -1709,10 +1709,7 @@ pub struct NodeConfig {
     /// format `"PUBKEY@IP:PORT"` or `"PUBKEY@HOSTNAME:PORT"`. DNS hostnames are resolved
     /// during configuration loading.
     ///
-    /// Default: The effective initial list depends on how the node is started:
-    /// - `mainnet` subcommand: Uses the default Hiro and Stacks mainnet seed nodes
-    /// - `testnet` subcommand: Uses the default Hiro testnet seed node
-    /// - Other subcommands (`start`, `mocknet`, `helium`, etc.): Empty vector `[]`.
+    /// Default: Empty vector `[]`.
     pub bootstrap_node: Vec<Neighbor>,
     /// A list of peer addresses that this node should explicitly deny connections from.
     /// Peers are specified as comma-separated strings in the format "IP:PORT" or "HOSTNAME:PORT"
