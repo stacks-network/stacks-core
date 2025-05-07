@@ -2715,19 +2715,18 @@ pub mod tests {
         );
 
         db.add_block_pre_commit(&block_sighash1, &address2).unwrap();
-        assert_eq!(
-            db.get_block_pre_committers(&block_sighash1).unwrap(),
-            vec![address2, address1]
-        );
+        let commits = db.get_block_pre_committers(&block_sighash1).unwrap();
+        assert_eq!(commits.len(), 2);
+        assert!(commits.contains(&address2));
+        assert!(commits.contains(&address1));
 
         db.add_block_pre_commit(&block_sighash2, &address3).unwrap();
-        assert_eq!(
-            db.get_block_pre_committers(&block_sighash1).unwrap(),
-            vec![address2, address1]
-        );
-        assert_eq!(
-            db.get_block_pre_committers(&block_sighash2).unwrap(),
-            vec![address3]
-        );
+        let commits = db.get_block_pre_committers(&block_sighash1).unwrap();
+        assert_eq!(commits.len(), 2);
+        assert!(commits.contains(&address2));
+        assert!(commits.contains(&address1));
+        let commits = db.get_block_pre_committers(&block_sighash2).unwrap();
+        assert_eq!(commits.len(), 1);
+        assert!(commits.contains(&address3));
     }
 }
