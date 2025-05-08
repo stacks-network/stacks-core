@@ -516,6 +516,8 @@ WHERE rn = 1;
 
 DROP TABLE burn_blocks;
 ALTER TABLE temp_burn_blocks RENAME TO burn_blocks;
+
+CREATE INDEX IF NOT EXISTS idx_burn_blocks_block_hash ON burn_blocks(block_hash);
 "#;
 
 static CREATE_BLOCK_VALIDATION_PENDING_TABLE: &str = r#"
