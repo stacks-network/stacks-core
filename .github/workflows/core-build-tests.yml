@@ -27,11 +27,12 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@11df97af8e8102fd60b60a77dfbf58d40cd843b8 # v1.10.1
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
-      ## run the cargo check steps
+      ## run the cargo check steps with
       - name: Cargo Version
         id: cargo_version
         run: |
           cargo version
+          # cargo 1.86.0 (adf9b6ad1 2025-02-28)
 
       - name: Cargo Check
         id: cargo_check
@@ -45,7 +46,8 @@ jobs:
 
       ## this step fails on the unused imports
       - name: Cargo Check (clarity)
-        if: ${{ false }}
+        # if: ${{ false }}
+        shell: bash -e {0}
         id: cargo_check_clarity
         run: |
           cargo check -p clarity --no-default-features
