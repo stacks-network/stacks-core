@@ -60,17 +60,18 @@ jobs:
           # cargo check -p clarity --no-default-features
           cargo check -p stacks-common --no-default-features
       ## end cargo test
-      - name: Build stacks-inspect
-        id: build_stacks-inspect
-        run: |
-          cargo build --bin stacks-inspect
+      # - name: Build stacks-inspect
+      #   id: build_stacks-inspect
+      #   run: |
+      #     cargo build --bin stacks-inspect
 
       - name: Dump constants JSON
         id: consts-dump
         run: |
           cargo run --bin stacks-inspect -- dump-consts | tee out.json
 
-      - name: Set expected constants JSON
+      - name: Compare expected constants JSON
         id: expects-json
         run: |
-          diff out.json ./sample/expected_consts.json
+          # if there is a diff, return will be non-zero
+          diff out.json ./sample/expected_consts.json >> $GITHUB_STEP_SUMMARY
