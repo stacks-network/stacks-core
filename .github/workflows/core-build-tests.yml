@@ -6,7 +6,7 @@ on:
   workflow_call:
   ## for testing workflow. remove for PR
   workflow_dispatch:
-
+    
 jobs:
   check-consts:
     name: Check the constants from stacks-inspect
@@ -34,17 +34,15 @@ jobs:
         # if: ${{ false }}
         id: cargo_check_clarity
         run: |
-          cargo check -p clarity --no-default-features
+          RUSTFLAGS="" cargo check -p clarity --no-default-features
 
       - name: Cargo Check
         id: cargo_check
-        shell: bash
         run: |
           cargo check
 
       - name: Cargo Check (monitoring_prom)
         id: cargo_check_prom
-        shell: bash
         run: |
           cargo check --features monitoring_prom
 
@@ -57,19 +55,16 @@ jobs:
 
       - name: Cargo Check (stacks-common)
         id: cargo_check_stacks-common
-        shell: bash
         run: |
           cargo check -p stacks-common --no-default-features
 
       - name: Dump constants JSON
         id: consts-dump
-        shell: bash
         run: |
           cargo run --bin stacks-inspect -- dump-consts | tee out.json
 
       - name: Compare expected constants JSON
         id: expects-json
-        shell: bash
         run: |
           # if there is a diff, return will be non-zero
           diff out.json ./sample/expected_consts.json >> $GITHUB_STEP_SUMMARY
