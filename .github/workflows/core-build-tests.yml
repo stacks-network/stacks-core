@@ -32,40 +32,23 @@ jobs:
         id: cargo_check
         run: |
           cargo check
-          # cargo check --features monitoring_prom
-          # cargo check -p clarity --no-default-features
-          # cargo check -p stacks-common --no-default-features
 
       - name: Cargo Check (monitoring_prom)
         id: cargo_check_prom
         run: |
-          # cargo check
           cargo check --features monitoring_prom
-          # cargo check -p clarity --no-default-features
-          # cargo check -p stacks-common --no-default-features
 
       ## this step fails on the unused imports
       - name: Cargo Check (clarity)
         if: ${{ false }}
         id: cargo_check_clarity
         run: |
-          # cargo check
-          # cargo check --features monitoring_prom
           cargo check -p clarity --no-default-features
-          # cargo check -p stacks-common --no-default-features
 
       - name: Cargo Check (stacks-common)
         id: cargo_check_stacks-common
         run: |
-          # cargo check
-          # cargo check --features monitoring_prom
-          # cargo check -p clarity --no-default-features
           cargo check -p stacks-common --no-default-features
-      ## end cargo test
-      # - name: Build stacks-inspect
-      #   id: build_stacks-inspect
-      #   run: |
-      #     cargo build --bin stacks-inspect
 
       - name: Dump constants JSON
         id: consts-dump
@@ -76,4 +59,5 @@ jobs:
         id: expects-json
         run: |
           # if there is a diff, return will be non-zero
+          echo "asdf" >> out.json ## induce a diff
           diff out.json ./sample/expected_consts.json >> $GITHUB_STEP_SUMMARY
