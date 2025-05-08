@@ -141,6 +141,8 @@ pub struct ProposalEvalConfig {
     /// Time following the last block of the previous tenure's global acceptance that a signer will consider an attempt by
     /// the new miner to reorg it as valid towards miner activity
     pub reorg_attempts_activity_timeout: Duration,
+    /// Time to wait before submitting a block proposal to the stacks-node
+    pub proposal_wait_for_parent_time: Duration,
 }
 
 impl From<&SignerConfig> for ProposalEvalConfig {
@@ -152,6 +154,7 @@ impl From<&SignerConfig> for ProposalEvalConfig {
             tenure_idle_timeout: value.tenure_idle_timeout,
             reorg_attempts_activity_timeout: value.reorg_attempts_activity_timeout,
             tenure_idle_timeout_buffer: value.tenure_idle_timeout_buffer,
+            proposal_wait_for_parent_time: value.proposal_wait_for_parent_time,
         }
     }
 }

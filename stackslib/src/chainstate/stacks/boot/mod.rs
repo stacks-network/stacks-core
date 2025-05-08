@@ -562,7 +562,7 @@ impl StacksChainState {
                             )
                         })
                     },
-                    |_, _| false,
+                    |_, _| None,
                 )
                 .expect("FATAL: failed to handle PoX unlock");
 

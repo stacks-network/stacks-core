@@ -254,16 +254,13 @@ impl SqliteConnection {
 
         Ok(())
     }
+
     pub fn memory() -> Result<Connection> {
         let contract_db = SqliteConnection::inner_open(":memory:")?;
         SqliteConnection::initialize_conn(&contract_db)?;
         Ok(contract_db)
     }
-    pub fn open(filename: &str) -> Result<Connection> {
-        let contract_db = SqliteConnection::inner_open(filename)?;
-        SqliteConnection::check_schema(&contract_db)?;
-        Ok(contract_db)
-    }
+
     pub fn check_schema(conn: &Connection) -> Result<()> {
         let sql = "SELECT sql FROM sqlite_master WHERE name=?";
         let _: String = conn
@@ -272,10 +269,13 @@ impl SqliteConnection {
         let _: String = conn
             .query_row(sql, params!["metadata_table"], |row| row.get(0))
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+        let _: String = conn
+            .query_row(sql, params!["md_blockhashes"], |row| row.get(0))
+            .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
         Ok(())
     }
 
-    pub fn inner_open(filename: &str) -> Result<Connection> {
+    fn inner_open(filename: &str) -> Result<Connection> {
         let conn = Connection::open(filename)
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 

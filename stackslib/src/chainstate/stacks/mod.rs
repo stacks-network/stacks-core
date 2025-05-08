@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::hash::{Hash, Hasher};
 use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
@@ -1010,6 +1011,14 @@ pub struct StacksTransaction {
     pub post_conditions: Vec<TransactionPostCondition>,
     pub payload: TransactionPayload,
 }
+
+impl Hash for StacksTransaction {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.txid().hash(state)
+    }
+}
+
+impl Eq for StacksTransaction {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksTransactionSigner {

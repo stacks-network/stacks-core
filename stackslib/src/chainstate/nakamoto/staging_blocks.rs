@@ -160,7 +160,12 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_3: &[&str] = &[
     r#"UPDATE db_version SET version = 3"#,
 ];
 
-pub const NAKAMOTO_STAGING_DB_SCHEMA_LATEST: u32 = 3;
+pub const NAKAMOTO_STAGING_DB_SCHEMA_4: &[&str] = &[
+    r#"CREATE INDEX nakamoto_staging_blocks_by_ready_and_height ON nakamoto_staging_blocks(burn_attachable, orphaned, processed, height);"#,
+    r#"UPDATE db_version SET version = 4"#,
+];
+
+pub const NAKAMOTO_STAGING_DB_SCHEMA_LATEST: u32 = 4;
 
 pub struct NakamotoStagingBlocksConn(rusqlite::Connection);
 
@@ -794,6 +799,15 @@ impl StacksChainState {
                     }
                     let version = Self::get_nakamoto_staging_blocks_db_version(conn)?;
                     assert_eq!(version, 3, "Nakamoto staging DB migration failure");
+                    debug!("Migrated Nakamoto staging blocks DB to schema 3");
+                }
+                3 => {
+                    debug!("Migrate Nakamoto staging blocks DB to schema 3");
+                    for cmd in NAKAMOTO_STAGING_DB_SCHEMA_4.iter() {
+                        conn.execute(cmd, NO_PARAMS)?;
+                    }
+                    let version = Self::get_nakamoto_staging_blocks_db_version(conn)?;
+                    assert_eq!(version, 4, "Nakamoto staging DB migration failure");
                     debug!("Migrated Nakamoto staging blocks DB to schema 3");
                 }
                 NAKAMOTO_STAGING_DB_SCHEMA_LATEST => {

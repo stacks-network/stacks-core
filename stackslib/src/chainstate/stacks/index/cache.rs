@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::char::from_digit;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
@@ -135,6 +136,25 @@ impl<T: MarfTrieId> TrieCacheState<T> {
     /// Load up a block hash, given its ID
     pub fn load_block_hash(&self, block_id: u32) -> Option<T> {
         self.block_hash_cache.get(&block_id).cloned()
+    }
+
+    /// Get cached entry for a block hash, given its ID, or, if not
+    ///  found, use `lookup` to get the corresponding block hash and
+    ///  store it in the cache
+    pub fn get_block_hash_caching<E, F: FnOnce(u32) -> Result<T, E>>(
+        &mut self,
+        id: u32,
+        lookup: F,
+    ) -> Result<&T, E> {
+        match self.block_hash_cache.entry(id) {
+            Entry::Occupied(occupied_entry) => Ok(occupied_entry.into_mut()),
+            Entry::Vacant(vacant_entry) => {
+                let block_hash = lookup(id)?;
+                let block_hash_ref = vacant_entry.insert(block_hash.clone());
+                self.block_id_cache.insert(block_hash, id);
+                Ok(block_hash_ref)
+            }
+        }
     }
 
     /// Cache a block hash, given its ID
@@ -307,6 +327,17 @@ impl<T: MarfTrieId> TrieCache<T> {
     /// Load a block's hash, given its block ID.
     pub fn load_block_hash(&mut self, block_id: u32) -> Option<T> {
         self.state_mut().load_block_hash(block_id)
+    }
+
+    /// Get cached entry for a block hash, given its ID, or, if not
+    ///  found, use `lookup` to get the corresponding block hash and
+    ///  store it in the cache
+    pub fn get_block_hash_caching<E, F: FnOnce(u32) -> Result<T, E>>(
+        &mut self,
+        id: u32,
+        lookup: F,
+    ) -> Result<&T, E> {
+        self.state_mut().get_block_hash_caching(id, lookup)
     }
 
     /// Store a block's ID and hash to teh cache.

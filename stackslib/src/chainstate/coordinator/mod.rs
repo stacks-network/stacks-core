@@ -195,6 +195,7 @@ pub trait BlockEventDispatcher {
         burns: u64,
         reward_recipients: Vec<PoxAddress>,
         consensus_hash: &ConsensusHash,
+        parent_burn_block_hash: &BurnchainHeaderHash,
     );
 }
 
@@ -964,6 +965,7 @@ pub fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
         paid_rewards.burns,
         recipients,
         consensus_hash,
+        &burn_header.parent_block_hash,
     );
 }
 

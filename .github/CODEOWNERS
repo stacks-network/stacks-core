@@ -1,0 +1,16 @@
+# These owners will be the default owners for everything in
+# the repo. Unless a later match takes precedence,
+#
+# require both blockchain-team-codeowners and blockchain-team to review all PR's not specifically matched below
+* @stacks-network/blockchain-team-codeowners @stacks-network/blockchain-team
+
+
+# Signer code
+# require both blockchain-team-codeowners and blockchain-team-signer to review PR's for the signer folder(s)
+libsigner/**/*.rs @stacks-network/blockchain-team-codeowners @stacks-network/blockchain-team-signer
+stacks-signer/**/*.rs @stacks-network/blockchain-team-codeowners @stacks-network/blockchain-team-signer
+
+# CI workflows
+#  require both blockchain-team and blockchain-team-ci teams to review PR's modifying CI workflows
+/.github/workflows/ @stacks-network/blockchain-team @stacks-network/blockchain-team-ci
+/.github/actions/ @stacks-network/blockchain-team @stacks-network/blockchain-team-ci

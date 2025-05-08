@@ -13,10 +13,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
 use std::time::{Duration, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+use blockstack_lib::chainstate::stacks::StacksTransaction;
+use clarity::types::chainstate::StacksAddress;
 use libsigner::v0::messages::{
     MessageSlotID, SignerMessage, StateMachineUpdate as StateMachineUpdateMessage,
     StateMachineUpdateContent, StateMachineUpdateMinerState,
@@ -27,7 +30,7 @@ use stacks_common::codec::Error as CodecError;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::{info, warn};
+use stacks_common::{debug, info, warn};
 
 use crate::chainstate::{
     ProposalEvalConfig, SignerChainstateError, SortitionState, SortitionsView,
@@ -36,12 +39,240 @@ use crate::client::{ClientError, CurrentAndLastSortition, StackerDB, StacksClien
 use crate::signerdb::SignerDb;
 
 /// This is the latest supported protocol version for this signer binary
-pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 0;
+pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 1;
+
+/// A struct used to determine the current global state
+#[derive(Debug)]
+pub struct GlobalStateEvaluator {
+    /// A mapping of signer addresses to their corresponding vote weight
+    pub address_weights: HashMap<StacksAddress, u32>,
+    /// A mapping of signer addresses to their corresponding updates
+    pub address_updates: HashMap<StacksAddress, StateMachineUpdateMessage>,
+    /// The total weight of all signers
+    pub total_weight: u32,
+}
+
+impl GlobalStateEvaluator {
+    /// Create a new state evaluator
+    pub fn new(
+        address_updates: HashMap<StacksAddress, StateMachineUpdateMessage>,
+        address_weights: HashMap<StacksAddress, u32>,
+    ) -> Self {
+        let total_weight = address_weights
+            .values()
+            .fold(0u32, |acc, val| acc.saturating_add(*val));
+        Self {
+            address_weights,
+            address_updates,
+            total_weight,
+        }
+    }
+
+    /// Determine what the maximum signer protocol version that a majority of signers can support
+    pub fn determine_latest_supported_signer_protocol_version(
+        &mut self,
+        local_address: StacksAddress,
+        local_update: &StateMachineUpdateMessage,
+    ) -> Option<u64> {
+        self.insert_update(local_address, local_update.clone());
+        let mut protocol_versions = HashMap::new();
+        for (address, update) in &self.address_updates {
+            let Some(weight) = self.address_weights.get(address) else {
+                continue;
+            };
+            let entry = protocol_versions
+                .entry(update.local_supported_signer_protocol_version)
+                .or_insert_with(|| 0);
+            *entry += weight;
+        }
+        // find the highest version number supported by a threshold number of signers
+        let mut protocol_versions: Vec<_> = protocol_versions.into_iter().collect();
+        protocol_versions.sort_by_key(|(version, _)| *version);
+        let mut total_weight_support = 0;
+        for (version, weight_support) in protocol_versions.into_iter().rev() {
+            total_weight_support += weight_support;
+            if total_weight_support >= self.total_weight * 7 / 10 {
+                return Some(version);
+            }
+        }
+        None
+    }
+
+    /// Determine what the global burn view is if there is one
+    pub fn determine_global_burn_view(
+        &mut self,
+        local_address: StacksAddress,
+        local_update: &StateMachineUpdateMessage,
+    ) -> Option<(ConsensusHash, u64)> {
+        self.insert_update(local_address, local_update.clone());
+        let mut burn_blocks = HashMap::new();
+        for (address, update) in &self.address_updates {
+            let Some(weight) = self.address_weights.get(address) else {
+                continue;
+            };
+            let (burn_block, burn_block_height) = match update.content {
+                StateMachineUpdateContent::V0 {
+                    burn_block,
+                    burn_block_height,
+                    ..
+                }
+                | StateMachineUpdateContent::V1 {
+                    burn_block,
+                    burn_block_height,
+                    ..
+                } => (burn_block, burn_block_height),
+            };
+
+            let entry = burn_blocks
+                .entry((burn_block, burn_block_height))
+                .or_insert_with(|| 0);
+            *entry += weight;
+            if self.reached_agreement(*entry) {
+                return Some((burn_block, burn_block_height));
+            }
+        }
+        None
+    }
+
+    /// Check if there is an agreed upon global state
+    pub fn determine_global_state(
+        &mut self,
+        local_address: StacksAddress,
+        local_update: &StateMachineUpdateMessage,
+    ) -> Option<SignerStateMachine> {
+        let active_signer_protocol_version =
+            self.determine_latest_supported_signer_protocol_version(local_address, local_update)?;
+        let mut state_views = HashMap::new();
+        for (address, update) in &self.address_updates {
+            let Some(weight) = self.address_weights.get(address) else {
+                continue;
+            };
+            let (burn_block, burn_block_height, current_miner, tx_replay_set) =
+                match &update.content {
+                    StateMachineUpdateContent::V0 {
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                        ..
+                    } => (burn_block, burn_block_height, current_miner, None),
+                    StateMachineUpdateContent::V1 {
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                        replay_transactions,
+                    } => (
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                        Some(replay_transactions.clone()),
+                    ),
+                };
+            let state_machine = SignerStateMachine {
+                burn_block: *burn_block,
+                burn_block_height: *burn_block_height,
+                current_miner: current_miner.into(),
+                active_signer_protocol_version,
+                tx_replay_set,
+            };
+            let entry = state_views
+                .entry(state_machine.clone())
+                .or_insert_with(|| 0);
+            *entry += weight;
+            if self.reached_agreement(*entry) {
+                return Some(state_machine);
+            }
+        }
+        None
+    }
+
+    /// Determines whether a signer with the `local_address` and `local_update` should capitulate
+    /// its current miner view to a new state. This is not necessarily the same as the current global
+    /// view of the miner as it is up to signers to capitulate before this becomes the finalized view.
+    pub fn capitulate_miner_view(
+        &mut self,
+        signerdb: &mut SignerDb,
+        local_address: StacksAddress,
+        local_update: &StateMachineUpdateMessage,
+    ) -> Option<StateMachineUpdateMinerState> {
+        let current_burn_block = match local_update.content {
+            StateMachineUpdateContent::V0 { burn_block, .. }
+            | StateMachineUpdateContent::V1 { burn_block, .. } => burn_block,
+        };
+        let (global_burn_view, _) = self.determine_global_burn_view(local_address, local_update)?;
+        if current_burn_block != global_burn_view {
+            crate::monitoring::actions::increment_signer_agreement_state_conflict(
+                crate::monitoring::SignerAgreementStateConflict::BurnBlockDelay,
+            );
+            return None;
+        }
+        let mut current_miners = HashMap::new();
+        for (address, update) in &self.address_updates {
+            let Some(weight) = self.address_weights.get(address) else {
+                continue;
+            };
+            let (burn_block, current_miner) = match &update.content {
+                StateMachineUpdateContent::V0 {
+                    burn_block,
+                    current_miner,
+                    ..
+                }
+                | StateMachineUpdateContent::V1 {
+                    burn_block,
+                    current_miner,
+                    ..
+                } => (burn_block, current_miner),
+            };
+
+            if *burn_block != global_burn_view {
+                continue;
+            }
+
+            let StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. } = current_miner else {
+                continue;
+            };
+
+            let entry = current_miners.entry(current_miner).or_insert_with(|| 0);
+            *entry += weight;
+
+            if *entry >= self.total_weight * 3 / 10 {
+                let nmb_blocks = signerdb
+                    .get_globally_accepted_block_count_in_tenure(tenure_id)
+                    .unwrap_or(0);
+                if nmb_blocks > 0 || self.reached_agreement(*entry) {
+                    return Some(current_miner.clone());
+                }
+            }
+        }
+        crate::monitoring::actions::increment_signer_agreement_state_conflict(
+            crate::monitoring::SignerAgreementStateConflict::MinerView,
+        );
+        None
+    }
+
+    /// Will insert the update for the given address and weight only if the GlobalStateMachineEvaluator already is aware of this address
+    pub fn insert_update(
+        &mut self,
+        address: StacksAddress,
+        update: StateMachineUpdateMessage,
+    ) -> bool {
+        if !self.address_weights.contains_key(&address) {
+            return false;
+        }
+        self.address_updates.insert(address, update);
+        true
+    }
+
+    /// Check if the supplied vote weight crosses the global agreement threshold.
+    /// Returns true if it has, false otherwise.
+    fn reached_agreement(&self, vote_weight: u32) -> bool {
+        vote_weight >= self.total_weight * 7 / 10
+    }
+}
 
 /// A signer state machine view. This struct can
 ///  be used to encode the local signer's view or
 ///  the global view.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
 pub struct SignerStateMachine {
     /// The tip burn block (i.e., the latest bitcoin block) seen by this signer
     pub burn_block: ConsensusHash,
@@ -51,9 +282,11 @@ pub struct SignerStateMachine {
     pub current_miner: MinerState,
     /// The active signing protocol version
     pub active_signer_protocol_version: u64,
+    /// Transaction replay set
+    pub tx_replay_set: Option<Vec<StacksTransaction>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
 /// Enum for capturing the signer state machine's view of who
 ///  should be the active miner and what their tenure should be
 ///  built on top of.
@@ -75,6 +308,27 @@ pub enum MinerState {
     },
     /// This signer doesn't believe there's any valid miner
     NoValidMiner,
+}
+
+impl From<&StateMachineUpdateMinerState> for MinerState {
+    fn from(val: &StateMachineUpdateMinerState) -> Self {
+        match *val {
+            StateMachineUpdateMinerState::NoValidMiner => MinerState::NoValidMiner,
+            StateMachineUpdateMinerState::ActiveMiner {
+                current_miner_pkh,
+                tenure_id,
+                parent_tenure_id,
+                parent_tenure_last_block,
+                parent_tenure_last_block_height,
+            } => MinerState::ActiveMiner {
+                current_miner_pkh,
+                tenure_id,
+                parent_tenure_id,
+                parent_tenure_last_block,
+                parent_tenure_last_block_height,
+            },
+        }
+    }
 }
 
 /// The local signer state machine
@@ -100,10 +354,25 @@ pub enum StateMachineUpdate {
     BurnBlock(u64),
 }
 
-impl TryInto<StateMachineUpdateMessage> for &LocalStateMachine {
-    type Error = CodecError;
+impl LocalStateMachine {
+    /// Initialize a local state machine by querying the local stacks-node
+    ///  and signerdb for the current sortition information
+    pub fn new(
+        db: &SignerDb,
+        client: &StacksClient,
+        proposal_config: &ProposalEvalConfig,
+    ) -> Result<Self, SignerChainstateError> {
+        let mut instance = Self::Uninitialized;
+        instance.bitcoin_block_arrival(db, client, proposal_config, None)?;
 
-    fn try_into(self) -> Result<StateMachineUpdateMessage, Self::Error> {
+        Ok(instance)
+    }
+
+    /// Convert the local state machine into update message with the specificed supported protocol version
+    pub fn try_into_update_message_with_version(
+        &self,
+        local_supported_signer_protocol_version: u64,
+    ) -> Result<StateMachineUpdateMessage, CodecError> {
         let LocalStateMachine::Initialized(state_machine) = self else {
             return Err(CodecError::SerializeError(
                 "Local state machine is not ready to be serialized into an update message".into(),
@@ -127,30 +396,29 @@ impl TryInto<StateMachineUpdateMessage> for &LocalStateMachine {
             MinerState::NoValidMiner => StateMachineUpdateMinerState::NoValidMiner,
         };
 
-        StateMachineUpdateMessage::new(
-            state_machine.active_signer_protocol_version,
-            SUPPORTED_SIGNER_PROTOCOL_VERSION,
-            StateMachineUpdateContent::V0 {
+        let content = match state_machine.active_signer_protocol_version {
+            0 => StateMachineUpdateContent::V0 {
                 burn_block: state_machine.burn_block,
                 burn_block_height: state_machine.burn_block_height,
                 current_miner,
             },
+            1 => StateMachineUpdateContent::V1 {
+                burn_block: state_machine.burn_block,
+                burn_block_height: state_machine.burn_block_height,
+                current_miner,
+                replay_transactions: state_machine.tx_replay_set.clone().unwrap_or_default(),
+            },
+            other => {
+                return Err(CodecError::DeserializeError(format!(
+                    "Active signer ptocol version is unknown: {other}"
+                )))
+            }
+        };
+        StateMachineUpdateMessage::new(
+            state_machine.active_signer_protocol_version,
+            local_supported_signer_protocol_version,
+            content,
         )
-    }
-}
-
-impl LocalStateMachine {
-    /// Initialize a local state machine by querying the local stacks-node
-    ///  and signerdb for the current sortition information
-    pub fn new(
-        db: &SignerDb,
-        client: &StacksClient,
-        proposal_config: &ProposalEvalConfig,
-    ) -> Result<Self, SignerChainstateError> {
-        let mut instance = Self::Uninitialized;
-        instance.bitcoin_block_arrival(db, client, proposal_config, None)?;
-
-        Ok(instance)
     }
 
     fn place_holder() -> SignerStateMachine {
@@ -159,14 +427,21 @@ impl LocalStateMachine {
             burn_block_height: 0,
             current_miner: MinerState::NoValidMiner,
             active_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
+            tx_replay_set: None,
         }
     }
 
     /// Send the local state machine as a signer update message to stackerdb
-    pub fn send_signer_update_message(&self, stackerdb: &mut StackerDB<MessageSlotID>) {
-        let update: Result<StateMachineUpdateMessage, _> = self.try_into();
+    pub fn send_signer_update_message(
+        &self,
+        stackerdb: &mut StackerDB<MessageSlotID>,
+        version: u64,
+    ) {
+        let update: Result<StateMachineUpdateMessage, _> =
+            self.try_into_update_message_with_version(version);
         match update {
             Ok(update) => {
+                debug!("Sending signer update message to stackerdb: {update:?}");
                 if let Err(e) = stackerdb.send_message_with_retry::<SignerMessage>(update.into()) {
                     warn!("Failed to send signer update to stacker-db: {e:?}",);
                 }
@@ -534,6 +809,7 @@ impl LocalStateMachine {
             burn_block_height: next_burn_block_height,
             current_miner: miner_state,
             active_signer_protocol_version: prior_state_machine.active_signer_protocol_version,
+            tx_replay_set: prior_state_machine.tx_replay_set,
         });
 
         if prior_state != *self {
@@ -543,5 +819,166 @@ impl LocalStateMachine {
         }
 
         Ok(())
+    }
+
+    /// Updates the local state machine's viewpoint as necessary based on the global state
+    pub fn capitulate_viewpoint(
+        &mut self,
+        signerdb: &mut SignerDb,
+        eval: &mut GlobalStateEvaluator,
+        local_address: StacksAddress,
+        local_supported_signer_protocol_version: u64,
+        reward_cycle: u64,
+    ) {
+        // Before we ever access eval...we should make sure to include our own local state machine update message in the evaluation
+        let Ok(mut local_update) =
+            self.try_into_update_message_with_version(local_supported_signer_protocol_version)
+        else {
+            return;
+        };
+
+        let old_protocol_version = local_update.active_signer_protocol_version;
+        // First check if we should update our active protocol version
+        let active_signer_protocol_version = eval
+            .determine_latest_supported_signer_protocol_version(local_address, &local_update)
+            .unwrap_or(old_protocol_version);
+
+        let (burn_block, burn_block_height, current_miner, tx_replay_set) =
+            match &local_update.content {
+                StateMachineUpdateContent::V0 {
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    ..
+                } => (burn_block, burn_block_height, current_miner, None),
+                StateMachineUpdateContent::V1 {
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    replay_transactions,
+                } => (
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    Some(replay_transactions),
+                ),
+            };
+
+        if active_signer_protocol_version != old_protocol_version {
+            info!("Updating active signer protocol version from {old_protocol_version} to {active_signer_protocol_version}");
+            crate::monitoring::actions::increment_signer_agreement_state_change_reason(
+                crate::monitoring::SignerAgreementStateChangeReason::ProtocolUpgrade,
+            );
+            *self = Self::Initialized(SignerStateMachine {
+                burn_block: *burn_block,
+                burn_block_height: *burn_block_height,
+                current_miner: current_miner.into(),
+                active_signer_protocol_version,
+                tx_replay_set: tx_replay_set.cloned(),
+            });
+            // Because we updated our active signer protocol version, update local_update so its included in the subsequent evaluations
+            let Ok(update) =
+                self.try_into_update_message_with_version(local_supported_signer_protocol_version)
+            else {
+                return;
+            };
+            local_update = update;
+        }
+
+        // Check if we should also capitulate our miner viewpoint
+        let Some(new_miner) = eval.capitulate_miner_view(signerdb, local_address, &local_update)
+        else {
+            return;
+        };
+
+        let (burn_block, burn_block_height, current_miner, tx_replay_set) =
+            match local_update.content {
+                StateMachineUpdateContent::V0 {
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    ..
+                } => (burn_block, burn_block_height, current_miner, None),
+                StateMachineUpdateContent::V1 {
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    replay_transactions,
+                } => (
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    Some(replay_transactions),
+                ),
+            };
+
+        if current_miner != new_miner {
+            info!("Capitulating local state machine's current miner viewpoint";
+                "current_miner" => ?current_miner,
+                "new_miner" => ?new_miner,
+            );
+            crate::monitoring::actions::increment_signer_agreement_state_change_reason(
+                crate::monitoring::SignerAgreementStateChangeReason::MinerViewUpdate,
+            );
+            Self::monitor_miner_parent_tenure_update(&current_miner, &new_miner);
+            Self::monitor_capitulation_latency(signerdb, reward_cycle);
+
+            *self = Self::Initialized(SignerStateMachine {
+                burn_block,
+                burn_block_height,
+                current_miner: (&new_miner).into(),
+                active_signer_protocol_version,
+                tx_replay_set,
+            });
+        }
+    }
+
+    #[allow(unused_variables)]
+    fn monitor_miner_parent_tenure_update(
+        current_miner: &StateMachineUpdateMinerState,
+        new_miner: &StateMachineUpdateMinerState,
+    ) {
+        #[cfg(feature = "monitoring_prom")]
+        if let (
+            StateMachineUpdateMinerState::ActiveMiner {
+                parent_tenure_id: current_parent_tenure,
+                ..
+            },
+            StateMachineUpdateMinerState::ActiveMiner {
+                parent_tenure_id: new_parent_tenure,
+                ..
+            },
+        ) = (&current_miner, &new_miner)
+        {
+            if current_parent_tenure != new_parent_tenure {
+                crate::monitoring::actions::increment_signer_agreement_state_change_reason(
+                    crate::monitoring::SignerAgreementStateChangeReason::MinerParentTenureUpdate,
+                );
+            }
+        }
+    }
+
+    #[allow(unused_variables)]
+    fn monitor_capitulation_latency(signer_db: &SignerDb, reward_cycle: u64) {
+        #[cfg(feature = "monitoring_prom")]
+        {
+            let latency_result = signer_db.get_signer_state_machine_updates_latency(reward_cycle);
+            match latency_result {
+                Ok(seconds) => {
+                    crate::monitoring::actions::record_signer_agreement_capitulation_latency(
+                        seconds,
+                    )
+                }
+                Err(e) => warn!("Failed to retrieve state updates latency in signerdb: {e}"),
+            }
+        }
+    }
+
+    /// Extract out the tx replay set if it exists
+    pub fn get_tx_replay_set(&self) -> Option<Vec<StacksTransaction>> {
+        let Self::Initialized(state) = self else {
+            return None;
+        };
+        state.tx_replay_set.clone()
     }
 }

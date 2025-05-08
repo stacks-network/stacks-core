@@ -33,6 +33,21 @@ SignerAgreementStateChangeReason {
     InactiveMiner("inactive_miner"),
     /// Signer agreement protocol version has been upgraded
     ProtocolUpgrade("protocol_upgrade"),
+    /// An update related to the Miner view
+    MinerViewUpdate("miner_view_update"),
+    /// A specific Miner View update related to the parent tenure
+    MinerParentTenureUpdate("miner_parent_tenure_update"),
+});
+
+define_named_enum!(
+/// Represent different conflict types on signer agreement protocol
+SignerAgreementStateConflict {
+    /// Waiting for burn block propagation to be aligned with the signer set
+    BurnBlockDelay("burn_block_delay"),
+    /// Waiting for stacks block propagation to be aligned with the signer set
+    StacksBlockDelay("stacks_block_delay"),
+    /// No agreement on miner view with the signer set
+    MinerView("miner_view"),
 });
 
 /// Actions for updating metrics
@@ -44,7 +59,7 @@ pub mod actions {
 
     use crate::config::GlobalConfig;
     use crate::monitoring::prometheus::*;
-    use crate::monitoring::SignerAgreementStateChangeReason;
+    use crate::monitoring::{SignerAgreementStateChangeReason, SignerAgreementStateConflict};
     use crate::v0::signer_state::LocalStateMachine;
 
     /// Update stacks tip height gauge
@@ -134,6 +149,21 @@ pub mod actions {
             .inc();
     }
 
+    /// Increment signer agreement state conflict counter
+    pub fn increment_signer_agreement_state_conflict(conflict: SignerAgreementStateConflict) {
+        let label_value = conflict.get_name();
+        SIGNER_AGREEMENT_STATE_CONFLICTS
+            .with_label_values(&[&label_value])
+            .inc();
+    }
+
+    /// Record the time (seconds) taken for a signer to agree with the signer set
+    pub fn record_signer_agreement_capitulation_latency(latency_s: u64) {
+        SIGNER_AGREEMENT_CAPITULATION_LATENCIES_HISTOGRAM
+            .with_label_values(&[])
+            .observe(latency_s as f64);
+    }
+
     /// Start serving monitoring metrics.
     /// This will only serve the metrics if the `monitoring_prom` feature is enabled.
     pub fn start_serving_monitoring_metrics(config: GlobalConfig) -> Result<(), String> {
@@ -157,7 +187,7 @@ pub mod actions {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
     use stacks_common::info;
 
-    use crate::monitoring::SignerAgreementStateChangeReason;
+    use crate::monitoring::{SignerAgreementStateChangeReason, SignerAgreementStateConflict};
     use crate::v0::signer_state::LocalStateMachine;
     use crate::GlobalConfig;
 
@@ -211,6 +241,12 @@ pub mod actions {
         _reason: SignerAgreementStateChangeReason,
     ) {
     }
+
+    /// Increment signer agreement state conflict counter
+    pub fn increment_signer_agreement_state_conflict(_conflict: SignerAgreementStateConflict) {}
+
+    /// Record the time (seconds) taken for a signer to agree with the signer set
+    pub fn record_signer_agreement_capitulation_latency(_latency_s: u64) {}
 
     /// Start serving monitoring metrics.
     /// This will only serve the metrics if the `monitoring_prom` feature is enabled.
