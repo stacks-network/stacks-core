@@ -94,10 +94,7 @@ impl MessageSignature {
         let mut sig_bytes = [0u8; 64];
         sig_bytes[..64].copy_from_slice(&self.0[1..=64]);
 
-        match LibSecp256k1RecoverableSignature::from_compact(&sig_bytes, recid) {
-            Ok(sig) => Some(sig),
-            Err(_) => None,
-        }
+        LibSecp256k1RecoverableSignature::from_compact(&sig_bytes, recid).ok()
     }
 
     /// Convert from VRS to RSV

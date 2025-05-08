@@ -43,7 +43,6 @@ use libsigner::v0::messages::PeerInfo;
 use reqwest::header::AUTHORIZATION;
 use serde::Deserialize;
 use serde_json::json;
-use slog::{slog_debug, slog_warn};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::CHAIN_ID_MAINNET;
 use stacks_common::types::chainstate::{
@@ -315,7 +314,7 @@ impl StacksClient {
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
     pub fn submit_block_for_validation(&self, block: NakamotoBlock) -> Result<(), ClientError> {
         debug!("StacksClient: Submitting block for validation";
-            "signer_sighash" => %block.header.signer_signature_hash(),
+            "signer_signature_hash" => %block.header.signer_signature_hash(),
             "block_id" => %block.header.block_id(),
             "block_height" => %block.header.chain_length,
         );
@@ -599,7 +598,7 @@ impl StacksClient {
     /// In tests, this panics if the retry takes longer than 30 seconds.
     pub fn post_block_until_ok<F: Display>(&self, log_fmt: &F, block: &NakamotoBlock) -> bool {
         debug!("StacksClient: Posting block to stacks node";
-            "signer_sighash" => %block.header.signer_signature_hash(),
+            "signer_signature_hash" => %block.header.signer_signature_hash(),
             "block_id" => %block.header.block_id(),
             "block_height" => %block.header.chain_length,
         );
@@ -629,7 +628,7 @@ impl StacksClient {
     ///   was rejected.
     pub fn post_block(&self, block: &NakamotoBlock) -> Result<bool, ClientError> {
         debug!("StacksClient: Posting block to the stacks node";
-            "signer_sighash" => %block.header.signer_signature_hash(),
+            "signer_signature_hash" => %block.header.signer_signature_hash(),
             "block_id" => %block.header.block_id(),
             "block_height" => %block.header.chain_length,
         );

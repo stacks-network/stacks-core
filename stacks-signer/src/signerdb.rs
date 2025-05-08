@@ -35,7 +35,6 @@ use rusqlite::{
     params, Connection, Error as SqliteError, OpenFlags, OptionalExtension, Transaction,
 };
 use serde::{Deserialize, Serialize};
-use slog::{slog_debug, slog_error};
 use stacks_common::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::util::get_epoch_time_secs;
@@ -1012,7 +1011,7 @@ impl SignerDb {
         debug!("Inserting block_info.";
             "reward_cycle" => %block_info.reward_cycle,
             "burn_block_height" => %block_info.burn_block_height,
-            "sighash" => %hash,
+            "signer_signature_hash" => %hash,
             "block_id" => %block_id,
             "signed" => %signed_over,
             "broadcasted" => ?broadcasted,
@@ -1065,7 +1064,7 @@ impl SignerDb {
         ];
 
         debug!("Inserting block signature.";
-            "sighash" => %block_sighash,
+            "signer_signature_hash" => %block_sighash,
             "signature" => %signature);
 
         self.db.execute(qry, args)?;
@@ -1101,7 +1100,7 @@ impl SignerDb {
         ];
 
         debug!("Inserting block rejection.";
-            "block_sighash" => %block_sighash,
+            "signer_signature_hash" => %block_sighash,
             "signer_address" => %addr,
             "reject_reason" => %reject_reason
         );
@@ -1265,7 +1264,7 @@ impl SignerDb {
         // Plus (ms + 999)/1000 to round up to the nearest second
         let tenure_extend_timestamp = tenure_start_time
             .saturating_add(tenure_idle_timeout_secs)
-            .saturating_add(tenure_process_time_ms.saturating_add(999) / 1000);
+            .saturating_add(tenure_process_time_ms.div_ceil(1000));
         debug!("Calculated tenure extend timestamp";
             "tenure_extend_timestamp" => tenure_extend_timestamp,
             "tenure_start_time" => tenure_start_time,

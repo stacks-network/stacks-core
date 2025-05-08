@@ -4010,7 +4010,7 @@ impl StacksChainState {
             debug!("Process microblock {}", &microblock.block_hash());
             for (tx_index, tx) in microblock.txs.iter().enumerate() {
                 let (tx_fee, mut tx_receipt) =
-                    StacksChainState::process_transaction(clarity_tx, tx, false, ast_rules)
+                    StacksChainState::process_transaction(clarity_tx, tx, false, ast_rules, None)
                         .map_err(|e| (e, microblock.block_hash()))?;
 
                 tx_receipt.microblock_header = Some(microblock.header.clone());
@@ -4176,6 +4176,7 @@ impl StacksChainState {
                     "stack-stx",
                     &args,
                     |_, _| false,
+                    None,
                 )
             });
             match result {
@@ -4384,6 +4385,7 @@ impl StacksChainState {
                         reward_addr_val,
                     ],
                     |_, _| false,
+                    None,
                 )
             });
             match result {
@@ -4490,6 +4492,7 @@ impl StacksChainState {
                         Value::UInt(reward_cycle.clone().into()),
                     ],
                     |_, _| false,
+                    None,
                 )
             });
             match result {
@@ -4567,7 +4570,7 @@ impl StacksChainState {
         let mut receipts = vec![];
         for tx in block_txs.iter() {
             let (tx_fee, mut tx_receipt) =
-                StacksChainState::process_transaction(clarity_tx, tx, false, ast_rules)?;
+                StacksChainState::process_transaction(clarity_tx, tx, false, ast_rules, None)?;
             fees = fees.checked_add(u128::from(tx_fee)).expect("Fee overflow");
             tx_receipt.tx_index = tx_index;
             burns = burns
@@ -5843,7 +5846,7 @@ impl StacksChainState {
         )
         .expect("FATAL: failed to advance chain tip");
 
-        chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &tx_receipts);
+        chainstate_tx.log_transactions_processed(&tx_receipts);
 
         // store the reward set calculated during this block if it happened
         // NOTE: miner and proposal evaluation should not invoke this because

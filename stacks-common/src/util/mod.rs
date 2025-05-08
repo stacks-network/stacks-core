@@ -22,6 +22,7 @@ pub mod chunked_encoding;
 #[cfg(feature = "rusqlite")]
 pub mod db;
 pub mod hash;
+pub mod lru_cache;
 pub mod pair;
 pub mod pipe;
 pub mod retry;

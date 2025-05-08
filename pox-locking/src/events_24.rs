@@ -20,9 +20,6 @@ use clarity::vm::errors::Error as ClarityError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
 use clarity::vm::Value;
 #[cfg(any(test, feature = "testing"))]
-use slog::slog_debug;
-use slog::slog_error;
-#[cfg(any(test, feature = "testing"))]
 use stacks_common::debug;
 use stacks_common::{error, test_debug};
 

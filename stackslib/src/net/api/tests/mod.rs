@@ -49,6 +49,7 @@ use crate::net::relay::Relayer;
 use crate::net::rpc::ConversationHttp;
 use crate::net::test::{RPCHandlerArgsType, TestEventObserver, TestPeer, TestPeerConfig};
 use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs_ext;
+use crate::net::tests::NakamotoBootPlan;
 use crate::net::{
     Attachment, AttachmentInstance, MemPoolEventDispatcher, RPCHandlerArgs, StackerDBConfig,
     StacksNodeState, UrlString,
@@ -85,6 +86,7 @@ mod getstxtransfercost;
 mod gettenure;
 mod gettenureinfo;
 mod gettenuretip;
+mod gettransaction;
 mod gettransaction_unconfirmed;
 mod liststackerdbreplicas;
 mod postblock;
@@ -954,6 +956,109 @@ impl<'a> TestRPC<'a> {
         }
     }
 
+    /// Set up the peers as Nakamoto nodes
+    pub fn setup_nakamoto_with_boot_plan<F>(
+        test_name: &str,
+        observer: &'a TestEventObserver,
+        boot_plan_fn: F,
+    ) -> TestRPC<'a>
+    where
+        F: FnOnce(NakamotoBootPlan) -> NakamotoBootPlan,
+    {
+        let bitvecs = vec![vec![
+            true, true, true, true, true, true, true, true, true, true,
+        ]];
+
+        let (mut peer, mut other_peers) =
+            make_nakamoto_peers_from_invs_ext(function_name!(), observer, bitvecs, |boot_plan| {
+                boot_plan_fn(
+                    boot_plan
+                        .with_pox_constants(10, 3)
+                        .with_extra_peers(1)
+                        .with_initial_balances(vec![])
+                        .with_malleablized_blocks(false),
+                )
+            });
+        let mut other_peer = other_peers.pop().unwrap();
+
+        let peer_1_indexer = BitcoinIndexer::new_unit_test(&peer.config.burnchain.working_dir);
+        let peer_2_indexer =
+            BitcoinIndexer::new_unit_test(&other_peer.config.burnchain.working_dir);
+
+        let convo_1 = ConversationHttp::new(
+            format!("127.0.0.1:{}", peer.config.http_port)
+                .parse::<SocketAddr>()
+                .unwrap(),
+            Some(UrlString::try_from("http://peer1.com".to_string()).unwrap()),
+            peer.to_peer_host(),
+            &peer.config.connection_opts,
+            0,
+            32,
+        );
+
+        let convo_2 = ConversationHttp::new(
+            format!("127.0.0.1:{}", other_peer.config.http_port)
+                .parse::<SocketAddr>()
+                .unwrap(),
+            Some(UrlString::try_from("http://peer2.com".to_string()).unwrap()),
+            other_peer.to_peer_host(),
+            &other_peer.config.connection_opts,
+            1,
+            32,
+        );
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
+        let nakamoto_tip = {
+            let sortdb = peer.sortdb.take().unwrap();
+            let tip =
+                NakamotoChainState::get_canonical_block_header(peer.chainstate().db(), &sortdb)
+                    .unwrap()
+                    .unwrap();
+            peer.sortdb = Some(sortdb);
+            tip
+        };
+
+        // sanity check
+        let other_tip =
+            SortitionDB::get_canonical_burn_chain_tip(other_peer.sortdb().conn()).unwrap();
+        let other_nakamoto_tip = {
+            let sortdb = other_peer.sortdb.take().unwrap();
+            let tip = NakamotoChainState::get_canonical_block_header(
+                other_peer.chainstate().db(),
+                &sortdb,
+            )
+            .unwrap()
+            .unwrap();
+            other_peer.sortdb = Some(sortdb);
+            tip
+        };
+
+        assert_eq!(tip, other_tip);
+        assert_eq!(nakamoto_tip, other_nakamoto_tip);
+
+        TestRPC {
+            privk1: peer.config.private_key.clone(),
+            privk2: other_peer.config.private_key.clone(),
+            peer_1: peer,
+            peer_2: other_peer,
+            peer_1_indexer,
+            peer_2_indexer,
+            convo_1,
+            convo_2,
+            canonical_tip: nakamoto_tip.index_block_hash(),
+            consensus_hash: nakamoto_tip.consensus_hash.clone(),
+            tip_hash: nakamoto_tip.anchored_header.block_hash(),
+            tip_height: nakamoto_tip.stacks_block_height,
+            microblock_tip_hash: BlockHeaderHash([0x00; 32]),
+            mempool_txids: vec![],
+            microblock_txids: vec![],
+            next_block: None,
+            next_microblock: None,
+            sendable_txs: vec![],
+            unconfirmed_state: false,
+        }
+    }
+
     pub fn run(self, requests: Vec<StacksHttpRequest>) -> Vec<StacksHttpResponse> {
         self.run_with_observer(requests, None)
     }
@@ -1011,6 +1116,7 @@ impl<'a> TestRPC<'a> {
                     &mut peer_1_mempool,
                     &rpc_args,
                     false,
+                    peer_1.config.txindex,
                 );
                 convo_1.chat(&mut node_state).unwrap();
             }
@@ -1059,6 +1165,7 @@ impl<'a> TestRPC<'a> {
                     &mut peer_2_mempool,
                     &rpc_args,
                     false,
+                    peer_2.config.txindex,
                 );
                 convo_2.chat(&mut node_state).unwrap();
             }
@@ -1118,6 +1225,7 @@ impl<'a> TestRPC<'a> {
                         &mut peer_1_mempool,
                         &rpc_args,
                         false,
+                        peer_1.config.txindex,
                     );
 
                     convo_1.chat(&mut node_state).unwrap();

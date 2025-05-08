@@ -194,6 +194,9 @@ pub enum CheckErrors {
 
     WriteAttemptedInReadOnly,
     AtBlockClosureMustBeReadOnly,
+
+    // time checker errors
+    ExecutionTimeExpired,
 }
 
 #[derive(Debug, PartialEq)]
@@ -277,6 +280,7 @@ impl From<CostErrors> for CheckErrors {
                 CheckErrors::Expects("Unexpected interpreter failure in cost computation".into())
             }
             CostErrors::Expect(s) => CheckErrors::Expects(s),
+            CostErrors::ExecutionTimeExpired => CheckErrors::ExecutionTimeExpired,
         }
     }
 }
@@ -466,6 +470,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::UncheckedIntermediaryResponses => "intermediary responses in consecutive statements must be checked".into(),
             CheckErrors::CostComputationFailed(s) => format!("contract cost computation failed: {}", s),
             CheckErrors::CouldNotDetermineSerializationType => "could not determine the input type for the serialization function".into(),
+            CheckErrors::ExecutionTimeExpired => "execution time expired".into(),
         }
     }
 

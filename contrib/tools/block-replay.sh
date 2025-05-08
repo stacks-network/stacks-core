@@ -195,7 +195,7 @@ start_replay() {
             starting_block=0 # for the block counter, start at this block
             ## use these values if `--testing` arg is provided (only replay 1_000 blocks) Note:  2.5 epoch is at 153106
             ${TESTING} && total_blocks=153000
-            ${TESTING} && starting_block=15200
+            ${TESTING} && starting_block=152000
             ;;
     esac
     local block_diff=$((total_blocks - starting_block)) ## how many blocks are being replayed
