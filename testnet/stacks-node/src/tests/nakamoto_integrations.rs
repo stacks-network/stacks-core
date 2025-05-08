@@ -6579,6 +6579,7 @@ fn signer_chainstate() {
 
         // this config disallows any reorg due to poorly timed block commits
         let proposal_conf = ProposalEvalConfig {
+            proposal_wait_for_parent_time: Duration::from_secs(0),
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
@@ -6705,6 +6706,7 @@ fn signer_chainstate() {
 
         // this config disallows any reorg due to poorly timed block commits
         let proposal_conf = ProposalEvalConfig {
+            proposal_wait_for_parent_time: Duration::from_secs(0),
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
@@ -6782,6 +6784,7 @@ fn signer_chainstate() {
 
     // this config disallows any reorg due to poorly timed block commits
     let proposal_conf = ProposalEvalConfig {
+        proposal_wait_for_parent_time: Duration::from_secs(0),
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
@@ -9037,14 +9040,17 @@ fn mock_mining() {
         let follower_node_info = get_chain_info(&follower_conf);
         info!("Node heights"; "miner" => miner_node_info.stacks_tip_height, "follower" => follower_node_info.stacks_tip_height);
 
+        // Wait for at least 2 blocks to be mined by the mock-miner
+        // This is to ensure that the mock miner has mined the tenure change
+        // block and at least one interim block.
         wait_for(60, || {
             Ok(follower_naka_mined_blocks.load(Ordering::SeqCst)
-                > follower_naka_mined_blocks_before)
+                > follower_naka_mined_blocks_before + 1)
         })
         .unwrap_or_else(|_| {
             panic!(
                 "Timed out waiting for mock miner block {}",
-                follower_naka_mined_blocks_before + 1
+                follower_naka_mined_blocks_before + 2
             )
         });
 

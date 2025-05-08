@@ -571,6 +571,17 @@ pub enum StateMachineUpdateContent {
         /// The signer's view of who the current miner should be (and their tenure building info)
         current_miner: StateMachineUpdateMinerState,
     },
+    /// Version 1
+    V1 {
+        /// The tip burn block (i.e., the latest bitcoin block) seen by this signer
+        burn_block: ConsensusHash,
+        /// The tip burn block height (i.e., the latest bitcoin block) seen by this signer
+        burn_block_height: u64,
+        /// The signer's view of who the current miner should be (and their tenure building info)
+        current_miner: StateMachineUpdateMinerState,
+        /// The replay transactions
+        replay_transactions: Vec<StacksTransaction>,
+    },
 }
 
 /// Message for update the Signer State infos
@@ -676,6 +687,7 @@ impl StateMachineUpdateContent {
     fn is_protocol_version_compatible(&self, version: u64) -> bool {
         match self {
             Self::V0 { .. } => version == 0,
+            Self::V1 { .. } => version == 1,
         }
     }
 
@@ -690,6 +702,17 @@ impl StateMachineUpdateContent {
                 burn_block_height.consensus_serialize(fd)?;
                 current_miner.consensus_serialize(fd)?;
             }
+            Self::V1 {
+                burn_block,
+                burn_block_height,
+                current_miner,
+                replay_transactions,
+            } => {
+                burn_block.consensus_serialize(fd)?;
+                burn_block_height.consensus_serialize(fd)?;
+                current_miner.consensus_serialize(fd)?;
+                replay_transactions.consensus_serialize(fd)?;
+            }
         }
         Ok(())
     }
@@ -703,6 +726,18 @@ impl StateMachineUpdateContent {
                     burn_block,
                     burn_block_height,
                     current_miner,
+                })
+            }
+            1 => {
+                let burn_block = read_next(fd)?;
+                let burn_block_height = read_next(fd)?;
+                let current_miner = read_next(fd)?;
+                let replay_transactions = read_next(fd)?;
+                Ok(Self::V1 {
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    replay_transactions,
                 })
             }
             other => Err(CodecError::DeserializeError(format!(
@@ -1716,15 +1751,17 @@ impl From<StateMachineUpdate> for SignerMessage {
 mod test {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
     use blockstack_lib::chainstate::stacks::{
-        TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionPostConditionMode,
-        TransactionSmartContract, TransactionVersion,
+        TransactionAnchorMode, TransactionAuth, TransactionContractCall, TransactionPayload,
+        TransactionPostConditionMode, TransactionSmartContract, TransactionSpendingCondition,
+        TransactionVersion,
     };
     use blockstack_lib::util_lib::strings::StacksString;
     use clarity::consts::CHAIN_ID_MAINNET;
-    use clarity::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
+    use clarity::types::chainstate::{ConsensusHash, StacksAddress, StacksBlockId, TrieHash};
     use clarity::types::PrivateKey;
     use clarity::util::hash::{hex_bytes, MerkleTree};
     use clarity::util::secp256k1::MessageSignature;
+    use clarity::vm::{ClarityName, ContractName};
     use rand::rngs::mock;
     use rand::{thread_rng, Rng, RngCore};
     use rand_core::OsRng;
@@ -2307,6 +2344,86 @@ mod test {
             /* burn_block*/ &[0x55; 20],
             /* burn_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 100],
             /* current_miner_variant */ &[0x00],
+        ];
+
+        assert_eq!(bytes, raw_signer_message.concat());
+
+        let signer_message_deserialized =
+            StateMachineUpdate::consensus_deserialize(&mut &bytes[..]).unwrap();
+
+        assert_eq!(signer_message, signer_message_deserialized);
+    }
+
+    #[test]
+    fn deserialize_state_machine_update_v1() {
+        let signer_message = StateMachineUpdate::new(
+            1,
+            3,
+            StateMachineUpdateContent::V1 {
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh: Hash160([0xab; 20]),
+                    tenure_id: ConsensusHash([0x44; 20]),
+                    parent_tenure_id: ConsensusHash([0x22; 20]),
+                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                    parent_tenure_last_block_height: 1,
+                },
+                replay_transactions: vec![],
+            },
+        )
+        .unwrap();
+
+        let mut bytes = vec![];
+        signer_message.consensus_serialize(&mut bytes).unwrap();
+
+        // check for raw content for avoiding regressions when structure changes
+        let raw_signer_message: Vec<&[u8]> = vec![
+            /* active_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 1],
+            /* local_supported_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 3],
+            /* content_len*/ &[0, 0, 0, 133],
+            /* burn_block*/ &[0x55; 20],
+            /* burn_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 100],
+            /* current_miner_variant */ &[0x01],
+            /* current_miner_pkh */ &[0xab; 20],
+            /* tenure_id*/ &[0x44; 20],
+            /* parent_tenure_id*/ &[0x22; 20],
+            /* parent_tenure_last_block */ &[0x33; 32],
+            /* parent_tenure_last_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 1],
+            /* replay_transactions */ &[0, 0, 0, 0],
+        ];
+
+        assert_eq!(bytes, raw_signer_message.concat());
+
+        let signer_message_deserialized =
+            StateMachineUpdate::consensus_deserialize(&mut &bytes[..]).unwrap();
+
+        assert_eq!(signer_message, signer_message_deserialized);
+
+        let signer_message = StateMachineUpdate::new(
+            1,
+            4,
+            StateMachineUpdateContent::V1 {
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                replay_transactions: vec![],
+            },
+        )
+        .unwrap();
+
+        let mut bytes = vec![];
+        signer_message.consensus_serialize(&mut bytes).unwrap();
+
+        // check for raw content for avoiding regressions when structure changes
+        let raw_signer_message: Vec<&[u8]> = vec![
+            /* active_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 1],
+            /* local_supported_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 4],
+            /* content_len*/ &[0, 0, 0, 33],
+            /* burn_block*/ &[0x55; 20],
+            /* burn_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 100],
+            /* current_miner_variant */ &[0x00],
+            /* replay_transactions */ &[0, 0, 0, 0],
         ];
 
         assert_eq!(bytes, raw_signer_message.concat());
