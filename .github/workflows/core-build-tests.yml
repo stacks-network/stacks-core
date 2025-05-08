@@ -28,42 +28,48 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
       ## run the cargo check steps with
-      - name: Cargo Version
-        id: cargo_version
+
+      ## this step fails on the unused imports
+      - name: Cargo Check (clarity)
+        # if: ${{ false }}
+        id: cargo_check_clarity
         run: |
-          cargo version
-          # cargo 1.86.0 (adf9b6ad1 2025-02-28)
+          cargo check -p clarity --no-default-features
 
       - name: Cargo Check
         id: cargo_check
+        shell: bash
         run: |
           cargo check
 
       - name: Cargo Check (monitoring_prom)
         id: cargo_check_prom
+        shell: bash
         run: |
           cargo check --features monitoring_prom
 
-      ## this step fails on the unused imports
-      - name: Cargo Check (clarity)
-        # if: ${{ false }}
-        shell: bash -e
-        id: cargo_check_clarity
-        run: |
-          cargo check -p clarity --no-default-features
+      # ## this step fails on the unused imports
+      # - name: Cargo Check (clarity)
+      #   # if: ${{ false }}
+      #   id: cargo_check_clarity
+      #   run: |
+      #     cargo check -p clarity --no-default-features
 
       - name: Cargo Check (stacks-common)
         id: cargo_check_stacks-common
+        shell: bash
         run: |
           cargo check -p stacks-common --no-default-features
 
       - name: Dump constants JSON
         id: consts-dump
+        shell: bash
         run: |
           cargo run --bin stacks-inspect -- dump-consts | tee out.json
 
       - name: Compare expected constants JSON
         id: expects-json
+        shell: bash
         run: |
           # if there is a diff, return will be non-zero
           diff out.json ./sample/expected_consts.json >> $GITHUB_STEP_SUMMARY
