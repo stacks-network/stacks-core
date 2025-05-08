@@ -31,7 +31,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlockFro
         !state.mining_stalled
     }
 
-    fn apply(&self, _state: &mut SignerTestState) {
+    fn apply(&self, state: &mut SignerTestState) {
         info!("Applying: Waiting for Nakamoto block from miner 1");
 
         let miners_arc = self.miners.clone();
@@ -55,6 +55,8 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlockFro
 
         let _miner_1_block = wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk_1)
             .expect(&format!("Failed to get block {}", expected_height));
+
+        state.increment_blocks_mined_by_miner(1);
     }
 
     fn label(&self) -> String {
@@ -89,7 +91,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlockFro
         !state.mining_stalled
     }
 
-    fn apply(&self, _state: &mut SignerTestState) {
+    fn apply(&self, state: &mut SignerTestState) {
         info!("Applying: Waiting for Nakamoto block from miner 2");
 
         let miners_arc = self.miners.clone();
@@ -114,6 +116,8 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlockFro
         let _miner_2_block_n_1 =
             wait_for_block_pushed_by_miner_key(30, expected_stacks_height, &miner_pk_2)
                 .expect(&format!("Failed to get block {:?}", expected_stacks_height));
+
+        state.increment_blocks_mined_by_miner(2);
     }
 
     fn label(&self) -> String {
@@ -166,7 +170,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForAndVerifyBlockReject
             let (conf_1, _) = miners.get_node_configs();
             let chain_info = crate::tests::neon_integrations::get_chain_info(&conf_1);
             let current_height = chain_info.stacks_tip_height;
-            let block_n_height = current_height - state.blocks_mined as u64;
+            let block_n_height = current_height - state.get_blocks_mined_by_miner(2) as u64;
             let (miner_pk_1, _) = miners.get_miner_public_keys();
             (block_n_height, miner_pk_1)
         };
@@ -220,14 +224,12 @@ impl Command<SignerTestState, SignerTestContext> for WaitForAndVerifyBlockReject
 
 pub struct VerifyMiner1BlockCount {
     miners: Arc<Mutex<MultipleMinerTest>>,
-    expected_block_count: usize,
 }
 
 impl VerifyMiner1BlockCount {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>, expected_block_count: usize) -> Self {
+    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
         Self {
             miners,
-            expected_block_count,
         }
     }
 }
@@ -244,13 +246,13 @@ impl Command<SignerTestState, SignerTestContext> for VerifyMiner1BlockCount {
     fn apply(&self, state: &mut SignerTestState) {
         info!(
             "Applying: Verifying miner 1 block count is {}",
-            self.expected_block_count
+            state.get_blocks_mined_by_miner(1);
         );
 
         let (stacks_height_before, conf_1, miner_pk_1) = {
             let miners = self.miners.lock().unwrap();
             let current_height = miners.get_peer_stacks_tip_height();
-            let stacks_height_before = current_height - state.blocks_mined as u64;
+            let stacks_height_before = current_height - state.get_blocks_mined_by_miner(2) as u64;
 
             let (conf_1, _) = miners.get_node_configs();
             let (miner_pk_1, _) = miners.get_miner_public_keys();
@@ -277,27 +279,26 @@ impl Command<SignerTestState, SignerTestContext> for VerifyMiner1BlockCount {
             .count();
 
         assert_eq!(
-            miner1_blocks_after_boot_to_epoch3, self.expected_block_count,
+            miner1_blocks_after_boot_to_epoch3, state.get_blocks_mined_by_miner(1),
             "Expected {} blocks from miner 1, but found {}",
-            self.expected_block_count, miner1_blocks_after_boot_to_epoch3
+            state.get_blocks_mined_by_miner(1), miner1_blocks_after_boot_to_epoch3
         );
 
         info!(
             "Verified miner 1 has exactly {} blocks after epoch 3 boot",
-            self.expected_block_count
+            state.get_blocks_mined_by_miner(1)
         );
     }
 
     fn label(&self) -> String {
-        format!("VERIFY_MINER_1_BLOCK_COUNT_{}", self.expected_block_count)
+        format!("VERIFY_MINER_1_BLOCK_COUNT")
     }
 
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         Just(CommandWrapper::new(VerifyMiner1BlockCount::new(
-            ctx.miners.clone(),
-            1,
+            ctx.miners.clone()
         )))
     }
 }

@@ -10987,27 +10987,27 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
 
     scenario![
         test_context,
-        (MinerCommitOp::new(test_context.clone(), 2, true)), // SkipCommitOpMiner2
+        (MinerCommitOp::new(test_context.clone(), 2, true)),
         BootToEpoch3,
-        (MinerCommitOp::new(test_context.clone(), 1, true)), // SkipCommitOpMiner1
-        MineBitcoinBlockTenureChangeMiner1,
+        (MinerCommitOp::new(test_context.clone(), 1, true)),
+        MineBitcoinBlockTenureChangeMiner1, // Miner 1 mines a block N
         VerifyMiner1WonSortition,
         SubmitBlockCommitMiner2,
         PauseStacksMining,
         MineBitcoinBlock,
         SubmitBlockCommitMiner1,
         ResumeStacksMining,
-        WaitForTenureChangeBlockFromMiner2,
+        WaitForTenureChangeBlockFromMiner2, // Miner 2 mines a block N + 1
         VerifyMiner2WonSortition,
-        SendAndMineTransferTx,
-        SendAndMineTransferTx,
-        (BuildNextBitcoinBlocks::new(test_context.miners.clone(), num_blocks)),
+        SendAndMineTransferTx, // Miner 2 mines a block N + 2
+        SendAndMineTransferTx, // Miner 2 mines a block N + 3
+        (BuildNextBitcoinBlocks::new(test_context.miners.clone(), num_blocks)), //TODO: Just pass test_context.clone()
         (WaitForAndVerifyBlockRejection::new(
             test_context.miners.clone(),
             RejectReason::ReorgNotAllowed,
             num_signers
-        )),
-        (VerifyMiner1BlockCount::new(test_context.miners.clone(), num_blocks as usize)),
+        )), //TODO: Just pass test_context.clone() ands divide in 2 commands
+        VerifyMiner1BlockCount,
         ShutdownMiners,
     ]
 }

@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use std::collections::HashMap;
 
 use madhouse::{State, TestContext};
 
@@ -56,6 +57,8 @@ impl SignerTestContext {
             ),
         }
     }
+
+    //TODO: pub fn get_miner_counters() -> 
 }
 
 type StacksHeightBefore = u64;
@@ -64,11 +67,30 @@ type TxId = String;
 #[derive(Debug, Default)]
 pub struct SignerTestState {
     pub is_booted_to_nakamoto: bool,
+    //TODO: Use a hashmap
     pub is_primary_miner_skip_commit_op: bool,
     pub is_secondary_miner_skip_commit_op: bool,
+
     pub mining_stalled: bool,
     pub transfer_txs_submitted: Vec<(StacksHeightBefore, TxId)>,
-    pub blocks_mined: usize,
+    pub blocks_mined_per_miner: HashMap<usize, usize>,
+}
+
+impl SignerTestState {
+    // Get total blocks mined across all miners
+    pub fn get_total_blocks_mined(&self) -> usize {
+        self.blocks_mined_per_miner.values().sum()
+    }
+    
+    // Get blocks mined by a specific miner
+    pub fn get_blocks_mined_by_miner(&self, miner_index: usize) -> usize {
+        *self.blocks_mined_per_miner.get(&miner_index).unwrap_or(&0)
+    }
+    
+    // Increment blocks mined by a specific miner
+    pub fn increment_blocks_mined_by_miner(&mut self, miner_index: usize) {
+        *self.blocks_mined_per_miner.entry(miner_index).or_insert(0) += 1;
+    }
 }
 
 impl State for SignerTestState {}

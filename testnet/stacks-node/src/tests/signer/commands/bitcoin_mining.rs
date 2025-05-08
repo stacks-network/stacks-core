@@ -76,8 +76,7 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChang
             wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_1)
                 .expect("Failed to get block");
 
-        state.blocks_mined += 1;
-        info!("Increased blocks mined count to {}", state.blocks_mined);
+        state.increment_blocks_mined_by_miner(1);
 
         let mined_block_height = miner_1_block.header.chain_length;
         info!(
@@ -167,8 +166,7 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChang
             wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_2)
                 .expect("Failed to get block N");
 
-        state.blocks_mined += 1;
-        info!("Increased blocks mined count to {}", state.blocks_mined);
+        state.increment_blocks_mined_by_miner(2);
 
         let mined_block_height = secondary_miner_block.header.chain_length;
 

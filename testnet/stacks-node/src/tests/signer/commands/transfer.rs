@@ -82,8 +82,8 @@ impl Command<SignerTestState, SignerTestContext> for SendAndMineTransferTx {
         miners
             .send_and_mine_transfer_tx(self.timeout_secs)
             .expect("Failed to send and mine transfer tx");
-        state.blocks_mined += 1;
-        info!("Increased blocks mined count to {}", state.blocks_mined);
+
+        state.increment_blocks_mined_by_miner(2);
 
         let stacks_height_after = get_chain_info(&conf_1).stacks_tip_height;
         assert_eq!(
