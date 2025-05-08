@@ -249,13 +249,13 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlock {
 /// ------------------------------------------------------------------------------------------
 
 pub struct BuildNextBitcoinBlocks {
-    miners: Arc<Mutex<MultipleMinerTest>>,
+    ctx: Arc<SignerTestContext>,
     num_blocks: u64,
 }
 
 impl BuildNextBitcoinBlocks {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>, num_blocks: u64) -> Self {
-        Self { miners, num_blocks }
+    pub fn new(ctx: Arc<SignerTestContext>, num_blocks: u64) -> Self {
+        Self { ctx, num_blocks }
     }
 }
 
@@ -271,21 +271,21 @@ impl Command<SignerTestState, SignerTestContext> for BuildNextBitcoinBlocks {
     fn apply(&self, _state: &mut SignerTestState) {
         info!("Applying: Build next {} Bitcoin block(s)", self.num_blocks);
 
-        let mut miners = self.miners.lock().unwrap();
+        let mut miners = self.ctx.miners.lock().unwrap();
         miners
             .btc_regtest_controller_mut()
             .build_next_block(self.num_blocks);
     }
 
     fn label(&self) -> String {
-        "BUILD_NEXT_BITCOIN_BLOCKS".to_string()
+        format!("BUILD_NEXT_{}_BITCOIN_BLOCKS", self.num_blocks)
     }
 
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1u64..=5u64).prop_map(move |num_blocks| {
-            CommandWrapper::new(BuildNextBitcoinBlocks::new(ctx.miners.clone(), num_blocks))
+            CommandWrapper::new(BuildNextBitcoinBlocks::new(ctx.clone(), num_blocks))
         })
     }
 }

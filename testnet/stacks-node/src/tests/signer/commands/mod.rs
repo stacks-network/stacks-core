@@ -20,8 +20,6 @@ pub use boot::BootToEpoch3;
 pub use commit_ops::MinerCommitOp;
 pub use context::SignerTestContext;
 pub use shutdown::ShutdownMiners;
-pub use sortition::{
-    VerifyLastSortitionWinnerReorged, VerifyMiner1WonSortition, VerifyMiner2WonSortition,
-};
+pub use sortition::{VerifyLastSortitionWinnerReorged, VerifyMinerWonSortition};
 pub use stacks_mining::{PauseStacksMining, ResumeStacksMining};
 pub use transfer::SendAndMineTransferTx;

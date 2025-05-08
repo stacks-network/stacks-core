@@ -18,96 +18,65 @@ use crate::tests::signer::v0::{verify_sortition_winner, MultipleMinerTest};
 /// ------------------------------------------------------------------------------------------
 /// ------------------------------------------------------------------------------------------
 
-pub struct VerifyMiner1WonSortition {
-    miners: Arc<Mutex<MultipleMinerTest>>,
+pub struct VerifyMinerWonSortition {
+    ctx: Arc<SignerTestContext>,
+    miner_index: usize, // 1 or 2 to indicate which miner
 }
 
-impl VerifyMiner1WonSortition {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
-        Self { miners }
+impl VerifyMinerWonSortition {
+    pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
+        Self { ctx, miner_index }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for VerifyMiner1WonSortition {
+impl Command<SignerTestState, SignerTestContext> for VerifyMinerWonSortition {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
-            "Checking: Verifying miner 1 won sortition. Result: {:?}",
-            true
+            "Checking: Verifying miner {} won sortition. Result: {:?}",
+            self.miner_index, true
         );
         true
     }
 
     fn apply(&self, _state: &mut SignerTestState) {
-        info!("Applying: Verifying miner 1 won sortition");
-
-        let (conf_1, _) = self.miners.lock().unwrap().get_node_configs();
-        let burnchain = conf_1.get_burnchain();
-        let sortdb = burnchain.open_sortition_db(true).unwrap();
-        let (miner_pkh_1, _) = self.miners.lock().unwrap().get_miner_public_key_hashes();
-
-        verify_sortition_winner(&sortdb, &miner_pkh_1);
-    }
-    fn label(&self) -> String {
-        "VERIFY_MINER_1_WON_SORTITION".to_string()
-    }
-    fn build(
-        ctx: Arc<SignerTestContext>,
-    ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(VerifyMiner1WonSortition::new(
-            ctx.miners.clone(),
-        )))
-    }
-}
-
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-
-pub struct VerifyMiner2WonSortition {
-    miners: Arc<Mutex<MultipleMinerTest>>,
-}
-
-impl VerifyMiner2WonSortition {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
-        Self { miners }
-    }
-}
-
-impl Command<SignerTestState, SignerTestContext> for VerifyMiner2WonSortition {
-    fn check(&self, _state: &SignerTestState) -> bool {
         info!(
-            "Checking: Verifying miner 2 won sortition. Result: {:?}",
-            true
+            "Applying: Verifying miner {} won sortition",
+            self.miner_index
         );
-        true
-    }
 
-    fn apply(&self, _state: &mut SignerTestState) {
-        info!("Applying: Verifying miner 2 won sortition");
-
-        let (conf_1, _) = self.miners.lock().unwrap().get_node_configs();
-        let burnchain = conf_1.get_burnchain();
+        let (conf_1, conf_2) = self.ctx.get_node_configs();
+        let conf = match self.miner_index {
+            1 => conf_1,
+            2 => conf_2,
+            _ => panic!("Invalid miner index: {}", self.miner_index),
+        };
+        let burnchain = conf.get_burnchain();
         let sortdb = burnchain.open_sortition_db(true).unwrap();
-        let (_, miner_pkh_2) = self.miners.lock().unwrap().get_miner_public_key_hashes();
 
-        verify_sortition_winner(&sortdb, &miner_pkh_2);
+        let (miner_pkh_1, miner_pkh_2) = self.ctx.get_miner_public_key_hashes();
+
+        let miner_pkh = match self.miner_index {
+            1 => miner_pkh_1,
+            2 => miner_pkh_2,
+            _ => panic!("Invalid miner index: {}", self.miner_index),
+        };
+
+        verify_sortition_winner(&sortdb, &miner_pkh);
     }
+
     fn label(&self) -> String {
-        "VERIFY_MINER_2_WON_SORTITION".to_string()
+        format!("VERIFY_MINER_{}_WON_SORTITION", self.miner_index)
     }
+
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(VerifyMiner2WonSortition::new(
-            ctx.miners.clone(),
-        )))
+        (1usize..=2usize).prop_flat_map(move |miner_index| {
+            Just(CommandWrapper::new(VerifyMinerWonSortition::new(
+                ctx.clone(),
+                miner_index,
+            )))
+        })
     }
 }
 

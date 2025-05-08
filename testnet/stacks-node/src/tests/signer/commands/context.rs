@@ -6,6 +6,7 @@ use std::time::Duration;
 use madhouse::{State, TestContext};
 use stacks::config::Config as NeonConfig;
 use stacks::types::chainstate::StacksPublicKey;
+use stacks::util::hash::Hash160;
 
 use crate::neon::Counters;
 use crate::tests::signer::v0::MultipleMinerTest;
@@ -63,6 +64,10 @@ impl SignerTestContext {
 
     pub fn get_miner_public_keys(&self) -> (StacksPublicKey, StacksPublicKey) {
         self.miners.lock().unwrap().get_miner_public_keys()
+    }
+
+    pub fn get_miner_public_key_hashes(&self) -> (Hash160, Hash160) {
+        self.miners.lock().unwrap().get_miner_public_key_hashes()
     }
 }
 

@@ -10803,12 +10803,12 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs_scenario() {
         (MinerCommitOp::disable_for(test_context.clone(), MINER1)), // Skip commit operations for miner 1
         PauseStacksMining,
         MineBitcoinBlock,
-        VerifyMiner1WonSortition,
+        (VerifyMinerWonSortition::new(test_context.clone(), MINER1)),
         SubmitBlockCommitMiner2,
         ResumeStacksMining,
         WaitForTenureChangeBlockFromMiner1,
         MineBitcoinBlock,
-        VerifyMiner2WonSortition,
+        (VerifyMinerWonSortition::new(test_context.clone(), MINER2)),
         VerifyLastSortitionWinnerReorged,
         WaitForTenureChangeBlockFromMiner2,
         ShutdownMiners
@@ -10990,20 +10990,20 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
     scenario![
         test_context,
         (MinerCommitOp::disable_for(test_context.clone(), MINER2)), // Skip commit operations for miner 2
-        (BootToEpoch3::new(test_context.clone())), //TODO: This one uses 'conf_1' --- Might it make sense to allow the use of 'conf_2' also?
+        BootToEpoch3, // TODO: This one uses 'conf_1' --- I don't think so, but might it make sense to allow the use of 'conf_2' also?
         (MinerCommitOp::disable_for(test_context.clone(), MINER1)), // Skip commit operations for miner 1
         (MineBitcoinBlockTenureChange::new(test_context.clone(), MINER1)), // Miner 1 mines a block N
-        VerifyMiner1WonSortition,
+        (VerifyMinerWonSortition::new(test_context.clone(), MINER1)),
         SubmitBlockCommitMiner2,
         PauseStacksMining,
         MineBitcoinBlock,
         SubmitBlockCommitMiner1,
         ResumeStacksMining,
         WaitForTenureChangeBlockFromMiner2, // Miner 2 mines a block N + 1
-        VerifyMiner2WonSortition,
+        (VerifyMinerWonSortition::new(test_context.clone(), MINER2)),
         SendAndMineTransferTx, // Miner 2 mines a block N + 2
         SendAndMineTransferTx, // Miner 2 mines a block N + 3
-        (BuildNextBitcoinBlocks::new(test_context.miners.clone(), num_blocks)), //TODO: Just pass test_context.clone()
+        (BuildNextBitcoinBlocks::new(test_context.clone(), num_blocks)),
         (WaitForAndVerifyBlockRejection::new(
             test_context.miners.clone(),
             RejectReason::ReorgNotAllowed,
