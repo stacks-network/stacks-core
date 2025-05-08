@@ -28,6 +28,11 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
       ## run the cargo check steps
+      - name: Cargo Version
+        id: cargo_version
+        run: |
+          cargo version
+
       - name: Cargo Check
         id: cargo_check
         run: |
@@ -59,5 +64,4 @@ jobs:
         id: expects-json
         run: |
           # if there is a diff, return will be non-zero
-          echo "asdf" >> out.json ## induce a diff
           diff out.json ./sample/expected_consts.json >> $GITHUB_STEP_SUMMARY
