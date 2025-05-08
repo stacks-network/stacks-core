@@ -47,7 +47,7 @@ jobs:
       ## this step fails on the unused imports
       - name: Cargo Check (clarity)
         # if: ${{ false }}
-        shell: bash -e {0}
+        shell: bash -e
         id: cargo_check_clarity
         run: |
           cargo check -p clarity --no-default-features
