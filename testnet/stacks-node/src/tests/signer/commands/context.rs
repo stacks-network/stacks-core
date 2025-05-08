@@ -1,10 +1,12 @@
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::collections::HashMap;
 
 use madhouse::{State, TestContext};
+use stacks::config::Config as NeonConfig;
 
+use crate::neon::Counters;
 use crate::tests::signer::v0::MultipleMinerTest;
 
 #[derive(Clone)]
@@ -43,11 +45,15 @@ impl SignerTestContext {
         }
     }
 
-    pub fn get_miner_skip_commit_flag(
-        &self,
-        miner_index: usize,
-    ) -> stacks::util::tests::TestFlag<bool> {
-        self.miners.lock().unwrap().get_counters_for_miner(miner_index).naka_skip_commit_op
+    pub fn get_counters_for_miner(&self, miner_index: usize) -> Counters {
+        self.miners
+            .lock()
+            .unwrap()
+            .get_counters_for_miner(miner_index)
+    }
+
+    pub fn get_node_configs(&self) -> (NeonConfig, NeonConfig) {
+        self.miners.lock().unwrap().get_node_configs()
     }
 }
 
@@ -57,7 +63,6 @@ type TxId = String;
 #[derive(Debug, Default)]
 pub struct SignerTestState {
     pub is_booted_to_nakamoto: bool,
-    pub miners_skip_commit_op: HashMap<usize, bool>,
     pub mining_stalled: bool,
     pub transfer_txs_submitted: Vec<(StacksHeightBefore, TxId)>,
     pub blocks_mined_per_miner: HashMap<usize, usize>,
@@ -68,25 +73,15 @@ impl SignerTestState {
     pub fn get_total_blocks_mined(&self) -> usize {
         self.blocks_mined_per_miner.values().sum()
     }
-    
+
     // Get blocks mined by a specific miner
     pub fn get_blocks_mined_by_miner(&self, miner_index: usize) -> usize {
         *self.blocks_mined_per_miner.get(&miner_index).unwrap_or(&0)
     }
-    
+
     // Increment blocks mined by a specific miner
     pub fn increment_blocks_mined_by_miner(&mut self, miner_index: usize) {
         *self.blocks_mined_per_miner.entry(miner_index).or_insert(0) += 1;
-    }
-
-    // Get the skip commit state for a miner
-    pub fn get_miner_skip_commit_op(&self, miner_index: usize) -> bool {
-        *self.miners_skip_commit_op.get(&miner_index).unwrap_or(&false)
-    }
-    
-    // Set the skip commit state for a miner
-    pub fn set_miner_skip_commit_op(&mut self, miner_index: usize, skip: bool) {
-        self.miners_skip_commit_op.insert(miner_index, skip);
     }
 }
 

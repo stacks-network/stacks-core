@@ -629,13 +629,8 @@ impl MultipleMinerTest {
 
     pub fn get_counters_for_miner(&self, miner_index: usize) -> Counters {
         match miner_index {
-            1 => self
-                .signer_test
-                .running_nodes
-                .counters
-                .clone(),
-            2 => self
-                .rl2_counters.clone(),
+            1 => self.signer_test.running_nodes.counters.clone(),
+            2 => self.rl2_counters.clone(),
             _ => panic!("Invalid miner index {}: must be 1 or 2", miner_index),
         }
     }
@@ -10803,9 +10798,9 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs_scenario() {
 
     scenario![
         test_context,
-        (MinerCommitOp::new(test_context.clone(), MINER2, "disable")), // Skip commit operations for miner 2
+        (MinerCommitOp::disable_for(test_context.clone(), MINER2)), // Skip commit operations for miner 2
         BootToEpoch3,
-        (MinerCommitOp::new(test_context.clone(), MINER1, "disable")), // Skip commit operations for miner 1
+        (MinerCommitOp::disable_for(test_context.clone(), MINER1)), // Skip commit operations for miner 1
         PauseStacksMining,
         MineBitcoinBlock,
         VerifyMiner1WonSortition,
@@ -10994,9 +10989,9 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
 
     scenario![
         test_context,
-        (MinerCommitOp::new(test_context.clone(), MINER2, "disable")), // Skip commit operations for miner 2
-        BootToEpoch3,
-        (MinerCommitOp::new(test_context.clone(), MINER1, "disable")), // Skip commit operations for miner 1
+        (MinerCommitOp::disable_for(test_context.clone(), MINER2)), // Skip commit operations for miner 2
+        (BootToEpoch3::new(test_context.clone())), //TODO: This one uses 'conf_1' --- Might it make sense to allow the use of 'conf_2' also?
+        (MinerCommitOp::disable_for(test_context.clone(), MINER1)), // Skip commit operations for miner 1
         MineBitcoinBlockTenureChangeMiner1, // Miner 1 mines a block N
         VerifyMiner1WonSortition,
         SubmitBlockCommitMiner2,

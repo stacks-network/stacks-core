@@ -228,21 +228,26 @@ pub struct VerifyMiner1BlockCount {
 
 impl VerifyMiner1BlockCount {
     pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
-        Self {
-            miners,
-        }
+        Self { miners }
     }
 }
 
 impl Command<SignerTestState, SignerTestContext> for VerifyMiner1BlockCount {
-    fn check(&self, state: &SignerTestState) -> bool {        
-        let is_miner_paused = state.get_miner_skip_commit_op(1);
-        
+    fn check(&self, _state: &SignerTestState) -> bool {
+        //FIXME: This logic can be handled differently. We might want to pass the context instead
+        let is_miner_paused = self
+            .miners
+            .lock()
+            .unwrap()
+            .get_counters_for_miner(1)
+            .naka_skip_commit_op
+            .get();
+
         info!(
             "Checking: Verifying miner {} block count. Will run if miner {} commit ops are paused: {:?}",
             1, 1, is_miner_paused
         );
-        
+
         is_miner_paused
     }
 
@@ -282,9 +287,11 @@ impl Command<SignerTestState, SignerTestContext> for VerifyMiner1BlockCount {
             .count();
 
         assert_eq!(
-            miner1_blocks_after_boot_to_epoch3, state.get_blocks_mined_by_miner(1),
+            miner1_blocks_after_boot_to_epoch3,
+            state.get_blocks_mined_by_miner(1),
             "Expected {} blocks from miner 1, but found {}",
-            state.get_blocks_mined_by_miner(1), miner1_blocks_after_boot_to_epoch3
+            state.get_blocks_mined_by_miner(1),
+            miner1_blocks_after_boot_to_epoch3
         );
 
         info!(
@@ -301,7 +308,7 @@ impl Command<SignerTestState, SignerTestContext> for VerifyMiner1BlockCount {
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         Just(CommandWrapper::new(VerifyMiner1BlockCount::new(
-            ctx.miners.clone()
+            ctx.miners.clone(),
         )))
     }
 }

@@ -1,19 +1,18 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 
 use super::context::{SignerTestContext, SignerTestState};
 use crate::tests::neon_integrations::get_chain_info;
-use crate::tests::signer::v0::MultipleMinerTest;
 
 pub struct BootToEpoch3 {
-    miners: Arc<Mutex<MultipleMinerTest>>,
+    ctx: Arc<SignerTestContext>,
 }
 
 impl BootToEpoch3 {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
-        Self { miners }
+    pub fn new(ctx: Arc<SignerTestContext>) -> Self {
+        Self { ctx }
     }
 }
 
@@ -29,12 +28,12 @@ impl Command<SignerTestState, SignerTestContext> for BootToEpoch3 {
     fn apply(&self, state: &mut SignerTestState) {
         info!("Applying: Booting miners to Nakamoto");
 
-        self.miners.lock().unwrap().boot_to_epoch_3();
+        self.ctx.miners.lock().unwrap().boot_to_epoch_3();
 
-        let (conf_1, _) = self.miners.lock().unwrap().get_node_configs();
+        let (conf_1, _) = self.ctx.get_node_configs();
         let burn_block_height = get_chain_info(&conf_1).burn_block_height;
 
-        assert_eq!(burn_block_height, 231);
+        assert_eq!(burn_block_height, 231); // Epoch 3 starts at block 231
 
         state.is_booted_to_nakamoto = true;
     }
@@ -46,6 +45,6 @@ impl Command<SignerTestState, SignerTestContext> for BootToEpoch3 {
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(BootToEpoch3::new(ctx.miners.clone())))
+        Just(CommandWrapper::new(BootToEpoch3::new(ctx.clone())))
     }
 }

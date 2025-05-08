@@ -17,14 +17,21 @@ impl SubmitBlockCommitMiner2 {
 }
 
 impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitMiner2 {
-    fn check(&self, state: &SignerTestState) -> bool {
-        let is_miner_paused = state.get_miner_skip_commit_op(2);
-        
+    fn check(&self, _state: &SignerTestState) -> bool {
+        //FIXME: This logic can be handled differently. We might want to pass the context instead
+        let is_miner_paused = self
+            .miners
+            .lock()
+            .unwrap()
+            .get_counters_for_miner(2)
+            .naka_skip_commit_op
+            .get();
+
         info!(
             "Checking: Submitting block commit miner {}. Result: {:?}",
             2, is_miner_paused
         );
-        
+
         // Ensure Miner's automatic commit ops are paused
         is_miner_paused
     }
@@ -63,14 +70,21 @@ impl SubmitBlockCommitMiner1 {
 }
 
 impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitMiner1 {
-    fn check(&self, state: &SignerTestState) -> bool {
-        let is_miner_paused = state.get_miner_skip_commit_op(1);
-        
+    fn check(&self, _state: &SignerTestState) -> bool {
+        //FIXME: This logic can be handled differently. We might want to pass the context instead
+        let is_miner_paused = self
+            .miners
+            .lock()
+            .unwrap()
+            .get_counters_for_miner(1)
+            .naka_skip_commit_op
+            .get();
+
         info!(
             "Checking: Submitting block commit miner {}. Result: {:?}",
             1, is_miner_paused
         );
-        
+
         // Ensure Miner's automatic commit ops are paused
         is_miner_paused
     }
