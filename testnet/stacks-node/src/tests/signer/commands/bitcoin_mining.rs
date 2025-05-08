@@ -21,196 +21,153 @@ use crate::tests::signer::v0::{wait_for_block_pushed_by_miner_key, MultipleMiner
 /// ------------------------------------------------------------------------------------------
 /// ------------------------------------------------------------------------------------------
 
-pub struct MineBitcoinBlockTenureChangeMiner1 {
-    miners: Arc<Mutex<MultipleMinerTest>>,
+pub struct MineBitcoinBlockTenureChange {
+    ctx: Arc<SignerTestContext>,
+    miner_index: usize,
 }
 
-impl MineBitcoinBlockTenureChangeMiner1 {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
-        Self { miners }
+impl MineBitcoinBlockTenureChange {
+    pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
+        if miner_index < 1 || miner_index > 2 {
+            panic!("Invalid miner index: {}", miner_index);
+        }
+        Self { ctx, miner_index }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChangeMiner1 {
+impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChange {
     fn check(&self, state: &SignerTestState) -> bool {
-        let (conf_1, _) = self.miners.lock().unwrap().get_node_configs();
-        let burn_height = get_chain_info(&conf_1).burn_block_height;
-        let miner_1_submitted_commit_last_burn_height = self
-            .miners
-            .lock()
-            .unwrap()
-            .get_primary_submitted_commit_last_burn_height()
-            .0
-            .load(Ordering::SeqCst);
-        let miner_2_submitted_commit_last_burn_height = self
-            .miners
-            .lock()
-            .unwrap()
-            .get_secondary_submitted_commit_last_burn_height()
-            .0
-            .load(Ordering::SeqCst);
+        let (conf_1, conf_2) = self.ctx.get_node_configs();
+        let conf = match self.miner_index {
+            1 => conf_1,
+            2 => conf_2,
+            _ => panic!("Invalid miner index: {}", self.miner_index),
+        };
 
-        info!(
-            "Checking: Miner 1 mining Bitcoin block and tenure change tx. Result: {:?} && {:?} && {:?}",
-            state.is_booted_to_nakamoto, burn_height == miner_1_submitted_commit_last_burn_height, burn_height > miner_2_submitted_commit_last_burn_height
-        );
-        state.is_booted_to_nakamoto
-            && burn_height == miner_1_submitted_commit_last_burn_height
-            && burn_height > miner_2_submitted_commit_last_burn_height
-    }
+        let burn_height = get_chain_info(&conf).burn_block_height;
 
-    fn apply(&self, state: &mut SignerTestState) {
-        info!("Applying: Miner 1 mining Bitcoin block and tenure change tx");
+        let (miner_1_submitted_commit_last_burn_height, miner_2_submitted_commit_last_burn_height) = {
+            let miners = self.ctx.miners.lock().unwrap();
 
-        let (stacks_height_before, conf_1, miner_pk_1) = {
-            let mut miners = self.miners.lock().unwrap();
-            let stacks_height_before = miners.get_peer_stacks_tip_height();
-            let (conf_1, _) = miners.get_node_configs();
-            let burnchain = conf_1.get_burnchain();
-            let sortdb = burnchain.open_sortition_db(true).unwrap();
+            let miner_1_height = miners
+                .get_primary_submitted_commit_last_burn_height()
+                .0
+                .load(Ordering::SeqCst);
 
-            miners
-                .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
-                .expect("Failed to mine BTC block");
+            let miner_2_height = miners
+                .get_secondary_submitted_commit_last_burn_height()
+                .0
+                .load(Ordering::SeqCst);
 
-            let (miner_pk_1, _) = miners.get_miner_public_keys();
+            (miner_1_height, miner_2_height)
+        };
 
-            (stacks_height_before, conf_1, miner_pk_1)
+        let (current_miner_height, other_miner_height) = match self.miner_index {
+            1 => (
+                miner_1_submitted_commit_last_burn_height,
+                miner_2_submitted_commit_last_burn_height,
+            ),
+            2 => (
+                miner_2_submitted_commit_last_burn_height,
+                miner_1_submitted_commit_last_burn_height,
+            ),
+            _ => panic!("Invalid miner index: {}", self.miner_index),
         };
 
         info!(
-            "Waiting for Nakamoto block {} pushed by miner 1",
-            stacks_height_before + 1
+            "Checking: Miner {} block verification - burn height: {}, current miner: {}, other miner: {}",
+            self.miner_index,
+            burn_height,
+            current_miner_height,
+            other_miner_height
         );
 
-        let miner_1_block =
-            wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_1)
-                .expect("Failed to get block");
-
-        state.increment_blocks_mined_by_miner(1);
-
-        let mined_block_height = miner_1_block.header.chain_length;
-        info!(
-            "Miner 1 mined Nakamoto block height: {}",
-            mined_block_height
-        );
-
-        let info_after = get_chain_info(&conf_1);
-        assert_eq!(info_after.stacks_tip, miner_1_block.header.block_hash());
-        assert_eq!(info_after.stacks_tip_height, mined_block_height);
-        assert_eq!(mined_block_height, stacks_height_before + 1);
-    }
-
-    fn label(&self) -> String {
-        "MINE_BITCOIN_BLOCK_AND_TENURE_CHANGE_MINER_1".to_string()
-    }
-
-    fn build(
-        ctx: Arc<SignerTestContext>,
-    ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(
-            MineBitcoinBlockTenureChangeMiner1::new(ctx.miners.clone()),
-        ))
-    }
-}
-
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-
-pub struct MineBitcoinBlockTenureChangeMiner2 {
-    miners: Arc<Mutex<MultipleMinerTest>>,
-}
-
-impl MineBitcoinBlockTenureChangeMiner2 {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
-        Self { miners }
-    }
-}
-
-impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChangeMiner2 {
-    fn check(&self, state: &SignerTestState) -> bool {
-        let (conf_1, _) = self.miners.lock().unwrap().get_node_configs();
-        let burn_height = get_chain_info(&conf_1).burn_block_height;
-        let miner_1_submitted_commit_last_burn_height = self
-            .miners
-            .lock()
-            .unwrap()
-            .get_primary_submitted_commit_last_burn_height()
-            .0
-            .load(Ordering::SeqCst);
-        let miner_2_submitted_commit_last_burn_height = self
-            .miners
-            .lock()
-            .unwrap()
-            .get_secondary_submitted_commit_last_burn_height()
-            .0
-            .load(Ordering::SeqCst);
-
-        info!(
-            "Checking: Miner 2 mining Bitcoin block and tenure change tx. Result: {:?} && {:?} && {:?}",
-            state.is_booted_to_nakamoto, burn_height == miner_1_submitted_commit_last_burn_height, burn_height > miner_2_submitted_commit_last_burn_height
-        );
         state.is_booted_to_nakamoto
-            && burn_height == miner_2_submitted_commit_last_burn_height
-            && burn_height > miner_1_submitted_commit_last_burn_height
+            && burn_height == current_miner_height
+            && burn_height > other_miner_height
     }
 
     fn apply(&self, state: &mut SignerTestState) {
-        info!("Applying: Miner 2 mining Bitcoin block and tenure change tx");
+        info!(
+            "Applying: Miner {} mining Bitcoin block and tenure change tx",
+            self.miner_index
+        );
 
-        let stacks_height_before = self.miners.lock().unwrap().get_peer_stacks_tip_height();
+        let (stacks_height_before, conf, miner_pk) = {
+            let stacks_height_before = self.ctx.get_peer_stacks_tip_height();
 
-        let (conf_1, conf_2) = self.miners.lock().unwrap().get_node_configs();
-        let burnchain = conf_1.get_burnchain();
-        let sortdb = burnchain.open_sortition_db(true).unwrap();
-        self.miners
-            .lock()
-            .unwrap()
-            .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
-            .expect("Failed to mine BTC block");
+            let (conf_1, conf_2) = self.ctx.get_node_configs();
+            let conf = match self.miner_index {
+                1 => conf_1,
+                2 => conf_2,
+                _ => panic!("Invalid miner index: {}", self.miner_index),
+            };
 
-        let (_, miner_pk_2) = self.miners.lock().unwrap().get_miner_public_keys();
+            let burnchain = conf.get_burnchain();
+            let sortdb = burnchain.open_sortition_db(true).unwrap();
+
+            // TODO: Can I make it more elegant?
+            self.ctx
+                .miners
+                .lock()
+                .unwrap()
+                .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
+                .expect("Failed to mine BTC block");
+
+            let (miner_pk_1, miner_pk_2) = self.ctx.get_miner_public_keys();
+            let miner_pk = if self.miner_index == 1 {
+                miner_pk_1
+            } else {
+                miner_pk_2
+            };
+
+            (stacks_height_before, conf, miner_pk)
+        };
 
         info!(
-            "Waiting for Nakamoto block {} pushed by miner 2",
-            stacks_height_before + 1
+            "Waiting for Nakamoto block {} pushed by miner {}",
+            stacks_height_before + 1,
+            self.miner_index
         );
 
-        let secondary_miner_block =
-            wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_2)
-                .expect("Failed to get block N");
+        // This function mines a Nakamoto block
+        let miner_block =
+            wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk).expect(
+                &format!("Failed to get block for miner {}", self.miner_index),
+            );
 
-        state.increment_blocks_mined_by_miner(2);
+        // FIXME: To remove
+        state.increment_blocks_mined_by_miner(self.miner_index);
 
-        let mined_block_height = secondary_miner_block.header.chain_length;
+        let mined_block_height = miner_block.header.chain_length;
 
-        let info_after = get_chain_info(&conf_2);
-        assert_eq!(
-            info_after.stacks_tip,
-            secondary_miner_block.header.block_hash()
+        info!(
+            "Miner {} mined Nakamoto block height: {}",
+            self.miner_index, mined_block_height
         );
+
+        let info_after = get_chain_info(&conf);
+        assert_eq!(info_after.stacks_tip, miner_block.header.block_hash());
         assert_eq!(info_after.stacks_tip_height, mined_block_height);
         assert_eq!(mined_block_height, stacks_height_before + 1);
     }
 
     fn label(&self) -> String {
-        "MINE_BITCOIN_BLOCK_AND_TENURE_CHANGE_MINER_2".to_string()
+        format!(
+            "MINE_BITCOIN_BLOCK_AND_TENURE_CHANGE_MINER_{}",
+            self.miner_index
+        )
     }
 
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(
-            MineBitcoinBlockTenureChangeMiner2::new(ctx.miners.clone()),
-        ))
+        (1usize..=2usize).prop_flat_map(move |miner_index| {
+            Just(CommandWrapper::new(MineBitcoinBlockTenureChange::new(
+                ctx.clone(),
+                miner_index,
+            )))
+        })
     }
 }
 
