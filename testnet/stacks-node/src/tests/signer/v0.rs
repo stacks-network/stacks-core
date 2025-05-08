@@ -627,16 +627,17 @@ impl MultipleMinerTest {
         }
     }
 
-    pub fn get_primary_skip_commit_flag(&self) -> stacks::util::tests::TestFlag<bool> {
-        self.signer_test
-            .running_nodes
-            .counters
-            .naka_skip_commit_op
-            .clone()
-    }
-
-    pub fn get_secondary_skip_commit_flag(&self) -> stacks::util::tests::TestFlag<bool> {
-        self.rl2_counters.naka_skip_commit_op.clone()
+    pub fn get_counters_for_miner(&self, miner_index: usize) -> Counters {
+        match miner_index {
+            1 => self
+                .signer_test
+                .running_nodes
+                .counters
+                .clone(),
+            2 => self
+                .rl2_counters.clone(),
+            _ => panic!("Invalid miner index {}: must be 1 or 2", miner_index),
+        }
     }
 
     pub fn get_primary_last_stacks_tip_counter(&self) -> RunLoopCounter {
@@ -10792,6 +10793,9 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs_scenario() {
         return;
     }
 
+    pub const MINER1: usize = 1;
+    pub const MINER2: usize = 2;
+
     let num_signers = 5;
     let num_transfer_txs = 3;
 
@@ -10799,9 +10803,9 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs_scenario() {
 
     scenario![
         test_context,
-        SkipCommitOpMiner2,
+        (MinerCommitOp::new(test_context.clone(), MINER2, "disable")), // Skip commit operations for miner 2
         BootToEpoch3,
-        SkipCommitOpMiner1,
+        (MinerCommitOp::new(test_context.clone(), MINER1, "disable")), // Skip commit operations for miner 1
         PauseStacksMining,
         MineBitcoinBlock,
         VerifyMiner1WonSortition,
@@ -10979,6 +10983,9 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         return;
     }
 
+    pub const MINER1: usize = 1;
+    pub const MINER2: usize = 2;
+
     let num_signers = 5;
     let num_txs = 3;
     let num_blocks = 1;
@@ -10987,9 +10994,9 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
 
     scenario![
         test_context,
-        (MinerCommitOp::new(test_context.clone(), 2, true)),
+        (MinerCommitOp::new(test_context.clone(), MINER2, "disable")), // Skip commit operations for miner 2
         BootToEpoch3,
-        (MinerCommitOp::new(test_context.clone(), 1, true)),
+        (MinerCommitOp::new(test_context.clone(), MINER1, "disable")), // Skip commit operations for miner 1
         MineBitcoinBlockTenureChangeMiner1, // Miner 1 mines a block N
         VerifyMiner1WonSortition,
         SubmitBlockCommitMiner2,

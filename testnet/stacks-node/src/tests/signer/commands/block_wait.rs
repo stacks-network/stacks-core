@@ -235,12 +235,15 @@ impl VerifyMiner1BlockCount {
 }
 
 impl Command<SignerTestState, SignerTestContext> for VerifyMiner1BlockCount {
-    fn check(&self, state: &SignerTestState) -> bool {
+    fn check(&self, state: &SignerTestState) -> bool {        
+        let is_miner_paused = state.get_miner_skip_commit_op(1);
+        
         info!(
-            "Checking: Verifying miner 1 block count. Will run if miner 1 commit ops are paused: {:?}",
-            state.is_primary_miner_skip_commit_op
+            "Checking: Verifying miner {} block count. Will run if miner {} commit ops are paused: {:?}",
+            1, 1, is_miner_paused
         );
-        state.is_primary_miner_skip_commit_op
+        
+        is_miner_paused
     }
 
     fn apply(&self, state: &mut SignerTestState) {

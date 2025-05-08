@@ -47,18 +47,8 @@ impl SignerTestContext {
         &self,
         miner_index: usize,
     ) -> stacks::util::tests::TestFlag<bool> {
-        let miners = self.miners.lock().unwrap();
-        match miner_index {
-            1 => miners.get_primary_skip_commit_flag(),
-            2 => miners.get_secondary_skip_commit_flag(),
-            _ => panic!(
-                "Invalid miner index: {}. Only miners 1 and 2 are supported.",
-                miner_index
-            ),
-        }
+        self.miners.lock().unwrap().get_counters_for_miner(miner_index).naka_skip_commit_op
     }
-
-    //TODO: pub fn get_miner_counters() -> 
 }
 
 type StacksHeightBefore = u64;
@@ -67,10 +57,7 @@ type TxId = String;
 #[derive(Debug, Default)]
 pub struct SignerTestState {
     pub is_booted_to_nakamoto: bool,
-    //TODO: Use a hashmap
-    pub is_primary_miner_skip_commit_op: bool,
-    pub is_secondary_miner_skip_commit_op: bool,
-
+    pub miners_skip_commit_op: HashMap<usize, bool>,
     pub mining_stalled: bool,
     pub transfer_txs_submitted: Vec<(StacksHeightBefore, TxId)>,
     pub blocks_mined_per_miner: HashMap<usize, usize>,
@@ -90,6 +77,16 @@ impl SignerTestState {
     // Increment blocks mined by a specific miner
     pub fn increment_blocks_mined_by_miner(&mut self, miner_index: usize) {
         *self.blocks_mined_per_miner.entry(miner_index).or_insert(0) += 1;
+    }
+
+    // Get the skip commit state for a miner
+    pub fn get_miner_skip_commit_op(&self, miner_index: usize) -> bool {
+        *self.miners_skip_commit_op.get(&miner_index).unwrap_or(&false)
+    }
+    
+    // Set the skip commit state for a miner
+    pub fn set_miner_skip_commit_op(&mut self, miner_index: usize, skip: bool) {
+        self.miners_skip_commit_op.insert(miner_index, skip);
     }
 }
 

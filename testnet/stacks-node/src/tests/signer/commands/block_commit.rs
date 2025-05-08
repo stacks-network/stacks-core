@@ -18,13 +18,15 @@ impl SubmitBlockCommitMiner2 {
 
 impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitMiner2 {
     fn check(&self, state: &SignerTestState) -> bool {
+        let is_miner_paused = state.get_miner_skip_commit_op(2);
+        
         info!(
-            "Checking: Submitting block commit miner 2. Result: {:?}",
-            state.is_secondary_miner_skip_commit_op
+            "Checking: Submitting block commit miner {}. Result: {:?}",
+            2, is_miner_paused
         );
-        // Ensure Miner 2's automatic commit ops are paused. If not, this may
-        // result in no commit being submitted.
-        state.is_secondary_miner_skip_commit_op
+        
+        // Ensure Miner's automatic commit ops are paused
+        is_miner_paused
     }
 
     fn apply(&self, _state: &mut SignerTestState) {
@@ -62,13 +64,15 @@ impl SubmitBlockCommitMiner1 {
 
 impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommitMiner1 {
     fn check(&self, state: &SignerTestState) -> bool {
+        let is_miner_paused = state.get_miner_skip_commit_op(1);
+        
         info!(
-            "Checking: Submitting block commit miner 1. Result: {:?}",
-            state.is_primary_miner_skip_commit_op
+            "Checking: Submitting block commit miner {}. Result: {:?}",
+            1, is_miner_paused
         );
-        // Ensure Miner 1's automatic commit ops are paused. If not, this may
-        // result in no commit being submitted.
-        state.is_primary_miner_skip_commit_op
+        
+        // Ensure Miner's automatic commit ops are paused
+        is_miner_paused
     }
 
     fn apply(&self, _state: &mut SignerTestState) {
