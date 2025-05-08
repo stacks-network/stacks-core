@@ -43,6 +43,11 @@ lazy_static! {
         &["response_type"]
     )
     .unwrap();
+    pub static ref BLOCK_PRE_COMMITS_SENT: IntCounter = register_int_counter!(opts!(
+        "stacks_signer_block_pre_commits_sent",
+        "The number of block pre-commits sent by the signer"
+    ))
+    .unwrap();
     pub static ref BLOCK_PROPOSALS_RECEIVED: IntCounter = register_int_counter!(opts!(
         "stacks_signer_block_proposals_received",
         "The number of block proposals received by the signer"

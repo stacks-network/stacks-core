@@ -41,6 +41,10 @@ pub static TEST_REJECT_ALL_BLOCK_PROPOSAL: LazyLock<TestFlag<Vec<StacksPublicKey
 pub static TEST_IGNORE_ALL_BLOCK_PROPOSALS: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
     LazyLock::new(TestFlag::default);
 
+/// A global variable that can be used to skip signature broadcast if the signer's public key is in the provided list
+pub static TEST_SIGNERS_SKIP_SIGNATURE_BROADCAST: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
+    LazyLock::new(TestFlag::default);
+
 /// A global variable that can be used to pause broadcasting the block to the network
 pub static TEST_PAUSE_BLOCK_BROADCAST: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
@@ -72,6 +76,25 @@ impl Signer {
             {
                 warn!("{self}: Failed to set block broadcasted for {block_hash}: {e:?}");
             }
+            return true;
+        }
+        false
+    }
+
+    /// Skip the block broadcast if the TEST_SIGNERS_SKIP_SIGNATURE_BROADCAST flag is set for the signer
+    pub fn test_skip_signature_broadcast(&self, block_response: &BlockResponse) -> bool {
+        if block_response.as_block_accepted().is_none() {
+            return false;
+        }
+        let hash = block_response.get_signer_signature_hash();
+        let public_keys = TEST_SIGNERS_SKIP_SIGNATURE_BROADCAST.get();
+        if public_keys.contains(
+            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
+        ) {
+            warn!(
+                "{self}: Skipping signature broadcast due to testing directive";
+                "signer_signature_hash" => %hash
+            );
             return true;
         }
         false
