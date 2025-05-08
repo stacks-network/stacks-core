@@ -1177,7 +1177,7 @@ fn pox_2_delegate_extend_units() {
                     Value::UInt(25),
                     Value::UInt(0),
                 ],
-                |_, _| false,
+                |_, _| None,
                 None,
             )
         })

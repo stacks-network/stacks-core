@@ -51,6 +51,9 @@ http-types = "2.12"
 tempfile = "3.3"
 mockito = "1.5"
 serial_test = "3.2.0"
+pinny = { git = "https://github.com/BitcoinL2-Labs/pinny-rs.git", rev = "54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49" } #v0.0.2
+madhouse = { git = "https://github.com/stacks-network/madhouse-rs.git", rev = "fc651ddcbaf85e888b06d4a87aa788c4b7ba9309" }
+proptest = { git = "https://github.com/proptest-rs/proptest.git", rev = "c9bdf18c232665b2b740c667c81866b598d06dc7" }
 
 [dependencies.rusqlite]
 workspace = true
@@ -71,3 +74,6 @@ prod-genesis-chainstate = []
 default = []
 testing = []
 wasm = ["stacks-common/wasm"]
+
+[package.metadata.pinny]
+allowed = ["bitcoind", "flaky", "slow"]

@@ -64,7 +64,8 @@ use stacks::chainstate::stacks::{
 use stacks::config::{EventKeyType, InitialBalance};
 use stacks::core::mempool::{MemPoolWalkStrategy, MAXIMUM_MEMPOOL_TX_CHAINING};
 use stacks::core::test_util::{
-    insert_tx_in_mempool, make_contract_call, make_contract_publish_versioned, make_stacks_transfer,
+    insert_tx_in_mempool, make_contract_call, make_contract_publish_versioned,
+    make_stacks_transfer_serialized,
 };
 use stacks::core::{
     EpochList, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20,
@@ -1578,7 +1579,7 @@ fn simple_neon_integration() {
     assert_eq!(prior_commits + 15, post_commits, "There should have been exactly {tenures_count} submitted commits during the {tenures_count} tenures");
 
     // Submit a TX
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         0,
         send_fee,
@@ -2039,7 +2040,7 @@ fn flash_blocks_on_epoch_3_FLAKY() {
     }
 
     // Submit a TX
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         0,
         send_fee,
@@ -2264,7 +2265,7 @@ fn mine_multiple_per_tenure_integration() {
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
                 send_fee,
@@ -2516,7 +2517,7 @@ fn multiple_miners() {
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
                 send_fee,
@@ -3060,7 +3061,7 @@ fn block_proposal_api_endpoint() {
             .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
             .unwrap();
 
-        let tx = make_stacks_transfer(
+        let tx = make_stacks_transfer_serialized(
             &account_keys[0],
             0,
             100,
@@ -3091,6 +3092,7 @@ fn block_proposal_api_endpoint() {
     let proposal = NakamotoBlockProposal {
         block,
         chain_id: chainstate.chain_id,
+        replay_txs: None,
     };
 
     const HTTP_ACCEPTED: u16 = 202;
@@ -3133,7 +3135,7 @@ fn block_proposal_api_endpoint() {
                 sign(&p)
             },
             HTTP_ACCEPTED,
-            Some(Err(ValidateRejectCode::InvalidBlock)),
+            Some(Err(ValidateRejectCode::NetworkChainMismatch)),
         ),
         (
             "Invalid `miner_signature`",
@@ -3780,7 +3782,7 @@ fn follower_bootup_simple() {
             let sender_nonce = account
                 .nonce
                 .max(last_nonce.as_ref().map(|ln| *ln + 1).unwrap_or(0));
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
                 send_fee,
@@ -4322,7 +4324,7 @@ fn follower_bootup_custom_chain_id() {
             let sender_nonce = account
                 .nonce
                 .max(last_nonce.as_ref().map(|ln| *ln + 1).unwrap_or(0));
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
                 send_fee,
@@ -4887,7 +4889,7 @@ fn burn_ops_integration_test() {
                 .expect("Mutex poisoned")
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
                 200,
@@ -5306,7 +5308,7 @@ fn forked_tenure_is_ignored() {
 
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -5722,7 +5724,7 @@ fn check_block_heights() {
                 .expect("Mutex poisoned")
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
                 send_fee,
@@ -6018,7 +6020,7 @@ fn nakamoto_attempt_time() {
 
             let mut sender_nonce = account.nonce;
             for _ in 0..txs_per_block {
-                let transfer_tx = make_stacks_transfer(
+                let transfer_tx = make_stacks_transfer_serialized(
                     &sender_sk,
                     sender_nonce,
                     tx_fee,
@@ -6119,7 +6121,7 @@ fn nakamoto_attempt_time() {
     'submit_txs: loop {
         let acct = &mut account[acct_idx];
         for _ in 0..MAXIMUM_MEMPOOL_TX_CHAINING {
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &acct.privk,
                 acct.nonce,
                 tx_fee,
@@ -6577,6 +6579,7 @@ fn signer_chainstate() {
 
         // this config disallows any reorg due to poorly timed block commits
         let proposal_conf = ProposalEvalConfig {
+            proposal_wait_for_parent_time: Duration::from_secs(0),
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
@@ -6669,7 +6672,7 @@ fn signer_chainstate() {
 
         // submit a tx to trigger an intermediate block
         let sender_nonce = i;
-        let transfer_tx = make_stacks_transfer(
+        let transfer_tx = make_stacks_transfer_serialized(
             &sender_sk,
             sender_nonce,
             send_fee,
@@ -6703,6 +6706,7 @@ fn signer_chainstate() {
 
         // this config disallows any reorg due to poorly timed block commits
         let proposal_conf = ProposalEvalConfig {
+            proposal_wait_for_parent_time: Duration::from_secs(0),
             first_proposal_burn_block_timing: Duration::from_secs(0),
             block_proposal_timeout: Duration::from_secs(100),
             tenure_last_block_proposal_timeout: Duration::from_secs(30),
@@ -6780,6 +6784,7 @@ fn signer_chainstate() {
 
     // this config disallows any reorg due to poorly timed block commits
     let proposal_conf = ProposalEvalConfig {
+        proposal_wait_for_parent_time: Duration::from_secs(0),
         first_proposal_burn_block_timing: Duration::from_secs(0),
         block_proposal_timeout: Duration::from_secs(100),
         tenure_last_block_proposal_timeout: Duration::from_secs(30),
@@ -7138,7 +7143,7 @@ fn continue_tenure_extend() {
     assert!(sortition.was_sortition);
 
     // Submit a TX
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         transfer_nonce,
         send_fee,
@@ -7204,7 +7209,7 @@ fn continue_tenure_extend() {
     for i in 0..3 {
         info!("Triggering Nakamoto blocks after extend ({})", i + 1);
         transfer_nonce += 1;
-        let transfer_tx = make_stacks_transfer(
+        let transfer_tx = make_stacks_transfer_serialized(
             &sender_sk,
             transfer_nonce,
             send_fee,
@@ -7651,7 +7656,7 @@ fn check_block_times() {
         info!("Mining Nakamoto block");
 
         // submit a tx so that the miner will mine an extra block
-        let transfer_tx = make_stacks_transfer(
+        let transfer_tx = make_stacks_transfer_serialized(
             &sender_sk,
             sender_nonce,
             send_fee,
@@ -7702,7 +7707,7 @@ fn check_block_times() {
         info!("Mining Nakamoto block");
 
         // submit a tx so that the miner will mine an extra block
-        let transfer_tx = make_stacks_transfer(
+        let transfer_tx = make_stacks_transfer_serialized(
             &sender_sk,
             sender_nonce,
             send_fee,
@@ -8195,7 +8200,7 @@ fn check_block_info() {
     // Now we want to test the behavior of a new nakamoto block within the same tenure
     // We'll force a nakamoto block by submitting a transfer, then waiting for the nonce to bump
     info!("Mining an interim nakamoto block");
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -8294,7 +8299,7 @@ fn check_block_info() {
     // Now we'll mine one more interim block so that we can test that the stacks-block-info outputs update
     //  again.
     info!("Mining a second interim nakamoto block");
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -8655,7 +8660,7 @@ fn check_block_info_rewards() {
         .get_stacks_blocks_processed();
 
     // submit a tx so that the miner will mine an extra block
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -8688,7 +8693,7 @@ fn check_block_info_rewards() {
         .get_stacks_blocks_processed();
 
     // submit a tx so that the miner will mine an extra block
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -9002,7 +9007,7 @@ fn mock_mining() {
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
                 send_fee,
@@ -9035,14 +9040,17 @@ fn mock_mining() {
         let follower_node_info = get_chain_info(&follower_conf);
         info!("Node heights"; "miner" => miner_node_info.stacks_tip_height, "follower" => follower_node_info.stacks_tip_height);
 
+        // Wait for at least 2 blocks to be mined by the mock-miner
+        // This is to ensure that the mock miner has mined the tenure change
+        // block and at least one interim block.
         wait_for(60, || {
             Ok(follower_naka_mined_blocks.load(Ordering::SeqCst)
-                > follower_naka_mined_blocks_before)
+                > follower_naka_mined_blocks_before + 1)
         })
         .unwrap_or_else(|_| {
             panic!(
                 "Timed out waiting for mock miner block {}",
-                follower_naka_mined_blocks_before + 1
+                follower_naka_mined_blocks_before + 2
             )
         });
 
@@ -9381,7 +9389,7 @@ fn v3_signer_api_endpoint() {
         .get_stacks_blocks_processed();
     // submit a tx so that the miner will mine an extra stacks block
     let sender_nonce = 0;
-    let transfer_tx = make_stacks_transfer(
+    let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
         send_fee,
@@ -9644,7 +9652,7 @@ fn nakamoto_lockup_events() {
             "height" => %height_before,
             "nonce" => %sender_nonce,
         );
-        let transfer_tx = make_stacks_transfer(
+        let transfer_tx = make_stacks_transfer_serialized(
             &sender_sk,
             sender_nonce,
             send_fee,
@@ -9819,7 +9827,11 @@ fn skip_mining_long_tx() {
 
             // Sleep for longer than the miner's attempt time, so that the miner will
             // mark this tx as long-running and skip it in the next attempt
-            sleep_ms(naka_conf.miner.nakamoto_attempt_time_ms + 1000);
+            sleep_ms(
+                naka_conf.miner.nakamoto_attempt_time_ms
+                    + naka_conf.miner.empty_mempool_sleep_time.as_millis() as u64
+                    + 1000,
+            );
 
             TEST_TX_STALL.set(false);
 
@@ -9830,7 +9842,7 @@ fn skip_mining_long_tx() {
 
             TEST_P2P_BROADCAST_SKIP.set(false);
         } else {
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 &sender_1_sk,
                 i - 1,
                 send_fee,
@@ -10619,10 +10631,26 @@ fn consensus_hash_event_dispatcher() {
     let expected_consensus_hash = format!("0x{}", tip.consensus_hash);
 
     let burn_blocks = test_observer::get_burn_blocks();
+    let parent_burn_block = burn_blocks.get(burn_blocks.len() - 2).unwrap();
     let burn_block = burn_blocks.last().unwrap();
     assert_eq!(
         burn_block.get("consensus_hash").unwrap().as_str().unwrap(),
         expected_consensus_hash
+    );
+
+    let parent_burn_block_hash = parent_burn_block
+        .get("burn_block_hash")
+        .unwrap()
+        .as_str()
+        .unwrap();
+
+    assert_eq!(
+        burn_block
+            .get("parent_burn_block_hash")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        parent_burn_block_hash
     );
 
     let stacks_blocks = test_observer::get_blocks();
@@ -11503,7 +11531,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
             let recipient_sk = StacksPrivateKey::random();
             let recipient_addr = tests::to_addr(&recipient_sk);
             let sender_addr = tests::to_addr(sender_sk);
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 sender_sk,
                 *nonce,
                 transfer_fee,
@@ -11559,7 +11587,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
             let sender_addr = tests::to_addr(sender_sk);
             let recipient_sk = StacksPrivateKey::random();
             let recipient_addr = tests::to_addr(&recipient_sk);
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 sender_sk,
                 *nonce,
                 transfer_fee,
@@ -11620,7 +11648,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
             let sender_addr = tests::to_addr(sender_sk);
             let fee = set_fee();
             assert!(fee >= 180 && fee <= 2000);
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 sender_sk,
                 *nonce,
                 fee,
@@ -11840,7 +11868,7 @@ fn larger_mempool() {
             let recipient_sk = StacksPrivateKey::random();
             let recipient_addr = tests::to_addr(&recipient_sk);
             let sender_addr = tests::to_addr(sender_sk);
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 sender_sk,
                 *nonce,
                 transfer_fee,
@@ -11896,7 +11924,7 @@ fn larger_mempool() {
             let sender_addr = tests::to_addr(sender_sk);
             let recipient_sk = StacksPrivateKey::random();
             let recipient_addr = tests::to_addr(&recipient_sk);
-            let transfer_tx = make_stacks_transfer(
+            let transfer_tx = make_stacks_transfer_serialized(
                 sender_sk,
                 *nonce,
                 transfer_fee,
@@ -11957,7 +11985,7 @@ fn larger_mempool() {
             for (sender_sk, nonce) in senders.iter_mut() {
                 let sender_addr = tests::to_addr(sender_sk);
                 let fee = thread_rng().gen_range(180..2000);
-                let transfer_tx = make_stacks_transfer(
+                let transfer_tx = make_stacks_transfer_serialized(
                     sender_sk,
                     *nonce,
                     fee,
@@ -12265,7 +12293,7 @@ fn handle_considered_txs_foreign_key_failure() {
     next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
         .unwrap();
 
-    let good_transfer_tx = make_stacks_transfer(
+    let good_transfer_tx = make_stacks_transfer_serialized(
         &good_sender_sk,
         0,
         send_fee,
@@ -12287,7 +12315,7 @@ fn handle_considered_txs_foreign_key_failure() {
     TEST_MINE_STALL.set(true);
     TEST_TX_STALL.set(true);
 
-    let bad_transfer_tx = make_stacks_transfer(
+    let bad_transfer_tx = make_stacks_transfer_serialized(
         &bad_sender_sk,
         0,
         send_fee,
@@ -12335,6 +12363,117 @@ fn handle_considered_txs_foreign_key_failure() {
         .lock()
         .expect("Mutex poisoned")
         .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+fn empty_mempool_sleep_ms() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, _miner_account) = naka_neon_integration_conf(None);
+    let password = "12345".to_string();
+    conf.connection_options.auth_token = Some(password.clone());
+    let stacker_sk = setup_stacker(&mut conf);
+    let signer_sk = Secp256k1PrivateKey::random();
+    let signer_addr = tests::to_addr(&signer_sk);
+    let sender_sk = Secp256k1PrivateKey::random();
+    // setup sender + recipient for a stx transfer
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    conf.add_initial_balance(
+        PrincipalData::from(sender_addr).to_string(),
+        send_amt + send_fee,
+    );
+    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+
+    // Set the empty mempool sleep time to something long enough that we can
+    // see the effect in the test.
+    conf.miner.empty_mempool_sleep_time = Duration::from_secs(30);
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks,
+        ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    let mut signers = TestSigners::new(vec![signer_sk]);
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    blind_signer(&conf, &signers, &counters);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // Sleep for 5 seconds to ensure that the miner tries to mine and sees an
+    // empty mempool.
+    thread::sleep(Duration::from_secs(5));
+
+    info!("------------------------- Submit a transaction -------------------------");
+    let proposals_before = naka_proposed_blocks.load(Ordering::SeqCst);
+
+    let transfer_tx = make_stacks_transfer_serialized(
+        &sender_sk,
+        0,
+        send_fee,
+        conf.burnchain.chain_id,
+        &signer_addr.into(),
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+
+    // The miner should have slept for 30 seconds after seeing an empty mempool
+    // before trying to mine again. Let's check that there was at least 10s
+    // before the next block proposal.
+    wait_for(10, || {
+        let proposals_after = naka_proposed_blocks.load(Ordering::SeqCst);
+        Ok(proposals_after > proposals_before)
+    })
+    .expect_err("Expected to wait for 30 seconds before mining a block");
+
+    // Wait for the transaction to be mined
+    wait_for(60, || {
+        let account = get_account(&http_origin, &sender_addr);
+        Ok(account.nonce == 1)
+    })
+    .expect("Timed out waiting for transaction to be mined after delay");
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+
     run_loop_stopper.store(false, Ordering::SeqCst);
 
     run_loop_thread.join().unwrap();

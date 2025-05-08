@@ -1184,7 +1184,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
                     &analysis,
                     contract_src,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -1470,7 +1470,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
                     &analysis,
                     contract_src,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();

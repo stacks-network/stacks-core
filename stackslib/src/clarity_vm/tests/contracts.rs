@@ -132,7 +132,7 @@ fn test_get_burn_block_info_eval() {
                     &analysis,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -335,7 +335,7 @@ fn publish_contract(
             &analysis,
             contract,
             None,
-            |_, _| false,
+            |_, _| None,
             None,
         )?;
         tx.save_analysis(contract_id, &analysis)?;
@@ -458,7 +458,7 @@ fn trait_invocation_cross_epoch() {
                     &invoke_contract_id,
                     "invocation-1",
                     &[],
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -477,7 +477,8 @@ fn trait_invocation_cross_epoch() {
                     &invoke_contract_id,
                     "invocation-1",
                     &[],
-                    |_, _| false, None
+                    |_, _| None,
+                    None
                 )
                 .unwrap_err();
 
@@ -500,7 +501,8 @@ fn trait_invocation_cross_epoch() {
                     &invoke_contract_id,
                     "invocation-2",
                     &[Value::Principal(impl_contract_id.clone().into())],
-                    |_, _| false, None
+                    |_, _| None,
+                    None
                 )
                 .unwrap_err();
 
@@ -524,7 +526,7 @@ fn trait_invocation_cross_epoch() {
                     &invoke_contract_id,
                     "invocation-1",
                     &[],
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -542,7 +544,7 @@ fn trait_invocation_cross_epoch() {
                     &invoke_contract_id,
                     "invocation-2",
                     &[Value::Principal(impl_contract_id.clone().into())],
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -627,7 +629,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     &analysis,
                     math_trait,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -653,7 +655,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     &analysis,
                     compute_trait,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -679,7 +681,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     &analysis,
                     impl_compute,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -705,7 +707,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     &analysis,
                     impl_math,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -731,7 +733,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     &analysis,
                     use_compute,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -764,7 +766,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     &analysis,
                     use_compute,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -790,7 +792,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     &analysis,
                     use_compute,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -811,7 +813,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     &use_compute_20_id,
                     "do-it-static",
                     &[],
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -832,7 +834,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                         Value::Principal(impl_math_id.clone().into()),
                         Value::UInt(1),
                     ],
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -850,7 +852,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     &use_compute_21_c1_id,
                     "do-it-static",
                     &[],
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -871,7 +873,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                         Value::Principal(impl_math_id.clone().into()),
                         Value::UInt(1),
                     ],
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -889,7 +891,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                     &use_compute_21_c2_id,
                     "do-it-static",
                     &[],
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -910,7 +912,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                         Value::Principal(impl_math_id.into()),
                         Value::UInt(1),
                     ],
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -980,7 +982,7 @@ fn test_block_heights() {
                     &analysis,
                     contract_clarity1,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None
                 ).unwrap();
 
@@ -1041,7 +1043,7 @@ fn test_block_heights() {
                     &analysis,
                     contract_clarity3,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None
                 ).unwrap();
         });
@@ -1262,7 +1264,7 @@ fn test_block_heights_across_versions() {
                     &analysis,
                     contract_e2c1_2,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -1294,7 +1296,7 @@ fn test_block_heights_across_versions() {
                     &analysis,
                     contract_e2c1_2,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -1328,7 +1330,7 @@ fn test_block_heights_across_versions() {
                     &analysis,
                     &contract_e3c3,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -1397,7 +1399,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                     &analysis,
                     contract_e2c1_2,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -1426,7 +1428,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                     &analysis,
                     contract_e2c1_2,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -1460,7 +1462,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                     &analysis,
                     &contract_e3c3,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -1477,7 +1479,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                 &contract_id_e2c1,
                 "get-it",
                 &[Value::Principal(contract_id_e3c3.clone().into())],
-                |_, _| false,
+                |_, _| None,
                 None,
             )
             .unwrap();
@@ -1490,7 +1492,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                 &contract_id_e2c2,
                 "get-it",
                 &[Value::Principal(contract_id_e3c3.clone().into())],
-                |_, _| false,
+                |_, _| None,
                 None,
             )
             .unwrap();
@@ -1548,7 +1550,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                     &analysis,
                     contract_e2c1_2,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -1577,7 +1579,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                     &analysis,
                     contract_e2c1_2,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -1611,7 +1613,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                     &analysis,
                     &contract_e3c3,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -1628,7 +1630,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                 &contract_id_e3c3,
                 "get-it",
                 &[Value::Principal(contract_id_e2c1.clone().into())],
-                |_, _| false,
+                |_, _| None,
                 None,
             )
             .unwrap();
@@ -1641,7 +1643,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                 &contract_id_e3c3,
                 "get-it",
                 &[Value::Principal(contract_id_e2c2.clone().into())],
-                |_, _| false,
+                |_, _| None,
                 None,
             )
             .unwrap();
@@ -1689,7 +1691,7 @@ fn test_block_heights_at_block() {
                     &analysis,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None
                 ).unwrap();
             });
@@ -1753,7 +1755,7 @@ fn test_get_block_info_time() {
                     &analysis,
                     contract2,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -1777,7 +1779,7 @@ fn test_get_block_info_time() {
                     &analysis,
                     contract3,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -1801,7 +1803,7 @@ fn test_get_block_info_time() {
                     &analysis,
                     contract3_3,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();

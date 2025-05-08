@@ -391,7 +391,7 @@ pub fn setup_states_with_epochs(
                         Value::UInt(burnchain.pox_constants.reward_cycle_length as u128),
                         Value::UInt(burnchain.pox_constants.pox_rejection_fraction as u128),
                     ],
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .expect("Failed to set burnchain parameters in PoX contract");
@@ -446,6 +446,7 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _burns: u64,
         _slot_holders: Vec<PoxAddress>,
         _consensus_hash: &ConsensusHash,
+        _parent_burn_block_hash: &BurnchainHeaderHash,
     ) {
     }
 }
