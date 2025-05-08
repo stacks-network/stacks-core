@@ -542,10 +542,14 @@ pub fn call_function<'a>(
         .get_memory(&mut store, "memory")
         .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-    // Determine how much space is needed for arguments
+    // Values that need space to be written at `offset` are lists according to
+    // pass_argument_to_wasm, the function that writes to memory. Tuples,
+    // optionals and response types can also include lists, thus the function
+    // recursively checks the nested types to calculate the total space needed
+    // for representations in memory.
     let mut arg_size = 0;
-    for arg in func_types.get_arg_types() {
-        arg_size += get_type_in_memory_size(arg, false);
+    for (arg, ty) in args.iter().zip(func_types.get_arg_types()) {
+        arg_size += get_arg_repr_size(arg, ty, false);
     }
     let mut in_mem_offset = offset + arg_size;
 
@@ -612,6 +616,179 @@ pub const STANDARD_PRINCIPAL_BYTES: usize = PRINCIPAL_BYTES + CONTRACT_NAME_LENG
 pub const CONTRACT_NAME_MAX_LENGTH: usize = 128;
 // Standard principal, but at most 128 character function name
 pub const PRINCIPAL_BYTES_MAX: usize = STANDARD_PRINCIPAL_BYTES + CONTRACT_NAME_MAX_LENGTH;
+
+/// Return the number of bytes required to represent arguments in memory.
+/// The function calculates the space needed for the representations to be
+/// written to memory without writing.
+/// - When a value is in a list, calculate its full representation size;
+/// - When a value contains a list (e.g. response of list), only calculate the
+///   list's size
+fn get_arg_repr_size(value: &Value, ty: &TypeSignature, in_list: bool) -> i32 {
+    match ty {
+        TypeSignature::NoType => {
+            if in_list {
+                4
+            } else {
+                0
+            }
+        }
+        TypeSignature::IntType | TypeSignature::UIntType => {
+            if in_list {
+                16
+            } else {
+                0
+            }
+        }
+        TypeSignature::BoolType => {
+            if in_list {
+                4
+            } else {
+                0
+            }
+        }
+        TypeSignature::SequenceType(SequenceSubtype::ListType(list)) => {
+            let list_data = value_as_list(value).expect("Failed to get Value of List");
+            let elem_ty = list.get_list_item_type();
+            let size = list_data
+                .data
+                .iter()
+                .map(|elem| get_arg_repr_size(elem, elem_ty, true))
+                .sum::<i32>();
+
+            if in_list {
+                size + 8 // offset + length
+            } else {
+                size
+            }
+        }
+        // for string and buffer types
+        TypeSignature::SequenceType(_) => {
+            if in_list {
+                8
+            } else {
+                0
+            } // offset + length
+        }
+        TypeSignature::PrincipalType
+        | TypeSignature::CallableType(_)
+        | TypeSignature::TraitReferenceType(_) => {
+            if in_list {
+                8
+            } else {
+                0
+            }
+        }
+        TypeSignature::TupleType(type_sig) => {
+            let tuple_data = value_as_tuple(value).expect("Failed to get Tuple of value");
+
+            if in_list {
+                type_sig
+                    .get_type_map()
+                    .iter()
+                    .map(|(key, val_type)| {
+                        let val = tuple_data
+                            .data_map
+                            .get(key)
+                            .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))
+                            .unwrap();
+                        get_arg_repr_size(val, val_type, in_list)
+                    })
+                    .sum()
+            } else {
+                // Check for nested lists in tuple
+                type_sig
+                    .get_type_map()
+                    .iter()
+                    .filter_map(|(key, val_type)| match val_type {
+                        TypeSignature::SequenceType(SequenceSubtype::ListType(_))
+                        | TypeSignature::ResponseType(_)
+                        | TypeSignature::OptionalType(_)
+                        | TypeSignature::TupleType(_) => {
+                            let val = tuple_data
+                                .data_map
+                                .get(key)
+                                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))
+                                .unwrap();
+                            Some(get_arg_repr_size(val, val_type, in_list))
+                        }
+                        _ => None,
+                    })
+                    .sum()
+            }
+        }
+        TypeSignature::OptionalType(inner_ty) => {
+            let opt_data = value_as_optional(value).expect("Failed to get OptionalData from value");
+
+            if in_list {
+                let mut size = 4; // Size for indicator
+                if let Some(inner) = opt_data.data.as_ref() {
+                    size += get_arg_repr_size(inner, inner_ty, in_list);
+                } else {
+                    size += get_type_size(inner_ty);
+                }
+                size
+            } else {
+                // Check for nested list in optional
+                if let Some(inner) = opt_data.data.as_ref() {
+                    match **inner_ty {
+                        TypeSignature::SequenceType(SequenceSubtype::ListType(_))
+                        | TypeSignature::ResponseType(_)
+                        | TypeSignature::OptionalType(_)
+                        | TypeSignature::TupleType(_) => {
+                            return get_arg_repr_size(inner, inner_ty, in_list);
+                        }
+                        _ => 0,
+                    }
+                } else {
+                    0
+                }
+            }
+        }
+        TypeSignature::ResponseType(inner_types) => {
+            let res = value_as_response(value).expect("failed to get ResponseData from value");
+
+            if in_list {
+                let mut size = 4; // Size for indicator
+                if res.committed {
+                    size += get_arg_repr_size(&res.data, &inner_types.0, in_list);
+                    // Skip space for the err value
+                    size += get_type_size(&inner_types.1);
+                } else {
+                    // Skip space for the ok value
+                    size += get_type_size(&inner_types.0);
+                    size += get_arg_repr_size(&res.data, &inner_types.1, in_list);
+                }
+                size
+            } else {
+                // Check for nested list in response
+                if res.committed {
+                    match inner_types.0 {
+                        TypeSignature::SequenceType(SequenceSubtype::ListType(_))
+                        | TypeSignature::ResponseType(_)
+                        | TypeSignature::OptionalType(_)
+                        | TypeSignature::TupleType(_) => {
+                            return get_arg_repr_size(&res.data, &inner_types.0, in_list);
+                        }
+                        _ => 0,
+                    }
+                } else {
+                    match inner_types.1 {
+                        TypeSignature::SequenceType(SequenceSubtype::ListType(_))
+                        | TypeSignature::ResponseType(_)
+                        | TypeSignature::OptionalType(_)
+                        | TypeSignature::TupleType(_) => {
+                            return get_arg_repr_size(&res.data, &inner_types.1, in_list);
+                        }
+                        _ => 0,
+                    }
+                }
+            }
+        }
+        TypeSignature::ListUnionType(_) => {
+            unreachable!("not a value type")
+        }
+    }
+}
 
 /// Return the number of bytes required to representation of a value of the
 /// type `ty`. For in-memory types, this is just the size of the offset and
