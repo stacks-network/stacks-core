@@ -79,7 +79,8 @@ impl SignerTestContext {
         get_nakamoto_headers(conf)
             .into_iter()
             .filter(|block| {
-                // TODO: Before it was == ---- does it make sense to do <= to exclude previous blocks also?
+                // TODO: Before it was ==
+                // Does it make sense to do <= to exclude previous blocks also?
                 if block.stacks_block_height <= start_block_height {
                     return false;
                 }

@@ -102,7 +102,6 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChang
             let burnchain = conf.get_burnchain();
             let sortdb = burnchain.open_sortition_db(true).unwrap();
 
-            // TODO: Can I make it more elegant?
             self.ctx
                 .miners
                 .lock()

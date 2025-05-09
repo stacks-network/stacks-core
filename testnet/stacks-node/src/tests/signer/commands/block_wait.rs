@@ -264,12 +264,13 @@ impl WaitForBlockRejectionWithRejectReason {
 }
 
 impl Command<SignerTestState, SignerTestContext> for WaitForBlockRejectionWithRejectReason {
-    fn check(&self, _state: &SignerTestState) -> bool {
+    fn check(&self, state: &SignerTestState) -> bool {
         info!(
-            "Checking: Waiting for block proposal from miner 1 and verifying rejection with reason {:?}",
-            self.reason
+            "Checking: Waiting for block proposal from miner 1 and verifying rejection with reason {:?}. Result: {:?}",
+            self.reason,
+            state.last_block_hash != stacks_common::util::hash::Sha512Trunc256Sum([0; 32])
         );
-        true
+        state.last_block_hash != stacks_common::util::hash::Sha512Trunc256Sum([0; 32])
     }
 
     fn apply(&self, state: &mut SignerTestState) {
