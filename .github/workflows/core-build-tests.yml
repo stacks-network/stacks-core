@@ -39,11 +39,10 @@ jobs:
         run: |
           cargo check --features monitoring_prom
 
-      ## by default, RUSTFLAGS is set with `-D warnings`, which will fail this step. we run this with an empty RUSTFLAGS so the warnings won't cause a step failure
       - name: Cargo Check (clarity)
         id: cargo_check_clarity
         run: |
-          RUSTFLAGS="" cargo check -p clarity --no-default-features
+          cargo check -p clarity --no-default-features
 
       - name: Cargo Check (stacks-common)
         id: cargo_check_stacks-common
