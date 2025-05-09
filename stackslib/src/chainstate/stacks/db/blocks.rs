@@ -205,6 +205,7 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _burns: u64,
         _slot_holders: Vec<PoxAddress>,
         _consensus_hash: &ConsensusHash,
+        _parent_burn_block_hash: &BurnchainHeaderHash,
     ) {
         error!("We should never try to announce to the dummy dispatcher");
         panic!();
@@ -4175,7 +4176,7 @@ impl StacksChainState {
                     &boot_code_id(active_pox_contract, mainnet),
                     "stack-stx",
                     &args,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
             });
@@ -4384,7 +4385,7 @@ impl StacksChainState {
                         until_burn_height_val,
                         reward_addr_val,
                     ],
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
             });
@@ -4491,7 +4492,7 @@ impl StacksChainState {
                         Value::UInt(round.clone().into()),
                         Value::UInt(reward_cycle.clone().into()),
                     ],
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
             });

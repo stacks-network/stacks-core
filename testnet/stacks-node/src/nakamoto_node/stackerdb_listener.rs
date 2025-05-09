@@ -235,7 +235,12 @@ impl StackerDBListener {
             }) else {
                 continue;
             };
-            let SignerEvent::SignerMessages(signer_set, messages) = signer_event else {
+            let SignerEvent::SignerMessages {
+                signer_set,
+                messages,
+                ..
+            } = signer_event
+            else {
                 debug!("StackerDBListener: Received signer event other than a signer message. Ignoring.");
                 continue;
             };
@@ -255,7 +260,7 @@ impl StackerDBListener {
                 "slot_ids" => ?slot_ids,
             );
 
-            for (message, slot_id) in messages.into_iter().zip(slot_ids) {
+            for ((_, message), slot_id) in messages.into_iter().zip(slot_ids) {
                 let Some(signer_entry) = &self.signer_entries.get(&slot_id) else {
                     return Err(NakamotoNodeError::SignerSignatureError(
                         "Signer entry not found".into(),

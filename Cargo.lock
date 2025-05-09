@@ -1888,6 +1888,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "madhouse"
+version = "0.1.0"
+source = "git+https://github.com/stacks-network/madhouse-rs.git?rev=fc651ddcbaf85e888b06d4a87aa788c4b7ba9309#fc651ddcbaf85e888b06d4a87aa788c4b7ba9309"
+dependencies = [
+ "proptest 1.6.0 (git+https://github.com/proptest-rs/proptest.git?rev=c9bdf18c232665b2b740c667c81866b598d06dc7)",
+]
+
+[[package]]
 name = "matchers"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2195,6 +2203,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
+name = "pinny"
+version = "0.0.2"
+source = "git+https://github.com/BitcoinL2-Labs/pinny-rs.git?rev=54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49#54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "regex",
+ "syn 2.0.58",
+ "thiserror",
+ "toml",
+]
+
+[[package]]
 name = "piper"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2342,6 +2363,25 @@ name = "proptest"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "14cae93065090804185d3b75f0bf93b8eeda30c7a9b4a33d3bdb3988d6229e50"
+dependencies = [
+ "bit-set",
+ "bit-vec",
+ "bitflags 2.4.2",
+ "lazy_static",
+ "num-traits",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "rand_xorshift",
+ "regex-syntax 0.8.2",
+ "rusty-fork",
+ "tempfile",
+ "unarray",
+]
+
+[[package]]
+name = "proptest"
+version = "1.6.0"
+source = "git+https://github.com/proptest-rs/proptest.git?rev=c9bdf18c232665b2b740c667c81866b598d06dc7#c9bdf18c232665b2b740c667c81866b598d06dc7"
 dependencies = [
  "bit-set",
  "bit-vec",
@@ -3163,7 +3203,7 @@ dependencies = [
  "lazy_static",
  "libsecp256k1",
  "nix",
- "proptest",
+ "proptest 1.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.8.5",
  "rand_core 0.6.4",
  "ripemd",
@@ -3197,9 +3237,12 @@ dependencies = [
  "lazy_static",
  "libc",
  "libsigner",
+ "madhouse",
  "mockito",
  "mutants",
  "pico-args",
+ "pinny",
+ "proptest 1.6.0 (git+https://github.com/proptest-rs/proptest.git?rev=c9bdf18c232665b2b740c667c81866b598d06dc7)",
  "rand 0.8.5",
  "regex",
  "reqwest",
