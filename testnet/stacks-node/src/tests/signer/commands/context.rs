@@ -71,14 +71,10 @@ impl SignerTestContext {
     }
 }
 
-type StacksHeightBefore = u64;
-type TxId = String;
-
 #[derive(Debug, Default)]
 pub struct SignerTestState {
     pub is_booted_to_nakamoto: bool,
     pub mining_stalled: bool,
-    pub transfer_txs_submitted: Vec<(StacksHeightBefore, TxId)>,
     pub blocks_mined_per_miner: HashMap<usize, usize>,
 }
 

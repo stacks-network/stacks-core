@@ -1,84 +1,23 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use madhouse::{Command, CommandWrapper};
-use proptest::prelude::{Just, Strategy};
+use proptest::prelude::Strategy;
 
 use super::context::{SignerTestContext, SignerTestState};
 use crate::tests::neon_integrations::get_chain_info;
-use crate::tests::signer::v0::MultipleMinerTest;
 
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-
-pub struct SendTransferTx {
-    miners: Arc<Mutex<MultipleMinerTest>>,
-}
-
-impl SendTransferTx {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
-        Self { miners }
-    }
-}
-
-impl Command<SignerTestState, SignerTestContext> for SendTransferTx {
-    fn check(&self, _state: &SignerTestState) -> bool {
-        info!("Checking: Sending transfer tx. Result: {:?}", true);
-        true
-    }
-
-    fn apply(&self, state: &mut SignerTestState) {
-        info!("Applying: Sending transfer tx");
-
-        let (conf_1, _) = self.miners.lock().unwrap().get_node_configs();
-        let stacks_height_before = get_chain_info(&conf_1).stacks_tip_height;
-        let (txid, _) = self.miners.lock().unwrap().send_transfer_tx();
-
-        state
-            .transfer_txs_submitted
-            .push((stacks_height_before, txid));
-    }
-
-    fn label(&self) -> String {
-        "SEND_TRANSFER_TX".to_string()
-    }
-
-    fn build(
-        ctx: Arc<SignerTestContext>,
-    ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(SendTransferTx::new(ctx.miners.clone())))
-    }
-}
-
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
+// This command simulates sending a Stacks transfer transaction and then mining a block
+// (or blocks) to confirm it. It verifies that the Stacks chain height increases
+// as expected after the mining operation.
 
 pub struct SendAndMineTransferTx {
-    miners: Arc<Mutex<MultipleMinerTest>>,
+    ctx: Arc<SignerTestContext>,
     timeout_secs: u64,
 }
 
 impl SendAndMineTransferTx {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>, timeout_secs: u64) -> Self {
-        Self {
-            miners,
-            timeout_secs,
-        }
+    pub fn new(ctx: Arc<SignerTestContext>, timeout_secs: u64) -> Self {
+        Self { ctx, timeout_secs }
     }
 }
 
@@ -97,14 +36,17 @@ impl Command<SignerTestState, SignerTestContext> for SendAndMineTransferTx {
             self.timeout_secs
         );
 
-        let (conf_1, _) = self.miners.lock().unwrap().get_node_configs();
+        let (conf_1, _) = self.ctx.get_node_configs();
         let stacks_height_before = get_chain_info(&conf_1).stacks_tip_height;
-
-        let mut miners = self.miners.lock().unwrap();
-        miners
+        
+        self.ctx
+            .miners
+            .lock()
+            .unwrap()
             .send_and_mine_transfer_tx(self.timeout_secs)
             .expect("Failed to send and mine transfer tx");
 
+        // FIXME: To remove
         state.increment_blocks_mined_by_miner(2);
 
         let stacks_height_after = get_chain_info(&conf_1).stacks_tip_height;
@@ -123,7 +65,7 @@ impl Command<SignerTestState, SignerTestContext> for SendAndMineTransferTx {
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (20u64..40u64).prop_map(move |timeout_secs| {
-            CommandWrapper::new(SendAndMineTransferTx::new(ctx.miners.clone(), timeout_secs))
+            CommandWrapper::new(SendAndMineTransferTx::new(ctx.clone(), timeout_secs))
         })
     }
 }

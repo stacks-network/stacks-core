@@ -271,8 +271,10 @@ impl Command<SignerTestState, SignerTestContext> for BuildNextBitcoinBlocks {
     fn apply(&self, _state: &mut SignerTestState) {
         info!("Applying: Build next {} Bitcoin block(s)", self.num_blocks);
 
-        let mut miners = self.ctx.miners.lock().unwrap();
-        miners
+        self.ctx
+            .miners
+            .lock()
+            .unwrap()
             .btc_regtest_controller_mut()
             .build_next_block(self.num_blocks);
     }

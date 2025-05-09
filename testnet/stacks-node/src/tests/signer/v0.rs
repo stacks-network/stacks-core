@@ -10989,10 +10989,10 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
 
     scenario![
         test_context,
-        (MinerCommitOp::disable_for(test_context.clone(), MINER2)), // Skip commit operations for miner 2
+        (MinerCommitOp::disable_for(test_context.clone(), MINER2)),
         BootToEpoch3, // TODO: This one uses 'conf_1' --- I don't think so, but might it make sense to allow the use of 'conf_2' also?
-        (MinerCommitOp::disable_for(test_context.clone(), MINER1)), // Skip commit operations for miner 1
-        (MineBitcoinBlockTenureChange::new(test_context.clone(), MINER1)), // Miner 1 mines a block N
+        (MinerCommitOp::disable_for(test_context.clone(), MINER1)),
+        (MineBitcoinBlockTenureChange::new(test_context.clone(), MINER1)),
         (VerifyMinerWonSortition::new(test_context.clone(), MINER1)),
         SubmitBlockCommitMiner2,
         (StacksMining::pause()),
@@ -11001,8 +11001,8 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         (StacksMining::resume()),
         WaitForTenureChangeBlockFromMiner2, // Miner 2 mines a block N + 1
         (VerifyMinerWonSortition::new(test_context.clone(), MINER2)),
-        SendAndMineTransferTx, // Miner 2 mines a block N + 2
-        SendAndMineTransferTx, // Miner 2 mines a block N + 3
+        SendAndMineTransferTx, // FIXME: Do we know which miner mines the block?
+        SendAndMineTransferTx,
         (BuildNextBitcoinBlocks::new(test_context.clone(), num_blocks)),
         (WaitForAndVerifyBlockRejection::new(
             test_context.miners.clone(),
