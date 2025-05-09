@@ -6,10 +6,7 @@ use proptest::prelude::{prop_oneof, Just, Strategy};
 use super::context::{SignerTestContext, SignerTestState};
 
 /// Command to globally pause or resume Stacks block mining within the test environment.
-///
-/// This command is used to simulate network-wide conditions where Stacks block
-/// production might halt or resume.
-
+/// This command is used to simulate network-wide conditions where Stacks block production might halt or resume.
 pub struct StacksMining {
     should_pause: bool,
 }

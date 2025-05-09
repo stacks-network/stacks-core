@@ -6,10 +6,8 @@ use proptest::prelude::Strategy;
 use super::context::{SignerTestContext, SignerTestState};
 use crate::tests::neon_integrations::get_chain_info;
 
-// This command simulates sending a Stacks transfer transaction and then mining a block
-// (or blocks) to confirm it. It verifies that the Stacks chain height increases
-// as expected after the mining operation.
-
+// This command simulates sending a Stacks transfer transaction and then mining a block to confirm it.
+// It verifies that the Stacks chain height increases as expected after the mining operation.
 pub struct SendAndMineTransferTx {
     ctx: Arc<SignerTestContext>,
     timeout_secs: u64,
@@ -38,7 +36,7 @@ impl Command<SignerTestState, SignerTestContext> for SendAndMineTransferTx {
 
         let (conf_1, _) = self.ctx.get_node_configs();
         let stacks_height_before = get_chain_info(&conf_1).stacks_tip_height;
-        
+
         self.ctx
             .miners
             .lock()

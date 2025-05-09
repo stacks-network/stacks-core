@@ -1,5 +1,5 @@
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
@@ -8,19 +8,18 @@ use tracing::info;
 
 use super::context::{SignerTestContext, SignerTestState};
 use crate::tests::neon_integrations::get_chain_info;
-use crate::tests::signer::v0::{wait_for_block_pushed_by_miner_key, MultipleMinerTest};
+use crate::tests::signer::v0::wait_for_block_pushed_by_miner_key;
 
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-
+/// Command to mine a new Bitcoin block and trigger a tenure change for a specified miner.
+///
+/// This command simulates the process of a miner finding a Bitcoin block, submitting a tenure
+/// change transaction, and then mining a corresponding Stacks Nakamoto block. It is used to test
+/// the tenure rotation mechanism in the Nakamoto consensus protocol.
+///
+/// Upon execution, it:
+/// 1. Mines a Bitcoin block with a tenure change transaction (cause: BlockFound)
+/// 2. Waits for the specified miner to mine a Nakamoto block
+/// 3. Verifies the block was successfully added to the chain
 pub struct MineBitcoinBlockTenureChange {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
@@ -115,10 +114,10 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChang
                 .expect("Failed to mine BTC block");
 
             let (miner_pk_1, miner_pk_2) = self.ctx.get_miner_public_keys();
-            let miner_pk = if self.miner_index == 1 {
-                miner_pk_1
-            } else {
-                miner_pk_2
+            let miner_pk = match self.miner_index {
+                1 => miner_pk_1,
+                2 => miner_pk_2,
+                _ => panic!("Invalid miner_index: {}", self.miner_index),
             };
 
             (stacks_height_before, conf, miner_pk)
@@ -171,28 +170,18 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChang
     }
 }
 
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-
+/// Command to mine a single Bitcoin block in the test environment and wait for its confirmation.
+/// This command simulates the process of mining a new Bitcoin block in the Stacks blockchain
+/// testing framework. Unlike the tenure change variant, this command simply advances the
+/// Bitcoin chain by one block without explicitly triggering a tenure change transaction.
 pub struct MineBitcoinBlock {
-    miners: Arc<Mutex<MultipleMinerTest>>,
+    ctx: Arc<SignerTestContext>,
     timeout_secs: u64,
 }
 
 impl MineBitcoinBlock {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>, timeout_secs: u64) -> Self {
-        Self {
-            miners,
-            timeout_secs,
-        }
+    pub fn new(ctx: Arc<SignerTestContext>, timeout_secs: u64) -> Self {
+        Self { ctx, timeout_secs }
     }
 }
 
@@ -209,16 +198,17 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlock {
         );
 
         let sortdb = {
-            let miners = self.miners.lock().unwrap();
-            let (conf_1, _) = miners.get_node_configs();
+            let (conf_1, _) = self.ctx.get_node_configs();
             let burnchain = conf_1.get_burnchain();
             let sortdb = burnchain.open_sortition_db(true).unwrap();
             sortdb
         };
 
         {
-            let mut miners = self.miners.lock().unwrap();
-            miners
+            self.ctx
+                .miners
+                .lock()
+                .unwrap()
                 .mine_bitcoin_blocks_and_confirm(&sortdb, 1, self.timeout_secs)
                 .expect("Failed to mine BTC block");
         }
@@ -232,22 +222,22 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlock {
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (60u64..90u64).prop_map(move |timeout_secs| {
-            CommandWrapper::new(MineBitcoinBlock::new(ctx.miners.clone(), timeout_secs))
+            CommandWrapper::new(MineBitcoinBlock::new(ctx.clone(), timeout_secs))
         })
     }
 }
 
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-
+/// Command to generate a specified number of Bitcoin blocks in the regtest environment.
+/// 
+/// Unlike other mining commands, this command directly instructs the Bitcoin regtest 
+/// controller to generate between 1-5 blocks without waiting for confirmations or
+/// monitoring their effect on the Stacks chain. It represents a low-level operation
+/// to advance the Bitcoin chain state.
+///
+/// The command:
+/// 1. Accesses the Bitcoin regtest controller
+/// 2. Retrieves the configured mining public key
+/// 3. Generates the specified number of blocks to the corresponding address
 pub struct BuildNextBitcoinBlocks {
     ctx: Arc<SignerTestContext>,
     num_blocks: u64,

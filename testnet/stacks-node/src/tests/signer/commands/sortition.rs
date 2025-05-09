@@ -7,14 +7,8 @@ use super::context::SignerTestState;
 use super::SignerTestContext;
 use crate::tests::signer::v0::verify_sortition_winner;
 
-/// Command to verify that a specific miner (identified by `miner_index`)
-/// is correctly recorded as the winner of the latest sortition in that miner's local sortition database.
-///
-/// This is used after a sortition event to ensure the specified miner's
-/// view of the sortition outcome is correct. It calls `verify_sortition_winner`,
-/// which asserts that the miner's public key hash is the one recorded for the
-/// sortition at the canonical burn chain tip within its sortition database.
-
+/// Command to verify that a specific miner is correctly recorded as
+/// the winner of the latest sortition in that miner's local sortition database.
 pub struct VerifyMinerWonSortition {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
@@ -77,15 +71,9 @@ impl Command<SignerTestState, SignerTestContext> for VerifyMinerWonSortition {
     }
 }
 
-/// Command to verify that the Stacks chain has reorged such that the burn block
-/// containing the last recorded sortition is no longer an ancestor of the current
-/// Stacks tip's burn parent. This implies the winner of that sortition was reorged.
-///
-/// Used in chain reorganization tests. It calls `assert_last_sortition_winner_reorged`,
-/// which compares the burn chain history leading to the current Stacks tip's parent
-/// against the burn chain history of the last sortition. A mismatch confirms the reorg
-/// of the previous sortition event.
-
+/// Command to verify that a Stacks chain reorganization has occurred by comparing consensus hashes.
+/// This checks if the last sortition's consensus hash differs from the current Stacks parent consensus hash,
+/// indicating that the previously selected sortition winner is no longer part of the canonical chain.
 pub struct VerifyLastSortitionWinnerReorged {
     ctx: Arc<SignerTestContext>,
 }

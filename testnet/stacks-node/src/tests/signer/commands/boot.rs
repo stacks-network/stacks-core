@@ -8,12 +8,7 @@ use crate::tests::neon_integrations::get_chain_info;
 
 /// Command to advance the test environment's burn chain and Stacks chain
 /// to the beginning of Stacks Epoch 3.0 (Nakamoto).
-///
-/// This command is typically used as an initial setup step in test scenarios
-/// that require the system to be operating under Epoch 3.0 rules and conditions.
-/// It ensures that both miners and the associated burn chain are progressed
-/// to the correct state.
-
+/// This command also mines a Nakamoto block
 pub struct BootToEpoch3 {
     ctx: Arc<SignerTestContext>,
 }

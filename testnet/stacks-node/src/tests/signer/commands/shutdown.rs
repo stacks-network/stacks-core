@@ -6,10 +6,8 @@ use proptest::prelude::{Just, Strategy};
 use super::context::{SignerTestContext, SignerTestState};
 
 /// Command to attempt to shut down the miner instances managed in the test context.
-///
 /// This command is typically intended for use at the end of a test scenario or
 /// when simulating a complete halt of mining operations.
-
 pub struct ShutdownMiners {
     ctx: Arc<SignerTestContext>,
 }
