@@ -1,20 +1,30 @@
+#[allow(unused_imports)]
 use std::collections::BTreeMap;
 
 use hashbrown::{HashMap, HashSet};
+#[allow(unused_imports)]
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
 
+#[allow(unused_imports)]
 #[cfg(feature = "rusqlite")]
 use crate::vm::analysis::mem_type_check;
+#[allow(unused_imports)]
 use crate::vm::analysis::ContractAnalysis;
+#[allow(unused_imports)]
 use crate::vm::ast::{build_ast_with_rules, ASTRules};
+#[allow(unused_imports)]
 use crate::vm::contexts::GlobalContext;
+#[allow(unused_imports)]
 use crate::vm::costs::LimitedCostTracker;
 #[cfg(feature = "rusqlite")]
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::docs::{get_input_type_string, get_output_type_string, get_signature};
+#[allow(unused_imports)]
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, Value};
+#[allow(unused_imports)]
 use crate::vm::version::ClarityVersion;
+#[allow(unused_imports)]
 use crate::vm::{self, ContractContext};
 
 const DOCS_GENERATION_EPOCH: StacksEpochId = StacksEpochId::Epoch2_05;
