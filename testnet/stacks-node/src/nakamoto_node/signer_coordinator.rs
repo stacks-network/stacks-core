@@ -28,7 +28,7 @@ use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::boot::{RewardSet, MINERS_NAME};
 use stacks::chainstate::stacks::db::StacksChainState;
-use stacks::chainstate::stacks::Error as ChainstateError;
+use stacks::chainstate::stacks::{Error as ChainstateError, StacksTransaction};
 use stacks::codec::StacksMessageCodec;
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::stackerdb::StackerDBs;
@@ -97,6 +97,7 @@ impl SignerCoordinator {
             reward_set,
             election_block,
             burnchain,
+            config,
         )?;
         let is_mainnet = config.is_mainnet();
         let rpc_socket = config
@@ -482,6 +483,13 @@ impl SignerCoordinator {
     pub fn get_tenure_extend_timestamp(&self) -> u64 {
         self.stackerdb_comms
             .get_tenure_extend_timestamp(self.weight_threshold)
+    }
+
+    /// Get the transactions that at least 70% of the signing power are
+    /// expecting to be replayed.
+    pub fn get_replay_transactions(&self) -> Vec<StacksTransaction> {
+        self.stackerdb_comms
+            .get_replay_transactions(self.weight_threshold)
     }
 
     /// Check if the tenure needs to change
