@@ -27,9 +27,6 @@ pub struct MineBitcoinBlockTenureChange {
 
 impl MineBitcoinBlockTenureChange {
     pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
-        if miner_index < 1 || miner_index > 2 {
-            panic!("Invalid miner index: {}", miner_index);
-        }
         Self { ctx, miner_index }
     }
 }
@@ -86,7 +83,7 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChang
             && burn_height > other_miner_height
     }
 
-    fn apply(&self, state: &mut SignerTestState) {
+    fn apply(&self, _state: &mut SignerTestState) {
         info!(
             "Applying: Miner {} mining Bitcoin block and tenure change tx",
             self.miner_index
@@ -129,14 +126,13 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChang
             self.miner_index
         );
 
+        // TODO: We already have the 'WaitForTenureChangeBlockFromMiner1/2' command, perhalps this is where the command can stop
+
         // This function mines a Nakamoto block
         let miner_block =
             wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk).expect(
                 &format!("Failed to get block for miner {}", self.miner_index),
             );
-
-        // FIXME: To remove
-        state.increment_blocks_mined_by_miner(self.miner_index);
 
         let mined_block_height = miner_block.header.chain_length;
 
@@ -212,6 +208,8 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlock {
                 .mine_bitcoin_blocks_and_confirm(&sortdb, 1, self.timeout_secs)
                 .expect("Failed to mine BTC block");
         }
+
+        // TODO: Should I assert something here?
     }
 
     fn label(&self) -> String {
@@ -267,6 +265,8 @@ impl Command<SignerTestState, SignerTestContext> for BuildNextBitcoinBlocks {
             .unwrap()
             .btc_regtest_controller_mut()
             .build_next_block(self.num_blocks);
+
+        // TODO: Should I assert something here?
     }
 
     fn label(&self) -> String {

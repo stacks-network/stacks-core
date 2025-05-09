@@ -28,7 +28,7 @@ impl Command<SignerTestState, SignerTestContext> for ShutdownMiners {
         info!("Applying: Shutting down miners");
         let mut shutdown_called = false;
 
-        // FIXME: Is this correct?
+        // FIXME: Is this correct? I don't think so
         if let Ok(miners_arc) = Arc::try_unwrap(self.ctx.miners.clone()) {
             if let Ok(miners) = miners_arc.into_inner() {
                 miners.shutdown();

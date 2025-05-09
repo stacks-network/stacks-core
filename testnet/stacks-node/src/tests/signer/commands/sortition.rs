@@ -52,6 +52,7 @@ impl Command<SignerTestState, SignerTestContext> for VerifyMinerWonSortition {
             _ => panic!("Invalid miner index: {}", self.miner_index),
         };
 
+        // Assertion is inside the verify_sortition_winner function
         verify_sortition_winner(&sortdb, &miner_pkh);
     }
 

@@ -13,8 +13,8 @@ mod transfer;
 pub use bitcoin_mining::{BuildNextBitcoinBlocks, MineBitcoinBlock, MineBitcoinBlockTenureChange};
 pub use block_commit::SubmitBlockCommit;
 pub use block_wait::{
-    VerifyMiner1BlockCount, WaitForAndVerifyBlockRejection, WaitForTenureChangeBlockFromMiner1,
-    WaitForTenureChangeBlockFromMiner2,
+    VerifyBlockCount, WaitForBlockProposal, WaitForBlockRejectionWithRejectReason,
+    WaitForTenureChangeBlockFromMiner1, WaitForTenureChangeBlockFromMiner2,
 };
 pub use boot::BootToEpoch3;
 pub use commit_ops::MinerCommitOp;

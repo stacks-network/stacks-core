@@ -13,9 +13,6 @@ pub struct SubmitBlockCommit {
 
 impl SubmitBlockCommit {
     pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
-        if miner_index < 1 || miner_index > 2 {
-            panic!("Invalid miner index: {}", miner_index);
-        }
         Self { ctx, miner_index }
     }
 }
@@ -72,6 +69,8 @@ impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommit {
                 self.miner_index
             ),
         }
+
+        // TODO: Should assert something here?
     }
 
     fn label(&self) -> String {

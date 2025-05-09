@@ -1,15 +1,14 @@
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use libsigner::v0::messages::RejectReason;
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 
 use super::context::{SignerTestContext, SignerTestState};
-use crate::stacks_common::types::PublicKey;
 use crate::tests::signer::v0::{
-    get_nakamoto_headers, wait_for_block_global_rejection_with_reject_reason,
-    wait_for_block_proposal, wait_for_block_pushed_by_miner_key, MultipleMinerTest,
+    wait_for_block_global_rejection_with_reject_reason, wait_for_block_proposal,
+    wait_for_block_pushed_by_miner_key,
 };
 
 /// ------------------------------------------------------------------------------------------
@@ -24,12 +23,12 @@ use crate::tests::signer::v0::{
 /// ------------------------------------------------------------------------------------------
 
 pub struct WaitForTenureChangeBlockFromMiner1 {
-    miners: Arc<Mutex<MultipleMinerTest>>,
+    ctx: Arc<SignerTestContext>,
 }
 
 impl WaitForTenureChangeBlockFromMiner1 {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
-        Self { miners }
+    pub fn new(ctx: Arc<SignerTestContext>) -> Self {
+        Self { ctx }
     }
 }
 
@@ -42,10 +41,10 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlockFro
         !state.mining_stalled
     }
 
-    fn apply(&self, state: &mut SignerTestState) {
+    fn apply(&self, _state: &mut SignerTestState) {
         info!("Applying: Waiting for Nakamoto block from miner 1");
 
-        let miners_arc = self.miners.clone();
+        let miners_arc = self.ctx.miners.clone();
 
         let (miner_pk_1, last_confirmed_nakamoto_height_counter) = {
             let miners = miners_arc.lock().unwrap();
@@ -66,9 +65,6 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlockFro
 
         let _miner_1_block = wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk_1)
             .expect(&format!("Failed to get block {}", expected_height));
-
-        // FIXME: To remove
-        state.increment_blocks_mined_by_miner(1);
     }
 
     fn label(&self) -> String {
@@ -79,7 +75,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlockFro
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         Just(CommandWrapper::new(
-            WaitForTenureChangeBlockFromMiner1::new(ctx.miners.clone()),
+            WaitForTenureChangeBlockFromMiner1::new(ctx.clone()),
         ))
     }
 }
@@ -96,12 +92,12 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlockFro
 /// ------------------------------------------------------------------------------------------
 
 pub struct WaitForTenureChangeBlockFromMiner2 {
-    miners: Arc<Mutex<MultipleMinerTest>>,
+    ctx: Arc<SignerTestContext>,
 }
 
 impl WaitForTenureChangeBlockFromMiner2 {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
-        Self { miners }
+    pub fn new(ctx: Arc<SignerTestContext>) -> Self {
+        Self { ctx }
     }
 }
 
@@ -114,10 +110,10 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlockFro
         !state.mining_stalled
     }
 
-    fn apply(&self, state: &mut SignerTestState) {
+    fn apply(&self, _state: &mut SignerTestState) {
         info!("Applying: Waiting for Nakamoto block from miner 2");
 
-        let miners_arc = self.miners.clone();
+        let miners_arc = self.ctx.miners.clone();
 
         let (miner_pk_2, last_confirmed_nakamoto_height_counter) = {
             let miners = miners_arc.lock().unwrap();
@@ -139,9 +135,6 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlockFro
         let _miner_2_block_n_1 =
             wait_for_block_pushed_by_miner_key(30, expected_stacks_height, &miner_pk_2)
                 .expect(&format!("Failed to get block {:?}", expected_stacks_height));
-
-        // FIXME: To remove
-        state.increment_blocks_mined_by_miner(2);
     }
 
     fn label(&self) -> String {
@@ -152,7 +145,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlockFro
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         Just(CommandWrapper::new(
-            WaitForTenureChangeBlockFromMiner2::new(ctx.miners.clone()),
+            WaitForTenureChangeBlockFromMiner2::new(ctx.clone()),
         ))
     }
 }
@@ -168,27 +161,27 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlockFro
 /// ------------------------------------------------------------------------------------------
 /// ------------------------------------------------------------------------------------------
 
-pub struct WaitForAndVerifyBlockRejection {
-    miners: Arc<Mutex<MultipleMinerTest>>,
+pub struct WaitForBlockProposal {
+    ctx: Arc<SignerTestContext>,
     reason: RejectReason,
-    num_signers: usize,
+    expected_block_height: u64,
 }
 
-impl WaitForAndVerifyBlockRejection {
+impl WaitForBlockProposal {
     pub fn new(
-        miners: Arc<Mutex<MultipleMinerTest>>,
+        ctx: Arc<SignerTestContext>,
         reason: RejectReason,
-        num_signers: usize,
+        expected_block_height: u64,
     ) -> Self {
         Self {
-            miners,
+            ctx,
             reason,
-            num_signers,
+            expected_block_height,
         }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for WaitForAndVerifyBlockRejection {
+impl Command<SignerTestState, SignerTestContext> for WaitForBlockProposal {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
             "Checking: Waiting for block proposal from miner 1 and verifying rejection with reason {:?}",
@@ -200,32 +193,89 @@ impl Command<SignerTestState, SignerTestContext> for WaitForAndVerifyBlockReject
     fn apply(&self, state: &mut SignerTestState) {
         info!("Applying: Waiting for block proposal from miner 1 and verifying rejection with reason {:?}", self.reason);
 
-        let (block_height, miner_pk_1) = {
-            let miners = self.miners.lock().unwrap();
-            let (conf_1, _) = miners.get_node_configs();
-            let chain_info = crate::tests::neon_integrations::get_chain_info(&conf_1);
-            let current_height = chain_info.stacks_tip_height;
-            let block_n_height = current_height - state.get_blocks_mined_by_miner(2) as u64;
-            let (miner_pk_1, _) = miners.get_miner_public_keys();
-            (block_n_height, miner_pk_1)
+        let miner_pk_1 = {
+            let (miner_pk_1, _) = self.ctx.get_miner_public_keys();
+            miner_pk_1
         };
 
-        info!("Waiting for block proposal at height {}", block_height + 1);
+        let expected_block_height = state.epoch_3_start_block_height + 2;
 
-        let proposed_block = wait_for_block_proposal(30, block_height + 1, &miner_pk_1)
+        info!(
+            "Waiting for block proposal at height {}",
+            //TODO: Change expected_block_height with parameter: self.expected_block_height
+            expected_block_height
+        );
+
+        //TODO: Change expected_block_height with parameter: self.expected_block_height
+        let proposed_block = wait_for_block_proposal(30, expected_block_height, &miner_pk_1)
             .expect("Timed out waiting for block proposal");
 
         let block_hash = proposed_block.header.signer_signature_hash();
+        state.last_block_hash = block_hash.clone();
 
         info!(
             "Received block proposal at height {} with hash {:?}",
-            block_height + 1,
+            //TODO: Change expected_block_height with parameter: self.expected_block_height
+            expected_block_height,
             block_hash
         );
+    }
 
+    fn label(&self) -> String {
+        "WAIT_FOR_BLOCK_PROPOSAL".to_string()
+    }
+
+    fn build(
+        ctx: Arc<SignerTestContext>,
+    ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
+        Just(CommandWrapper::new(WaitForBlockProposal::new(
+            ctx.clone(),
+            RejectReason::ReorgNotAllowed,
+            0, // TODO: Don't use a hardcoded value here
+        )))
+    }
+}
+
+/// ------------------------------------------------------------------------------------------
+/// ------------------------------------------------------------------------------------------
+/// ------------------------------------------------------------------------------------------
+/// ------------------------------------------------------------------------------------------
+/// ------------------------------------------------------------------------------------------
+/// ------------------------------------------------------------------------------------------
+/// ------------------------------------------------------------------------------------------
+/// ------------------------------------------------------------------------------------------
+/// ------------------------------------------------------------------------------------------
+/// ------------------------------------------------------------------------------------------
+
+pub struct WaitForBlockRejectionWithRejectReason {
+    ctx: Arc<SignerTestContext>,
+    reason: RejectReason,
+    num_signers: usize,
+}
+
+impl WaitForBlockRejectionWithRejectReason {
+    pub fn new(ctx: Arc<SignerTestContext>, reason: RejectReason, num_signers: usize) -> Self {
+        Self {
+            ctx,
+            reason,
+            num_signers,
+        }
+    }
+}
+
+impl Command<SignerTestState, SignerTestContext> for WaitForBlockRejectionWithRejectReason {
+    fn check(&self, _state: &SignerTestState) -> bool {
+        info!(
+            "Checking: Waiting for block proposal from miner 1 and verifying rejection with reason {:?}",
+            self.reason
+        );
+        true
+    }
+
+    fn apply(&self, state: &mut SignerTestState) {
         wait_for_block_global_rejection_with_reject_reason(
             30,
-            block_hash,
+            state.last_block_hash,
             self.num_signers,
             self.reason.clone(),
         )
@@ -239,7 +289,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForAndVerifyBlockReject
 
     fn label(&self) -> String {
         format!(
-            "WAIT_FOR_AND_VERIFY_BLOCK_REJECTION_WITH_REASON_{:?}",
+            "WAIT_FOR_BLOCK_REJECTION_WITH_REJECT_REASON_{:?}",
             self.reason
         )
     }
@@ -248,8 +298,8 @@ impl Command<SignerTestState, SignerTestContext> for WaitForAndVerifyBlockReject
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1usize..=5usize).prop_map(move |num_signers: usize| {
-            CommandWrapper::new(WaitForAndVerifyBlockRejection::new(
-                ctx.miners.clone(),
+            CommandWrapper::new(WaitForBlockRejectionWithRejectReason::new(
+                ctx.clone(),
                 RejectReason::ReorgNotAllowed,
                 num_signers,
             ))
@@ -268,93 +318,96 @@ impl Command<SignerTestState, SignerTestContext> for WaitForAndVerifyBlockReject
 /// ------------------------------------------------------------------------------------------
 /// ------------------------------------------------------------------------------------------
 
-pub struct VerifyMiner1BlockCount {
-    miners: Arc<Mutex<MultipleMinerTest>>,
+pub struct VerifyBlockCount {
+    ctx: Arc<SignerTestContext>,
+    miner_index: usize,
+    expected_block_count: usize,
 }
 
-impl VerifyMiner1BlockCount {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
-        Self { miners }
+impl VerifyBlockCount {
+    pub fn new(
+        ctx: Arc<SignerTestContext>,
+        miner_index: usize,
+        expected_block_count: usize,
+    ) -> Self {
+        Self {
+            ctx,
+            miner_index,
+            expected_block_count,
+        }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for VerifyMiner1BlockCount {
+impl Command<SignerTestState, SignerTestContext> for VerifyBlockCount {
     fn check(&self, _state: &SignerTestState) -> bool {
-        //FIXME: This logic can be handled differently. We might want to pass the context instead
-        let is_miner_paused = self
-            .miners
-            .lock()
-            .unwrap()
-            .get_counters_for_miner(1)
-            .naka_skip_commit_op
-            .get();
-
         info!(
-            "Checking: Verifying miner {} block count. Will run if miner {} commit ops are paused: {:?}",
-            1, 1, is_miner_paused
+            "Checking: Verifying miner {} block count. Result: {:?}",
+            self.miner_index, true
         );
-
-        is_miner_paused
+        //TODO: Can this always run? Or it must be skipped if the miner is not paused?
+        true
     }
 
     fn apply(&self, state: &mut SignerTestState) {
         info!(
-            "Applying: Verifying miner 1 block count is {}",
-            state.get_blocks_mined_by_miner(1);
+            "Applying: Verifying miner {} block count is {}",
+            self.miner_index, self.expected_block_count
         );
 
-        let (stacks_height_before, conf_1, miner_pk_1) = {
-            let miners = self.miners.lock().unwrap();
-            let current_height = miners.get_peer_stacks_tip_height();
-            let stacks_height_before = current_height - state.get_blocks_mined_by_miner(2) as u64;
+        let (conf, miner_pk) = {
+            //let current_height = self.ctx.get_peer_stacks_tip_height();
+            //FIXME: This must be changed
+            // let stacks_height_before = current_height - state.get_blocks_mined_by_miner(2) as u64;
 
-            let (conf_1, _) = miners.get_node_configs();
-            let (miner_pk_1, _) = miners.get_miner_public_keys();
+            let (conf_1, conf_2) = self.ctx.get_node_configs();
+            let conf = match self.miner_index {
+                1 => conf_1,
+                2 => conf_2,
+                _ => panic!("Invalid miner index: {}", self.miner_index),
+            };
+            let (miner_pk_1, miner_pk_2) = self.ctx.get_miner_public_keys();
+            let miner_pk = match self.miner_index {
+                1 => miner_pk_1,
+                2 => miner_pk_2,
+                _ => panic!("Invalid miner_index: {}", self.miner_index),
+            };
 
-            (stacks_height_before, conf_1, miner_pk_1)
+            (conf, miner_pk)
         };
 
-        // Check only expected_block_count blocks from miner1 have been added after the epoch3 boot
-        let miner1_blocks_after_boot_to_epoch3 = get_nakamoto_headers(&conf_1)
-            .into_iter()
-            .filter(|block| {
-                // Skip first nakamoto block
-                if block.stacks_block_height == stacks_height_before {
-                    return false;
-                }
-                let nakamoto_block_header = block.anchored_header.as_stacks_nakamoto().unwrap();
-                miner_pk_1
-                    .verify(
-                        nakamoto_block_header.miner_signature_hash().as_bytes(),
-                        &nakamoto_block_header.miner_signature,
-                    )
-                    .unwrap()
-            })
-            .count();
+        let miner_blocks_after_boot_to_epoch3 = self.ctx.get_miner_blocks_after_boot_to_epoch3(
+            &conf,
+            state.epoch_3_start_block_height,
+            &miner_pk,
+        );
 
         assert_eq!(
-            miner1_blocks_after_boot_to_epoch3,
-            state.get_blocks_mined_by_miner(1),
-            "Expected {} blocks from miner 1, but found {}",
-            state.get_blocks_mined_by_miner(1),
-            miner1_blocks_after_boot_to_epoch3
+            miner_blocks_after_boot_to_epoch3, self.expected_block_count,
+            "Expected {} blocks from miner {}, but found {}",
+            self.expected_block_count, self.miner_index, miner_blocks_after_boot_to_epoch3
         );
 
         info!(
-            "Verified miner 1 has exactly {} blocks after epoch 3 boot",
-            state.get_blocks_mined_by_miner(1)
+            "Verified miner {} has exactly {} blocks after epoch 3 boot",
+            self.miner_index, self.expected_block_count
         );
     }
 
     fn label(&self) -> String {
-        format!("VERIFY_MINER_1_BLOCK_COUNT")
+        format!("VERIFY_MINER_{}_BLOCK_COUNT", self.miner_index)
     }
 
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(VerifyMiner1BlockCount::new(
-            ctx.miners.clone(),
-        )))
+        (1usize..=2usize, 1usize..=5usize).prop_flat_map(
+            move |(miner_index, expected_block_count)| {
+                Just(CommandWrapper::new(VerifyBlockCount::new(
+                    ctx.clone(),
+                    miner_index,
+                    expected_block_count,
+                )))
+            },
+        )
     }
 }

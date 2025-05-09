@@ -37,6 +37,9 @@ impl Command<SignerTestState, SignerTestContext> for BootToEpoch3 {
         let (conf_1, _) = self.ctx.get_node_configs();
         let burn_block_height = get_chain_info(&conf_1).burn_block_height;
 
+        // TODO: Is this approach correct?
+        state.epoch_3_start_block_height = self.ctx.get_peer_stacks_tip_height();
+
         // Epoch 3.0 is expected to start at burn block height 231
         assert_eq!(burn_block_height, 231);
 

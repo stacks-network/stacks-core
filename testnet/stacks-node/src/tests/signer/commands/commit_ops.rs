@@ -17,9 +17,6 @@ pub struct MinerCommitOp {
 
 impl MinerCommitOp {
     fn new(ctx: Arc<SignerTestContext>, miner_index: usize, skip: bool) -> Self {
-        if miner_index < 1 || miner_index > 2 {
-            panic!("Invalid miner index: {}", miner_index);
-        }
         Self {
             ctx,
             miner_index,

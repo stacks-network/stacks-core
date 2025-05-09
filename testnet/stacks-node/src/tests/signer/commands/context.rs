@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -6,10 +5,11 @@ use std::time::Duration;
 use madhouse::{State, TestContext};
 use stacks::config::Config as NeonConfig;
 use stacks::types::chainstate::StacksPublicKey;
-use stacks::util::hash::Hash160;
+use stacks::util::hash::{Hash160, Sha512Trunc256Sum};
 
 use crate::neon::Counters;
-use crate::tests::signer::v0::MultipleMinerTest;
+use crate::stacks_common::types::PublicKey;
+use crate::tests::signer::v0::{get_nakamoto_headers, MultipleMinerTest};
 
 #[derive(Clone)]
 pub struct SignerTestContext {
@@ -69,30 +69,52 @@ impl SignerTestContext {
     pub fn get_miner_public_key_hashes(&self) -> (Hash160, Hash160) {
         self.miners.lock().unwrap().get_miner_public_key_hashes()
     }
+
+    pub fn get_miner_blocks_after_boot_to_epoch3(
+        &self,
+        conf: &NeonConfig,
+        start_block_height: u64,
+        miner_pk: &StacksPublicKey,
+    ) -> usize {
+        get_nakamoto_headers(conf)
+            .into_iter()
+            .filter(|block| {
+                // TODO: Before it was == ---- does it make sense to do <= to exclude previous blocks also?
+                if block.stacks_block_height <= start_block_height {
+                    return false;
+                }
+                let nakamoto_block_header = block.anchored_header.as_stacks_nakamoto().unwrap();
+                miner_pk
+                    .verify(
+                        nakamoto_block_header.miner_signature_hash().as_bytes(),
+                        &nakamoto_block_header.miner_signature,
+                    )
+                    .unwrap()
+            })
+            .count()
+    }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct SignerTestState {
     pub is_booted_to_nakamoto: bool,
     pub mining_stalled: bool,
-    pub blocks_mined_per_miner: HashMap<usize, usize>,
+    pub epoch_3_start_block_height: u64,
+    // TODO: If this approach is correct, we must keep track of the last block hash everywhere
+    pub last_block_hash: Sha512Trunc256Sum,
 }
 
-impl SignerTestState {
-    // Get total blocks mined across all miners
-    pub fn get_total_blocks_mined(&self) -> usize {
-        self.blocks_mined_per_miner.values().sum()
-    }
-
-    // Get blocks mined by a specific miner
-    pub fn get_blocks_mined_by_miner(&self, miner_index: usize) -> usize {
-        *self.blocks_mined_per_miner.get(&miner_index).unwrap_or(&0)
-    }
-
-    // Increment blocks mined by a specific miner
-    pub fn increment_blocks_mined_by_miner(&mut self, miner_index: usize) {
-        *self.blocks_mined_per_miner.entry(miner_index).or_insert(0) += 1;
+impl Default for SignerTestState {
+    fn default() -> Self {
+        Self {
+            is_booted_to_nakamoto: false,
+            mining_stalled: false,
+            epoch_3_start_block_height: 0,
+            last_block_hash: Sha512Trunc256Sum([0; 32]), // Initialize with zeros
+        }
     }
 }
+
+impl SignerTestState {}
 
 impl State for SignerTestState {}
