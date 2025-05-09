@@ -1264,13 +1264,25 @@ impl<'a> SortitionHandleTx<'a> {
         burn_header_hash: &BurnchainHeaderHash,
         chain_tip: &SortitionId,
     ) -> Result<Option<BlockSnapshot>, db_error> {
+        let Some(sortition_id) = self.get_sortition_id_for_bhh(burn_header_hash, chain_tip)? else {
+            return Ok(None);
+        };
+
+        SortitionDB::get_block_snapshot(self.tx(), &sortition_id)
+    }
+
+    fn get_sortition_id_for_bhh(
+        &mut self,
+        burn_header_hash: &BurnchainHeaderHash,
+        chain_tip: &SortitionId,
+    ) -> Result<Option<SortitionId>, db_error> {
         let sortition_identifier_key = db_keys::sortition_id_for_bhh(burn_header_hash);
         let sortition_id = match self.get_indexed(chain_tip, &sortition_identifier_key)? {
             None => return Ok(None),
             Some(x) => SortitionId::from_hex(&x).expect("FATAL: bad Sortition ID stored in DB"),
         };
 
-        SortitionDB::get_block_snapshot(self.tx(), &sortition_id)
+        Ok(Some(sortition_id))
     }
 
     /// Get a leader key at a specific location in the burn chain's fork history, given the
@@ -6528,25 +6540,25 @@ impl SortitionHandleTx<'_> {
             }
 
             // must be an ancestor of this tip, or must be this tip
-            if let Some(sn) =
-                self.get_block_snapshot(&arrival_sn.burn_header_hash, &parent_tip.sortition_id)?
+            if let Some(sortition_id) = self
+                .get_sortition_id_for_bhh(&arrival_sn.burn_header_hash, &parent_tip.sortition_id)?
             {
-                if !sn.pox_valid || sn != arrival_sn {
+                if sortition_id != arrival_sn.sortition_id {
                     continue;
                 }
 
                 debug!(
                     "New Stacks anchored block arrived: block {}/{} ({}) ari={} tip={}",
-                    &sn.consensus_hash,
-                    &sn.winning_stacks_block_hash,
-                    sn.stacks_block_height,
+                    &arrival_sn.consensus_hash,
+                    &arrival_sn.winning_stacks_block_hash,
+                    arrival_sn.stacks_block_height,
                     ari,
                     &parent_tip.burn_header_hash
                 );
                 new_block_arrivals.push((
-                    sn.consensus_hash,
-                    sn.winning_stacks_block_hash,
-                    sn.stacks_block_height,
+                    arrival_sn.consensus_hash,
+                    arrival_sn.winning_stacks_block_hash,
+                    arrival_sn.stacks_block_height,
                 ));
             } else {
                 // this block did not arrive on an ancestor block
