@@ -508,9 +508,18 @@ CREATE TABLE IF NOT EXISTS temp_burn_blocks (
 INSERT INTO temp_burn_blocks (block_hash, block_height, received_time, consensus_hash)
 SELECT block_hash, block_height, received_time, consensus_hash
 FROM (
-    SELECT *,
-           ROW_NUMBER() OVER (PARTITION BY consensus_hash ORDER BY received_time DESC) as rn
+    SELECT
+        block_hash,
+        block_height,
+        received_time,
+        consensus_hash,
+        ROW_NUMBER() OVER (
+            PARTITION BY consensus_hash
+            ORDER BY received_time DESC
+        ) AS rn
     FROM burn_blocks
+    WHERE consensus_hash IS NOT NULL
+      AND consensus_hash <> ''
 ) AS ordered
 WHERE rn = 1;
 
@@ -2672,32 +2681,46 @@ pub mod tests {
         conn.execute_batch(CREATE_BURN_STATE_TABLE)
             .expect("Failed to create old table");
         conn.execute_batch(ADD_CONSENSUS_HASH)
-            .expect("Failed to add consensus hash");
+            .expect("Failed to add consensus hash to old table");
         conn.execute_batch(ADD_CONSENSUS_HASH_INDEX)
-            .expect("Failed to add consensus hash index");
+            .expect("Failed to add consensus hash index to old table");
 
+        let consensus_hash = ConsensusHash([0; 20]);
+        let total_nmb_rows = 5;
         // Fill with old data with conflicting consensus hashes
-        for i in 0..3 {
+        for i in 0..=total_nmb_rows {
             let now = SystemTime::now();
             let received_ts = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
             let burn_hash = BurnchainHeaderHash([i; 32]);
-            let consensus_hash = ConsensusHash([0; 20]); // Same consensus hash for all
             let burn_height = i;
-            conn.execute(
-            "INSERT OR REPLACE INTO burn_blocks (block_hash, consensus_hash, block_height, received_time) VALUES (?1, ?2, ?3, ?4)",
-            params![
-                burn_hash,
-                consensus_hash,
-                u64_to_sql(burn_height.into()).unwrap(),
-                u64_to_sql(received_ts + i as u64).unwrap(), // Ensure increasing received_time
-            ]
-        ).unwrap();
+            if i % 2 == 0 {
+                // Make sure we have some one empty consensus hash options that will get dropped
+                conn.execute(
+                    "INSERT OR REPLACE INTO burn_blocks (block_hash, block_height, received_time) VALUES (?1, ?2, ?3)",
+                    params![
+                        burn_hash,
+                        u64_to_sql(burn_height.into()).unwrap(),
+                        u64_to_sql(received_ts + i as u64).unwrap(), // Ensure increasing received_time
+                    ]
+                ).unwrap();
+            } else {
+                conn.execute(
+                    "INSERT OR REPLACE INTO burn_blocks (block_hash, consensus_hash, block_height, received_time) VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        burn_hash,
+                        consensus_hash,
+                        u64_to_sql(burn_height.into()).unwrap(),
+                        u64_to_sql(received_ts + i as u64).unwrap(), // Ensure increasing received_time
+                    ]
+                ).unwrap();
+            };
         }
 
         // Migrate the data and make sure that the primary key conflict is resolved by using the last received time
+        // and that the block height and consensus hash of the surviving row is as expected
         conn.execute_batch(MIGRATE_BURN_STATE_TABLE_1_TO_TABLE_2)
             .expect("Failed to migrate data");
-        let migrated_count: i64 = conn
+        let migrated_count: u64 = conn
             .query_row("SELECT COUNT(*) FROM burn_blocks;", [], |row| row.get(0))
             .expect("Failed to get row count");
 
@@ -2706,15 +2729,23 @@ pub mod tests {
             "Expected exactly one row after migration"
         );
 
-        let block_height: i64 = conn
-            .query_row("SELECT block_height FROM burn_blocks;", [], |row| {
-                row.get(0)
-            })
-            .expect("Failed to get block height");
+        let (block_height, hex_hash): (u64, String) = conn
+            .query_row(
+                "SELECT block_height, consensus_hash FROM burn_blocks;",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("Failed to get block_height and consensus_hash");
 
         assert_eq!(
-            block_height, 2,
-            "Expected block_height 2 to be retained (has the latest received time)"
+            block_height, total_nmb_rows as u64,
+            "Expected block_height {total_nmb_rows} to be retained (has the latest received time)"
+        );
+
+        assert_eq!(
+            hex_hash,
+            consensus_hash.to_hex(),
+            "Expected the surviving row to have the correct consensus_hash"
         );
     }
 }
