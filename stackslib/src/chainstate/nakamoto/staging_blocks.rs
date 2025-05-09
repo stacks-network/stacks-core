@@ -165,7 +165,12 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_4: &[&str] = &[
     r#"UPDATE db_version SET version = 4"#,
 ];
 
-pub const NAKAMOTO_STAGING_DB_SCHEMA_LATEST: u32 = 4;
+pub const NAKAMOTO_STAGING_DB_SCHEMA_5: &[&str] = &[
+    r#"CREATE INDEX nakamoto_staging_blocks_by_consensus_hash_and_processed ON nakamoto_staging_blocks(consensus_hash, processed);"#,
+    r#"UPDATE db_version SET version = 5"#,
+];
+
+pub const NAKAMOTO_STAGING_DB_SCHEMA_LATEST: u32 = 5;
 
 pub struct NakamotoStagingBlocksConn(rusqlite::Connection);
 
@@ -416,6 +421,30 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         consensus_hash: &ConsensusHash,
     ) -> Result<Vec<NakamotoBlock>, ChainstateError> {
         let qry = "SELECT data FROM nakamoto_staging_blocks WHERE is_tenure_start = 1 AND consensus_hash = ?1";
+        let args = params![consensus_hash];
+        let block_data: Vec<Vec<u8>> = query_rows(self, qry, args)?;
+        Ok(block_data
+            .into_iter()
+            .filter_map(|block_vec| {
+                NakamotoBlock::consensus_deserialize(&mut &block_vec[..])
+                    .map_err(|e| {
+                        error!("Failed to deserialize block from DB, likely database corruption";
+                               "consensus_hash" => %consensus_hash,
+                               "error" => ?e);
+                        e
+                    })
+                    .ok()
+            })
+            .collect())
+    }
+
+    /// Get all nakamoto blocks in a tenure
+    pub fn get_nakamoto_blocks_in_tenure(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Vec<NakamotoBlock>, ChainstateError> {
+        let qry =
+            "SELECT data FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND processed = 1";
         let args = params![consensus_hash];
         let block_data: Vec<Vec<u8>> = query_rows(self, qry, args)?;
         Ok(block_data
@@ -809,6 +838,15 @@ impl StacksChainState {
                     let version = Self::get_nakamoto_staging_blocks_db_version(conn)?;
                     assert_eq!(version, 4, "Nakamoto staging DB migration failure");
                     debug!("Migrated Nakamoto staging blocks DB to schema 3");
+                }
+                4 => {
+                    debug!("Migrate Nakamoto staging blocks DB to schema 5");
+                    for cmd in NAKAMOTO_STAGING_DB_SCHEMA_5.iter() {
+                        conn.execute(cmd, NO_PARAMS)?;
+                    }
+                    let version = Self::get_nakamoto_staging_blocks_db_version(conn)?;
+                    assert_eq!(version, 5, "Nakamoto staging DB migration failure");
+                    debug!("Migrated Nakamoto staging blocks DB to schema 5");
                 }
                 NAKAMOTO_STAGING_DB_SCHEMA_LATEST => {
                     break;

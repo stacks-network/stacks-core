@@ -214,6 +214,8 @@ pub enum SignerEvent<T: SignerEventTrait> {
         consensus_hash: ConsensusHash,
         /// the time at which this event was received by the signer's event processor
         received_time: SystemTime,
+        /// the parent burn block hash for the newly processed burn block
+        parent_burn_block_hash: BurnchainHeaderHash,
     },
     /// A new processed Stacks block was received from the node with the given block hash
     NewBlock {
@@ -585,6 +587,8 @@ struct BurnBlockEvent {
     burn_amount: u64,
     #[serde(with = "prefix_hex")]
     consensus_hash: ConsensusHash,
+    #[serde(with = "prefix_hex")]
+    parent_burn_block_hash: BurnchainHeaderHash,
 }
 
 impl<T: SignerEventTrait> TryFrom<BurnBlockEvent> for SignerEvent<T> {
@@ -596,6 +600,7 @@ impl<T: SignerEventTrait> TryFrom<BurnBlockEvent> for SignerEvent<T> {
             received_time: SystemTime::now(),
             burn_header_hash: burn_block_event.burn_block_hash,
             consensus_hash: burn_block_event.consensus_hash,
+            parent_burn_block_hash: burn_block_event.parent_burn_block_hash,
         })
     }
 }

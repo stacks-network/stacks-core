@@ -452,6 +452,22 @@ impl StacksClient {
         })
     }
 
+    /// Get the sortition info for a given consensus hash
+    pub fn get_sortition_by_consensus_hash(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<SortitionInfo, ClientError> {
+        let path = self.sortition_by_consensus_hash_path(consensus_hash);
+        let response = self.stacks_node_client.get(&path).send()?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let sortition_info = response.json::<Vec<SortitionInfo>>()?;
+        sortition_info.first().cloned().ok_or_else(|| {
+            ClientError::InvalidResponse("No sortition info found for given consensus hash".into())
+        })
+    }
+
     /// Get the current peer info data from the stacks node
     pub fn get_peer_info(&self) -> Result<PeerInfo, ClientError> {
         debug!("StacksClient: Getting peer info");
@@ -723,6 +739,14 @@ impl StacksClient {
 
     fn sortition_info_path(&self) -> String {
         format!("{}{RPC_SORTITION_INFO_PATH}", self.http_origin)
+    }
+
+    fn sortition_by_consensus_hash_path(&self, consensus_hash: &ConsensusHash) -> String {
+        format!(
+            "{}{RPC_SORTITION_INFO_PATH}/consensus/{}",
+            self.http_origin,
+            consensus_hash.to_hex()
+        )
     }
 
     fn tenure_forking_info_path(&self, start: &ConsensusHash, stop: &ConsensusHash) -> String {
