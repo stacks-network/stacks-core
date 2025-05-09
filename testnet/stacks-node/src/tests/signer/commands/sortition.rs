@@ -1,11 +1,11 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 
 use super::context::SignerTestState;
 use super::SignerTestContext;
-use crate::tests::signer::v0::{verify_sortition_winner, MultipleMinerTest};
+use crate::tests::signer::v0::verify_sortition_winner;
 
 /// ------------------------------------------------------------------------------------------
 /// ------------------------------------------------------------------------------------------
@@ -20,7 +20,7 @@ use crate::tests::signer::v0::{verify_sortition_winner, MultipleMinerTest};
 
 pub struct VerifyMinerWonSortition {
     ctx: Arc<SignerTestContext>,
-    miner_index: usize, // 1 or 2 to indicate which miner
+    miner_index: usize,
 }
 
 impl VerifyMinerWonSortition {
@@ -92,12 +92,12 @@ impl Command<SignerTestState, SignerTestContext> for VerifyMinerWonSortition {
 /// ------------------------------------------------------------------------------------------
 
 pub struct VerifyLastSortitionWinnerReorged {
-    miners: Arc<Mutex<MultipleMinerTest>>,
+    ctx: Arc<SignerTestContext>,
 }
 
 impl VerifyLastSortitionWinnerReorged {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
-        Self { miners }
+    pub fn new(ctx: Arc<SignerTestContext>) -> Self {
+        Self { ctx }
     }
 }
 
@@ -112,7 +112,8 @@ impl Command<SignerTestState, SignerTestContext> for VerifyLastSortitionWinnerRe
 
     fn apply(&self, _state: &mut SignerTestState) {
         info!("Applying: Verifying last sortition winner reorged");
-        self.miners
+        self.ctx
+            .miners
             .lock()
             .unwrap()
             .assert_last_sortition_winner_reorged();
@@ -126,7 +127,7 @@ impl Command<SignerTestState, SignerTestContext> for VerifyLastSortitionWinnerRe
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         Just(CommandWrapper::new(VerifyLastSortitionWinnerReorged::new(
-            ctx.miners.clone(),
+            ctx.clone(),
         )))
     }
 }
