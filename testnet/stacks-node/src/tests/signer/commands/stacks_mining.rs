@@ -1,84 +1,72 @@
 use std::sync::Arc;
 
 use madhouse::{Command, CommandWrapper};
-use proptest::prelude::{Just, Strategy};
+use proptest::prelude::{prop_oneof, Just, Strategy};
 
 use super::context::{SignerTestContext, SignerTestState};
 
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
+/// Command to globally pause or resume Stacks block mining within the test environment.
+///
+/// This command is used to simulate network-wide conditions where Stacks block
+/// production might halt or resume.
 
-pub struct PauseStacksMining;
+pub struct StacksMining {
+    should_pause: bool,
+}
 
-impl Command<SignerTestState, SignerTestContext> for PauseStacksMining {
-    fn check(&self, state: &SignerTestState) -> bool {
-        info!(
-            "Checking: Stalling mining. Result: {:?}",
-            !state.mining_stalled
-        );
-        !state.mining_stalled
+impl StacksMining {
+    fn new(should_pause: bool) -> Self {
+        Self { should_pause }
     }
 
-    fn apply(&self, state: &mut SignerTestState) {
-        info!("Applying: Stalling mining");
-        crate::tests::signer::v0::test_mine_stall_set(true);
-        state.mining_stalled = true;
+    pub fn pause() -> Self {
+        Self::new(true)
     }
 
-    fn label(&self) -> String {
-        "PAUSE_STACKS_MINING".to_string()
-    }
-
-    fn build(
-        _ctx: Arc<SignerTestContext>,
-    ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(PauseStacksMining))
+    pub fn resume() -> Self {
+        Self::new(false)
     }
 }
 
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-
-pub struct ResumeStacksMining;
-
-impl Command<SignerTestState, SignerTestContext> for ResumeStacksMining {
+impl Command<SignerTestState, SignerTestContext> for StacksMining {
     fn check(&self, state: &SignerTestState) -> bool {
-        info!(
-            "Checking: Recovering from mining stall. Result: {:?}",
-            state.mining_stalled
-        );
-        state.mining_stalled
+        // Pause should apply if mining is not currently stalled.
+        // Resume should apply if mining is currently stalled.
+        let should_apply = self.should_pause != state.mining_stalled;
+        let operation_desc = if self.should_pause {
+            "Pausing Stacks mining"
+        } else {
+            "Resuming Stacks mining"
+        };
+        info!("Checking: {}. Result: {:?}", operation_desc, should_apply);
+        should_apply
     }
 
     fn apply(&self, state: &mut SignerTestState) {
-        info!("Applying: Recovering from mining stall");
-        crate::tests::signer::v0::test_mine_stall_set(false);
-        state.mining_stalled = false;
+        let operation_desc = if self.should_pause {
+            "Pausing Stacks mining"
+        } else {
+            "Resuming Stacks mining"
+        };
+        info!("Applying: {}", operation_desc);
+        crate::tests::signer::v0::test_mine_stall_set(self.should_pause);
+        state.mining_stalled = self.should_pause;
     }
 
     fn label(&self) -> String {
-        "RESUME_STACKS_MINING".to_string()
+        if self.should_pause {
+            "PAUSE_STACKS_MINING".to_string()
+        } else {
+            "RESUME_STACKS_MINING".to_string()
+        }
     }
 
     fn build(
         _ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(ResumeStacksMining))
+        prop_oneof![
+            Just(CommandWrapper::new(StacksMining::pause())),
+            Just(CommandWrapper::new(StacksMining::resume())),
+        ]
     }
 }

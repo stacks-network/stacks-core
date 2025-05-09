@@ -6,16 +6,13 @@ use proptest::prelude::{Just, Strategy};
 use super::context::{SignerTestContext, SignerTestState};
 use crate::tests::neon_integrations::get_chain_info;
 
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
+/// Command to advance the test environment's burn chain and Stacks chain
+/// to the beginning of Stacks Epoch 3.0 (Nakamoto).
+///
+/// This command is typically used as an initial setup step in test scenarios
+/// that require the system to be operating under Epoch 3.0 rules and conditions.
+/// It ensures that both miners and the associated burn chain are progressed
+/// to the correct state.
 
 pub struct BootToEpoch3 {
     ctx: Arc<SignerTestContext>,
@@ -33,6 +30,7 @@ impl Command<SignerTestState, SignerTestContext> for BootToEpoch3 {
             "Checking: Booting miners to Nakamoto. Result: {:?}",
             !state.is_booted_to_nakamoto
         );
+        // This command should only run if the state indicates it hasn't booted to Nakamoto yet.
         !state.is_booted_to_nakamoto
     }
 
@@ -44,7 +42,8 @@ impl Command<SignerTestState, SignerTestContext> for BootToEpoch3 {
         let (conf_1, _) = self.ctx.get_node_configs();
         let burn_block_height = get_chain_info(&conf_1).burn_block_height;
 
-        assert_eq!(burn_block_height, 231); // Epoch 3 starts at block 231
+        // Epoch 3.0 is expected to start at burn block height 231
+        assert_eq!(burn_block_height, 231);
 
         state.is_booted_to_nakamoto = true;
     }

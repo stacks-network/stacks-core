@@ -21,5 +21,5 @@ pub use commit_ops::MinerCommitOp;
 pub use context::SignerTestContext;
 pub use shutdown::ShutdownMiners;
 pub use sortition::{VerifyLastSortitionWinnerReorged, VerifyMinerWonSortition};
-pub use stacks_mining::{PauseStacksMining, ResumeStacksMining};
+pub use stacks_mining::StacksMining;
 pub use transfer::SendAndMineTransferTx;

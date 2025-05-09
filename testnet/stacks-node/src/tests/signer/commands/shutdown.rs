@@ -18,12 +18,12 @@ use crate::tests::signer::v0::MultipleMinerTest;
 /// ------------------------------------------------------------------------------------------
 
 pub struct ShutdownMiners {
-    miners: Arc<Mutex<MultipleMinerTest>>,
+    ctx: Arc<SignerTestContext>,
 }
 
 impl ShutdownMiners {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
-        Self { miners }
+    pub fn new(ctx: Arc<SignerTestContext>,) -> Self {
+        Self { ctx }
     }
 }
 
@@ -36,7 +36,7 @@ impl Command<SignerTestState, SignerTestContext> for ShutdownMiners {
     fn apply(&self, _state: &mut SignerTestState) {
         info!("Applying: Shutting down miners");
 
-        if let Ok(miners_arc) = Arc::try_unwrap(self.miners.clone()) {
+        if let Ok(miners_arc) = Arc::try_unwrap(self.ctx.miners.clone()) {
             if let Ok(miners) = miners_arc.into_inner() {
                 miners.shutdown();
             }
@@ -50,6 +50,6 @@ impl Command<SignerTestState, SignerTestContext> for ShutdownMiners {
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(ShutdownMiners::new(ctx.miners.clone())))
+        Just(CommandWrapper::new(ShutdownMiners::new(ctx.clone())))
     }
 }

@@ -10801,11 +10801,11 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs_scenario() {
         (MinerCommitOp::disable_for(test_context.clone(), MINER2)), // Skip commit operations for miner 2
         BootToEpoch3,
         (MinerCommitOp::disable_for(test_context.clone(), MINER1)), // Skip commit operations for miner 1
-        PauseStacksMining,
+        (StacksMining::pause()),
         MineBitcoinBlock,
         (VerifyMinerWonSortition::new(test_context.clone(), MINER1)),
         SubmitBlockCommitMiner2,
-        ResumeStacksMining,
+        (StacksMining::resume()),
         WaitForTenureChangeBlockFromMiner1,
         MineBitcoinBlock,
         (VerifyMinerWonSortition::new(test_context.clone(), MINER2)),
@@ -10995,10 +10995,10 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         (MineBitcoinBlockTenureChange::new(test_context.clone(), MINER1)), // Miner 1 mines a block N
         (VerifyMinerWonSortition::new(test_context.clone(), MINER1)),
         SubmitBlockCommitMiner2,
-        PauseStacksMining,
+        (StacksMining::pause()),
         MineBitcoinBlock,
         SubmitBlockCommitMiner1,
-        ResumeStacksMining,
+        (StacksMining::resume()),
         WaitForTenureChangeBlockFromMiner2, // Miner 2 mines a block N + 1
         (VerifyMinerWonSortition::new(test_context.clone(), MINER2)),
         SendAndMineTransferTx, // Miner 2 mines a block N + 2

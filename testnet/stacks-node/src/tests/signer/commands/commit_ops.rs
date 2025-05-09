@@ -5,21 +5,16 @@ use proptest::prelude::Strategy;
 
 use super::context::{SignerTestContext, SignerTestState};
 
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
+/// Command to enable or disable the block commit operations for a specific miner
+/// (identified by `miner_index`) within the test environment.
+///
+/// This command is used to simulate scenarios where a miner might temporarily or
+/// intentionally stop sending its block commit transactions to the burn chain.
 
 pub struct MinerCommitOp {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
-    skip: bool,
+    skip: bool, // true to disable commit operations, false to enable
 }
 
 impl MinerCommitOp {
