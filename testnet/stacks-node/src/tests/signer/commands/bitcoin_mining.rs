@@ -228,8 +228,8 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlock {
 }
 
 /// Command to generate a specified number of Bitcoin blocks in the regtest environment.
-/// 
-/// Unlike other mining commands, this command directly instructs the Bitcoin regtest 
+///
+/// Unlike other mining commands, this command directly instructs the Bitcoin regtest
 /// controller to generate between 1-5 blocks without waiting for confirmations or
 /// monitoring their effect on the Stacks chain. It represents a low-level operation
 /// to advance the Bitcoin chain state.

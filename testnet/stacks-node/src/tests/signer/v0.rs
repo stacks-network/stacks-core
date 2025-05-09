@@ -10996,13 +10996,13 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         (VerifyMinerWonSortition::new(test_context.clone(), MINER1)),
         (SubmitBlockCommit::new(test_context.clone(), MINER2)),
         (StacksMining::pause()),
-        MineBitcoinBlock,
+        MineBitcoinBlock, // TODO: This one uses 'conf_1' --- I don't think so, but might it make sense to allow the use of 'conf_2' also?
         (SubmitBlockCommit::new(test_context.clone(), MINER1)),
         (StacksMining::resume()),
         WaitForTenureChangeBlockFromMiner2, // Miner 2 mines a block N + 1
         (VerifyMinerWonSortition::new(test_context.clone(), MINER2)),
         SendAndMineTransferTx, // FIXME: Do we know which miner mines the block?
-        SendAndMineTransferTx,
+        SendAndMineTransferTx, // TODO: This one uses 'conf_1' --- I don't think so, but might it make sense to allow the use of 'conf_2' also?
         (BuildNextBitcoinBlocks::new(test_context.clone(), num_blocks)),
         (WaitForAndVerifyBlockRejection::new(
             test_context.miners.clone(),
