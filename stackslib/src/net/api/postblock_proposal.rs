@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::VecDeque;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{Read, Write};
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
@@ -173,6 +174,10 @@ pub struct BlockValidateOk {
     pub cost: ExecutionCost,
     pub size: u64,
     pub validation_time_ms: u64,
+    /// If a block was validated by a transaction replay set,
+    /// and the block exhausted the set of transactions,
+    /// then this return Some with the hash of the replay set.
+    pub replay_tx_hash: Option<u64>,
 }
 
 /// This enum is used for serializing the response to block
@@ -565,6 +570,8 @@ impl NakamotoBlockProposal {
         let mut replay_txs_maybe: Option<VecDeque<StacksTransaction>> =
             self.replay_txs.clone().map(|txs| txs.into());
 
+        let mut replay_tx_exhausted = false;
+
         for (i, tx) in self.block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
 
@@ -641,6 +648,9 @@ impl NakamotoBlockProposal {
                             });
                         }
                     };
+                }
+                if replay_txs.is_empty() {
+                    replay_tx_exhausted = true;
                 }
             }
 
@@ -734,6 +744,19 @@ impl NakamotoBlockProposal {
             cost,
             size,
             validation_time_ms,
+            replay_tx_hash: if replay_tx_exhausted {
+                self.tx_replay_hash()
+            } else {
+                None
+            },
+        })
+    }
+
+    pub fn tx_replay_hash(&self) -> Option<u64> {
+        self.replay_txs.as_ref().map(|txs| {
+            let mut hasher = DefaultHasher::new();
+            txs.hash(&mut hasher);
+            hasher.finish()
         })
     }
 }

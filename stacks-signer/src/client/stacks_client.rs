@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
 use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
-use blockstack_lib::chainstate::stacks::TransactionVersion;
+use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionVersion};
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
 use blockstack_lib::net::api::get_tenures_fork_info::{
     TenureForkingInfo, RPC_TENURE_FORKING_INFO_PATH,
@@ -304,7 +304,11 @@ impl StacksClient {
     }
 
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
-    pub fn submit_block_for_validation(&self, block: NakamotoBlock) -> Result<(), ClientError> {
+    pub fn submit_block_for_validation(
+        &self,
+        block: NakamotoBlock,
+        replay_txs: Option<Vec<StacksTransaction>>,
+    ) -> Result<(), ClientError> {
         debug!("StacksClient: Submitting block for validation";
             "signer_signature_hash" => %block.header.signer_signature_hash(),
             "block_id" => %block.header.block_id(),
@@ -313,7 +317,7 @@ impl StacksClient {
         let block_proposal = NakamotoBlockProposal {
             block,
             chain_id: self.chain_id,
-            replay_txs: None,
+            replay_txs,
         };
         let timer = crate::monitoring::actions::new_rpc_call_timer(
             &self.block_proposal_path(),
@@ -1118,7 +1122,7 @@ mod tests {
             header,
             txs: vec![],
         };
-        let h = spawn(move || mock.client.submit_block_for_validation(block));
+        let h = spawn(move || mock.client.submit_block_for_validation(block, None));
         write_response(mock.server, b"HTTP/1.1 200 OK\n\n");
         assert!(h.join().unwrap().is_ok());
     }
@@ -1131,7 +1135,7 @@ mod tests {
             header,
             txs: vec![],
         };
-        let h = spawn(move || mock.client.submit_block_for_validation(block));
+        let h = spawn(move || mock.client.submit_block_for_validation(block, None));
         write_response(mock.server, b"HTTP/1.1 404 Not Found\n\n");
         assert!(h.join().unwrap().is_err());
     }

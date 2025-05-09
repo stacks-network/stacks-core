@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::{Duration, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
@@ -630,6 +631,8 @@ impl LocalStateMachine {
         ch: &ConsensusHash,
         height: u64,
         block_id: &StacksBlockId,
+        signer_signature_hash: &Sha512Trunc256Sum,
+        db: &SignerDb,
     ) -> Result<(), SignerChainstateError> {
         // set self to uninitialized so that if this function errors,
         //  self is left as uninitialized.
@@ -655,10 +658,22 @@ impl LocalStateMachine {
             }
         };
 
-        // No matter what, if we're in tx replay mode, remove the tx replay set
-        // TODO: in later versions, we will only clear the tx replay
-        // set when replay is completed.
-        prior_state_machine.tx_replay_set = None;
+        if let Some(tx_replay_set) = prior_state_machine.tx_replay_set.clone() {
+            // let replay_set_hash = hash_tx_replay_set(tx_replay_set);
+            let mut hasher = DefaultHasher::new();
+            tx_replay_set.hash(&mut hasher);
+            let replay_set_hash = hasher.finish();
+            if let Ok(true) =
+                db.get_was_block_validated_by_replay_tx(signer_signature_hash, replay_set_hash)
+            {
+                // This block was validated by our current state machine's replay set,
+                // and the block exhausted the replay set. Therefore, clear the tx replay set.
+                info!("Signer State: Incoming Stacks block exhausted the replay set, clearing the tx replay set";
+                    "signer_signature_hash" => %signer_signature_hash,
+                );
+                prior_state_machine.tx_replay_set = None;
+            };
+        }
 
         let MinerState::ActiveMiner {
             parent_tenure_id,

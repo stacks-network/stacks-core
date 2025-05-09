@@ -20,6 +20,7 @@ use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+use blockstack_lib::chainstate::stacks::TransactionPayload;
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
     TOO_MANY_REQUESTS_STATUS,
@@ -534,7 +535,7 @@ impl Signer {
                     "block_height" => block_height
                 );
                 self.local_state_machine
-                    .stacks_block_arrival(consensus_hash, *block_height, block_id)
+                    .stacks_block_arrival(consensus_hash, *block_height, block_id, &signer_sighash, &self.signer_db)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest stacks block arrival"; "err" => ?e));
 
                 if let Ok(Some(mut block_info)) = self
@@ -1029,6 +1030,17 @@ impl Signer {
             .unwrap_or(false)
         {
             self.submitted_block_proposal = None;
+        }
+        if let Some(replay_tx_hash) = block_validate_ok.replay_tx_hash {
+            info!("Inserting block validated by replay tx";
+                "signer_signature_hash" => %signer_signature_hash,
+                "replay_tx_hash" => replay_tx_hash
+            );
+            self.signer_db
+                .insert_block_validated_by_replay_tx(&signer_signature_hash, replay_tx_hash)
+                .unwrap_or_else(|e| {
+                    warn!("{self}: Failed to insert block validated by replay tx: {e:?}")
+                });
         }
         // For mutability reasons, we need to take the block_info out of the map and add it back after processing
         let Some(mut block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) else {
@@ -1588,7 +1600,20 @@ impl Signer {
                 debug!("{self}: Cannot confirm that we have processed parent, but we've waited proposal_wait_for_parent_time, will submit proposal");
             }
         }
-        match stacks_client.submit_block_for_validation(block.clone()) {
+        let is_block_found = block.txs.iter().all(|tx| {
+            matches!(
+                tx.payload,
+                TransactionPayload::Coinbase(..) | TransactionPayload::TenureChange(..)
+            )
+        });
+        match stacks_client.submit_block_for_validation(
+            block.clone(),
+            if is_block_found {
+                None
+            } else {
+                self.local_state_machine.get_tx_replay_set()
+            },
+        ) {
             Ok(_) => {
                 self.submitted_block_proposal = Some((signer_signature_hash, Instant::now()));
             }

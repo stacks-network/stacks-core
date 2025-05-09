@@ -569,6 +569,13 @@ static ADD_PARENT_BURN_BLOCK_HASH_INDEX: &str = r#"
 CREATE INDEX IF NOT EXISTS burn_blocks_parent_burn_block_hash_idx on burn_blocks (parent_burn_block_hash);
 "#;
 
+static ADD_BLOCK_VALIDATED_BY_REPLAY_TXS_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS block_validated_by_replay_txs (
+    signer_signature_hash TEXT NOT NULL,
+    replay_tx_hash INTEGER NOT NULL,
+    PRIMARY KEY (signer_signature_hash, replay_tx_hash)
+) STRICT;"#;
+
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
     CREATE_DB_CONFIG,
@@ -654,6 +661,11 @@ static SCHEMA_12: &[&str] = &[
     ADD_PARENT_BURN_BLOCK_HASH,
     ADD_PARENT_BURN_BLOCK_HASH_INDEX,
     "INSERT INTO db_config (version) VALUES (12);",
+];
+
+static SCHEMA_13: &[&str] = &[
+    ADD_BLOCK_VALIDATED_BY_REPLAY_TXS_TABLE,
+    "INSERT INTO db_config (version) VALUES (13);",
 ];
 
 impl SignerDb {
@@ -856,6 +868,20 @@ impl SignerDb {
         Ok(())
     }
 
+    /// Migrate from schema 12 to schema 13
+    fn schema_13_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 13 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_13.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
     /// Register custom scalar functions used by the database
     fn register_scalar_functions(&self) -> Result<(), DBError> {
         // Register helper function for determining if a block is a tenure change transaction
@@ -901,7 +927,8 @@ impl SignerDb {
                 9 => Self::schema_10_migration(&sql_tx)?,
                 10 => Self::schema_11_migration(&sql_tx)?,
                 11 => Self::schema_12_migration(&sql_tx)?,
-                12 => break,
+                12 => Self::schema_13_migration(&sql_tx)?,
+                13 => break,
                 x => return Err(DBError::Other(format!(
                     "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
                     Self::SCHEMA_VERSION,
@@ -1513,6 +1540,34 @@ impl SignerDb {
             Some(seconds) => Ok(seconds),
             None => Ok(0),
         }
+    }
+
+    /// Insert a block validated by a replay tx
+    pub fn insert_block_validated_by_replay_tx(
+        &self,
+        signer_signature_hash: &Sha512Trunc256Sum,
+        replay_tx_hash: u64,
+    ) -> Result<(), DBError> {
+        self.db.execute(
+            "INSERT INTO block_validated_by_replay_txs (signer_signature_hash, replay_tx_hash) VALUES (?1, ?2)",
+            params![signer_signature_hash.to_string(), u64_to_sql(replay_tx_hash)?],
+        )?;
+        Ok(())
+    }
+
+    /// Get the replay tx hash for a block validation
+    pub fn get_was_block_validated_by_replay_tx(
+        &self,
+        signer_signature_hash: &Sha512Trunc256Sum,
+        replay_tx_hash: u64,
+    ) -> Result<bool, DBError> {
+        let query = "SELECT replay_tx_hash FROM block_validated_by_replay_txs WHERE signer_signature_hash = ? AND replay_tx_hash = ?";
+        let args = params![
+            signer_signature_hash.to_string(),
+            u64_to_sql(replay_tx_hash)?
+        ];
+        let replay_tx_hash_opt: Option<u64> = query_row(&self.db, query, args)?;
+        Ok(replay_tx_hash_opt.is_some())
     }
 }
 
