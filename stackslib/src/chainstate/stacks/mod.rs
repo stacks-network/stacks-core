@@ -785,19 +785,14 @@ impl TenureChangePayload {
 pub enum TransactionPayload {
     #[serde(rename = "token_transfer")]
     TokenTransfer(PrincipalData, u64, TokenTransferMemo),
-    
     #[serde(rename = "contract_call")]
     ContractCall(TransactionContractCall),
-    
     #[serde(rename = "smart_contract")]
     SmartContract(TransactionSmartContract, Option<ClarityVersion>),
-    
     #[serde(rename = "poison_microblock")]
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),
-    
     #[serde(rename = "coinbase")]
     Coinbase(CoinbasePayload, Option<PrincipalData>, Option<VRFProof>),
-    
     #[serde(rename = "tenure_change")]
     TenureChange(TenureChangePayload),
 }
@@ -946,8 +941,11 @@ impl NonfungibleConditionCode {
 /// Post-condition principal.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PostConditionPrincipal {
+    #[serde(rename = "origin")]
     Origin,
+    #[serde(rename = "standard")]
     Standard(StacksAddress),
+    #[serde(rename = "contract")]
     Contract(StacksAddress, ContractName),
 }
 

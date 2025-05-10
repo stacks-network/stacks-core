@@ -21,7 +21,7 @@ use std::str::FromStr;
 use serde::Serialize;
 use sha2::{Digest as Sha2Digest, Sha512_256};
 
-use crate::address::Error as AddressError;
+use crate::address::{c32, Error as AddressError};
 use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 use crate::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
@@ -287,10 +287,23 @@ impl fmt::Display for PoxId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Deserialize, Hash)]
 pub struct StacksAddress {
     version: u8,
     bytes: Hash160,
+}
+
+// Serialize json to be a string
+impl serde::Serialize for StacksAddress {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match c32::c32_address(self.version, self.bytes.as_bytes()) {
+            Ok(addr) => serializer.serialize_str(&addr),
+            Err(_) => Err(serde::ser::Error::custom("Invalid Stacks address")),
+        }
+    }
 }
 
 impl StacksAddress {
