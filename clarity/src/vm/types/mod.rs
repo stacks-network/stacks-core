@@ -75,8 +75,17 @@ mod std_principals {
 
     use crate::vm::errors::InterpreterError;
 
-    #[derive(Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+    #[derive(Clone, Eq, PartialEq, Hash, Deserialize, PartialOrd, Ord)]
     pub struct StandardPrincipalData(u8, pub [u8; 20]);
+
+    impl serde::Serialize for StandardPrincipalData {
+        fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            serializer.serialize_str(&self.to_address())
+        }
+    }
 
     impl StandardPrincipalData {
         pub fn transient() -> StandardPrincipalData {
@@ -192,7 +201,9 @@ impl fmt::Display for QualifiedContractIdentifier {
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum PrincipalData {
+    #[serde(rename = "standard")]
     Standard(StandardPrincipalData),
+    #[serde(rename = "contract")]
     Contract(QualifiedContractIdentifier),
 }
 

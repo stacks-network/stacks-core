@@ -783,12 +783,22 @@ impl TenureChangePayload {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TransactionPayload {
+    #[serde(rename = "token_transfer")]
     TokenTransfer(PrincipalData, u64, TokenTransferMemo),
+    
+    #[serde(rename = "contract_call")]
     ContractCall(TransactionContractCall),
+    
+    #[serde(rename = "smart_contract")]
     SmartContract(TransactionSmartContract, Option<ClarityVersion>),
-    // the previous epoch leader sent two microblocks with the same sequence, and this is proof
+    
+    #[serde(rename = "poison_microblock")]
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),
+    
+    #[serde(rename = "coinbase")]
     Coinbase(CoinbasePayload, Option<PrincipalData>, Option<VRFProof>),
+    
+    #[serde(rename = "tenure_change")]
     TenureChange(TenureChangePayload),
 }
 
@@ -969,13 +979,16 @@ pub enum PostConditionPrincipalID {
 /// Post-condition on a transaction
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TransactionPostCondition {
+    #[serde(rename = "stx")]
     STX(PostConditionPrincipal, FungibleConditionCode, u64),
+    #[serde(rename = "fungible")]
     Fungible(
         PostConditionPrincipal,
         AssetInfo,
         FungibleConditionCode,
         u64,
     ),
+    #[serde(rename = "nonfungible")]
     Nonfungible(
         PostConditionPrincipal,
         AssetInfo,

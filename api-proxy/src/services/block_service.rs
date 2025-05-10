@@ -10,17 +10,88 @@ use crate::utils::config;
 
 pub async fn fetch_nakamoto_block(height: u64) -> Result<NakamotoBlock> {
     let node_url = config::get_node_url();
-    let response = reqwest::get(&format!(
-        "{}/v3/blocks/height/{}",
-        node_url, height
-    ))
-    .await?;
+    let response = reqwest::get(&format!("{}/v3/blocks/height/{}", node_url, height)).await?;
     let block_bytes = response.bytes().await?;
 
     let mut cursor = Cursor::new(block_bytes);
     let block: NakamotoBlock = read_next(&mut cursor)?;
 
     Ok(block)
+}
+
+/// Recursively transforms Principal arrays in JSON to Stacks addresses
+pub fn transform_data_arrays(value: Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            // Special case: if this is a Principal object, try to convert it directly
+            if map.contains_key("Principal") {
+                if let Some(principal_val) = map.get("Principal") {
+                    if let Some(address) = try_convert_principal_to_address(principal_val) {
+                        let mut result = Map::new();
+                        result.insert("type".to_string(), Value::String("principal".to_string()));
+                        result.insert("value".to_string(), address);
+                        return Value::Object(result);
+                    }
+                }
+            } else if map.contains_key("UInt") {
+                if let Some(uint_val) = map.get("UInt") {
+                    let mut result = Map::new();
+                    result.insert("type".to_string(), Value::String("uint".to_string()));
+                    result.insert("value".to_string(), uint_val.clone());
+                    return Value::Object(result);
+                }
+            } else if map.contains_key("Bool") {
+                if let Some(bool_val) = map.get("Bool") {
+                    let mut result = Map::new();
+                    result.insert("type".to_string(), Value::String("bool".to_string()));
+                    result.insert("value".to_string(), bool_val.clone());
+                    return Value::Object(result);
+                }
+            } else if map.contains_key("Optional") {
+                if let Some(opt_val) = map.get("Optional") {
+                    let mut result = Map::new();
+                    result.insert("type".to_string(), Value::String("optional".to_string()));
+                    // Transform the inner value if it exists
+                    let inner_value = if opt_val.is_null() {
+                        Value::Null
+                    } else {
+                        let transformed = transform_data_arrays(opt_val.clone());
+                        
+                        // Extract optional data value
+                        if let Value::Object(inner_map) = &transformed {
+                            if let Some(data_val) = inner_map.get("data") {
+                                data_val.clone()
+                            } else {
+                                transformed
+                            }
+                        } else {
+                            transformed
+                        }
+                    };
+
+                    result.insert("value".to_string(), inner_value);
+                    return Value::Object(result);
+                }
+            }
+
+            // Otherwise, process each key-value pair in the object
+            let mut new_map = Map::new();
+            for (key, val) in map {
+                new_map.insert(key, transform_data_arrays(val));
+            }
+            Value::Object(new_map)
+        }
+        Value::Array(arr) => {
+            // Process each value in the array
+            let mut new_arr = Vec::new();
+            for val in arr {
+                new_arr.push(transform_data_arrays(val));
+            }
+            Value::Array(new_arr)
+        }
+        // For primitive values, return as is
+        _ => value,
+    }
 }
 
 /// Attempts to convert a JSON representation of a Standard Principal to a Stacks address
@@ -66,37 +137,3 @@ fn try_convert_principal_to_address(val: &Value) -> Option<Value> {
         Err(_) => None,
     }
 }
-
-/// Recursively transforms Principal arrays in JSON to Stacks addresses
-pub fn transform_principal_arrays(value: Value) -> Value {
-    match value {
-        Value::Object(map) => {
-            // Special case: if this is a Principal object, try to convert it directly
-            if map.contains_key("Principal") {
-                if let Some(principal_val) = map.get("Principal") {
-                    if let Some(address) = try_convert_principal_to_address(principal_val) {
-                        return address;
-                    }
-                }
-            }
-
-            // Otherwise, process each key-value pair in the object
-            let mut new_map = Map::new();
-            for (key, val) in map {
-                new_map.insert(key, transform_principal_arrays(val));
-            }
-            Value::Object(new_map)
-        }
-        Value::Array(arr) => {
-            // Process each value in the array
-            let mut new_arr = Vec::new();
-            for val in arr {
-                new_arr.push(transform_principal_arrays(val));
-            }
-            Value::Array(new_arr)
-        }
-        // For primitive values, return as is
-        _ => value,
-    }
-}
-

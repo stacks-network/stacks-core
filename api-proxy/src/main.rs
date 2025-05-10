@@ -24,13 +24,11 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(|| {
         App::new()
-            // Health check endpoints
-            .service(web::resource("/health").route(web::get().to(health_handlers::health_check)))
-            .service(web::resource("/health/detailed").route(web::get().to(health_handlers::detailed_health_check)))
+            .service(web::resource("/v1/health").route(web::get().to(health_handlers::health_check)))
+            .service(web::resource("/v1/health/detailed").route(web::get().to(health_handlers::detailed_health_check)))
+            .service(web::resource("/v1/blocks/height/{height}/txids").route(web::get().to(custom_handlers::get_block_txids)))
             // Block endpoints
-            .service(web::resource("/v3/blocks/height/{height}").route(web::get().to(block_handlers::get_nakamoto_block)))
-            // Custom endpoints
-            .service(web::resource("/_custom/v1/blocks/height/{height}/txids").route(web::get().to(custom_handlers::get_block_txids)))
+            .service(web::resource("/v1/proxy/v3/blocks/height/{height}").route(web::get().to(block_handlers::get_nakamoto_block)))
     })
     .bind(bind_address)?
     .run()
