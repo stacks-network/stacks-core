@@ -3,7 +3,7 @@ mod services;
 mod utils;
 
 use actix_web::{web, App, HttpServer};
-use log::{info, debug};
+use log::info;
 use env_logger::Env;
 
 use handlers::{block_handlers, custom_handlers, health_handlers};
@@ -13,8 +13,6 @@ use utils::config;
 async fn main() -> std::io::Result<()> {
     // Initialize logger
     env_logger::init_from_env(Env::default().default_filter_or("info"));
-
-    config::load_env();
 
     let bind_address = config::get_bind_address();
     let node_url = config::get_node_url();

@@ -8,9 +8,7 @@ pub async fn get_nakamoto_block(height: web::Path<u64>) -> impl Responder {
         Ok(block) => {
             // Convert the block to a JSON value and transform Principal arrays to addresses
             let block_json = serde_json::to_value(&block).unwrap_or_else(|_| json!({}));
-            // let transformed_json = block_service::transform_data_arrays(block_json);
-            let response = json!({ "block": block_json });
-            HttpResponse::Ok().json(response)
+            HttpResponse::Ok().json(block_json)
         }
         Err(e) => HttpResponse::BadRequest().body(format!("Error parsing block: {}", e)),
     }

@@ -1,13 +1,4 @@
 use std::env;
-use std::path::Path;
-use log::info;
-
-pub fn load_env() {
-    // Load environment variables from .env file in the package directory
-    let env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
-    info!("Loading environment variables from: {:?}", env_path);
-    dotenv::from_path(env_path).ok();
-}
 
 pub fn get_node_url() -> String {
     env::var("STACKS_NODE_URL")
