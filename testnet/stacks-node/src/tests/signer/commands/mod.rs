@@ -14,7 +14,7 @@ pub use bitcoin_mining::{BuildNextBitcoinBlocks, MineBitcoinBlock, MineBitcoinBl
 pub use block_commit::SubmitBlockCommit;
 pub use block_wait::{
     VerifyBlockCount, WaitForBlockProposal, WaitForBlockRejectionWithRejectReason,
-    WaitForTenureChangeBlockFromMiner1, WaitForTenureChangeBlockFromMiner2,
+    WaitForTenureChangeBlock,
 };
 pub use boot::BootToEpoch3;
 pub use commit_ops::MinerCommitOp;

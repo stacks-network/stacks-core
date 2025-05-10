@@ -113,7 +113,7 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChang
             let miner_pk = match self.miner_index {
                 1 => miner_pk_1,
                 2 => miner_pk_2,
-                _ => panic!("Invalid miner_index: {}", self.miner_index),
+                _ => panic!("Invalid miner index: {}", self.miner_index),
             };
 
             (stacks_height_before, conf, miner_pk)

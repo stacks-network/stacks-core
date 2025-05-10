@@ -10806,11 +10806,11 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs_scenario() {
         (VerifyMinerWonSortition::new(test_context.clone(), MINER1)),
         (SubmitBlockCommit::new(test_context.clone(), MINER2)),
         (StacksMining::resume()),
-        WaitForTenureChangeBlockFromMiner1,
+        (WaitForTenureChangeBlock::new(test_context.clone(), MINER1)),
         MineBitcoinBlock,
         (VerifyMinerWonSortition::new(test_context.clone(), MINER2)),
         VerifyLastSortitionWinnerReorged,
-        WaitForTenureChangeBlockFromMiner2,
+        (WaitForTenureChangeBlock::new(test_context.clone(), MINER2)),
         ShutdownMiners
     ]
 }
@@ -11000,7 +11000,7 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         MineBitcoinBlock, // TODO: This one uses 'conf_1' --- I don't think so, but might it make sense to allow the use of 'conf_2' also?
         (SubmitBlockCommit::new(test_context.clone(), MINER1)),
         (StacksMining::resume()),
-        WaitForTenureChangeBlockFromMiner2,
+        (WaitForTenureChangeBlock::new(test_context.clone(), MINER2)),
         (VerifyMinerWonSortition::new(test_context.clone(), MINER2)),
         SendAndMineTransferTx, // FIXME: Do we know which miner mines the block?
         SendAndMineTransferTx, // TODO: This one uses 'conf_1' --- I don't think so, but might it make sense to allow the use of 'conf_2' also?

@@ -65,7 +65,7 @@ impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommit {
                 .unwrap()
                 .submit_commit_miner_2(&sortdb),
             _ => panic!(
-                "Invalid miner_index: {}. Expected 1 or 2.",
+                "Invalid miner index: {}. Expected 1 or 2.",
                 self.miner_index
             ),
         }
