@@ -2,6 +2,7 @@ mod context;
 
 mod bitcoin_mining;
 mod block_commit;
+mod block_verify;
 mod block_wait;
 mod boot;
 mod commit_ops;
@@ -12,9 +13,9 @@ mod transfer;
 
 pub use bitcoin_mining::{BuildNextBitcoinBlocks, MineBitcoinBlock, MineBitcoinBlockTenureChange};
 pub use block_commit::SubmitBlockCommit;
+pub use block_verify::VerifyBlockCount;
 pub use block_wait::{
-    VerifyBlockCount, WaitForBlockProposal, WaitForBlockRejectionWithRejectReason,
-    WaitForTenureChangeBlock,
+    WaitForBlockProposal, WaitForBlockRejectionWithRejectReason, WaitForTenureChangeBlock,
 };
 pub use boot::BootToEpoch3;
 pub use commit_ops::MinerCommitOp;

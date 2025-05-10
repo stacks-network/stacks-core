@@ -11,17 +11,9 @@ use crate::tests::signer::v0::{
     wait_for_block_pushed_by_miner_key,
 };
 
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-
+/// Command to wait for a specific miner to produce a Nakamoto block during tenure change.
+/// This command monitors the blockchain until the specified miner successfully
+/// produces their next expected Nakamoto block.
 pub struct WaitForTenureChangeBlock {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
@@ -93,64 +85,50 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlock {
     }
 }
 
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-
+/// Command to wait for a block proposal from a specific miner in the Nakamoto consensus protocol.
+/// This command monitors the blockchain until the specified miner submits a block proposal at the expected height.
 pub struct WaitForBlockProposal {
     ctx: Arc<SignerTestContext>,
-    reason: RejectReason,
-    expected_block_height: u64,
+    miner_index: usize,
 }
 
 impl WaitForBlockProposal {
-    pub fn new(
-        ctx: Arc<SignerTestContext>,
-        reason: RejectReason,
-        expected_block_height: u64,
-    ) -> Self {
-        Self {
-            ctx,
-            reason,
-            expected_block_height,
-        }
+    pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
+        Self { ctx, miner_index }
     }
 }
 
 impl Command<SignerTestState, SignerTestContext> for WaitForBlockProposal {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
-            "Checking: Waiting for block proposal from miner 1 and verifying rejection with reason {:?}",
-            self.reason
+            "Checking: Waiting for block proposal from miner {:?}",
+            self.miner_index,
         );
         true
     }
 
     fn apply(&self, state: &mut SignerTestState) {
-        info!("Applying: Waiting for block proposal from miner 1 and verifying rejection with reason {:?}", self.reason);
+        info!(
+            "Applying: Waiting for block proposal from miner {:?}",
+            self.miner_index
+        );
 
-        let miner_pk_1 = {
-            let (miner_pk_1, _) = self.ctx.get_miner_public_keys();
-            miner_pk_1
+        let (miner_pk_1, miner_pk_2) = self.ctx.get_miner_public_keys();
+        let miner_pk = match self.miner_index {
+            1 => miner_pk_1,
+            2 => miner_pk_2,
+            _ => panic!("Invalid miner index: {}", self.miner_index),
         };
 
+        // FIXME: This is a temporary, "hardcoded" fix. The expected block height should be passed differently.
         let expected_block_height = state.epoch_3_start_block_height + 2;
 
         info!(
             "Waiting for block proposal at height {}",
-            //TODO: Change expected_block_height with parameter: self.expected_block_height
             expected_block_height
         );
 
-        //TODO: Change expected_block_height with parameter: self.expected_block_height
-        let proposed_block = wait_for_block_proposal(30, expected_block_height, &miner_pk_1)
+        let proposed_block = wait_for_block_proposal(30, expected_block_height, &miner_pk)
             .expect("Timed out waiting for block proposal");
 
         let block_hash = proposed_block.header.signer_signature_hash();
@@ -158,48 +136,38 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockProposal {
 
         info!(
             "Received block proposal at height {} with hash {:?}",
-            //TODO: Change expected_block_height with parameter: self.expected_block_height
-            expected_block_height,
-            block_hash
+            expected_block_height, block_hash
         );
     }
 
     fn label(&self) -> String {
-        "WAIT_FOR_BLOCK_PROPOSAL".to_string()
+        format!("WAIT_FOR_BLOCK_PROPOSAL_FROM_MINER_{:?}", self.miner_index)
     }
 
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(WaitForBlockProposal::new(
-            ctx.clone(),
-            RejectReason::ReorgNotAllowed,
-            0, // TODO: Don't use a hardcoded value here
-        )))
+        (1usize..=2usize).prop_flat_map(move |miner_index| {
+            Just(CommandWrapper::new(WaitForBlockProposal::new(
+                ctx.clone(),
+                miner_index,
+            )))
+        })
     }
 }
 
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-
+/// Command to wait for a specific block to be rejected with an expected rejection reason.
+/// This command monitors the network for rejection signatures of a previously identified block.
 pub struct WaitForBlockRejectionWithRejectReason {
-    ctx: Arc<SignerTestContext>,
+    _ctx: Arc<SignerTestContext>,
     reason: RejectReason,
     num_signers: usize,
 }
 
 impl WaitForBlockRejectionWithRejectReason {
-    pub fn new(ctx: Arc<SignerTestContext>, reason: RejectReason, num_signers: usize) -> Self {
+    pub fn new(_ctx: Arc<SignerTestContext>, reason: RejectReason, num_signers: usize) -> Self {
         Self {
-            ctx,
+            _ctx,
             reason,
             num_signers,
         }
@@ -209,7 +177,7 @@ impl WaitForBlockRejectionWithRejectReason {
 impl Command<SignerTestState, SignerTestContext> for WaitForBlockRejectionWithRejectReason {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
-            "Checking: Waiting for block proposal from miner 1 and verifying rejection with reason {:?}. Result: {:?}",
+            "Checking: Waiting for block rejection with reason {:?}. Result: {:?}",
             self.reason,
             state.last_block_hash != stacks_common::util::hash::Sha512Trunc256Sum([0; 32])
         );
@@ -219,7 +187,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockRejectionWithRe
     fn apply(&self, state: &mut SignerTestState) {
         wait_for_block_global_rejection_with_reject_reason(
             30,
-            state.last_block_hash,
+            state.last_block_hash, // TODO: I don't really like this approach
             self.num_signers,
             self.reason.clone(),
         )
@@ -248,110 +216,5 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockRejectionWithRe
                 num_signers,
             ))
         })
-    }
-}
-
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-/// ------------------------------------------------------------------------------------------
-
-pub struct VerifyBlockCount {
-    ctx: Arc<SignerTestContext>,
-    miner_index: usize,
-    expected_block_count: usize,
-}
-
-impl VerifyBlockCount {
-    pub fn new(
-        ctx: Arc<SignerTestContext>,
-        miner_index: usize,
-        expected_block_count: usize,
-    ) -> Self {
-        Self {
-            ctx,
-            miner_index,
-            expected_block_count,
-        }
-    }
-}
-
-impl Command<SignerTestState, SignerTestContext> for VerifyBlockCount {
-    fn check(&self, _state: &SignerTestState) -> bool {
-        info!(
-            "Checking: Verifying miner {} block count. Result: {:?}",
-            self.miner_index, true
-        );
-        //TODO: Can this always run? Or it must be skipped if the miner is not paused?
-        true
-    }
-
-    fn apply(&self, state: &mut SignerTestState) {
-        info!(
-            "Applying: Verifying miner {} block count is {}",
-            self.miner_index, self.expected_block_count
-        );
-
-        let (conf, miner_pk) = {
-            //let current_height = self.ctx.get_peer_stacks_tip_height();
-            //FIXME: This must be changed
-            // let stacks_height_before = current_height - state.get_blocks_mined_by_miner(2) as u64;
-
-            let (conf_1, conf_2) = self.ctx.get_node_configs();
-            let conf = match self.miner_index {
-                1 => conf_1,
-                2 => conf_2,
-                _ => panic!("Invalid miner index: {}", self.miner_index),
-            };
-            let (miner_pk_1, miner_pk_2) = self.ctx.get_miner_public_keys();
-            let miner_pk = match self.miner_index {
-                1 => miner_pk_1,
-                2 => miner_pk_2,
-                _ => panic!("Invalid miner index: {}", self.miner_index),
-            };
-
-            (conf, miner_pk)
-        };
-
-        let miner_blocks_after_boot_to_epoch3 = self.ctx.get_miner_blocks_after_boot_to_epoch3(
-            &conf,
-            state.epoch_3_start_block_height,
-            &miner_pk,
-        );
-
-        assert_eq!(
-            miner_blocks_after_boot_to_epoch3, self.expected_block_count,
-            "Expected {} blocks from miner {}, but found {}",
-            self.expected_block_count, self.miner_index, miner_blocks_after_boot_to_epoch3
-        );
-
-        info!(
-            "Verified miner {} has exactly {} blocks after epoch 3 boot",
-            self.miner_index, self.expected_block_count
-        );
-    }
-
-    fn label(&self) -> String {
-        format!("VERIFY_MINER_{}_BLOCK_COUNT", self.miner_index)
-    }
-
-    fn build(
-        ctx: Arc<SignerTestContext>,
-    ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        (1usize..=2usize, 1usize..=5usize).prop_flat_map(
-            move |(miner_index, expected_block_count)| {
-                Just(CommandWrapper::new(VerifyBlockCount::new(
-                    ctx.clone(),
-                    miner_index,
-                    expected_block_count,
-                )))
-            },
-        )
     }
 }

@@ -10991,31 +10991,27 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         // TODO: Command naming: Actor(ex: btc miner, stx miner, signer, chain) + Action
         test_context,
         (MinerCommitOp::disable_for(test_context.clone(), MINER2)),
-        BootToEpoch3, // TODO: This one uses 'conf_1' --- I don't think so, but might it make sense to allow the use of 'conf_2' also?
+        BootToEpoch3,
         (MinerCommitOp::disable_for(test_context.clone(), MINER1)),
         (MineBitcoinBlockTenureChange::new(test_context.clone(), MINER1)),
         (VerifyMinerWonSortition::new(test_context.clone(), MINER1)),
         (SubmitBlockCommit::new(test_context.clone(), MINER2)),
         (StacksMining::pause()),
-        MineBitcoinBlock, // TODO: This one uses 'conf_1' --- I don't think so, but might it make sense to allow the use of 'conf_2' also?
+        MineBitcoinBlock,
         (SubmitBlockCommit::new(test_context.clone(), MINER1)),
         (StacksMining::resume()),
         (WaitForTenureChangeBlock::new(test_context.clone(), MINER2)),
         (VerifyMinerWonSortition::new(test_context.clone(), MINER2)),
-        SendAndMineTransferTx, // FIXME: Do we know which miner mines the block?
-        SendAndMineTransferTx, // TODO: This one uses 'conf_1' --- I don't think so, but might it make sense to allow the use of 'conf_2' also?
+        SendAndMineTransferTx,
+        SendAndMineTransferTx,
         (BuildNextBitcoinBlocks::new(test_context.clone(), num_blocks)),
-        (WaitForBlockProposal::new(
-            test_context.clone(),
-            RejectReason::ReorgNotAllowed,
-            0, // TODO: How can we pass the correct expected_block_height?
-        )),
-        (WaitForBlockRejectionWithRejectReason::new(
+        (WaitForBlockProposal::new(test_context.clone(), MINER1,)), // FIXME: Expected block height is calculated for this particular scenario, MUST be changed
+        (WaitForBlockRejectionWithRejectReason::new( // FIXME: It currently waits for a block hash that we store in the state, might not be a solid approach 
             test_context.clone(),
             RejectReason::ReorgNotAllowed,
             num_signers
         )),
-        (VerifyBlockCount::new(test_context.clone(), MINER1, 1)),
+        (VerifyBlockCount::new(test_context.clone(), MINER1, 1)), //FIXME: This takes the expected block count as a parameter, I don't like that
         ShutdownMiners,
     ]
 }
