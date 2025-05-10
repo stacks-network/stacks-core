@@ -200,13 +200,14 @@ impl fmt::Display for QualifiedContractIdentifier {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PrincipalData {
-    #[serde(rename = "standard")]
     Standard(StandardPrincipalData),
-    #[serde(rename = "contract")]
     Contract(QualifiedContractIdentifier),
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ContractIdentifier {
     Relative(ContractName),
     Qualified(QualifiedContractIdentifier),
@@ -297,6 +298,7 @@ impl TraitIdentifier {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Value {
     Int(i128),
     UInt(u128),
@@ -313,6 +315,7 @@ pub enum Value {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SequenceData {
     Buffer(BuffData),
     List(ListData),
