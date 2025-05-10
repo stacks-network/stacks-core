@@ -11006,7 +11006,8 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         SendAndMineTransferTx,
         (BuildNextBitcoinBlocks::new(test_context.clone(), num_blocks)),
         (WaitForBlockProposal::new(test_context.clone(), MINER1,)), // FIXME: Expected block height is calculated for this particular scenario, MUST be changed
-        (WaitForBlockRejectionWithRejectReason::new( // FIXME: It currently waits for a block hash that we store in the state, might not be a solid approach 
+        (WaitForBlockRejectionWithRejectReason::new(
+            // FIXME: It currently waits for a block hash that we store in the state, might not be a solid approach
             test_context.clone(),
             RejectReason::ReorgNotAllowed,
             num_signers
