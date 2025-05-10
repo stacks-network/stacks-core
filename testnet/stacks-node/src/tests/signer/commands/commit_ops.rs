@@ -89,3 +89,81 @@ impl Command<SignerTestState, SignerTestContext> for SkipCommitOpMiner2 {
         )))
     }
 }
+
+pub struct MinerCommitOp {
+    ctx: Arc<SignerTestContext>,
+    miner_index: usize,
+    skip: bool,
+}
+
+impl MinerCommitOp {
+    pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize, skip: bool) -> Self {
+        if miner_index != 1 && miner_index != 2 {
+            panic!(
+                "Invalid miner index: {}. Only miners 1 and 2 are supported.",
+                miner_index
+            );
+        }
+        Self {
+            ctx,
+            miner_index,
+            skip,
+        }
+    }
+}
+
+impl Command<SignerTestState, SignerTestContext> for MinerCommitOp {
+    fn check(&self, state: &SignerTestState) -> bool {
+        let current_state = match self.miner_index {
+            1 => state.is_primary_miner_skip_commit_op,
+            2 => state.is_secondary_miner_skip_commit_op,
+            _ => unreachable!(),
+        };
+
+        let should_apply = current_state != self.skip;
+
+        info!(
+            "Checking: {} commit operations for miner {}. Result: {:?}",
+            if self.skip { "Skipping" } else { "Enabling" },
+            self.miner_index,
+            should_apply
+        );
+
+        should_apply
+    }
+
+    fn apply(&self, state: &mut SignerTestState) {
+        info!(
+            "Applying: {} commit operations for miner {}",
+            if self.skip { "Skipping" } else { "Enabling" },
+            self.miner_index
+        );
+
+        self.ctx
+            .get_miner_skip_commit_flag(self.miner_index)
+            .set(self.skip);
+
+        match self.miner_index {
+            1 => state.is_primary_miner_skip_commit_op = self.skip,
+            2 => state.is_secondary_miner_skip_commit_op = self.skip,
+            _ => unreachable!(),
+        }
+    }
+
+    fn label(&self) -> String {
+        format!(
+            "{}_COMMIT_OP_MINER_{}",
+            if self.skip { "SKIP" } else { "ENABLE" },
+            self.miner_index
+        )
+    }
+
+    fn build(
+        ctx: Arc<SignerTestContext>,
+    ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
+        use proptest::prelude::*;
+        (prop_oneof![Just(1), Just(2)], any::<bool>()).prop_map(move |(miner_index, skip)| {
+            CommandWrapper::new(MinerCommitOp::new(ctx.clone(), miner_index, skip))
+        })
+    }
+}
