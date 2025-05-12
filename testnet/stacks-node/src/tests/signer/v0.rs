@@ -3067,7 +3067,9 @@ fn tx_replay_forking_test() {
     let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr, (send_amt + send_fee) * 10)],
-        |_| {},
+        |c| {
+            c.validate_with_replay_tx = true;
+        },
         |node_config| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
             node_config.miner.replay_transactions = true;
@@ -3423,7 +3425,9 @@ fn tx_replay_e2e_test() {
             (sender_addr, send_amt + send_fee),
             (sender_addr2, send_amt + send_fee),
         ],
-        |_| {},
+        |c| {
+            c.validate_with_replay_tx = true;
+        },
         |node_config| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
             node_config.miner.replay_transactions = true;

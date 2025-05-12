@@ -123,6 +123,8 @@ pub struct Signer {
     recently_processed: RecentlyProcessedBlocks<100>,
     /// The signer's global state evaluator
     pub global_state_evaluator: GlobalStateEvaluator,
+    /// Whether to validate blocks with replay transactions
+    pub validate_with_replay_tx: bool,
 }
 
 impl std::fmt::Display for SignerMode {
@@ -238,6 +240,7 @@ impl SignerTrait<SignerMessage> for Signer {
             local_state_machine: signer_state,
             recently_processed: RecentlyProcessedBlocks::new(),
             global_state_evaluator,
+            validate_with_replay_tx: signer_config.validate_with_replay_tx,
         }
     }
 
@@ -1608,7 +1611,7 @@ impl Signer {
         });
         match stacks_client.submit_block_for_validation(
             block.clone(),
-            if is_block_found {
+            if is_block_found || !self.validate_with_replay_tx {
                 None
             } else {
                 self.local_state_machine.get_tx_replay_set()
