@@ -1,24 +1,26 @@
 use async_std::net::{TcpListener, TcpStream};
 use async_std::prelude::*;
 use async_std::task;
+use http_types::{Body, Response, StatusCode};
 use stacks::prometheus::{gather, Encoder, TextEncoder};
 
-use http_types::{Body, Response, StatusCode};
+use super::MonitoringError;
 
-pub fn start_serving_prometheus_metrics(bind_address: String) {
-    let addr = bind_address.clone();
-
-    async_std::task::block_on(async {
-        let listener = TcpListener::bind(addr)
+pub fn start_serving_prometheus_metrics(bind_address: String) -> Result<(), MonitoringError> {
+    task::block_on(async {
+        let listener = TcpListener::bind(bind_address)
             .await
-            .expect("Prometheus monitoring: unable to bind address");
-        let addr = format!(
-            "http://{}",
-            listener
+            .map_err(|_| {
+                warn!("Prometheus monitoring: unable to bind address, will not spawn prometheus endpoint service.");
+                MonitoringError::AlreadyBound
+            })?;
+        let local_addr = listener
                 .local_addr()
-                .expect("Prometheus monitoring: unable to get addr")
-        );
-        info!("Prometheus monitoring: server listening on {}", addr);
+                .map_err(|_| {
+                    warn!("Prometheus monitoring: unable to get local bind address, will not spawn prometheus endpoint service.");
+                    MonitoringError::UnableToGetAddress
+                })?;
+        info!("Prometheus monitoring: server listening on http://{local_addr}");
 
         let mut incoming = listener.incoming();
         while let Some(stream) = incoming.next().await {
@@ -26,21 +28,20 @@ pub fn start_serving_prometheus_metrics(bind_address: String) {
                 Ok(stream) => stream,
                 Err(err) => {
                     error!(
-                        "Prometheus monitoring: unable to open socket and serve metrics - {:?}",
-                        err
+                        "Prometheus monitoring: unable to open socket and serve metrics - {err:?}",
                     );
                     continue;
                 }
             };
-            let addr = addr.clone();
-
             task::spawn(async {
                 if let Err(err) = accept(stream).await {
-                    eprintln!("{}", err);
+                    error!("{err}");
                 }
             });
         }
-    });
+
+        Ok::<_, MonitoringError>(())
+    })
 }
 
 async fn accept(stream: TcpStream) -> http_types::Result<()> {

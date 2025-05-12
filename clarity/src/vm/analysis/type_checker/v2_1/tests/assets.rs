@@ -14,15 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use super::contracts::type_check;
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
+use stacks_common::types::StacksEpochId;
 
+use super::contracts::type_check;
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
-use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
@@ -30,14 +29,11 @@ use crate::vm::types::{
     QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature,
 };
 use crate::vm::ClarityVersion;
-use stacks_common::types::StacksEpochId;
-use std::convert::TryInto;
 
 fn string_ascii_type(size: u32) -> TypeSignature {
     TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
         size.try_into().unwrap(),
     )))
-    .into()
 }
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
@@ -132,7 +128,7 @@ fn test_names_tokens_contracts(#[case] version: ClarityVersion, #[case] epoch: S
 
 #[test]
 fn test_bad_asset_usage() {
-    use crate::vm::analysis::type_check;
+    use crate::vm::analysis::mem_type_check as mem_run_analysis;
 
     let bad_scripts = [
         "(ft-get-balance stackoos tx-sender)",
@@ -209,7 +205,7 @@ fn test_bad_asset_usage() {
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::BoolType),
         CheckErrors::TypeError(TypeSignature::PrincipalType, TypeSignature::UIntType),
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::BoolType),
-        CheckErrors::DefineNFTBadSignature.into(),
+        CheckErrors::DefineNFTBadSignature,
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
         CheckErrors::NoSuchFT("stackoos".to_string()),
@@ -220,7 +216,12 @@ fn test_bad_asset_usage() {
 
     for (script, expected_err) in bad_scripts.iter().zip(expected.iter()) {
         let tokens_contract = format!("{}\n{}", FIRST_CLASS_TOKENS, script);
-        let actual_err = mem_type_check(&tokens_contract).unwrap_err();
+        let actual_err = mem_run_analysis(
+            &tokens_contract,
+            ClarityVersion::Clarity2,
+            StacksEpochId::latest(),
+        )
+        .unwrap_err();
         println!("{}", script);
         assert_eq!(&actual_err.err, expected_err);
     }

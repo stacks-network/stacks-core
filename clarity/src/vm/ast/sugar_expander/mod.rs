@@ -14,21 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
+use hashbrown::{HashMap, HashSet};
+
+use crate::vm::ast::errors::{ParseErrors, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST, PreExpressionsDrain};
-use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
-use crate::vm::functions::NativeFunctions;
-use crate::vm::representations::{
-    ClarityName, PreSymbolicExpression, PreSymbolicExpressionType, SymbolicExpression,
-    SymbolicExpressionType,
-};
+use crate::vm::representations::{ClarityName, PreSymbolicExpressionType, SymbolicExpression};
 use crate::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier, Value,
 };
 use crate::vm::ClarityVersion;
-
-use std::collections::{HashMap, HashSet};
-use std::convert::TryInto;
 
 pub struct SugarExpander {
     issuer: StandardPrincipalData,
@@ -59,15 +53,19 @@ impl SugarExpander {
         Ok(())
     }
 
+    // TODO: add tests from mutation testing results #4830
+    #[cfg_attr(test, mutants::skip)]
     pub fn transform(
         &self,
         pre_exprs_iter: PreExpressionsDrain,
         contract_ast: &mut ContractAST,
     ) -> ParseResult<Vec<SymbolicExpression>> {
-        let mut expressions: Vec<SymbolicExpression> = Vec::new();
+        let mut expressions: Vec<SymbolicExpression> = Vec::with_capacity(pre_exprs_iter.len());
+        #[cfg(feature = "developer-mode")]
         let mut comments = Vec::new();
 
         for pre_expr in pre_exprs_iter {
+            let span = pre_expr.span().clone();
             let mut expr = match pre_expr.pre_expr {
                 PreSymbolicExpressionType::AtomValue(content) => {
                     SymbolicExpression::literal_value(content)
@@ -76,21 +74,26 @@ impl SugarExpander {
                 PreSymbolicExpressionType::List(pre_exprs) => {
                     let drain = PreExpressionsDrain::new(pre_exprs.to_vec().drain(..), None);
                     let expression = self.transform(drain, contract_ast)?;
-                    SymbolicExpression::list(expression.into_boxed_slice())
+                    SymbolicExpression::list(expression)
                 }
                 PreSymbolicExpressionType::Tuple(pre_exprs) => {
                     let drain = PreExpressionsDrain::new(pre_exprs.to_vec().drain(..), None);
                     let expression = self.transform(drain, contract_ast)?;
                     let mut pairs = expression
                         .chunks(2)
-                        .map(|pair| pair.to_vec().into_boxed_slice())
+                        .map(|pair| pair.to_vec())
                         .map(SymbolicExpression::list)
                         .collect::<Vec<_>>();
                     pairs.insert(
                         0,
-                        SymbolicExpression::atom("tuple".to_string().try_into().unwrap()),
+                        SymbolicExpression::atom(
+                            "tuple"
+                                .to_string()
+                                .try_into()
+                                .map_err(|_| ParseErrors::InterpreterFailure)?,
+                        ),
                     );
-                    SymbolicExpression::list(pairs.into_boxed_slice())
+                    SymbolicExpression::list(pairs)
                 }
                 PreSymbolicExpressionType::SugaredContractIdentifier(contract_name) => {
                     let contract_identifier =
@@ -137,12 +140,12 @@ impl SugarExpander {
                 PreSymbolicExpressionType::Placeholder(_) => continue,
             };
             // expr.id will be set by the subsequent expression identifier pass.
-            expr.span = pre_expr.span.clone();
+            expr.copy_span(&span);
 
             #[cfg(feature = "developer-mode")]
             // If there were comments above this expression, attach them.
             if !comments.is_empty() {
-                expr.pre_comments = std::mem::replace(&mut comments, Vec::new());
+                expr.pre_comments = std::mem::take(&mut comments);
             }
 
             expressions.push(expr);
@@ -161,14 +164,11 @@ impl SugarExpander {
 
 #[cfg(test)]
 mod test {
-    use crate::vm::ast::errors::{ParseError, ParseErrors};
     use crate::vm::ast::sugar_expander::SugarExpander;
     use crate::vm::ast::types::ContractAST;
-    use crate::vm::representations::{
-        ContractName, PreSymbolicExpression, Span, SymbolicExpression,
-    };
-    use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
-    use crate::vm::{ast, Value};
+    use crate::vm::representations::{ContractName, PreSymbolicExpression, SymbolicExpression};
+    use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
+    use crate::vm::Value;
 
     fn make_pre_atom(
         x: &str,
@@ -199,7 +199,7 @@ mod test {
         start_column: u32,
         end_line: u32,
         end_column: u32,
-        x: Box<[PreSymbolicExpression]>,
+        x: Vec<PreSymbolicExpression>,
     ) -> PreSymbolicExpression {
         let mut e = PreSymbolicExpression::list(x);
         e.set_span(start_line, start_column, end_line, end_column);
@@ -211,7 +211,7 @@ mod test {
         start_column: u32,
         end_line: u32,
         end_column: u32,
-        x: Box<[PreSymbolicExpression]>,
+        x: Vec<PreSymbolicExpression>,
     ) -> PreSymbolicExpression {
         let mut e = PreSymbolicExpression::tuple(x);
         e.set_span(start_line, start_column, end_line, end_column);
@@ -271,7 +271,7 @@ mod test {
         start_column: u32,
         end_line: u32,
         end_column: u32,
-        x: Box<[SymbolicExpression]>,
+        x: Vec<SymbolicExpression>,
     ) -> SymbolicExpression {
         let mut e = SymbolicExpression::list(x);
         e.set_span(start_line, start_column, end_line, end_column);
@@ -299,42 +299,42 @@ mod test {
                 3,
                 6,
                 11,
-                Box::new([
+                vec![
                     make_pre_atom("let", 1, 4, 1, 6),
                     make_pre_list(
                         1,
                         8,
                         1,
                         20,
-                        Box::new([
+                        vec![
                             make_pre_list(
                                 1,
                                 9,
                                 1,
                                 13,
-                                Box::new([
+                                vec![
                                     make_pre_atom("x", 1, 10, 1, 10),
                                     make_pre_atom_value(Value::Int(1), 1, 12, 1, 12),
-                                ]),
+                                ],
                             ),
                             make_pre_list(
                                 1,
                                 15,
                                 1,
                                 19,
-                                Box::new([
+                                vec![
                                     make_pre_atom("y", 1, 16, 1, 16),
                                     make_pre_atom_value(Value::Int(2), 1, 18, 1, 18),
-                                ]),
+                                ],
                             ),
-                        ]),
+                        ],
                     ),
                     make_pre_list(
                         2,
                         5,
                         6,
                         10,
-                        Box::new([
+                        vec![
                             make_pre_atom("+", 2, 6, 2, 6),
                             make_pre_atom("x", 2, 8, 2, 8),
                             make_pre_list(
@@ -342,41 +342,41 @@ mod test {
                                 9,
                                 5,
                                 16,
-                                Box::new([
+                                vec![
                                     make_pre_atom("let", 4, 10, 4, 12),
                                     make_pre_list(
                                         4,
                                         14,
                                         4,
                                         20,
-                                        Box::new([make_pre_list(
+                                        vec![make_pre_list(
                                             4,
                                             15,
                                             4,
                                             19,
-                                            Box::new([
+                                            vec![
                                                 make_pre_atom("x", 4, 16, 4, 16),
                                                 make_pre_atom_value(Value::Int(3), 4, 18, 4, 18),
-                                            ]),
-                                        )]),
+                                            ],
+                                        )],
                                     ),
                                     make_pre_list(
                                         5,
                                         9,
                                         5,
                                         15,
-                                        Box::new([
+                                        vec![
                                             make_pre_atom("+", 5, 10, 5, 10),
                                             make_pre_atom("x", 5, 12, 5, 12),
                                             make_pre_atom("y", 5, 14, 5, 14),
-                                        ]),
+                                        ],
                                     ),
-                                ]),
+                                ],
                             ),
                             make_pre_atom("x", 6, 9, 6, 9),
-                        ]),
+                        ],
                     ),
-                ]),
+                ],
             ),
             make_pre_atom("x", 6, 13, 6, 13),
             make_pre_atom("y", 6, 15, 6, 15),
@@ -389,42 +389,42 @@ mod test {
                 3,
                 6,
                 11,
-                Box::new([
+                vec![
                     make_atom("let", 1, 4, 1, 6),
                     make_list(
                         1,
                         8,
                         1,
                         20,
-                        Box::new([
+                        vec![
                             make_list(
                                 1,
                                 9,
                                 1,
                                 13,
-                                Box::new([
+                                vec![
                                     make_atom("x", 1, 10, 1, 10),
                                     make_literal_value(Value::Int(1), 1, 12, 1, 12),
-                                ]),
+                                ],
                             ),
                             make_list(
                                 1,
                                 15,
                                 1,
                                 19,
-                                Box::new([
+                                vec![
                                     make_atom("y", 1, 16, 1, 16),
                                     make_literal_value(Value::Int(2), 1, 18, 1, 18),
-                                ]),
+                                ],
                             ),
-                        ]),
+                        ],
                     ),
                     make_list(
                         2,
                         5,
                         6,
                         10,
-                        Box::new([
+                        vec![
                             make_atom("+", 2, 6, 2, 6),
                             make_atom("x", 2, 8, 2, 8),
                             make_list(
@@ -432,41 +432,41 @@ mod test {
                                 9,
                                 5,
                                 16,
-                                Box::new([
+                                vec![
                                     make_atom("let", 4, 10, 4, 12),
                                     make_list(
                                         4,
                                         14,
                                         4,
                                         20,
-                                        Box::new([make_list(
+                                        vec![make_list(
                                             4,
                                             15,
                                             4,
                                             19,
-                                            Box::new([
+                                            vec![
                                                 make_atom("x", 4, 16, 4, 16),
                                                 make_literal_value(Value::Int(3), 4, 18, 4, 18),
-                                            ]),
-                                        )]),
+                                            ],
+                                        )],
                                     ),
                                     make_list(
                                         5,
                                         9,
                                         5,
                                         15,
-                                        Box::new([
+                                        vec![
                                             make_atom("+", 5, 10, 5, 10),
                                             make_atom("x", 5, 12, 5, 12),
                                             make_atom("y", 5, 14, 5, 14),
-                                        ]),
+                                        ],
                                     ),
-                                ]),
+                                ],
                             ),
                             make_atom("x", 6, 9, 6, 9),
-                        ]),
+                        ],
                     ),
-                ]),
+                ],
             ),
             make_atom("x", 6, 13, 6, 13),
             make_atom("y", 6, 15, 6, 15),
@@ -492,29 +492,29 @@ mod test {
             1,
             1,
             9,
-            Box::new([
+            vec![
                 make_pre_atom("id", 1, 2, 1, 3),
                 make_pre_atom_value(Value::Int(1337), 1, 5, 1, 8),
-            ]),
+            ],
         )];
         let ast = vec![make_list(
             1,
             1,
             1,
             9,
-            Box::new([
+            vec![
                 make_atom("tuple", 0, 0, 0, 0),
                 make_list(
                     0,
                     0,
                     0,
                     0,
-                    Box::new([
+                    vec![
                         make_atom("id", 1, 2, 1, 3),
                         make_literal_value(Value::Int(1337), 1, 5, 1, 8),
-                    ]),
+                    ],
                 ),
-            ]),
+            ],
         )];
         let contract_id = QualifiedContractIdentifier::parse(
             "S1G2081040G2081040G2081040G208105NK8PE5.contract-a",
@@ -557,7 +557,11 @@ mod test {
         );
     }
 
+    #[cfg(feature = "developer-mode")]
+    use crate::vm::representations::Span;
+
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_end_line_comment() {
         let pre_ast = vec![
             make_pre_atom("foo", 1, 1, 1, 3),
@@ -584,6 +588,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_pre_comment() {
         // Pre-comment at the top of the file
         let pre_ast = vec![
@@ -619,6 +624,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_pre_comment_second() {
         // Pre-comment on the second expression
         let pre_ast = vec![
@@ -654,6 +660,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_pre_comments_multiple() {
         // Multiple pre-comments
         let pre_ast = vec![
@@ -701,6 +708,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_pre_comments_newline() {
         // Multiple pre-comments with a newline in between
         let pre_ast = vec![
@@ -748,6 +756,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_post_comment() {
         // Post-comment at end of file
         let pre_ast = vec![
@@ -781,6 +790,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_post_comments_multiple() {
         // Multiple post-comments at end of file
         let pre_ast = vec![
@@ -826,6 +836,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn test_attach_post_comment_inside_list() {
         // Post-comment at end of list:
         // (
@@ -834,7 +845,7 @@ mod test {
         // )
         let pre_foo = make_pre_atom("foo", 2, 4, 2, 6);
         let pre_comment = make_pre_comment("this is a comment".to_string(), 3, 4, 3, 20);
-        let pre_ast = vec![make_pre_list(1, 1, 4, 1, Box::new([pre_foo, pre_comment]))];
+        let pre_ast = vec![make_pre_list(1, 1, 4, 1, vec![pre_foo, pre_comment])];
         let mut foo = make_atom("foo", 2, 4, 2, 6);
         foo.post_comments = vec![(
             "this is a comment".to_string(),
@@ -845,7 +856,7 @@ mod test {
                 end_column: 20,
             },
         )];
-        let list = make_list(1, 1, 4, 1, Box::new([foo]));
+        let list = make_list(1, 1, 4, 1, vec![foo]);
         let ast = vec![list];
 
         let contract_id = QualifiedContractIdentifier::parse(

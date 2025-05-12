@@ -1,19 +1,17 @@
-use crate::vm::ast::ASTRules;
-use crate::vm::execute_with_parameters;
-use crate::vm::types::TypeSignature::PrincipalType;
-use crate::vm::types::{ASCIIData, BuffData, CharType, SequenceData, Value};
-use crate::vm::ClarityVersion;
-
-use crate::vm::errors::CheckErrors;
-use crate::vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
-    TupleData, TypeSignature, BUFF_1, BUFF_20,
-};
+use hashbrown::HashMap;
 use stacks_common::types::StacksEpochId;
-
-use crate::vm::functions::principals::PrincipalConstructErrorCode;
-
 use stacks_common::util::hash::hex_bytes;
+
+use crate::vm::ast::ASTRules;
+use crate::vm::errors::CheckErrors;
+use crate::vm::functions::principals::PrincipalConstructErrorCode;
+use crate::vm::types::TypeSignature::PrincipalType;
+use crate::vm::types::{
+    ASCIIData, BuffData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
+    ResponseData, SequenceData, StandardPrincipalData, TupleData, TypeSignature, Value, BUFF_1,
+    BUFF_20,
+};
+use crate::vm::{execute_with_parameters, ClarityVersion};
 
 #[test]
 fn test_simple_is_standard_check_inputs() {
@@ -659,7 +657,7 @@ fn test_principal_destruct_bad_version_byte() {
 // Standard case where construction should work.  We compare the output of the
 // Clarity function to hand-built principals.
 fn test_principal_construct_good() {
-    // We always use the the same bytes buffer.
+    // We always use the same bytes buffer.
     let mut transfer_buffer = [0u8; 20];
     transfer_buffer
         .copy_from_slice(&hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap());
@@ -670,7 +668,7 @@ fn test_principal_construct_good() {
         Value::Response(ResponseData {
             committed: true,
             data: Box::new(Value::Principal(PrincipalData::Standard(
-                StandardPrincipalData(22, transfer_buffer)
+                StandardPrincipalData::new(22, transfer_buffer).unwrap()
             )))
         }),
         execute_with_parameters(
@@ -690,7 +688,7 @@ fn test_principal_construct_good() {
         Value::Response(ResponseData {
             committed: true,
             data: Box::new(Value::Principal(PrincipalData::Standard(
-                StandardPrincipalData(20, transfer_buffer)
+                StandardPrincipalData::new(20, transfer_buffer).unwrap()
             )))
         }),
         execute_with_parameters(
@@ -712,8 +710,8 @@ fn test_principal_construct_good() {
             committed: true,
             data: Box::new(Value::Principal(PrincipalData::Contract(
                 QualifiedContractIdentifier::new(
-                    StandardPrincipalData(22, transfer_buffer),
-                    "hello-world".try_into().unwrap()
+                    StandardPrincipalData::new(22, transfer_buffer).unwrap(),
+                    "hello-world".into()
                 )
             )))
         }),
@@ -736,8 +734,8 @@ fn test_principal_construct_good() {
             committed: true,
             data: Box::new(Value::Principal(PrincipalData::Contract(
                 QualifiedContractIdentifier::new(
-                    StandardPrincipalData(20, transfer_buffer),
-                    "hello-world".try_into().unwrap()
+                    StandardPrincipalData::new(20, transfer_buffer).unwrap(),
+                    "hello-world".into()
                 )
             )))
         }),
@@ -758,7 +756,7 @@ fn test_principal_construct_good() {
         Value::Response(ResponseData {
             committed: true,
             data: Box::new(Value::Principal(PrincipalData::Standard(
-                StandardPrincipalData(26, transfer_buffer)
+                StandardPrincipalData::new(26, transfer_buffer).unwrap()
             )))
         }),
         execute_with_parameters(
@@ -778,7 +776,7 @@ fn test_principal_construct_good() {
         Value::Response(ResponseData {
             committed: true,
             data: Box::new(Value::Principal(PrincipalData::Standard(
-                StandardPrincipalData(21, transfer_buffer)
+                StandardPrincipalData::new(21, transfer_buffer).unwrap()
             )))
         }),
         execute_with_parameters(
@@ -800,8 +798,8 @@ fn test_principal_construct_good() {
             committed: true,
             data: Box::new(Value::Principal(PrincipalData::Contract(
                 QualifiedContractIdentifier::new(
-                    StandardPrincipalData(26, transfer_buffer),
-                    "hello-world".try_into().unwrap()
+                    StandardPrincipalData::new(26, transfer_buffer).unwrap(),
+                    "hello-world".into()
                 )
             )))
         }),
@@ -824,8 +822,8 @@ fn test_principal_construct_good() {
             committed: true,
             data: Box::new(Value::Principal(PrincipalData::Contract(
                 QualifiedContractIdentifier::new(
-                    StandardPrincipalData(21, transfer_buffer),
-                    "hello-world".try_into().unwrap()
+                    StandardPrincipalData::new(21, transfer_buffer).unwrap(),
+                    "hello-world".into()
                 )
             )))
         }),
@@ -855,15 +853,14 @@ fn create_principal_from_strings(
     if let Some(name) = name {
         // contract principal requested
         Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
-            StandardPrincipalData(version_array[0], principal_array),
-            name.try_into().unwrap(),
+            StandardPrincipalData::new(version_array[0], principal_array).unwrap(),
+            name.into(),
         )))
     } else {
         // standard principal requested
-        Value::Principal(PrincipalData::Standard(StandardPrincipalData(
-            version_array[0],
-            principal_array,
-        )))
+        Value::Principal(PrincipalData::Standard(
+            StandardPrincipalData::new(version_array[0], principal_array).unwrap(),
+        ))
     }
 }
 
@@ -1007,7 +1004,7 @@ fn test_principal_construct_check_errors() {
     let input = r#"(principal-construct? 0x16 0x0102030405060708091011121314151617181920 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(
-            TypeSignature::contract_name_string_ascii_type(),
+            TypeSignature::contract_name_string_ascii_type().unwrap(),
             Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
                 data: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
                     .as_bytes()

@@ -14,17 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use super::types::signatures::{FunctionArgSignature, FunctionReturnsSignature};
 use crate::vm::analysis::type_checker::v2_1::natives::SimpleNativeFunction;
 use crate::vm::analysis::type_checker::v2_1::TypedNativeFunction;
-use crate::vm::costs::ExecutionCost;
 use crate::vm::functions::define::DefineFunctions;
 use crate::vm::functions::NativeFunctions;
-use crate::vm::types::signatures::ASCII_40;
-use crate::vm::types::{FixedFunction, FunctionType, SequenceSubtype, StringSubtype, Value};
+use crate::vm::types::{FixedFunction, FunctionType};
 use crate::vm::variables::NativeVariables;
 use crate::vm::ClarityVersion;
-
-use super::types::signatures::{FunctionArgSignature, FunctionReturnsSignature};
 
 pub mod contracts;
 
@@ -42,7 +39,9 @@ pub struct KeywordAPI {
     pub description: &'static str,
     pub example: &'static str,
     /// The version where this keyword was first introduced.
-    pub version: ClarityVersion,
+    pub min_version: ClarityVersion,
+    /// The version where this keyword was disabled.
+    pub max_version: Option<ClarityVersion>,
 }
 
 #[derive(Serialize, Clone)]
@@ -64,7 +63,9 @@ pub struct FunctionAPI {
     pub description: String,
     pub example: String,
     /// The version where this keyword was first introduced.
-    pub version: ClarityVersion,
+    pub min_version: ClarityVersion,
+    /// The version where this keyword was disabled.
+    pub max_version: Option<ClarityVersion>,
 }
 
 pub struct SimpleFunctionAPI {
@@ -97,17 +98,19 @@ const BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "block-height",
     snippet: "block-height",
     output_type: "uint",
-    description: "Returns the current block height of the Stacks blockchain as an uint",
+    description: "Returns the current block height of the Stacks blockchain in Clarity 1 and 2.
+Upon activation of epoch 3.0, `block-height` will return the same value as `tenure-height`.
+In Clarity 3, `block-height` is removed and has been replaced with `stacks-block-height`.",
     example:
-        "(> block-height 1000) ;; returns true if the current block-height has passed 1000 blocks.",
+        "(> block-height u1000) ;; returns true if the current block-height has passed 1000 blocks.",
 };
 
 const BURN_BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "burn-block-height",
     snippet: "burn-block-height",
     output_type: "uint",
-    description: "Returns the current block height of the underlying burn blockchain as a uint",
-    example: "(> burn-block-height 1000) ;; returns true if the current height of the underlying burn blockchain has passed 1000 blocks.",
+    description: "Returns the current block height of the underlying burn blockchain.",
+    example: "(> burn-block-height u832000) ;; returns true if the current height of the underlying burn blockchain has passed 832,000 blocks.",
 };
 
 const CONTRACT_CALLER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -119,6 +122,25 @@ the caller will be equal to the signing principal. If `contract-call?` was used 
 changes to the _calling_ contract's principal. If `as-contract` is used to change the `tx-sender` context, `contract-caller` _also_ changes
 to the same contract principal.",
     example: "(print contract-caller) ;; Will print out a Stacks address of the transaction sender",
+};
+
+const STACKS_BLOCK_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
+    name: "stacks-block-height",
+    snippet: "stacks-block-height",
+    output_type: "uint",
+    description: "Returns the current block height of the Stacks blockchain.",
+    example:
+        "(<= stacks-block-height u500000) ;; returns true if the current block-height has not passed 500,000 blocks.",
+};
+
+const TENURE_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
+    name: "tenure-height",
+    snippet: "tenure-height",
+    output_type: "uint",
+    description: "Returns the number of tenures that have passed.
+At the start of epoch 3.0, `tenure-height` will return the same value as `block-height`, then it will continue to increase as each tenures passes.",
+    example:
+        "(< tenure-height u140000) ;; returns true if the current tenure-height has passed 140,000 blocks.",
 };
 
 const TX_SENDER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -246,7 +268,7 @@ const BUFF_TO_UINT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "buff-to-uint-le ${1:buff}",
     signature: "(buff-to-uint-le (buff 16))",
-    description: "Converts a byte buffer to an unsigned integer use a little-endian encoding..
+    description: "Converts a byte buffer to an unsigned integer use a little-endian encoding.
 The byte buffer can be up to 16 bytes in length. If there are fewer than 16 bytes, as
 this function uses a little-endian encoding, the input behaves as if it is
 zero-padded on the _right_.
@@ -477,7 +499,6 @@ Note: Corner cases are handled with the following rules:
   * if both `i1` and `i2` are `0`, return `1`
   * if `i1` is `1`, return `1`
   * if `i1` is `0`, return `0`
-  * if `i2` is `1`, return `i1`
   * if `i2` is negative or greater than `u32::MAX`, throw a runtime error",
     example: "(pow 2 3) ;; Returns 8
 (pow 2 2) ;; Returns 4
@@ -505,7 +526,7 @@ const LOG2_API: SimpleFunctionAPI = SimpleFunctionAPI {
     snippet: "log2 ${1:expr-1}",
     signature: "(log2 n)",
     description:
-        "Returns the power to which the number 2 must be raised to to obtain the value `n`, rounded 
+        "Returns the power to which the number 2 must be raised to obtain the value `n`, rounded 
 down to the nearest integer. Fails on a negative numbers.
 ",
     example: "(log2 u8) ;; Returns u3
@@ -777,6 +798,7 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
     }
 }
 
+#[allow(clippy::panic)]
 pub fn get_output_type_string(function_type: &FunctionType) -> String {
     match function_type {
         FunctionType::Variadic(_, ref out_type) => format!("{}", out_type),
@@ -789,19 +811,19 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
         FunctionType::Binary(left, right, ref out_sig) => match out_sig {
             FunctionReturnsSignature::Fixed(out_type) => format!("{}", out_type),
             FunctionReturnsSignature::TypeOfArgAtPosition(pos) => {
-                let arg_sig: &FunctionArgSignature;
-                match pos {
-                        0 => arg_sig = left,
-                        1 => arg_sig = right,
-                        _ => panic!("Index out of range: TypeOfArgAtPosition for FunctionType::Binary can only handle two arguments, zero-indexed (0 or 1).")
-                    }
+                let arg_sig = match pos {
+                    0 => left,
+                    1 => right,
+                    _ => panic!("Index out of range: TypeOfArgAtPosition for FunctionType::Binary can only handle two arguments, zero-indexed (0 or 1).")
+                };
+
                 match arg_sig {
-                    FunctionArgSignature::Single(arg_type) => format!("{}", arg_type),
-                    FunctionArgSignature::Union(arg_types) => {
-                        let out_types: Vec<String> =
-                            arg_types.iter().map(|x| format!("{}", x)).collect();
-                        out_types.join(" | ")
-                    }
+                    FunctionArgSignature::Single(arg_type) => arg_type.to_string(),
+                    FunctionArgSignature::Union(arg_types) => arg_types
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(" | "),
                 }
             }
         },
@@ -810,15 +832,12 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
 
 pub fn get_signature(function_name: &str, function_type: &FunctionType) -> Option<String> {
     if let FunctionType::Fixed(FixedFunction { ref args, .. }) = function_type {
-        let in_names: Vec<String> = args
-            .iter()
-            .map(|x| format!("{}", x.name.as_str()))
-            .collect();
+        let in_names: Vec<String> = args.iter().map(|x| x.name.to_string()).collect();
         let arg_examples = in_names.join(" ");
         Some(format!(
             "({}{}{})",
             function_name,
-            if arg_examples.len() == 0 { "" } else { " " },
+            if arg_examples.is_empty() { "" } else { " " },
             arg_examples
         ))
     } else {
@@ -826,6 +845,8 @@ pub fn get_signature(function_name: &str, function_type: &FunctionType) -> Optio
     }
 }
 
+#[allow(clippy::expect_used)]
+#[allow(clippy::panic)]
 fn make_for_simple_native(
     api: &SimpleFunctionAPI,
     function: &NativeFunctions,
@@ -833,7 +854,8 @@ fn make_for_simple_native(
 ) -> FunctionAPI {
     let (input_type, output_type) = {
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) =
-            TypedNativeFunction::type_native_function(&function)
+            TypedNativeFunction::type_native_function(function)
+                .expect("Failed to type a native function")
         {
             let input_type = get_input_type_string(&function_type);
             let output_type = get_output_type_string(&function_type);
@@ -849,12 +871,13 @@ fn make_for_simple_native(
     FunctionAPI {
         name: api.name.map_or(name, |x| x.to_string()),
         snippet: api.snippet.to_string(),
-        input_type: input_type,
-        output_type: output_type,
+        input_type,
+        output_type,
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
-        version: function.get_version(),
+        min_version: function.get_min_version(),
+        max_version: function.get_max_version(),
     }
 }
 
@@ -1373,7 +1396,7 @@ You _may not_ use this function to call a public function defined in the current
 function returns _err_, any database changes resulting from calling `contract-call?` are aborted.
 If the function returns _ok_, database changes occurred.",
     example: "
-;; instantiate the sample-contracts/tokens.clar contract first!
+;; instantiate the sample/contracts/tokens.clar contract first!
 (as-contract (contract-call? .tokens mint! u19)) ;; Returns (ok u19)"
 };
 
@@ -1427,7 +1450,7 @@ The function returns the result of evaluating `expr`.
     example: "
 (define-data-var data int 1)
 (at-block 0x0000000000000000000000000000000000000000000000000000000000000000 block-height) ;; Returns u0
-(at-block (get-block-info? id-header-hash 0) (var-get data)) ;; Throws NoSuchDataVariable because `data` wasn't initialized at block height 0"
+(at-block (unwrap-panic (get-block-info? id-header-hash u0)) (var-get data)) ;; Throws NoSuchDataVariable because `data` wasn't initialized at block height 0"
 };
 
 const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
@@ -1698,40 +1721,44 @@ const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     snippet: "get-block-info? ${1:prop} ${2:block-height}",
     output_type: "(optional buff) | (optional uint)",
     signature: "(get-block-info? prop-name block-height)",
-    description: "The `get-block-info?` function fetches data for a block of the given *Stacks* block height. The
+    description: "In Clarity 3, `get-block-info?` is removed. In its place, `get-stacks-block-info?` can be used to retrieve
+information about a Stacks block and `get-tenure-info?` can be used to get information pertaining to the tenure.
+
+The `get-block-info?` function fetches data for a block of the given *Stacks* block height. The
 value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `block-height` does
 not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
 are as follows:
 
-`burnchain-header-hash`: This property returns a `(buff 32)` value containing the header hash of the burnchain (Bitcoin) block that selected the 
+- `burnchain-header-hash`: This property returns a `(buff 32)` value containing the header hash of the burnchain (Bitcoin) block that selected the 
 Stacks block at the given Stacks chain height.
 
-`id-header-hash`: This property returns a `(buff 32)` value containing the _index block hash_ of a Stacks block.   This hash is globally unique, and is derived
+- `id-header-hash`: This property returns a `(buff 32)` value containing the _index block hash_ of a Stacks block.   This hash is globally unique, and is derived
 from the block hash and the history of accepted PoX operations.  This is also the block hash value you would pass into `(at-block)`.
 
-`header-hash`: This property returns a `(buff 32)` value containing the header hash of a Stacks block, given a Stacks chain height.  **WARNING* this hash is
+- `header-hash`: This property returns a `(buff 32)` value containing the header hash of a Stacks block, given a Stacks chain height.  **WARNING* this hash is
 not guaranteed to be globally unique, since the same Stacks block can be mined in different PoX forks.  If you need global uniqueness, you should use `id-header-hash`.
 
-`miner-address`: This property returns a `principal` value corresponding to the miner of the given block.  **WARNING** In Stacks 2.1, this is not guaranteed to 
+- `miner-address`: This property returns a `principal` value corresponding to the miner of the given block.  **WARNING** In Stacks 2.1, this is not guaranteed to 
 be the same `principal` that received the block reward, since Stacks 2.1 supports coinbase transactions that pay the reward to a contract address.  This is merely
 the address of the `principal` that produced the block.
 
-`time`: This property returns a `uint` value of the block header time field. This is a Unix epoch timestamp in seconds
-which roughly corresponds to when the block was mined. **Note**: this does not increase monotonically with each block
+- `time`: This property returns a `uint` value of the block header time field. This is a Unix epoch timestamp in seconds
+which roughly corresponds to when the block was mined. This timestamp comes from the burnchain block. **Note**: this does not increase monotonically with each block
 and block times are accurate only to within two hours. See [BIP113](https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki) for more information.
+For blocks mined after epoch 3.0, all Stacks blocks in one tenure will share the same timestamp. To get the Stacks block time for a block in epoch 3.0+, use `get-stacks-block-info?`.
 
-New in Stacks 2.1:
+- `vrf-seed`: This property returns a `(buff 32)` value of the VRF seed for the corresponding block.
 
-`block-reward`: This property returns a `uint` value for the total block reward of the indicated Stacks block.  This value is only available once the reward for 
+- `block-reward`: This property returns a `uint` value for the total block reward of the indicated Stacks block.  This value is only available once the reward for 
 the block matures.  That is, the latest `block-reward` value available is at least 101 Stacks blocks in the past (on mainnet).  The reward includes the coinbase,
 the anchored block's transaction fees, and the shares of the confirmed and produced microblock transaction fees earned by this block's miner.  Note that this value may 
 be smaller than the Stacks coinbase at this height, because the miner may have been punished with a valid `PoisonMicroblock` transaction in the event that the miner
-published two or more microblock stream forks.
+published two or more microblock stream forks. Added in Clarity 2.
 
-`miner-spend-total`: This property returns a `uint` value for the total number of burnchain tokens (i.e. satoshis) spent by all miners trying to win this block.
+- `miner-spend-total`: This property returns a `uint` value for the total number of burnchain tokens (i.e. satoshis) spent by all miners trying to win this block. Added in Clarity 2.
 
-`miner-spend-winner`: This property returns a `uint` value for the number of burnchain tokens (i.e. satoshis) spent by the winning miner for this Stacks block.  Note that
-this value is less than or equal to the value for `miner-spend-total` at the same block height.
+- `miner-spend-winner`: This property returns a `uint` value for the number of burnchain tokens (i.e. satoshis) spent by the winning miner for this Stacks block.  Note that
+this value is less than or equal to the value for `miner-spend-total` at the same block height. Added in Clarity 2.
 ",
     example: "(get-block-info? time u0) ;; Returns (some u1557860301)
 (get-block-info? header-hash u0) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)
@@ -1742,17 +1769,17 @@ this value is less than or equal to the value for `miner-spend-total` at the sam
 const GET_BURN_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     input_type: "BurnBlockInfoPropertyName, uint",
     output_type: "(optional buff) | (optional (tuple (addrs (list 2 (tuple (hashbytes (buff 32)) (version (buff 1))))) (payout uint)))",
-    snippet: "get-burn-block-info? ${1:prop} ${2:block-height}",
-    signature: "(get-burn-block-info? prop-name block-height)",
+    snippet: "get-burn-block-info? ${1:prop} ${2:burn-block-height}",
+    signature: "(get-burn-block-info? prop-name burn-block-height)",
     description: "The `get-burn-block-info?` function fetches data for a block of the given *burnchain* block height. The
-value and type returned are determined by the specified `BlockInfoPropertyName`.  Valid values for `block-height` only
+value and type returned are determined by the specified `BlockInfoPropertyName`.  Valid values for `burn-block-height` only
 include heights between the burnchain height at the time the Stacks chain was launched, and the last-processed burnchain
-block.  If the `block-height` argument falls outside of this range, then `none` shall be returned.
+block.  If the `burn-block-height` argument falls outside of this range, then `none` shall be returned.
 
 The following `BlockInfoPropertyName` values are defined:
 
 * The `header-hash` property returns a 32-byte buffer representing the header hash of the burnchain block at
-burnchain height `block-height`.
+burnchain height `burn-block-height`.
 
 * The `pox-addrs` property returns a tuple with two items: a list of up to two PoX addresses that received a PoX payout at that block height, and the amount of burnchain
 tokens paid to each address (note that per the blockchain consensus rules, each PoX payout will be the same for each address in the block-commit transaction).
@@ -1773,6 +1800,74 @@ The `addrs` list contains the same PoX address values passed into the PoX smart 
     example: "
 (get-burn-block-info? header-hash u677050) ;; Returns (some 0xe67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8)
 (get-burn-block-info? pox-addrs u677050) ;; Returns (some (tuple (addrs ((tuple (hashbytes 0x395f3643cea07ec4eec73b4d9a973dcce56b9bf1) (version 0x00)) (tuple (hashbytes 0x7c6775e20e3e938d2d7e9d79ac310108ba501ddb) (version 0x01)))) (payout u123)))
+"
+};
+
+const GET_STACKS_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
+    input_type: "StacksBlockInfoPropertyName, uint",
+    snippet: "get-stacks-block-info? ${1:prop} ${2:stacks-block-height}",
+    output_type: "(optional buff) | (optional uint)",
+    signature: "(get-stacks-block-info? prop-name stacks-block-height)",
+    description: "The `get-stacks-block-info?` function fetches data for a block of the given *Stacks* block height. The
+value and type returned are determined by the specified `StacksBlockInfoPropertyName`. If the provided `stacks-block-height` does
+not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
+are as follows:
+
+- `id-header-hash`: This property returns a `(buff 32)` value containing the _index block hash_ of a Stacks block.   This hash is globally unique, and is derived
+from the block hash and the history of accepted PoX operations.  This is also the block hash value you would pass into `(at-block)`.
+
+- `header-hash`: This property returns a `(buff 32)` value containing the header hash of a Stacks block, given a Stacks chain height.  **WARNING* this hash is
+not guaranteed to be globally unique, since the same Stacks block can be mined in different PoX forks.  If you need global uniqueness, you should use `id-header-hash`.
+
+- `time`: This property returns a `uint` value of the block header time field. This is a Unix epoch timestamp in seconds
+which roughly corresponds to when the block was mined. For a block mined before epoch 3.0, this timestamp comes from the burnchain block. **Note**: this does not increase monotonically with each block
+and block times are accurate only to within two hours. See [BIP113](https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki) for more information.
+For a block mined after epoch 3.0, this timestamp comes from the Stacks block header. **Note**: this is the time, according to the miner, when
+the mining of this block started, but is not guaranteed to be accurate. This time will be validated by the signers to be:
+  - Greater than the timestamp of the previous block
+  - At most 15 seconds into the future (according to their own local clocks)
+",
+    example: "(get-stacks-block-info? time u0) ;; Returns (some u1557860301)
+(get-stacks-block-info? header-hash u0) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)
+"
+};
+
+const GET_TENURE_INFO_API: SpecialAPI = SpecialAPI {
+    input_type: "TenureInfoPropertyName, uint",
+    snippet: "get-tenure-info? ${1:prop} ${2:stacks-block-height}",
+    output_type: "(optional buff) | (optional uint)",
+    signature: "(get-tenure-info? prop-name stacks-block-height)",
+    description: "The `get-tenure-info?` function fetches data for the tenure at the given block height. The
+value and type returned are determined by the specified `TenureInfoPropertyName`. If the provided `stacks-block-height` does
+not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
+are as follows:
+
+- `burnchain-header-hash`: This property returns a `(buff 32)` value containing the header hash of the burnchain (Bitcoin) block that selected the
+tenure at the given height.
+
+- `miner-address`: This property returns a `principal` value corresponding to the miner of the given tenure.  **WARNING** This is not guaranteed to
+be the same `principal` that received the block reward, since Stacks 2.1+ supports coinbase transactions that pay the reward to a contract address.  This is merely
+the address of the `principal` that produced the tenure.
+
+- `time`: This property returns a `uint` Unix epoch timestamp in seconds which roughly corresponds to when the tenure was started. This timestamp comes
+from the burnchain block. **Note**: this does not increase monotonically with each tenure and tenure times are accurate only to within two hours. See
+[BIP113](https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki) for more information.
+
+- `vrf-seed`: This property returns a `(buff 32)` value of the VRF seed for the corresponding tenure.
+
+- `block-reward`: This property returns a `uint` value for the total block reward of the indicated tenure.  This value is only available once the reward for
+the tenure matures.  That is, the latest `block-reward` value available is at least 101 Stacks blocks in the past (on mainnet).  The reward includes the coinbase,
+the anchored tenure's transaction fees, and the shares of the confirmed and produced microblock transaction fees earned by this block's miner.  Note that this value may
+be smaller than the Stacks coinbase at this height, because the miner may have been punished with a valid `PoisonMicroblock` transaction in the event that the miner
+published two or more microblock stream forks.
+
+- `miner-spend-total`: This property returns a `uint` value for the total number of burnchain tokens (i.e. satoshis) spent by all miners trying to win this tenure.
+
+- `miner-spend-winner`: This property returns a `uint` value for the number of burnchain tokens (i.e. satoshis) spent by the winning miner for this tennure.  Note that
+this value is less than or equal to the value for `miner-spend-total` at the same tenure height.
+",
+    example: "(get-tenure-info? time u0) ;; Returns (some u1557860301)
+(get-tenure-info? vrf-seed u0) ;; Returns (some 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4)
 "
 };
 
@@ -2006,7 +2101,7 @@ const DEFINE_TRAIT_API: DefineAPI = DefineAPI {
 can implement a given trait and then have their contract identifier being passed as a function argument in order to be called
 dynamically with `contract-call?`.
 
-Traits are defined with a name, and a list functions, defined with a name, a list of argument types, and return type.
+Traits are defined with a name, and a list of functions, where each function is defined with a name, a list of argument types, and a return type.
 
 In Clarity 1, a trait type can be used to specify the type of a function parameter. A parameter with a trait type can
 be used as the target of a dynamic `contract-call?`. A principal literal (e.g. `ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.foo`)
@@ -2086,8 +2181,9 @@ const MINT_TOKEN: SpecialAPI = SpecialAPI {
 type defined using `define-fungible-token`. The increased token balance is _not_ transfered from another principal, but
 rather minted.  
 
-If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfuly mint, it
-returns `(ok true)`.
+If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfully mint, it
+returns `(ok true)`. If this call would result in more supplied tokens than defined by the total supply in 
+`define-fungible-token`, then a `SupplyOverflow` runtime error is thrown.
 ",
     example: "
 (define-fungible-token stackaroo)
@@ -2424,35 +2520,35 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use crate::vm::functions::NativeFunctions::*;
     let name = function.get_name();
     match function {
-        Add => make_for_simple_native(&ADD_API, &function, name),
-        ToUInt => make_for_simple_native(&TO_UINT_API, &function, name),
-        ToInt => make_for_simple_native(&TO_INT_API, &function, name),
-        Subtract => make_for_simple_native(&SUB_API, &function, name),
-        Multiply => make_for_simple_native(&MUL_API, &function, name),
-        Divide => make_for_simple_native(&DIV_API, &function, name),
-        BuffToIntLe => make_for_simple_native(&BUFF_TO_INT_LE_API, &function, name),
-        BuffToUIntLe => make_for_simple_native(&BUFF_TO_UINT_LE_API, &function, name),
-        BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, &function, name),
-        BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &function, name),
-        IsStandard => make_for_simple_native(&IS_STANDARD_API, &function, name),
-        PrincipalDestruct => make_for_simple_native(&PRINCPIPAL_DESTRUCT_API, &function, name),
-        PrincipalConstruct => make_for_special(&PRINCIPAL_CONSTRUCT_API, &function),
-        StringToInt => make_for_simple_native(&STRING_TO_INT_API, &function, name),
-        StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, &function, name),
-        IntToAscii => make_for_simple_native(&INT_TO_ASCII_API, &function, name),
-        IntToUtf8 => make_for_simple_native(&INT_TO_UTF8_API, &function, name),
-        CmpGeq => make_for_simple_native(&GEQ_API, &function, name),
-        CmpLeq => make_for_simple_native(&LEQ_API, &function, name),
-        CmpLess => make_for_simple_native(&LESS_API, &function, name),
-        CmpGreater => make_for_simple_native(&GREATER_API, &function, name),
-        Modulo => make_for_simple_native(&MOD_API, &function, name),
-        Power => make_for_simple_native(&POW_API, &function, name),
-        Sqrti => make_for_simple_native(&SQRTI_API, &function, name),
-        Log2 => make_for_simple_native(&LOG2_API, &function, name),
-        BitwiseXor => make_for_simple_native(&XOR_API, &function, name),
-        And => make_for_simple_native(&AND_API, &function, name),
-        Or => make_for_simple_native(&OR_API, &function, name),
-        Not => make_for_simple_native(&NOT_API, &function, name),
+        Add => make_for_simple_native(&ADD_API, function, name),
+        ToUInt => make_for_simple_native(&TO_UINT_API, function, name),
+        ToInt => make_for_simple_native(&TO_INT_API, function, name),
+        Subtract => make_for_simple_native(&SUB_API, function, name),
+        Multiply => make_for_simple_native(&MUL_API, function, name),
+        Divide => make_for_simple_native(&DIV_API, function, name),
+        BuffToIntLe => make_for_simple_native(&BUFF_TO_INT_LE_API, function, name),
+        BuffToUIntLe => make_for_simple_native(&BUFF_TO_UINT_LE_API, function, name),
+        BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, function, name),
+        BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, function, name),
+        IsStandard => make_for_simple_native(&IS_STANDARD_API, function, name),
+        PrincipalDestruct => make_for_simple_native(&PRINCPIPAL_DESTRUCT_API, function, name),
+        PrincipalConstruct => make_for_special(&PRINCIPAL_CONSTRUCT_API, function),
+        StringToInt => make_for_simple_native(&STRING_TO_INT_API, function, name),
+        StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, function, name),
+        IntToAscii => make_for_simple_native(&INT_TO_ASCII_API, function, name),
+        IntToUtf8 => make_for_simple_native(&INT_TO_UTF8_API, function, name),
+        CmpGeq => make_for_simple_native(&GEQ_API, function, name),
+        CmpLeq => make_for_simple_native(&LEQ_API, function, name),
+        CmpLess => make_for_simple_native(&LESS_API, function, name),
+        CmpGreater => make_for_simple_native(&GREATER_API, function, name),
+        Modulo => make_for_simple_native(&MOD_API, function, name),
+        Power => make_for_simple_native(&POW_API, function, name),
+        Sqrti => make_for_simple_native(&SQRTI_API, function, name),
+        Log2 => make_for_simple_native(&LOG2_API, function, name),
+        BitwiseXor => make_for_simple_native(&XOR_API, function, name),
+        And => make_for_simple_native(&AND_API, function, name),
+        Or => make_for_simple_native(&OR_API, function, name),
+        Not => make_for_simple_native(&NOT_API, function, name),
         Equals => make_for_special(&EQUALS_API, function),
         If => make_for_special(&IF_API, function),
         Let => make_for_special(&LET_API, function),
@@ -2491,6 +2587,8 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         AsContract => make_for_special(&AS_CONTRACT_API, function),
         GetBlockInfo => make_for_special(&GET_BLOCK_INFO_API, function),
         GetBurnBlockInfo => make_for_special(&GET_BURN_BLOCK_INFO_API, function),
+        GetStacksBlockInfo => make_for_special(&GET_STACKS_BLOCK_INFO_API, function),
+        GetTenureInfo => make_for_special(&GET_TENURE_INFO_API, function),
         ConsOkay => make_for_special(&CONS_OK_API, function),
         ConsError => make_for_special(&CONS_ERR_API, function),
         ConsSome => make_for_special(&CONS_SOME_API, function),
@@ -2516,31 +2614,33 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BurnAsset => make_for_special(&BURN_ASSET, function),
         GetTokenSupply => make_for_special(&GET_TOKEN_SUPPLY, function),
         AtBlock => make_for_special(&AT_BLOCK, function),
-        GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &function, name),
-        StxGetAccount => make_for_simple_native(&STX_GET_ACCOUNT, &function, name),
+        GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, function, name),
+        StxGetAccount => make_for_simple_native(&STX_GET_ACCOUNT, function, name),
         StxTransfer => make_for_special(&STX_TRANSFER, function),
         StxTransferMemo => make_for_special(&STX_TRANSFER_MEMO, function),
-        StxBurn => make_for_simple_native(&STX_BURN, &function, name),
+        StxBurn => make_for_simple_native(&STX_BURN, function, name),
         ToConsensusBuff => make_for_special(&TO_CONSENSUS_BUFF, function),
         FromConsensusBuff => make_for_special(&FROM_CONSENSUS_BUFF, function),
         ReplaceAt => make_for_special(&REPLACE_AT, function),
-        BitwiseXor2 => make_for_simple_native(&BITWISE_XOR_API, &function, name),
-        BitwiseAnd => make_for_simple_native(&BITWISE_AND_API, &function, name),
-        BitwiseOr => make_for_simple_native(&BITWISE_OR_API, &function, name),
-        BitwiseNot => make_for_simple_native(&BITWISE_NOT_API, &function, name),
-        BitwiseLShift => make_for_simple_native(&BITWISE_LEFT_SHIFT_API, &function, name),
-        BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, &function, name),
+        BitwiseXor2 => make_for_simple_native(&BITWISE_XOR_API, function, name),
+        BitwiseAnd => make_for_simple_native(&BITWISE_AND_API, function, name),
+        BitwiseOr => make_for_simple_native(&BITWISE_OR_API, function, name),
+        BitwiseNot => make_for_simple_native(&BITWISE_NOT_API, function, name),
+        BitwiseLShift => make_for_simple_native(&BITWISE_LEFT_SHIFT_API, function, name),
+        BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, function, name),
     }
 }
 
 fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
-    let simple_api = match variable {
+    let keyword = match variable {
         NativeVariables::TxSender => TX_SENDER_KEYWORD.clone(),
         NativeVariables::ContractCaller => CONTRACT_CALLER_KEYWORD.clone(),
         NativeVariables::NativeNone => NONE_KEYWORD.clone(),
         NativeVariables::NativeTrue => TRUE_KEYWORD.clone(),
         NativeVariables::NativeFalse => FALSE_KEYWORD.clone(),
         NativeVariables::BlockHeight => BLOCK_HEIGHT.clone(),
+        NativeVariables::StacksBlockHeight => STACKS_BLOCK_HEIGHT_KEYWORD.clone(),
+        NativeVariables::TenureHeight => TENURE_HEIGHT_KEYWORD.clone(),
         NativeVariables::BurnBlockHeight => BURN_BLOCK_HEIGHT.clone(),
         NativeVariables::TotalLiquidMicroSTX => TOTAL_LIQUID_USTX_KEYWORD.clone(),
         NativeVariables::Regtest => REGTEST_KEYWORD.clone(),
@@ -2549,25 +2649,27 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
         NativeVariables::TxSponsor => TX_SPONSOR_KEYWORD.clone(),
     };
     Some(KeywordAPI {
-        name: simple_api.name,
-        snippet: simple_api.snippet,
-        output_type: simple_api.output_type,
-        description: simple_api.description,
-        example: simple_api.example,
-        version: variable.get_version(),
+        name: keyword.name,
+        snippet: keyword.snippet,
+        output_type: keyword.output_type,
+        description: keyword.description,
+        example: keyword.example,
+        min_version: variable.get_min_version(),
+        max_version: variable.get_max_version(),
     })
 }
 
 fn make_for_special(api: &SpecialAPI, function: &NativeFunctions) -> FunctionAPI {
     FunctionAPI {
-        name: function.get_name().to_string(),
+        name: function.get_name(),
         snippet: api.snippet.to_string(),
         input_type: api.input_type.to_string(),
         output_type: api.output_type.to_string(),
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
-        version: function.get_version(),
+        min_version: function.get_min_version(),
+        max_version: function.get_max_version(),
     }
 }
 
@@ -2580,7 +2682,8 @@ fn make_for_define(api: &DefineAPI, name: String) -> FunctionAPI {
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
-        version: ClarityVersion::Clarity1,
+        min_version: ClarityVersion::Clarity1,
+        max_version: None,
     }
 }
 
@@ -2605,21 +2708,19 @@ pub fn make_define_reference(define_type: &DefineFunctions) -> FunctionAPI {
 fn make_all_api_reference() -> ReferenceAPIs {
     let mut functions: Vec<_> = NativeFunctions::ALL
         .iter()
-        .map(|x| make_api_reference(x))
+        .map(make_api_reference)
         .collect();
     for data_type in DefineFunctions::ALL.iter() {
         functions.push(make_define_reference(data_type))
     }
     functions.sort_by(|x, y| x.name.cmp(&y.name));
 
-    let mut keywords = Vec::new();
-    for variable in NativeVariables::ALL.iter() {
-        let output = make_keyword_reference(variable);
-        if let Some(api_ref) = output {
-            keywords.push(api_ref)
-        }
-    }
-    keywords.sort_by(|x, y| x.name.cmp(&y.name));
+    let mut keywords: Vec<_> = NativeVariables::ALL
+        .iter()
+        .filter_map(make_keyword_reference)
+        .collect();
+
+    keywords.sort_by_key(|x| x.name);
 
     ReferenceAPIs {
         functions,
@@ -2627,55 +2728,45 @@ fn make_all_api_reference() -> ReferenceAPIs {
     }
 }
 
+#[allow(clippy::expect_used)]
 pub fn make_json_api_reference() -> String {
     let api_out = make_all_api_reference();
-    format!(
-        "{}",
-        serde_json::to_string(&api_out).expect("Failed to serialize documentation")
-    )
+    serde_json::to_string(&api_out).expect("Failed to serialize documentation")
 }
 
 #[cfg(test)]
 mod test {
-    use crate::vm::{
-        ast,
-        contexts::OwnedEnvironment,
-        database::{BurnStateDB, HeadersDB, STXBalance},
-        docs::get_output_type_string,
-        eval_all, execute,
-        types::{
-            signatures::{FunctionArgSignature, FunctionReturnsSignature, ASCII_40},
-            BufferLength, FunctionType, PrincipalData, SequenceSubtype, StringSubtype,
-            TypeSignature,
-        },
-        ClarityVersion, ContractContext, Error, GlobalContext, LimitedCostTracker,
-        QualifiedContractIdentifier, Value,
+    use stacks_common::consts::{CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_1};
+    use stacks_common::types::chainstate::{
+        BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress,
+        StacksBlockId, VRFSeed,
     };
-    use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_1};
+    use stacks_common::types::StacksEpochId;
     use stacks_common::util::hash::hex_bytes;
 
-    use super::make_json_api_reference;
-    use super::{get_input_type_string, make_all_api_reference};
-    use crate::address::AddressHashMode;
-    use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
-    use crate::types::Address;
+    use super::{get_input_type_string, make_all_api_reference, make_json_api_reference};
     use crate::vm::analysis::type_check;
-    use crate::vm::types::TupleData;
-    use crate::{types::chainstate::VRFSeed, vm::StacksEpoch};
-    use crate::{
-        types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, ConsensusHash},
-        vm::database::{ClarityDatabase, MemoryBackingStore},
-    };
-
     use crate::vm::ast::ASTRules;
+    use crate::vm::contexts::OwnedEnvironment;
     use crate::vm::costs::ExecutionCost;
-    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use crate::vm::database::{
+        BurnStateDB, ClarityDatabase, HeadersDB, MemoryBackingStore, STXBalance,
+    };
+    use crate::vm::docs::get_output_type_string;
+    use crate::vm::types::signatures::{FunctionArgSignature, FunctionReturnsSignature, ASCII_40};
+    use crate::vm::types::{
+        FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
+    };
+    use crate::vm::{
+        ast, eval_all, execute, ClarityVersion, ContractContext, GlobalContext, LimitedCostTracker,
+        StacksEpoch, Value,
+    };
 
     struct DocHeadersDB {}
     const DOC_HEADER_DB: DocHeadersDB = DocHeadersDB {};
 
     impl MemoryBackingStore {
-        pub fn as_docs_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
+        pub fn as_docs_clarity_db(&mut self) -> ClarityDatabase<'_> {
             ClarityDatabase::new(self, &DOC_HEADER_DB, &DOC_POX_STATE_DB)
         }
     }
@@ -2687,10 +2778,18 @@ mod test {
         ) -> Option<BurnchainHeaderHash> {
             None
         }
-        fn get_consensus_hash_for_block(&self, _bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        fn get_consensus_hash_for_block(
+            &self,
+            _bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
+        ) -> Option<ConsensusHash> {
             Some(ConsensusHash([0; 20]))
         }
-        fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
+        fn get_vrf_seed_for_block(
+            &self,
+            _bhh: &StacksBlockId,
+            epoch: &StacksEpochId,
+        ) -> Option<VRFSeed> {
             Some(
                 VRFSeed::from_hex(
                     "f490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4",
@@ -2701,6 +2800,7 @@ mod test {
         fn get_stacks_block_header_hash_for_block(
             &self,
             _id_bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
         ) -> Option<BlockHeaderHash> {
             Some(
                 BlockHeaderHash::from_hex(
@@ -2709,28 +2809,56 @@ mod test {
                 .unwrap(),
             )
         }
-        fn get_burn_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
+        fn get_burn_block_time_for_block(
+            &self,
+            _id_bhh: &StacksBlockId,
+            _epoch: Option<&StacksEpochId>,
+        ) -> Option<u64> {
             Some(1557860301)
+        }
+        fn get_stacks_block_time_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u64> {
+            Some(1557860302)
         }
         fn get_burn_block_height_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u32> {
             Some(567890)
         }
-        fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
+        fn get_miner_address(
+            &self,
+            _id_bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
+        ) -> Option<StacksAddress> {
             None
         }
-        fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        fn get_burnchain_tokens_spent_for_block(
+            &self,
+            id_bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
+        ) -> Option<u128> {
             Some(12345)
         }
 
         fn get_burnchain_tokens_spent_for_winning_block(
             &self,
             id_bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
         ) -> Option<u128> {
             Some(2345)
         }
 
-        fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        fn get_tokens_earned_for_block(
+            &self,
+            id_bhh: &StacksBlockId,
+            _epoch: &StacksEpochId,
+        ) -> Option<u128> {
             Some(12000)
+        }
+
+        fn get_stacks_height_for_tenure_height(
+            &self,
+            _tip: &StacksBlockId,
+            tenure_height: u32,
+        ) -> Option<u32> {
+            Some(tenure_height)
         }
     }
 
@@ -2738,6 +2866,14 @@ mod test {
     const DOC_POX_STATE_DB: DocBurnStateDB = DocBurnStateDB {};
 
     impl BurnStateDB for DocBurnStateDB {
+        fn get_tip_burn_block_height(&self) -> Option<u32> {
+            Some(0x9abc)
+        }
+
+        fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+            Some(SortitionId([0u8; 32]))
+        }
+
         fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
             Some(5678)
         }
@@ -2781,7 +2917,15 @@ mod test {
             u32::MAX
         }
 
+        fn get_v3_unlock_height(&self) -> u32 {
+            u32::MAX
+        }
+
         fn get_pox_3_activation_height(&self) -> u32 {
+            u32::MAX
+        }
+
+        fn get_pox_4_activation_height(&self) -> u32 {
             u32::MAX
         }
 
@@ -2846,13 +2990,13 @@ mod test {
         let mut current_segment: String = "".into();
         for line in program.lines() {
             current_segment.push_str(line);
-            current_segment.push_str("\n");
+            current_segment.push('\n');
             if line.contains(";;") && line.contains("Returns ") {
                 segments.push(current_segment);
                 current_segment = "".into();
             }
         }
-        if current_segment.len() > 0 {
+        if !current_segment.is_empty() {
             segments.push(current_segment);
         }
 
@@ -2912,7 +3056,7 @@ mod test {
                     .type_map
                     .as_ref()
                     .unwrap()
-                    .get_type(&analysis.expressions.last().unwrap())
+                    .get_type_expected(analysis.expressions.last().unwrap())
                     .cloned(),
             );
         }
@@ -2980,7 +3124,7 @@ mod test {
     fn test_examples() {
         // Execute test examples against the latest version of Clarity
         let apis = make_all_api_reference();
-        let token_contract_content = include_str!("../../../../sample-contracts/tokens.clar");
+        let token_contract_content = include_str!("../../../../sample/contracts/tokens.clar");
         for func_api in apis.functions.iter() {
             if func_api.name == "at-block" {
                 eprintln!("Skipping at-block, because it cannot be evaluated without a MARF");
@@ -3007,7 +3151,7 @@ mod test {
                     let mut analysis_db = store.as_analysis_db();
                     let mut parsed = ast::build_ast(
                         &contract_id,
-                        &token_contract_content,
+                        token_contract_content,
                         &mut (),
                         ClarityVersion::latest(),
                         StacksEpochId::latest(),
@@ -3023,7 +3167,7 @@ mod test {
                         &StacksEpochId::latest(),
                         &ClarityVersion::latest(),
                     )
-                    .expect("Failed to type check sample-contracts/tokens");
+                    .expect("Failed to type check sample/contracts/tokens");
                 }
 
                 {
@@ -3046,7 +3190,7 @@ mod test {
                         &StacksEpochId::latest(),
                         &ClarityVersion::latest(),
                     )
-                    .expect("Failed to type check sample-contracts/tokens");
+                    .expect("Failed to type check sample/contracts/tokens");
                 }
 
                 let conn = store.as_docs_clarity_db();
@@ -3062,9 +3206,10 @@ mod test {
                         let mut snapshot = e
                             .global_context
                             .database
-                            .get_stx_balance_snapshot_genesis(&docs_principal_id);
+                            .get_stx_balance_snapshot_genesis(&docs_principal_id)
+                            .unwrap();
                         snapshot.set_balance(balance);
-                        snapshot.save();
+                        snapshot.save().unwrap();
                         e.global_context
                             .database
                             .increment_ustx_liquid_supply(100000)
@@ -3076,7 +3221,7 @@ mod test {
 
                 env.initialize_contract(
                     contract_id,
-                    &token_contract_content,
+                    token_contract_content,
                     None,
                     ASTRules::PrecheckSize,
                 )
@@ -3174,7 +3319,7 @@ mod test {
                 TypeSignature::IntType,
                 TypeSignature::PrincipalType,
             ]),
-            ret.clone(),
+            ret,
         );
         result = get_input_type_string(&function_type);
         assert_eq!(result, "uint, uint | uint, int | uint, principal | principal, uint | principal, int | principal, principal | int, uint | int, int | int, principal");
@@ -3202,7 +3347,7 @@ mod test {
                 TypeSignature::IntType,
                 TypeSignature::PrincipalType,
             ],
-            ret.clone(),
+            ret,
         );
         result = get_input_type_string(&function_type);
         assert_eq!(result, "uint | int | principal");
@@ -3217,7 +3362,7 @@ mod test {
         result = get_input_type_string(&function_type);
         assert_eq!(result, "int, ...");
 
-        function_type = FunctionType::Variadic(TypeSignature::PrincipalType, ret.clone());
+        function_type = FunctionType::Variadic(TypeSignature::PrincipalType, ret);
         result = get_input_type_string(&function_type);
         assert_eq!(result, "principal, ...");
     }

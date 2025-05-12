@@ -14,19 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
-use crate::vm::errors::{InterpreterResult as Result, RuntimeErrorType};
-use crate::vm::representations::{
-    ClarityName, ContractName, PreSymbolicExpression, PreSymbolicExpressionType, MAX_STRING_LEN,
-};
-use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, TraitIdentifier, Value};
+use lazy_static::lazy_static;
 use regex::{Captures, Regex};
-use stacks_common::address::c32::c32_address_decode;
 use stacks_common::util::hash::hex_bytes;
-use std::cmp;
-use std::convert::TryInto;
 
+use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+use crate::vm::representations::{
+    ClarityName, ContractName, PreSymbolicExpression, MAX_STRING_LEN,
+};
+use crate::vm::types::{PrincipalData, TraitIdentifier, Value};
 use crate::vm::MAX_CALL_STACK_DEPTH;
 
 pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
@@ -76,6 +73,7 @@ struct LexMatcher {
     handler: TokenType,
 }
 
+#[allow(clippy::enum_variant_names)]
 enum LexContext {
     ExpectNothing,
     ExpectClosing,
@@ -89,6 +87,7 @@ enum ParseContext {
 
 impl LexMatcher {
     fn new(regex_str: &str, handles: TokenType) -> LexMatcher {
+        #[allow(clippy::unwrap_used)]
         LexMatcher {
             matcher: Regex::new(&format!("^{}", regex_str)).unwrap(),
             handler: handles,
@@ -104,7 +103,7 @@ fn get_value_or_err(input: &str, captures: Captures) -> ParseResult<String> {
 }
 
 fn get_lines_at(input: &str) -> Vec<usize> {
-    let mut out: Vec<_> = input.match_indices("\n").map(|(ix, _)| ix).collect();
+    let mut out: Vec<_> = input.match_indices('\n').map(|(ix, _)| ix).collect();
     out.reverse();
     out
 }
@@ -130,11 +129,11 @@ lazy_static! {
 
     static ref lex_matchers: Vec<LexMatcher> = vec![
         LexMatcher::new(
-            r##"u"(?P<value>((\\")|([[ -~]&&[^"]]))*)""##,
+            r#"u"(?P<value>((\\")|([[ -~]&&[^"]]))*)""#,
             TokenType::StringUTF8Literal,
         ),
         LexMatcher::new(
-            r##""(?P<value>((\\")|([[ -~]&&[^"]]))*)""##,
+            r#""(?P<value>((\\")|([[ -~]&&[^"]]))*)""#,
             TokenType::StringASCIILiteral,
         ),
         LexMatcher::new(";;[ -~]*", TokenType::Whitespace), // ;; comments.
@@ -216,7 +215,7 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
         let current_slice = &input[munch_index..];
         for matcher in lex_matchers.iter() {
             if let Some(captures) = matcher.matcher.captures(current_slice) {
-                let whole_match = captures.get(0).unwrap();
+                let whole_match = captures.get(0).ok_or(ParseErrors::InterpreterFailure)?;
                 assert_eq!(whole_match.start(), 0);
                 munch_index += whole_match.end();
 
@@ -302,7 +301,7 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                     }
                     TokenType::Variable => {
                         let value = get_value_or_err(current_slice, captures)?;
-                        if value.contains("#") {
+                        if value.contains('#') {
                             Err(ParseError::new(ParseErrors::IllegalVariableName(value)))
                         } else {
                             Ok(LexItem::Variable(value))
@@ -310,7 +309,7 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                     }
                     TokenType::UIntLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
-                        let value = match u128::from_str_radix(&str_value, 10) {
+                        let value = match str_value.parse::<u128>() {
                             Ok(parsed) => Ok(Value::UInt(parsed)),
                             Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingIntValue(
                                 str_value.clone(),
@@ -320,7 +319,7 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                     }
                     TokenType::IntLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
-                        let value = match i128::from_str_radix(&str_value, 10) {
+                        let value = match str_value.parse::<i128>() {
                             Ok(parsed) => Ok(Value::Int(parsed)),
                             Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingIntValue(
                                 str_value.clone(),
@@ -459,7 +458,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
 
 fn unescape_ascii_chars(escaped_str: String, allow_unicode_escape: bool) -> ParseResult<String> {
     let mut unescaped_str = String::new();
-    let mut chars = escaped_str.chars().into_iter();
+    let mut chars = escaped_str.chars();
     while let Some(char) = chars.next() {
         if char == '\\' {
             if let Some(next) = chars.next() {
@@ -471,7 +470,7 @@ fn unescape_ascii_chars(escaped_str: String, allow_unicode_escape: bool) -> Pars
                     't' => unescaped_str.push('\t'),
                     'r' => unescaped_str.push('\r'),
                     '0' => unescaped_str.push('\0'),
-                    'u' if allow_unicode_escape == true => unescaped_str.push_str("\\u"),
+                    'u' if allow_unicode_escape => unescaped_str.push_str("\\u"),
                     _ => return Err(ParseError::new(ParseErrors::InvalidEscaping)),
                 }
             } else {
@@ -503,12 +502,14 @@ fn handle_expression(
     }
 }
 
-pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbolicExpression>> {
+// TODO: add tests from mutation testing results #4828
+#[cfg_attr(test, mutants::skip)]
+pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbolicExpression>> {
     let mut parse_stack = Vec::new();
 
     let mut output_list = Vec::new();
 
-    for (item, line_pos, column_pos) in input.drain(..) {
+    for (item, line_pos, column_pos) in input.into_iter() {
         match item {
             LexItem::LeftParen => {
                 // start new list.
@@ -520,7 +521,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                 if let Some((list, start_line, start_column, parse_context)) = parse_stack.pop() {
                     match parse_context {
                         ParseContext::CollectList => {
-                            let checked_list: ParseResult<Box<[PreSymbolicExpression]>> = list
+                            let checked_list: ParseResult<Vec<PreSymbolicExpression>> = list
                                 .into_iter()
                                 .map(|i| match i {
                                     ParseStackItem::Expression(e) => Ok(e),
@@ -596,8 +597,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                                     _ => unreachable!("More than four modulos of four."),
                                 }?;
                             }
-                            let mut pre_expr =
-                                PreSymbolicExpression::tuple(checked_list.into_boxed_slice());
+                            let mut pre_expr = PreSymbolicExpression::tuple(checked_list);
                             pre_expr.set_span(start_line, start_column, line_pos, column_pos);
                             handle_expression(&mut parse_stack, &mut output_list, pre_expr);
                         }
@@ -634,7 +634,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                 let mut end_column = column_pos + (length as u32);
                 // Avoid underflows on cases like empty strings
                 if length > 0 {
-                    end_column = end_column - 1;
+                    end_column -= 1;
                 }
                 let mut pre_expr = PreSymbolicExpression::atom_value(value);
                 pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
@@ -644,7 +644,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                 let mut end_column = column_pos + (length as u32);
                 // Avoid underflows on cases like empty strings
                 if length > 0 {
-                    end_column = end_column - 1;
+                    end_column -= 1;
                 }
                 let mut pre_expr = PreSymbolicExpression::sugared_contract_identifier(value);
                 pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
@@ -654,7 +654,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                 let mut end_column = column_pos + (length as u32);
                 // Avoid underflows on cases like empty strings
                 if length > 0 {
-                    end_column = end_column - 1;
+                    end_column -= 1;
                 }
                 let mut pre_expr =
                     PreSymbolicExpression::sugared_field_identifier(contract_name, name);
@@ -665,7 +665,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
                 let mut end_column = column_pos + (length as u32);
                 // Avoid underflows on cases like empty strings
                 if length > 0 {
-                    end_column = end_column - 1;
+                    end_column -= 1;
                 }
                 let mut pre_expr = PreSymbolicExpression::field_identifier(trait_identifier);
                 pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
@@ -673,9 +673,6 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
             }
             LexItem::TraitReference(_length, value) => {
                 let end_column = column_pos + (value.len() as u32) - 1;
-                let value = value.clone().try_into().map_err(|_| {
-                    ParseError::new(ParseErrors::IllegalVariableName(value.to_string()))
-                })?;
                 let mut pre_expr = PreSymbolicExpression::trait_reference(value);
                 pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
                 handle_expression(&mut parse_stack, &mut output_list, pre_expr);
@@ -701,7 +698,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
     }
 
     // check unfinished stack:
-    if parse_stack.len() > 0 {
+    if !parse_stack.is_empty() {
         let mut error = ParseError::new(ParseErrors::ClosingParenthesisExpected);
         if let Some((_list, start_line, start_column, _parse_context)) = parse_stack.pop() {
             error.diagnostic.add_span(start_line, start_column, 0, 0);
@@ -733,15 +730,11 @@ pub fn parse_no_stack_limit(input: &str) -> ParseResult<Vec<PreSymbolicExpressio
 
 #[cfg(test)]
 mod test {
-    use crate::vm::ast;
-    use crate::vm::ast::errors::{ParseError, ParseErrors};
+    use crate::vm::ast::errors::ParseErrors;
     use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
     use crate::vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType};
-    use crate::vm::types::TraitIdentifier;
-    use crate::vm::types::{
-        CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, Value,
-    };
-    use crate::vm::MAX_CALL_STACK_DEPTH;
+    use crate::vm::types::{CharType, PrincipalData, SequenceData, Value};
+    use crate::vm::{ast, MAX_CALL_STACK_DEPTH};
 
     fn make_atom(
         x: &str,
@@ -772,7 +765,7 @@ mod test {
         start_column: u32,
         end_line: u32,
         end_column: u32,
-        x: Box<[PreSymbolicExpression]>,
+        x: Vec<PreSymbolicExpression>,
     ) -> PreSymbolicExpression {
         let mut e = PreSymbolicExpression::list(x);
         e.set_span(start_line, start_column, end_line, end_column);
@@ -784,7 +777,7 @@ mod test {
         start_column: u32,
         end_line: u32,
         end_column: u32,
-        x: Box<[PreSymbolicExpression]>,
+        x: Vec<PreSymbolicExpression>,
     ) -> PreSymbolicExpression {
         let mut e = PreSymbolicExpression::tuple(x);
         e.set_span(start_line, start_column, end_line, end_column);
@@ -808,42 +801,42 @@ mod test {
                 3,
                 6,
                 11,
-                Box::new([
+                vec![
                     make_atom("let", 1, 4, 1, 6),
                     make_list(
                         1,
                         8,
                         1,
                         20,
-                        Box::new([
+                        vec![
                             make_list(
                                 1,
                                 9,
                                 1,
                                 13,
-                                Box::new([
+                                vec![
                                     make_atom("x", 1, 10, 1, 10),
                                     make_atom_value(Value::Int(1), 1, 12, 1, 12),
-                                ]),
+                                ],
                             ),
                             make_list(
                                 1,
                                 15,
                                 1,
                                 19,
-                                Box::new([
+                                vec![
                                     make_atom("y", 1, 16, 1, 16),
                                     make_atom_value(Value::Int(2), 1, 18, 1, 18),
-                                ]),
+                                ],
                             ),
-                        ]),
+                        ],
                     ),
                     make_list(
                         2,
                         5,
                         6,
                         10,
-                        Box::new([
+                        vec![
                             make_atom("+", 2, 6, 2, 6),
                             make_atom("x", 2, 8, 2, 8),
                             make_list(
@@ -851,47 +844,47 @@ mod test {
                                 9,
                                 5,
                                 16,
-                                Box::new([
+                                vec![
                                     make_atom("let", 4, 10, 4, 12),
                                     make_list(
                                         4,
                                         14,
                                         4,
                                         20,
-                                        Box::new([make_list(
+                                        vec![make_list(
                                             4,
                                             15,
                                             4,
                                             19,
-                                            Box::new([
+                                            vec![
                                                 make_atom("x", 4, 16, 4, 16),
                                                 make_atom_value(Value::Int(3), 4, 18, 4, 18),
-                                            ]),
-                                        )]),
+                                            ],
+                                        )],
                                     ),
                                     make_list(
                                         5,
                                         9,
                                         5,
                                         15,
-                                        Box::new([
+                                        vec![
                                             make_atom("+", 5, 10, 5, 10),
                                             make_atom("x", 5, 12, 5, 12),
                                             make_atom("y", 5, 14, 5, 14),
-                                        ]),
+                                        ],
                                     ),
-                                ]),
+                                ],
                             ),
                             make_atom("x", 6, 9, 6, 9),
-                        ]),
+                        ],
                     ),
-                ]),
+                ],
             ),
             make_atom("x", 6, 13, 6, 13),
             make_atom("y", 6, 15, 6, 15),
         ];
 
-        let parsed = ast::parser::v1::parse(&input);
+        let parsed = ast::parser::v1::parse(input);
         assert_eq!(
             Ok(program),
             parsed,
@@ -907,15 +900,15 @@ mod test {
                 9,
                 2,
                 17,
-                Box::new([
+                vec![
                     make_atom("-", 2, 10, 2, 10),
                     make_atom_value(Value::Int(12), 2, 12, 2, 13),
                     make_atom_value(Value::Int(34), 2, 15, 2, 16),
-                ]),
+                ],
             ),
         ];
 
-        let parsed = ast::parser::v1::parse(&input);
+        let parsed = ast::parser::v1::parse(input);
         assert_eq!(
             Ok(program),
             parsed,
@@ -931,19 +924,19 @@ mod test {
             1,
             1,
             11,
-            Box::new([
+            vec![
                 make_atom("id", 1, 2, 1, 3),
                 make_atom_value(Value::Int(1337), 1, 6, 1, 9),
-            ]),
+            ],
         )];
-        let parsed = ast::parser::v1::parse(&input);
+        let parsed = ast::parser::v1::parse(input);
         assert_eq!(Ok(program), parsed, "Should match expected tuple literal");
     }
 
     #[test]
     fn test_parse_contract_principals() {
         let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract-a";
-        let parsed = ast::parser::v1::parse(&input).unwrap();
+        let parsed = ast::parser::v1::parse(input).unwrap();
 
         let x1 = &parsed[0];
         assert!(match x1.match_atom_value() {
@@ -956,7 +949,7 @@ mod test {
         });
 
         let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.a";
-        let parsed = ast::parser::v1::parse(&input).unwrap();
+        let parsed = ast::parser::v1::parse(input).unwrap();
 
         let x1 = &parsed[0];
         assert!(match x1.match_atom_value() {
@@ -972,7 +965,7 @@ mod test {
     #[test]
     fn test_parse_generics() {
         let input = "<a>";
-        let parsed = ast::parser::v1::parse(&input).unwrap();
+        let parsed = ast::parser::v1::parse(input).unwrap();
 
         let x1 = &parsed[0];
         assert!(match x1.match_trait_reference() {
@@ -985,7 +978,7 @@ mod test {
     fn test_parse_field_identifiers() {
         use crate::vm::types::PrincipalData;
         let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.my-contract.my-trait";
-        let parsed = ast::parser::v1::parse(&input).unwrap();
+        let parsed = ast::parser::v1::parse(input).unwrap();
 
         let x1 = &parsed[0];
         assert!(match x1.match_field_identifier() {
@@ -1004,7 +997,7 @@ mod test {
     #[test]
     fn test_parse_sugared_field_identifiers() {
         let input = ".my-contract.my-trait";
-        let parsed = ast::parser::v1::parse(&input).unwrap();
+        let parsed = ast::parser::v1::parse(input).unwrap();
 
         let x1 = &parsed[0];
         assert!(match &x1.pre_expr {
@@ -1017,8 +1010,6 @@ mod test {
 
     #[test]
     fn test_parse_failures() {
-        use crate::vm::errors::{Error, RuntimeErrorType};
-
         let too_much_closure = "(let ((x 1) (y 2))))";
         let not_enough_closure = "(let ((x 1) (y 2))";
         let middle_hash = "(let ((x 1) (y#not 2)) x)";
@@ -1072,259 +1063,195 @@ mod test {
             ")".repeat(stack_limit + 1)
         );
 
-        assert!(
-            match ast::parser::v1::parse(&split_tokens).unwrap_err().err {
-                ParseErrors::SeparatorExpected(_) => true,
-                _ => false,
-            }
-        );
+        assert!(matches!(
+            ast::parser::v1::parse(split_tokens).unwrap_err().err,
+            ParseErrors::SeparatorExpected(_)
+        ));
 
-        assert!(
-            match ast::parser::v1::parse(&too_much_closure).unwrap_err().err {
-                ParseErrors::ClosingParenthesisUnexpected => true,
-                _ => false,
-            }
-        );
+        assert!(matches!(
+            ast::parser::v1::parse(too_much_closure).unwrap_err().err,
+            ParseErrors::ClosingParenthesisUnexpected
+        ));
 
-        assert!(
-            match ast::parser::v1::parse(&not_enough_closure).unwrap_err().err {
-                ParseErrors::ClosingParenthesisExpected => true,
-                _ => false,
-            }
-        );
+        assert!(matches!(
+            ast::parser::v1::parse(not_enough_closure).unwrap_err().err,
+            ParseErrors::ClosingParenthesisExpected
+        ));
 
-        assert!(
-            match ast::parser::v1::parse(&middle_hash).unwrap_err().err {
-                ParseErrors::FailedParsingRemainder(_) => true,
-                _ => false,
-            }
-        );
+        assert!(matches!(
+            ast::parser::v1::parse(middle_hash).unwrap_err().err,
+            ParseErrors::FailedParsingRemainder(_)
+        ));
 
-        assert!(match ast::parser::v1::parse(&unicode).unwrap_err().err {
-            ParseErrors::FailedParsingRemainder(_) => true,
-            _ => false,
-        });
+        assert!(matches!(
+            ast::parser::v1::parse(unicode).unwrap_err().err,
+            ParseErrors::FailedParsingRemainder(_)
+        ));
 
-        assert!(
-            match ast::parser::v1::parse(&name_with_dot).unwrap_err().err {
-                ParseErrors::SeparatorExpected(_) => true,
-                _ => false,
-            }
-        );
+        assert!(matches!(
+            ast::parser::v1::parse(name_with_dot).unwrap_err().err,
+            ParseErrors::SeparatorExpected(_)
+        ));
 
-        assert!(match ast::parser::v1::parse(&wrong_tuple_literal_close)
-            .unwrap_err()
-            .err
-        {
-            ParseErrors::ClosingTupleLiteralExpected => true,
-            _ => false,
-        });
+        assert!(matches!(
+            ast::parser::v1::parse(wrong_tuple_literal_close)
+                .unwrap_err()
+                .err,
+            ParseErrors::ClosingTupleLiteralExpected
+        ));
 
-        assert!(
-            match ast::parser::v1::parse(&wrong_list_close).unwrap_err().err {
-                ParseErrors::ClosingParenthesisExpected => true,
-                _ => false,
-            }
-        );
+        assert!(matches!(
+            ast::parser::v1::parse(wrong_list_close).unwrap_err().err,
+            ParseErrors::ClosingParenthesisExpected
+        ));
 
-        assert!(match ast::parser::v1::parse(&extra_tuple_literal_close)
-            .unwrap_err()
-            .err
-        {
-            ParseErrors::ClosingTupleLiteralUnexpected => true,
-            _ => false,
-        });
+        assert!(matches!(
+            ast::parser::v1::parse(extra_tuple_literal_close)
+                .unwrap_err()
+                .err,
+            ParseErrors::ClosingTupleLiteralUnexpected
+        ));
 
-        assert!(
-            match ast::parser::v1::parse(&unexpected_comma).unwrap_err().err {
-                ParseErrors::CommaSeparatorUnexpected => true,
-                _ => false,
-            }
-        );
+        assert!(matches!(
+            ast::parser::v1::parse(unexpected_comma).unwrap_err().err,
+            ParseErrors::CommaSeparatorUnexpected
+        ));
 
         // { a: b,c: 3 } is legal
-        ast::parser::v1::parse(&tuple_comma_no_space).unwrap();
+        ast::parser::v1::parse(tuple_comma_no_space).unwrap();
 
-        assert!(match ast::parser::v1::parse(&tuple_colon_no_space)
-            .unwrap_err()
-            .err
-        {
-            ParseErrors::SeparatorExpectedAfterColon(_) => true,
-            _ => false,
-        });
-
-        assert!(
-            match ast::parser::v1::parse(&shorthand_tuple).unwrap_err().err {
-                ParseErrors::TupleColonExpected(_) => true,
-                _ => false,
-            }
-        );
-
-        assert!(
-            match ast::parser::v1::parse(&shorthand_tuple_dangling_comma)
+        assert!(matches!(
+            ast::parser::v1::parse(tuple_colon_no_space)
                 .unwrap_err()
-                .err
-            {
-                ParseErrors::TupleItemExpected(_) => true,
-                _ => false,
-            }
-        );
+                .err,
+            ParseErrors::SeparatorExpectedAfterColon(_)
+        ));
 
-        assert!(match ast::parser::v1::parse(&decorative_colon_on_value)
-            .unwrap_err()
-            .err
-        {
-            ParseErrors::TupleCommaExpected(_) => true,
-            e => {
-                eprintln!("{:?}", e);
-                false
-            }
-        });
+        assert!(matches!(
+            ast::parser::v1::parse(shorthand_tuple).unwrap_err().err,
+            ParseErrors::TupleColonExpected(_)
+        ));
 
-        assert!(
-            match ast::parser::v1::parse(&tuple_literal_colon_after_comma)
+        assert!(matches!(
+            ast::parser::v1::parse(shorthand_tuple_dangling_comma)
                 .unwrap_err()
-                .err
-            {
-                ParseErrors::TupleItemExpected(_) => true,
-                e => {
-                    eprintln!("{:?}", e);
-                    false
-                }
-            }
-        );
+                .err,
+            ParseErrors::TupleItemExpected(_)
+        ));
 
-        assert!(match ast::parser::v1::parse(&empty_tuple_literal_comma)
-            .unwrap_err()
-            .err
-        {
-            ParseErrors::TupleItemExpected(_) => true,
-            _ => false,
-        });
-
-        assert!(match ast::parser::v1::parse(&empty_tuple_literal_colon)
-            .unwrap_err()
-            .err
-        {
-            ParseErrors::TupleItemExpected(_) => true,
-            _ => false,
-        });
-
-        assert!(match ast::parser::v1::parse(&legacy_boolean_literals)
-            .unwrap_err()
-            .err
-        {
-            ParseErrors::FailedParsingRemainder(_) => true,
-            _ => false,
-        });
-
-        assert!(
-            match ast::parser::v1::parse(&function_with_CR).unwrap_err().err {
-                ParseErrors::FailedParsingRemainder(_) => true,
-                _ => false,
-            }
-        );
-        assert!(
-            match ast::parser::v1::parse(&function_with_CRLF).unwrap_err().err {
-                ParseErrors::FailedParsingRemainder(_) => true,
-                _ => false,
-            }
-        );
-        assert!(
-            match ast::parser::v1::parse(&function_with_NEL).unwrap_err().err {
-                ParseErrors::FailedParsingRemainder(_) => true,
-                _ => false,
-            }
-        );
-        assert!(
-            match ast::parser::v1::parse(&function_with_LS).unwrap_err().err {
-                ParseErrors::FailedParsingRemainder(_) => true,
-                _ => false,
-            }
-        );
-        assert!(
-            match ast::parser::v1::parse(&function_with_PS).unwrap_err().err {
-                ParseErrors::FailedParsingRemainder(_) => true,
-                _ => false,
-            }
-        );
-
-        ast::parser::v1::parse(&function_with_LF).unwrap();
-
-        assert!(match ast::parser::v1::parse(&string_with_invalid_escape)
-            .unwrap_err()
-            .err
-        {
-            ParseErrors::InvalidEscaping => true,
-            _ => false,
-        });
-
-        assert!(
-            match ast::parser::v1::parse(&ascii_string_with_unicode_escape)
+        assert!(matches!(
+            ast::parser::v1::parse(decorative_colon_on_value)
                 .unwrap_err()
-                .err
-            {
-                ParseErrors::InvalidEscaping => true,
-                _ => false,
-            }
+                .err,
+            ParseErrors::TupleCommaExpected(_)
+        ));
+
+        assert!(matches!(
+            ast::parser::v1::parse(tuple_literal_colon_after_comma)
+                .unwrap_err()
+                .err,
+            ParseErrors::TupleItemExpected(_)
+        ));
+
+        assert!(matches!(
+            ast::parser::v1::parse(empty_tuple_literal_comma)
+                .unwrap_err()
+                .err,
+            ParseErrors::TupleItemExpected(_)
+        ));
+
+        assert!(matches!(
+            ast::parser::v1::parse(empty_tuple_literal_colon)
+                .unwrap_err()
+                .err,
+            ParseErrors::TupleItemExpected(_)
+        ));
+
+        assert!(matches!(
+            ast::parser::v1::parse(legacy_boolean_literals)
+                .unwrap_err()
+                .err,
+            ParseErrors::FailedParsingRemainder(_)
+        ));
+
+        assert!(matches!(
+            ast::parser::v1::parse(function_with_CR).unwrap_err().err,
+            ParseErrors::FailedParsingRemainder(_)
+        ));
+        assert!(matches!(
+            ast::parser::v1::parse(function_with_CRLF).unwrap_err().err,
+            ParseErrors::FailedParsingRemainder(_)
+        ));
+        assert!(matches!(
+            ast::parser::v1::parse(function_with_NEL).unwrap_err().err,
+            ParseErrors::FailedParsingRemainder(_)
+        ));
+        assert!(matches!(
+            ast::parser::v1::parse(function_with_LS).unwrap_err().err,
+            ParseErrors::FailedParsingRemainder(_)
+        ));
+        assert!(matches!(
+            ast::parser::v1::parse(function_with_PS).unwrap_err().err,
+            ParseErrors::FailedParsingRemainder(_)
+        ));
+
+        ast::parser::v1::parse(function_with_LF).unwrap();
+
+        assert!(matches!(
+            ast::parser::v1::parse(string_with_invalid_escape)
+                .unwrap_err()
+                .err,
+            ParseErrors::InvalidEscaping
+        ));
+
+        assert!(matches!(
+            ast::parser::v1::parse(ascii_string_with_unicode_escape)
+                .unwrap_err()
+                .err,
+            ParseErrors::InvalidEscaping
+        ));
+
+        assert!(
+            matches!(ast::parser::v1::parse(string_with_valid_escape).unwrap()[0].pre_expr, PreSymbolicExpressionType::AtomValue(Value::Sequence(SequenceData::String(
+                                     CharType::ASCII(ref v),
+                                 ))) if v.data.len() == 11)
         );
 
         assert!(
-            match ast::parser::v1::parse(&string_with_valid_escape).unwrap()[0].pre_expr {
+            matches!(ast::parser::v1::parse(string_with_valid_double_escape).unwrap()[0].pre_expr,
                 PreSymbolicExpressionType::AtomValue(Value::Sequence(SequenceData::String(
                     CharType::ASCII(ref v),
-                ))) if v.data.len() == 11 => true,
-                _ => false,
-            }
+                ))) if v.data.len() == 12)
         );
 
         assert!(
-            match ast::parser::v1::parse(&string_with_valid_double_escape).unwrap()[0].pre_expr {
+            matches!(ast::parser::v1::parse(string_with_multiple_slashes).unwrap()[0].pre_expr,
                 PreSymbolicExpressionType::AtomValue(Value::Sequence(SequenceData::String(
                     CharType::ASCII(ref v),
-                ))) if v.data.len() == 12 => true,
-                _ => false,
-            }
+                ))) if v.data.len() == 12)
         );
 
-        assert!(
-            match ast::parser::v1::parse(&string_with_multiple_slashes).unwrap()[0].pre_expr {
-                PreSymbolicExpressionType::AtomValue(Value::Sequence(SequenceData::String(
-                    CharType::ASCII(ref v),
-                ))) if v.data.len() == 12 => true,
-                _ => false,
-            }
-        );
+        assert!(matches!(
+            ast::parser::v1::parse(&exceeds_stack_depth_tuple)
+                .unwrap_err()
+                .err,
+            ParseErrors::VaryExpressionStackDepthTooDeep
+        ));
 
-        assert!(match ast::parser::v1::parse(&exceeds_stack_depth_tuple)
-            .unwrap_err()
-            .err
-        {
-            ParseErrors::VaryExpressionStackDepthTooDeep => true,
-            x => {
-                panic!("Got {:?}", &x);
-            }
-        });
-
-        assert!(match ast::parser::v1::parse(&exceeds_stack_depth_list)
-            .unwrap_err()
-            .err
-        {
-            ParseErrors::VaryExpressionStackDepthTooDeep => true,
-            x => {
-                panic!("Got {:?}", &x);
-            }
-        });
+        assert!(matches!(
+            ast::parser::v1::parse(&exceeds_stack_depth_list)
+                .unwrap_err()
+                .err,
+            ParseErrors::VaryExpressionStackDepthTooDeep
+        ));
     }
 
     #[test]
     fn test_long_contract_name() {
         let long_contract_name = "(define-private (transfer (id uint) (receiver principal)) (contract-call? 'SP3D6PV2ACBPEKYJTCMH7HEN02KP87QSP8KTEH335.megapont-robot-expansion-nftSPNWZ5V2TPWGQGVDR6T7B6RQ4XMGZ4PXTEE0VQ0S.guests-hosted-stacks-parrots transfer id tx-sender receiver))";
-        assert!(
-            match ast::parser::v1::parse(long_contract_name).unwrap_err().err {
-                ParseErrors::SeparatorExpected(_) => true,
-                _ => false,
-            }
-        );
+        assert!(matches!(
+            ast::parser::v1::parse(long_contract_name).unwrap_err().err,
+            ParseErrors::SeparatorExpected(_)
+        ));
     }
 }

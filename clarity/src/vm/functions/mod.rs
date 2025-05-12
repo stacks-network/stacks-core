@@ -14,32 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::callables::{CallableType, NativeHandle};
+use stacks_common::types::StacksEpochId;
+
+use crate::vm::callables::{cost_input_sized_vararg, CallableType, NativeHandle};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{
-    constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
-};
+use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, Error,
-    InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
+    InterpreterResult as Result, ShortReturnType,
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
-use crate::vm::is_reserved;
-use crate::vm::representations::SymbolicExpressionType::{Atom, List};
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use crate::vm::types::{
-    BuffData, CharType, PrincipalData, ResponseData, SequenceData, TypeSignature, Value, BUFF_32,
-    BUFF_33, BUFF_65,
-};
+use crate::vm::types::{PrincipalData, TypeSignature, Value};
 use crate::vm::Value::CallableContract;
-use crate::vm::{eval, Environment, LocalContext};
-use stacks_common::address::AddressHashMode;
-use stacks_common::util::hash;
-
-use crate::types::chainstate::StacksAddress;
-use crate::vm::callables::cost_input_sized_vararg;
-
-use stacks_common::types::StacksEpochId;
+use crate::vm::{eval, is_reserved, Environment, LocalContext};
 
 macro_rules! switch_on_global_epoch {
     ($Name:ident ($Epoch2Version:ident, $Epoch205Version:ident)) => {
@@ -62,11 +50,18 @@ macro_rules! switch_on_global_epoch {
                 StacksEpochId::Epoch23 => $Epoch205Version(args, env, context),
                 // Note: We reuse 2.05 for 2.4.
                 StacksEpochId::Epoch24 => $Epoch205Version(args, env, context),
+                // Note: We reuse 2.05 for 2.5.
+                StacksEpochId::Epoch25 => $Epoch205Version(args, env, context),
+                // Note: We reuse 2.05 for 3.0.
+                StacksEpochId::Epoch30 => $Epoch205Version(args, env, context),
+                // Note: We reuse 2.05 for 3.1.
+                StacksEpochId::Epoch31 => $Epoch205Version(args, env, context),
             }
         }
     };
 }
 
+use super::errors::InterpreterError;
 use crate::vm::ClarityVersion;
 
 mod arithmetic;
@@ -81,131 +76,118 @@ pub mod principals;
 mod sequences;
 pub mod tuples;
 
-define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
-    Add("+", ClarityVersion::Clarity1),
-    Subtract("-", ClarityVersion::Clarity1),
-    Multiply("*", ClarityVersion::Clarity1),
-    Divide("/", ClarityVersion::Clarity1),
-    CmpGeq(">=", ClarityVersion::Clarity1),
-    CmpLeq("<=", ClarityVersion::Clarity1),
-    CmpLess("<", ClarityVersion::Clarity1),
-    CmpGreater(">", ClarityVersion::Clarity1),
-    ToInt("to-int", ClarityVersion::Clarity1),
-    ToUInt("to-uint", ClarityVersion::Clarity1),
-    Modulo("mod", ClarityVersion::Clarity1),
-    Power("pow", ClarityVersion::Clarity1),
-    Sqrti("sqrti", ClarityVersion::Clarity1),
-    Log2("log2", ClarityVersion::Clarity1),
-    BitwiseXor("xor", ClarityVersion::Clarity1),
-    And("and", ClarityVersion::Clarity1),
-    Or("or", ClarityVersion::Clarity1),
-    Not("not", ClarityVersion::Clarity1),
-    Equals("is-eq", ClarityVersion::Clarity1),
-    If("if", ClarityVersion::Clarity1),
-    Let("let", ClarityVersion::Clarity1),
-    Map("map", ClarityVersion::Clarity1),
-    Fold("fold", ClarityVersion::Clarity1),
-    Append("append", ClarityVersion::Clarity1),
-    Concat("concat", ClarityVersion::Clarity1),
-    AsMaxLen("as-max-len?", ClarityVersion::Clarity1),
-    Len("len", ClarityVersion::Clarity1),
-    ElementAt("element-at", ClarityVersion::Clarity1),
-    ElementAtAlias("element-at?", ClarityVersion::Clarity2),
-    IndexOf("index-of", ClarityVersion::Clarity1),
-    IndexOfAlias("index-of?", ClarityVersion::Clarity2),
-    BuffToIntLe("buff-to-int-le", ClarityVersion::Clarity2),
-    BuffToUIntLe("buff-to-uint-le", ClarityVersion::Clarity2),
-    BuffToIntBe("buff-to-int-be", ClarityVersion::Clarity2),
-    BuffToUIntBe("buff-to-uint-be", ClarityVersion::Clarity2),
-    IsStandard("is-standard", ClarityVersion::Clarity2),
-    PrincipalDestruct("principal-destruct?", ClarityVersion::Clarity2),
-    PrincipalConstruct("principal-construct?", ClarityVersion::Clarity2),
-    StringToInt("string-to-int?", ClarityVersion::Clarity2),
-    StringToUInt("string-to-uint?", ClarityVersion::Clarity2),
-    IntToAscii("int-to-ascii", ClarityVersion::Clarity2),
-    IntToUtf8("int-to-utf8", ClarityVersion::Clarity2),
-    ListCons("list", ClarityVersion::Clarity1),
-    FetchVar("var-get", ClarityVersion::Clarity1),
-    SetVar("var-set", ClarityVersion::Clarity1),
-    FetchEntry("map-get?", ClarityVersion::Clarity1),
-    SetEntry("map-set", ClarityVersion::Clarity1),
-    InsertEntry("map-insert", ClarityVersion::Clarity1),
-    DeleteEntry("map-delete", ClarityVersion::Clarity1),
-    TupleCons("tuple", ClarityVersion::Clarity1),
-    TupleGet("get", ClarityVersion::Clarity1),
-    TupleMerge("merge", ClarityVersion::Clarity1),
-    Begin("begin", ClarityVersion::Clarity1),
-    Hash160("hash160", ClarityVersion::Clarity1),
-    Sha256("sha256", ClarityVersion::Clarity1),
-    Sha512("sha512", ClarityVersion::Clarity1),
-    Sha512Trunc256("sha512/256", ClarityVersion::Clarity1),
-    Keccak256("keccak256", ClarityVersion::Clarity1),
-    Secp256k1Recover("secp256k1-recover?", ClarityVersion::Clarity1),
-    Secp256k1Verify("secp256k1-verify", ClarityVersion::Clarity1),
-    Print("print", ClarityVersion::Clarity1),
-    ContractCall("contract-call?", ClarityVersion::Clarity1),
-    AsContract("as-contract", ClarityVersion::Clarity1),
-    ContractOf("contract-of", ClarityVersion::Clarity1),
-    PrincipalOf("principal-of?", ClarityVersion::Clarity1),
-    AtBlock("at-block", ClarityVersion::Clarity1),
-    GetBlockInfo("get-block-info?", ClarityVersion::Clarity1),
-    GetBurnBlockInfo("get-burn-block-info?", ClarityVersion::Clarity2),
-    ConsError("err", ClarityVersion::Clarity1),
-    ConsOkay("ok", ClarityVersion::Clarity1),
-    ConsSome("some", ClarityVersion::Clarity1),
-    DefaultTo("default-to", ClarityVersion::Clarity1),
-    Asserts("asserts!", ClarityVersion::Clarity1),
-    UnwrapRet("unwrap!", ClarityVersion::Clarity1),
-    UnwrapErrRet("unwrap-err!", ClarityVersion::Clarity1),
-    Unwrap("unwrap-panic", ClarityVersion::Clarity1),
-    UnwrapErr("unwrap-err-panic", ClarityVersion::Clarity1),
-    Match("match", ClarityVersion::Clarity1),
-    TryRet("try!", ClarityVersion::Clarity1),
-    IsOkay("is-ok", ClarityVersion::Clarity1),
-    IsNone("is-none", ClarityVersion::Clarity1),
-    IsErr("is-err", ClarityVersion::Clarity1),
-    IsSome("is-some", ClarityVersion::Clarity1),
-    Filter("filter", ClarityVersion::Clarity1),
-    GetTokenBalance("ft-get-balance", ClarityVersion::Clarity1),
-    GetAssetOwner("nft-get-owner?", ClarityVersion::Clarity1),
-    TransferToken("ft-transfer?", ClarityVersion::Clarity1),
-    TransferAsset("nft-transfer?", ClarityVersion::Clarity1),
-    MintAsset("nft-mint?", ClarityVersion::Clarity1),
-    MintToken("ft-mint?", ClarityVersion::Clarity1),
-    GetTokenSupply("ft-get-supply", ClarityVersion::Clarity1),
-    BurnToken("ft-burn?", ClarityVersion::Clarity1),
-    BurnAsset("nft-burn?", ClarityVersion::Clarity1),
-    GetStxBalance("stx-get-balance", ClarityVersion::Clarity1),
-    StxTransfer("stx-transfer?", ClarityVersion::Clarity1),
-    StxTransferMemo("stx-transfer-memo?", ClarityVersion::Clarity2),
-    StxBurn("stx-burn?", ClarityVersion::Clarity1),
-    StxGetAccount("stx-account", ClarityVersion::Clarity2),
-    BitwiseAnd("bit-and", ClarityVersion::Clarity2),
-    BitwiseOr("bit-or", ClarityVersion::Clarity2),
-    BitwiseNot("bit-not", ClarityVersion::Clarity2),
-    BitwiseLShift("bit-shift-left", ClarityVersion::Clarity2),
-    BitwiseRShift("bit-shift-right", ClarityVersion::Clarity2),
-    BitwiseXor2("bit-xor", ClarityVersion::Clarity2),
-    Slice("slice?", ClarityVersion::Clarity2),
-    ToConsensusBuff("to-consensus-buff?", ClarityVersion::Clarity2),
-    FromConsensusBuff("from-consensus-buff?", ClarityVersion::Clarity2),
-    ReplaceAt("replace-at?", ClarityVersion::Clarity2),
+define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
+    Add("+", ClarityVersion::Clarity1, None),
+    Subtract("-", ClarityVersion::Clarity1, None),
+    Multiply("*", ClarityVersion::Clarity1, None),
+    Divide("/", ClarityVersion::Clarity1, None),
+    CmpGeq(">=", ClarityVersion::Clarity1, None),
+    CmpLeq("<=", ClarityVersion::Clarity1, None),
+    CmpLess("<", ClarityVersion::Clarity1, None),
+    CmpGreater(">", ClarityVersion::Clarity1, None),
+    ToInt("to-int", ClarityVersion::Clarity1, None),
+    ToUInt("to-uint", ClarityVersion::Clarity1, None),
+    Modulo("mod", ClarityVersion::Clarity1, None),
+    Power("pow", ClarityVersion::Clarity1, None),
+    Sqrti("sqrti", ClarityVersion::Clarity1, None),
+    Log2("log2", ClarityVersion::Clarity1, None),
+    BitwiseXor("xor", ClarityVersion::Clarity1, None),
+    And("and", ClarityVersion::Clarity1, None),
+    Or("or", ClarityVersion::Clarity1, None),
+    Not("not", ClarityVersion::Clarity1, None),
+    Equals("is-eq", ClarityVersion::Clarity1, None),
+    If("if", ClarityVersion::Clarity1, None),
+    Let("let", ClarityVersion::Clarity1, None),
+    Map("map", ClarityVersion::Clarity1, None),
+    Fold("fold", ClarityVersion::Clarity1, None),
+    Append("append", ClarityVersion::Clarity1, None),
+    Concat("concat", ClarityVersion::Clarity1, None),
+    AsMaxLen("as-max-len?", ClarityVersion::Clarity1, None),
+    Len("len", ClarityVersion::Clarity1, None),
+    ElementAt("element-at", ClarityVersion::Clarity1, None),
+    ElementAtAlias("element-at?", ClarityVersion::Clarity2, None),
+    IndexOf("index-of", ClarityVersion::Clarity1, None),
+    IndexOfAlias("index-of?", ClarityVersion::Clarity2, None),
+    BuffToIntLe("buff-to-int-le", ClarityVersion::Clarity2, None),
+    BuffToUIntLe("buff-to-uint-le", ClarityVersion::Clarity2, None),
+    BuffToIntBe("buff-to-int-be", ClarityVersion::Clarity2, None),
+    BuffToUIntBe("buff-to-uint-be", ClarityVersion::Clarity2, None),
+    IsStandard("is-standard", ClarityVersion::Clarity2, None),
+    PrincipalDestruct("principal-destruct?", ClarityVersion::Clarity2, None),
+    PrincipalConstruct("principal-construct?", ClarityVersion::Clarity2, None),
+    StringToInt("string-to-int?", ClarityVersion::Clarity2, None),
+    StringToUInt("string-to-uint?", ClarityVersion::Clarity2, None),
+    IntToAscii("int-to-ascii", ClarityVersion::Clarity2, None),
+    IntToUtf8("int-to-utf8", ClarityVersion::Clarity2, None),
+    ListCons("list", ClarityVersion::Clarity1, None),
+    FetchVar("var-get", ClarityVersion::Clarity1, None),
+    SetVar("var-set", ClarityVersion::Clarity1, None),
+    FetchEntry("map-get?", ClarityVersion::Clarity1, None),
+    SetEntry("map-set", ClarityVersion::Clarity1, None),
+    InsertEntry("map-insert", ClarityVersion::Clarity1, None),
+    DeleteEntry("map-delete", ClarityVersion::Clarity1, None),
+    TupleCons("tuple", ClarityVersion::Clarity1, None),
+    TupleGet("get", ClarityVersion::Clarity1, None),
+    TupleMerge("merge", ClarityVersion::Clarity1, None),
+    Begin("begin", ClarityVersion::Clarity1, None),
+    Hash160("hash160", ClarityVersion::Clarity1, None),
+    Sha256("sha256", ClarityVersion::Clarity1, None),
+    Sha512("sha512", ClarityVersion::Clarity1, None),
+    Sha512Trunc256("sha512/256", ClarityVersion::Clarity1, None),
+    Keccak256("keccak256", ClarityVersion::Clarity1, None),
+    Secp256k1Recover("secp256k1-recover?", ClarityVersion::Clarity1, None),
+    Secp256k1Verify("secp256k1-verify", ClarityVersion::Clarity1, None),
+    Print("print", ClarityVersion::Clarity1, None),
+    ContractCall("contract-call?", ClarityVersion::Clarity1, None),
+    AsContract("as-contract", ClarityVersion::Clarity1, None),
+    ContractOf("contract-of", ClarityVersion::Clarity1, None),
+    PrincipalOf("principal-of?", ClarityVersion::Clarity1, None),
+    AtBlock("at-block", ClarityVersion::Clarity1, None),
+    GetBlockInfo("get-block-info?", ClarityVersion::Clarity1, Some(ClarityVersion::Clarity2)),
+    GetBurnBlockInfo("get-burn-block-info?", ClarityVersion::Clarity2, None),
+    ConsError("err", ClarityVersion::Clarity1, None),
+    ConsOkay("ok", ClarityVersion::Clarity1, None),
+    ConsSome("some", ClarityVersion::Clarity1, None),
+    DefaultTo("default-to", ClarityVersion::Clarity1, None),
+    Asserts("asserts!", ClarityVersion::Clarity1, None),
+    UnwrapRet("unwrap!", ClarityVersion::Clarity1, None),
+    UnwrapErrRet("unwrap-err!", ClarityVersion::Clarity1, None),
+    Unwrap("unwrap-panic", ClarityVersion::Clarity1, None),
+    UnwrapErr("unwrap-err-panic", ClarityVersion::Clarity1, None),
+    Match("match", ClarityVersion::Clarity1, None),
+    TryRet("try!", ClarityVersion::Clarity1, None),
+    IsOkay("is-ok", ClarityVersion::Clarity1, None),
+    IsNone("is-none", ClarityVersion::Clarity1, None),
+    IsErr("is-err", ClarityVersion::Clarity1, None),
+    IsSome("is-some", ClarityVersion::Clarity1, None),
+    Filter("filter", ClarityVersion::Clarity1, None),
+    GetTokenBalance("ft-get-balance", ClarityVersion::Clarity1, None),
+    GetAssetOwner("nft-get-owner?", ClarityVersion::Clarity1, None),
+    TransferToken("ft-transfer?", ClarityVersion::Clarity1, None),
+    TransferAsset("nft-transfer?", ClarityVersion::Clarity1, None),
+    MintAsset("nft-mint?", ClarityVersion::Clarity1, None),
+    MintToken("ft-mint?", ClarityVersion::Clarity1, None),
+    GetTokenSupply("ft-get-supply", ClarityVersion::Clarity1, None),
+    BurnToken("ft-burn?", ClarityVersion::Clarity1, None),
+    BurnAsset("nft-burn?", ClarityVersion::Clarity1, None),
+    GetStxBalance("stx-get-balance", ClarityVersion::Clarity1, None),
+    StxTransfer("stx-transfer?", ClarityVersion::Clarity1, None),
+    StxTransferMemo("stx-transfer-memo?", ClarityVersion::Clarity2, None),
+    StxBurn("stx-burn?", ClarityVersion::Clarity1, None),
+    StxGetAccount("stx-account", ClarityVersion::Clarity2, None),
+    BitwiseAnd("bit-and", ClarityVersion::Clarity2, None),
+    BitwiseOr("bit-or", ClarityVersion::Clarity2, None),
+    BitwiseNot("bit-not", ClarityVersion::Clarity2, None),
+    BitwiseLShift("bit-shift-left", ClarityVersion::Clarity2, None),
+    BitwiseRShift("bit-shift-right", ClarityVersion::Clarity2, None),
+    BitwiseXor2("bit-xor", ClarityVersion::Clarity2, None),
+    Slice("slice?", ClarityVersion::Clarity2, None),
+    ToConsensusBuff("to-consensus-buff?", ClarityVersion::Clarity2, None),
+    FromConsensusBuff("from-consensus-buff?", ClarityVersion::Clarity2, None),
+    ReplaceAt("replace-at?", ClarityVersion::Clarity2, None),
+    GetStacksBlockInfo("get-stacks-block-info?", ClarityVersion::Clarity3, None),
+    GetTenureInfo("get-tenure-info?", ClarityVersion::Clarity3, None),
 });
-
-impl NativeFunctions {
-    pub fn lookup_by_name_at_version(
-        name: &str,
-        version: &ClarityVersion,
-    ) -> Option<NativeFunctions> {
-        NativeFunctions::lookup_by_name(name).and_then(|native_function| {
-            if &native_function.get_version() <= version {
-                Some(native_function)
-            } else {
-                None
-            }
-        })
-    }
-}
 
 ///
 /// Returns a callable for the given native function if it exists in the provided
@@ -433,6 +415,14 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 "special_get_burn_block_info",
                 &database::special_get_burn_block_info,
             ),
+            GetStacksBlockInfo => SpecialFunction(
+                "special_get_stacks_block_info",
+                &database::special_get_stacks_block_info,
+            ),
+            GetTenureInfo => SpecialFunction(
+                "special_get_tenure_info",
+                &database::special_get_tenure_info,
+            ),
             ConsSome => NativeFunction(
                 "native_some",
                 NativeHandle::SingleArg(&options::native_some),
@@ -582,10 +572,13 @@ fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value> {
     } else {
         let first = &args[0];
         // check types:
-        let mut arg_type = TypeSignature::type_of(first);
+        let mut arg_type = TypeSignature::type_of(first)?;
         for x in args.iter() {
-            arg_type =
-                TypeSignature::least_supertype(env.epoch(), &TypeSignature::type_of(x), &arg_type)?;
+            arg_type = TypeSignature::least_supertype(
+                env.epoch(),
+                &TypeSignature::type_of(x)?,
+                &arg_type,
+            )?;
             if x != first {
                 return Ok(Value::Bool(false));
             }
@@ -606,9 +599,12 @@ fn special_print(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    let input = eval(&args[0], env, context)?;
+    let arg = args.first().ok_or_else(|| {
+        InterpreterError::BadSymbolicRepresentation("Print should have an argument".into())
+    })?;
+    let input = eval(arg, env, context)?;
 
-    runtime_cost(ClarityCostFunction::Print, env, input.size())?;
+    runtime_cost(ClarityCostFunction::Print, env, input.size()?)?;
 
     if cfg!(feature = "developer-mode") {
         debug!("{}", &input);
@@ -692,12 +688,9 @@ pub fn parse_eval_bindings(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Vec<(ClarityName, Value)>> {
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(bindings.len());
     handle_binding_list(bindings, |var_name, var_sexp| {
-        eval(var_sexp, env, context).and_then(|value| {
-            result.push((var_name.clone(), value));
-            Ok(())
-        })
+        eval(var_sexp, env, context).map(|value| result.push((var_name.clone(), value)))
     })?;
 
     Ok(result)
@@ -733,7 +726,7 @@ fn special_let(
 
             let binding_value = eval(var_sexp, env, &inner_context)?;
 
-            let bind_mem_use = binding_value.get_memory_use();
+            let bind_mem_use = binding_value.get_memory_use()?;
             env.add_memory(bind_mem_use)?;
             memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
             if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
@@ -748,11 +741,11 @@ fn special_let(
         // evaluate the let-bodies
         let mut last_result = None;
         for body in args[1..].iter() {
-            let body_result = eval(&body, env, &inner_context)?;
+            let body_result = eval(body, env, &inner_context)?;
             last_result.replace(body_result);
         }
         // last_result should always be Some(...), because of the arg len check above.
-        Ok(last_result.unwrap())
+        last_result.ok_or_else(|| InterpreterError::Expect("Failed to get let result".into()).into())
     })
 }
 
@@ -778,7 +771,7 @@ fn special_as_contract(
 
     let result = eval(&args[0], &mut nested_env, context);
 
-    env.drop_memory(cost_constants::AS_CONTRACT_MEMORY);
+    env.drop_memory(cost_constants::AS_CONTRACT_MEMORY)?;
 
     result
 }

@@ -18,11 +18,7 @@
 */
 
 use std::io;
-use std::io::prelude::*;
-use std::io::{Read, Write};
-
-use crate::util::hash::to_hex;
-use crate::util::log;
+use std::io::Read;
 
 /// Wrap a Read so that we store a copy of what was read.
 /// Used for re-trying reads when we don't know what to expect from the stream.
@@ -35,13 +31,13 @@ pub struct RetryReader<'a, R: Read> {
 impl<'a, R: Read> RetryReader<'a, R> {
     pub fn new(fd: &'a mut R) -> RetryReader<'a, R> {
         RetryReader {
-            fd: fd,
+            fd,
             buf: vec![],
             i: 0,
         }
     }
 
-    pub fn set_position(&mut self, offset: usize) -> () {
+    pub fn set_position(&mut self, offset: usize) {
         if offset <= self.buf.len() {
             self.i = offset
         } else {
@@ -61,7 +57,7 @@ impl<'a, R: Read> RetryReader<'a, R> {
     }
 }
 
-impl<'a, R: Read> Read for RetryReader<'a, R> {
+impl<R: Read> Read for RetryReader<'_, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let nr_buf = if self.i < self.buf.len() {
             // consume from inner buffer
@@ -88,7 +84,7 @@ impl<'a, R: Read> BoundReader<'a, R> {
     pub fn from_reader(reader: &'a mut R, max_len: u64) -> BoundReader<'a, R> {
         BoundReader {
             fd: reader,
-            max_len: max_len,
+            max_len,
             read_so_far: 0,
         }
     }
@@ -98,7 +94,7 @@ impl<'a, R: Read> BoundReader<'a, R> {
     }
 }
 
-impl<'a, R: Read> Read for BoundReader<'a, R> {
+impl<R: Read> Read for BoundReader<'_, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let intended_read = self
             .read_so_far
@@ -126,10 +122,7 @@ pub struct LogReader<'a, R: Read> {
 
 impl<'a, R: Read> LogReader<'a, R> {
     pub fn from_reader(fd: &'a mut R) -> LogReader<'a, R> {
-        LogReader {
-            fd: fd,
-            reads: vec![],
-        }
+        LogReader { fd, reads: vec![] }
     }
 
     pub fn log(&self) -> &Vec<Vec<u8>> {
@@ -137,7 +130,7 @@ impl<'a, R: Read> LogReader<'a, R> {
     }
 }
 
-impl<'a, R: Read> Read for LogReader<'a, R> {
+impl<R: Read> Read for LogReader<'_, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let nr = self.fd.read(buf)?;
         let read = buf[0..nr].to_vec();

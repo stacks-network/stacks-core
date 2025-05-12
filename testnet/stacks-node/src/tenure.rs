@@ -1,7 +1,3 @@
-/// Only used by the Helium (Mocknet) node
-use super::node::ChainTip;
-use super::{BurnchainTip, Config};
-
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -9,16 +5,21 @@ use std::time::{Duration, Instant};
 use stacks::burnchains::PoxConstants;
 #[cfg(test)]
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::db::sortdb::SortitionDBConn;
+use stacks::chainstate::burn::db::sortdb::SortitionHandleConn;
 use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::miner::BlockBuilderSettings;
 use stacks::chainstate::stacks::{
-    miner::BlockBuilderSettings, StacksBlock, StacksBlockBuilder, StacksMicroblock,
-    StacksPrivateKey, StacksPublicKey, StacksTransaction,
+    StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
+    StacksTransaction,
 };
 use stacks::core::mempool::MemPoolDB;
-use stacks::types::chainstate::VRFSeed;
-use stacks::util::hash::Hash160;
-use stacks::util::vrf::VRFProof;
+use stacks_common::types::chainstate::VRFSeed;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::vrf::VRFProof;
+
+/// Only used by the Helium (Mocknet) node
+use super::node::ChainTip;
+use super::{BurnchainTip, Config};
 
 pub struct TenureArtifacts {
     pub anchored_block: StacksBlock,
@@ -40,7 +41,8 @@ pub struct Tenure {
     parent_block_total_burn: u64,
 }
 
-impl<'a> Tenure {
+impl Tenure {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         parent_block: ChainTip,
         coinbase_tx: StacksTransaction,
@@ -71,7 +73,7 @@ impl<'a> Tenure {
         }
     }
 
-    pub fn run(&mut self, burn_dbconn: &SortitionDBConn) -> Option<TenureArtifacts> {
+    pub fn run(&mut self, burn_dbconn: &SortitionHandleConn) -> Option<TenureArtifacts> {
         info!("Node starting new tenure with VRF {:?}", self.vrf_seed);
 
         let duration_left: u128 = self.config.burnchain.commit_anchor_block_within as u128;
@@ -81,7 +83,7 @@ impl<'a> Tenure {
             elapsed = Instant::now().duration_since(self.burnchain_tip.received_at);
         }
 
-        let (mut chain_state, _) = StacksChainState::open(
+        let (chain_state, _) = StacksChainState::open(
             self.config.is_mainnet(),
             self.config.burnchain.chain_id,
             &self.config.get_chainstate_path_str(),
@@ -90,16 +92,17 @@ impl<'a> Tenure {
         .unwrap();
 
         let (anchored_block, _, _) = StacksBlockBuilder::build_anchored_block(
-            &mut chain_state,
+            &chain_state,
             burn_dbconn,
             &mut self.mem_pool,
             &self.parent_block.metadata,
             self.parent_block_total_burn,
             self.vrf_proof.clone(),
-            self.microblock_pubkeyhash.clone(),
+            self.microblock_pubkeyhash,
             &self.coinbase_tx,
             BlockBuilderSettings::limited(),
             None,
+            &self.config.get_burnchain(),
         )
         .unwrap();
 

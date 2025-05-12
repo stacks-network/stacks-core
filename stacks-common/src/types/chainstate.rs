@@ -1,52 +1,112 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2025 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::fmt;
-use std::io::Read;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::str::FromStr;
 
-use curve25519_dalek::digest::Digest;
-use sha2::Sha256;
+use serde::Serialize;
 use sha2::{Digest as Sha2Digest, Sha512_256};
 
-use crate::util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
-use crate::util::secp256k1::MessageSignature;
-use crate::util::uint::Uint256;
-use crate::util::vrf::VRFProof;
-
-use serde::de::Deserialize;
-use serde::de::Error as de_Error;
-use serde::ser::Error as ser_Error;
-use serde::Serialize;
-
-use crate::util::secp256k1::Secp256k1PrivateKey;
-use crate::util::secp256k1::Secp256k1PublicKey;
-use crate::util::vrf::VRF_PROOF_ENCODED_SIZE;
-
+use crate::address::Error as AddressError;
 use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
-
+use crate::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
-use rand::Rng;
-use rand::SeedableRng;
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
-
-use crate::util::hash::DoubleSha256;
+use crate::util::hash::{Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
+use crate::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
+use crate::util::vrf::{VRFProof, VRF_PROOF_ENCODED_SIZE};
 
 pub type StacksPublicKey = Secp256k1PublicKey;
 pub type StacksPrivateKey = Secp256k1PrivateKey;
 
 /// Hash of a Trie node.  This is a SHA2-512/256.
+#[derive(Default)]
 pub struct TrieHash(pub [u8; 32]);
 impl_array_newtype!(TrieHash, u8, 32);
 impl_array_hexstring_fmt!(TrieHash);
 impl_byte_array_newtype!(TrieHash, u8, 32);
 impl_byte_array_serde!(TrieHash);
 
-impl Default for TrieHash {
-    fn default() -> TrieHash {
-        TrieHash([0x00; 32])
+pub const TRIEHASH_ENCODED_SIZE: usize = 32;
+
+impl TrieHash {
+    pub fn from_key(k: &str) -> Self {
+        Self::from_data(k.as_bytes())
+    }
+
+    /// TrieHash of zero bytes
+    pub fn from_empty_data() -> TrieHash {
+        // sha2-512/256 hash of empty string.
+        // this is used so frequently it helps performance if we just have a constant for it.
+        TrieHash([
+            0xc6, 0x72, 0xb8, 0xd1, 0xef, 0x56, 0xed, 0x28, 0xab, 0x87, 0xc3, 0x62, 0x2c, 0x51,
+            0x14, 0x06, 0x9b, 0xdd, 0x3a, 0xd7, 0xb8, 0xf9, 0x73, 0x74, 0x98, 0xd0, 0xc0, 0x1e,
+            0xce, 0xf0, 0x96, 0x7a,
+        ])
+    }
+
+    /// TrieHash from bytes
+    pub fn from_data(data: &[u8]) -> TrieHash {
+        if data.is_empty() {
+            return TrieHash::from_empty_data();
+        }
+
+        let mut tmp = [0u8; 32];
+
+        let mut hasher = Sha512_256::new();
+        hasher.update(data);
+        tmp.copy_from_slice(hasher.finalize().as_slice());
+
+        TrieHash(tmp)
+    }
+
+    pub fn from_data_array<B: AsRef<[u8]>>(data: &[B]) -> TrieHash {
+        if data.is_empty() {
+            return TrieHash::from_empty_data();
+        }
+
+        let mut tmp = [0u8; 32];
+
+        let mut hasher = Sha512_256::new();
+
+        for item in data.iter() {
+            hasher.update(item);
+        }
+        tmp.copy_from_slice(hasher.finalize().as_slice());
+        TrieHash(tmp)
+    }
+
+    /// Convert to a String that can be used in e.g. sqlite
+    /// If we did not implement this seperate from Display,
+    /// we would use the stacks_common::util::hash::to_hex function
+    /// which is the unrolled version of this function.
+    #[allow(clippy::inherent_to_string_shadow_display)]
+    pub fn to_string(&self) -> String {
+        let s = format!("{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                          self.0[0],     self.0[1],       self.0[2],       self.0[3],
+                          self.0[4],     self.0[5],       self.0[6],       self.0[7],
+                          self.0[8],     self.0[9],       self.0[10],      self.0[11],
+                          self.0[12],    self.0[13],      self.0[14],      self.0[15],
+                          self.0[16],    self.0[17],      self.0[18],      self.0[19],
+                          self.0[20],    self.0[21],      self.0[22],      self.0[23],
+                          self.0[24],    self.0[25],      self.0[26],      self.0[27],
+                          self.0[28],    self.0[29],      self.0[30],      self.0[31]);
+        s
     }
 }
-
-pub const TRIEHASH_ENCODED_SIZE: usize = 32;
 
 #[derive(Serialize, Deserialize)]
 pub struct BurnchainHeaderHash(pub [u8; 32]);
@@ -61,6 +121,17 @@ impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
 impl_byte_array_serde!(BlockHeaderHash);
 pub const BLOCK_HEADER_HASH_ENCODED_SIZE: usize = 32;
 
+impl slog::Value for BlockHeaderHash {
+    fn serialize(
+        &self,
+        _record: &slog::Record,
+        key: slog::Key,
+        serializer: &mut dyn slog::Serializer,
+    ) -> slog::Result {
+        serializer.emit_arguments(key, &format_args!("{}", *self))
+    }
+}
+
 /// Identifier used to identify "sortitions" in the
 ///  SortitionDB. A sortition is the collection of
 ///  valid burnchain operations (and any dependent
@@ -70,7 +141,6 @@ pub struct SortitionId(pub [u8; 32]);
 impl_array_newtype!(SortitionId, u8, 32);
 impl_array_hexstring_fmt!(SortitionId);
 impl_byte_array_newtype!(SortitionId, u8, 32);
-impl_byte_array_rusqlite_only!(SortitionId);
 
 pub struct VRFSeed(pub [u8; 32]);
 impl_array_newtype!(VRFSeed, u8, 32);
@@ -96,7 +166,7 @@ impl SortitionId {
 
     pub fn new(bhh: &BurnchainHeaderHash, pox: &PoxId) -> SortitionId {
         if pox == &PoxId::stubbed() {
-            SortitionId(bhh.0.clone())
+            SortitionId(bhh.0)
         } else {
             let mut hasher = Sha512_256::new();
             hasher.update(bhh);
@@ -143,6 +213,10 @@ impl PoxId {
 
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn bit_slice(&self, start: usize, len: usize) -> (Vec<u8>, u64) {
@@ -192,14 +266,12 @@ impl PoxId {
 impl FromStr for PoxId {
     type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut result = vec![];
-        for i in s.chars() {
-            if i == '1' {
-                result.push(true);
-            } else if i == '0' {
-                result.push(false);
-            } else {
-                return Err("Unexpected character in PoX ID serialization");
+        let mut result = Vec::with_capacity(s.len());
+        for c in s.chars() {
+            match c {
+                '0' => result.push(false),
+                '1' => result.push(true),
+                _ => return Err("Unexpected character in PoX ID serialization"),
             }
         }
         Ok(PoxId::new(result))
@@ -217,8 +289,48 @@ impl fmt::Display for PoxId {
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize, Hash)]
 pub struct StacksAddress {
-    pub version: u8,
-    pub bytes: Hash160,
+    version: u8,
+    bytes: Hash160,
+}
+
+impl StacksAddress {
+    pub fn new(version: u8, hash: Hash160) -> Result<StacksAddress, AddressError> {
+        if version >= 32 {
+            return Err(AddressError::InvalidVersion(version));
+        }
+
+        Ok(StacksAddress {
+            version,
+            bytes: hash,
+        })
+    }
+
+    // NEVER, EVER use this in ANY production code!
+    // It should never be possible to construct an address with a version greater than 31
+    #[cfg(any(test, feature = "testing"))]
+    pub fn new_unsafe(version: u8, bytes: Hash160) -> Self {
+        Self { version, bytes }
+    }
+
+    pub fn version(&self) -> u8 {
+        self.version
+    }
+
+    pub fn bytes(&self) -> &Hash160 {
+        &self.bytes
+    }
+
+    pub fn destruct(self) -> (u8, Hash160) {
+        (self.version, self.bytes)
+    }
+
+    /// Because addresses are crockford-32 encoded, the version must be a 5-bit number.
+    /// Historically, it was possible to construct invalid addresses given that we use a u8 to
+    /// represent the version.  This function is used to validate addresses before relying on their
+    /// version.
+    pub fn has_valid_version(&self) -> bool {
+        self.version < 32
+    }
 }
 
 impl StacksMessageCodec for StacksAddress {
@@ -230,9 +342,14 @@ impl StacksMessageCodec for StacksAddress {
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksAddress, CodecError> {
         let version: u8 = read_next(fd)?;
+        if version >= 32 {
+            return Err(CodecError::DeserializeError(
+                "Address version byte must be in range 0 to 31".into(),
+            ));
+        }
         let hash160: Hash160 = read_next(fd)?;
         Ok(StacksAddress {
-            version: version,
+            version,
             bytes: hash160,
         })
     }
@@ -251,8 +368,17 @@ pub struct StacksBlockId(pub [u8; 32]);
 impl_array_newtype!(StacksBlockId, u8, 32);
 impl_array_hexstring_fmt!(StacksBlockId);
 impl_byte_array_newtype!(StacksBlockId, u8, 32);
-impl_byte_array_rusqlite_only!(StacksBlockId);
 impl_byte_array_serde!(StacksBlockId);
+
+/// A newtype for `StacksBlockId` that indicates a block is a tenure-change
+/// block. This helps to explicitly differentiate tenure-change blocks in the
+/// code.
+pub struct TenureBlockId(pub StacksBlockId);
+impl From<StacksBlockId> for TenureBlockId {
+    fn from(id: StacksBlockId) -> TenureBlockId {
+        TenureBlockId(id)
+    }
+}
 
 pub struct ConsensusHash(pub [u8; 20]);
 impl_array_newtype!(ConsensusHash, u8, 20);
@@ -273,6 +399,10 @@ impl StacksBlockId {
 
         let h = Sha512Trunc256Sum::from_hasher(hasher);
         StacksBlockId(h.0)
+    }
+
+    pub fn first_mined() -> StacksBlockId {
+        StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
     }
 }
 
@@ -323,18 +453,6 @@ impl StacksMessageCodec for StacksWorkScore {
     }
 }
 
-// Implement rusqlite traits for a bunch of structs that used to be defined
-//  in the chainstate code
-impl_byte_array_rusqlite_only!(ConsensusHash);
-impl_byte_array_rusqlite_only!(Hash160);
-impl_byte_array_rusqlite_only!(BlockHeaderHash);
-impl_byte_array_rusqlite_only!(VRFSeed);
-impl_byte_array_rusqlite_only!(BurnchainHeaderHash);
-impl_byte_array_rusqlite_only!(VRFProof);
-impl_byte_array_rusqlite_only!(TrieHash);
-impl_byte_array_rusqlite_only!(Sha512Trunc256Sum);
-impl_byte_array_rusqlite_only!(MessageSignature);
-
 impl_byte_array_message_codec!(TrieHash, TRIEHASH_ENCODED_SIZE as u32);
 impl_byte_array_message_codec!(Sha512Trunc256Sum, 32);
 
@@ -350,11 +468,18 @@ impl BlockHeaderHash {
         Hash160::from_sha256(&self.0)
     }
 
+    pub fn from_serializer<C: StacksMessageCodec>(
+        serializer: &C,
+    ) -> Result<BlockHeaderHash, CodecError> {
+        let mut hasher = Sha512_256::new();
+        serializer.consensus_serialize(&mut hasher)?;
+        let hash = Sha512Trunc256Sum::from_hasher(hasher);
+        Ok(BlockHeaderHash(hash.0))
+    }
+
     pub fn from_serialized_header(buf: &[u8]) -> BlockHeaderHash {
         let h = Sha512Trunc256Sum::from_data(buf);
-        let mut b = [0u8; 32];
-        b.copy_from_slice(h.as_bytes());
-        BlockHeaderHash(b)
+        BlockHeaderHash(h.to_bytes())
     }
 }
 
@@ -368,8 +493,7 @@ impl BurnchainHeaderHash {
     }
 
     pub fn to_bitcoin_hash(&self) -> Sha256dHash {
-        let mut bytes = self.0.to_vec();
-        bytes.reverse();
+        let bytes = self.0.iter().rev().copied().collect::<Vec<_>>();
         let mut buf = [0u8; 32];
         buf.copy_from_slice(&bytes[0..32]);
         Sha256dHash(buf)
@@ -385,30 +509,14 @@ impl BurnchainHeaderHash {
         index_root: &TrieHash,
         noise: u64,
     ) -> BurnchainHeaderHash {
+        use crate::util::hash::DoubleSha256;
+
         let mut bytes = vec![];
         bytes.extend_from_slice(&block_height.to_be_bytes());
         bytes.extend_from_slice(index_root.as_bytes());
         bytes.extend_from_slice(&noise.to_be_bytes());
         let h = DoubleSha256::from_data(&bytes[..]);
-        let mut hb = [0u8; 32];
-        hb.copy_from_slice(h.as_bytes());
-
-        BurnchainHeaderHash(hb)
-    }
-}
-
-impl FromSql for Sha256dHash {
-    fn column_result(value: ValueRef) -> FromSqlResult<Sha256dHash> {
-        let hex_str = value.as_str()?;
-        let hash = Sha256dHash::from_hex(hex_str).map_err(|_e| FromSqlError::InvalidType)?;
-        Ok(hash)
-    }
-}
-
-impl ToSql for Sha256dHash {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
-        let hex_str = self.be_hex_string();
-        Ok(hex_str.into())
+        BurnchainHeaderHash(h.to_bytes())
     }
 }
 

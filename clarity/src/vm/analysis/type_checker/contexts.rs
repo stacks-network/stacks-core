@@ -14,21 +14,32 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
+use std::collections::HashSet;
 
+use hashbrown::HashMap;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::types::signatures::CallableSubtype;
-use crate::vm::{
-    types::{TraitIdentifier, TypeSignature},
-    ClarityName, SymbolicExpression,
-};
-use crate::vm::{ClarityVersion, MAX_CONTEXT_DEPTH};
+use crate::vm::types::{TraitIdentifier, TypeSignature};
+use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, MAX_CONTEXT_DEPTH};
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TypeMap {
-    map: HashMap<u64, TypeSignature>,
+    map: TypeMapDataType,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+/// This enum allows the type checker to operate
+/// with two different kinds of type maps. The Set
+/// version is more efficient, and only triggers an error
+/// if an AST node is visited more than once. The Map
+/// version is used when the actual type of each AST node
+/// is needed by a subsequent reader. This is only used by
+/// tests and docs generation.
+enum TypeMapDataType {
+    Map(HashMap<u64, TypeSignature>),
+    Set(HashSet<u64>),
 }
 
 pub struct TypingContext<'a> {
@@ -41,10 +52,13 @@ pub struct TypingContext<'a> {
 }
 
 impl TypeMap {
-    pub fn new() -> TypeMap {
-        TypeMap {
-            map: HashMap::new(),
-        }
+    pub fn new(build_map: bool) -> TypeMap {
+        let map = if build_map {
+            TypeMapDataType::Map(HashMap::new())
+        } else {
+            TypeMapDataType::Set(HashSet::new())
+        };
+        TypeMap { map }
     }
 
     pub fn set_type(
@@ -52,19 +66,33 @@ impl TypeMap {
         expr: &SymbolicExpression,
         type_sig: TypeSignature,
     ) -> CheckResult<()> {
-        if self.map.insert(expr.id, type_sig).is_some() {
-            Err(CheckError::new(CheckErrors::TypeAlreadyAnnotatedFailure))
-        } else {
-            Ok(())
+        match self.map {
+            TypeMapDataType::Map(ref mut map) => {
+                if map.insert(expr.id, type_sig).is_some() {
+                    Err(CheckError::new(CheckErrors::TypeAlreadyAnnotatedFailure))
+                } else {
+                    Ok(())
+                }
+            }
+            TypeMapDataType::Set(ref mut map) => {
+                if !map.insert(expr.id) {
+                    Err(CheckError::new(CheckErrors::TypeAlreadyAnnotatedFailure))
+                } else {
+                    Ok(())
+                }
+            }
         }
     }
 
-    pub fn get_type(&self, expr: &SymbolicExpression) -> Option<&TypeSignature> {
-        self.map.get(&expr.id)
+    pub fn get_type_expected(&self, expr: &SymbolicExpression) -> Option<&TypeSignature> {
+        match self.map {
+            TypeMapDataType::Map(ref map) => map.get(&expr.id),
+            TypeMapDataType::Set(_) => None,
+        }
     }
 }
 
-impl<'a> TypingContext<'a> {
+impl TypingContext<'_> {
     pub fn new(epoch: StacksEpochId, clarity_version: ClarityVersion) -> TypingContext<'static> {
         TypingContext {
             epoch,
@@ -76,7 +104,7 @@ impl<'a> TypingContext<'a> {
         }
     }
 
-    pub fn extend<'b>(&'b self) -> CheckResult<TypingContext<'b>> {
+    pub fn extend(&self) -> CheckResult<TypingContext> {
         if self.depth >= MAX_CONTEXT_DEPTH {
             Err(CheckError::new(CheckErrors::MaxContextDepthReached))
         } else {

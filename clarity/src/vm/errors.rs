@@ -14,20 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::types::chainstate::BlockHeaderHash;
-pub use crate::vm::analysis::errors::CheckErrors;
+use std::{error, fmt};
+
+#[cfg(feature = "rusqlite")]
+use rusqlite::Error as SqliteError;
+use serde_json::Error as SerdeJSONErr;
+use stacks_common::types::chainstate::BlockHeaderHash;
+
+use super::ast::errors::ParseErrors;
 pub use crate::vm::analysis::errors::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most,
+    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors,
 };
 use crate::vm::ast::errors::ParseError;
 use crate::vm::contexts::StackTrace;
 use crate::vm::costs::CostErrors;
-use crate::vm::types::{TypeSignature, Value};
-use rusqlite::Error as SqliteError;
-use serde_json::Error as SerdeJSONErr;
-use std::error;
-use std::error::Error as ErrorTrait;
-use std::fmt;
+use crate::vm::types::Value;
 
 #[derive(Debug)]
 pub struct IncomparableError<T> {
@@ -35,6 +36,7 @@ pub struct IncomparableError<T> {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Error {
     /// UncheckedErrors are errors that *should* be caught by the
     ///   TypeChecker and other check passes. Test executions may
@@ -55,6 +57,7 @@ pub enum InterpreterError {
     UninitializedPersistedVariable,
     FailedToConstructAssetTable,
     FailedToConstructEventBatch,
+    #[cfg(feature = "rusqlite")]
     SqliteError(IncomparableError<SqliteError>),
     BadFileName,
     FailedToCreateDataDirectory,
@@ -64,6 +67,7 @@ pub enum InterpreterError {
     InsufficientBalance,
     CostContractLoadFailure,
     DBError(String),
+    Expect(String),
 }
 
 /// RuntimeErrors are errors that smart contracts are expected
@@ -100,6 +104,7 @@ pub enum RuntimeErrorType {
     UnwrapFailure,
     DefunctPoxContract,
     PoxAlreadyLocked,
+    MetadataAlreadySet,
 }
 
 #[derive(Debug, PartialEq)]
@@ -112,7 +117,7 @@ pub type InterpreterResult<R> = Result<R, Error>;
 
 impl<T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     fn eq(&self, _other: &IncomparableError<T>) -> bool {
-        return false;
+        false
     }
 }
 
@@ -132,19 +137,16 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::Runtime(ref err, ref stack) => {
-                match err {
-                    _ => write!(f, "{}", err),
-                }?;
-
+                write!(f, "{err}")?;
                 if let Some(ref stack_trace) = stack {
-                    write!(f, "\n Stack Trace: \n")?;
+                    writeln!(f, "\n Stack Trace: ")?;
                     for item in stack_trace.iter() {
-                        write!(f, "{}\n", item)?;
+                        writeln!(f, "{item}")?;
                     }
                 }
                 Ok(())
             }
-            _ => write!(f, "{:?}", self),
+            _ => write!(f, "{self:?}"),
         }
     }
 }
@@ -167,21 +169,28 @@ impl error::Error for RuntimeErrorType {
     }
 }
 
-impl From<CostErrors> for Error {
-    fn from(err: CostErrors) -> Self {
-        Error::from(CheckErrors::from(err))
-    }
-}
-
 impl From<ParseError> for Error {
     fn from(err: ParseError) -> Self {
-        Error::from(RuntimeErrorType::ASTError(err))
+        match &err.err {
+            ParseErrors::InterpreterFailure => Error::from(InterpreterError::Expect(
+                "Unexpected interpreter failure during parsing".into(),
+            )),
+            _ => Error::from(RuntimeErrorType::ASTError(err)),
+        }
     }
 }
 
-impl From<SerdeJSONErr> for Error {
-    fn from(err: SerdeJSONErr) -> Self {
-        Error::from(RuntimeErrorType::JSONParseError(IncomparableError { err }))
+impl From<CostErrors> for Error {
+    fn from(err: CostErrors) -> Self {
+        match err {
+            CostErrors::InterpreterFailure => Error::from(InterpreterError::Expect(
+                "Interpreter failure during cost calculation".into(),
+            )),
+            CostErrors::Expect(s) => Error::from(InterpreterError::Expect(format!(
+                "Interpreter failure during cost calculation: {s}"
+            ))),
+            other_err => Error::from(CheckErrors::from(other_err)),
+        }
     }
 }
 
@@ -214,9 +223,9 @@ impl From<Error> for () {
     fn from(err: Error) -> Self {}
 }
 
-impl Into<Value> for ShortReturnType {
-    fn into(self) -> Value {
-        match self {
+impl From<ShortReturnType> for Value {
+    fn from(val: ShortReturnType) -> Self {
+        match val {
             ShortReturnType::ExpectedValue(v) => v,
             ShortReturnType::AssertionFailed(v) => v,
         }
@@ -226,17 +235,17 @@ impl Into<Value> for ShortReturnType {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::vm::execute;
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn error_formats() {
         let t = "(/ 10 0)";
         let expected = "DivisionByZero
- Stack Trace: 
+ Stack Trace:
 _native_:native_div
 ";
 
-        assert_eq!(format!("{}", execute(t).unwrap_err()), expected);
+        assert_eq!(format!("{}", crate::vm::execute(t).unwrap_err()), expected);
     }
 
     #[test]

@@ -17,20 +17,18 @@
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::{mem_type_check, AnalysisDatabase};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
+use crate::vm::tooling::mem_type_check;
 use crate::vm::types::{
     QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature,
 };
 use crate::vm::ClarityVersion;
-use std::convert::TryInto;
 
 fn string_ascii_type(size: u32) -> TypeSignature {
     TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
         size.try_into().unwrap(),
     )))
-    .into()
 }
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
@@ -152,8 +150,6 @@ fn test_names_tokens_contracts() {
 
 #[test]
 fn test_bad_asset_usage() {
-    use crate::vm::analysis::type_check;
-
     let bad_scripts = [
         "(ft-get-balance stackoos tx-sender)",
         "(ft-get-balance u1234 tx-sender)",
@@ -229,7 +225,7 @@ fn test_bad_asset_usage() {
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::BoolType),
         CheckErrors::TypeError(TypeSignature::PrincipalType, TypeSignature::UIntType),
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::BoolType),
-        CheckErrors::DefineNFTBadSignature.into(),
+        CheckErrors::DefineNFTBadSignature,
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
         CheckErrors::NoSuchFT("stackoos".to_string()),

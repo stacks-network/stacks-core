@@ -13,16 +13,16 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-use std::collections::HashMap;
+#[cfg(feature = "rusqlite")]
+pub use sqlite::MemoryBackingStore;
 
 pub use self::clarity_db::{
     BurnStateDB, ClarityDatabase, HeadersDB, StoreType, NULL_BURN_STATE_DB, NULL_HEADER_DB,
     STORE_CONTRACT_SRC_INTERFACE,
 };
-pub use self::clarity_store::MemoryBackingStore;
 pub use self::clarity_store::{ClarityBackingStore, SpecialCaseHandler};
 pub use self::key_value_wrapper::{RollbackWrapper, RollbackWrapperPersistedLog};
+#[cfg(feature = "rusqlite")]
 pub use self::sqlite::SqliteConnection;
 pub use self::structures::{
     ClarityDeserializable, ClaritySerializable, DataMapMetadata, DataVariableMetadata,
@@ -32,5 +32,6 @@ pub use self::structures::{
 pub mod clarity_db;
 pub mod clarity_store;
 mod key_value_wrapper;
-mod sqlite;
+#[cfg(feature = "rusqlite")]
+pub mod sqlite;
 mod structures;

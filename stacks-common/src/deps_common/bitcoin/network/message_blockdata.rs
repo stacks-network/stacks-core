@@ -80,8 +80,8 @@ impl GetBlocksMessage {
     pub fn new(locator_hashes: Vec<Sha256dHash>, stop_hash: Sha256dHash) -> GetBlocksMessage {
         GetBlocksMessage {
             version: constants::PROTOCOL_VERSION,
-            locator_hashes: locator_hashes,
-            stop_hash: stop_hash,
+            locator_hashes,
+            stop_hash,
         }
     }
 }
@@ -93,8 +93,8 @@ impl GetHeadersMessage {
     pub fn new(locator_hashes: Vec<Sha256dHash>, stop_hash: Sha256dHash) -> GetHeadersMessage {
         GetHeadersMessage {
             version: constants::PROTOCOL_VERSION,
-            locator_hashes: locator_hashes,
-            stop_hash: stop_hash,
+            locator_hashes,
+            stop_hash,
         }
     }
 }
@@ -135,12 +135,10 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Inventory {
 
 #[cfg(test)]
 mod tests {
+
     use super::{GetBlocksMessage, GetHeadersMessage};
-
-    use crate::util::hash::hex_bytes as hex_decode;
-
     use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
-    use std::default::Default;
+    use crate::util::hash::hex_bytes as hex_decode;
 
     #[test]
     fn getblocks_message_test() {

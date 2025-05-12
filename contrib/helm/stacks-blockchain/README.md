@@ -27,7 +27,7 @@ $ helm repo add blockstack https://charts.blockstack.xyz
 $ helm install my-release blockstack/stacks-blockchain
 ```
 
-To install the chart with the release name `my-release` and run the node as a **miner** using your private key [generated from the instructions on this page](https://docs.blockstack.org/mining):
+To install the chart with the release name `my-release` and run the node as a **miner** using your private key [generated from the instructions on this page](https://docs.stacks.co/docs/nodes-and-miners/miner-mainnet):
 
 ```bash
 $ helm repo add blockstack https://charts.blockstack.xyz
@@ -86,14 +86,14 @@ The following tables lists the configurable parameters of the stacks-blockchain 
 | node.volumeMounts | Additional volumeMounts for the node | [] |
 | node.extraContainers | Additional containers to run alongside the node. Useful if adding a sidecar | [] |
 | node.initContainers | Containers which are run before the node container is started | [] |
-| config | More configs can be added than what's shown below.All children fields under the node, burnchain, and ustx_balance fields will be converted from YAML to valid TOML format in the Configmap.<br><br>For info on more available config fields, please reference to our [example config files located here](https://github.com/blockstack/stacks-blockchain/tree/master/testnet/stacks-node/conf). |  |
+| config | More configs can be added than what's shown below.All children fields under the node, burnchain, and ustx_balance fields will be converted from YAML to valid TOML format in the Configmap.<br><br>For info on more available config fields, please reference to our [example config files located here](https://github.com/blockstack/stacks-blockchain/tree/master/sample/conf). |  |
 | config.node.rpc_bind |  | 0.0.0.0:20443 |
 | config.node.p2p_bind |  | 0.0.0.0:20444 |
 | config.node.seed | Replace with your private key if deploying a miner node | nil |
 | config.node.miner | Set this to `true` if deploying a miner node.<br>Set this to `false` if deploying a follower node. | false |
 | config.burnchain.chain |  | bitcoin |
 | config.burnchain.mode |  | krypton |
-| config.burnchain.peer_host |  | bitcoind.blockstack.org |
+| config.burnchain.peer_host |  | bitcoin.mainnet.stacks.org |
 | config.burnchain.rpc_port |  | 18443 |
 | config.burnchain.peer_port |  | 18444 |
 | config.ustx_balance |  | See values.yaml |

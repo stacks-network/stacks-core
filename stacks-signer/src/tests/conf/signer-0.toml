@@ -1,0 +1,7 @@
+stacks_private_key = "6a1fc1a3183018c6d79a4e11e154d2bdad2d89ac8bc1b0a021de8b4d28774fbb01"
+node_host = "127.0.0.1:20443"
+endpoint = "[::1]:30000"
+network = "testnet"
+auth_password = "12345"
+db_path = ":memory:"
+metrics_endpoint = "0.0.0.0:9090"

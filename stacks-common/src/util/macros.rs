@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cell::RefCell;
-
 // is this machine big-endian?
 pub fn is_big_endian() -> bool {
     u32::from_be(0x1Au32) == 0x1Au32
@@ -42,16 +40,32 @@ macro_rules! iterable_enum {
 ///  and EnumType.get_name() for free.
 #[macro_export]
 macro_rules! define_named_enum {
-    ($Name:ident { $($Variant:ident($VarName:literal),)* }) =>
-    {
+    (
+        $(#[$enum_meta:meta])*
+        $Name:ident {
+            $(
+                $(#[$variant_meta:meta])*
+                $Variant:ident($VarName:literal),
+            )*
+        }
+    ) => {
+        $(#[$enum_meta])*
         #[derive(::serde::Serialize, ::serde::Deserialize, Debug, Hash, PartialEq, Eq, Copy, Clone)]
         pub enum $Name {
-            $($Variant),*,
+            $(
+                $(#[$variant_meta])*
+                $Variant,
+            )*
         }
-        impl $Name {
-            pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
-            pub const ALL_NAMES: &'static [&'static str] = &[$($VarName),*];
 
+        impl $Name {
+            /// All variants of the enum.
+            pub const ALL: &[$Name] = &[$($Name::$Variant),*];
+
+            /// All names corresponding to the enum variants.
+            pub const ALL_NAMES: &[&str] = &[$($VarName),*];
+
+            /// Looks up a variant by its name string.
             pub fn lookup_by_name(name: &str) -> Option<Self> {
                 match name {
                     $(
@@ -61,6 +75,7 @@ macro_rules! define_named_enum {
                 }
             }
 
+            /// Gets the name of the enum variant as a `String`.
             pub fn get_name(&self) -> String {
                 match self {
                     $(
@@ -69,6 +84,7 @@ macro_rules! define_named_enum {
                 }
             }
 
+            /// Gets the name of the enum variant as a static string slice.
             pub fn get_name_str(&self) -> &'static str {
                 match self {
                     $(
@@ -77,12 +93,13 @@ macro_rules! define_named_enum {
                 }
             }
         }
+
         impl ::std::fmt::Display for $Name {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 write!(f, "{}", self.get_name_str())
             }
         }
-    }
+    };
 }
 
 /// Define a "named" enum, i.e., each variant corresponds
@@ -90,30 +107,74 @@ macro_rules! define_named_enum {
 ///  and EnumType.get_name() for free.
 #[macro_export]
 macro_rules! define_versioned_named_enum {
-    ($Name:ident($VerType:ty) { $($Variant:ident($VarName:literal, $Version:expr),)* }) =>
-    {
+    ($Name:ident($VerType:ty) { $($Variant:ident($VarName:literal, $MinVersion:expr)),* $(,)* }) => {
+        $crate::define_versioned_named_enum_internal!($Name($VerType) {
+            $($Variant($VarName, $MinVersion, None)),*
+        });
+    };
+}
+#[macro_export]
+macro_rules! define_versioned_named_enum_with_max {
+    ($Name:ident($VerType:ty) { $($Variant:ident($VarName:literal, $MinVersion:expr, $MaxVersion:expr)),* $(,)* }) => {
+        $crate::define_versioned_named_enum_internal!($Name($VerType) {
+            $($Variant($VarName, $MinVersion, $MaxVersion)),*
+        });
+    };
+}
+
+// An internal macro that does the actual enum definition
+#[macro_export]
+macro_rules! define_versioned_named_enum_internal {
+    ($Name:ident($VerType:ty) { $($Variant:ident($VarName:literal, $MinVersion:expr, $MaxVersion:expr)),* $(,)* }) => {
         #[derive(::serde::Serialize, ::serde::Deserialize, Debug, Hash, PartialEq, Eq, Copy, Clone)]
         pub enum $Name {
             $($Variant),*,
         }
+
         impl $Name {
-            pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
-            pub const ALL_NAMES: &'static [&'static str] = &[$($VarName),*];
+            pub const ALL: &[$Name] = &[$($Name::$Variant),*];
+            pub const ALL_NAMES: &[&str] = &[$($VarName),*];
 
             pub fn lookup_by_name(name: &str) -> Option<Self> {
                 match name {
-                    $(
-                        $VarName => Some($Name::$Variant),
-                    )*
-                    _ => None
+                    $($VarName => Some($Name::$Variant),)*
+                    _ => None,
                 }
             }
 
-            pub fn get_version(&self) -> $VerType {
+            pub fn lookup_by_name_at_version(name: &str, version: &ClarityVersion) -> Option<Self> {
+                Self::lookup_by_name(name).and_then(|variant| {
+                    let is_active = match (
+                        variant.get_min_version(),
+                        variant.get_max_version(),
+                    ) {
+                        (ref min_version, Some(ref max_version)) => {
+                            min_version <= version && version <= max_version
+                        }
+                        // No max version is set, so the function is active for all versions greater than min
+                        (ref min_version, None) => min_version <= version,
+                    };
+                    if is_active {
+                        Some(variant)
+                    } else {
+                        None
+                    }
+                })
+            }
+
+            /// Returns the first Clarity version in which `self` is defined.
+            pub fn get_min_version(&self) -> $VerType {
                 match self {
-                    $(
-                        $Name::$Variant => $Version,
-                    )*
+                    $(Self::$Variant => $MinVersion,)*
+                }
+            }
+
+            /// Returns `Some` for the last Clarity version in which `self` is
+            /// defined, or `None` if `self` is defined for all versions after
+            /// `get_min_version()`.
+            pub fn get_max_version(&self) -> Option<$VerType> {
+                match self {
+                    $(Self::$Variant => $MaxVersion,)*
                 }
             }
 
@@ -127,29 +188,29 @@ macro_rules! define_versioned_named_enum {
 
             pub fn get_name_str(&self) -> &'static str {
                 match self {
-                    $(
-                        $Name::$Variant => $VarName,
-                    )*
+                    $(Self::$Variant => $VarName,)*
                 }
             }
         }
+
         impl ::std::fmt::Display for $Name {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 write!(f, "{}", self.get_name_str())
             }
         }
-    }
+    };
 }
 
+#[allow(clippy::crate_in_macro_def)]
 #[macro_export]
 macro_rules! guarded_string {
-    ($Name:ident, $Label:literal, $Regex:expr, $ErrorType:ty, $ErrorVariant:path) => {
+    ($Name:ident, $Label:literal, $Regex:expr, $MaxStringLength:expr, $ErrorType:ty, $ErrorVariant:path) => {
         #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub struct $Name(String);
         impl TryFrom<String> for $Name {
             type Error = $ErrorType;
             fn try_from(value: String) -> Result<Self, Self::Error> {
-                if value.len() > (crate::vm::representations::MAX_STRING_LEN as usize) {
+                if value.len() > ($MaxStringLength as usize) {
                     return Err($ErrorVariant($Label, value));
                 }
                 if $Regex.is_match(&value) {
@@ -167,6 +228,10 @@ macro_rules! guarded_string {
 
             pub fn len(&self) -> u8 {
                 u8::try_from(self.as_str().len()).unwrap()
+            }
+
+            pub fn is_empty(&self) -> bool {
+                self.len() == 0
             }
         }
 
@@ -207,16 +272,25 @@ macro_rules! guarded_string {
 ///  gives you a try_from(u8) -> Option<Self> function
 #[macro_export]
 macro_rules! define_u8_enum {
-    ($Name:ident { $($Variant:ident = $Val:literal),+ }) =>
+    ($(#[$outer:meta])*
+     $Name:ident {
+         $(
+             $(#[$inner:meta])*
+             $Variant:ident = $Val:literal),+
+     }) =>
     {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
         #[repr(u8)]
+        $(#[$outer])*
         pub enum $Name {
-            $($Variant = $Val),*,
+            $(  $(#[$inner])*
+                $Variant = $Val),*,
         }
         impl $Name {
+            /// All members of the enum
             pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
 
+            /// Return the u8 representation of the variant
             pub fn to_u8(&self) -> u8 {
                 match self {
                     $(
@@ -225,6 +299,8 @@ macro_rules! define_u8_enum {
                 }
             }
 
+            /// Returns Some and the variant if `v` is a u8 corresponding to a variant in this enum.
+            /// Returns None otherwise
             pub fn from_u8(v: u8) -> Option<Self> {
                 match v {
                     $(
@@ -350,11 +426,10 @@ macro_rules! impl_array_newtype {
             }
         }
 
-        #[cfg_attr(feature = "clippy", allow(expl_impl_clone_on_copy))] // we don't define the `struct`, we have to explicitly impl
         impl Clone for $thing {
             #[inline]
             fn clone(&self) -> $thing {
-                $thing::from(&self[..])
+                *self
             }
         }
 
@@ -444,13 +519,13 @@ macro_rules! impl_byte_array_newtype {
         impl $thing {
             /// Instantiates from a hex string
             #[allow(dead_code)]
-            pub fn from_hex(hex_str: &str) -> Result<$thing, crate::util::HexError> {
-                use crate::util::hash::hex_bytes;
+            pub fn from_hex(hex_str: &str) -> Result<$thing, $crate::util::HexError> {
+                use $crate::util::hash::hex_bytes;
                 let _hex_len = $len * 2;
                 match (hex_str.len(), hex_bytes(hex_str)) {
                     (_hex_len, Ok(bytes)) => {
                         if bytes.len() != $len {
-                            return Err(crate::util::HexError::BadLength(hex_str.len()));
+                            return Err($crate::util::HexError::BadLength(hex_str.len()));
                         }
                         let mut ret = [0; $len];
                         ret.copy_from_slice(&bytes);
@@ -461,6 +536,7 @@ macro_rules! impl_byte_array_newtype {
             }
 
             /// Instantiates from a slice of bytes
+            /// Note: if this type is a hashing type, this sets the hash result to `inp` exactly: this method does **not** perform the hash.
             #[allow(dead_code)]
             pub fn from_bytes(inp: &[u8]) -> Option<$thing> {
                 match inp.len() {
@@ -481,7 +557,7 @@ macro_rules! impl_byte_array_newtype {
 
             /// Instantiates from a vector of bytes
             #[allow(dead_code)]
-            pub fn from_vec(inp: &Vec<u8>) -> Option<$thing> {
+            pub fn from_vec(inp: &[u8]) -> Option<$thing> {
                 match inp.len() {
                     $len => {
                         let mut ret = [0; $len];
@@ -495,7 +571,7 @@ macro_rules! impl_byte_array_newtype {
 
             /// Instantiates from a big-endian vector of bytes, converting to host byte order
             #[allow(dead_code)]
-            pub fn from_vec_be(b: &Vec<u8>) -> Option<$thing> {
+            pub fn from_vec_be(b: &[u8]) -> Option<$thing> {
                 match b.len() {
                     $len => {
                         let mut ret = [0; $len];
@@ -513,8 +589,13 @@ macro_rules! impl_byte_array_newtype {
             /// Convert to a hex string
             #[allow(dead_code)]
             pub fn to_hex(&self) -> String {
-                use crate::util::hash::to_hex;
+                use $crate::util::hash::to_hex;
                 to_hex(&self.0)
+            }
+        }
+        impl std::fmt::LowerHex for $thing {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "{}", self.to_hex())
             }
         }
         impl std::fmt::Display for $thing {
@@ -555,6 +636,28 @@ macro_rules! impl_byte_array_serde {
     };
 }
 
+#[allow(unused_macros)]
+#[macro_export]
+macro_rules! impl_file_io_serde_json {
+    ($thing:ident) => {
+        impl $thing {
+            pub fn serialize_to_file<P>(&self, path: P) -> Result<(), std::io::Error>
+            where
+                P: AsRef<std::path::Path>,
+            {
+                $crate::util::serialize_json_to_file(self, path)
+            }
+
+            pub fn deserialize_from_file<P>(path: P) -> Result<Self, std::io::Error>
+            where
+                P: AsRef<std::path::Path>,
+            {
+                $crate::util::deserialize_json_from_file(path)
+            }
+        }
+    };
+}
+
 // print debug statements while testing
 #[allow(unused_macros)]
 #[macro_export]
@@ -590,7 +693,7 @@ macro_rules! trace {
     ($($arg:tt)*) => (
         #[cfg(any(test, feature = "testing"))]
         {
-            if crate::util::macros::is_trace() {
+            if $crate::util::macros::is_trace() {
                 debug!($($arg)*);
             }
         }
@@ -623,6 +726,7 @@ macro_rules! fmax {
     }}
 }
 
+#[cfg(feature = "rusqlite")]
 macro_rules! impl_byte_array_rusqlite_only {
     ($thing:ident) => {
         impl rusqlite::types::FromSql for $thing {
@@ -630,7 +734,7 @@ macro_rules! impl_byte_array_rusqlite_only {
                 value: rusqlite::types::ValueRef,
             ) -> rusqlite::types::FromSqlResult<Self> {
                 let hex_str = value.as_str()?;
-                let byte_str = crate::util::hash::hex_bytes(hex_str)
+                let byte_str = $crate::util::hash::hex_bytes(hex_str)
                     .map_err(|_e| rusqlite::types::FromSqlError::InvalidType)?;
                 let inst = $thing::from_bytes(&byte_str)
                     .ok_or(rusqlite::types::FromSqlError::InvalidType)?;
@@ -653,4 +757,47 @@ macro_rules! function_name {
     () => {
         stdext::function_name!()
     };
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_macro_define_named_enum_without_docs() {
+        define_named_enum!(
+        MyEnum {
+            Variant1("variant1"),
+            Variant2("variant2"),
+        });
+
+        assert_eq!("variant1", MyEnum::Variant1.get_name());
+        assert_eq!("variant2", MyEnum::Variant2.get_name());
+
+        assert_eq!("variant1", MyEnum::Variant1.get_name_str());
+        assert_eq!("variant2", MyEnum::Variant2.get_name_str());
+
+        assert_eq!(Some(MyEnum::Variant1), MyEnum::lookup_by_name("variant1"));
+        assert_eq!(Some(MyEnum::Variant2), MyEnum::lookup_by_name("variant2"));
+        assert_eq!(None, MyEnum::lookup_by_name("inexistent"));
+    }
+    #[test]
+    fn test_macro_define_named_enum_with_docs() {
+        define_named_enum!(
+        /// MyEnum doc
+        MyEnum {
+            /// Variant1 doc
+            Variant1("variant1"),
+            /// Variant2 doc
+            Variant2("variant2"),
+        });
+
+        assert_eq!("variant1", MyEnum::Variant1.get_name());
+        assert_eq!("variant2", MyEnum::Variant2.get_name());
+
+        assert_eq!("variant1", MyEnum::Variant1.get_name_str());
+        assert_eq!("variant2", MyEnum::Variant2.get_name_str());
+
+        assert_eq!(Some(MyEnum::Variant1), MyEnum::lookup_by_name("variant1"));
+        assert_eq!(Some(MyEnum::Variant2), MyEnum::lookup_by_name("variant2"));
+        assert_eq!(None, MyEnum::lookup_by_name("inexistent"));
+    }
 }

@@ -27,13 +27,13 @@ These events are sent to the configured endpoint at two URLs:
 This payload includes data related to a newly processed block,
 and any events emitted from Stacks transactions during the block.
 
-If the transaction originally comes from the parent microblock stream 
+If the transaction originally comes from the parent microblock stream
 preceding this block, the microblock related fields will be filled in.
 
 If the `raw_tx` field for a particular transaction is "0x00", that indicates
-that it is a burnchain operation. A burnchain operation is a transaction that 
+that it is a burnchain operation. A burnchain operation is a transaction that
 is executed on the Stacks network, but was sent through the Bitcoin network.
-The Stacks network supports a few specific burnchain operations. You can read 
+The Stacks network supports a few specific burnchain operations. You can read
 more about them [here](https://github.com/stacksgov/sips/blob/main/sips/sip-007/sip-007-stacking-consensus.md#stx-operations-on-bitcoin).
 The section below has example json encodings for each of the burnchain operations.
 
@@ -152,8 +152,8 @@ Example:
 }
 ```
 
-#### Example json values for burnchain operations 
-- TransferStx 
+#### Example json values for burnchain operations
+- TransferStx
 ```json
 {
   "transfer_stx": {
@@ -233,6 +233,8 @@ Example:
 ```json
 {
   "burn_block_hash": "0x4eaabcd105865e471f697eff5dd5bd85d47ecb5a26a3379d74fae0ae87c40904",
+  "consensus_hash": "0x53c166a709a9abd64a92a57f928a8b26aad08992",
+  "parent_burn_block_hash": "0x6eaebcd105865e471f697eff5dd5bd85d47ecb5a26a3379d74fae0ae87c40904",
   "burn_block_height": 331,
   "reward_recipients": [
     {
@@ -258,8 +260,8 @@ Example:
 
 ### `POST /new_microblocks`
 
-This payload includes data related to one or more microblocks that are either emmitted by the 
-node itself, or received through the network. 
+This payload includes data related to one or more microblocks that are either emmitted by the
+node itself, or received through the network.
 
 Example:
 
@@ -311,9 +313,9 @@ Example:
 }
 ```
 
-* `burn_block_{}` are the stats related to the burn block that is associated with the stacks 
+* `burn_block_{}` are the stats related to the burn block that is associated with the stacks
   block that precedes this microblock stream.
-* Each transaction json object includes information about the microblock the transaction was packaged into. 
+* Each transaction json object includes information about the microblock the transaction was packaged into.
 
 ### `POST /new_mempool_tx`
 
@@ -384,23 +386,23 @@ Example:
   "tx_events": [
     {
       "Success": {
-        "txid": "3e04ada5426332bfef446ba0a06d124aace4ade5c11840f541bf88e2e919faf6", 
-        "fee": 0, 
-        "execution_cost": { 
-          "write_length": 0, 
-          "write_count": 0, 
-          "read_length": 0, 
-          "read_count": 0, 
+        "txid": "3e04ada5426332bfef446ba0a06d124aace4ade5c11840f541bf88e2e919faf6",
+        "fee": 0,
+        "execution_cost": {
+          "write_length": 0,
+          "write_count": 0,
+          "read_length": 0,
+          "read_count": 0,
           "runtime": 0
-        }, 
+        },
         "result": {
-          "ResponseData": 
+          "ResponseData":
           {
             "committed": true,
             "data": true
           }
         }
-    }}, 
+    }},
     {
       "ProcessingError": {
         "txid": "eef9f46b20fb637bd07ec92ad3ec175a5a4bdf3e8799259fc5b16a272090d4de",
@@ -432,23 +434,23 @@ Example:
   "tx_events": [
     {
       "Success": {
-        "txid": "3e04ada5426332bfef446ba0a06d124aace4ade5c11840f541bf88e2e919faf6", 
-        "fee": 0, 
-        "execution_cost": { 
-          "write_length": 10, 
-          "write_count": 10, 
-          "read_length": 20, 
-          "read_count": 10, 
+        "txid": "3e04ada5426332bfef446ba0a06d124aace4ade5c11840f541bf88e2e919faf6",
+        "fee": 0,
+        "execution_cost": {
+          "write_length": 10,
+          "write_count": 10,
+          "read_length": 20,
+          "read_count": 10,
           "runtime": 1290
-        }, 
+        },
         "result": {
-          "ResponseData": 
+          "ResponseData":
           {
             "committed": true,
             "data": true
           }
         }
-    }}, 
+    }},
     {
       "Skipped": {
         "txid": "eef9f46b20fb637bd07ec92ad3ec175a5a4bdf3e8799259fc5b16a272090d4de",
@@ -456,5 +458,31 @@ Example:
       }
     }
   ]
+}
+```
+
+### `POST /stackerdb_chunks`
+
+This payload includes data related to a single mutation to a StackerDB replica
+that this node subscribes to.  The data will only get sent here if the
+corresponding chunk has already been successfully stored.  The data includes the
+chunk ID, chunk version, smart contract ID, signature, and data.
+
+This endpoint broadcasts events to `AnyEvent` observers, as well as to
+`StackerDBChunks` observers.
+
+Example:
+
+```json
+{
+   "contract_id": "STVN97YYA10MY5F6KQJHKNYJNM24C4A1AT39WRW.hello-world",
+   "modified_slots": [
+      {
+         "slot_id": 4,
+         "slot_version": 1,
+         "signature": "0073feb0a3b8794c95042ac23734eb0db226049665a52a4f7402499256c83d43dd4edf6eb2cb039d7f204b4c4076afde96aca143ea285ff40f10ed68cc6e5fcbc2",
+         "data": "68656c6c6f20776f726c64"
+      }
+   ]
 }
 ```

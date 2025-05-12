@@ -6,7 +6,7 @@ This endpoint is for posting _raw_ transaction data to the node's mempool.
 
 Rejections result in a 400 error, with JSON data in the form:
 
-```
+```json
 {
   "error": "transaction rejected",
   "reason": "BadNonce",
@@ -65,6 +65,7 @@ Possible values for the "reason" field and "reason_data" field are:
 * `PoisonMicroblockIsInvalid`
 * `BadAddressVersionByte`
 * `NoCoinbaseViaMempool`
+* `NoTenureChangeViaMempool`
 * `ServerFailureNoSuchChainTip`
 * `ServerFailureDatabase`
    * The `reason_data` field will be an object containing a `message`
@@ -95,69 +96,24 @@ Callers who wish to download more headers will need to issue this query
 multiple times, with a `?tip=` query parameter set to the index block hash of
 the earliest header received.
 
-Returns a
-[SIP-003](https://github.com/stacksgov/sips/blob/main/sips/sip-003/sip-003-peer-network.md)-encoded
-vector with length up to [Count] that contains a list of the following SIP-003-encoded
-structures:
+Returns a JSON list containing the following:
 
-```
-struct ExtendedStacksHeader {
-    consensus_hash: ConsensusHash,
-    header: StacksBlockHeader,
-    parent_block_id: StacksBlockId,
-}
-```
-
-Where `ConsensusHash` is a 20-byte byte buffer.
-
-Where `StacksBlockId` is a 32-byte byte buffer.
-
-Where `StacksBlockHeader` is the following SIP-003-encoded structure:
-
-```
-struct StacksBlockHeader {
-    version: u8,
-    total_work: StacksWorkScore,
-    proof: VRFProof,
-    parent_block: BlockHeaderHash,
-    parent_microblock: BlockHeaderHash,
-    parent_microblock_sequence: u16,
-    tx_merkle_root: Sha512Trunc256Sum,
-    state_index_root: TrieHash,
-    microblock_pubkey_hash: Hash160,
-}
+```json
+[
+  {
+    "consensus_hash": "dff37af13badf99683228e61c71585bb7a82ac92",
+    "header":
+"0600000047ddfbee8c00000000000222c7ad9042e5a67a703ff3b06581e3fd8a2f1496a563dc41462ebf8e5b046b43e7085f20e828840f26fefbe93a048f6c390ce55b954b188a43781fa0db61c091dbb840717fda77f9fc16d8ac85f80bbf2d04a20d17328390e03b8f496986f6351def656fd12cc4b8fe5e2cfb8d3f2e67c3a700000000000000000000000000000000000000000000000000000000000000000000fb432fbe28fb60ab37c8f59eec2397a0d0bcaf679a34b39d02d338935c7e723e062d571e331fb5016d3000ab68da691baa02b4a5dde7befa2edceb219af959312544d306919a59ee4cfd616dc3cc44a6f01ac7c8",
+    "parent_block_id":
+"e0cb2be07552556f856503d2fbd855a27d49dc5a8c47fb2d9f0314eb6bad6861"
+  }
+]
 ```
 
-Where `BlockHeaderHash`, `Sha512Trunc256Sum`, and `TrieHash` are 32-byte byte
-buffers.
-
-Where `Hash160` is a 20-byte byte buffer.
-
-Where `StacksWorkScore` and `VRFProof` are the following SIP-003-encoded structures:
-
-```
-struct StacksWorkScore {
-    burn: u64,
-    work: u64,
-}
-```
-
-```
-struct VRFProof {
-    Gamma: [u8; 32]
-    c: [u8; 16]
-    s: [u8; 32]
-}
-```
-
-The interpretation of most these fields is beyond the scope of this document (please
-see
-[SIP-005](https://github.com/stacksgov/sips/blob/main/sips/sip-005/sip-005-blocks-and-transactions.md)
-for details).  However, it is worth pointing out that `parent_block_id` is a
-valid argument to the `?tip=` query parameter.  If the caller of this API
-endpoint wants to receive more than 2100 contiguous headers, it would use the
-oldest header's `parent_block_id` field from the previous call as the `?tip=`
-argument to the next call in order to fetch the next batch of ancestor headers.
+The `consensus_hash` field identifies the sortition in which the given block was
+chosen.  The `header` is the raw block header, a hex string.  The
+`parent_block_id` is the block ID hash of this block's parent, and can be used
+as a `?tip=` query parameter to page through deeper and deeper block headers.
 
 This API endpoint may return a list of zero headers if `?tip=` refers to the
 hash of the Stacks genesis block.
@@ -173,12 +129,12 @@ non-canonical headers will be returned instead.
 ### GET /v2/accounts/[Principal]
 
 Get the account data for the provided principal.
-The principal string is either a Stacks address or a Contract identifier (e.g., 
+The principal string is either a Stacks address or a Contract identifier (e.g.,
 `SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info`
 
 Returns JSON data in the form:
 
-```
+```json
 {
  "balance": "0x100..",
  "nonce": 1,
@@ -187,8 +143,8 @@ Returns JSON data in the form:
 }
 ```
 
-Where balance is the hex encoding of a unsigned 128-bit integer
-(big-endian), nonce is a unsigned 64-bit integer, and the proofs are
+Where balance is the hex encoding of an unsigned 128-bit integer
+(big-endian), nonce is an unsigned 64-bit integer, and the proofs are
 provided as hex strings.
 
 For non-existent accounts, this _does not_ 404, rather it returns an
@@ -201,10 +157,10 @@ JSON object _without_ the `balance_proof` or `nonce_proof` fields.
 
 Attempt to vetch a data var from a contract. The contract is identified with [Stacks Address] and
  [Contract Name] in the URL path. The variable is identified with [Var Name].
- 
+
 Returns JSON data in the form:
 
-```
+```json
 {
  "data": "0x01ce...",
  "proof": "0x01ab...",
@@ -216,12 +172,42 @@ Where data is the hex serialization of the variable value.
 This endpoint also accepts a querystring parameter `?proof=` which when supplied `0`, will return the
 JSON object _without_ the `proof` field.
 
+### GET /v2/clarity/marf/[Clarity MARF Key]
+Attempt to fetch the value of a MARF key. The key is identified with [Clarity MARF Key].
+
+Returns JSON data in the form:
+
+```json
+{
+  "data": "0x01ce...",
+  "proof": "0x01ab...",
+}
+```
+
+Where data is the hex serialization of the value.
+
+### GET /v2/clarity/metadata/[Stacks Address]/[Contract Name]/[Clarity Metadata Key]
+Attempt to fetch the metadata of a contract.
+ The contract is identified with [Stacks Address] and [Contract Name] in the URL path.
+ The metadata key is identified with [Clarity Metadata Key].
+
+Returns JSON data in the form:
+
+```json
+{
+  "data": "'{\"contract_identifier\":{...}'",
+}
+```
+
+Where data is the metadata formatted as a JSON string.
+
 ### GET /v2/constant_val/[Stacks Address]/[Contract Name]/[Constant Name]
-Attempt to fetch a constant from a contract. The contract is identified with [Stacks Address] and 
+Attempt to fetch a constant from a contract. The contract is identified with [Stacks Address] and
  [Contract Name] in the URL path. The constant is identified with [Constant Name].
 
 Returns JSON data in the form:
-```
+
+```json
 {
   "data": "0x01ce...",
 }
@@ -233,13 +219,13 @@ Where data is the hex serialization of the constant value.
 
 Attempt to fetch data from a contract data map. The contract is identified with [Stacks Address] and
  [Contract Name] in the URL path. The map is identified with [Map Name].
- 
+
 The _key_ to lookup in the map is supplied via the POST body. This should be supplied as the hex string
 serialization of the key (which should be a Clarity value). Note, this is a _JSON_ string atom.
 
 Returns JSON data in the form:
 
-```
+```json
 {
  "data": "0x01ce...",
  "proof": "0x01ab...",
@@ -255,7 +241,7 @@ JSON object _without_ the `proof` field.
 
 ### GET /v2/fees/transfer
 
-Get an estimated fee rate for STX transfer transactions. This a a fee rate / byte, and is returned as a JSON integer.
+Get an estimated fee rate for STX transfer transactions. This is a fee rate / byte, and is returned as a JSON integer.
 
 ### GET /v2/contracts/interface/[Stacks Address]/[Contract Name]
 
@@ -263,7 +249,7 @@ Fetch the contract interface for a given contract, identified by [Stacks Address
 
 This returns a JSON object of the form:
 
-```
+```json
 {
   "functions": [
     {
@@ -413,7 +399,7 @@ This returns a JSON object of the form:
 Fetch the source for a smart contract, along with the block height it was
 published in, and the MARF proof for the data.
 
-```
+```json
 {
  "source": "(define-private ...",
  "publish_height": 1,
@@ -432,7 +418,7 @@ Call a read-only public function on a given smart contract.
 The smart contract and function are specified using the URL path. The arguments and
 the simulated `tx-sender` are supplied via the POST body in the following JSON format:
 
-```
+```json
 {
   "sender": "SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info",
   "arguments": [ "0x0011...", "0x00231..." ]
@@ -444,7 +430,7 @@ is an array of hex serialized Clarity values.
 
 This endpoint returns a JSON object of the following form:
 
-```
+```json
 {
   "okay": true,
   "result": "0x0011..."
@@ -457,7 +443,7 @@ hex serialization of the Clarity return value.
 If an error occurs in processing the function call, this endpoint returns a 200 response with a JSON
 object of the following form:
 
-```
+```json
 {
   "okay": false,
   "cause": "Unchecked(PublicFunctionNotReadOnly(..."
@@ -470,13 +456,154 @@ Determine whether a given trait is implemented within the specified contract (ei
 
 See OpenAPI [spec](./rpc/openapi.yaml) for details.
 
-### GET /v2/health
+### POST /v3/block_proposal
+
+Used by miner to validate a proposed Stacks block using JSON encoding.
+
+**This endpoint will only accept requests over the local loopback network interface.**
+
+This endpoint takes as input the following struct from `chainstate/stacks/miner.rs`:
+
+```rust
+pub struct NakamotoBlockProposal {
+    /// Proposed block
+    pub block: NakamotoBlock,
+    /// Identifies which chain block is for (Mainnet, Testnet, etc.)
+    pub chain_id: u32,
+}
+```
+
+#### Responses over the Event Observer Interface
+
+This endpoint returns asynchronous results to the caller via the event observer interface.
+A caller must have registered an event observer using the `block_proposal` key in the stacks-node
+config file.
+
+The result is issued via POSTing the response JSON over the `/proposal_response` endpoint on the
+registered observer.
+
+Ok response example:
+
+```json
+{
+    "result": "Ok",
+    "block": "00000000000000001f00000000000927c08fb5ae5bf80e39e4168f6a3fddb0407a069d21ee68465e6856393254d2a66194f44bb01070666d5effcfb2436e209a75878fe80a04b4258a8cd34ab97c38a8dde331a2a509dd7e4b90590726866172cc138c18e80567737667f55d3f9817ce4714c91d1adfd36101141829dc0b5ea0c4944668c0005ddb6f9e2718f60014f21932a42a36ffaf58e88e77b217b2af366c15dd59e6b136ca773729832dcfc5875ec0830d04012dd5a4fa77a196646ea2b356289116fd02558c034b62d63f8a65bdd20d7ffc3fec6c266cd974be776a9e92759b90f288dcc2525b6b6bd5622c5f02e0922440e9ad1095c19b4467fd94566caa9755669d8e0000000180800000000400f64081ae6209dce9245753a4f764d6f168aae1af00000000000000000000000000000064000041dbcc7391991c1a18371eb49b879240247a3ec7f281328f53976c1218ffd65421dbb101e59370e2c972b29f48dc674b2de5e1b65acbd41d5d2689124d42c16c01010000000000051a346048df62be3a52bb6236e11394e8600229e27b000000000000271000000000000000000000000000000000000000000000000000000000000000000000",
+    "cost": {
+        "read_count": 8,
+        "read_length":133954,
+        "runtime":139720,
+        "write_count":2,
+        "write_length":114
+    },
+    "size": 180
+}
+```
+
+Error examples:
+
+```json
+{
+  "result": "Reject",
+  "reason": "Chainstate Error: No sortition for block's consensus hash",
+  "reason_code": "ChainstateError"
+}
+```
+
+```json
+{
+  "result": "Reject",
+  "reason": "Wrong network/chain_id",
+  "reason_code": "InvalidBlock"
+}
+```
+
+```json
+{
+  "result": "Reject",
+  "reason": "Chainstate Error: Invalid miner signature",
+  "reason_code": "ChainstateError"
+}
+```
+
+### GET /v3/blocks/[Block ID]
+
+Fetch a Nakamoto block given its block ID hash.  This returns the raw block
+data.
+
+This will return 404 if the block does not exist.
+
+### GET /v3/blocks/height/[Block Height]
+
+Fetch a Nakamoto block given its block height.  This returns the raw block
+data.
+
+This will return 404 if the block does not exist.
+
+This endpoint also accepts a querystring parameter `?tip=` which when supplied
+will return the block relative to the specified tip allowing the querying of
+sibling blocks (same height, different tip) too.
+
+### GET /v3/tenures/[Block ID]
+
+Fetch a Nakamoto block and all of its ancestors in the same tenure, given its
+block ID hash.  At most `MAX_MESSAGE_LEN` (i.e. 2 MB) of data will be returned.
+If the tenure is larger than this, then the caller can page through the tenure
+by repeatedly invoking this endpoint with the deepest block's block ID until
+only a single block is returned (i.e. the tenure-start block).
+
+This method returns one or more raw blocks, concatenated together.
+
+This method returns 404 if there are no blocks with the given block ID.
+
+### GET /v3/tenures/info
+
+Return metadata about the highest-known tenure, as the following JSON structure:
+
+```json
+{
+  "consensus_hash": "dca60a97a135189d67a5ad6d2dac90f289b19c96",
+  "reward_cycle": 5,
+  "tip_block_id": "317c0ee162d1ee02c67d5bca79003dafc59aa84579360387f43650c37491ac3b",
+  "tip_height": 116
+}
+```
+
+Here, `consensus_hash` identifies the highest-known tenure (which may not be the
+highest sortition), `reward_cycle` identifies the reward cycle number of this
+tenure, `tip_block_id` identifies the highest-known block in this tenure, and
+`tip_height` identifies that block's height.
+
+### GET /v3/signer/[Signer Pubkey]/[Reward Cycle]
+
+Get number of blocks signed by signer during a given reward cycle
+
+Returns a non-negative integer
+
+### GET /v3/transaction/[Transaction ID]
+
+Returns the index_block_hash, the transaction body (as hex) and the result given the TXID.
+
+```json
+{
+  "index_block_hash": "e0b6c25b1dac0c0e1c75e41ab46bd6d70d9a2d02ffed8f2c0733b6e686289c38",
+  "tx": "(ok true)",
+  "result": "808000000004008bc5147525b8f477f0bc4522a88c8339b2494db5000000000000001a0000000000000000010123eab800bc9f639c5aa05d154148a981c89fd21064a6f8cafd8649800a56c9ea77e2e46bed8bd9ef0f173b19b20d6c43e2a9f37b078df5c74b9e6f9be75b650e01020000000007588687edeb02248d402c316ed33e22ea0e73af8703ce5011f3e25f5ce12f00f903ca504742117ee0588687edeb02248d402c316ed33e22ea0e73af87c54e0d94e4dd298cf19778352906a2fcf0af74582b07dfb57c710288874f71ca00000001006bc51b33e9f3626944eb879147e18111581f8f9b"
+}
+```
+
+This feature requires enabling of transaction indexing by setting the `txindex` node option.
+
+This will return 404 if the transaction does not exist and 501 (Not Implemented) if
+transaction indexing is not enabled.
+
+
+### GET /v3/health
 
 Determine whether a node is healthy. A node is considered healthy if its block height
-is greater than or equal to the max block height of its initial peers. If there are no valid 
-initial peers or data for the node to determine this information, this endpoint 
-returns an error. The endpoint also returns an error if the node's height is 
+is greater than or equal to the max block height of its initial peers. If there are no valid
+initial peers or data for the node to determine this information, this endpoint
+returns an error. The endpoint also returns an error if the node's height is
 less than the max block height amongst its initial peers, and this error includes
-the percent of blocks the node has relative to its most advanced peer. 
+the percent of blocks the node has relative to its most advanced peer.
 
 See OpenAPI [spec](./rpc/openapi.yaml) for details.

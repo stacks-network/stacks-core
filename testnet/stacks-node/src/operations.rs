@@ -1,5 +1,6 @@
-use stacks::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks::{burnchains::PrivateKey, util::hash::hex_bytes};
+use stacks::burnchains::PrivateKey;
+use stacks_common::util::hash::hex_bytes;
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 
 pub struct BurnchainOpSigner {
     secret_key: Secp256k1PrivateKey,
@@ -22,7 +23,7 @@ impl BurnchainOpSigner {
         let hex_encoded = self.secret_key.to_hex();
         let mut as_bytes = hex_bytes(&hex_encoded).unwrap();
         as_bytes.insert(0, 0x80);
-        stacks::address::b58::check_encode_slice(&as_bytes)
+        stacks_common::address::b58::check_encode_slice(&as_bytes)
     }
 
     pub fn get_sk_as_hex(&self) -> String {
@@ -30,8 +31,7 @@ impl BurnchainOpSigner {
     }
 
     pub fn get_public_key(&mut self) -> Secp256k1PublicKey {
-        let public_key = Secp256k1PublicKey::from_private(&self.secret_key);
-        public_key
+        Secp256k1PublicKey::from_private(&self.secret_key)
     }
 
     pub fn sign_message(&mut self, hash: &[u8]) -> Option<MessageSignature> {
@@ -43,7 +43,7 @@ impl BurnchainOpSigner {
         let signature = match self.secret_key.sign(hash) {
             Ok(r) => r,
             Err(e) => {
-                debug!("Secret key error: {:?}", &e);
+                debug!("Secret key error: {e:?}");
                 return None;
             }
         };
@@ -63,7 +63,7 @@ impl BurnchainOpSigner {
 
 #[cfg(test)]
 mod test {
-    use stacks::util::secp256k1::Secp256k1PrivateKey;
+    use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 
     use super::BurnchainOpSigner;
 

@@ -13,18 +13,19 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use crate::vm::contexts::OwnedEnvironment;
-use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::Error;
-use crate::vm::types::Value;
 
-use stacks_common::types::StacksEpochId;
+#![allow(unused_imports)]
 
-pub use crate::vm::database::BurnStateDB;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stacks_common::types::StacksEpochId;
 
 pub use super::test_util::*;
 use super::ClarityVersion;
+use crate::vm::contexts::OwnedEnvironment;
+pub use crate::vm::database::BurnStateDB;
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::errors::Error;
+use crate::vm::types::Value;
 
 mod assets;
 mod contracts;
@@ -35,6 +36,19 @@ mod sequences;
 #[cfg(test)]
 mod simple_apply_eval;
 mod traits;
+mod variables;
+
+#[cfg(any(test, feature = "testing"))]
+impl OwnedEnvironment<'_, '_> {
+    pub fn set_tenure_height(&mut self, tenure_height: u32) {
+        self.context.database.begin();
+        self.context
+            .database
+            .set_tenure_height(tenure_height)
+            .unwrap();
+        self.context.database.commit().unwrap();
+    }
+}
 
 macro_rules! epochs_template {
     ($($epoch:ident,)*) => {
@@ -80,6 +94,13 @@ macro_rules! clarity_template {
                 // don't test these pairs, because they aren't supported:
                 (StacksEpochId::Epoch20, ClarityVersion::Clarity2) => (),
                 (StacksEpochId::Epoch2_05, ClarityVersion::Clarity2) => (),
+                (StacksEpochId::Epoch20, ClarityVersion::Clarity3) => (),
+                (StacksEpochId::Epoch2_05, ClarityVersion::Clarity3) => (),
+                (StacksEpochId::Epoch21, ClarityVersion::Clarity3) => (),
+                (StacksEpochId::Epoch22, ClarityVersion::Clarity3) => (),
+                (StacksEpochId::Epoch23, ClarityVersion::Clarity3) => (),
+                (StacksEpochId::Epoch24, ClarityVersion::Clarity3) => (),
+                (StacksEpochId::Epoch25, ClarityVersion::Clarity3) => (),
                 // this will lead to a compile time failure if a pair is left out
                 //  of the clarity_template! macro list
                 $((StacksEpochId::$epoch, ClarityVersion::$clarity))|* => (),
@@ -102,6 +123,9 @@ epochs_template! {
     Epoch22,
     Epoch23,
     Epoch24,
+    Epoch25,
+    Epoch30,
+    Epoch31,
 }
 
 clarity_template! {
@@ -115,6 +139,14 @@ clarity_template! {
     (Epoch23, Clarity2),
     (Epoch24, Clarity1),
     (Epoch24, Clarity2),
+    (Epoch25, Clarity1),
+    (Epoch25, Clarity2),
+    (Epoch30, Clarity1),
+    (Epoch30, Clarity2),
+    (Epoch30, Clarity3),
+    (Epoch31, Clarity1),
+    (Epoch31, Clarity2),
+    (Epoch31, Clarity3),
 }
 
 #[cfg(test)]
@@ -137,7 +169,16 @@ pub fn tl_env_factory() -> TopLevelMemoryEnvironmentGenerator {
 pub struct MemoryEnvironmentGenerator(MemoryBackingStore);
 impl MemoryEnvironmentGenerator {
     fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment {
-        let mut owned_env = OwnedEnvironment::new(self.0.as_clarity_db(), epoch);
+        let mut db = self.0.as_clarity_db();
+        db.begin();
+        db.set_clarity_epoch_version(epoch).unwrap();
+        db.commit().unwrap();
+        if epoch.clarity_uses_tip_burn_block() {
+            db.begin();
+            db.set_tenure_height(1).unwrap();
+            db.commit().unwrap();
+        }
+        let mut owned_env = OwnedEnvironment::new(db, epoch);
         // start an initial transaction.
         owned_env.begin();
         owned_env
@@ -146,9 +187,17 @@ impl MemoryEnvironmentGenerator {
 
 pub struct TopLevelMemoryEnvironmentGenerator(MemoryBackingStore);
 impl TopLevelMemoryEnvironmentGenerator {
-    fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment {
-        let owned_env = OwnedEnvironment::new(self.0.as_clarity_db(), epoch);
-        owned_env
+    pub fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment {
+        let mut db = self.0.as_clarity_db();
+        db.begin();
+        db.set_clarity_epoch_version(epoch).unwrap();
+        db.commit().unwrap();
+        if epoch.clarity_uses_tip_burn_block() {
+            db.begin();
+            db.set_tenure_height(1).unwrap();
+            db.commit().unwrap();
+        }
+        OwnedEnvironment::new(db, epoch)
     }
 }
 

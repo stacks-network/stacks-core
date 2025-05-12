@@ -14,27 +14,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryInto;
-use std::path::PathBuf;
-
+#[cfg(feature = "rusqlite")]
 use rusqlite::Connection;
+use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
+use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 
 use crate::vm::analysis::AnalysisDatabase;
-use crate::vm::database::{
-    BurnStateDB, ClarityDatabase, ClarityDeserializable, ClaritySerializable, HeadersDB,
-    SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
-};
-use crate::vm::errors::{
-    CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result,
-    InterpreterResult, RuntimeErrorType,
-};
-use crate::vm::events::StacksTransactionEvent;
-use crate::vm::types::QualifiedContractIdentifier;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
-
-use crate::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
 use crate::vm::contexts::GlobalContext;
-use crate::vm::types::PrincipalData;
+use crate::vm::database::{
+    ClarityDatabase, ClarityDeserializable, ClaritySerializable, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+};
+use crate::vm::errors::{InterpreterError, InterpreterResult as Result};
+use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::vm::Value;
 
 pub struct NullBackingStore {}
@@ -61,14 +52,20 @@ pub type SpecialCaseHandler = &'static dyn Fn(
 //    attempt to continue processing in the event of an unexpected storage error.
 pub trait ClarityBackingStore {
     /// put K-V data into the committed datastore
-    fn put_all(&mut self, items: Vec<(String, String)>);
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<()>;
     /// fetch K-V out of the committed datastore
-    fn get(&mut self, key: &str) -> Option<String>;
+    fn get_data(&mut self, key: &str) -> Result<Option<String>>;
+    /// fetch Hash(K)-V out of the commmitted datastore
+    fn get_data_from_path(&mut self, hash: &TrieHash) -> Result<Option<String>>;
     /// fetch K-V out of the committed datastore, along with the byte representation
     ///  of the Merkle proof for that key-value pair
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, Vec<u8>)>;
-    fn has_entry(&mut self, key: &str) -> bool {
-        self.get(key).is_some()
+    fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>>;
+    fn get_data_with_proof_from_path(
+        &mut self,
+        hash: &TrieHash,
+    ) -> Result<Option<(String, Vec<u8>)>>;
+    fn has_entry(&mut self, key: &str) -> Result<bool> {
+        Ok(self.get_data(key)?.is_some())
     }
 
     /// change the current MARF context to service reads from a different chain_tip
@@ -86,6 +83,8 @@ pub trait ClarityBackingStore {
 
     fn get_open_chain_tip_height(&mut self) -> u32;
     fn get_open_chain_tip(&mut self) -> StacksBlockId;
+
+    #[cfg(feature = "rusqlite")]
     fn get_side_store(&mut self) -> &Connection;
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
@@ -109,69 +108,36 @@ pub trait ClarityBackingStore {
     fn get_contract_hash(
         &mut self,
         contract: &QualifiedContractIdentifier,
-    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
-        let key = make_contract_hash_key(contract);
-        let contract_commitment = self
-            .get(&key)
-            .map(|x| ContractCommitment::deserialize(&x))
-            .ok_or_else(|| CheckErrors::NoSuchContract(contract.to_string()))?;
-        let ContractCommitment {
-            block_height,
-            hash: contract_hash,
-        } = contract_commitment;
-        let bhh = self.get_block_at_height(block_height)
-            .expect("Should always be able to map from height to block hash when looking up contract information.");
-        Ok((bhh, contract_hash))
-    }
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)>;
 
-    fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) {
-        let bhh = self.get_open_chain_tip();
-        SqliteConnection::insert_metadata(
-            self.get_side_store(),
-            &bhh,
-            &contract.to_string(),
-            key,
-            value,
-        )
-    }
+    fn insert_metadata(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+        value: &str,
+    ) -> Result<()>;
 
     fn get_metadata(
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> Result<Option<String>> {
-        let (bhh, _) = self.get_contract_hash(contract)?;
-        Ok(SqliteConnection::get_metadata(
-            self.get_side_store(),
-            &bhh,
-            &contract.to_string(),
-            key,
-        ))
-    }
+    ) -> Result<Option<String>>;
 
     fn get_metadata_manual(
         &mut self,
         at_height: u32,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> Result<Option<String>> {
-        let bhh = self.get_block_at_height(at_height)
-            .ok_or_else(|| {
-                warn!("Unknown block height when manually querying metadata"; "block_height" => at_height);
-                RuntimeErrorType::BadBlockHeight(at_height.to_string())
-            })?;
-        Ok(SqliteConnection::get_metadata(
-            self.get_side_store(),
-            &bhh,
-            &contract.to_string(),
-            key,
-        ))
-    }
+    ) -> Result<Option<String>>;
 
-    fn put_all_metadata(&mut self, items: Vec<((QualifiedContractIdentifier, String), String)>) {
+    fn put_all_metadata(
+        &mut self,
+        items: Vec<((QualifiedContractIdentifier, String), String)>,
+    ) -> Result<()> {
         for ((contract, key), value) in items.into_iter() {
-            self.insert_metadata(&contract, &key, &value);
+            self.insert_metadata(&contract, &key, &value)?;
         }
+        Ok(())
     }
 }
 
@@ -192,12 +158,27 @@ impl ClaritySerializable for ContractCommitment {
 }
 
 impl ClarityDeserializable<ContractCommitment> for ContractCommitment {
-    fn deserialize(input: &str) -> ContractCommitment {
-        assert_eq!(input.len(), 72);
-        let hash = Sha512Trunc256Sum::from_hex(&input[0..64]).expect("Hex decode fail.");
-        let height_bytes = hex_bytes(&input[64..72]).expect("Hex decode fail.");
-        let block_height = u32::from_be_bytes(height_bytes.as_slice().try_into().unwrap());
-        ContractCommitment { hash, block_height }
+    fn deserialize(input: &str) -> Result<ContractCommitment> {
+        if input.len() != 72 {
+            return Err(InterpreterError::Expect("Unexpected input length".into()).into());
+        }
+        let hash = Sha512Trunc256Sum::from_hex(&input[0..64])
+            .map_err(|_| InterpreterError::Expect("Hex decode fail.".into()))?;
+        let height_bytes = hex_bytes(&input[64..72])
+            .map_err(|_| InterpreterError::Expect("Hex decode fail.".into()))?;
+        let block_height = u32::from_be_bytes(
+            height_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| InterpreterError::Expect("Block height decode fail.".into()))?,
+        );
+        Ok(ContractCommitment { hash, block_height })
+    }
+}
+
+impl Default for NullBackingStore {
+    fn default() -> Self {
+        NullBackingStore::new()
     }
 }
 
@@ -206,28 +187,41 @@ impl NullBackingStore {
         NullBackingStore {}
     }
 
-    pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
+    pub fn as_clarity_db(&mut self) -> ClarityDatabase {
         ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
     }
 
-    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+    pub fn as_analysis_db(&mut self) -> AnalysisDatabase {
         AnalysisDatabase::new(self)
     }
 }
 
+#[allow(clippy::panic)]
 impl ClarityBackingStore for NullBackingStore {
     fn set_block_hash(&mut self, _bhh: StacksBlockId) -> Result<StacksBlockId> {
         panic!("NullBackingStore can't set block hash")
     }
 
-    fn get(&mut self, _key: &str) -> Option<String> {
+    fn get_data(&mut self, _key: &str) -> Result<Option<String>> {
         panic!("NullBackingStore can't retrieve data")
     }
 
-    fn get_with_proof(&mut self, _key: &str) -> Option<(String, Vec<u8>)> {
+    fn get_data_from_path(&mut self, _hash: &TrieHash) -> Result<Option<String>> {
         panic!("NullBackingStore can't retrieve data")
     }
 
+    fn get_data_with_proof(&mut self, _key: &str) -> Result<Option<(String, Vec<u8>)>> {
+        panic!("NullBackingStore can't retrieve data")
+    }
+
+    fn get_data_with_proof_from_path(
+        &mut self,
+        _hash: &TrieHash,
+    ) -> Result<Option<(String, Vec<u8>)>> {
+        panic!("NullBackingStore can't retrieve data")
+    }
+
+    #[cfg(feature = "rusqlite")]
     fn get_side_store(&mut self) -> &Connection {
         panic!("NullBackingStore has no side store")
     }
@@ -248,79 +242,40 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't get current block height")
     }
 
-    fn put_all(&mut self, mut _items: Vec<(String, String)>) {
+    fn put_all_data(&mut self, mut _items: Vec<(String, String)>) -> Result<()> {
         panic!("NullBackingStore cannot put")
     }
-}
 
-pub struct MemoryBackingStore {
-    side_store: Connection,
-}
-
-impl MemoryBackingStore {
-    pub fn new() -> MemoryBackingStore {
-        let side_store = SqliteConnection::memory().unwrap();
-
-        let mut memory_marf = MemoryBackingStore { side_store };
-
-        memory_marf.as_clarity_db().initialize();
-
-        memory_marf
+    fn get_contract_hash(
+        &mut self,
+        _contract: &QualifiedContractIdentifier,
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
+        panic!("NullBackingStore cannot get_contract_hash")
     }
 
-    pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
-        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+    fn insert_metadata(
+        &mut self,
+        _contract: &QualifiedContractIdentifier,
+        _key: &str,
+        _value: &str,
+    ) -> Result<()> {
+        panic!("NullBackingStore cannot insert_metadata")
     }
 
-    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
-        AnalysisDatabase::new(self)
-    }
-}
-
-impl ClarityBackingStore for MemoryBackingStore {
-    fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
-        Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
+    fn get_metadata(
+        &mut self,
+        _contract: &QualifiedContractIdentifier,
+        _key: &str,
+    ) -> Result<Option<String>> {
+        panic!("NullBackingStore cannot get_metadata")
     }
 
-    fn get(&mut self, key: &str) -> Option<String> {
-        SqliteConnection::get(self.get_side_store(), key)
-    }
-
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, Vec<u8>)> {
-        SqliteConnection::get(self.get_side_store(), key).map(|x| (x, vec![]))
-    }
-
-    fn get_side_store(&mut self) -> &Connection {
-        &self.side_store
-    }
-
-    fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
-        if height == 0 {
-            Some(StacksBlockId([255; 32]))
-        } else {
-            None
-        }
-    }
-
-    fn get_open_chain_tip(&mut self) -> StacksBlockId {
-        StacksBlockId([255; 32])
-    }
-
-    fn get_open_chain_tip_height(&mut self) -> u32 {
-        0
-    }
-
-    fn get_current_block_height(&mut self) -> u32 {
-        1
-    }
-
-    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
-        None
-    }
-
-    fn put_all(&mut self, items: Vec<(String, String)>) {
-        for (key, value) in items.into_iter() {
-            SqliteConnection::put(self.get_side_store(), &key, &value);
-        }
+    fn get_metadata_manual(
+        &mut self,
+        _at_height: u32,
+        _contract: &QualifiedContractIdentifier,
+        _key: &str,
+    ) -> Result<Option<String>> {
+        panic!("NullBackingStore cannot get_metadata_manual")
     }
 }

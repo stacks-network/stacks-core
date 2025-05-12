@@ -1,0 +1,9 @@
+{
+  "consensus_hash": "4c5a49be0e34dc603b66f090fd07d28a2f76a2ad",
+  "parent_consensus_hash": "fa8a04af41957499afdd4082b9b702ffca9a4370",
+  "parent_tenure_start_block_id": "0cfec8433849d353ad6b2fe1173da143e3d4a3ab452588a14eb074d0181ac202",
+  "reward_cycle": 8,
+  "tenure_start_block_id": "0425099d51547c714df6a7864c040c1a605b198ff07f71d19a823139c88a35f8",
+  "tip_block_id": "52d64f5e47abc7666c4fed3fe850f381f93f2d588ee2a92a4e07b44f14588d5e",
+  "tip_height": 416
+}

@@ -1,0 +1,21 @@
+[project]
+name = 'boot-contracts-unit-tests'
+description = ''
+authors = []
+telemetry = false
+cache_dir = './.cache'
+requirements = []
+
+[contracts.indirect]
+path = 'contracts/indirect.clar'
+clarity_version = 2
+epoch = 2.4
+
+[repl.analysis]
+passes = ['check_checker']
+
+[repl.analysis.check_checker]
+strict = false
+trusted_sender = false
+trusted_caller = false
+callee_filter = false

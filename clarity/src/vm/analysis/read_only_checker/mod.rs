@@ -14,29 +14,22 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use hashbrown::HashMap;
 use stacks_common::types::StacksEpochId;
-
-use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
-use crate::vm::functions::define::DefineFunctionsParsed;
-use crate::vm::functions::tuples;
-use crate::vm::functions::NativeFunctions;
-use crate::vm::representations::SymbolicExpressionType::{
-    Atom, AtomValue, Field, List, LiteralValue, TraitReference,
-};
-use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use crate::vm::types::{
-    parse_name_type_pairs, PrincipalData, TupleTypeSignature, TypeSignature, Value,
-};
-
-use crate::vm::variables::NativeVariables;
-use std::collections::HashMap;
-
-use crate::vm::ClarityVersion;
 
 pub use super::errors::{
     check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
 };
 use super::AnalysisDatabase;
+use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
+use crate::vm::functions::define::DefineFunctionsParsed;
+use crate::vm::functions::NativeFunctions;
+use crate::vm::representations::SymbolicExpressionType::{
+    Atom, AtomValue, Field, List, LiteralValue, TraitReference,
+};
+use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use crate::vm::types::{PrincipalData, Value};
+use crate::vm::ClarityVersion;
 
 #[cfg(test)]
 mod tests;
@@ -54,7 +47,7 @@ pub struct ReadOnlyChecker<'a, 'b> {
     clarity_version: ClarityVersion,
 }
 
-impl<'a, 'b> AnalysisPass for ReadOnlyChecker<'a, 'b> {
+impl AnalysisPass for ReadOnlyChecker<'_, '_> {
     fn run_pass(
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
@@ -76,8 +69,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Self {
             db,
             defined_functions: HashMap::new(),
-            epoch: epoch.clone(),
-            clarity_version: version.clone(),
+            epoch: *epoch,
+            clarity_version: *version,
         }
     }
 
@@ -91,10 +84,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()> {
         // Iterate over all the top-level statements in a contract.
         for exp in contract_analysis.expressions.iter() {
-            let mut result = self.check_top_level_expression(&exp);
+            let mut result = self.check_top_level_expression(exp);
             if let Err(ref mut error) = result {
                 if !error.has_expression() {
-                    error.set_expression(&exp);
+                    error.set_expression(exp);
                 }
             }
             result?
@@ -172,7 +165,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         body: &SymbolicExpression,
     ) -> CheckResult<(ClarityName, bool)> {
         let function_name = signature
-            .get(0)
+            .first()
             .ok_or(CheckErrors::DefineFunctionBadSignature)?
             .match_atom()
             .ok_or(CheckErrors::BadFunctionName)?;
@@ -254,13 +247,12 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Ok(result)
     }
 
-    /// Checks the native function application of the function named by the
-    /// string `function` to `args` to determine whether it is read-only
-    /// compliant.
+    /// Checks the native function application of the function named by the string `function`
+    /// to `args` to determine whether it is read-only compliant.
     ///
     /// - Returns `None` if there is no native function named `function`.
-    /// - If there is such a native function, returns `true` iff this function application is
-    /// read-only.
+    /// - If there is such a native function, returns `true` iff this function
+    ///   application is read-only.
     ///
     /// # Errors
     /// - Contract parsing errors
@@ -294,10 +286,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | BuffToUIntBe | IntToAscii | IntToUtf8 | StringToInt | StringToUInt | IsStandard
             | ToConsensusBuff | PrincipalDestruct | PrincipalConstruct | Append | Concat
             | AsMaxLen | ContractOf | PrincipalOf | ListCons | GetBlockInfo | GetBurnBlockInfo
-            | TupleGet | TupleMerge | Len | Print | AsContract | Begin | FetchVar
-            | GetStxBalance | StxGetAccount | GetTokenBalance | GetAssetOwner | GetTokenSupply
-            | ElementAt | IndexOf | Slice | ReplaceAt | BitwiseAnd | BitwiseOr | BitwiseNot
-            | BitwiseLShift | BitwiseRShift | BitwiseXor2 | ElementAtAlias | IndexOfAlias => {
+            | GetStacksBlockInfo | GetTenureInfo | TupleGet | TupleMerge | Len | Print
+            | AsContract | Begin | FetchVar | GetStxBalance | StxGetAccount | GetTokenBalance
+            | GetAssetOwner | GetTokenSupply | ElementAt | IndexOf | Slice | ReplaceAt
+            | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift | BitwiseRShift | BitwiseXor2
+            | ElementAtAlias | IndexOfAlias => {
                 // Check all arguments.
                 self.check_each_expression_is_read_only(args)
             }
@@ -397,7 +390,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     )) => self
                         .db
                         .get_read_only_function_type(
-                            &contract_identifier,
+                            contract_identifier,
                             function_name,
                             &self.epoch,
                         )?
@@ -417,15 +410,15 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         }
     }
 
-    /// Checks the native and user-defined function applications implied by `expressions`. The
-    /// first expression is used as the function name, and the tail expressions are used as the
-    /// arguments.
+    /// Checks the native and user-defined function applications implied by `expressions`.
+    ///
+    /// The first expression is used as the function name, and the tail expressions are used as the arguments.
     ///
     /// Returns `true` iff the function application is read-only.
     ///
     /// # Errors
     /// - `CheckErrors::NonFunctionApplication` if there is no first expression, or if the first
-    /// expression is not a `ClarityName`.
+    ///   expression is not a `ClarityName`.
     /// - `CheckErrors::UnknownFunction` if the first expression does not name a known function.
     fn check_expression_application_is_read_only(
         &mut self,
@@ -445,11 +438,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             }
             result
         } else {
-            let is_function_read_only = self
+            let is_function_read_only = *self
                 .defined_functions
                 .get(function_name)
-                .ok_or(CheckErrors::UnknownFunction(function_name.to_string()))?
-                .clone();
+                .ok_or(CheckErrors::UnknownFunction(function_name.to_string()))?;
             self.check_each_expression_is_read_only(args)
                 .map(|args_read_only| args_read_only && is_function_read_only)
         }

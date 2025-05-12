@@ -8,7 +8,7 @@
 	<array>
 			<string>/usr/local/bin/stacks-node</string>
 			<string>start</string>
-			<string>--config=/etc/stacks-blockchain/Config.toml</string>
+			<string>--config /etc/stacks-blockchain/Config.toml</string>
 	</array>
 
 	<key>ProcessType</key>

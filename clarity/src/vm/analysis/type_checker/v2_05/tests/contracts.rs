@@ -14,23 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use assert_json_diff;
-use serde_json;
+use assert_json_diff::assert_json_eq;
 use stacks_common::types::StacksEpochId;
+use {assert_json_diff, serde_json};
 
+use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::mem_type_check;
-use crate::vm::analysis::type_check;
-use crate::vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
+use crate::vm::analysis::{mem_type_check, type_check};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::ClarityVersion;
-use crate::vm::{
-    analysis::{CheckError, ContractAnalysis},
-    costs::LimitedCostTracker,
-    SymbolicExpression,
-};
 
 const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance: uint })
          (define-read-only (my-get-token-balance (account principal))
@@ -166,7 +160,10 @@ fn test_names_tokens_contracts_interface() {
     )
     .unwrap()
     .1;
-    let test_contract_json_str = build_contract_interface(&contract_analysis).serialize();
+    let test_contract_json_str = build_contract_interface(&contract_analysis)
+        .unwrap()
+        .serialize()
+        .unwrap();
     let test_contract_json: serde_json::Value =
         serde_json::from_str(&test_contract_json_str).unwrap();
 
@@ -496,13 +493,7 @@ fn test_names_tokens_contracts_bad() {
             )
         })
         .unwrap_err();
-    assert!(match &err.err {
-        &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
-            eprintln!("Received TypeError on: {} {}", expected_type, actual_type);
-            format!("{} {}", expected_type, actual_type) == "uint bool"
-        }
-        _ => false,
-    });
+    assert!(matches!(err.err, CheckErrors::TypeError(_, _)));
 }
 
 #[test]
@@ -544,24 +535,19 @@ fn test_bad_map_usage() {
     for contract in tests.iter() {
         let err = mem_type_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
             .unwrap_err();
-        assert!(match err.err {
-            CheckErrors::TypeError(_, _) => true,
-            _ => false,
-        });
+        assert!(matches!(err.err, CheckErrors::TypeError(_, _)));
     }
 
-    assert!(match mem_type_check(
-        unhandled_option,
-        ClarityVersion::Clarity1,
-        StacksEpochId::Epoch2_05
-    )
-    .unwrap_err()
-    .err
-    {
-        // Bad arg to `+` causes a uniontype error
-        CheckErrors::UnionTypeError(_, _) => true,
-        _ => false,
-    });
+    assert!(matches!(
+        mem_type_check(
+            unhandled_option,
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch2_05
+        )
+        .unwrap_err()
+        .err,
+        CheckErrors::UnionTypeError(_, _)
+    ));
 }
 
 #[test]
@@ -614,7 +600,6 @@ fn test_same_function_name() {
 
 #[test]
 fn test_expects() {
-    use crate::vm::analysis::type_check;
     let okay = "(define-map tokens { id: int } { balance: int })
          (define-private (my-get-token-balance)
             (let ((balance (unwrap!
@@ -679,10 +664,7 @@ fn test_expects() {
         )
         .unwrap_err();
         eprintln!("unmatched_return_types returned check error: {}", err);
-        assert!(match &err.err {
-            &CheckErrors::ReturnTypesMustMatch(_, _) => true,
-            _ => false,
-        })
+        assert!(matches!(err.err, CheckErrors::ReturnTypesMustMatch(_, _)));
     }
 
     let err = mem_type_check(
@@ -692,10 +674,7 @@ fn test_expects() {
     )
     .unwrap_err();
     eprintln!("bad_default_types returned check error: {}", err);
-    assert!(match &err.err {
-        &CheckErrors::DefaultTypesMustMatch(_, _) => true,
-        _ => false,
-    });
+    assert!(matches!(err.err, CheckErrors::DefaultTypesMustMatch(_, _)));
 
     let err = mem_type_check(
         notype_response_type,
@@ -704,10 +683,10 @@ fn test_expects() {
     )
     .unwrap_err();
     eprintln!("notype_response_type returned check error: {}", err);
-    assert!(match &err.err {
-        &CheckErrors::CouldNotDetermineResponseErrType => true,
-        _ => false,
-    });
+    assert!(matches!(
+        err.err,
+        CheckErrors::CouldNotDetermineResponseErrType
+    ));
 
     let err = mem_type_check(
         notype_response_type_2,
@@ -716,8 +695,8 @@ fn test_expects() {
     )
     .unwrap_err();
     eprintln!("notype_response_type_2 returned check error: {}", err);
-    assert!(match &err.err {
-        &CheckErrors::CouldNotDetermineResponseOkType => true,
-        _ => false,
-    });
+    assert!(matches!(
+        err.err,
+        CheckErrors::CouldNotDetermineResponseOkType
+    ));
 }

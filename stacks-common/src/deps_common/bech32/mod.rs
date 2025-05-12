@@ -30,7 +30,7 @@
 //! has more details.
 //!
 #![cfg_attr(
-    feature = "std",
+    feature = "bech32_std",
     doc = "
 # Examples
 ```
@@ -54,23 +54,21 @@ assert_eq!(variant, Variant::Bech32);
 #![deny(non_camel_case_types)]
 #![deny(non_snake_case)]
 #![deny(unused_mut)]
-#![cfg_attr(feature = "strict", deny(warnings))]
+#![cfg_attr(feature = "bech32_strict", deny(warnings))]
 
-#[cfg(all(not(feature = "std"), not(test)))]
+#[cfg(all(not(feature = "bech32_std"), not(test)))]
 extern crate alloc;
 
-#[cfg(any(test, feature = "std"))]
+#[cfg(any(test, feature = "bech32_std"))]
 extern crate core;
 
-#[cfg(all(not(feature = "std"), not(test)))]
-use alloc::{string::String, vec::Vec};
-
-#[cfg(all(not(feature = "std"), not(test)))]
+#[cfg(all(not(feature = "bech32_std"), not(test)))]
 use alloc::borrow::Cow;
-#[cfg(any(feature = "std", test))]
-use std::borrow::Cow;
-
+#[cfg(all(not(feature = "bech32_std"), not(test)))]
+use alloc::{string::String, vec::Vec};
 use core::{fmt, mem};
+#[cfg(any(feature = "bech32_std", test))]
+use std::borrow::Cow;
 
 /// Integer in the range `0..32`
 #[derive(PartialEq, Eq, Debug, Copy, Clone, Default, PartialOrd, Ord, Hash)]
@@ -170,7 +168,7 @@ impl<'a> Bech32Writer<'a> {
 
     fn polymod_step(&mut self, v: u5) {
         let b = (self.chk >> 25) as u8;
-        self.chk = (self.chk & 0x01ff_ffff) << 5 ^ (u32::from(*v.as_ref()));
+        self.chk = ((self.chk & 0x01ff_ffff) << 5) ^ (u32::from(*v.as_ref()));
 
         for (i, item) in GEN.iter().enumerate() {
             if (b >> i) & 1 == 1 {
@@ -203,7 +201,7 @@ impl<'a> Bech32Writer<'a> {
     }
 }
 
-impl<'a> WriteBase32 for Bech32Writer<'a> {
+impl WriteBase32 for Bech32Writer<'_> {
     type Err = fmt::Error;
 
     /// Writes a single 5 bit value of the data part
@@ -213,7 +211,7 @@ impl<'a> WriteBase32 for Bech32Writer<'a> {
     }
 }
 
-impl<'a> Drop for Bech32Writer<'a> {
+impl Drop for Bech32Writer<'_> {
     fn drop(&mut self) {
         self.write_checksum()
             .expect("Unhandled error writing the checksum on drop.")
@@ -376,9 +374,9 @@ fn check_hrp(hrp: &str) -> Result<Case, Error> {
             return Err(Error::InvalidChar(b as char));
         }
 
-        if (b'a'..=b'z').contains(&b) {
+        if b.is_ascii_lowercase() {
             has_lower = true;
-        } else if (b'A'..=b'Z').contains(&b) {
+        } else if b.is_ascii_uppercase() {
             has_upper = true;
         };
 
@@ -601,7 +599,8 @@ fn verify_checksum(hrp: &[u8], data: &[u5]) -> Option<Variant> {
 }
 
 fn hrp_expand(hrp: &[u8]) -> Vec<u5> {
-    let mut v: Vec<u5> = Vec::new();
+    let size = (hrp.len() * 2) + 1;
+    let mut v: Vec<u5> = Vec::with_capacity(size);
     for b in hrp {
         v.push(u5::try_from_u8(*b >> 5).expect("can't be out of range, max. 7"));
     }
@@ -617,7 +616,7 @@ fn polymod(values: &[u5]) -> u32 {
     let mut b: u8;
     for v in values {
         b = (chk >> 25) as u8;
-        chk = (chk & 0x01ff_ffff) << 5 ^ (u32::from(*v.as_ref()));
+        chk = ((chk & 0x01ff_ffff) << 5) ^ (u32::from(*v.as_ref()));
 
         for (i, item) in GEN.iter().enumerate() {
             if (b >> i) & 1 == 1 {
@@ -691,7 +690,7 @@ impl fmt::Display for Error {
     }
 }
 
-#[cfg(any(feature = "std", test))]
+#[cfg(any(feature = "bech32_std", test))]
 impl std::error::Error for Error {
     fn description(&self) -> &str {
         match *self {

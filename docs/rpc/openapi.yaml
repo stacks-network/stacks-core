@@ -1,12 +1,14 @@
-openapi: 3.0.2
+openapi: 3.1.0
 servers:
-  - url: http://localhost:20443/
+  - url: http://localhost:20443
     description: Local
 info:
-  title: Stacks 2.0 RPC API
-  version: '1.0.0'
+  title: Stacks 3.0+ RPC API
+  version: "1.0.0"
   description: |
     This is the documentation for the `stacks-node` RPC interface.
+  license:
+    name: CC-0
 
 paths:
   /v2/transactions:
@@ -24,14 +26,14 @@ paths:
               format: binary
             example: binary format of 00000000010400bed38c2aadffa348931bcb542880ff79d607afec000000000000000000000000000000c800012b0b1fff6cccd0974966dcd665835838f0985be508e1322e09fb3d751eca132c492bda720f9ef1768d14fdabed6127560ba52d5e3ac470dcb60b784e97dc88c9030200000000000516df0ba3e79792be7be5e50a370289accfc8c9e032000000000000303974657374206d656d6f00000000000000000000000000000000000000000000000000
       responses:
-        200:
-          description: Transaction id of successful post of a raw tx to the node's mempool
+        "200":
+          description: Transaction ID of successful post of a raw tx to the node's mempool
           content:
             text/plain:
               schema:
                 type: string
                 example: '"e161978626f216b2141b156ade10501207ae535fa365a13ef5d7a7c9310a09f2"'
-        400:
+        "400":
           description: Rejections result in a 400 error
           content:
             application/json:
@@ -48,7 +50,7 @@ paths:
         - Smart Contracts
       operationId: get_contract_interface
       responses:
-        200:
+        "200":
           description: Contract interface
           content:
             application/json:
@@ -73,7 +75,8 @@ paths:
         in: query
         schema:
           type: string
-        description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+        description:
+          The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
           known tip (includes unconfirmed state).
   /v2/map_entry/{contract_address}/{contract_name}/{map_name}:
     post:
@@ -88,7 +91,7 @@ paths:
 
         In the response, `data` is the hex serialization of the map response. Note that map responses are Clarity option types, for non-existent values, this is a serialized none, and for all other responses, it is a serialized (some ...) object.
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -96,7 +99,7 @@ paths:
                 $ref: ./api/core-node/get-contract-data-map-entry.schema.json
               example:
                 $ref: ./api/core-node/get-contract-data-map-entry.example.json
-        400:
+        "400":
           description: Failed loading data map
       parameters:
         - name: contract_address
@@ -126,7 +129,8 @@ paths:
           in: query
           schema:
             type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+          description:
+            The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
       x-codegen-request-body-name: key
       requestBody:
@@ -145,7 +149,7 @@ paths:
       operationId: get_contract_source
       description: Returns the Clarity source code of a given contract, along with the block height it was published in, and the MARF proof for the data
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -175,7 +179,8 @@ paths:
         in: query
         schema:
           type: string
-        description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+        description:
+          The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
           known tip (includes unconfirmed state).
         required: false
 
@@ -190,7 +195,7 @@ paths:
 
         The smart contract and function are specified using the URL path. The arguments and the simulated tx-sender are supplied via the POST body in the following JSON format:
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -224,7 +229,8 @@ paths:
           in: query
           schema:
             type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+          description:
+            The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
           required: false
       requestBody:
@@ -233,12 +239,12 @@ paths:
         content:
           application/json:
             schema:
-              $ref: './entities/contracts/read-only-function-args.schema.json'
+              $ref: "./entities/contracts/read-only-function-args.schema.json"
               example:
-                sender: 'SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info'
+                sender: "SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info"
                 arguments:
-                  - '0x0011...'
-                  - '0x00231...'
+                  - "0x0011..."
+                  - "0x00231..."
 
   /v2/accounts/{principal}:
     get:
@@ -268,10 +274,11 @@ paths:
           in: query
           schema:
             type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+          description:
+            The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -361,7 +368,7 @@ paths:
             example:
               $ref: ./api/core-node/post-fee-transaction.example.json
       responses:
-        200:
+        "200":
           description: Estimated fees for the transaction
           content:
             application/json:
@@ -378,7 +385,7 @@ paths:
       operationId: get_fee_transfer
       description: Get an estimated fee rate for STX transfer transactions. This a a fee rate / byte, and is returned as a JSON integer
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -395,7 +402,7 @@ paths:
         - Info
       operationId: get_core_api_info
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -412,7 +419,7 @@ paths:
         - Info
       operationId: get_pox_info
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -425,7 +432,8 @@ paths:
           in: query
           schema:
             type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+          description:
+            The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
 
   /v2/traits/{contract_address}/{contract_name}/{trait_contract_address}/{trait_contract_name}/{trait_name}:
@@ -436,7 +444,7 @@ paths:
         - Smart Contracts
       operationId: get_is_trait_implemented
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -482,37 +490,97 @@ paths:
         description: |
           The Stacks chain tip to query from.
           If tip == "latest", the query will be run from the latest known tip (includes unconfirmed state).
-          If the tip is left unspecified, the stacks chain tip will be selected (only includes confirmed state). 
+          If the tip is left unspecified, the stacks chain tip will be selected (only includes confirmed state).
 
-  /v2/health:
-    get:
-      summary: Query the health of the node.
-      description: Get a boolean determining whether a node is synced up with its boostrap nodes, and the percent of 
-        blocks the node has relative to its most advanced peer.
+  /v2/clarity/marf/{clarity_marf_key}:
+    post:
+      summary: Get the MARF value for a given key
       tags:
-        - Info
-      operationId: get_health
+        - Smart Contracts
+      operationId: get_clarity_marf_value
+      description: |
+        Attempt to fetch the value of a MARF key.
+
+        In the response, `data` is the hex serialization of the value.
       responses:
         200:
           description: Success
           content:
             application/json:
               schema:
-                 $ref: ./api/core-node/get-health.schema.json
+                $ref: ./api/core-node/get-clarity-marf-value.schema.json
               example:
-                $ref: ./api/core-node/get-health.example.json
-        500:
-          description: There are two reasons for a 500 error. (a) The node is unhealthy, meaning it is lagging 
-            behind its most advanced peer. The `percent_of_blocks_synced` field indicates what percent of 
-            the height this node is at, relative to its most advanced peer, `matches_peers` is false, and 
-            `error` is set to "Node not at tip". (b) Failed to query for health (no data or no valid peers to query
-            from), only the `error` field will be set in this case.
+                $ref: ./api/core-node/get-clarity-marf-value.example.json
+        400:
+          description: Failed to retrieve MARF key
+      parameters:
+        - name: clarity_marf_key
+          in: path
+          required: true
+          description: MARF key
+          schema:
+            type: string
+        - name: proof
+          in: query
+          description: Returns object without the proof field when set to 0
+          schema:
+            type: integer
+        - name: tip
+          in: query
+          schema:
+            type: string
+          description:
+            The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+            known tip (includes unconfirmed state).
+
+  /v2/clarity/metadata/{contract_address}/{contract_name}/{clarity_metadata_key}:
+    post:
+      summary: Get the contract metadata for the metadata key
+      tags:
+        - Smart Contracts
+      operationId: get_clarity_metadata_key
+      description: |
+        Attempt to fetch the metadata of a contract. The contract is identified with [Contract Address] and [Contract Name] in the URL path. The metadata key is identified with [Clarity Metadata Key].
+
+        In the response, `data` is formatted as JSON.
+      responses:
+        200:
+          description: Success
           content:
             application/json:
               schema:
-                $ref: ./api/core-node/get-health-false.schema.json
+                $ref: ./api/core-node/get-clarity-metadata.schema.json
               example:
-                $ref: ./api/core-node/get-health-false.example.json
+                $ref: ./api/core-node/get-clarity-metadata.example.json
+        400:
+          description: Failed to retrieve constant value from contract
+      parameters:
+        - name: contract_address
+          in: path
+          required: true
+          description: Stacks address
+          schema:
+            type: string
+        - name: contract_name
+          in: path
+          required: true
+          description: Contract name
+          schema:
+            type: string
+        - name: clarity_metadata_key
+          in: path
+          required: true
+          description: Metadata key
+          schema:
+            type: string
+        - name: tip
+          in: query
+          schema:
+            type: string
+          description:
+            The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+            known tip (includes unconfirmed state).
+
   /v2/constant_val/{contract_address}/{contract_name}/{constant_name}:
     post:
       summary: Get the value of a constant inside a contract
@@ -524,7 +592,7 @@ paths:
 
         In the response, `data` is the hex serialization of the constant value.
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -532,7 +600,7 @@ paths:
                 $ref: ./api/core-node/get-constant-val.schema.json
               example:
                 $ref: ./api/core-node/get-constant-val.example.json
-        400:
+        "400":
           description: Failed to retrieve constant value from contract
       parameters:
         - name: contract_address
@@ -557,5 +625,308 @@ paths:
           in: query
           schema:
             type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+          description:
+            The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
+
+  /v3/block_proposal:
+    post:
+      summary: Validate a proposed Stacks block
+      tags:
+        - Mining
+      operationId: post_block_proposal
+      description: |
+        Used by stackers to validate a proposed Stacks block from a miner.
+
+        **This API endpoint requires a basic Authorization header.**
+      responses:
+        "202":
+          description: Block proposal has been accepted for processing.
+            The result will be returned via the event observer.
+          content:
+            application/json:
+              example:
+                $ref: ./api/core-node/post-block-proposal-response.example.json
+        "400":
+          description: Endpoint not enabled.
+        "401":
+          description: Unauthorized.
+        "429":
+          description: There is an ongoing proposal validation being processed,
+            the new request cannot be accepted until the prior request has been processed.
+          content:
+            application/json:
+              example:
+                $ref: ./api/core-node/post-block-proposal-response.429.json
+      requestBody:
+        content:
+          application/json:
+            example:
+              $ref: ./api/core-node/post-block-proposal-req.example.json
+
+  /v3/stacker_set/{cycle_number}:
+    get:
+      summary: Fetch the stacker and signer set information for a given cycle.
+      tags:
+        - Mining
+      operationId: get_stacker_set
+      description: |
+        Used to get stacker and signer set information for a given cycle.
+
+        This will only return information for cycles started in Epoch-2.5 where PoX-4 was active and subsequent cycles.
+      parameters:
+        - name: cycle_number
+          in: path
+          required: true
+          description: reward cycle number
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Information for the given reward cycle
+          content:
+            application/json:
+              example:
+                $ref: ./api/core-node/get_stacker_set.example.json
+        "400":
+          description: Could not fetch the given reward set
+          content:
+            application/json:
+              example:
+                $ref: ./api/core-node/get_stacker_set.400.example.json
+
+  /v3/blocks/{block_id}:
+    get:
+      summary: Fetch a Nakamoto block
+      tags:
+        - Blocks
+      operationId: get_block_v3
+      description: Fetch a Nakamoto block by its index block hash.
+      parameters:
+        - name: block_id
+          in: path
+          description: The block's ID hash
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The raw SIP-003-encoded block will be returned.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: The block could not be found
+          content:
+            application/text-plain: {}
+
+  /v3/blocks/height/{block_height}:
+    get:
+      summary: Fetch a Nakamoto block by its height and optional tip
+      tags:
+        - Blocks
+      operationId: get_block_v3_by_height
+      description: Fetch a Nakamoto block by its height and optional tip.
+      parameters:
+        - name: block_height
+          in: path
+          description: The block's height
+          required: true
+          schema:
+            type: integer
+        - name: tip
+          in: query
+          schema:
+            type: string
+          description:
+            The Stacks chain tip to query from. If tip == latest or empty, the query will be run
+            from the latest known tip.
+      responses:
+        "200":
+          description: The raw SIP-003-encoded block will be returned.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: The block could not be found
+          content:
+            application/text-plain: {}
+
+  /v3/tenures/info:
+    get:
+      summary: Fetch metadata about the ongoing Nakamoto tenure
+      tags:
+        - Blocks
+      operationId: get_tenure_info
+      description: Fetch metadata about the ongoing Nakamoto tenure. This information is sufficient to obtain and authenticate the highest complete tenure, as well as obtain new tenure blocks.
+      responses:
+        "200":
+          description: Metadata about the ongoing tenure
+          content:
+            application/json:
+              example:
+                $ref: ./api/core-node/get_tenure_info.json
+
+  /v3/tenures/{block_id}:
+    get:
+      summary: Fetch a sequence of Nakamoto blocks in a tenure
+      tags:
+        - Blocks
+      operationId: get_tenures
+      description: Fetch a sequence of Nakamoto blocks in a tenure.  The blocks will be served in order from highest to lowest.  The blocks will be encoded in their SIP-003 wire format, and concatenated together.
+      responses:
+        "200":
+          description: SIP-003-encoded Nakamoto blocks, concatenated together
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+    parameters:
+      - name: block_id
+        in: path
+        description: The tenure-start block ID of the tenure to query
+        required: true
+        schema:
+          type: string
+      - name: stop
+        in: query
+        description: The block ID hash of the highest block in this tenure that is already known to the caller.  Neither the corresponding block nor any of its ancestors will be served.  This is used to fetch tenure blocks that the caller does not have.
+        required: false
+        schema:
+          type: string
+
+  /v3/sortitions/{lookup_kind}/{lookup}:
+    get:
+      summary: Fetch information about evaluated burnchain blocks (i.e., sortitions).
+      tags:
+        - Blocks
+      operationId: get_sortitions
+      description: Fetch sortition information about a burnchain block. If the `lookup_kind` and `lookup` parameters are empty, it will return information about the latest burn block.
+      responses:
+        "200":
+          description: Information for the burn block or in the case of `latest_and_last`, multiple burn blocks
+          content:
+            application/json:
+              examples:
+                Latest:
+                  description: A single element list is returned when just one sortition is requested
+                  value:
+                    $ref: ./api/core-node/get_sortitions.example.json
+                LatestAndLast:
+                  description: Sortition information about the latest burn block with a winning miner, and the previous such burn block.
+                  value:
+                    $ref: ./api/core-node/get_sortitions_latest_and_prior.example.json
+    parameters:
+      - name: lookup_kind
+        in: path
+        description: |-
+          The style of lookup that should be performed. If not given, the most recent burn block processed will be returned.
+          Otherwise, the `lookup_kind` should be one of the following strings:
+            * `consensus` - find the burn block using the consensus hash supplied in the `lookup` field.
+            * `burn_height` - find the burn block using the burn block height supplied in the `lookup` field.
+            * `burn` - find the burn block using the burn block hash supplied in the `lookup` field.
+            * `latest_and_last` - return information about the latest burn block with a winning miner *and* the previous such burn block
+        required: false
+        schema:
+          type: string
+      - name: lookup
+        in: path
+        description: The value to use for the lookup if `lookup_kind` is `consensus`, `burn_height`, or `burn`
+        required: false
+        schema:
+          type: string
+  /v3/signer/{signer}/{cycle_number}:
+    get:
+      summary: Get number of blocks signed by signer during a given reward cycle
+      tags:
+        - Blocks
+        - Signers
+      operationId: get_signer
+      description: Get number of blocks signed by signer during a given reward cycle
+      parameters:
+        - name: signer
+          in: path
+          required: true
+          description: Hex-encoded compressed Secp256k1 public key of signer
+          schema:
+            type: string
+        - name: cycle_number
+          in: path
+          required: true
+          description: Reward cycle number
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Number of blocks signed
+          content:
+            text/plain:
+              schema:
+                type: integer
+                example: 7
+  /v3/transaction/{txid}:
+    post:
+      summary: Retrieve transaction details by TXID
+      tags:
+        - Transactions
+      description: Get a JSON with the transaction details including the `index_block_hash`, the hex-encoded transaction body, and the `result`.
+      operationId: get_transaction
+      parameters:
+        - name: txid
+          in: path
+          required: true
+          description: Transaction ID
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Transaction JSON with index_block_hash, transaction body and result
+          content:
+            application/json:
+              example:
+                $ref: ./api/core-node/get_transaction.json
+        "404":
+          description: Transaction not found
+          content:
+            application/text-plain: {}
+        "501":
+          description: Transaction indexing not enabled
+          content:
+            application/text-plain: {}
+
+  /v3/health:
+    get:
+      summary: Query the health of the node.
+      description:
+        Get a boolean determining whether a node is synced up with its boostrap nodes, and the percent of
+        blocks the node has relative to its most advanced peer.
+      tags:
+        - Info
+      operationId: get_health
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-health.schema.json
+              example:
+                $ref: ./api/core-node/get-health.example.json
+        500:
+          description:
+            There are two reasons for a 500 error. (a) The node is unhealthy, meaning it is lagging
+            behind its most advanced peer. The `percent_of_blocks_synced` field indicates what percent of
+            the height this node is at, relative to its most advanced peer, `matches_peers` is false, and
+            `error` is set to "Node not at tip". (b) Failed to query for health (no data or no valid peers to query
+            from), only the `error` field will be set in this case.
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-health-false.schema.json
+              example:
+                $ref: ./api/core-node/get-health-false.example.json

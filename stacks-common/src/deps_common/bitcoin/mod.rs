@@ -26,8 +26,7 @@
 //!
 
 // Clippy flags
-#![cfg_attr(feature = "clippy", allow(needless_range_loop))] // suggests making a big mess of array newtypes
-#![cfg_attr(feature = "clippy", allow(extend_from_slice))] // `extend_from_slice` only available since 1.6
+#![allow(clippy::needless_range_loop)] // suggests making a big mess of array newtypes
 
 // Coding conventions
 #![deny(non_upper_case_globals)]

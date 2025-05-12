@@ -1,12 +1,13 @@
-FROM rust:bullseye
+FROM rust:bookworm
 
 WORKDIR /src
 
 COPY ./rust-toolchain .
 COPY ./Cargo.toml .
+COPY ./.cargo .
 
 RUN rustup component add rustfmt
 
 COPY . .
 
-RUN cargo fmt --all -- --check
+RUN cargo fmt-stacks --check

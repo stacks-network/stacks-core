@@ -16,19 +16,14 @@
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::representations::{ClarityName, SymbolicExpression};
-use crate::vm::types::TypeSignature;
-use crate::vm::ClarityVersion;
-
 use super::{
-    check_argument_count, check_arguments_at_least, no_type, CheckError, CheckErrors, TypeChecker,
-    TypeResult,
+    check_argument_count, check_arguments_at_least, no_type, CheckErrors, TypeChecker, TypeResult,
 };
 use crate::vm::analysis::type_checker::contexts::TypingContext;
-
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
-use crate::vm::types::signatures::CallableSubtype;
+use crate::vm::costs::{analysis_typecheck_cost, runtime_cost, CostErrors, CostTracker};
+use crate::vm::representations::{ClarityName, SymbolicExpression};
+use crate::vm::types::TypeSignature;
 
 pub fn check_special_okay(
     checker: &mut TypeChecker,
@@ -84,9 +79,9 @@ pub fn check_special_is_response(
     runtime_cost(ClarityCostFunction::AnalysisOptionCheck, checker, 0)?;
 
     if let TypeSignature::ResponseType(_types) = input {
-        return Ok(TypeSignature::BoolType);
+        Ok(TypeSignature::BoolType)
     } else {
-        return Err(CheckErrors::ExpectedResponseType(input.clone()).into());
+        Err(CheckErrors::ExpectedResponseType(input.clone()).into())
     }
 }
 
@@ -102,9 +97,9 @@ pub fn check_special_is_optional(
     runtime_cost(ClarityCostFunction::AnalysisOptionCheck, checker, 0)?;
 
     if let TypeSignature::OptionalType(_type) = input {
-        return Ok(TypeSignature::BoolType);
+        Ok(TypeSignature::BoolType)
     } else {
-        return Err(CheckErrors::ExpectedOptionalType(input.clone()).into());
+        Err(CheckErrors::ExpectedOptionalType(input.clone()).into())
     }
 }
 
@@ -125,7 +120,7 @@ pub fn check_special_default_to(
         TypeSignature::least_supertype(&StacksEpochId::Epoch21, &default, &contained_type)
             .map_err(|_| CheckErrors::DefaultTypesMustMatch(default, contained_type).into())
     } else {
-        return Err(CheckErrors::ExpectedOptionalType(input).into());
+        Err(CheckErrors::ExpectedOptionalType(input).into())
     }
 }
 
@@ -274,6 +269,7 @@ pub fn check_special_unwrap_err(
     inner_unwrap_err(input, checker)
 }
 
+#[allow(clippy::unnecessary_lazy_evaluations)]
 fn eval_with_new_binding(
     body: &SymbolicExpression,
     bind_name: ClarityName,
@@ -288,7 +284,13 @@ fn eval_with_new_binding(
         checker,
         bind_type.type_size()?,
     )?;
-
+    let mut memory_use = 0;
+    if checker.epoch.analysis_memory() {
+        memory_use = u64::from(bind_name.len())
+            .checked_add(u64::from(bind_type.type_size()?))
+            .ok_or_else(|| CostErrors::CostOverflow)?;
+        checker.add_memory(memory_use)?;
+    }
     checker.contract_context.check_name_used(&bind_name)?;
 
     if inner_context.lookup_variable_type(&bind_name).is_some() {
@@ -297,7 +299,11 @@ fn eval_with_new_binding(
 
     inner_context.add_variable_type(bind_name, bind_type, checker.clarity_version);
 
-    checker.type_check(body, &inner_context)
+    let result = checker.type_check(body, &inner_context);
+    if checker.epoch.analysis_memory() {
+        checker.drop_memory(memory_use)?;
+    }
+    result
 }
 
 fn check_special_match_opt(

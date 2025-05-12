@@ -1,22 +1,16 @@
 pub mod lexer;
 
-use std::convert::TryFrom;
-use std::num::ParseIntError;
-
 use stacks_common::util::hash::hex_bytes;
 
-use self::lexer::error::LexerError;
 use self::lexer::token::{PlacedToken, Token};
 use self::lexer::Lexer;
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult, PlacedError};
 use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use crate::vm::diagnostic::{DiagnosableError, Diagnostic, Level};
-use crate::vm::representations::{
-    ClarityName, ContractName, PreSymbolicExpression, PreSymbolicExpressionType, Span,
-};
+use crate::vm::representations::{ClarityName, ContractName, PreSymbolicExpression, Span};
 use crate::vm::types::{
-    CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData,
-    TraitIdentifier, UTF8Data, Value,
+    CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, TraitIdentifier, UTF8Data,
+    Value,
 };
 use crate::vm::MAX_CALL_STACK_DEPTH;
 
@@ -198,7 +192,7 @@ impl<'a> Parser<'a> {
                 }
                 Token::Comment(comment) => {
                     let mut comment = PreSymbolicExpression::comment(comment.to_string());
-                    comment.span = token.span.clone();
+                    comment.copy_span(&token.span);
                     comments.push(comment);
                     self.next_token += 1;
                 }
@@ -207,6 +201,8 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // TODO: add tests from mutation testing results #4829
+    #[cfg_attr(test, mutants::skip)]
     /// Process a new child node for an AST expression that is open and waiting for children nodes. For example,
     ///  a list or tuple expression that is waiting for child expressions.
     ///
@@ -224,8 +220,8 @@ impl<'a> Parser<'a> {
                 ref mut whitespace,
             } => {
                 if let Some(node) = node_opt {
-                    if !*whitespace && !node.match_comment().is_some() {
-                        self.add_diagnostic(ParseErrors::ExpectedWhitespace, node.span.clone())?;
+                    if !*whitespace && node.match_comment().is_none() {
+                        self.add_diagnostic(ParseErrors::ExpectedWhitespace, node.span().clone())?;
                     }
                     nodes.push(node);
                     *whitespace = self.ignore_whitespace();
@@ -236,9 +232,9 @@ impl<'a> Parser<'a> {
                         Token::Rparen => {
                             span.end_line = token.span.end_line;
                             span.end_column = token.span.end_column;
-                            let out_nodes: Vec<_> = nodes.drain(..).collect();
-                            let mut e = PreSymbolicExpression::list(out_nodes.into_boxed_slice());
-                            e.span = span.clone();
+                            let out_nodes: Vec<_> = std::mem::take(nodes);
+                            let mut e = PreSymbolicExpression::list(out_nodes);
+                            e.copy_span(span);
                             Ok(Some(e))
                         }
                         Token::Eof => {
@@ -253,16 +249,16 @@ impl<'a> Parser<'a> {
                             )?;
                             span.end_line = token.span.end_line;
                             span.end_column = token.span.end_column;
-                            let out_nodes: Vec<_> = nodes.drain(..).collect();
-                            let mut e = PreSymbolicExpression::list(out_nodes.into_boxed_slice());
-                            e.span = span.clone();
+                            let out_nodes: Vec<_> = std::mem::take(nodes);
+                            let mut e = PreSymbolicExpression::list(out_nodes);
+                            e.copy_span(span);
                             Ok(Some(e))
                         }
                         _ => {
                             // Report an error, then skip this token
                             self.add_diagnostic(
                                 ParseErrors::UnexpectedToken(token.token.clone()),
-                                token.span.clone(),
+                                token.span,
                             )?;
                             *whitespace = self.ignore_whitespace();
                             Ok(None)
@@ -276,6 +272,8 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // TODO: add tests from mutation testing results #4848
+    #[cfg_attr(test, mutants::skip)]
     fn handle_open_tuple(
         &mut self,
         open_tuple: &mut OpenTuple,
@@ -302,12 +300,11 @@ impl<'a> Parser<'a> {
                                     open_tuple.span.clone(),
                                 )?;
                                 let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                                let mut e =
-                                    PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
+                                let mut e = PreSymbolicExpression::tuple(out_nodes);
                                 let span_before_eof = &self.tokens[self.tokens.len() - 2].span;
                                 open_tuple.span.end_line = span_before_eof.end_line;
                                 open_tuple.span.end_column = span_before_eof.end_column;
-                                e.span = open_tuple.span.clone();
+                                e.copy_span(&open_tuple.span);
                                 return Ok(Some(e));
                             }
                             _ => {
@@ -339,14 +336,14 @@ impl<'a> Parser<'a> {
                         // then return.
                         self.add_diagnostic(ParseErrors::TupleColonExpectedv2, token.span.clone())?;
                         let mut placeholder = PreSymbolicExpression::placeholder("".to_string());
-                        placeholder.span = token.span.clone();
+                        placeholder.copy_span(&token.span);
                         open_tuple.nodes.push(placeholder); // Placeholder value
                         let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                        let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
+                        let mut e = PreSymbolicExpression::tuple(out_nodes);
                         let span_before_eof = &self.tokens[self.tokens.len() - 2].span;
                         open_tuple.span.end_line = span_before_eof.end_line;
                         open_tuple.span.end_column = span_before_eof.end_column;
-                        e.span = open_tuple.span.clone();
+                        e.copy_span(&open_tuple.span);
                         return Ok(Some(e));
                     }
                     _ => {
@@ -376,7 +373,7 @@ impl<'a> Parser<'a> {
                                 // This indicates we have reached the end of the input.
                                 // Create a placeholder value so that parsing can continue,
                                 // then return.
-                                let eof_span = last_token.span.clone();
+                                let eof_span = last_token.span;
 
                                 self.add_diagnostic(
                                     ParseErrors::TupleValueExpected,
@@ -384,16 +381,15 @@ impl<'a> Parser<'a> {
                                 )?;
                                 let mut placeholder =
                                     PreSymbolicExpression::placeholder("".to_string());
-                                placeholder.span = eof_span;
+                                placeholder.copy_span(&eof_span);
                                 open_tuple.nodes.push(placeholder); // Placeholder value
                                 let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                                let mut e =
-                                    PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
+                                let mut e = PreSymbolicExpression::tuple(out_nodes);
                                 open_tuple.span.end_line =
                                     open_tuple.diagnostic_token.span.end_line;
                                 open_tuple.span.end_column =
                                     open_tuple.diagnostic_token.span.end_column;
-                                e.span = open_tuple.span.clone();
+                                e.copy_span(&open_tuple.span);
                                 return Ok(Some(e));
                             }
                             _ => {
@@ -423,14 +419,12 @@ impl<'a> Parser<'a> {
                         open_tuple.span.end_column = token.span.end_column;
                         self.next_token();
                         let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                        let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
-                        e.span = open_tuple.span.clone();
+                        let mut e = PreSymbolicExpression::tuple(out_nodes);
+                        e.copy_span(&open_tuple.span);
                         return Ok(Some(e));
                     }
                     Token::Eof => (),
-                    _ => {
-                        self.add_diagnostic(ParseErrors::TupleCommaExpectedv2, token.span.clone())?
-                    }
+                    _ => self.add_diagnostic(ParseErrors::TupleCommaExpectedv2, token.span)?,
                 }
 
                 let mut comments = self.ignore_whitespace_and_comments();
@@ -438,17 +432,14 @@ impl<'a> Parser<'a> {
 
                 // A comma is allowed after the last pair in the tuple -- check for this case.
                 let token = self.peek_next_token();
-                match token.token {
-                    Token::Rbrace => {
-                        open_tuple.span.end_line = token.span.end_line;
-                        open_tuple.span.end_column = token.span.end_column;
-                        self.next_token();
-                        let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                        let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
-                        e.span = open_tuple.span.clone();
-                        return Ok(Some(e));
-                    }
-                    _ => (),
+                if token.token == Token::Rbrace {
+                    open_tuple.span.end_line = token.span.end_line;
+                    open_tuple.span.end_column = token.span.end_column;
+                    self.next_token();
+                    let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
+                    let mut e = PreSymbolicExpression::tuple(out_nodes);
+                    e.copy_span(&open_tuple.span);
+                    return Ok(Some(e));
                 }
                 open_tuple.diagnostic_token = token;
 
@@ -466,7 +457,7 @@ impl<'a> Parser<'a> {
     fn open_tuple(&mut self, lbrace: PlacedToken) -> ParseResult<SetupTupleResult> {
         let mut open_tuple = OpenTuple {
             nodes: vec![],
-            span: lbrace.span.clone(),
+            span: lbrace.span,
             expects: OpenTupleStatus::ParseKey,
             diagnostic_token: self.peek_next_token(),
         };
@@ -477,10 +468,7 @@ impl<'a> Parser<'a> {
         let token = self.peek_next_token();
         match token.token {
             Token::Comma => {
-                self.add_diagnostic(
-                    ParseErrors::UnexpectedToken(token.token),
-                    token.span.clone(),
-                )?;
+                self.add_diagnostic(ParseErrors::UnexpectedToken(token.token), token.span)?;
                 self.next_token();
             }
             Token::Rbrace => {
@@ -488,8 +476,8 @@ impl<'a> Parser<'a> {
                 open_tuple.span.end_column = token.span.end_column;
                 self.next_token();
                 let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
-                e.span = open_tuple.span.clone();
+                let mut e = PreSymbolicExpression::tuple(out_nodes);
+                e.copy_span(&open_tuple.span);
                 return Ok(SetupTupleResult::Closed(e));
             }
             _ => (),
@@ -500,17 +488,14 @@ impl<'a> Parser<'a> {
 
         // A comma is allowed after the last pair in the tuple -- check for this case.
         let token = self.peek_next_token();
-        match token.token {
-            Token::Rbrace => {
-                open_tuple.span.end_line = token.span.end_line;
-                open_tuple.span.end_column = token.span.end_column;
-                self.next_token();
-                let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
-                let mut e = PreSymbolicExpression::tuple(out_nodes.into_boxed_slice());
-                e.span = open_tuple.span.clone();
-                return Ok(SetupTupleResult::Closed(e));
-            }
-            _ => (),
+        if token.token == Token::Rbrace {
+            open_tuple.span.end_line = token.span.end_line;
+            open_tuple.span.end_column = token.span.end_column;
+            self.next_token();
+            let out_nodes: Vec<_> = open_tuple.nodes.drain(..).collect();
+            let mut e = PreSymbolicExpression::tuple(out_nodes);
+            e.copy_span(&open_tuple.span);
+            return Ok(SetupTupleResult::Closed(e));
         }
         open_tuple.diagnostic_token = token;
 
@@ -530,13 +515,14 @@ impl<'a> Parser<'a> {
             _ => {
                 self.add_diagnostic(ParseErrors::InvalidPrincipalLiteral, span.clone())?;
                 let mut placeholder = PreSymbolicExpression::placeholder(format!("'{}", addr));
-                placeholder.span = span;
+                placeholder.copy_span(&span);
                 return Ok(placeholder);
             }
         };
 
         // Peek ahead for a '.', indicating a contract identifier
         if self.peek_next_token().token == Token::Dot {
+            #[allow(clippy::unwrap_used)]
             let dot = self.next_token().unwrap(); // skip over the dot
             let (name, contract_span) = match self.next_token() {
                 Some(PlacedToken {
@@ -553,23 +539,20 @@ impl<'a> Parser<'a> {
                 }) => {
                     span.end_line = token_span.end_line;
                     span.end_column = token_span.end_column;
-                    self.add_diagnostic(
-                        ParseErrors::ExpectedContractIdentifier,
-                        token_span.clone(),
-                    )?;
+                    self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, token_span)?;
                     let mut placeholder = PreSymbolicExpression::placeholder(format!(
                         "'{}.{}",
                         principal,
                         token.reproduce()
                     ));
-                    placeholder.span = span;
+                    placeholder.copy_span(&span);
                     return Ok(placeholder);
                 }
                 None => {
-                    self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, dot.span.clone())?;
+                    self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, dot.span)?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!("'{}.", principal));
-                    placeholder.span = span;
+                    placeholder.copy_span(&span);
                     return Ok(placeholder);
                 }
             };
@@ -577,11 +560,11 @@ impl<'a> Parser<'a> {
             if name.len() > MAX_CONTRACT_NAME_LEN {
                 self.add_diagnostic(
                     ParseErrors::ContractNameTooLong(name.clone()),
-                    contract_span.clone(),
+                    contract_span,
                 )?;
                 let mut placeholder =
                     PreSymbolicExpression::placeholder(format!("'{}.{}", principal, name));
-                placeholder.span = span;
+                placeholder.copy_span(&span);
                 return Ok(placeholder);
             }
             let contract_name = match ContractName::try_from(name.clone()) {
@@ -589,11 +572,11 @@ impl<'a> Parser<'a> {
                 Err(_) => {
                     self.add_diagnostic(
                         ParseErrors::IllegalContractName(name.clone()),
-                        contract_span.clone(),
+                        contract_span,
                     )?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!("'{}.{}", principal, name));
-                    placeholder.span = span;
+                    placeholder.copy_span(&span);
                     return Ok(placeholder);
                 }
             };
@@ -601,6 +584,7 @@ impl<'a> Parser<'a> {
 
             // Peek ahead for a '.', indicating a trait identifier
             if self.peek_next_token().token == Token::Dot {
+                #[allow(clippy::unwrap_used)]
                 let dot = self.next_token().unwrap(); // skip over the dot
                 let (name, trait_span) = match self.next_token() {
                     Some(PlacedToken {
@@ -626,7 +610,7 @@ impl<'a> Parser<'a> {
                         ));
                         span.end_line = token_span.end_line;
                         span.end_column = token_span.end_column;
-                        placeholder.span = span;
+                        placeholder.copy_span(&span);
                         return Ok(placeholder);
                     }
                     None => {
@@ -638,18 +622,15 @@ impl<'a> Parser<'a> {
                             PreSymbolicExpression::placeholder(format!("'{}.", contract_id));
                         span.end_line = dot.span.end_line;
                         span.end_column = dot.span.end_column;
-                        placeholder.span = span;
+                        placeholder.copy_span(&span);
                         return Ok(placeholder);
                     }
                 };
                 if name.len() > MAX_STRING_LEN {
-                    self.add_diagnostic(
-                        ParseErrors::NameTooLong(name.clone()),
-                        trait_span.clone(),
-                    )?;
+                    self.add_diagnostic(ParseErrors::NameTooLong(name.clone()), trait_span)?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!("'{}.{}", contract_id, name,));
-                    placeholder.span = span;
+                    placeholder.copy_span(&span);
                     return Ok(placeholder);
                 }
                 let trait_name = match ClarityName::try_from(name.clone()) {
@@ -657,13 +638,13 @@ impl<'a> Parser<'a> {
                     Err(_) => {
                         self.add_diagnostic(
                             ParseErrors::IllegalTraitName(name.clone()),
-                            trait_span.clone(),
+                            trait_span,
                         )?;
                         let mut placeholder = PreSymbolicExpression::placeholder(format!(
                             "'{}.{}",
                             contract_id, name,
                         ));
-                        placeholder.span = span;
+                        placeholder.copy_span(&span);
                         return Ok(placeholder);
                     }
                 };
@@ -672,20 +653,20 @@ impl<'a> Parser<'a> {
                     contract_identifier: contract_id,
                 };
                 let mut expr = PreSymbolicExpression::field_identifier(trait_id);
-                expr.span = span;
+                expr.copy_span(&span);
                 Ok(expr)
             } else {
                 let contract_principal = PrincipalData::Contract(contract_id);
                 let mut expr =
                     PreSymbolicExpression::atom_value(Value::Principal(contract_principal));
-                expr.span = span;
+                expr.copy_span(&span);
                 Ok(expr)
             }
         } else {
             let mut expr = PreSymbolicExpression::atom_value(Value::Principal(
                 PrincipalData::Standard(principal),
             ));
-            expr.span = span;
+            expr.copy_span(&span);
             Ok(expr)
         }
     }
@@ -709,13 +690,13 @@ impl<'a> Parser<'a> {
                     PreSymbolicExpression::placeholder(format!(".{}", token.reproduce()));
                 span.end_line = token_span.end_line;
                 span.end_column = token_span.end_column;
-                placeholder.span = span;
+                placeholder.copy_span(&span);
                 return Ok(placeholder);
             }
             None => {
                 self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, span.clone())?;
                 let mut placeholder = PreSymbolicExpression::placeholder(".".to_string());
-                placeholder.span = span;
+                placeholder.copy_span(&span);
                 return Ok(placeholder);
             }
         };
@@ -723,7 +704,7 @@ impl<'a> Parser<'a> {
         if name.len() > MAX_CONTRACT_NAME_LEN {
             self.add_diagnostic(ParseErrors::ContractNameTooLong(name.clone()), span.clone())?;
             let mut placeholder = PreSymbolicExpression::placeholder(format!(".{}", name));
-            placeholder.span = span;
+            placeholder.copy_span(&span);
             return Ok(placeholder);
         }
 
@@ -732,16 +713,17 @@ impl<'a> Parser<'a> {
             Err(_) => {
                 self.add_diagnostic(
                     ParseErrors::IllegalContractName(name.clone()),
-                    contract_span.clone(),
+                    contract_span,
                 )?;
                 let mut placeholder = PreSymbolicExpression::placeholder(format!(".{}", name));
-                placeholder.span = span;
+                placeholder.copy_span(&span);
                 return Ok(placeholder);
             }
         };
 
         // Peek ahead for a '.', indicating a trait identifier
         if self.peek_next_token().token == Token::Dot {
+            #[allow(clippy::unwrap_used)]
             let dot = self.next_token().unwrap(); // skip over the dot
             let (name, trait_span) = match self.next_token() {
                 Some(PlacedToken {
@@ -764,7 +746,7 @@ impl<'a> Parser<'a> {
                     ));
                     span.end_line = token_span.end_line;
                     span.end_column = token_span.end_column;
-                    placeholder.span = span;
+                    placeholder.copy_span(&span);
                     return Ok(placeholder);
                 }
                 None => {
@@ -773,37 +755,34 @@ impl<'a> Parser<'a> {
                         PreSymbolicExpression::placeholder(format!(".{}.", contract_name));
                     span.end_line = dot.span.end_line;
                     span.end_column = dot.span.end_column;
-                    placeholder.span = span;
+                    placeholder.copy_span(&span);
                     return Ok(placeholder);
                 }
             };
             if name.len() > MAX_STRING_LEN {
-                self.add_diagnostic(ParseErrors::NameTooLong(name.clone()), trait_span.clone())?;
+                self.add_diagnostic(ParseErrors::NameTooLong(name.clone()), trait_span)?;
                 let mut placeholder =
                     PreSymbolicExpression::placeholder(format!(".{}.{}", contract_name, name));
-                placeholder.span = span;
+                placeholder.copy_span(&span);
                 return Ok(placeholder);
             }
             let trait_name = match ClarityName::try_from(name.clone()) {
                 Ok(id) => id,
                 Err(_) => {
-                    self.add_diagnostic(
-                        ParseErrors::IllegalTraitName(name.clone()),
-                        trait_span.clone(),
-                    )?;
+                    self.add_diagnostic(ParseErrors::IllegalTraitName(name.clone()), trait_span)?;
                     let mut placeholder =
                         PreSymbolicExpression::placeholder(format!(".{}.{}", contract_name, name));
-                    placeholder.span = span;
+                    placeholder.copy_span(&span);
                     return Ok(placeholder);
                 }
             };
             let mut expr =
                 PreSymbolicExpression::sugared_field_identifier(contract_name, trait_name);
-            expr.span = span;
+            expr.copy_span(&span);
             Ok(expr)
         } else {
             let mut expr = PreSymbolicExpression::sugared_contract_identifier(contract_name);
-            expr.span = span;
+            expr.copy_span(&span);
             Ok(expr)
         }
     }
@@ -878,7 +857,7 @@ impl<'a> Parser<'a> {
                                     PreSymbolicExpression::placeholder(token.token.reproduce())
                                 }
                             };
-                            expr.span = token.span;
+                            expr.copy_span(&token.span);
                             Some(expr)
                         }
                         Token::Uint(val_string) => {
@@ -892,7 +871,7 @@ impl<'a> Parser<'a> {
                                     PreSymbolicExpression::placeholder(token.token.reproduce())
                                 }
                             };
-                            expr.span = token.span;
+                            expr.copy_span(&token.span);
                             Some(expr)
                         }
                         Token::AsciiString(val) => {
@@ -907,22 +886,24 @@ impl<'a> Parser<'a> {
                                         PreSymbolicExpression::placeholder(token.token.reproduce())
                                     }
                                 };
-                            expr.span = token.span;
+                            expr.copy_span(&token.span);
                             Some(expr)
                         }
                         Token::Utf8String(s) => {
-                            let mut data: Vec<Vec<u8>> = Vec::new();
-                            for ch in s.chars() {
-                                let mut bytes = vec![0; ch.len_utf8()];
-                                ch.encode_utf8(&mut bytes);
-                                data.push(bytes);
-                            }
+                            let data: Vec<Vec<u8>> = s
+                                .chars()
+                                .map(|ch| {
+                                    let mut bytes = vec![0; ch.len_utf8()];
+                                    ch.encode_utf8(&mut bytes);
+                                    bytes
+                                })
+                                .collect();
                             let val =
                                 Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
                                     data,
                                 })));
                             let mut expr = PreSymbolicExpression::atom_value(val);
-                            expr.span = token.span;
+                            expr.copy_span(&token.span);
                             Some(expr)
                         }
                         Token::Ident(name) => {
@@ -944,7 +925,7 @@ impl<'a> Parser<'a> {
                                     }
                                 }
                             };
-                            expr.span = token.span;
+                            expr.copy_span(&token.span);
                             Some(expr)
                         }
                         Token::TraitIdent(name) => {
@@ -966,7 +947,7 @@ impl<'a> Parser<'a> {
                                     }
                                 }
                             };
-                            expr.span = token.span;
+                            expr.copy_span(&token.span);
                             Some(expr)
                         }
                         Token::Bytes(data) => {
@@ -989,7 +970,7 @@ impl<'a> Parser<'a> {
                                     PreSymbolicExpression::placeholder(token.token.reproduce())
                                 }
                             };
-                            expr.span = token.span;
+                            expr.copy_span(&token.span);
                             Some(expr)
                         }
                         Token::Principal(addr) => {
@@ -1008,19 +989,20 @@ impl<'a> Parser<'a> {
                         | Token::LessEqual
                         | Token::Greater
                         | Token::GreaterEqual => {
-                            let name = ClarityName::try_from(token.token.to_string()).unwrap();
+                            let name = ClarityName::try_from(token.token.to_string())
+                                .map_err(|_| ParseErrors::InterpreterFailure)?;
                             let mut e = PreSymbolicExpression::atom(name);
-                            e.span = token.span;
+                            e.copy_span(&token.span);
                             Some(e)
                         }
                         Token::Placeholder(s) => {
                             let mut e = PreSymbolicExpression::placeholder(s.to_string());
-                            e.span = token.span;
+                            e.copy_span(&token.span);
                             Some(e)
                         }
                         Token::Comment(comment) => {
                             let mut e = PreSymbolicExpression::comment(comment.to_string());
-                            e.span = token.span;
+                            e.copy_span(&token.span);
                             Some(e)
                         }
                         Token::Eof => None,
@@ -1089,13 +1071,8 @@ impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> ParseResult<Vec<PreSymbolicExpression>> {
         let mut nodes = vec![];
 
-        loop {
-            match self.parse_node_or_eof()? {
-                Some(node) => {
-                    nodes.push(node);
-                }
-                None => break,
-            }
+        while let Some(node) = self.parse_node_or_eof()? {
+            nodes.push(node)
         }
         Ok(nodes)
     }
@@ -1115,6 +1092,7 @@ pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
     }
 }
 
+#[allow(clippy::unwrap_used)]
 pub fn parse_collect_diagnostics(
     input: &str,
 ) -> (Vec<PreSymbolicExpression>, Vec<Diagnostic>, bool) {
@@ -1137,22 +1115,20 @@ pub fn parse_collect_diagnostics(
 }
 
 #[cfg(test)]
+#[cfg(feature = "developer-mode")]
 mod tests {
-    use crate::vm::{
-        diagnostic::Level,
-        types::{
-            ASCIIData, CharType, PrincipalData, SequenceData, StandardPrincipalData, UTF8Data,
-        },
-    };
-
+    use self::lexer::error::LexerError;
     use super::*;
+    use crate::vm::diagnostic::Level;
+    use crate::vm::representations::PreSymbolicExpressionType;
+    use crate::vm::types::{ASCIIData, CharType, PrincipalData, SequenceData};
 
     #[test]
     fn test_parse_int() {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("    123");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         if let Some(Value::Int(123)) = stmts[0].match_atom_value() {
         } else {
             panic!("failed to parse int value");
@@ -1168,9 +1144,9 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("    -123");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         if let Some(Value::Int(-123)) = stmts[0].match_atom_value() {
         } else {
             panic!("failed to parse negative int value");
@@ -1186,7 +1162,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("42g ");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         if let Some("42g") = stmts[0].match_placeholder() {
         } else {
@@ -1220,7 +1196,7 @@ mod tests {
         // Exceed the range of a 128-bit integer.
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics("340282366920938463463374607431768211456 ");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].match_placeholder().unwrap(),
@@ -1252,9 +1228,9 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("0000000000123");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         if let Some(Value::Int(123)) = stmts[0].match_atom_value() {
         } else {
             panic!("failed to parse int value");
@@ -1273,9 +1249,9 @@ mod tests {
     #[test]
     fn test_parse_uint() {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("    u98");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         if let Some(Value::UInt(98)) = stmts[0].match_atom_value() {
         } else {
             panic!("failed to parse uint value");
@@ -1291,7 +1267,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("\n u2*3");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         if let Some("u2*3") = stmts[0].match_placeholder() {
         } else {
@@ -1325,7 +1301,7 @@ mod tests {
         // Exceed the range of a 128-bit unsigned integer.
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics("u340282366920938463463374607431768211457 ");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].match_placeholder().unwrap(),
@@ -1357,9 +1333,9 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("u00000000123");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         if let Some(Value::UInt(123)) = stmts[0].match_atom_value() {
         } else {
             panic!("failed to parse int value");
@@ -1378,11 +1354,11 @@ mod tests {
     #[test]
     fn test_parse_ascii_string() {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("\"new\\nline\"");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         if let Some(v) = stmts[0].match_atom_value() {
-            assert_eq!(v.clone().expect_ascii(), "new\nline");
+            assert_eq!(v.clone().expect_ascii().unwrap(), "new\nline");
         } else {
             panic!("failed to parse ascii string");
         }
@@ -1397,7 +1373,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("\"👎 nope\"");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         if let Some(s) = stmts[0].match_placeholder() {
             assert_eq!(s, "\"👎 nope\"");
@@ -1447,9 +1423,9 @@ mod tests {
     #[test]
     fn test_parse_utf8_string() {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("u\"new\\nline\\u{1f601}\"");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         if let Some(v) = stmts[0].match_atom_value() {
             let s = match v {
                 Value::Sequence(SequenceData::String(CharType::UTF8(data))) => format!("{}", data),
@@ -1470,7 +1446,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("u\"\\m nope\"");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(stmts[0].match_placeholder().unwrap(), "u\"\\m nope\"");
         assert_eq!(
@@ -1502,9 +1478,9 @@ mod tests {
     #[test]
     fn test_parse_identifier() {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("foo-bar");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         if let Some(v) = stmts[0].match_atom() {
             assert_eq!(v.as_str(), "foo-bar");
         } else {
@@ -1521,7 +1497,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].level, Level::Error);
         assert_eq!(
@@ -1542,9 +1518,9 @@ mod tests {
     #[test]
     fn test_parse_list() {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("(foo 1 u3 \"hel\tlo\")");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         assert_eq!(
             stmts[0].span,
             Span {
@@ -1611,7 +1587,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("(1 2 3");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         let exprs = stmts[0].match_list().unwrap();
         match exprs[0].pre_expr {
@@ -1679,9 +1655,9 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("(1 2 3\n )");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         assert_eq!(
             stmts[0].span,
             Span {
@@ -1700,9 +1676,9 @@ mod tests {
         let (stmts, diagnostics, success) = parse_collect_diagnostics(
             "(foo ;; first comment\n  bar\n  ;; second comment\n  baz;; no space\n)",
         );
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         assert_eq!(
             stmts[0].span,
             Span {
@@ -1779,9 +1755,9 @@ mod tests {
     #[test]
     fn test_parse_tuple() {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo: bar}");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         assert_eq!(
             stmts[0].span,
             Span {
@@ -1826,9 +1802,9 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo: bar,}");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         assert_eq!(
             stmts[0].span,
             Span {
@@ -1873,9 +1849,9 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo:bar}");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         assert_eq!(
             stmts[0].span,
             Span {
@@ -1920,9 +1896,9 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo:bar,}");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         assert_eq!(
             stmts[0].span,
             Span {
@@ -1967,9 +1943,9 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo:bar }");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         assert_eq!(
             stmts[0].span,
             Span {
@@ -2014,9 +1990,9 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo:bar ,}");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         assert_eq!(
             stmts[0].span,
             Span {
@@ -2061,9 +2037,9 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo:bar,baz:goo}");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         assert_eq!(
             stmts[0].span,
             Span {
@@ -2136,9 +2112,9 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("{1: u2, 3: u4}");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         assert_eq!(
             stmts[0].span,
             Span {
@@ -2171,7 +2147,7 @@ mod tests {
         }
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("{, foo: bar}");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         let list: &[PreSymbolicExpression] = match stmts[0].pre_expr {
             PreSymbolicExpressionType::Tuple(ref list) => list,
@@ -2220,7 +2196,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("{  ");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].span,
@@ -2235,7 +2211,7 @@ mod tests {
             PreSymbolicExpressionType::Tuple(ref list) => list,
             _ => panic!("failed to parse tuple"),
         };
-        assert_eq!(list.len(), 0);
+        assert!(list.is_empty());
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].level, Level::Error);
         assert_eq!(diagnostics[0].message, "expected closing '}'".to_string());
@@ -2261,7 +2237,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo:");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].span,
@@ -2318,7 +2294,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo:bar");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].span,
@@ -2387,7 +2363,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo:bar boo:far}");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].span,
@@ -2448,7 +2424,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo bar}");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].span,
@@ -2509,7 +2485,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].span,
@@ -2569,9 +2545,9 @@ mod tests {
     #[test]
     fn test_parse_tuple_comments() {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("{ ;; before the key\n  foo ;; before the colon\n  : ;; after the colon\n  ;; comment on newline\n  bar ;; before comma\n  ,\n  ;; after comma\n baz : qux ;; before closing\n}");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         assert_eq!(
             stmts[0].span,
             Span {
@@ -2701,7 +2677,7 @@ mod tests {
     #[test]
     fn test_parse_bad() {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("(1, 3)");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].span,
@@ -2739,7 +2715,7 @@ mod tests {
     fn test_parse_principal() {
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics("'ST000000000000000000002AMW42H");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].span,
@@ -2760,7 +2736,7 @@ mod tests {
         }
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("' u42");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 2);
         assert_eq!(
             stmts[0].span,
@@ -2790,7 +2766,7 @@ mod tests {
 
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics("'ST000000000000000000002AMW42H.silly-goose");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].span,
@@ -2812,11 +2788,11 @@ mod tests {
                 _ => panic!("failed to parse principal"),
             }
         }
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
 
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics("'ST000000000000000000002AMW42H.123");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].match_placeholder().unwrap(),
@@ -2836,7 +2812,7 @@ mod tests {
 
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics("'ST000000000000000000002AMW42H.illegal?name ");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].match_placeholder().unwrap(),
@@ -2859,7 +2835,7 @@ mod tests {
 
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics("'ST000000000000000000002AMW42H.this-name-is-way-too-many-characters-to-be-a-legal-contract-name ");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(stmts[0].match_placeholder().unwrap(), "'ST000000000000000000002AMW42H.this-name-is-way-too-many-characters-to-be-a-legal-contract-name");
         assert_eq!(diagnostics.len(), 1);
@@ -2878,7 +2854,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics(".fancy_pants");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].span,
@@ -2895,10 +2871,10 @@ mod tests {
             }
             _ => panic!("failed to parse sugared contract identifier"),
         }
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics(".123");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(stmts[0].match_placeholder().unwrap(), ".123");
         assert_eq!(diagnostics.len(), 1);
@@ -2914,7 +2890,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics(".illegal?name ");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(stmts[0].match_placeholder().unwrap(), ".illegal?name");
         assert_eq!(diagnostics.len(), 1);
@@ -2934,7 +2910,7 @@ mod tests {
 
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics("'ST000000000000000000002AMW42H.foo.bar");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
         match &stmts[0].pre_expr {
             PreSymbolicExpressionType::FieldIdentifier(trait_id) => {
@@ -2954,11 +2930,11 @@ mod tests {
                 end_column: 38
             }
         );
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
 
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics("'ST000000000000000000002AMW42H.foo.123");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].match_placeholder().unwrap(),
@@ -2977,7 +2953,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics(".foo.bar");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
         match &stmts[0].pre_expr {
             PreSymbolicExpressionType::SugaredFieldIdentifier(contract_name, trait_name) => {
@@ -2995,10 +2971,10 @@ mod tests {
                 end_column: 8
             }
         );
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics(".foo.123");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(stmts[0].match_placeholder().unwrap(), ".foo.123");
         assert_eq!(diagnostics.len(), 1);
@@ -3016,7 +2992,7 @@ mod tests {
         let (stmts, diagnostics, success) = parse_collect_diagnostics(
             ".this-name-is-way-too-many-characters-to-be-a-legal-contract-name",
         );
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].match_placeholder().unwrap(),
@@ -3035,7 +3011,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics(".foo.veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(stmts[0].match_placeholder().unwrap(),".foo.veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong");
         assert_eq!(diagnostics.len(), 1);
@@ -3054,9 +3030,9 @@ mod tests {
     #[test]
     fn test_parse_trait_reference() {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("<foo-bar>");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         if let Some(name) = stmts[0].match_trait_reference() {
             assert_eq!(name.as_str(), "foo-bar");
         } else {
@@ -3073,7 +3049,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("\n\t<foo-bar 1");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 2);
         if let Some(s) = stmts[0].match_placeholder() {
             assert_eq!(s, "<foo-bar");
@@ -3104,7 +3080,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("<123>");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 2);
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].message, "expected separator");
@@ -3160,7 +3136,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("<123 ");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 2);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].message, "expected separator");
@@ -3202,7 +3178,7 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("<veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong>");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].message, "illegal name (too long), 'veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong'");
@@ -3220,9 +3196,9 @@ mod tests {
     #[test]
     fn test_parse_ops() {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("(+ 1 2)");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         assert_eq!(
             stmts[0].span,
             Span {
@@ -3256,9 +3232,9 @@ mod tests {
         }
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("(- 1 2)");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         let exprs = stmts[0].match_list().unwrap();
         match &exprs[0].pre_expr {
             PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), "-"),
@@ -3275,9 +3251,9 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("(* 1 2)");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         let exprs = stmts[0].match_list().unwrap();
         match &exprs[0].pre_expr {
             PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), "*"),
@@ -3294,9 +3270,9 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("(/ 1 2)");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         let exprs = stmts[0].match_list().unwrap();
         match &exprs[0].pre_expr {
             PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), "/"),
@@ -3313,9 +3289,9 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("(< 1 2)");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         let exprs = stmts[0].match_list().unwrap();
         match &exprs[0].pre_expr {
             PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), "<"),
@@ -3332,9 +3308,9 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("(<= 1 2)");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         let exprs = stmts[0].match_list().unwrap();
         match &exprs[0].pre_expr {
             PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), "<="),
@@ -3351,9 +3327,9 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("(> 1 2)");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         let exprs = stmts[0].match_list().unwrap();
         match &exprs[0].pre_expr {
             PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), ">"),
@@ -3370,9 +3346,9 @@ mod tests {
         );
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("(>= 1 2)");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         let exprs = stmts[0].match_list().unwrap();
         match &exprs[0].pre_expr {
             PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), ">="),
@@ -3392,9 +3368,9 @@ mod tests {
     #[test]
     fn test_parse_buffer() {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("0x1234");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         assert_eq!(
             stmts[0].span,
             Span {
@@ -3405,13 +3381,13 @@ mod tests {
             }
         );
         let val = stmts[0].match_atom_value().unwrap().clone();
-        assert_eq!(val.expect_buff(2), vec![0x12, 0x34]);
+        assert_eq!(val.expect_buff(2).unwrap(), vec![0x12, 0x34]);
     }
 
     #[test]
     fn test_parse_errors() {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("123 }");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
@@ -3426,7 +3402,7 @@ mod tests {
         assert_eq!(diagnostics[0].message, "unexpected '}'");
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics("(foo))");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
@@ -3445,7 +3421,7 @@ mod tests {
     fn test_lexer_diagnostics() {
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics("(print \"newline\n        in string\")");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(diagnostics.len(), 3);
         assert_eq!(diagnostics[0].message, "expected closing '\"'");
@@ -3483,7 +3459,7 @@ mod tests {
     fn test_consume_invalid_symbols() {
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics(" # here is a python comment\n\n    # and another\n(foo)");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 10);
     }
 
@@ -3491,9 +3467,9 @@ mod tests {
     fn test_handle_comments() {
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics(" ;; here is a comment\n\n    ;; and another\n(foo)");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 3);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         assert_eq!(stmts[0].match_comment().unwrap(), "here is a comment");
         assert_eq!(stmts[1].match_comment().unwrap(), "and another");
         stmts[2].match_list().unwrap();
@@ -3504,9 +3480,9 @@ mod tests {
         let (stmts, diagnostics, success) = parse_collect_diagnostics(
             "(\n    foo ;; comment after\n    ;; comment on its own line\n    bar\n)",
         );
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
         let exprs = stmts[0].match_list().unwrap();
         assert_eq!(exprs.len(), 4);
         assert_eq!(exprs[0].match_atom().unwrap().as_str(), "foo");
@@ -3518,9 +3494,9 @@ mod tests {
     #[test]
     fn test_comma_at_end() {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("{this: is, a:tuple,}");
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics(
             r#"
@@ -3529,15 +3505,15 @@ mod tests {
     is: this,
 }"#,
         );
-        assert_eq!(success, true);
+        assert!(success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
     fn test_missing_whitespace() {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("(foo(bar))");
-        assert_eq!(success, false);
+        assert!(!success);
         assert_eq!(stmts.len(), 1);
         let exprs = stmts[0].match_list().unwrap();
         assert_eq!(exprs.len(), 2);
@@ -3568,9 +3544,9 @@ mod tests {
     #[test]
     fn test_empty_contract() {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("");
-        assert_eq!(success, true);
-        assert_eq!(stmts.len(), 0);
-        assert_eq!(diagnostics.len(), 0);
+        assert!(success);
+        assert!(stmts.is_empty());
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
@@ -3594,8 +3570,8 @@ mod tests {
         });
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics(&exceeds_stack_depth_list);
-        assert_eq!(success, false);
-        assert!(diagnostics.len() >= 1);
+        assert!(!success);
+        assert!(!diagnostics.is_empty());
         assert_eq!(
             diagnostics[0].message,
             "AST has too deep of an expression nesting. The maximum stack depth is 64"
@@ -3617,8 +3593,8 @@ mod tests {
         });
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics(&exceeds_stack_depth_tuple);
-        assert_eq!(success, false);
-        assert!(diagnostics.len() >= 1);
+        assert!(!success);
+        assert!(!diagnostics.is_empty());
         assert_eq!(
             diagnostics[0].message,
             "AST has too deep of an expression nesting. The maximum stack depth is 64"

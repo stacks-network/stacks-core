@@ -1,0 +1,22 @@
+[node]
+# working_dir = "/dir/to/save/chainstate" # defaults to: /tmp/stacks-node-[0-9]*
+rpc_bind = "127.0.0.1:20443"
+p2p_bind = "127.0.0.1:20444"
+prometheus_bind = "127.0.0.1:9153"
+seed = "<YOUR_SEED>"
+miner = true
+mine_microblocks = false # Disable microblocks (ref: https://github.com/stacks-network/stacks-core/pull/4561 )
+
+[burnchain]
+mode = "mainnet"
+peer_host = "127.0.0.1"
+username = "<Bitcoin RPC username>"
+password = "<Bitcoin RPC password>"
+# Maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election
+burn_fee_cap = 20000
+# Amount (in sats) per byte - Used to calculate the transaction fees
+satoshis_per_byte = 25
+# Amount of sats to add when RBF'ing bitcoin tx  (default: 5)
+rbf_fee_increment = 5
+# Maximum percentage to RBF bitcoin tx (default: 150% of satsv/B)
+max_rbf = 150

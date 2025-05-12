@@ -19,22 +19,45 @@ use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::{ClarityDatabase, STXBalance};
-use clarity::vm::errors::Error as ClarityError;
-use clarity::vm::errors::RuntimeErrorType;
+use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{Environment, Value};
-use slog::slog_debug;
-use slog::slog_error;
 use stacks_common::{debug, error};
 
-use crate::events::synthesize_pox_2_or_3_event_info;
-use crate::LockingError;
-use crate::POX_3_NAME;
+use crate::events::synthesize_pox_event_info;
 // Note: PoX-3 uses the same contract-call result parsing routines as PoX-2
 use crate::pox_2::{parse_pox_extend_result, parse_pox_increase, parse_pox_stacking_result};
+use crate::{LockingError, POX_3_NAME};
 
 /////////////////////// PoX-3 /////////////////////////////////
+
+/// is a PoX-3 function call read only?
+pub(crate) fn is_read_only(func_name: &str) -> bool {
+    "get-pox-rejection" == func_name
+        || "is-pox-active" == func_name
+        || "burn-height-to-reward-cycle" == func_name
+        || "reward-cycle-to-burn-height" == func_name
+        || "current-pox-reward-cycle" == func_name
+        || "get-stacker-info" == func_name
+        || "get-check-delegation" == func_name
+        || "get-reward-set-size" == func_name
+        || "next-cycle-rejection-votes" == func_name
+        || "get-total-ustx-stacked" == func_name
+        || "get-reward-set-pox-address" == func_name
+        || "get-stacking-minimum" == func_name
+        || "check-pox-addr-version" == func_name
+        || "check-pox-addr-hashbytes" == func_name
+        || "check-pox-lock-period" == func_name
+        || "can-stack-stx" == func_name
+        || "minimal-can-stack-stx" == func_name
+        || "get-pox-info" == func_name
+        || "get-delegation-info" == func_name
+        || "get-allowance-contract-callers" == func_name
+        || "get-num-reward-set-pox-addresses" == func_name
+        || "get-partial-stacked-by-cycle" == func_name
+        || "get-total-pox-rejection" == func_name
+}
 
 /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
 pub fn pox_lock_v3(
@@ -46,15 +69,15 @@ pub fn pox_lock_v3(
     assert!(unlock_burn_height > 0);
     assert!(lock_amount > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal);
+    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
-    if snapshot.has_locked_tokens() {
+    if snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxAlreadyLocked);
     }
-    if !snapshot.can_transfer(lock_amount) {
+    if !snapshot.can_transfer(lock_amount)? {
         return Err(LockingError::PoxInsufficientBalance);
     }
-    snapshot.lock_tokens_v3(lock_amount, unlock_burn_height);
+    snapshot.lock_tokens_v3(lock_amount, unlock_burn_height)?;
 
     debug!(
         "PoX v3 lock applied";
@@ -64,7 +87,7 @@ pub fn pox_lock_v3(
         "account" => %principal,
     );
 
-    snapshot.save();
+    snapshot.save()?;
     Ok(())
 }
 
@@ -73,8 +96,8 @@ pub fn pox_lock_v3(
 ///
 /// # Errors
 /// - Returns Error::PoxExtendNotLocked if this function was called on an account
-///     which isn't locked. This *should* have been checked by the PoX v3 contract,
-///     so this should surface in a panic.
+///   which isn't locked. This *should* have been checked by the PoX v3 contract,
+///   so this should surface in a panic.
 pub fn pox_lock_extend_v3(
     db: &mut ClarityDatabase,
     principal: &PrincipalData,
@@ -82,13 +105,13 @@ pub fn pox_lock_extend_v3(
 ) -> Result<u128, LockingError> {
     assert!(unlock_burn_height > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal);
+    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
-    if !snapshot.has_locked_tokens() {
+    if !snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxExtendNotLocked);
     }
 
-    snapshot.extend_lock_v3(unlock_burn_height);
+    snapshot.extend_lock_v3(unlock_burn_height)?;
 
     let amount_locked = snapshot.balance().amount_locked();
 
@@ -100,7 +123,7 @@ pub fn pox_lock_extend_v3(
         "account" => %principal,
     );
 
-    snapshot.save();
+    snapshot.save()?;
     Ok(amount_locked)
 }
 
@@ -109,8 +132,8 @@ pub fn pox_lock_extend_v3(
 ///
 /// # Errors
 /// - Returns Error::PoxExtendNotLocked if this function was called on an account
-///     which isn't locked. This *should* have been checked by the PoX v3 contract,
-///     so this should surface in a panic.
+///   which isn't locked. This *should* have been checked by the PoX v3 contract,
+///   so this should surface in a panic.
 pub fn pox_lock_increase_v3(
     db: &mut ClarityDatabase,
     principal: &PrincipalData,
@@ -118,13 +141,13 @@ pub fn pox_lock_increase_v3(
 ) -> Result<STXBalance, LockingError> {
     assert!(new_total_locked > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal);
+    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
-    if !snapshot.has_locked_tokens() {
+    if !snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxExtendNotLocked);
     }
 
-    let bal = snapshot.canonical_balance_repr();
+    let bal = snapshot.canonical_balance_repr()?;
     let total_amount = bal
         .amount_unlocked()
         .checked_add(bal.amount_locked())
@@ -137,9 +160,9 @@ pub fn pox_lock_increase_v3(
         return Err(LockingError::PoxInvalidIncrease);
     }
 
-    snapshot.increase_lock_v3(new_total_locked);
+    snapshot.increase_lock_v3(new_total_locked)?;
 
-    let out_balance = snapshot.canonical_balance_repr();
+    let out_balance = snapshot.canonical_balance_repr()?;
 
     debug!(
         "PoX v3 lock increased";
@@ -149,13 +172,14 @@ pub fn pox_lock_increase_v3(
         "account" => %principal,
     );
 
-    snapshot.save();
+    snapshot.save()?;
     Ok(out_balance)
 }
 
 /////////////// PoX-3 //////////////////////////////////////////
 
 /// Handle responses from stack-stx and delegate-stack-stx in pox-3 -- functions that *lock up* STX
+#[allow(clippy::needless_return)]
 fn handle_stack_lockup_pox_v3(
     global_context: &mut GlobalContext,
     function_name: &str,
@@ -186,7 +210,7 @@ fn handle_stack_lockup_pox_v3(
         &mut global_context.database,
         &stacker,
         locked_amount,
-        unlock_height as u64,
+        unlock_height,
     ) {
         Ok(_) => {
             let event =
@@ -222,6 +246,7 @@ fn handle_stack_lockup_pox_v3(
 
 /// Handle responses from stack-extend and delegate-stack-extend in pox-3 -- functions that *extend
 /// already-locked* STX.
+#[allow(clippy::needless_return)]
 fn handle_stack_lockup_extension_pox_v3(
     global_context: &mut GlobalContext,
     function_name: &str,
@@ -254,7 +279,7 @@ fn handle_stack_lockup_extension_pox_v3(
         }
     };
 
-    match pox_lock_extend_v3(&mut global_context.database, &stacker, unlock_height as u64) {
+    match pox_lock_extend_v3(&mut global_context.database, &stacker, unlock_height) {
         Ok(locked_amount) => {
             let event =
                 StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(STXLockEventData {
@@ -269,7 +294,7 @@ fn handle_stack_lockup_extension_pox_v3(
             return Err(ClarityError::Runtime(
                 RuntimeErrorType::DefunctPoxContract,
                 None,
-            ))
+            ));
         }
         Err(e) => {
             // Error results *other* than a DefunctPoxContract panic, because
@@ -285,6 +310,7 @@ fn handle_stack_lockup_extension_pox_v3(
 
 /// Handle responses from stack-increase and delegate-stack-increase in PoX-3 -- functions
 /// that *increase already-locked* STX amounts.
+#[allow(clippy::needless_return)]
 fn handle_stack_lockup_increase_pox_v3(
     global_context: &mut GlobalContext,
     function_name: &str,
@@ -330,7 +356,7 @@ fn handle_stack_lockup_increase_pox_v3(
             return Err(ClarityError::Runtime(
                 RuntimeErrorType::DefunctPoxContract,
                 None,
-            ))
+            ));
         }
         Err(e) => {
             // Error results *other* than a DefunctPoxContract panic, because
@@ -360,12 +386,13 @@ pub fn handle_contract_call(
             // for some reason.
             // Failure to synthesize an event due to a bug is *NOT* an excuse to crash the whole
             // network!  Event capture is not consensus-critical.
-            let event_info_opt = match synthesize_pox_2_or_3_event_info(
+            let event_info_opt = match synthesize_pox_event_info(
                 global_context,
                 contract_id,
                 sender_opt,
                 function_name,
                 args,
+                response,
             ) {
                 Ok(Some(event_info)) => Some(event_info),
                 Ok(None) => None,

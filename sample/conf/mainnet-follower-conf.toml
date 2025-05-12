@@ -1,0 +1,24 @@
+[node]
+# working_dir = "/dir/to/save/chainstate" # defaults to: /tmp/stacks-node-[0-9]*
+rpc_bind = "0.0.0.0:20443"
+p2p_bind = "0.0.0.0:20444"
+prometheus_bind = "0.0.0.0:9153" 
+
+[burnchain]
+mode = "mainnet"
+peer_host = "127.0.0.1"
+
+# Used for sending events to a local stacks-blockchain-api service
+# [[events_observer]]
+# endpoint = "localhost:3700"
+# events_keys = ["*"]
+# timeout_ms = 60_000
+
+# Used if running a local stacks-signer service
+# [[events_observer]]
+# endpoint = "127.0.0.1:30000"
+# events_keys = ["stackerdb", "block_proposal", "burn_blocks"]
+
+# Used if running a local stacks-signer service
+# [connection_options]
+# auth_token = "" # fill with a unique password

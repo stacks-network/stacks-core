@@ -1,15 +1,18 @@
-FROM rust:bullseye AS test
+FROM rust:bookworm AS test
 
 WORKDIR /src
 
 COPY . .
 
-RUN cd / && wget https://bitcoin.org/bin/bitcoin-core-0.20.0/bitcoin-0.20.0-x86_64-linux-gnu.tar.gz
-RUN cd / && tar -xvzf bitcoin-0.20.0-x86_64-linux-gnu.tar.gz
+RUN apt-get update && apt-get install -y libclang-dev
 
-RUN ln -s /bitcoin-0.20.0/bin/bitcoind /bin/
+RUN cd / && wget https://bitcoin.org/bin/bitcoin-core-25.0/bitcoin-25.0-x86_64-linux-gnu.tar.gz
+RUN cd / && tar -xvzf bitcoin-25.0-x86_64-linux-gnu.tar.gz
+
+RUN ln -s /bitcoin-25.0/bin/bitcoind /bin/
 
 RUN rustup component add llvm-tools-preview && \
+    rustup component add rustfmt && \
     cargo install grcov
 
 ENV RUSTFLAGS="-Cinstrument-coverage" \

@@ -14,20 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::error;
-use std::fmt;
+use std::{error, fmt};
 
-use crate::types::PublicKey;
+use sha2::{Digest, Sha256};
 
 use crate::deps_common::bitcoin::blockdata::opcodes::All as btc_opcodes;
-use crate::deps_common::bitcoin::blockdata::script::{Builder, Instruction, Script};
-
+use crate::deps_common::bitcoin::blockdata::script::Builder;
+use crate::types::PublicKey;
 use crate::util::hash::Hash160;
-
-use sha2::Digest;
-use sha2::Sha256;
-
-use std::convert::TryFrom;
 
 pub mod b58;
 pub mod c32;
@@ -155,9 +149,8 @@ impl TryFrom<u8> for AddressHashMode {
 /// Internally, the Stacks blockchain encodes address the same as Bitcoin
 /// single-sig address (p2pkh)
 /// Get back the hash of the address
-fn to_bits_p2pkh<K: PublicKey>(pubk: &K) -> Hash160 {
-    let key_hash = Hash160::from_data(&pubk.to_bytes());
-    key_hash
+pub fn to_bits_p2pkh<K: PublicKey>(pubk: &K) -> Hash160 {
+    Hash160::from_data(&pubk.to_bytes())
 }
 
 /// Internally, the Stacks blockchain encodes address the same as Bitcoin
@@ -172,8 +165,7 @@ fn to_bits_p2sh<K: PublicKey>(num_sigs: usize, pubkeys: &Vec<K>) -> Hash160 {
     bldr = bldr.push_opcode(btc_opcodes::OP_CHECKMULTISIG);
 
     let script = bldr.into_script();
-    let script_hash = Hash160::from_data(&script.as_bytes());
-    script_hash
+    Hash160::from_data(script.as_bytes())
 }
 
 /// Internally, the Stacks blockchain encodes address the same as Bitcoin
@@ -184,8 +176,7 @@ fn to_bits_p2sh_p2wpkh<K: PublicKey>(pubk: &K) -> Hash160 {
     let bldr = Builder::new().push_int(0).push_slice(key_hash.as_bytes());
 
     let script = bldr.into_script();
-    let script_hash = Hash160::from_data(&script.as_bytes());
-    script_hash
+    Hash160::from_data(script.as_bytes())
 }
 
 /// Internally, the Stacks blockchain encodes address the same as Bitcoin
@@ -206,8 +197,7 @@ fn to_bits_p2sh_p2wsh<K: PublicKey>(num_sigs: usize, pubkeys: &Vec<K>) -> Hash16
     d.copy_from_slice(digest.finalize().as_slice());
 
     let ws = Builder::new().push_int(0).push_slice(&d).into_script();
-    let ws_hash = Hash160::from_data(&ws.as_bytes());
-    ws_hash
+    Hash160::from_data(ws.as_bytes())
 }
 
 /// Convert a number of required signatures and a list of public keys into a byte-vec to hash to an
@@ -230,7 +220,6 @@ pub fn public_keys_to_address_hash<K: PublicKey>(
 mod test {
     use super::*;
     use crate::util::hash::*;
-    use crate::util::log;
     use crate::util::secp256k1::Secp256k1PublicKey as PubKey;
 
     struct PubkeyFixture {
@@ -290,12 +279,10 @@ mod test {
                 } else {
                     AddressHashMode::SerializeP2SH
                 }
+            } else if pubkey_fixture.num_required == 1 {
+                AddressHashMode::SerializeP2WPKH
             } else {
-                if pubkey_fixture.num_required == 1 {
-                    AddressHashMode::SerializeP2WPKH
-                } else {
-                    AddressHashMode::SerializeP2WSH
-                }
+                AddressHashMode::SerializeP2WSH
             };
 
             let result_hash = public_keys_to_address_hash(

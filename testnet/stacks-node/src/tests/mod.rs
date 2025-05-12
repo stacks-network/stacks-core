@@ -1,42 +1,47 @@
-use std::convert::TryInto;
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicU64;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use rand::RngCore;
-
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::events::STXEventType;
+use lazy_static::lazy_static;
+use neon_integrations::test_observer::EVENT_OBSERVER_PORT;
+use rand::Rng;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::events::StacksTransactionEvent;
 use stacks::chainstate::stacks::{
-    db::StacksChainState, miner::BlockBuilderSettings, miner::StacksMicroblockBuilder,
-    CoinbasePayload, StacksBlock, StacksMicroblock, StacksMicroblockHeader, StacksPrivateKey,
-    StacksPublicKey, StacksTransaction, StacksTransactionSigner, TokenTransferMemo,
-    TransactionAnchorMode, TransactionAuth, TransactionContractCall, TransactionPayload,
-    TransactionPostConditionMode, TransactionSmartContract, TransactionSpendingCondition,
-    TransactionVersion, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    StacksPrivateKey, StacksPublicKey, StacksTransaction, TransactionPayload,
 };
-use stacks::codec::StacksMessageCodec;
-use stacks::core::CHAIN_ID_TESTNET;
-use stacks::types::chainstate::StacksAddress;
-use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::hex_bytes;
-use stacks::util_lib::strings::StacksString;
-use stacks::vm::costs::ExecutionCost;
-use stacks::vm::database::BurnStateDB;
-use stacks::vm::events::STXEventType;
-use stacks::vm::types::PrincipalData;
-use stacks::vm::{ClarityName, ContractName, Value};
-use stacks::{address::AddressHashMode, util::hash::to_hex};
-
-use crate::helium::RunLoop;
-use crate::tests::neon_integrations::get_chain_info;
-use crate::tests::neon_integrations::next_block_and_wait;
-use crate::BitcoinRegtestController;
-use stacks::core::StacksEpoch;
-use stacks::core::StacksEpochExtension;
-use stacks::core::StacksEpochId;
+#[cfg(any(test, feature = "testing"))]
+use stacks::core::test_util::{make_contract_publish, to_addr};
+use stacks::core::{StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_TESTNET};
+use stacks_common::address::AddressHashMode;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
+use super::neon_node::{BlockMinerThread, TipCandidate};
 use super::Config;
+use crate::helium::RunLoop;
+use crate::tests::neon_integrations::{get_chain_info, next_block_and_wait};
+use crate::BitcoinRegtestController;
 
 mod atlas;
 mod bitcoin_regtest;
@@ -47,7 +52,10 @@ mod epoch_23;
 mod epoch_24;
 mod integrations;
 mod mempool;
+pub mod nakamoto_integrations;
 pub mod neon_integrations;
+mod signer;
+mod stackerdb;
 
 // $ cat /tmp/out.clar
 pub const STORE_CONTRACT: &str = r#"(define-map store { key: (string-ascii 32) } { value: (string-ascii 32) })
@@ -64,11 +72,11 @@ pub const STORE_CONTRACT: &str = r#"(define-map store { key: (string-ascii 32) }
         (ok true)))"#;
 // ./blockstack-cli --testnet publish 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 0 store /tmp/out.clar
 
-pub const SK_1: &'static str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
-pub const SK_2: &'static str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
-pub const SK_3: &'static str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
+pub const SK_1: &str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
+pub const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
+pub const SK_3: &str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
 
-pub const ADDR_4: &'static str = "ST31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZZ239N96";
+pub const ADDR_4: &str = "ST31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZZ239N96";
 
 lazy_static! {
     pub static ref PUBLISH_CONTRACT: Vec<u8> = make_contract_publish(
@@ -78,183 +86,55 @@ lazy_static! {
         .unwrap(),
         0,
         10,
+        CHAIN_ID_TESTNET,
         "store",
         STORE_CONTRACT
     );
 }
 
-pub fn serialize_sign_sponsored_sig_tx_anchor_mode_version(
-    payload: TransactionPayload,
-    sender: &StacksPrivateKey,
-    payer: &StacksPrivateKey,
-    sender_nonce: u64,
-    payer_nonce: u64,
-    tx_fee: u64,
-    anchor_mode: TransactionAnchorMode,
-    version: TransactionVersion,
-) -> Vec<u8> {
-    serialize_sign_tx_anchor_mode_version(
-        payload,
-        sender,
-        Some(payer),
-        sender_nonce,
-        Some(payer_nonce),
-        tx_fee,
-        anchor_mode,
-        version,
-    )
+lazy_static! {
+    static ref USED_PORTS: Mutex<HashSet<u16>> = Mutex::new({
+        let mut set = HashSet::new();
+        set.insert(EVENT_OBSERVER_PORT);
+        set
+    });
 }
 
-pub fn serialize_sign_standard_single_sig_tx(
-    payload: TransactionPayload,
-    sender: &StacksPrivateKey,
-    nonce: u64,
-    tx_fee: u64,
-) -> Vec<u8> {
-    serialize_sign_standard_single_sig_tx_anchor_mode(
-        payload,
-        sender,
-        nonce,
-        tx_fee,
-        TransactionAnchorMode::OnChainOnly,
-    )
-}
-
-pub fn serialize_sign_standard_single_sig_tx_anchor_mode(
-    payload: TransactionPayload,
-    sender: &StacksPrivateKey,
-    nonce: u64,
-    tx_fee: u64,
-    anchor_mode: TransactionAnchorMode,
-) -> Vec<u8> {
-    serialize_sign_standard_single_sig_tx_anchor_mode_version(
-        payload,
-        sender,
-        nonce,
-        tx_fee,
-        anchor_mode,
-        TransactionVersion::Testnet,
-    )
-}
-
-pub fn serialize_sign_standard_single_sig_tx_anchor_mode_version(
-    payload: TransactionPayload,
-    sender: &StacksPrivateKey,
-    nonce: u64,
-    tx_fee: u64,
-    anchor_mode: TransactionAnchorMode,
-    version: TransactionVersion,
-) -> Vec<u8> {
-    serialize_sign_tx_anchor_mode_version(
-        payload,
-        sender,
-        None,
-        nonce,
-        None,
-        tx_fee,
-        anchor_mode,
-        version,
-    )
-}
-
-pub fn serialize_sign_tx_anchor_mode_version(
-    payload: TransactionPayload,
-    sender: &StacksPrivateKey,
-    payer: Option<&StacksPrivateKey>,
-    sender_nonce: u64,
-    payer_nonce: Option<u64>,
-    tx_fee: u64,
-    anchor_mode: TransactionAnchorMode,
-    version: TransactionVersion,
-) -> Vec<u8> {
-    let mut sender_spending_condition =
-        TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(sender))
-            .expect("Failed to create p2pkh spending condition from public key.");
-    sender_spending_condition.set_nonce(sender_nonce);
-
-    let auth = match (payer, payer_nonce) {
-        (Some(payer), Some(payer_nonce)) => {
-            let mut payer_spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(
-                StacksPublicKey::from_private(payer),
-            )
-            .expect("Failed to create p2pkh spending condition from public key.");
-            payer_spending_condition.set_nonce(payer_nonce);
-            payer_spending_condition.set_tx_fee(tx_fee);
-            TransactionAuth::Sponsored(sender_spending_condition, payer_spending_condition)
+/// Generate a random port number between 1024 and 65534 (inclusive) and insert it into the USED_PORTS set.
+/// Returns the generated port number.
+pub fn gen_random_port() -> u16 {
+    let mut rng = rand::thread_rng();
+    let range_len = (1024..u16::MAX).len();
+    loop {
+        assert!(
+            USED_PORTS.lock().unwrap().len() < range_len,
+            "No more available ports"
+        );
+        let port = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
+        if insert_new_port(port) {
+            return port;
         }
-        _ => {
-            sender_spending_condition.set_tx_fee(tx_fee);
-            TransactionAuth::Standard(sender_spending_condition)
-        }
-    };
-    let mut unsigned_tx = StacksTransaction::new(version, auth, payload);
-    unsigned_tx.anchor_mode = anchor_mode;
-    unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
-    unsigned_tx.chain_id = CHAIN_ID_TESTNET;
-
-    let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
-    tx_signer.sign_origin(sender).unwrap();
-    if let (Some(payer), Some(_)) = (payer, payer_nonce) {
-        tx_signer.sign_sponsor(payer).unwrap();
     }
-
-    let mut buf = vec![];
-    tx_signer
-        .get_tx()
-        .unwrap()
-        .consensus_serialize(&mut buf)
-        .unwrap();
-    buf
 }
 
-pub fn make_contract_publish(
-    sender: &StacksPrivateKey,
-    nonce: u64,
-    tx_fee: u64,
-    contract_name: &str,
-    contract_content: &str,
-) -> Vec<u8> {
-    let name = ContractName::from(contract_name);
-    let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
-
-    let payload = TransactionSmartContract { name, code_body };
-
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
-}
-
-pub fn make_contract_publish_microblock_only(
-    sender: &StacksPrivateKey,
-    nonce: u64,
-    tx_fee: u64,
-    contract_name: &str,
-    contract_content: &str,
-) -> Vec<u8> {
-    let name = ContractName::from(contract_name);
-    let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
-
-    let payload = TransactionSmartContract { name, code_body };
-
-    serialize_sign_standard_single_sig_tx_anchor_mode(
-        payload.into(),
-        sender,
-        nonce,
-        tx_fee,
-        TransactionAnchorMode::OffChainOnly,
-    )
+// Add a port to the USED_PORTS set. This is used to ensure that we don't try to bind to the same port in tests
+// Returns true if the port was inserted, false if it was already in the set.
+pub fn insert_new_port(port: u16) -> bool {
+    let mut ports = USED_PORTS.lock().unwrap();
+    ports.insert(port)
 }
 
 pub fn new_test_conf() -> Config {
     // secretKey: "b1cf9cee5083f421c84d7cb53be5edf2801c3c78d63d53917aee0bdc8bd160ee01",
     // publicKey: "03e2ed46873d0db820e8c6001aabc082d72b5b900b53b7a1b9714fe7bde3037b81",
     // stacksAddress: "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
-    let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 8];
-    rng.fill_bytes(&mut buf);
+    let rpc_port = gen_random_port();
+    let p2p_port = gen_random_port();
 
     let mut conf = Config::default();
     conf.node.working_dir = format!(
         "/tmp/stacks-node-tests/integrations-neon/{}-{}",
-        to_hex(&buf),
+        to_hex(format!("{rpc_port}{p2p_port}").as_bytes()),
         get_epoch_time_secs()
     );
     conf.node.seed =
@@ -266,181 +146,42 @@ pub fn new_test_conf() -> Config {
 
     conf.burnchain.epochs = Some(StacksEpoch::all(0, 0, 0));
 
-    let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
-    let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
-
     let localhost = "127.0.0.1";
-    conf.node.rpc_bind = format!("{}:{}", localhost, rpc_port);
-    conf.node.p2p_bind = format!("{}:{}", localhost, p2p_port);
-    conf.node.data_url = format!("http://{}:{}", localhost, rpc_port);
-    conf.node.p2p_address = format!("{}:{}", localhost, p2p_port);
+    conf.node.rpc_bind = format!("{localhost}:{rpc_port}");
+    conf.node.p2p_bind = format!("{localhost}:{p2p_port}");
+    conf.node.data_url = format!("http://{localhost}:{rpc_port}");
+    conf.node.p2p_address = format!("{localhost}:{p2p_port}");
     conf
 }
 
-pub fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
-    StacksAddress::from_public_keys(
-        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        &AddressHashMode::SerializeP2PKH,
-        1,
-        &vec![StacksPublicKey::from_private(sk)],
-    )
-    .unwrap()
-}
-
-pub fn make_stacks_transfer(
-    sender: &StacksPrivateKey,
-    nonce: u64,
-    tx_fee: u64,
-    recipient: &PrincipalData,
-    amount: u64,
-) -> Vec<u8> {
-    let payload =
-        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
-}
-
-pub fn make_sponsored_stacks_transfer_on_testnet(
-    sender: &StacksPrivateKey,
-    payer: &StacksPrivateKey,
-    sender_nonce: u64,
-    payer_nonce: u64,
-    tx_fee: u64,
-    recipient: &PrincipalData,
-    amount: u64,
-) -> Vec<u8> {
-    let payload =
-        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
-    serialize_sign_sponsored_sig_tx_anchor_mode_version(
-        payload.into(),
-        sender,
-        payer,
-        sender_nonce,
-        payer_nonce,
-        tx_fee,
-        TransactionAnchorMode::OnChainOnly,
-        TransactionVersion::Testnet,
-    )
-}
-
-pub fn make_stacks_transfer_mblock_only(
-    sender: &StacksPrivateKey,
-    nonce: u64,
-    tx_fee: u64,
-    recipient: &PrincipalData,
-    amount: u64,
-) -> Vec<u8> {
-    let payload =
-        TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
-    serialize_sign_standard_single_sig_tx_anchor_mode(
-        payload.into(),
-        sender,
-        nonce,
-        tx_fee,
-        TransactionAnchorMode::OffChainOnly,
-    )
-}
-
-pub fn make_poison(
-    sender: &StacksPrivateKey,
-    nonce: u64,
-    tx_fee: u64,
-    header_1: StacksMicroblockHeader,
-    header_2: StacksMicroblockHeader,
-) -> Vec<u8> {
-    let payload = TransactionPayload::PoisonMicroblock(header_1, header_2);
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
-}
-
-pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64) -> Vec<u8> {
-    let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None);
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
-}
-
-pub fn make_contract_call(
-    sender: &StacksPrivateKey,
-    nonce: u64,
-    tx_fee: u64,
-    contract_addr: &StacksAddress,
-    contract_name: &str,
-    function_name: &str,
-    function_args: &[Value],
-) -> Vec<u8> {
-    let contract_name = ContractName::from(contract_name);
-    let function_name = ClarityName::from(function_name);
-
-    let payload = TransactionContractCall {
-        address: contract_addr.clone(),
-        contract_name,
-        function_name,
-        function_args: function_args.iter().map(|x| x.clone()).collect(),
-    };
-
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
-}
-
-pub fn make_contract_call_mblock_only(
-    sender: &StacksPrivateKey,
-    nonce: u64,
-    tx_fee: u64,
-    contract_addr: &StacksAddress,
-    contract_name: &str,
-    function_name: &str,
-    function_args: &[Value],
-) -> Vec<u8> {
-    let contract_name = ContractName::from(contract_name);
-    let function_name = ClarityName::from(function_name);
-
-    let payload = TransactionContractCall {
-        address: contract_addr.clone(),
-        contract_name,
-        function_name,
-        function_args: function_args.iter().map(|x| x.clone()).collect(),
-    };
-
-    serialize_sign_standard_single_sig_tx_anchor_mode(
-        payload.into(),
-        sender,
-        nonce,
-        tx_fee,
-        TransactionAnchorMode::OffChainOnly,
-    )
-}
-
-fn make_microblock(
-    privk: &StacksPrivateKey,
-    chainstate: &mut StacksChainState,
-    burn_dbconn: &dyn BurnStateDB,
-    consensus_hash: ConsensusHash,
-    block: StacksBlock,
-    txs: Vec<StacksTransaction>,
-) -> StacksMicroblock {
-    let mut block_bytes = vec![];
-    block.consensus_serialize(&mut block_bytes).unwrap();
-
-    let mut microblock_builder = StacksMicroblockBuilder::new(
-        block.block_hash(),
-        consensus_hash.clone(),
-        chainstate,
-        burn_dbconn,
-        BlockBuilderSettings::max_value(),
-    )
-    .unwrap();
-    let mempool_txs: Vec<_> = txs
-        .into_iter()
-        .map(|tx| {
-            // TODO: better fee estimation
-            let mut tx_bytes = vec![];
-            tx.consensus_serialize(&mut tx_bytes).unwrap();
-            (tx, tx_bytes.len() as u64)
-        })
-        .collect();
-
-    // NOTE: we intentionally do not check the block's microblock pubkey hash against the private
-    // key, because we may need to test that microblocks get rejected due to bad signatures.
-    let microblock = microblock_builder
-        .mine_next_microblock_from_txs(mempool_txs, privk)
+/// Randomly change the config's network ports to new ports.
+pub fn set_random_binds(config: &mut Config) {
+    // Just in case prior config was not created with `new_test_conf`, we need to add the prior generated ports
+    let prior_rpc_port: u16 = config
+        .node
+        .rpc_bind
+        .split(":")
+        .last()
+        .unwrap()
+        .parse()
         .unwrap();
-    microblock
+    let prior_p2p_port: u16 = config
+        .node
+        .p2p_bind
+        .split(":")
+        .last()
+        .unwrap()
+        .parse()
+        .unwrap();
+    insert_new_port(prior_rpc_port);
+    insert_new_port(prior_p2p_port);
+    let rpc_port = gen_random_port();
+    let p2p_port = gen_random_port();
+    let localhost = "127.0.0.1";
+    config.node.rpc_bind = format!("{localhost}:{rpc_port}");
+    config.node.p2p_bind = format!("{localhost}:{p2p_port}");
+    config.node.data_url = format!("http://{localhost}:{rpc_port}");
+    config.node.p2p_address = format!("{localhost}:{p2p_port}");
 }
 
 /// Deserializes the `StacksTransaction` objects from `blocks` and returns all those that
@@ -462,7 +203,7 @@ pub fn select_transactions_where(
         }
     }
 
-    return result;
+    result
 }
 
 /// This function will call `next_block_and_wait` until the burnchain height underlying `BitcoinRegtestController`
@@ -475,20 +216,19 @@ pub fn run_until_burnchain_height(
     target_height: u64,
     conf: &Config,
 ) -> bool {
-    let tip_info = get_chain_info(&conf);
+    let tip_info = get_chain_info(conf);
     let mut current_height = tip_info.burn_block_height;
 
     while current_height < target_height {
         eprintln!(
-            "run_until_burnchain_height: Issuing block at {}, current_height burnchain height is ({})",
-            get_epoch_time_secs(),
-            current_height
+            "run_until_burnchain_height: Issuing block at {}, current_height burnchain height is ({current_height})",
+            get_epoch_time_secs()
         );
-        let next_result = next_block_and_wait(btc_regtest_controller, &blocks_processed);
+        let next_result = next_block_and_wait(btc_regtest_controller, blocks_processed);
         if !next_result {
             return false;
         }
-        let tip_info = get_chain_info(&conf);
+        let tip_info = get_chain_info(conf);
         current_height = tip_info.burn_block_height;
     }
 
@@ -521,8 +261,6 @@ fn should_succeed_mining_valid_txs() {
         100000,
     );
 
-    conf.miner.min_tx_fee = 0;
-
     let num_rounds = 6;
     let mut run_loop = RunLoop::new(conf.clone());
 
@@ -553,7 +291,7 @@ fn should_succeed_mining_valid_txs() {
             },
             3 => {
                 // On round 3, publish a "set:foo=bar" transaction
-                // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 10 2 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store set-value -e \"foo\" -e \"bar\" 
+                // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 10 2 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store set-value -e \"foo\" -e \"bar\"
                 let set_foo_bar = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000002000000000000000a010142a01caf6a32b367664869182f0ebc174122a5a980937ba259d44cc3ebd280e769a53dd3913c8006ead680a6e1c98099fcd509ce94b0a4e90d9f4603b101922d030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265097365742d76616c7565000000020d00000003666f6f0d00000003626172";
                 tenure.mem_pool.submit_raw(&mut chainstate_copy, &sortdb, &consensus_hash, &header_hash,hex_bytes(set_foo_bar).unwrap().to_vec(),
                                 &ExecutionCost::max_value(),
@@ -580,7 +318,6 @@ fn should_succeed_mining_valid_txs() {
             },
             _ => {}
         };
-        return
     });
 
     // Use block's hook for asserting expectations
@@ -606,26 +343,22 @@ fn should_succeed_mining_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
 
                     // Transaction #2 should be the smart contract published
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match contract_tx.payload {
-                        TransactionPayload::SmartContract(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        contract_tx.payload,
+                        TransactionPayload::SmartContract(..)
+                    ));
 
                     // 0 event should have been produced
-                    let events: Vec<StacksTransactionEvent> = chain_tip
-                        .receipts
-                        .iter()
-                        .flat_map(|a| a.events.clone())
-                        .collect();
-                    assert!(events.len() == 0);
+                    let events = chain_tip.receipts.iter().flat_map(|a| a.events.clone());
+                    assert!(events.count() == 0);
                 }
                 2 => {
                     // Inspecting the chain at round 2.
@@ -638,26 +371,22 @@ fn should_succeed_mining_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
 
                     // Transaction #2 should be the get-value contract-call
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match contract_tx.payload {
-                        TransactionPayload::ContractCall(_) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        contract_tx.payload,
+                        TransactionPayload::ContractCall(_)
+                    ));
 
                     // 2 lockup events should have been produced
-                    let events: Vec<StacksTransactionEvent> = chain_tip
-                        .receipts
-                        .iter()
-                        .flat_map(|a| a.events.clone())
-                        .collect();
-                    assert_eq!(events.len(), 2);
+                    let events = chain_tip.receipts.iter().flat_map(|a| a.events.clone());
+                    assert_eq!(events.count(), 2);
                 }
                 3 => {
                     // Inspecting the chain at round 3.
@@ -670,18 +399,18 @@ fn should_succeed_mining_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
 
                     // Transaction #2 should be the set-value contract-call
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match contract_tx.payload {
-                        TransactionPayload::ContractCall(_) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        contract_tx.payload,
+                        TransactionPayload::ContractCall(_)
+                    ));
 
                     // 2 lockup events + 1 contract event should have been produced
                     let events: Vec<StacksTransactionEvent> = chain_tip
@@ -695,7 +424,7 @@ fn should_succeed_mining_valid_txs() {
                             format!("{}", data.key.0)
                                 == "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store"
                                 && data.key.1 == "print"
-                                && format!("{}", data.value) == "\"Setting key foo\"".to_string()
+                                && format!("{}", data.value) == "\"Setting key foo\""
                         }
                         _ => false,
                     });
@@ -711,18 +440,18 @@ fn should_succeed_mining_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
 
                     // Transaction #2 should be the get-value contract-call
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match contract_tx.payload {
-                        TransactionPayload::ContractCall(_) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        contract_tx.payload,
+                        TransactionPayload::ContractCall(_)
+                    ));
 
                     // 1 event should have been produced
                     let events: Vec<StacksTransactionEvent> = chain_tip
@@ -736,7 +465,7 @@ fn should_succeed_mining_valid_txs() {
                             format!("{}", data.key.0)
                                 == "STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A.store"
                                 && data.key.1 == "print"
-                                && format!("{}", data.value) == "\"Getting key foo\"".to_string()
+                                && format!("{}", data.value) == "\"Getting key foo\""
                         }
                         _ => false,
                     });
@@ -752,19 +481,19 @@ fn should_succeed_mining_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
 
                     // Transaction #2 should be the STX transfer
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
 
-                    assert!(match contract_tx.payload {
-                        TransactionPayload::TokenTransfer(_, _, _) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        contract_tx.payload,
+                        TransactionPayload::TokenTransfer(_, _, _)
+                    ));
 
                     // 1 event should have been produced
                     let events: Vec<StacksTransactionEvent> = chain_tip
@@ -822,7 +551,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             1 => {
                 // On round 1, publish the KV contract
                 let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
-                let publish_contract = make_contract_publish(&contract_sk, 0, 10, "store", STORE_CONTRACT);
+                let publish_contract = make_contract_publish(&contract_sk, 0, 10, CHAIN_ID_TESTNET, "store", STORE_CONTRACT);
                 tenure.mem_pool.submit_raw(&mut chainstate_copy, &sortdb, &consensus_hash, &header_hash,publish_contract,
                                 &ExecutionCost::max_value(),
                                 &StacksEpochId::Epoch20,
@@ -859,7 +588,6 @@ fn should_succeed_handling_malformed_and_valid_txs() {
             },
             _ => {}
         };
-        return
     });
 
     // Use block's hook for asserting expectations
@@ -877,10 +605,10 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
                 }
                 1 => {
                     // Inspecting the chain at round 1.
@@ -893,18 +621,18 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
 
                     // Transaction #2 should be the smart contract published
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match contract_tx.payload {
-                        TransactionPayload::SmartContract(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        contract_tx.payload,
+                        TransactionPayload::SmartContract(..)
+                    ));
                 }
                 2 => {
                     // Inspecting the chain at round 2.
@@ -917,10 +645,10 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
                 }
                 3 => {
                     // Inspecting the chain at round 3.
@@ -933,10 +661,10 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
                 }
                 4 => {
                     // Inspecting the chain at round 4.
@@ -949,18 +677,18 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     // Transaction #1 should be the coinbase from the leader
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(..) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        coinbase_tx.payload,
+                        TransactionPayload::Coinbase(..)
+                    ));
 
                     // Transaction #2 should be the contract-call
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
-                    assert!(match contract_tx.payload {
-                        TransactionPayload::ContractCall(_) => true,
-                        _ => false,
-                    });
+                    assert!(matches!(
+                        contract_tx.payload,
+                        TransactionPayload::ContractCall(_)
+                    ));
                 }
                 _ => {}
             }
@@ -995,4 +723,333 @@ fn test_btc_to_sat_errors() {
     assert!(ParsedUTXO::serialized_btc_to_sat("1e-8").is_none());
     assert!(ParsedUTXO::serialized_btc_to_sat("7.4e-7").is_none());
     assert!(ParsedUTXO::serialized_btc_to_sat("5.96e-6").is_none());
+}
+
+#[test]
+fn test_sort_and_populate_candidates() {
+    let empty: Vec<TipCandidate> = vec![];
+    assert_eq!(
+        empty,
+        BlockMinerThread::sort_and_populate_candidates(vec![])
+    );
+    let candidates = vec![
+        TipCandidate {
+            stacks_height: 1,
+            consensus_hash: ConsensusHash([0x01; 20]),
+            anchored_block_hash: BlockHeaderHash([0x01; 32]),
+            parent_consensus_hash: ConsensusHash([0x00; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x00; 32]),
+            burn_height: 100,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 2,
+            consensus_hash: ConsensusHash([0x02; 20]),
+            anchored_block_hash: BlockHeaderHash([0x02; 32]),
+            parent_consensus_hash: ConsensusHash([0x01; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+            burn_height: 102,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 2,
+            consensus_hash: ConsensusHash([0x12; 20]),
+            anchored_block_hash: BlockHeaderHash([0x12; 32]),
+            parent_consensus_hash: ConsensusHash([0x01; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+            burn_height: 101,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 2,
+            consensus_hash: ConsensusHash([0x22; 20]),
+            anchored_block_hash: BlockHeaderHash([0x22; 32]),
+            parent_consensus_hash: ConsensusHash([0x01; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+            burn_height: 104,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 4,
+            consensus_hash: ConsensusHash([0x04; 20]),
+            anchored_block_hash: BlockHeaderHash([0x04; 32]),
+            parent_consensus_hash: ConsensusHash([0x03; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x03; 32]),
+            burn_height: 105,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 3,
+            consensus_hash: ConsensusHash([0x03; 20]),
+            anchored_block_hash: BlockHeaderHash([0x03; 32]),
+            parent_consensus_hash: ConsensusHash([0x02; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x02; 32]),
+            burn_height: 105,
+            num_earlier_siblings: 0,
+        },
+    ];
+    let sorted_candidates = BlockMinerThread::sort_and_populate_candidates(candidates);
+    assert_eq!(
+        sorted_candidates,
+        vec![
+            TipCandidate {
+                stacks_height: 1,
+                consensus_hash: ConsensusHash([0x01; 20]),
+                anchored_block_hash: BlockHeaderHash([0x01; 32]),
+                parent_consensus_hash: ConsensusHash([0x00; 20]),
+                parent_anchored_block_hash: BlockHeaderHash([0x00; 32]),
+                burn_height: 100,
+                num_earlier_siblings: 0
+            },
+            TipCandidate {
+                stacks_height: 2,
+                consensus_hash: ConsensusHash([0x12; 20]),
+                anchored_block_hash: BlockHeaderHash([0x12; 32]),
+                parent_consensus_hash: ConsensusHash([0x01; 20]),
+                parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+                burn_height: 101,
+                num_earlier_siblings: 0
+            },
+            TipCandidate {
+                stacks_height: 2,
+                consensus_hash: ConsensusHash([0x02; 20]),
+                anchored_block_hash: BlockHeaderHash([0x02; 32]),
+                parent_consensus_hash: ConsensusHash([0x01; 20]),
+                parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+                burn_height: 102,
+                num_earlier_siblings: 1
+            },
+            TipCandidate {
+                stacks_height: 2,
+                consensus_hash: ConsensusHash([0x22; 20]),
+                anchored_block_hash: BlockHeaderHash([0x22; 32]),
+                parent_consensus_hash: ConsensusHash([0x01; 20]),
+                parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+                burn_height: 104,
+                num_earlier_siblings: 2
+            },
+            TipCandidate {
+                stacks_height: 3,
+                consensus_hash: ConsensusHash([0x03; 20]),
+                anchored_block_hash: BlockHeaderHash([0x03; 32]),
+                parent_consensus_hash: ConsensusHash([0x02; 20]),
+                parent_anchored_block_hash: BlockHeaderHash([0x02; 32]),
+                burn_height: 105,
+                num_earlier_siblings: 0
+            },
+            TipCandidate {
+                stacks_height: 4,
+                consensus_hash: ConsensusHash([0x04; 20]),
+                anchored_block_hash: BlockHeaderHash([0x04; 32]),
+                parent_consensus_hash: ConsensusHash([0x03; 20]),
+                parent_anchored_block_hash: BlockHeaderHash([0x03; 32]),
+                burn_height: 105,
+                num_earlier_siblings: 0
+            }
+        ]
+    );
+}
+
+#[test]
+fn test_inner_pick_best_tip() {
+    // chain structure as folows:
+    //
+    // Bitcoin chain
+    // 100  101  102  103  104  105  106
+    //  |    |    |         |    |    |
+    // Stacks chain         |    |    |
+    //  1 <- 2    |         |.-- 3 <- 4
+    //    \       |         /
+    //     *----- 2 <------*|
+    //      \               |
+    //       *--------------2
+    //
+    // If there are no previous best-tips, then:
+    // At Bitcoin height 105, the best tip is (4,105)
+    // At Bitcoin height 104, the best tip is (3,104)
+    // At Bitcoin height 103, the best tip is (2,101)
+    // At Bitcoin height 102, the best tip is (2,101)
+    // At Bitcoin height 101, the best tip is (2,101)
+    // At Bitcoin height 100, the best tip is (1,100)
+    //
+    let candidates = vec![
+        TipCandidate {
+            stacks_height: 1,
+            consensus_hash: ConsensusHash([0x01; 20]),
+            anchored_block_hash: BlockHeaderHash([0x01; 32]),
+            parent_consensus_hash: ConsensusHash([0x00; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x00; 32]),
+            burn_height: 100,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 2,
+            consensus_hash: ConsensusHash([0x02; 20]),
+            anchored_block_hash: BlockHeaderHash([0x02; 32]),
+            parent_consensus_hash: ConsensusHash([0x01; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+            burn_height: 102,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 2,
+            consensus_hash: ConsensusHash([0x12; 20]),
+            anchored_block_hash: BlockHeaderHash([0x12; 32]),
+            parent_consensus_hash: ConsensusHash([0x01; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+            burn_height: 101,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 2,
+            consensus_hash: ConsensusHash([0x22; 20]),
+            anchored_block_hash: BlockHeaderHash([0x22; 32]),
+            parent_consensus_hash: ConsensusHash([0x01; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+            burn_height: 104,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 4,
+            consensus_hash: ConsensusHash([0x04; 20]),
+            anchored_block_hash: BlockHeaderHash([0x04; 32]),
+            parent_consensus_hash: ConsensusHash([0x03; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x03; 32]),
+            burn_height: 106,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 3,
+            consensus_hash: ConsensusHash([0x03; 20]),
+            anchored_block_hash: BlockHeaderHash([0x03; 32]),
+            parent_consensus_hash: ConsensusHash([0x02; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x02; 32]),
+            burn_height: 105,
+            num_earlier_siblings: 0,
+        },
+    ];
+
+    let sorted_candidates = BlockMinerThread::sort_and_populate_candidates(candidates);
+    assert_eq!(
+        None,
+        BlockMinerThread::inner_pick_best_tip(vec![], HashMap::new())
+    );
+    assert_eq!(
+        Some(sorted_candidates[5].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates.clone(), HashMap::new())
+    );
+    assert_eq!(
+        Some(sorted_candidates[0].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..1].to_vec(), HashMap::new())
+    );
+    assert_eq!(
+        Some(sorted_candidates[1].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..2].to_vec(), HashMap::new())
+    );
+    assert_eq!(
+        Some(sorted_candidates[1].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..3].to_vec(), HashMap::new())
+    );
+    assert_eq!(
+        Some(sorted_candidates[1].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..4].to_vec(), HashMap::new())
+    );
+    assert_eq!(
+        Some(sorted_candidates[4].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..5].to_vec(), HashMap::new())
+    );
+
+    // suppose now that we previously picked (2,104) as the best-tip.
+    // No other tips at Stacks height 2 will be accepted, nor will those at heights 3 and 4 (since
+    // they descend from the wrong height-2 block).
+    let mut best_tips = HashMap::new();
+    best_tips.insert(2, sorted_candidates[3].clone());
+
+    assert_eq!(
+        Some(sorted_candidates[3].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates.clone(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[0].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..1].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        None,
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..2].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        None,
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..3].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[3].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..4].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[3].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..5].to_vec(), best_tips.clone())
+    );
+
+    // now suppose that we previously picked (2,102) as the best-tip.
+    // Conflicting blocks are (2,101) and (2,104)
+    let mut best_tips = HashMap::new();
+    best_tips.insert(2, sorted_candidates[2].clone());
+
+    assert_eq!(
+        Some(sorted_candidates[5].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates.clone(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[0].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..1].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        None,
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..2].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[2].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..3].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[2].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..4].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[4].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..5].to_vec(), best_tips.clone())
+    );
+
+    // now suppose that we previously picked both (2,101) and (3,105) as the best-tips.
+    // these best-tips are in conflict, but that shouldn't prohibit us from choosing (4,106) as the
+    // best tip even though it doesn't confirm (2,101).  However, it would mean that (2,102) and
+    // (2,104) are in conflict.
+    let mut best_tips = HashMap::new();
+    best_tips.insert(2, sorted_candidates[1].clone());
+    best_tips.insert(3, sorted_candidates[4].clone());
+
+    assert_eq!(
+        Some(sorted_candidates[5].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates.clone(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[0].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..1].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[1].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..2].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[1].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..3].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[1].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..4].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[1].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..5].to_vec(), best_tips.clone())
+    );
 }

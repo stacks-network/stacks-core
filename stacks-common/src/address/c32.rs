@@ -14,11 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use super::Error;
+use sha2::{Digest, Sha256};
 
-use sha2::Digest;
-use sha2::Sha256;
-use std::convert::TryFrom;
+use super::Error;
 
 const C32_CHARACTERS: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
@@ -180,7 +178,10 @@ const C32_CHARACTERS_MAP: [Option<u8>; 128] = [
 ];
 
 fn c32_encode(input_bytes: &[u8]) -> String {
-    let mut result = vec![];
+    // ASCII characters are 8-bits and c32-encoding encodes 5-bits per
+    // character, so the c32-encoded size should be ceil((ascii size) * 8 / 5)
+    let size = input_bytes.len().saturating_mul(8).div_ceil(5);
+    let mut result = Vec::with_capacity(size);
     let mut carry = 0;
     let mut carry_bits = 0;
 
@@ -195,8 +196,8 @@ fn c32_encode(input_bytes: &[u8]) -> String {
         if carry_bits >= 5 {
             let c32_value = carry & ((1 << 5) - 1);
             result.push(C32_CHARACTERS[c32_value as usize]);
-            carry_bits = carry_bits - 5;
-            carry = carry >> 5;
+            carry_bits -= 5;
+            carry >>= 5;
         }
     }
 
@@ -221,7 +222,7 @@ fn c32_encode(input_bytes: &[u8]) -> String {
         }
     }
 
-    let result: Vec<u8> = result.drain(..).rev().collect();
+    let result: Vec<u8> = result.into_iter().rev().collect();
     String::from_utf8(result).unwrap()
 }
 
@@ -234,16 +235,11 @@ fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
 }
 
 fn c32_decode_ascii(input_str: &str) -> Result<Vec<u8>, Error> {
-    let mut result = vec![];
-    let mut carry: u16 = 0;
-    let mut carry_bits = 0; // can be up to 5
-
     let mut iter_c32_digits = Vec::<u8>::with_capacity(input_str.len());
 
     for x in input_str.as_bytes().iter().rev() {
-        match C32_CHARACTERS_MAP.get(*x as usize) {
-            Some(&Some(x)) => iter_c32_digits.push(x),
-            _ => {}
+        if let Some(Some(x)) = C32_CHARACTERS_MAP.get(*x as usize) {
+            iter_c32_digits.push(*x)
         }
     }
 
@@ -252,6 +248,14 @@ fn c32_decode_ascii(input_str: &str) -> Result<Vec<u8>, Error> {
         return Err(Error::InvalidCrockford32);
     }
 
+    // c32-encoding encodes 5 bits into each character, while ASCII encodes
+    // 8-bits into each character. So, the ASCII-encoded size should be
+    // ceil((c32 size) * 5 / 8)
+    let size = iter_c32_digits.len().saturating_mul(5).div_ceil(8);
+    let mut result = Vec::with_capacity(size);
+    let mut carry: u16 = 0;
+    let mut carry_bits = 0; // can be up to 5
+
     for current_5bit in &iter_c32_digits {
         carry += (*current_5bit as u16) << carry_bits;
         carry_bits += 5;
@@ -259,7 +263,7 @@ fn c32_decode_ascii(input_str: &str) -> Result<Vec<u8>, Error> {
         if carry_bits >= 8 {
             result.push((carry & ((1 << 8) - 1)) as u8);
             carry_bits -= 8;
-            carry = carry >> 8;
+            carry >>= 8;
         }
     }
 
@@ -356,7 +360,7 @@ fn c32_check_decode(check_data_unsanitized: &str) -> Result<(u8, Vec<u8>), Error
 }
 
 pub fn c32_address_decode(c32_address_str: &str) -> Result<(u8, Vec<u8>), Error> {
-    if c32_address_str.len() <= 5 {
+    if !c32_address_str.is_ascii() || c32_address_str.len() <= 5 {
         Err(Error::InvalidCrockford32)
     } else {
         c32_check_decode(&c32_address_str[1..])
@@ -370,18 +374,19 @@ pub fn c32_address(version: u8, data: &[u8]) -> Result<String, Error> {
 
 #[cfg(test)]
 mod test {
+    use rand::Rng;
+
     use super::super::c32_old::{
         c32_address as c32_address_old, c32_address_decode as c32_address_decode_old,
     };
     use super::*;
     use crate::util::hash::hex_bytes;
-    use rand::Rng;
 
     #[test]
     fn old_c32_validation() {
         for n in 0..5000 {
             // random version
-            let random_version: u8 = rand::thread_rng().gen_range(0, 31);
+            let random_version: u8 = rand::thread_rng().gen_range(0..31);
 
             // random 20 bytes
             let random_bytes = rand::thread_rng().gen::<[u8; 20]>();
@@ -462,17 +467,15 @@ mod test {
             ],
         ];
 
-        for i in 0..hex_strs.len() {
-            for j in 0..versions.len() {
-                let h = hex_strs[i];
-                let v = versions[j];
+        for (i, h) in hex_strs.iter().enumerate() {
+            for (j, v) in versions.iter().enumerate() {
                 let b = hex_bytes(h).unwrap();
-                let z = c32_address(v, &b).unwrap();
+                let z = c32_address(*v, &b).unwrap();
 
                 assert_eq!(z, c32_addrs[j][i]);
 
                 let (decoded_version, decoded_bytes) = c32_address_decode(&z).unwrap();
-                assert_eq!(decoded_version, v);
+                assert_eq!(decoded_version, *v);
                 assert_eq!(decoded_bytes, b);
             }
         }
@@ -566,11 +569,9 @@ mod test {
 
     #[test]
     fn test_ascii_only() {
-        match c32_address_decode("S\u{1D7D8}2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE") {
-            Err(Error::InvalidCrockford32) => {}
-            _ => {
-                assert!(false);
-            }
-        }
+        assert!(matches!(
+            c32_address_decode("S\u{1D7D8}2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE"),
+            Err(Error::InvalidCrockford32)
+        ));
     }
 }

@@ -20,17 +20,15 @@
 //! these blocks and the blockchain.
 //!
 
-use crate::util::uint::Uint256;
-
 use crate::deps_common::bitcoin::blockdata::constants::max_target;
 use crate::deps_common::bitcoin::blockdata::transaction::Transaction;
 use crate::deps_common::bitcoin::network::constants::Network;
 use crate::deps_common::bitcoin::network::encodable::VarInt;
 use crate::deps_common::bitcoin::network::serialize::BitcoinHash;
-use crate::deps_common::bitcoin::util;
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 use crate::deps_common::bitcoin::util::Error;
 use crate::deps_common::bitcoin::util::Error::{SpvBadProofOfWork, SpvBadTarget};
+use crate::util::uint::Uint256;
 
 /// A block header, which contains all the block's information except
 /// the actual transactions
@@ -103,7 +101,7 @@ impl BlockHeader {
 
     /// Computes the target value in float format from Uint256 format.
     pub fn compact_target_from_u256(value: &Uint256) -> u32 {
-        let mut size = (value.bits() + 7) / 8;
+        let mut size = value.bits().div_ceil(8);
         let mut compact = if size <= 3 {
             (value.low_u64() << (8 * (3 - size))) as u32
         } else {
@@ -179,10 +177,9 @@ impl_consensus_encoding!(LoneBlockHeader, header, tx_count);
 
 #[cfg(test)]
 mod tests {
-    use crate::util::hash::hex_bytes as hex_decode;
-
     use crate::deps_common::bitcoin::blockdata::block::{Block, BlockHeader};
     use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
+    use crate::util::hash::hex_bytes as hex_decode;
 
     #[test]
     fn block_test() {

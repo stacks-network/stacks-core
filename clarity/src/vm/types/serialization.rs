@@ -14,35 +14,24 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::borrow::Borrow;
-use std::collections::HashMap;
-use std::convert::{TryFrom, TryInto};
 use std::io::{Read, Write};
-use std::{cmp, error, fmt, str};
+use std::{cmp, error, str};
 
-use serde_json::Value as JSONValue;
+use lazy_static::lazy_static;
+use stacks_common::codec::{Error as codec_error, StacksMessageCodec};
 use stacks_common::types::StacksEpochId;
-
-use crate::vm::database::{ClarityDeserializable, ClaritySerializable};
-use crate::vm::errors::{
-    CheckErrors, Error as ClarityError, IncomparableError, InterpreterError, InterpreterResult,
-    RuntimeErrorType,
-};
-use crate::vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
-use crate::vm::types::signatures::CallableSubtype;
-use crate::vm::types::{
-    BufferLength, CallableData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
-    ResponseData, SequenceData, SequenceSubtype, StandardPrincipalData, StringSubtype,
-    StringUTF8Length, TupleData, TypeSignature, Value, BOUND_VALUE_SERIALIZATION_BYTES,
-    MAX_TYPE_DEPTH, MAX_VALUE_SIZE,
-};
 use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::BoundReader;
 
-use crate::codec::{Error as codec_error, StacksMessageCodec};
-use crate::vm::types::byte_len_of_serialization;
-
 use super::{ListTypeData, TupleTypeSignature};
+use crate::vm::database::{ClarityDeserializable, ClaritySerializable};
+use crate::vm::errors::{CheckErrors, Error as ClarityError, IncomparableError, InterpreterError};
+use crate::vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
+use crate::vm::types::{
+    BufferLength, CallableData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
+    SequenceData, SequenceSubtype, StandardPrincipalData, StringSubtype, TupleData, TypeSignature,
+    Value, BOUND_VALUE_SERIALIZATION_BYTES, MAX_TYPE_DEPTH, MAX_VALUE_SIZE,
+};
 
 /// Errors that may occur in serialization or deserialization
 /// If deserialization failed because the described type is a bad type and
@@ -57,10 +46,15 @@ pub enum SerializationError {
     DeserializationError(String),
     DeserializeExpected(TypeSignature),
     LeftoverBytesInDeserialization,
+    SerializationError(String),
+    UnexpectedSerialization,
 }
 
 lazy_static! {
-    pub static ref NONE_SERIALIZATION_LEN: u64 = Value::none().serialize_to_vec().len() as u64;
+    pub static ref NONE_SERIALIZATION_LEN: u64 = {
+        #[allow(clippy::unwrap_used)]
+        u64::try_from(Value::none().serialize_to_vec().unwrap().len()).unwrap()
+    };
 }
 
 /// Deserialization uses a specific epoch for passing to the type signature checks
@@ -89,11 +83,17 @@ impl std::fmt::Display for SerializationError {
             SerializationError::DeserializationError(e) => {
                 write!(f, "Deserialization error: {}", e)
             }
+            SerializationError::SerializationError(e) => {
+                write!(f, "Serialization error: {}", e)
+            }
             SerializationError::DeserializeExpected(e) => write!(
                 f,
                 "Deserialization expected the type of the input to be: {}",
                 e
             ),
+            SerializationError::UnexpectedSerialization => {
+                write!(f, "The serializer handled an input in an unexpected way")
+            }
             SerializationError::LeftoverBytesInDeserialization => {
                 write!(f, "Deserialization error: bytes left over in buffer")
             }
@@ -205,7 +205,7 @@ trait ClarityValueSerializable<T: std::marker::Sized> {
 
 impl ClarityValueSerializable<StandardPrincipalData> for StandardPrincipalData {
     fn serialize_write<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
-        w.write_all(&[self.0])?;
+        w.write_all(&[self.version()])?;
         w.write_all(&self.1)
     }
 
@@ -214,7 +214,8 @@ impl ClarityValueSerializable<StandardPrincipalData> for StandardPrincipalData {
         let mut data = [0; 20];
         r.read_exact(&mut version)?;
         r.read_exact(&mut data)?;
-        Ok(StandardPrincipalData(version[0], data))
+        StandardPrincipalData::new(version[0], data)
+            .map_err(|_| SerializationError::UnexpectedSerialization)
     }
 }
 
@@ -270,7 +271,7 @@ impl PrincipalData {
         let mut header = [0];
         r.read_exact(&mut header)?;
 
-        let prefix = TypePrefix::from_u8(header[0]).ok_or_else(|| "Bad principal prefix")?;
+        let prefix = TypePrefix::from_u8(header[0]).ok_or("Bad principal prefix")?;
 
         match prefix {
             TypePrefix::PrincipalStandard => {
@@ -367,7 +368,7 @@ impl DeserializeStackItem {
                     if *next_sanitize {
                         return Ok(None);
                     }
-                    let field_type = some_tuple.field_type(&next_name).ok_or_else(|| {
+                    let field_type = some_tuple.field_type(next_name).ok_or_else(|| {
                         SerializationError::DeserializeExpected(TypeSignature::TupleType(
                             some_tuple.clone(),
                         ))
@@ -548,7 +549,7 @@ impl Value {
             let expect_size = match expected_type.max_serialized_size() {
                 Ok(x) => x,
                 Err(e) => {
-                    warn!(
+                    debug!(
                         "Failed to determine max serialized size when checking expected_type argument";
                         "err" => ?e
                     );
@@ -556,7 +557,7 @@ impl Value {
                 }
             };
 
-            if expect_size as u64 > bytes_read {
+            if bytes_read > expect_size as u64 {
                 // this can happen due to sanitization, so its no longer indicative of a *problem* with the node.
                 debug!(
                     "Deserialized more bytes than expected size during deserialization. Expected size = {}, bytes read = {}, type = {}",
@@ -575,7 +576,6 @@ impl Value {
         top_expected_type: Option<&TypeSignature>,
         sanitize: bool,
     ) -> Result<Value, SerializationError> {
-        use super::PrincipalData::*;
         use super::Value::*;
 
         let mut stack = vec![DeserializeStackItem::TopLevel {
@@ -592,6 +592,7 @@ impl Value {
                 return Err(CheckErrors::TypeSignatureTooDeep.into());
             }
 
+            #[allow(clippy::expect_used)]
             let expected_type = stack
                 .last()
                 .expect("FATAL: stack.last() should always be some() because of loop condition")
@@ -599,7 +600,7 @@ impl Value {
 
             let mut header = [0];
             r.read_exact(&mut header)?;
-            let prefix = TypePrefix::from_u8(header[0]).ok_or_else(|| "Bad type prefix")?;
+            let prefix = TypePrefix::from_u8(header[0]).ok_or("Bad type prefix")?;
 
             let item = match prefix {
                 TypePrefix::Int => {
@@ -719,8 +720,10 @@ impl Value {
                         None => (None, None),
                         Some(TypeSignature::SequenceType(SequenceSubtype::ListType(list_type))) => {
                             if len > list_type.get_max_len() {
+                                // unwrap is safe because of the match condition
+                                #[allow(clippy::unwrap_used)]
                                 return Err(SerializationError::DeserializeExpected(
-                                    expected_type.unwrap().clone(),
+                                    expected_type.unwrap(),
                                 ));
                             }
                             (Some(list_type), Some(list_type.get_list_item_type()))
@@ -770,16 +773,18 @@ impl Value {
                         Some(TypeSignature::TupleType(tuple_type)) => {
                             if sanitize {
                                 if u64::from(len) < tuple_type.len() {
+                                    // unwrap is safe because of the match condition
+                                    #[allow(clippy::unwrap_used)]
                                     return Err(SerializationError::DeserializeExpected(
-                                        expected_type.unwrap().clone(),
+                                        expected_type.unwrap(),
                                     ));
                                 }
-                            } else {
-                                if len as u64 != tuple_type.len() {
-                                    return Err(SerializationError::DeserializeExpected(
-                                        expected_type.unwrap().clone(),
-                                    ));
-                                }
+                            } else if u64::from(len) != tuple_type.len() {
+                                // unwrap is safe because of the match condition
+                                #[allow(clippy::unwrap_used)]
+                                return Err(SerializationError::DeserializeExpected(
+                                    expected_type.unwrap(),
+                                ));
                             }
                             Some(tuple_type)
                         }
@@ -816,7 +821,7 @@ impl Value {
                             TupleData::from_data_typed(
                                 &DESERIALIZATION_TYPE_CHECK_EPOCH,
                                 vec![],
-                                &tuple_type,
+                                tuple_type,
                             )
                             .map_err(|_| "Illegal tuple type")
                             .map(Value::from)?
@@ -935,7 +940,7 @@ impl Value {
                         mut processed_entries,
                     } => {
                         let push_entry = if sanitize {
-                            if let Some(_) = expected_type.as_ref() {
+                            if expected_type.is_some() {
                                 // if performing tuple sanitization, don't include a field
                                 //  if it was sanitized
                                 !next_sanitize
@@ -1019,7 +1024,7 @@ impl Value {
         ))
     }
 
-    pub fn serialize_write<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
+    pub fn serialize_write<W: Write>(&self, w: &mut W) -> Result<(), SerializationError> {
         use super::CharType::*;
         use super::PrincipalData::*;
         use super::SequenceData::{self, *};
@@ -1047,28 +1052,47 @@ impl Value {
                 value.serialize_write(w)?;
             }
             Sequence(List(data)) => {
-                w.write_all(&data.len().to_be_bytes())?;
+                let len_bytes = data
+                    .len()
+                    .map_err(|e| SerializationError::SerializationError(e.to_string()))?
+                    .to_be_bytes();
+                w.write_all(&len_bytes)?;
                 for item in data.data.iter() {
                     item.serialize_write(w)?;
                 }
             }
             Sequence(Buffer(value)) => {
-                w.write_all(&(u32::from(value.len()).to_be_bytes()))?;
+                let len_bytes = u32::from(
+                    value
+                        .len()
+                        .map_err(|e| SerializationError::SerializationError(e.to_string()))?,
+                )
+                .to_be_bytes();
+                w.write_all(&len_bytes)?;
                 w.write_all(&value.data)?
             }
             Sequence(SequenceData::String(UTF8(value))) => {
                 let total_len: u32 = value.data.iter().fold(0u32, |len, c| len + c.len() as u32);
                 w.write_all(&(total_len.to_be_bytes()))?;
                 for bytes in value.data.iter() {
-                    w.write_all(&bytes)?
+                    w.write_all(bytes)?
                 }
             }
             Sequence(SequenceData::String(ASCII(value))) => {
-                w.write_all(&(u32::from(value.len()).to_be_bytes()))?;
+                let len_bytes = u32::from(
+                    value
+                        .len()
+                        .map_err(|e| SerializationError::SerializationError(e.to_string()))?,
+                )
+                .to_be_bytes();
+                w.write_all(&len_bytes)?;
                 w.write_all(&value.data)?
             }
             Tuple(data) => {
-                w.write_all(&u32::try_from(data.data_map.len()).unwrap().to_be_bytes())?;
+                let len_bytes = u32::try_from(data.data_map.len())
+                    .map_err(|e| SerializationError::SerializationError(e.to_string()))?
+                    .to_be_bytes();
+                w.write_all(&len_bytes)?;
                 for (key, value) in data.data_map.iter() {
                     key.serialize_write(w)?;
                     value.serialize_write(w)?;
@@ -1100,8 +1124,8 @@ impl Value {
         expected: &TypeSignature,
         sanitize: bool,
     ) -> Result<Value, SerializationError> {
-        let mut data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
-        Value::try_deserialize_bytes(&mut data, expected, sanitize)
+        let data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
+        Value::try_deserialize_bytes(&data, expected, sanitize)
     }
 
     /// This function attempts to deserialize a byte buffer into a
@@ -1136,20 +1160,19 @@ impl Value {
     /// Try to deserialize a value from a hex string without type information. This *does not*
     /// perform sanitization.
     pub fn try_deserialize_hex_untyped(hex: &str) -> Result<Value, SerializationError> {
-        let hex = if hex.starts_with("0x") {
-            &hex[2..]
-        } else {
-            &hex
-        };
-        let mut data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
-        Value::try_deserialize_bytes_untyped(&mut data)
+        let hex = hex.strip_prefix("0x").unwrap_or(hex);
+        let data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
+        Value::try_deserialize_bytes_untyped(&data)
     }
 
-    pub fn serialized_size(&self) -> u32 {
+    pub fn serialized_size(&self) -> Result<u32, SerializationError> {
         let mut counter = WriteCounter { count: 0 };
-        self.serialize_write(&mut counter)
-            .expect("Error: Failed to count serialization length of Clarity value");
-        counter.count
+        self.serialize_write(&mut counter).map_err(|_| {
+            SerializationError::DeserializationError(
+                "Error: Failed to count serialization length of Clarity value".into(),
+            )
+        })?;
+        Ok(counter.count)
     }
 }
 
@@ -1181,17 +1204,17 @@ impl Write for WriteCounter {
 }
 
 impl Value {
-    pub fn serialize_to_vec(&self) -> Vec<u8> {
+    pub fn serialize_to_vec(&self) -> Result<Vec<u8>, InterpreterError> {
         let mut byte_serialization = Vec::new();
         self.serialize_write(&mut byte_serialization)
-            .expect("IOError filling byte buffer.");
-        byte_serialization
+            .map_err(|_| InterpreterError::Expect("IOError filling byte buffer.".into()))?;
+        Ok(byte_serialization)
     }
 
     /// This does *not* perform any data sanitization
-    pub fn serialize_to_hex(&self) -> String {
-        let byte_serialization = self.serialize_to_vec();
-        to_hex(byte_serialization.as_slice())
+    pub fn serialize_to_hex(&self) -> Result<String, InterpreterError> {
+        let byte_serialization = self.serialize_to_vec()?;
+        Ok(to_hex(byte_serialization.as_slice()))
     }
 
     /// Sanitize `value` against pre-2.4 serialization
@@ -1215,10 +1238,11 @@ impl Value {
                     TypeSignature::SequenceType(SequenceSubtype::ListType(lt)) => lt,
                     _ => return None,
                 };
-                if l.len() > lt.get_max_len() {
+                // if cannot compute l.len(), sanitization fails, so use ? operator can short return
+                if l.len().ok()? > lt.get_max_len() {
                     return None;
                 }
-                let mut sanitized_items = vec![];
+                let mut sanitized_items = Vec::with_capacity(l.data.len());
                 let mut did_sanitize_children = false;
                 for item in l.data.into_iter() {
                     let (sanitized_item, did_sanitize) =
@@ -1235,11 +1259,12 @@ impl Value {
                     TypeSignature::TupleType(tt) => tt,
                     _ => return None,
                 };
-                let mut sanitized_tuple_entries = vec![];
+                let type_map = tt.get_type_map();
+                let mut sanitized_tuple_entries = Vec::with_capacity(type_map.len());
                 let original_tuple_len = tuple_data.len();
                 let mut tuple_data_map = tuple_data.data_map;
                 let mut did_sanitize_children = false;
-                for (key, expect_key_type) in tt.get_type_map().iter() {
+                for (key, expect_key_type) in type_map.iter() {
                     let field_data = tuple_data_map.remove(key)?;
                     let (sanitized_field, did_sanitize) =
                         Self::sanitize_value(epoch, expect_key_type, field_data)?;
@@ -1268,7 +1293,7 @@ impl Value {
                     None => return Some((Value::none(), false)),
                 };
                 let (sanitized_data, did_sanitize_child) =
-                    Self::sanitize_value(epoch, &inner_type, some_data)?;
+                    Self::sanitize_value(epoch, inner_type, some_data)?;
                 (Value::some(sanitized_data).ok()?, did_sanitize_child)
             }
             Value::Response(response) => {
@@ -1281,7 +1306,7 @@ impl Value {
                 let response_data = *response.data;
                 let inner_type = if response_ok { &rt.0 } else { &rt.1 };
                 let (sanitized_inner, did_sanitize_child) =
-                    Self::sanitize_value(epoch, &inner_type, response_data)?;
+                    Self::sanitize_value(epoch, inner_type, response_data)?;
                 let sanitized_resp = if response_ok {
                     Value::okay(sanitized_inner)
                 } else {
@@ -1308,23 +1333,19 @@ impl Value {
 
 impl ClaritySerializable for u32 {
     fn serialize(&self) -> String {
-        let mut buffer = Vec::new();
-        buffer
-            .write_all(&self.to_be_bytes())
-            .expect("u32 serialization: failed writing.");
-        to_hex(buffer.as_slice())
+        to_hex(&self.to_be_bytes())
     }
 }
 
 impl ClarityDeserializable<u32> for u32 {
-    fn deserialize(input: &str) -> Self {
-        let bytes = hex_bytes(&input).expect("u32 deserialization: failed decoding bytes.");
+    fn deserialize(input: &str) -> Result<Self, ClarityError> {
+        let bytes = hex_bytes(input).map_err(|_| {
+            InterpreterError::Expect("u32 deserialization: failed decoding bytes.".into())
+        })?;
         assert_eq!(bytes.len(), 4);
-        u32::from_be_bytes(
-            bytes[0..4]
-                .try_into()
-                .expect("u32 deserialization: failed reading."),
-        )
+        Ok(u32::from_be_bytes(bytes[0..4].try_into().map_err(
+            |_| InterpreterError::Expect("u32 deserialization: failed reading.".into()),
+        )?))
     }
 }
 
@@ -1332,7 +1353,10 @@ impl ClarityDeserializable<u32> for u32 {
 ///       sanitize its serialization or deserialization.
 impl StacksMessageCodec for Value {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        self.serialize_write(fd).map_err(codec_error::WriteError)
+        self.serialize_write(fd).map_err(|e| match e {
+            SerializationError::IOError(io_e) => codec_error::WriteError(io_e.err),
+            other => codec_error::SerializeError(other.to_string()),
+        })
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Value, codec_error> {
@@ -1343,65 +1367,55 @@ impl StacksMessageCodec for Value {
     }
 }
 
-impl std::hash::Hash for Value {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let mut s = vec![];
-        self.serialize_write(&mut s)
-            .expect("FATAL: failed to serialize to vec");
-        s.hash(state);
-    }
-}
-
 #[cfg(test)]
 pub mod tests {
-    use rstest::rstest;
-    use rstest_reuse::{self, *};
-
     use std::io::Write;
 
-    use crate::vm::database::{ClarityDeserializable, ClaritySerializable, RollbackWrapper};
-    use crate::vm::errors::Error;
-    use crate::vm::tests::test_clarity_versions;
-    use crate::vm::types::TypeSignature::{BoolType, IntType};
+    use rstest::rstest;
+    use rstest_reuse::{self, *};
+    use stacks_common::types::StacksEpochId;
 
     use super::super::*;
     use super::SerializationError;
+    use crate::vm::database::{ClarityDeserializable, ClaritySerializable, RollbackWrapper};
+    use crate::vm::tests::test_clarity_versions;
     use crate::vm::ClarityVersion;
-    use stacks_common::types::StacksEpochId;
 
     fn buff_type(size: u32) -> TypeSignature {
-        TypeSignature::SequenceType(SequenceSubtype::BufferType(size.try_into().unwrap())).into()
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(size.try_into().unwrap()))
     }
 
     fn test_deser_ser(v: Value) {
         assert_eq!(
             &v,
-            &Value::try_deserialize_hex(&v.serialize_to_hex(), &TypeSignature::type_of(&v), false)
-                .unwrap()
+            &Value::try_deserialize_hex(
+                &v.serialize_to_hex().unwrap(),
+                &TypeSignature::type_of(&v).unwrap(),
+                false
+            )
+            .unwrap()
         );
         assert_eq!(
             &v,
-            &Value::try_deserialize_hex_untyped(&v.serialize_to_hex()).unwrap()
+            &Value::try_deserialize_hex_untyped(&v.serialize_to_hex().unwrap()).unwrap()
         );
         // test the serialized_size implementation
         assert_eq!(
-            v.serialized_size(),
-            v.serialize_to_hex().len() as u32 / 2,
+            v.serialized_size().unwrap(),
+            v.serialize_to_hex().unwrap().len() as u32 / 2,
             "serialized_size() should return the byte length of the serialization (half the length of the hex encoding)",
         );
     }
 
     fn test_deser_u32_helper(num: u32) {
-        assert_eq!(num, u32::deserialize(&num.serialize()));
+        assert_eq!(num, u32::deserialize(&num.serialize()).unwrap());
     }
 
     fn test_bad_expectation(v: Value, e: TypeSignature) {
-        assert!(
-            match Value::try_deserialize_hex(&v.serialize_to_hex(), &e, false).unwrap_err() {
-                SerializationError::DeserializeExpected(_) => true,
-                _ => false,
-            }
-        )
+        assert!(matches!(
+            Value::try_deserialize_hex(&v.serialize_to_hex().unwrap(), &e, false).unwrap_err(),
+            SerializationError::DeserializeExpected(_)
+        ));
     }
 
     #[test]
@@ -1427,19 +1441,22 @@ pub mod tests {
 
         // Should be legal!
         Value::try_deserialize_hex(
-            &Value::list_from(vec![]).unwrap().serialize_to_hex(),
+            &Value::list_from(vec![])
+                .unwrap()
+                .serialize_to_hex()
+                .unwrap(),
             &TypeSignature::from_string("(list 2 (list 3 int))", version, epoch),
             false,
         )
         .unwrap();
         Value::try_deserialize_hex(
-            &list_list_int.serialize_to_hex(),
+            &list_list_int.serialize_to_hex().unwrap(),
             &TypeSignature::from_string("(list 2 (list 3 int))", version, epoch),
             false,
         )
         .unwrap();
         Value::try_deserialize_hex(
-            &list_list_int.serialize_to_hex(),
+            &list_list_int.serialize_to_hex().unwrap(),
             &TypeSignature::from_string("(list 1 (list 4 int))", version, epoch),
             false,
         )
@@ -1460,7 +1477,7 @@ pub mod tests {
         );
         // parent list longer than expected
         test_bad_expectation(
-            list_list_int.clone(),
+            list_list_int,
             TypeSignature::from_string("(list 0 (list 2 uint))", version, epoch),
         );
 
@@ -1483,7 +1500,7 @@ pub mod tests {
 
         // make a list that says it is longer than it is!
         //   this describes a list of size MAX_VALUE_SIZE of Value::Bool(true)'s, but is actually only 59 bools.
-        let mut eof = vec![3u8; 64 as usize];
+        let mut eof = vec![3u8; 64_usize];
         // list prefix
         eof[0] = 11;
         // list length
@@ -1501,13 +1518,13 @@ pub mod tests {
         */
 
         match Value::deserialize_read(&mut eof.as_slice(), None, false) {
-            Ok(_) => assert!(false, "Accidentally parsed truncated slice"),
+            Ok(_) => panic!("Accidentally parsed truncated slice"),
             Err(eres) => match eres {
                 SerializationError::IOError(ioe) => match ioe.err.kind() {
                     std::io::ErrorKind::UnexpectedEof => {}
-                    _ => assert!(false, "Invalid I/O error: {:?}", &ioe),
+                    _ => panic!("Invalid I/O error: {:?}", &ioe),
                 },
-                _ => assert!(false, "Invalid deserialize error: {:?}", &eres),
+                _ => panic!("Invalid deserialize error: {:?}", &eres),
             },
         }
     }
@@ -1663,54 +1680,51 @@ pub mod tests {
         // t_0 and t_1 are actually the same
         assert_eq!(
             Value::try_deserialize_hex(
-                &t_1.serialize_to_hex(),
-                &TypeSignature::type_of(&t_0),
+                &t_1.serialize_to_hex().unwrap(),
+                &TypeSignature::type_of(&t_0).unwrap(),
                 false
             )
             .unwrap(),
             Value::try_deserialize_hex(
-                &t_0.serialize_to_hex(),
-                &TypeSignature::type_of(&t_0),
+                &t_0.serialize_to_hex().unwrap(),
+                &TypeSignature::type_of(&t_0).unwrap(),
                 false
             )
             .unwrap()
         );
 
         // field number not equal to expectations
-        assert!(match Value::try_deserialize_hex(
-            &t_3.serialize_to_hex(),
-            &TypeSignature::type_of(&t_1),
-            false
-        )
-        .unwrap_err()
-        {
-            SerializationError::DeserializeExpected(_) => true,
-            _ => false,
-        });
+        assert!(matches!(
+            Value::try_deserialize_hex(
+                &t_3.serialize_to_hex().unwrap(),
+                &TypeSignature::type_of(&t_1).unwrap(),
+                false
+            )
+            .unwrap_err(),
+            SerializationError::DeserializeExpected(_)
+        ));
 
         // field type mismatch
-        assert!(match Value::try_deserialize_hex(
-            &t_2.serialize_to_hex(),
-            &TypeSignature::type_of(&t_1),
-            false
-        )
-        .unwrap_err()
-        {
-            SerializationError::DeserializeExpected(_) => true,
-            _ => false,
-        });
+        assert!(matches!(
+            Value::try_deserialize_hex(
+                &t_2.serialize_to_hex().unwrap(),
+                &TypeSignature::type_of(&t_1).unwrap(),
+                false
+            )
+            .unwrap_err(),
+            SerializationError::DeserializeExpected(_)
+        ));
 
         // field not-present in expected
-        assert!(match Value::try_deserialize_hex(
-            &t_1.serialize_to_hex(),
-            &TypeSignature::type_of(&t_4),
-            false
-        )
-        .unwrap_err()
-        {
-            SerializationError::DeserializeExpected(_) => true,
-            _ => false,
-        });
+        assert!(matches!(
+            Value::try_deserialize_hex(
+                &t_1.serialize_to_hex().unwrap(),
+                &TypeSignature::type_of(&t_4).unwrap(),
+                false
+            )
+            .unwrap_err(),
+            SerializationError::DeserializeExpected(_)
+        ));
     }
 
     #[apply(test_clarity_versions)]
@@ -2044,16 +2058,13 @@ pub mod tests {
                 "Testing {}. Expected sanitization = {}",
                 input_val, expected_out
             );
-            let serialized = input_val.serialize_to_hex();
+            let serialized = input_val.serialize_to_hex().unwrap();
 
             let result =
                 RollbackWrapper::deserialize_value(&serialized, good_type, &epoch).map(|x| x.value);
             if epoch < StacksEpochId::Epoch24 {
                 let error = result.unwrap_err();
-                match error {
-                    SerializationError::DeserializeExpected(_) => {}
-                    _ => panic!("Expected a DeserializeExpected error"),
-                }
+                assert!(matches!(error, SerializationError::DeserializeExpected(_)));
             } else {
                 let value = result.unwrap();
                 assert_eq!(&value, expected_out);
@@ -2063,10 +2074,7 @@ pub mod tests {
                 eprintln!("Testing bad type: {}", bad_type);
                 let result = RollbackWrapper::deserialize_value(&serialized, bad_type, &epoch);
                 let error = result.unwrap_err();
-                match error {
-                    SerializationError::DeserializeExpected(_) => {}
-                    e => panic!("Expected a DeserializeExpected error, got = {}", e),
-                }
+                assert!(matches!(error, SerializationError::DeserializeExpected(_)));
             }
 
             // now test the value::sanitize routine
@@ -2107,16 +2115,16 @@ pub mod tests {
             ("03", Ok(Value::Bool(true))),
             ("04", Ok(Value::Bool(false))),
             ("050011deadbeef11ababffff11deadbeef11ababffff", Ok(
-                StandardPrincipalData(
+                StandardPrincipalData::new(
                     0x00,
                     [0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff,
-                     0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff]).into())),
+                     0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff]).unwrap().into())),
             ("060011deadbeef11ababffff11deadbeef11ababffff0461626364", Ok(
                 QualifiedContractIdentifier::new(
-                    StandardPrincipalData(
+                    StandardPrincipalData::new(
                         0x00,
                         [0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff,
-                         0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff]),
+                         0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff]).unwrap(),
                     "abcd".into()).into())),
             ("0700ffffffffffffffffffffffffffffffff", Ok(Value::okay(Value::Int(-1)).unwrap())),
             ("0800ffffffffffffffffffffffffffffffff", Ok(Value::error(Value::Int(-1)).unwrap())),
@@ -2132,7 +2140,7 @@ pub mod tests {
 
         for (test, expected) in tests.iter() {
             if let Ok(x) = expected {
-                assert_eq!(test, &x.serialize_to_hex());
+                assert_eq!(test, &x.serialize_to_hex().unwrap());
             }
             assert_eq!(expected, &Value::try_deserialize_hex_untyped(test));
             assert_eq!(
@@ -2145,7 +2153,7 @@ pub mod tests {
         for (test, expected) in tests.iter() {
             if let Ok(value) = expected {
                 assert_eq!(
-                    value.serialized_size(),
+                    value.serialized_size().unwrap(),
                     test.len() as u32 / 2,
                     "serialized_size() should return the byte length of the serialization (half the length of the hex encoding)",
                 );

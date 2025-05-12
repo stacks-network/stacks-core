@@ -1,0 +1,92 @@
+## Github workflow to run p2p tests
+
+name: Tests::P2P
+
+on:
+  workflow_call:
+
+## env vars are transferred to composite action steps
+env:
+  BITCOIND_TEST: 0
+  RUST_BACKTRACE: full
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 15
+  TEST_TIMEOUT: 30
+
+concurrency:
+  group: stackslib-tests-${{ github.head_ref || github.ref || github.run_id}}
+  ## Only cancel in progress if this is for a PR
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # p2p integration tests with code coverage
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    strategy:
+      ## Continue with the test matrix even if we've had a failure
+      fail-fast: false
+      ## Run a maximum of 32 concurrent tests from the test matrix
+      max-parallel: 32
+      matrix:
+        test-name:
+          - net::tests::convergence::test_walk_ring_allow_15
+          - net::tests::convergence::test_walk_ring_15_plain
+          - net::tests::convergence::test_walk_ring_15_pingback
+          - net::tests::convergence::test_walk_ring_15_org_biased
+          - net::tests::convergence::test_walk_line_allowed_15
+          - net::tests::convergence::test_walk_line_15_plain
+          - net::tests::convergence::test_walk_line_15_org_biased
+          - net::tests::convergence::test_walk_line_15_pingback
+          - net::tests::convergence::test_walk_star_allowed_15
+          - net::tests::convergence::test_walk_star_15_plain
+          - net::tests::convergence::test_walk_star_15_pingback
+          - net::tests::convergence::test_walk_star_15_org_biased
+          - net::tests::convergence::test_walk_inbound_line_15
+          - net::api::tests::postblock_proposal::test_try_make_response
+          - net::server::test::test_http_10_threads_getinfo
+          - net::server::test::test_http_10_threads_getblock
+          - net::server::test::test_http_too_many_clients
+          - net::server::test::test_http_slow_client
+    steps:
+      ## Setup test environment
+      - name: Setup Test Environment
+        id: setup_tests
+        uses: stacks-network/actions/stacks-core/testenv@main
+        with:
+          btc-version: "25.0"
+
+      ## Increase open file descriptors limit
+      - name: Increase Open File Descriptors
+        run: |
+          sudo prlimit --nofile=4096:4096
+
+      ## Run test matrix using restored cache of archive file
+      ##   - Test will timeout after env.TEST_TIMEOUT minutes
+      - name: Run Tests
+        id: run_tests
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        uses: stacks-network/actions/stacks-core/run-tests@main
+        with:
+          test-name: ${{ matrix.test-name }}
+          threads: 1
+
+      ## Create and upload code coverage file
+      - name: Code Coverage
+        id: codecov
+        uses: stacks-network/actions/codecov@main
+        with:
+          test-name: ${{ matrix.test-name }}
+
+  check-tests:
+    name: Check Tests
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - integration-tests
+    steps:
+      - name: Check Tests Status
+        id: check_tests_status
+        uses: stacks-network/actions/check-jobs-status@main
+        with:
+          jobs: ${{ toJson(needs) }}
+          summary_print: "true"

@@ -14,28 +14,20 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::env;
-use std::thread;
+use std::{env, thread};
 
-use stacks::burnchains::Burnchain;
-use stacks::core::STACKS_EPOCH_MAX;
-use stacks::util::sleep_ms;
-use stacks::vm::types::QualifiedContractIdentifier;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::Value;
+use stacks::burnchains::{Burnchain, PoxConstants};
+use stacks::config::InitialBalance;
+use stacks::core::test_util::make_contract_call;
+use stacks::core::{self, EpochList, STACKS_EPOCH_MAX};
+use stacks_common::util::sleep_ms;
 
-use crate::config::EventKeyType;
-use crate::config::EventObserverConfig;
-use crate::config::InitialBalance;
-use crate::neon;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::neon_integrations::*;
 use crate::tests::*;
-use crate::BitcoinRegtestController;
-use crate::BurnchainController;
-use stacks::core;
-
-use stacks::burnchains::PoxConstants;
-
-use clarity::vm::types::PrincipalData;
+use crate::{neon, BitcoinRegtestController, BurnchainController};
 
 #[test]
 #[ignore]
@@ -56,12 +48,12 @@ fn trait_invocation_behavior() {
     let epoch_2_2 = 235;
     let epoch_2_3 = 241;
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let contract_addr = to_addr(&spender_sk);
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
     let impl_contract_id =
-        QualifiedContractIdentifier::new(contract_addr.clone().into(), "impl-simple".into());
+        QualifiedContractIdentifier::new(contract_addr.into(), "impl-simple".into());
 
     let mut spender_nonce = 0;
     let fee_amount = 10_000;
@@ -105,29 +97,24 @@ fn trait_invocation_behavior() {
     conf.node.wait_time_for_blocks = 1_000;
     conf.miner.wait_for_block_download = false;
 
-    conf.miner.min_tx_fee = 1;
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
-
-    conf.events_observers.push(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
-    epochs[2].end_height = epoch_2_1;
-    epochs[3].start_height = epoch_2_1;
-    epochs[3].end_height = epoch_2_2;
-    epochs[4].start_height = epoch_2_2;
-    epochs[4].end_height = epoch_2_3;
-    epochs[5].start_height = epoch_2_3;
-    epochs[5].end_height = STACKS_EPOCH_MAX;
-    epochs.truncate(6);
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22].start_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22].end_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23].start_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch23);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -138,13 +125,14 @@ fn trait_invocation_behavior() {
         4 * prepare_phase_len / 5,
         5,
         15,
-        u64::max_value() - 2,
-        u64::max_value() - 1,
+        u64::MAX - 2,
+        u64::MAX - 1,
         v1_unlock_height as u32,
         epoch_2_2 as u32 + 1,
         u32::MAX,
+        u32::MAX,
     );
-    burnchain_config.pox_constants = pox_constants.clone();
+    burnchain_config.pox_constants = pox_constants;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -165,7 +153,7 @@ fn trait_invocation_behavior() {
     eprintln!("Chain bootstrapped...");
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
-    let runloop_burnchain = burnchain_config.clone();
+    let runloop_burnchain = burnchain_config;
 
     let blocks_processed = run_loop.get_blocks_processed_arc();
 
@@ -193,6 +181,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         "simple-trait",
         trait_contract,
     );
@@ -203,6 +192,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         "impl-simple",
         impl_contract,
     );
@@ -213,6 +203,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         "use-simple",
         use_contract,
     );
@@ -223,6 +214,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         "invoke-simple",
         invoke_contract,
     );
@@ -236,9 +228,8 @@ fn trait_invocation_behavior() {
     submit_tx(&http_origin, &publish_invoke);
 
     info!(
-        "At height = {}, epoch-2.1 = {}",
-        get_chain_info(&conf).burn_block_height,
-        epoch_2_1
+        "At height = {}, epoch-2.1 = {epoch_2_1}",
+        get_chain_info(&conf).burn_block_height
     );
     // wait until just before epoch 2.1
     loop {
@@ -254,6 +245,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "invoke-simple",
         "invocation-1",
@@ -266,6 +258,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "invoke-simple",
         "invocation-2",
@@ -277,7 +270,7 @@ fn trait_invocation_behavior() {
     submit_tx(&http_origin, &tx_1);
     submit_tx(&http_origin, &tx_2);
 
-    // this mines bitcoin block epoch_2_1 - 2, and causes the the
+    // this mines bitcoin block epoch_2_1 - 2, and causes the
     // stacks node to mine the stacks block which will be included in
     // epoch_2_1 - 1, so these are the last transactions processed pre-2.1.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -287,6 +280,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "invoke-simple",
         "invocation-1",
@@ -299,6 +293,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "invoke-simple",
         "invocation-2",
@@ -325,6 +320,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "invoke-simple",
         "invocation-1",
@@ -337,6 +333,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "invoke-simple",
         "invocation-2",
@@ -348,7 +345,7 @@ fn trait_invocation_behavior() {
     submit_tx(&http_origin, &tx_1);
     submit_tx(&http_origin, &tx_2);
 
-    // this mines bitcoin block epoch_2_2 - 2, and causes the the
+    // this mines bitcoin block epoch_2_2 - 2, and causes the
     // stacks node to mine the stacks block which will be included in
     // epoch_2_2 - 1, so these are the last transactions processed pre-2.2.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -357,6 +354,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         "wrap-simple",
         wrapper_contract,
     );
@@ -372,6 +370,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "wrap-simple",
         "invocation-1",
@@ -384,6 +383,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "wrap-simple",
         "invocation-2",
@@ -410,6 +410,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "wrap-simple",
         "invocation-1",
@@ -422,6 +423,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "wrap-simple",
         "invocation-2",
@@ -433,7 +435,7 @@ fn trait_invocation_behavior() {
     submit_tx(&http_origin, &tx_1);
     submit_tx(&http_origin, &tx_2);
 
-    // this mines bitcoin block epoch_2_3 - 2, and causes the the
+    // this mines bitcoin block epoch_2_3 - 2, and causes the
     // stacks node to mine the stacks block which will be included in
     // epoch_2_3 - 1, so these are the last transactions processed pre-2.3.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -444,6 +446,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "wrap-simple",
         "invocation-1",
@@ -456,6 +459,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "wrap-simple",
         "invocation-2",
@@ -477,6 +481,7 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "invoke-simple",
         "invocation-1",
@@ -489,10 +494,11 @@ fn trait_invocation_behavior() {
         &spender_sk,
         spender_nonce,
         fee_amount,
+        conf.burnchain.chain_id,
         &contract_addr,
         "invoke-simple",
         "invocation-2",
-        &[Value::Principal(impl_contract_id.clone().into())],
+        &[Value::Principal(impl_contract_id.into())],
     );
     let expected_good_23_2_nonce = spender_nonce;
     spender_nonce += 1;
@@ -503,7 +509,7 @@ fn trait_invocation_behavior() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    info!("Total spender txs = {}", spender_nonce);
+    info!("Total spender txs = {spender_nonce}");
 
     let blocks = test_observer::get_blocks();
 
@@ -520,7 +526,7 @@ fn trait_invocation_behavior() {
             let parsed =
                 StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
             let tx_sender = PrincipalData::from(parsed.auth.origin().address_testnet());
-            if &tx_sender == &spender_addr {
+            if tx_sender == spender_addr {
                 let contract_call = match &parsed.payload {
                     TransactionPayload::ContractCall(cc) => cc,
                     // only interested in contract calls
@@ -577,29 +583,27 @@ fn trait_invocation_behavior() {
         assert_eq!(&transaction_receipts[&tx_nonce].1.to_string(), "(ok u0)");
     }
 
-    for tx_nonce in [expected_good_23_3_nonce] {
-        assert_eq!(
-            transaction_receipts[&tx_nonce].0.contract_name.as_str(),
-            "wrap-simple"
-        );
-        assert_eq!(
-            transaction_receipts[&tx_nonce].0.function_name.as_str(),
-            "invocation-1"
-        );
-        assert_eq!(&transaction_receipts[&tx_nonce].1.to_string(), "(ok u0)");
-    }
+    let tx_nonce = expected_good_23_3_nonce;
+    assert_eq!(
+        transaction_receipts[&tx_nonce].0.contract_name.as_str(),
+        "wrap-simple"
+    );
+    assert_eq!(
+        transaction_receipts[&tx_nonce].0.function_name.as_str(),
+        "invocation-1"
+    );
+    assert_eq!(&transaction_receipts[&tx_nonce].1.to_string(), "(ok u0)");
 
-    for tx_nonce in [expected_good_23_4_nonce] {
-        assert_eq!(
-            transaction_receipts[&tx_nonce].0.contract_name.as_str(),
-            "wrap-simple"
-        );
-        assert_eq!(
-            transaction_receipts[&tx_nonce].0.function_name.as_str(),
-            "invocation-2"
-        );
-        assert_eq!(&transaction_receipts[&tx_nonce].1.to_string(), "(ok u0)");
-    }
+    let tx_nonce = expected_good_23_4_nonce;
+    assert_eq!(
+        transaction_receipts[&tx_nonce].0.contract_name.as_str(),
+        "wrap-simple"
+    );
+    assert_eq!(
+        transaction_receipts[&tx_nonce].0.function_name.as_str(),
+        "invocation-2"
+    );
+    assert_eq!(&transaction_receipts[&tx_nonce].1.to_string(), "(ok u0)");
 
     for tx_nonce in [expected_bad_22_1_nonce, expected_bad_22_3_nonce] {
         assert_eq!(
@@ -626,7 +630,7 @@ fn trait_invocation_behavior() {
     }
 
     for (key, value) in transaction_receipts.iter() {
-        eprintln!("{} => {} of {}", key, value.0, value.1);
+        eprintln!("{key} => {} of {}", value.0, value.1);
     }
 
     test_observer::clear();

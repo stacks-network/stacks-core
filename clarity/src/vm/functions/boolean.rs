@@ -16,10 +16,8 @@
 
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{cost_functions, runtime_cost};
-use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
-};
+use crate::vm::costs::runtime_cost;
+use crate::vm::errors::{check_arguments_at_least, CheckErrors, InterpreterResult as Result};
 use crate::vm::eval;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TypeSignature, Value};
@@ -41,7 +39,7 @@ pub fn special_or(
     runtime_cost(ClarityCostFunction::Or, env, args.len())?;
 
     for arg in args.iter() {
-        let evaluated = eval(&arg, env, context)?;
+        let evaluated = eval(arg, env, context)?;
         let result = type_force_bool(&evaluated)?;
         if result {
             return Ok(Value::Bool(true));
@@ -61,7 +59,7 @@ pub fn special_and(
     runtime_cost(ClarityCostFunction::And, env, args.len())?;
 
     for arg in args.iter() {
-        let evaluated = eval(&arg, env, context)?;
+        let evaluated = eval(arg, env, context)?;
         let result = type_force_bool(&evaluated)?;
         if !result {
             return Ok(Value::Bool(false));

@@ -1,0 +1,80 @@
+[node]
+# working_dir = "/dir/to/save/chainstate" # defaults to: /tmp/stacks-node-[0-9]*
+rpc_bind = "0.0.0.0:20443"
+p2p_bind = "0.0.0.0:20444"
+bootstrap_node = "029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:30444"
+prometheus_bind = "0.0.0.0:9153" 
+
+[burnchain]
+mode = "krypton"
+peer_host = "127.0.0.1"
+username = "<Bitcoin RPC username>"
+password = "<Bitcoin RPC password>"
+rpc_port = 12345 # Bitcoin RPC port
+peer_port = 6789 # Bitcoin P2P port
+pox_prepare_length = 100
+pox_reward_length = 900
+# Maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election
+burn_fee_cap = 20000
+# Amount (in sats) per byte - Used to calculate the transaction fees
+satoshis_per_byte = 25
+# Amount of sats to add when RBF'ing bitcoin tx  (default: 5)
+rbf_fee_increment = 5
+# Maximum percentage to RBF bitcoin tx (default: 150% of satsv/B)
+max_rbf = 150
+
+[[ustx_balance]]
+address = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"
+amount = 10000000000000000
+
+[[ustx_balance]]
+address = "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF"
+amount = 10000000000000000
+
+[[ustx_balance]]
+address = "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H"
+amount = 10000000000000000
+
+[[ustx_balance]]
+address = "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B"
+amount = 10000000000000000
+
+[[burnchain.epochs]]
+epoch_name = "1.0"
+start_height = 0
+
+[[burnchain.epochs]]
+epoch_name = "2.0"
+start_height = 0
+
+[[burnchain.epochs]]
+epoch_name = "2.05"
+start_height = 1
+
+[[burnchain.epochs]]
+epoch_name = "2.1"
+start_height = 2
+
+[[burnchain.epochs]]
+epoch_name = "2.2"
+start_height = 3
+
+[[burnchain.epochs]]
+epoch_name = "2.3"
+start_height = 4
+
+[[burnchain.epochs]]
+epoch_name = "2.4"
+start_height = 5
+
+[[burnchain.epochs]]
+epoch_name = "2.5"
+start_height = 6
+
+[[burnchain.epochs]]
+epoch_name = "3.0"
+start_height = 1900
+
+[[burnchain.epochs]]
+epoch_name = "3.1"
+start_height = 2000

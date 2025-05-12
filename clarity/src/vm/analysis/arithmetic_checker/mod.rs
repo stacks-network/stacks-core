@@ -14,27 +14,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
+pub use super::errors::{
+    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
+};
+use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
-use crate::vm::functions::tuples;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
-use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use crate::vm::types::{
-    parse_name_type_pairs, PrincipalData, TupleTypeSignature, TypeSignature, Value,
-};
-
+use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::variables::NativeVariables;
-use std::collections::HashMap;
-
 use crate::vm::ClarityVersion;
-
-pub use super::errors::{
-    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
-};
-use super::AnalysisDatabase;
 
 #[cfg(test)]
 mod tests;
@@ -71,7 +62,7 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl<'a> ArithmeticOnlyChecker<'a> {
+impl ArithmeticOnlyChecker<'_> {
     pub fn check_contract_cost_eligible(contract_analysis: &mut ContractAnalysis) {
         let is_eligible = ArithmeticOnlyChecker::run(contract_analysis).is_ok();
         contract_analysis.is_cost_contract_eligible = is_eligible;
@@ -82,7 +73,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             clarity_version: &contract_analysis.clarity_version,
         };
         for exp in contract_analysis.expressions.iter() {
-            checker.check_top_levels(&exp)?;
+            checker.check_top_levels(exp)?;
         }
 
         Ok(())
@@ -147,11 +138,11 @@ impl<'a> ArithmeticOnlyChecker<'a> {
     fn check_variables_allowed(&self, var_name: &ClarityName) -> Result<(), Error> {
         use crate::vm::variables::NativeVariables::*;
         if let Some(native_var) =
-            NativeVariables::lookup_by_name_at_version(var_name, &self.clarity_version)
+            NativeVariables::lookup_by_name_at_version(var_name, self.clarity_version)
         {
             match native_var {
                 ContractCaller | TxSender | TotalLiquidMicroSTX | BlockHeight | BurnBlockHeight
-                | Regtest | TxSponsor | Mainnet | ChainId => {
+                | Regtest | TxSponsor | Mainnet | ChainId | StacksBlockHeight | TenureHeight => {
                     Err(Error::VariableForbidden(native_var))
                 }
                 NativeNone | NativeTrue | NativeFalse => Ok(()),
@@ -177,31 +168,26 @@ impl<'a> ArithmeticOnlyChecker<'a> {
     ) -> Result<(), Error> {
         use crate::vm::functions::NativeFunctions::*;
         match function {
-            FetchVar | GetBlockInfo | GetBurnBlockInfo | GetTokenBalance | GetAssetOwner
-            | FetchEntry | SetEntry | DeleteEntry | InsertEntry | SetVar | MintAsset
-            | MintToken | TransferAsset | TransferToken | ContractCall | StxTransfer
-            | StxTransferMemo | StxBurn | AtBlock | GetStxBalance | GetTokenSupply | BurnToken
-            | FromConsensusBuff | ToConsensusBuff | BurnAsset | StxGetAccount => {
-                return Err(Error::FunctionNotPermitted(function));
-            }
+            FetchVar | GetBlockInfo | GetBurnBlockInfo | GetStacksBlockInfo | GetTenureInfo
+            | GetTokenBalance | GetAssetOwner | FetchEntry | SetEntry | DeleteEntry
+            | InsertEntry | SetVar | MintAsset | MintToken | TransferAsset | TransferToken
+            | ContractCall | StxTransfer | StxTransferMemo | StxBurn | AtBlock | GetStxBalance
+            | GetTokenSupply | BurnToken | FromConsensusBuff | ToConsensusBuff | BurnAsset
+            | StxGetAccount => Err(Error::FunctionNotPermitted(function)),
             Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print
             | AsContract | ElementAt | ElementAtAlias | IndexOf | IndexOfAlias | Map | Filter
-            | Fold | Slice | ReplaceAt => {
-                return Err(Error::FunctionNotPermitted(function));
-            }
+            | Fold | Slice | ReplaceAt => Err(Error::FunctionNotPermitted(function)),
             BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe => {
-                return Err(Error::FunctionNotPermitted(function));
+                Err(Error::FunctionNotPermitted(function))
             }
             IsStandard | PrincipalDestruct | PrincipalConstruct => {
-                return Err(Error::FunctionNotPermitted(function));
+                Err(Error::FunctionNotPermitted(function))
             }
             IntToAscii | IntToUtf8 | StringToInt | StringToUInt => {
-                return Err(Error::FunctionNotPermitted(function));
+                Err(Error::FunctionNotPermitted(function))
             }
             Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Hash160 | Sha256
-            | Keccak256 => {
-                return Err(Error::FunctionNotPermitted(function));
-            }
+            | Keccak256 => Err(Error::FunctionNotPermitted(function)),
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater
             | Modulo | Power | Sqrti | Log2 | BitwiseXor | And | Or | Not | Equals | If
             | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay

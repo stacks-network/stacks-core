@@ -19,12 +19,10 @@ use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::ClarityDatabase;
-use clarity::vm::errors::Error as ClarityError;
-use clarity::vm::errors::RuntimeErrorType;
+use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::Value;
-use slog::slog_debug;
 use stacks_common::debug;
 
 use crate::LockingError;
@@ -35,33 +33,40 @@ use crate::LockingError;
 fn parse_pox_stacking_result_v1(
     result: &Value,
 ) -> std::result::Result<(PrincipalData, u128, u64), i128> {
-    match result.clone().expect_result() {
+    match result
+        .clone()
+        .expect_result()
+        .expect("FATAL: unexpected clarity value")
+    {
         Ok(res) => {
             // should have gotten back (ok (tuple (stacker principal) (lock-amount uint) (unlock-burn-height uint)))
-            let tuple_data = res.expect_tuple();
+            let tuple_data = res.expect_tuple().expect("FATAL: unexpected clarity value");
             let stacker = tuple_data
                 .get("stacker")
-                .expect(&format!("FATAL: no 'stacker'"))
+                .expect("FATAL: no 'stacker'")
                 .to_owned()
-                .expect_principal();
+                .expect_principal()
+                .expect("FATAL: unexpected clarity value");
 
             let lock_amount = tuple_data
                 .get("lock-amount")
-                .expect(&format!("FATAL: no 'lock-amount'"))
+                .expect("FATAL: no 'lock-amount'")
                 .to_owned()
-                .expect_u128();
+                .expect_u128()
+                .expect("FATAL: unexpected clarity value");
 
             let unlock_burn_height = tuple_data
                 .get("unlock-burn-height")
-                .expect(&format!("FATAL: no 'unlock-burn-height'"))
+                .expect("FATAL: no 'unlock-burn-height'")
                 .to_owned()
                 .expect_u128()
+                .expect("FATAL: unexpected clarity value")
                 .try_into()
                 .expect("FATAL: 'unlock-burn-height' overflow");
 
             Ok((stacker, lock_amount, unlock_burn_height))
         }
-        Err(e) => Err(e.expect_i128()),
+        Err(e) => Err(e.expect_i128().expect("FATAL: unexpected clarity value")),
     }
 }
 
@@ -92,20 +97,20 @@ pub fn pox_lock_v1(
     assert!(unlock_burn_height > 0);
     assert!(lock_amount > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal);
+    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
     if snapshot.balance().was_locked_by_v2() {
         debug!("PoX Lock attempted on an account locked by v2");
         return Err(LockingError::DefunctPoxContract);
     }
 
-    if snapshot.has_locked_tokens() {
+    if snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxAlreadyLocked);
     }
-    if !snapshot.can_transfer(lock_amount) {
+    if !snapshot.can_transfer(lock_amount)? {
         return Err(LockingError::PoxInsufficientBalance);
     }
-    snapshot.lock_tokens_v1(lock_amount, unlock_burn_height);
+    snapshot.lock_tokens_v1(lock_amount, unlock_burn_height)?;
 
     debug!(
         "PoX v1 lock applied";
@@ -115,11 +120,12 @@ pub fn pox_lock_v1(
         "account" => %principal,
     );
 
-    snapshot.save();
+    snapshot.save()?;
     Ok(())
 }
 
 /// Handle special cases when calling into the PoX v1 contract
+#[allow(clippy::needless_return)]
 pub fn handle_contract_call(
     global_context: &mut GlobalContext,
     _sender_opt: Option<&PrincipalData>,
@@ -159,7 +165,7 @@ pub fn handle_contract_call(
         &mut global_context.database,
         &stacker,
         locked_amount,
-        unlock_height as u64,
+        unlock_height,
     ) {
         Ok(_) => {
             if let Some(batch) = global_context.event_batches.last_mut() {
@@ -172,12 +178,13 @@ pub fn handle_contract_call(
                     }),
                 ));
             }
+            return Ok(());
         }
         Err(LockingError::DefunctPoxContract) => {
             return Err(ClarityError::Runtime(
                 RuntimeErrorType::DefunctPoxContract,
                 None,
-            ))
+            ));
         }
         Err(LockingError::PoxAlreadyLocked) => {
             // the caller tried to lock tokens into both pox-1 and pox-2
@@ -193,6 +200,4 @@ pub fn handle_contract_call(
             );
         }
     }
-
-    Ok(())
 }

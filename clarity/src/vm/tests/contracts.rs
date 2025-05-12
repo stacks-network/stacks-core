@@ -14,27 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::ast::errors::ParseErrors;
-use crate::vm::ast::ASTRules;
-use crate::vm::contexts::Environment;
-use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use crate::vm::execute as vm_execute;
-use crate::vm::tests::{
-    env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
-    tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
-};
-use crate::vm::tests::{test_clarity_versions, test_epochs};
-use crate::vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
-    TypeSignature, Value,
-};
-use crate::vm::ClarityVersion;
 #[cfg(any(test, feature = "testing"))]
 use rstest::rstest;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::ContractContext;
+use crate::vm::ast::errors::ParseErrors;
+use crate::vm::ast::ASTRules;
+use crate::vm::contexts::Environment;
+use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use crate::vm::tests::{
+    env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
+    test_clarity_versions, test_epochs, tl_env_factory, MemoryEnvironmentGenerator,
+    TopLevelMemoryEnvironmentGenerator,
+};
+use crate::vm::types::{
+    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
+    TypeSignature, Value,
+};
+use crate::vm::{execute as vm_execute, ClarityVersion, ContractContext};
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
          (define-private (init-factorial (id int) (factorial int))
@@ -121,7 +119,7 @@ fn test_get_block_info_eval(
         Ok(Value::none()),
     ];
 
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
     );
@@ -131,27 +129,24 @@ fn test_get_block_info_eval(
         let contract_identifier =
             QualifiedContractIdentifier::local(&format!("test-contract-{}", i)).unwrap();
         owned_env
-            .initialize_contract(
+            .initialize_versioned_contract(
                 contract_identifier.clone(),
+                ClarityVersion::Clarity2,
                 contracts[i],
                 None,
                 ASTRules::PrecheckSize,
             )
             .unwrap();
 
-        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-
+        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        eprintln!("{}", contracts[i]);
         let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
         match expected[i] {
             // any (some UINT) is okay for checking get-block-info? time
             Ok(Value::UInt(0)) => {
                 assert!(
                     if let Ok(Value::Optional(OptionalData { data: Some(x) })) = eval_result {
-                        if let Value::UInt(_) = *x {
-                            true
-                        } else {
-                            false
-                        }
+                        matches!(*x, Value::UInt(_))
                     } else {
                         false
                     }
@@ -177,13 +172,13 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
            (as-contract (contract-call? .contract-a get-caller)))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
+        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
@@ -203,15 +198,15 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
             QualifiedContractIdentifier::local("contract-b").unwrap(),
         ));
         let mut env = owned_env.get_exec_environment(
-            Some(p1.clone().expect_principal()),
+            Some(p1.clone().expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
         assert_eq!(
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-a").unwrap(),
                 "get-caller",
-                &vec![],
+                &[],
                 false
             )
             .unwrap(),
@@ -221,7 +216,7 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "as-contract-get-caller",
-                &vec![],
+                &[],
                 false
             )
             .unwrap(),
@@ -231,21 +226,21 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "cc-get-caller",
-                &vec![],
+                &[],
                 false
             )
             .unwrap(),
-            Value::cons_list_unsanitized(vec![c_b.clone(), p1.clone()]).unwrap()
+            Value::cons_list_unsanitized(vec![c_b.clone(), p1]).unwrap()
         );
         assert_eq!(
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "as-contract-cc-get-caller",
-                &vec![],
+                &[],
                 false
             )
             .unwrap(),
-            Value::cons_list_unsanitized(vec![c_b.clone(), c_b.clone()]).unwrap()
+            Value::cons_list_unsanitized(vec![c_b.clone(), c_b]).unwrap()
         );
     }
 }
@@ -259,7 +254,7 @@ fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalD
         env.execute_contract(
             &QualifiedContractIdentifier::local("contract-a").unwrap(),
             "get-sponsor",
-            &vec![],
+            &[],
             false
         )
         .unwrap(),
@@ -269,7 +264,7 @@ fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalD
         env.execute_contract(
             &QualifiedContractIdentifier::local("contract-b").unwrap(),
             "as-contract-get-sponsor",
-            &vec![],
+            &[],
             false
         )
         .unwrap(),
@@ -279,7 +274,7 @@ fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalD
         env.execute_contract(
             &QualifiedContractIdentifier::local("contract-b").unwrap(),
             "cc-get-sponsor",
-            &vec![],
+            &[],
             false
         )
         .unwrap(),
@@ -289,11 +284,11 @@ fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalD
         env.execute_contract(
             &QualifiedContractIdentifier::local("contract-b").unwrap(),
             "as-contract-cc-get-sponsor",
-            &vec![],
+            &[],
             false
         )
         .unwrap(),
-        Value::cons_list_unsanitized(vec![sponsor.clone()]).unwrap()
+        Value::cons_list_unsanitized(vec![sponsor]).unwrap()
     );
 }
 
@@ -313,9 +308,11 @@ fn test_tx_sponsor(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGener
          (define-read-only (as-contract-cc-get-sponsor)
            (as-contract (contract-call? .contract-a get-sponsor)))";
 
-    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR").expect_principal();
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
+        .expect_principal()
+        .unwrap();
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
     );
@@ -327,11 +324,8 @@ fn test_tx_sponsor(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGener
     };
 
     {
-        let mut env = owned_env.get_exec_environment(
-            Some(p1.clone()),
-            sponsor.clone(),
-            &mut placeholder_context,
-        );
+        let mut env =
+            owned_env.get_exec_environment(Some(p1.clone()), sponsor.clone(), &placeholder_context);
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
@@ -348,23 +342,17 @@ fn test_tx_sponsor(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGener
 
     // Sponsor is equal to some(principal) in this code block.
     {
-        let mut env = owned_env.get_exec_environment(
-            Some(p1.clone()),
-            sponsor.clone(),
-            &mut placeholder_context,
-        );
-        tx_sponsor_contract_asserts(&mut env, sponsor.clone());
+        let mut env =
+            owned_env.get_exec_environment(Some(p1.clone()), sponsor.clone(), &placeholder_context);
+        tx_sponsor_contract_asserts(&mut env, sponsor);
     }
 
     // Sponsor is none in this code block.
     {
         let sponsor = None;
-        let mut env = owned_env.get_exec_environment(
-            Some(p1.clone()),
-            sponsor.clone(),
-            &mut placeholder_context,
-        );
-        tx_sponsor_contract_asserts(&mut env, sponsor.clone());
+        let mut env =
+            owned_env.get_exec_environment(Some(p1), sponsor.clone(), &placeholder_context);
+        tx_sponsor_contract_asserts(&mut env, sponsor);
     }
 }
 
@@ -387,13 +375,13 @@ fn test_fully_qualified_contract_call(
            (as-contract (contract-call? .contract-a get-caller)))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
+        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
@@ -413,15 +401,15 @@ fn test_fully_qualified_contract_call(
             QualifiedContractIdentifier::local("contract-b").unwrap(),
         ));
         let mut env = owned_env.get_exec_environment(
-            Some(p1.clone().expect_principal()),
+            Some(p1.clone().expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
         assert_eq!(
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-a").unwrap(),
                 "get-caller",
-                &vec![],
+                &[],
                 false
             )
             .unwrap(),
@@ -431,7 +419,7 @@ fn test_fully_qualified_contract_call(
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "as-contract-get-caller",
-                &vec![],
+                &[],
                 false
             )
             .unwrap(),
@@ -441,21 +429,21 @@ fn test_fully_qualified_contract_call(
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "cc-get-caller",
-                &vec![],
+                &[],
                 false
             )
             .unwrap(),
-            Value::cons_list_unsanitized(vec![c_b.clone(), p1.clone()]).unwrap()
+            Value::cons_list_unsanitized(vec![c_b.clone(), p1]).unwrap()
         );
         assert_eq!(
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "as-contract-cc-get-caller",
-                &vec![],
+                &[],
                 false
             )
             .unwrap(),
-            Value::cons_list_unsanitized(vec![c_b.clone(), c_b.clone()]).unwrap()
+            Value::cons_list_unsanitized(vec![c_b.clone(), c_b]).unwrap()
         );
     }
 }
@@ -526,13 +514,13 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
     let name_hash_expensive_0 = execute("(hash160 1)");
     let name_hash_expensive_1 = execute("(hash160 2)");
     let name_hash_cheap_0 = execute("(hash160 100001)");
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
+        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
 
         let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
         env.initialize_contract(contract_identifier, tokens_contract, ASTRules::PrecheckSize)
@@ -545,9 +533,9 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
 
     {
         let mut env = owned_env.get_exec_environment(
-            Some(p2.clone().expect_principal()),
+            Some(p2.clone().expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
 
         assert!(is_err_code(
@@ -564,9 +552,9 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
 
     {
         let mut env = owned_env.get_exec_environment(
-            Some(p1.clone().expect_principal()),
+            Some(p1.clone().expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
         assert!(is_committed(
             &env.execute_contract(
@@ -581,7 +569,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
                 "preorder",
-                &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::UInt(1000)]),
+                &symbols_from_values(vec![name_hash_expensive_0, Value::UInt(1000)]),
                 false
             )
             .unwrap(),
@@ -592,9 +580,9 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
     {
         // shouldn't be able to register a name you didn't preorder!
         let mut env = owned_env.get_exec_environment(
-            Some(p2.clone().expect_principal()),
+            Some(p2.clone().expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
         assert!(is_err_code(
             &env.execute_contract(
@@ -611,9 +599,9 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
     {
         // should work!
         let mut env = owned_env.get_exec_environment(
-            Some(p1.clone().expect_principal()),
+            Some(p1.expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
         assert!(is_committed(
             &env.execute_contract(
@@ -629,15 +617,15 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
     {
         // try to underpay!
         let mut env = owned_env.get_exec_environment(
-            Some(p2.clone().expect_principal()),
+            Some(p2.clone().expect_principal().unwrap()),
             None,
-            &mut placeholder_context,
+            &placeholder_context,
         );
         assert!(is_committed(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
                 "preorder",
-                &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::UInt(100)]),
+                &symbols_from_values(vec![name_hash_expensive_1, Value::UInt(100)]),
                 false
             )
             .unwrap()
@@ -658,7 +646,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
                 "preorder",
-                &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::UInt(100)]),
+                &symbols_from_values(vec![name_hash_cheap_0, Value::UInt(100)]),
                 false
             )
             .unwrap()
@@ -678,7 +666,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
                 "register",
-                &symbols_from_values(vec![p2.clone(), Value::Int(100001), Value::Int(0)]),
+                &symbols_from_values(vec![p2, Value::Int(100001), Value::Int(0)]),
                 false
             )
             .unwrap(),
@@ -696,15 +684,15 @@ fn test_simple_contract_call(epoch: StacksEpochId, mut env_factory: MemoryEnviro
             (contract-call? .factorial-contract compute 8008))
         ";
 
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
     );
 
     let mut env = owned_env.get_exec_environment(
-        Some(get_principal().expect_principal()),
+        Some(get_principal().expect_principal().unwrap()),
         None,
-        &mut placeholder_context,
+        &placeholder_context,
     );
 
     let contract_identifier = QualifiedContractIdentifier::local("factorial-contract").unwrap();
@@ -782,12 +770,12 @@ fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator
     (contract-call? .contract-1 modify-data 105 105)
     (err 1)))
 ";
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
     );
 
-    let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
+    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
 
     let contract_identifier = QualifiedContractIdentifier::local("contract-1").unwrap();
     env.initialize_contract(contract_identifier, contract_1, ASTRules::PrecheckSize)
@@ -896,12 +884,12 @@ fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator
 fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
 
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
     );
 
-    let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
+    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
 
     let contract_identifier = QualifiedContractIdentifier::local("factorial").unwrap();
     env.initialize_contract(
@@ -945,7 +933,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
     for (arguments, expectation) in arguments_to_test.iter().zip(expected.iter()) {
         env.execute_contract(
             &QualifiedContractIdentifier::local("factorial").unwrap(),
-            &tx_name,
+            tx_name,
             arguments,
             false,
         )
@@ -972,13 +960,10 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
             false,
         )
         .unwrap_err();
-    match err_result {
-        Error::Unchecked(CheckErrors::NoSuchPublicFunction(_, _)) => {}
-        _ => {
-            println!("{:?}", err_result);
-            panic!("Attempt to call init-factorial should fail!")
-        }
-    }
+    assert!(matches!(
+        err_result,
+        Error::Unchecked(CheckErrors::NoSuchPublicFunction(_, _))
+    ));
 
     let err_result = env
         .execute_contract(
@@ -988,13 +973,10 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
             false,
         )
         .unwrap_err();
-    match err_result {
-        Error::Unchecked(CheckErrors::TypeValueError(_, _)) => {}
-        _ => {
-            println!("{:?}", err_result);
-            assert!(false, "Attempt to call compute with void type should fail!")
-        }
-    }
+    assert!(matches!(
+        err_result,
+        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+    ));
 }
 
 #[apply(test_epochs)]
@@ -1009,7 +991,7 @@ fn test_at_unknown_block(
     let err = owned_env
         .initialize_contract(
             QualifiedContractIdentifier::local("contract").unwrap(),
-            &contract,
+            contract,
             None,
             ASTRules::PrecheckSize,
         )
@@ -1019,7 +1001,7 @@ fn test_at_unknown_block(
         Error::Runtime(x, _) => assert_eq!(
             x,
             RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash::from(
-                vec![2 as u8; 32].as_slice()
+                vec![2_u8; 32].as_slice()
             ))
         ),
         _ => panic!("Unexpected error"),
@@ -1036,7 +1018,7 @@ fn test_as_max_len(epoch: StacksEpochId, mut tl_env_factory: TopLevelMemoryEnvir
     owned_env
         .initialize_contract(
             QualifiedContractIdentifier::local("contract").unwrap(),
-            &contract,
+            contract,
             None,
             ASTRules::PrecheckSize,
         )
@@ -1104,9 +1086,9 @@ fn test_cc_stack_depth(
                          1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1))
                        (bar)
                       ";
-    let mut placeholder_context =
+    let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
-    let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
+    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
 
     let contract_identifier = QualifiedContractIdentifier::local("c-foo").unwrap();
     env.initialize_contract(contract_identifier, contract_one, ASTRules::PrecheckSize)
@@ -1145,9 +1127,9 @@ fn test_cc_trait_stack_depth(
                        (bar .c-foo)
                       ";
 
-    let mut placeholder_context =
+    let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
-    let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
+    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
 
     let contract_identifier = QualifiedContractIdentifier::local("c-foo").unwrap();
     env.initialize_contract(contract_identifier, contract_one, ASTRules::PrecheckSize)
@@ -1159,4 +1141,39 @@ fn test_cc_trait_stack_depth(
             .unwrap_err(),
         RuntimeErrorType::MaxStackDepthReached.into()
     );
+}
+
+#[apply(test_epochs)]
+fn test_eval_with_non_existing_contract(
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
+
+    let placeholder_context = ContractContext::new(
+        QualifiedContractIdentifier::transient(),
+        ClarityVersion::Clarity2,
+    );
+
+    let mut env = owned_env.get_exec_environment(
+        Some(get_principal().expect_principal().unwrap()),
+        None,
+        &placeholder_context,
+    );
+
+    let result = env.eval_read_only(
+        &QualifiedContractIdentifier::local("absent").unwrap(),
+        "(ok 0)",
+    );
+    assert_eq!(
+        result.as_ref().unwrap_err(),
+        &Error::Unchecked(CheckErrors::NoSuchContract(
+            QualifiedContractIdentifier::local("absent")
+                .unwrap()
+                .to_string()
+        ))
+    );
+    drop(env);
+    owned_env.commit().unwrap();
+    assert!(owned_env.destruct().is_some());
 }

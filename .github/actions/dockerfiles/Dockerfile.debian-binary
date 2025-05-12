@@ -7,17 +7,33 @@ ARG TARGETPLATFORM
 ARG BUILDPLATFORM
 ARG TARGETARCH
 ARG TARGETVARIANT
-ARG REPO=stacks-network/stacks-blockchain
+ARG REPO
 
-RUN case ${TARGETARCH} in \
-    "amd64")  BIN_ARCH=linux-musl-x64  ;; \
-    "arm64")  BIN_ARCH=linux-musl-arm64  ;; \
-    "*") exit 1 ;; \
+RUN case ${TARGETPLATFORM} in \
+    linux/amd64*) BIN_ARCH=linux-glibc-x64 ;; \
+    linux/arm64*) BIN_ARCH=linux-glibc-arm64 ;; \
+    linux/arm/v7) BIN_ARCH=linux-glibc-armv7 ;; \
+    *) exit 1 ;; \
     esac \
-    && echo "wget  -q https://github.com/${REPO}/releases/download/${TAG}/${BIN_ARCH}.zip -O /${BIN_ARCH}.zip" \
-    && wget  -q https://github.com/${REPO}/releases/download/${TAG}/${BIN_ARCH}.zip -O /${BIN_ARCH}.zip \
+    && echo "TARGETPLATFORM: $TARGETPLATFORM" \
+    && echo "BIN_ARCH: $BIN_ARCH" \
+    && echo "wget -q https://github.com/${REPO}/releases/download/${TAG}/${BIN_ARCH}.zip -O /${BIN_ARCH}.zip" \
+    && wget -q https://github.com/${REPO}/releases/download/${TAG}/${BIN_ARCH}.zip -O /${BIN_ARCH}.zip \
     && unzip ${BIN_ARCH}.zip -d /out
 
-FROM --platform=${TARGETPLATFORM} debian:bullseye
-COPY --from=builder /out/stacks-node /bin/
-CMD ["stacks-node", "mainnet"]
+FROM --platform=${TARGETPLATFORM} debian:bookworm
+COPY --from=builder /out/* /bin/
+ARG TAG
+
+RUN case "${TAG}" in \
+        signer-*) \
+            echo "/bin/stacks-signer run --config /signer-config.toml" > /tmp/command.sh \
+            ;; \
+        *) \
+            echo "/bin/stacks-node mainnet" > /tmp/command.sh && \
+            rm /bin/blockstack-cli /bin/clarity-cli /bin/relay-server /bin/stacks-events /bin/stacks-inspect \
+            ;; \
+    esac && \
+    chmod +x /tmp/command.sh
+
+CMD ["sh", "-c", "/tmp/command.sh"]

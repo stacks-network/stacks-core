@@ -1,6 +1,22 @@
+# https://docs.codecov.com/docs/codecovyml-reference
+codecov:
+  require_ci_to_pass: false
+  notify:
+    wait_for_ci: true
 coverage:
+  range: 60..79
+  round: down
+  precision: 2
   status:
-    patch: off
-
+    changes: false
+    patch: false
+    project:
+      default:
+        target: 80%
+        threshold: 1%
+comment:
+  layout: "condensed_header, diff, files, footer"
+  hide_project_coverage: false
+  after_n_builds: 35
 github_checks:
   annotations: false

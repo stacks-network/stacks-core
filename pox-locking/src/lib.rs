@@ -30,14 +30,15 @@ use clarity::vm::contexts::GlobalContext;
 use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
-use slog::slog_warn;
 use stacks_common::types::StacksEpochId;
 use stacks_common::warn;
 
 mod events;
+mod events_24;
 mod pox_1;
 mod pox_2;
 mod pox_3;
+mod pox_4;
 
 #[derive(Debug)]
 pub enum LockingError {
@@ -47,11 +48,19 @@ pub enum LockingError {
     PoxExtendNotLocked,
     PoxIncreaseOnV1,
     PoxInvalidIncrease,
+    Clarity(ClarityError),
 }
 
-pub const POX_1_NAME: &'static str = "pox";
-pub const POX_2_NAME: &'static str = "pox-2";
-pub const POX_3_NAME: &'static str = "pox-3";
+impl From<ClarityError> for LockingError {
+    fn from(e: ClarityError) -> LockingError {
+        LockingError::Clarity(e)
+    }
+}
+
+pub const POX_1_NAME: &str = "pox";
+pub const POX_2_NAME: &str = "pox-2";
+pub const POX_3_NAME: &str = "pox-3";
+pub const POX_4_NAME: &str = "pox-4";
 
 /// Handle special cases of contract-calls -- namely, those into PoX that should lock up STX
 pub fn handle_contract_call_special_cases(
@@ -66,12 +75,14 @@ pub fn handle_contract_call_special_cases(
     if *contract_id == boot_code_id(POX_1_NAME, global_context.mainnet) {
         if !pox_1::is_read_only(function_name)
             && global_context.database.get_v1_unlock_height()
-                <= global_context.database.get_current_burnchain_block_height()
+                <= global_context
+                    .database
+                    .get_current_burnchain_block_height()?
         {
             // NOTE: get-pox-info is read-only, so it can call old pox v1 stuff
             warn!("PoX-1 function call attempted on an account after v1 unlock height";
                   "v1_unlock_ht" => global_context.database.get_v1_unlock_height(),
-                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height(),
+                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height()?,
                   "function_name" => function_name,
                   "contract_id" => %contract_id
             );
@@ -85,8 +96,8 @@ pub fn handle_contract_call_special_cases(
         if !pox_2::is_read_only(function_name) && global_context.epoch_id >= StacksEpochId::Epoch22
         {
             warn!("PoX-2 function call attempted on an account after Epoch 2.2";
-                  "v2_unlock_ht" => global_context.database.get_v2_unlock_height(),
-                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height(),
+                  "v2_unlock_ht" => global_context.database.get_v2_unlock_height()?,
+                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height()?,
                   "function_name" => function_name,
                   "contract_id" => %contract_id
             );
@@ -105,7 +116,30 @@ pub fn handle_contract_call_special_cases(
             result,
         );
     } else if *contract_id == boot_code_id(POX_3_NAME, global_context.mainnet) {
+        if !pox_3::is_read_only(function_name) && global_context.epoch_id >= StacksEpochId::Epoch25
+        {
+            warn!("PoX-3 function call attempted on an account after Epoch 2.5";
+                  "v3_unlock_ht" => global_context.database.get_v3_unlock_height()?,
+                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height()?,
+                  "function_name" => function_name,
+                  "contract_id" => %contract_id
+            );
+            return Err(ClarityError::Runtime(
+                RuntimeErrorType::DefunctPoxContract,
+                None,
+            ));
+        }
+
         return pox_3::handle_contract_call(
+            global_context,
+            sender,
+            contract_id,
+            function_name,
+            args,
+            result,
+        );
+    } else if *contract_id == boot_code_id(POX_4_NAME, global_context.mainnet) {
+        return pox_4::handle_contract_call(
             global_context,
             sender,
             contract_id,

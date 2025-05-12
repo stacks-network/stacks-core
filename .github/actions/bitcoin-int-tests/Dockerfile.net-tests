@@ -1,17 +1,17 @@
-FROM rust:bullseye
+FROM rust:bookworm
 
 WORKDIR /src
 
 COPY . .
 
-RUN cd / && wget https://bitcoin.org/bin/bitcoin-core-0.20.0/bitcoin-0.20.0-x86_64-linux-gnu.tar.gz
-RUN cd / && tar -xvzf bitcoin-0.20.0-x86_64-linux-gnu.tar.gz
+RUN cd / && wget https://bitcoin.org/bin/bitcoin-core-25.0/bitcoin-25.0-x86_64-linux-gnu.tar.gz
+RUN cd / && tar -xvzf bitcoin-25.0-x86_64-linux-gnu.tar.gz
 
-RUN ln -s /bitcoin-0.20.0/bin/bitcoind /bin/
-RUN ln -s /bitcoin-0.20.0/bin/bitcoin-cli /bin/
+RUN ln -s /bitcoin-25.0/bin/bitcoind /bin/
+RUN ln -s /bitcoin-25.0/bin/bitcoin-cli /bin/
 
 RUN apt-get update
-RUN apt-get install -y jq screen net-tools ncat sqlite3 xxd openssl curl
+RUN apt-get install -y jq screen net-tools ncat sqlite3 xxd openssl curl libllvm16 libclang1-16
 
 RUN cargo build --workspace
 

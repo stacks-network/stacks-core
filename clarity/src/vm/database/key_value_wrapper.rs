@@ -14,33 +14,30 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-use std::{clone::Clone, cmp::Eq, hash::Hash};
+use std::hash::Hash;
 
-use crate::vm::database::clarity_store::make_contract_hash_key;
-use crate::vm::errors::InterpreterResult;
-use crate::vm::types::serialization::SerializationError;
-use crate::vm::types::{
-    QualifiedContractIdentifier, SequenceData, SequenceSubtype, TupleData, TypeSignature,
-};
-use crate::vm::{StacksEpoch, Value};
+use hashbrown::HashMap;
+use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
-use crate::types::chainstate::StacksBlockId;
-
 use super::clarity_store::SpecialCaseHandler;
 use super::{ClarityBackingStore, ClarityDeserializable};
+use crate::vm::database::clarity_store::make_contract_hash_key;
+use crate::vm::errors::{InterpreterError, InterpreterResult};
+use crate::vm::types::serialization::SerializationError;
+use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
+use crate::vm::Value;
 
-#[cfg(rollback_value_check)]
+#[cfg(feature = "rollback_value_check")]
 type RollbackValueCheck = String;
-#[cfg(not(rollback_value_check))]
+#[cfg(not(feature = "rollback_value_check"))]
 type RollbackValueCheck = ();
 
-#[cfg(not(rollback_value_check))]
+#[cfg(not(feature = "rollback_value_check"))]
 fn rollback_value_check(_value: &str, _check: &RollbackValueCheck) {}
 
-#[cfg(not(rollback_value_check))]
+#[cfg(not(feature = "rollback_value_check"))]
 fn rollback_edits_push<T>(edits: &mut Vec<(T, RollbackValueCheck)>, key: T, _value: &str) {
     edits.push((key, ()));
 }
@@ -48,11 +45,11 @@ fn rollback_edits_push<T>(edits: &mut Vec<(T, RollbackValueCheck)>, key: T, _val
 //   wrapper -- i.e., when committing to the underlying store. for the _unchecked_ implementation
 //   this is used to get the edit _value_ out of the lookupmap, for used in the subsequent `put_all`
 //   command.
-#[cfg(not(rollback_value_check))]
+#[cfg(not(feature = "rollback_value_check"))]
 fn rollback_check_pre_bottom_commit<T>(
     edits: Vec<(T, RollbackValueCheck)>,
     lookup_map: &mut HashMap<T, Vec<String>>,
-) -> Vec<(T, String)>
+) -> Result<Vec<(T, String)>, InterpreterError>
 where
     T: Eq + Hash + Clone,
 {
@@ -63,33 +60,33 @@ where
     let output = edits
         .into_iter()
         .map(|(key, _)| {
-            let value = rollback_lookup_map(&key, &(), lookup_map);
-            (key, value)
+            let value = rollback_lookup_map(&key, &(), lookup_map)?;
+            Ok((key, value))
         })
         .collect();
 
-    assert!(lookup_map.len() == 0);
+    assert!(lookup_map.is_empty());
     output
 }
 
-#[cfg(rollback_value_check)]
+#[cfg(feature = "rollback_value_check")]
 fn rollback_value_check(value: &String, check: &RollbackValueCheck) {
     assert_eq!(value, check)
 }
-#[cfg(rollback_value_check)]
-fn rollback_edits_push<T>(edits: &mut Vec<(T, RollbackValueCheck)>, key: T, value: &String)
+#[cfg(feature = "rollback_value_check")]
+fn rollback_edits_push<T>(edits: &mut Vec<(T, RollbackValueCheck)>, key: T, value: &str)
 where
     T: Eq + Hash + Clone,
 {
-    edits.push((key, value.clone()));
+    edits.push((key, value.to_owned()));
 }
 // this function is used to check the lookup map when committing at the "bottom" of the
 //   wrapper -- i.e., when committing to the underlying store.
-#[cfg(rollback_value_check)]
+#[cfg(feature = "rollback_value_check")]
 fn rollback_check_pre_bottom_commit<T>(
     edits: Vec<(T, RollbackValueCheck)>,
     lookup_map: &mut HashMap<T, Vec<String>>,
-) -> Vec<(T, String)>
+) -> Result<Vec<(T, String)>, InterpreterError>
 where
     T: Eq + Hash + Clone,
 {
@@ -97,10 +94,10 @@ where
         edit_history.reverse();
     }
     for (key, value) in edits.iter() {
-        rollback_lookup_map(key, &value, lookup_map);
+        let _ = rollback_lookup_map(key, value, lookup_map);
     }
-    assert!(lookup_map.len() == 0);
-    edits
+    assert!(lookup_map.is_empty());
+    Ok(edits)
 }
 
 /// Result structure for fetched values from the
@@ -155,6 +152,12 @@ impl From<RollbackWrapper<'_>> for RollbackWrapperPersistedLog {
     }
 }
 
+impl Default for RollbackWrapperPersistedLog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RollbackWrapperPersistedLog {
     pub fn new() -> RollbackWrapperPersistedLog {
         RollbackWrapperPersistedLog {
@@ -176,27 +179,31 @@ fn rollback_lookup_map<T>(
     key: &T,
     value: &RollbackValueCheck,
     lookup_map: &mut HashMap<T, Vec<String>>,
-) -> String
+) -> Result<String, InterpreterError>
 where
     T: Eq + Hash + Clone,
 {
     let popped_value;
     let remove_edit_deque = {
-        let key_edit_history = lookup_map
-            .get_mut(key)
-            .expect("ERROR: Clarity VM had edit log entry, but not lookup_map entry");
-        popped_value = key_edit_history.pop().unwrap();
+        let key_edit_history = lookup_map.get_mut(key).ok_or_else(|| {
+            InterpreterError::Expect(
+                "ERROR: Clarity VM had edit log entry, but not lookup_map entry".into(),
+            )
+        })?;
+        popped_value = key_edit_history.pop().ok_or_else(|| {
+            InterpreterError::Expect("ERROR: expected value in edit history".into())
+        })?;
         rollback_value_check(&popped_value, value);
-        key_edit_history.len() == 0
+        key_edit_history.is_empty()
     };
     if remove_edit_deque {
         lookup_map.remove(key);
     }
-    popped_value
+    Ok(popped_value)
 }
 
 impl<'a> RollbackWrapper<'a> {
-    pub fn new(store: &'a mut dyn ClarityBackingStore) -> RollbackWrapper {
+    pub fn new(store: &'a mut dyn ClarityBackingStore) -> RollbackWrapper<'a> {
         RollbackWrapper {
             store,
             lookup_map: HashMap::new(),
@@ -209,7 +216,7 @@ impl<'a> RollbackWrapper<'a> {
     pub fn from_persisted_log(
         store: &'a mut dyn ClarityBackingStore,
         log: RollbackWrapperPersistedLog,
-    ) -> RollbackWrapper {
+    ) -> RollbackWrapper<'a> {
         RollbackWrapper {
             store,
             lookup_map: log.lookup_map,
@@ -233,62 +240,73 @@ impl<'a> RollbackWrapper<'a> {
     // Rollback the child's edits.
     //   this clears all edits from the child's edit queue,
     //     and removes any of those edits from the lookup map.
-    pub fn rollback(&mut self) {
-        let mut last_item = self
-            .stack
-            .pop()
-            .expect("ERROR: Clarity VM attempted to commit past the stack.");
+    pub fn rollback(&mut self) -> Result<(), InterpreterError> {
+        let mut last_item = self.stack.pop().ok_or_else(|| {
+            InterpreterError::Expect("ERROR: Clarity VM attempted to commit past the stack.".into())
+        })?;
 
         last_item.edits.reverse();
         last_item.metadata_edits.reverse();
 
         for (key, value) in last_item.edits.drain(..) {
-            rollback_lookup_map(&key, &value, &mut self.lookup_map);
+            rollback_lookup_map(&key, &value, &mut self.lookup_map)?;
         }
 
         for (key, value) in last_item.metadata_edits.drain(..) {
-            rollback_lookup_map(&key, &value, &mut self.metadata_lookup_map);
+            rollback_lookup_map(&key, &value, &mut self.metadata_lookup_map)?;
         }
+
+        Ok(())
     }
 
     pub fn depth(&self) -> usize {
         self.stack.len()
     }
 
-    pub fn commit(&mut self) {
-        let mut last_item = self
-            .stack
-            .pop()
-            .expect("ERROR: Clarity VM attempted to commit past the stack.");
+    pub fn commit(&mut self) -> Result<(), InterpreterError> {
+        let mut last_item = self.stack.pop().ok_or_else(|| {
+            InterpreterError::Expect("ERROR: Clarity VM attempted to commit past the stack.".into())
+        })?;
 
-        if self.stack.len() == 0 {
-            // committing to the backing store
-            let all_edits = rollback_check_pre_bottom_commit(last_item.edits, &mut self.lookup_map);
-            if all_edits.len() > 0 {
-                self.store.put_all(all_edits);
-            }
-
-            let metadata_edits = rollback_check_pre_bottom_commit(
-                last_item.metadata_edits,
-                &mut self.metadata_lookup_map,
-            );
-            if metadata_edits.len() > 0 {
-                self.store.put_all_metadata(metadata_edits);
-            }
-        } else {
+        if let Some(next_up) = self.stack.last_mut() {
             // bubble up to the next item in the stack
-            let next_up = self.stack.last_mut().unwrap();
+            // last_mut() must exist because of the if-statement
             for (key, value) in last_item.edits.drain(..) {
                 next_up.edits.push((key, value));
             }
             for (key, value) in last_item.metadata_edits.drain(..) {
                 next_up.metadata_edits.push((key, value));
             }
+        } else {
+            // stack is empty, committing to the backing store
+            let all_edits =
+                rollback_check_pre_bottom_commit(last_item.edits, &mut self.lookup_map)?;
+            if !all_edits.is_empty() {
+                self.store.put_all_data(all_edits).map_err(|e| {
+                    InterpreterError::Expect(format!(
+                        "ERROR: Failed to commit data to sql store: {e:?}"
+                    ))
+                })?;
+            }
+
+            let metadata_edits = rollback_check_pre_bottom_commit(
+                last_item.metadata_edits,
+                &mut self.metadata_lookup_map,
+            )?;
+            if !metadata_edits.is_empty() {
+                self.store.put_all_metadata(metadata_edits).map_err(|e| {
+                    InterpreterError::Expect(format!(
+                        "ERROR: Failed to commit data to sql store: {e:?}"
+                    ))
+                })?;
+            }
         }
+
+        Ok(())
     }
 }
 
-fn inner_put<T>(
+fn inner_put_data<T>(
     lookup_map: &mut HashMap<T, Vec<String>>,
     edits: &mut Vec<(T, RollbackValueCheck)>,
     key: T,
@@ -296,27 +314,26 @@ fn inner_put<T>(
 ) where
     T: Eq + Hash + Clone,
 {
-    if !lookup_map.contains_key(&key) {
-        lookup_map.insert(key.clone(), Vec::new());
-    }
-    let key_edit_deque = lookup_map.get_mut(&key).unwrap();
+    let key_edit_deque = lookup_map.entry(key.clone()).or_default();
     rollback_edits_push(edits, key, &value);
     key_edit_deque.push(value);
 }
 
-impl<'a> RollbackWrapper<'a> {
-    pub fn put(&mut self, key: &str, value: &str) {
-        let current = self
-            .stack
-            .last_mut()
-            .expect("ERROR: Clarity VM attempted PUT on non-nested context.");
+impl RollbackWrapper<'_> {
+    pub fn put_data(&mut self, key: &str, value: &str) -> InterpreterResult<()> {
+        let current = self.stack.last_mut().ok_or_else(|| {
+            InterpreterError::Expect(
+                "ERROR: Clarity VM attempted PUT on non-nested context.".into(),
+            )
+        })?;
 
-        inner_put(
+        inner_put_data(
             &mut self.lookup_map,
             &mut current.edits,
             key.to_string(),
             value.to_string(),
-        )
+        );
+        Ok(())
     }
 
     ///
@@ -329,45 +346,80 @@ impl<'a> RollbackWrapper<'a> {
         bhh: StacksBlockId,
         query_pending_data: bool,
     ) -> InterpreterResult<StacksBlockId> {
-        self.store.set_block_hash(bhh).and_then(|x| {
+        self.store.set_block_hash(bhh).inspect(|_| {
             // use and_then so that query_pending_data is only set once set_block_hash succeeds
             //  this doesn't matter in practice, because a set_block_hash failure always aborts
             //  the transaction with a runtime error (destroying its environment), but it's much
             //  better practice to do this, especially if the abort behavior changes in the future.
             self.query_pending_data = query_pending_data;
-            Ok(x)
         })
     }
 
     /// this function will only return commitment proofs for values _already_ materialized
     ///  in the underlying store. otherwise it returns None.
-    pub fn get_with_proof<T>(&mut self, key: &str) -> Option<(T, Vec<u8>)>
+    pub fn get_data_with_proof<T>(&mut self, key: &str) -> InterpreterResult<Option<(T, Vec<u8>)>>
     where
         T: ClarityDeserializable<T>,
     {
         self.store
-            .get_with_proof(key)
-            .map(|(value, proof)| (T::deserialize(&value), proof))
+            .get_data_with_proof(key)?
+            .map(|(value, proof)| Ok((T::deserialize(&value)?, proof)))
+            .transpose()
     }
 
-    pub fn get<T>(&mut self, key: &str) -> Option<T>
+    /// this function will only return commitment proofs for values _already_ materialized
+    ///  in the underlying store. otherwise it returns None.
+    pub fn get_data_with_proof_by_hash<T>(
+        &mut self,
+        hash: &TrieHash,
+    ) -> InterpreterResult<Option<(T, Vec<u8>)>>
     where
         T: ClarityDeserializable<T>,
     {
-        self.stack
-            .last()
-            .expect("ERROR: Clarity VM attempted GET on non-nested context.");
+        self.store
+            .get_data_with_proof_from_path(hash)?
+            .map(|(value, proof)| Ok((T::deserialize(&value)?, proof)))
+            .transpose()
+    }
 
-        let lookup_result = if self.query_pending_data {
-            self.lookup_map
-                .get(key)
-                .and_then(|x| x.last())
-                .map(|x| T::deserialize(x))
-        } else {
-            None
-        };
+    pub fn get_data<T>(&mut self, key: &str) -> InterpreterResult<Option<T>>
+    where
+        T: ClarityDeserializable<T>,
+    {
+        self.stack.last().ok_or_else(|| {
+            InterpreterError::Expect(
+                "ERROR: Clarity VM attempted GET on non-nested context.".into(),
+            )
+        })?;
 
-        lookup_result.or_else(|| self.store.get(key).map(|x| T::deserialize(&x)))
+        if self.query_pending_data {
+            if let Some(pending_value) = self.lookup_map.get(key).and_then(|x| x.last()) {
+                // if there's pending data and we're querying pending data, return here
+                return Some(T::deserialize(pending_value)).transpose();
+            }
+        }
+        // otherwise, lookup from store
+        self.store
+            .get_data(key)?
+            .map(|x| T::deserialize(&x))
+            .transpose()
+    }
+
+    /// DO NOT USE IN CONSENSUS CODE.
+    ///
+    /// Load data directly from the underlying store, given its trie hash.  The lookup map will not
+    /// be used.
+    ///
+    /// This should never be called from within the Clarity VM, or via block-processing.  It's only
+    /// meant to be used by the RPC system.
+    pub fn get_data_by_hash<T>(&mut self, hash: &TrieHash) -> InterpreterResult<Option<T>>
+    where
+        T: ClarityDeserializable<T>,
+    {
+        self.store
+            .get_data_from_path(hash)?
+            .map(|x| T::deserialize(&x))
+            .transpose()
     }
 
     pub fn deserialize_value(
@@ -393,17 +445,21 @@ impl<'a> RollbackWrapper<'a> {
         expected: &TypeSignature,
         epoch: &StacksEpochId,
     ) -> Result<Option<ValueResult>, SerializationError> {
-        self.stack
-            .last()
-            .expect("ERROR: Clarity VM attempted GET on non-nested context.");
+        self.stack.last().ok_or_else(|| {
+            SerializationError::DeserializationError(
+                "ERROR: Clarity VM attempted GET on non-nested context.".into(),
+            )
+        })?;
 
         if self.query_pending_data {
             if let Some(x) = self.lookup_map.get(key).and_then(|x| x.last()) {
                 return Ok(Some(Self::deserialize_value(x, expected, epoch)?));
             }
         }
-
-        match self.store.get(key) {
+        let stored_data = self.store.get_data(key).map_err(|_| {
+            SerializationError::DeserializationError("ERROR: Clarity backing store failure".into())
+        })?;
+        match stored_data {
             Some(x) => Ok(Some(Self::deserialize_value(&x, expected, epoch)?)),
             None => Ok(None),
         }
@@ -423,10 +479,10 @@ impl<'a> RollbackWrapper<'a> {
         &mut self,
         contract: &QualifiedContractIdentifier,
         content_hash: Sha512Trunc256Sum,
-    ) {
+    ) -> InterpreterResult<()> {
         let key = make_contract_hash_key(contract);
         let value = self.store.make_contract_commitment(content_hash);
-        self.put(&key, &value)
+        self.put_data(&key, &value)
     }
 
     pub fn insert_metadata(
@@ -434,20 +490,22 @@ impl<'a> RollbackWrapper<'a> {
         contract: &QualifiedContractIdentifier,
         key: &str,
         value: &str,
-    ) {
-        let current = self
-            .stack
-            .last_mut()
-            .expect("ERROR: Clarity VM attempted PUT on non-nested context.");
+    ) -> Result<(), InterpreterError> {
+        let current = self.stack.last_mut().ok_or_else(|| {
+            InterpreterError::Expect(
+                "ERROR: Clarity VM attempted PUT on non-nested context.".into(),
+            )
+        })?;
 
         let metadata_key = (contract.clone(), key.to_string());
 
-        inner_put(
+        inner_put_data(
             &mut self.metadata_lookup_map,
             &mut current.metadata_edits,
             metadata_key,
             value.to_string(),
-        )
+        );
+        Ok(())
     }
 
     // Throws a NoSuchContract error if contract doesn't exist,
@@ -457,9 +515,11 @@ impl<'a> RollbackWrapper<'a> {
         contract: &QualifiedContractIdentifier,
         key: &str,
     ) -> InterpreterResult<Option<String>> {
-        self.stack
-            .last()
-            .expect("ERROR: Clarity VM attempted GET on non-nested context.");
+        self.stack.last().ok_or_else(|| {
+            InterpreterError::Expect(
+                "ERROR: Clarity VM attempted GET on non-nested context.".into(),
+            )
+        })?;
 
         // This is THEORETICALLY a spurious clone, but it's hard to turn something like
         //  (&A, &B) into &(A, B).
@@ -486,9 +546,11 @@ impl<'a> RollbackWrapper<'a> {
         contract: &QualifiedContractIdentifier,
         key: &str,
     ) -> InterpreterResult<Option<String>> {
-        self.stack
-            .last()
-            .expect("ERROR: Clarity VM attempted GET on non-nested context.");
+        self.stack.last().ok_or_else(|| {
+            InterpreterError::Expect(
+                "ERROR: Clarity VM attempted GET on non-nested context.".into(),
+            )
+        })?;
 
         // This is THEORETICALLY a spurious clone, but it's hard to turn something like
         //  (&A, &B) into &(A, B).
@@ -507,12 +569,14 @@ impl<'a> RollbackWrapper<'a> {
         }
     }
 
-    pub fn has_entry(&mut self, key: &str) -> bool {
-        self.stack
-            .last()
-            .expect("ERROR: Clarity VM attempted GET on non-nested context.");
+    pub fn has_entry(&mut self, key: &str) -> InterpreterResult<bool> {
+        self.stack.last().ok_or_else(|| {
+            InterpreterError::Expect(
+                "ERROR: Clarity VM attempted GET on non-nested context.".into(),
+            )
+        })?;
         if self.query_pending_data && self.lookup_map.contains_key(key) {
-            true
+            Ok(true)
         } else {
             self.store.has_entry(key)
         }
@@ -523,9 +587,6 @@ impl<'a> RollbackWrapper<'a> {
         contract: &QualifiedContractIdentifier,
         key: &str,
     ) -> bool {
-        match self.get_metadata(contract, key) {
-            Ok(Some(_)) => true,
-            _ => false,
-        }
+        matches!(self.get_metadata(contract, key), Ok(Some(_)))
     }
 }

@@ -15,13 +15,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::vm::errors::{CheckErrors, Error, ShortReturnType};
-use crate::vm::execute;
 use crate::vm::types::{
     ListData, SequenceData, TupleData, TupleTypeSignature, TypeSignature, Value,
 };
-use crate::vm::ClarityName;
-use std::convert::From;
-use std::convert::TryFrom;
+use crate::vm::{execute, ClarityName};
 
 fn assert_executes(expected: Result<Value, Error>, input: &str) {
     assert_eq!(expected.unwrap(), execute(input).unwrap().unwrap());
@@ -495,10 +492,10 @@ fn lists_system_2() {
                     (get-list 1))
         (map-insert lists (tuple (name 1)) (tuple (contentious (list 1 2 6))))";
 
-    match execute(test) {
-        Err(Error::Unchecked(CheckErrors::TypeError(_, _))) => true,
-        _ => false,
-    };
+    matches!(
+        execute(test),
+        Err(Error::Unchecked(CheckErrors::TypeError(_, _)))
+    );
 }
 
 #[test]
@@ -560,12 +557,10 @@ fn lists_system() {
     {
         let test = execute(test);
         println!("{:#?}", test);
-        let expected_type_error = match test {
-            Err(Error::Unchecked(CheckErrors::TypeValueError(_, _))) => true,
-            _ => false,
-        };
-
-        assert!(expected_type_error);
+        assert!(matches!(
+            test,
+            Err(Error::Unchecked(CheckErrors::TypeValueError(_, _)))
+        ));
     }
 }
 
@@ -647,7 +642,7 @@ fn bad_define_maps() {
         "(define-map lists { name: int } contents 5)",
         "(define-map lists { name: int } { contents: (list 5 0 int) })",
     ];
-    let mut expected: Vec<Error> = vec![
+    let expected: Vec<Error> = vec![
         CheckErrors::BadSyntaxExpectedListOfPairs.into(),
         CheckErrors::UnknownTypeName("contents".to_string()).into(),
         CheckErrors::ExpectedName.into(),
@@ -655,7 +650,7 @@ fn bad_define_maps() {
         CheckErrors::InvalidTypeDescription.into(),
     ];
 
-    for (test, expected_err) in tests.iter().zip(expected.drain(..)) {
+    for (test, expected_err) in tests.iter().zip(expected.into_iter()) {
         let outcome = execute(test).unwrap_err();
         assert_eq!(outcome, expected_err);
     }
@@ -671,7 +666,7 @@ fn bad_tuples() {
         "(get name five (tuple (name 1)))",
         "(get 1234 (tuple (name 1)))",
     ];
-    let mut expected = vec![
+    let expected = vec![
         CheckErrors::NameAlreadyUsed("name".into()),
         CheckErrors::BadSyntaxBinding,
         CheckErrors::BadSyntaxBinding,
@@ -683,7 +678,7 @@ fn bad_tuples() {
         CheckErrors::ExpectedName,
     ];
 
-    for (test, expected_err) in tests.iter().zip(expected.drain(..)) {
+    for (test, expected_err) in tests.iter().zip(expected.into_iter()) {
         let outcome = execute(test).unwrap_err();
         assert_eq!(outcome, expected_err.into());
     }

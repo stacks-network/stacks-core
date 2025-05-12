@@ -1,24 +1,28 @@
+use std::env;
+use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 
-use crate::config::InitialBalance;
-use crate::helium::RunLoop;
-use crate::tests::to_addr;
-use crate::Config;
-
+use clarity::vm::costs::ExecutionCost;
 use stacks::chainstate::burn::operations::BlockstackOperationType::{
     LeaderBlockCommit, LeaderKeyRegister,
 };
 use stacks::chainstate::stacks::StacksPrivateKey;
+use stacks::config::InitialBalance;
 use stacks::core::StacksEpochId;
-use stacks::util::hash::hex_bytes;
+use stacks_common::util::hash::hex_bytes;
 
 use super::PUBLISH_CONTRACT;
-use stacks::vm::costs::ExecutionCost;
-use std::env;
-use std::io::{BufRead, BufReader};
+use crate::burnchains::bitcoin_regtest_controller::BitcoinRPCRequest;
+use crate::helium::RunLoop;
+use crate::tests::to_addr;
+use crate::Config;
 
+#[derive(Debug, thiserror::Error)]
 pub enum BitcoinCoreError {
+    #[error("bitcoind spawn failed: {0}")]
     SpawnFailed(String),
+    #[error("bitcoind stop failed: {0}")]
+    StopFailed(String),
 }
 
 type BitcoinResult<T> = Result<T, BitcoinCoreError>;
@@ -36,8 +40,21 @@ impl BitcoinCoreController {
         }
     }
 
+    fn add_rpc_cli_args(&self, command: &mut Command) {
+        command.arg(format!("-rpcport={}", self.config.burnchain.rpc_port));
+
+        if let (Some(username), Some(password)) = (
+            &self.config.burnchain.username,
+            &self.config.burnchain.password,
+        ) {
+            command
+                .arg(format!("-rpcuser={username}"))
+                .arg(format!("-rpcpassword={password}"));
+        }
+    }
+
     pub fn start_bitcoind(&mut self) -> BitcoinResult<()> {
-        std::fs::create_dir_all(&self.config.get_burnchain_path_str()).unwrap();
+        std::fs::create_dir_all(self.config.get_burnchain_path_str()).unwrap();
 
         let mut command = Command::new("bitcoind");
         command
@@ -50,33 +67,18 @@ impl BitcoinCoreController {
             .arg("-server=1")
             .arg("-listenonion=0")
             .arg("-rpcbind=127.0.0.1")
-            .arg(&format!("-port={}", self.config.burnchain.peer_port))
-            .arg(&format!(
-                "-datadir={}",
-                self.config.get_burnchain_path_str()
-            ))
-            .arg(&format!("-rpcport={}", self.config.burnchain.rpc_port));
+            .arg(format!("-port={}", self.config.burnchain.peer_port))
+            .arg(format!("-datadir={}", self.config.get_burnchain_path_str()));
 
-        match (
-            &self.config.burnchain.username,
-            &self.config.burnchain.password,
-        ) {
-            (Some(username), Some(password)) => {
-                command
-                    .arg(&format!("-rpcuser={}", username))
-                    .arg(&format!("-rpcpassword={}", password));
-            }
-            _ => {}
-        }
+        self.add_rpc_cli_args(&mut command);
 
-        eprintln!("bitcoind spawn: {:?}", command);
+        eprintln!("bitcoind spawn: {command:?}");
 
         let mut process = match command.spawn() {
             Ok(child) => child,
-            Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{:?}", e))),
+            Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{e:?}"))),
         };
 
-        eprintln!("bitcoind spawned, waiting for startup");
         let mut out_reader = BufReader::new(process.stdout.take().unwrap());
 
         let mut line = String::new();
@@ -95,6 +97,31 @@ impl BitcoinCoreController {
 
         self.bitcoind_process = Some(process);
 
+        Ok(())
+    }
+
+    pub fn stop_bitcoind(&mut self) -> Result<(), BitcoinCoreError> {
+        if self.bitcoind_process.take().is_some() {
+            let payload = BitcoinRPCRequest {
+                method: "stop".to_string(),
+                params: vec![],
+                id: "stacks".to_string(),
+                jsonrpc: "2.0".to_string(),
+            };
+
+            let res = BitcoinRPCRequest::send(&self.config, payload)
+                .map_err(|e| BitcoinCoreError::StopFailed(format!("{e:?}")))?;
+
+            if let Some(err) = res.get("error") {
+                if !err.is_null() {
+                    return Err(BitcoinCoreError::StopFailed(format!("{err}")));
+                }
+            } else {
+                return Err(BitcoinCoreError::StopFailed(format!(
+                    "Invalid response: {res:?}"
+                )));
+            }
+        }
         Ok(())
     }
 
@@ -142,9 +169,8 @@ fn bitcoind_integration(segwit_flag: bool) {
     conf.burnchain.password = Some("secret".to_string());
     conf.burnchain.local_mining_public_key = Some("04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77".to_string());
 
-    conf.miner.min_tx_fee = 0;
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
     conf.miner.segwit = segwit_flag;
 
     conf.initial_balances.push(InitialBalance {
@@ -187,11 +213,11 @@ fn bitcoind_integration(segwit_flag: bool) {
         .callbacks
         .on_new_burn_chain_state(|round, burnchain_tip, chain_tip| {
             let block = &burnchain_tip.block_snapshot;
-            let expected_total_burn = BITCOIND_INT_TEST_COMMITS * (round as u64 + 1);
+            let expected_total_burn = BITCOIND_INT_TEST_COMMITS * (round + 1);
             assert_eq!(block.total_burn, expected_total_burn);
-            assert_eq!(block.sortition, true);
-            assert_eq!(block.num_sortitions, round as u64 + 1);
-            assert_eq!(block.block_height, round as u64 + 2003);
+            assert!(block.sortition);
+            assert_eq!(block.num_sortitions, round + 1);
+            assert_eq!(block.block_height, round + 2003);
             let leader_key = "f888e0cab5c16de8edf72b544a189ece5c0b95cd9178606c970789ac71d17bb4";
 
             match round {
@@ -216,7 +242,7 @@ fn bitcoind_integration(segwit_flag: bool) {
                                 assert!(op.parent_vtxindex == 0);
                                 assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
                             }
-                            _ => assert!(false),
+                            _ => panic!("Unexpected operation"),
                         }
                     }
                 }
@@ -240,7 +266,7 @@ fn bitcoind_integration(segwit_flag: bool) {
                                 assert_eq!(op.parent_block_ptr, 2003);
                                 assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
                             }
-                            _ => assert!(false),
+                            _ => panic!("Unexpected operation"),
                         }
                     }
 
@@ -269,7 +295,7 @@ fn bitcoind_integration(segwit_flag: bool) {
                                 assert_eq!(op.parent_block_ptr, 2004);
                                 assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
                             }
-                            _ => assert!(false),
+                            _ => panic!("Unexpected operation"),
                         }
                     }
 
@@ -298,7 +324,7 @@ fn bitcoind_integration(segwit_flag: bool) {
                                 assert_eq!(op.parent_block_ptr, 2005);
                                 assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
                             }
-                            _ => assert!(false),
+                            _ => panic!("Unexpected operation"),
                         }
                     }
 
@@ -327,7 +353,7 @@ fn bitcoind_integration(segwit_flag: bool) {
                                 assert_eq!(op.parent_block_ptr, 2006);
                                 assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
                             }
-                            _ => assert!(false),
+                            _ => panic!("Unexpected operation"),
                         }
                     }
 
@@ -356,7 +382,7 @@ fn bitcoind_integration(segwit_flag: bool) {
                                 assert_eq!(op.parent_block_ptr, 2007);
                                 assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
                             }
-                            _ => assert!(false),
+                            _ => panic!("Unexpected operation"),
                         }
                     }
 
@@ -434,7 +460,6 @@ fn bitcoind_integration(segwit_flag: bool) {
             },
             _ => {}
         };
-        return
     });
 
     // Use block's hook for asserting expectations

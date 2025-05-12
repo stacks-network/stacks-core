@@ -14,16 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::representations::{ClarityName, SymbolicExpression};
-use crate::vm::types::signatures::{CallableSubtype, FunctionSignature};
-use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
-use crate::vm::ClarityVersion;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 
-use crate::vm::contexts::MAX_CONTEXT_DEPTH;
+use hashbrown::{HashMap, HashSet};
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use crate::vm::analysis::type_checker::is_reserved_word;
 use crate::vm::analysis::types::ContractAnalysis;
+use crate::vm::representations::ClarityName;
+use crate::vm::types::signatures::FunctionSignature;
+use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
+use crate::vm::ClarityVersion;
 
 enum TraitContext {
     /// Traits stored in this context use the trait type-checking behavior defined in Clarity1
@@ -41,7 +42,7 @@ impl TraitContext {
     pub fn new(clarity_version: ClarityVersion) -> TraitContext {
         match clarity_version {
             ClarityVersion::Clarity1 => Self::Clarity1(HashMap::new()),
-            ClarityVersion::Clarity2 => Self::Clarity2 {
+            ClarityVersion::Clarity2 | ClarityVersion::Clarity3 => Self::Clarity2 {
                 defined: HashSet::new(),
                 all: HashMap::new(),
             },
@@ -107,6 +108,7 @@ impl TraitContext {
         }
     }
 
+    #[allow(clippy::wrong_self_convention)]
     pub fn into_contract_analysis(&mut self, contract_analysis: &mut ContractAnalysis) {
         match self {
             Self::Clarity1(map) => {
@@ -126,6 +128,7 @@ impl TraitContext {
 }
 
 pub struct ContractContext {
+    clarity_version: ClarityVersion,
     contract_identifier: QualifiedContractIdentifier,
     map_types: HashMap<ClarityName, (TypeSignature, TypeSignature)>,
     variable_types: HashMap<ClarityName, TypeSignature>,
@@ -145,6 +148,7 @@ impl ContractContext {
         clarity_version: ClarityVersion,
     ) -> ContractContext {
         ContractContext {
+            clarity_version,
             contract_identifier,
             variable_types: HashMap::new(),
             private_function_types: HashMap::new(),
@@ -166,6 +170,10 @@ impl ContractContext {
     }
 
     pub fn check_name_used(&self, name: &str) -> CheckResult<()> {
+        if is_reserved_word(name, self.clarity_version) {
+            return Err(CheckError::new(CheckErrors::ReservedWord(name.to_string())));
+        }
+
         if self.variable_types.contains_key(name)
             || self.persisted_variable_types.contains_key(name)
             || self.private_function_types.contains_key(name)
@@ -277,6 +285,10 @@ impl ContractContext {
         trait_name: ClarityName,
         trait_signature: BTreeMap<ClarityName, FunctionSignature>,
     ) -> CheckResult<()> {
+        if self.clarity_version >= ClarityVersion::Clarity3 {
+            self.check_name_used(&trait_name)?;
+        }
+
         self.traits.add_defined_trait(
             self.contract_identifier.clone(),
             trait_name,
@@ -290,6 +302,10 @@ impl ContractContext {
         trait_id: TraitIdentifier,
         trait_signature: BTreeMap<ClarityName, FunctionSignature>,
     ) -> CheckResult<()> {
+        if self.clarity_version >= ClarityVersion::Clarity3 {
+            self.check_name_used(&alias)?;
+        }
+
         self.traits.add_used_trait(alias, trait_id, trait_signature)
     }
 
@@ -331,35 +347,35 @@ impl ContractContext {
     ///  into the provided ContractAnalysis
     pub fn into_contract_analysis(mut self, contract_analysis: &mut ContractAnalysis) {
         for (name, function_type) in self.public_function_types.drain() {
-            contract_analysis.add_public_function(name.into(), function_type);
+            contract_analysis.add_public_function(name, function_type);
         }
 
         for (name, function_type) in self.read_only_function_types.drain() {
-            contract_analysis.add_read_only_function(name.into(), function_type);
+            contract_analysis.add_read_only_function(name, function_type);
         }
 
         for (name, (key_type, map_type)) in self.map_types.drain() {
-            contract_analysis.add_map_type(name.into(), key_type, map_type);
+            contract_analysis.add_map_type(name, key_type, map_type);
         }
 
         for (name, function_type) in self.private_function_types.drain() {
-            contract_analysis.add_private_function(name.into(), function_type);
+            contract_analysis.add_private_function(name, function_type);
         }
 
         for (name, variable_type) in self.variable_types.drain() {
-            contract_analysis.add_variable_type(name.into(), variable_type);
+            contract_analysis.add_variable_type(name, variable_type);
         }
 
         for (name, persisted_variable_type) in self.persisted_variable_types.drain() {
-            contract_analysis.add_persisted_variable_type(name.into(), persisted_variable_type);
+            contract_analysis.add_persisted_variable_type(name, persisted_variable_type);
         }
 
         for name in self.fungible_tokens.drain() {
-            contract_analysis.add_fungible_token(name.into());
+            contract_analysis.add_fungible_token(name);
         }
 
         for (name, nft_type) in self.non_fungible_tokens.drain() {
-            contract_analysis.add_non_fungible_token(name.into(), nft_type);
+            contract_analysis.add_non_fungible_token(name, nft_type);
         }
 
         self.traits.into_contract_analysis(contract_analysis);

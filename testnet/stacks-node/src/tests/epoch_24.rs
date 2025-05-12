@@ -13,12 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
-use crate::tests::neon_integrations::{
-    get_account, get_chain_info, get_pox_info, neon_integration_test_conf, next_block_and_wait,
-    submit_tx, test_observer, wait_for_runloop,
-};
-use crate::tests::{make_contract_call, to_addr};
+use std::collections::HashMap;
+use std::{env, thread};
+
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityVersion, Value};
@@ -28,22 +25,25 @@ use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::RawRewardSetEntry;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{Error, StacksTransaction, TransactionPayload};
+use stacks::clarity_cli::vm_execute as execute;
+use stacks::config::InitialBalance;
+use stacks::core::test_util::{make_contract_call, to_addr};
+use stacks::core::{self, EpochList, StacksEpochId};
+use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::consts::STACKS_EPOCH_MAX;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
+use stacks_common::types::Address;
 use stacks_common::util::hash::{bytes_to_hex, hex_bytes, Hash160};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
-use std::collections::HashMap;
-use std::{env, thread};
-
-use crate::tests::bitcoin_regtest::BitcoinCoreController;
-use crate::{neon, BitcoinRegtestController, BurnchainController};
-use stacks::clarity_cli::vm_execute as execute;
-use stacks::core;
-
-use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::consts::STACKS_EPOCH_MAX;
-use stacks_common::types::Address;
 use stacks_common::util::sleep_ms;
+
+use crate::stacks_common::codec::StacksMessageCodec;
+use crate::tests::bitcoin_regtest::BitcoinCoreController;
+use crate::tests::neon_integrations::{
+    get_account, get_chain_info, get_pox_info, neon_integration_test_conf, next_block_and_wait,
+    submit_tx, test_observer, wait_for_runloop,
+};
+use crate::{neon, BitcoinRegtestController, BurnchainController};
 
 #[cfg(test)]
 pub fn get_reward_set_entries_at_block(
@@ -55,9 +55,9 @@ pub fn get_reward_set_entries_at_block(
 ) -> Result<Vec<RawRewardSetEntry>, Error> {
     state
         .get_reward_addresses(burnchain, sortdb, burn_block_height, block_id)
-        .and_then(|mut addrs| {
+        .map(|mut addrs| {
             addrs.sort_by_key(|k| k.reward_address.bytes());
-            Ok(addrs)
+            addrs
         })
 }
 
@@ -86,12 +86,12 @@ fn fix_to_pox_contract() {
     let pox_3_activation_height = epoch_2_4;
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let increase_by = 1_000_0000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let increase_by = 10_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
-    let spender_2_sk = StacksPrivateKey::new();
+    let spender_2_sk = StacksPrivateKey::random();
     let spender_2_addr: PrincipalData = to_addr(&spender_2_sk).into();
 
     let mut initial_balances = vec![];
@@ -102,7 +102,7 @@ fn fix_to_pox_contract() {
     });
 
     initial_balances.push(InitialBalance {
-        address: spender_2_addr.clone(),
+        address: spender_2_addr,
         amount: stacked + 100_000,
     });
 
@@ -110,31 +110,19 @@ fn fix_to_pox_contract() {
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
     .unwrap();
-    let pox_pubkey_hash_1 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_1)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_1 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_1).to_bytes());
 
     let pox_pubkey_2 = Secp256k1PublicKey::from_hex(
         "03cd91307e16c10428dd0120d0a4d37f14d4e0097b3b2ea1651d7bd0fb109cd44b",
     )
     .unwrap();
-    let pox_pubkey_hash_2 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_2)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_2 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_2).to_bytes());
 
     let pox_pubkey_3 = Secp256k1PublicKey::from_hex(
         "0317782e663c77fb02ebf46a3720f41a70f5678ad185974a456d35848e275fe56b",
     )
     .unwrap();
-    let pox_pubkey_hash_3 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_3)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_3 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_3).to_bytes());
 
     let (mut conf, _) = neon_integration_test_conf();
 
@@ -148,31 +136,26 @@ fn fix_to_pox_contract() {
     conf.node.wait_time_for_blocks = 1_000;
     conf.miner.wait_for_block_download = false;
 
-    conf.miner.min_tx_fee = 1;
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
-
-    conf.events_observers.push(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
-    epochs[2].end_height = epoch_2_1;
-    epochs[3].start_height = epoch_2_1;
-    epochs[3].end_height = epoch_2_2;
-    epochs[4].start_height = epoch_2_2;
-    epochs[4].end_height = epoch_2_3;
-    epochs[5].start_height = epoch_2_3;
-    epochs[5].end_height = epoch_2_4;
-    epochs[6].start_height = epoch_2_4;
-    epochs[6].end_height = STACKS_EPOCH_MAX;
-    epochs.truncate(7);
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22].start_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22].end_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23].start_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23].end_height = epoch_2_4;
+    epochs[StacksEpochId::Epoch24].start_height = epoch_2_4;
+    epochs[StacksEpochId::Epoch24].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch24);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -183,10 +166,11 @@ fn fix_to_pox_contract() {
         4 * prepare_phase_len / 5,
         5,
         15,
-        u64::max_value() - 2,
-        u64::max_value() - 1,
+        u64::MAX - 2,
+        u64::MAX - 1,
         v1_unlock_height as u32,
         epoch_2_2 as u32 + 1,
+        u32::MAX,
         pox_3_activation_height as u32,
     );
     burnchain_config.pox_constants = pox_constants.clone();
@@ -236,14 +220,14 @@ fn fix_to_pox_contract() {
     // stack right away
     let sort_height = channel.get_sortitions_processed();
     let pox_addr_tuple_1 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_1,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_1}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
     .unwrap();
 
     let pox_addr_tuple_3 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_3,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_3}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
@@ -253,18 +237,19 @@ fn fix_to_pox_contract() {
         &spender_sk,
         0,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
         &[
             Value::UInt(stacked.into()),
-            pox_addr_tuple_1.clone(),
+            pox_addr_tuple_1,
             Value::UInt(sort_height as u128),
             Value::UInt(12),
         ],
     );
 
-    info!("Submit 2.05 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.05 stacking tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // wait until just before epoch 2.1
@@ -293,7 +278,7 @@ fn fix_to_pox_contract() {
 
     let sort_height = channel.get_sortitions_processed();
     let pox_addr_tuple_2 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_2,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_2}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
@@ -302,6 +287,7 @@ fn fix_to_pox_contract() {
         &spender_sk,
         1,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
@@ -313,7 +299,7 @@ fn fix_to_pox_contract() {
         ],
     );
 
-    info!("Submit 2.1 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.1 stacking tx to {http_origin:?}");
     sleep_ms(5_000);
     submit_tx(&http_origin, &tx);
 
@@ -336,19 +322,20 @@ fn fix_to_pox_contract() {
         &spender_sk,
         aborted_increase_nonce_2_2,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-increase",
         &[Value::UInt(5000)],
     );
 
-    info!("Submit 2.2 stack-increase tx to {:?}", &http_origin);
+    info!("Submit 2.2 stack-increase tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // transition to epoch 2.3
     loop {
         let tip_info = get_chain_info(&conf);
-        if tip_info.burn_block_height >= epoch_2_3 + 1 {
+        if tip_info.burn_block_height > epoch_2_3 {
             break;
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -361,13 +348,14 @@ fn fix_to_pox_contract() {
         &spender_sk,
         aborted_increase_nonce_2_3,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-increase",
         &[Value::UInt(5000)],
     );
 
-    info!("Submit 2.3 stack-increase tx to {:?}", &http_origin);
+    info!("Submit 2.3 stack-increase tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // transition to 2 blocks before epoch 2.4
@@ -399,18 +387,19 @@ fn fix_to_pox_contract() {
         &spender_sk,
         4,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-3",
         "stack-stx",
         &[
             Value::UInt(stacked.into()),
-            pox_addr_tuple_2.clone(),
+            pox_addr_tuple_2,
             Value::UInt(sort_height as u128),
             Value::UInt(12),
         ],
     );
 
-    info!("Submit 2.4 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.4 stacking tx to {http_origin:?}");
     sleep_ms(5_000);
     submit_tx(&http_origin, &tx);
 
@@ -418,18 +407,19 @@ fn fix_to_pox_contract() {
         &spender_2_sk,
         0,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-3",
         "stack-stx",
         &[
             Value::UInt(stacked.into()),
-            pox_addr_tuple_3.clone(),
+            pox_addr_tuple_3,
             Value::UInt(sort_height as u128),
             Value::UInt(10),
         ],
     );
 
-    info!("Submit second 2.4 stacking tx to {:?}", &http_origin);
+    info!("Submit second 2.4 stacking tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // that it can mine _at all_ is a success criterion
@@ -449,13 +439,14 @@ fn fix_to_pox_contract() {
         &spender_sk,
         5,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-3",
         "stack-increase",
         &[Value::UInt(increase_by.into())],
     );
 
-    info!("Submit 2.4 stack-increase tx to {:?}", &http_origin);
+    info!("Submit 2.4 stack-increase tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     for _i in 0..19 {
@@ -489,57 +480,58 @@ fn fix_to_pox_contract() {
             .block_height_to_reward_cycle(burnchain_config.first_block_height, height)
             .unwrap();
 
-        if !reward_cycle_pox_addrs.contains_key(&reward_cycle) {
-            reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
-        }
+        reward_cycle_pox_addrs
+            .entry(reward_cycle)
+            .or_insert_with(HashMap::new);
 
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
             .clarity_eval_read_only(
                 &iconn,
                 &tip,
                 &boot_code_id("pox-2", false),
-                &format!("(get-burn-block-info? pox-addrs u{})", height),
+                &format!("(get-burn-block-info? pox-addrs u{height})"),
             )
             .expect_optional()
             .unwrap()
+            .unwrap()
             .expect_tuple()
+            .unwrap()
             .get_owned("addrs")
             .unwrap()
-            .expect_list();
+            .expect_list()
+            .unwrap();
 
-        debug!("Test burnchain height {}", height);
-        if !burnchain_config.is_in_prepare_phase(height) {
-            if pox_addrs.len() > 0 {
-                assert_eq!(pox_addrs.len(), 2);
-                let pox_addr_0 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[0]).unwrap();
-                let pox_addr_1 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[1]).unwrap();
+        debug!("Test burnchain height {height}");
+        if !burnchain_config.is_in_prepare_phase(height) && !pox_addrs.is_empty() {
+            assert_eq!(pox_addrs.len(), 2);
+            let pox_addr_0 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[0]).unwrap();
+            let pox_addr_1 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[1]).unwrap();
 
-                if let Some(pox_slot_count) = reward_cycle_pox_addrs
+            if let Some(pox_slot_count) = reward_cycle_pox_addrs
+                .get_mut(&reward_cycle)
+                .unwrap()
+                .get_mut(&pox_addr_0)
+            {
+                *pox_slot_count += 1;
+            } else {
+                reward_cycle_pox_addrs
                     .get_mut(&reward_cycle)
                     .unwrap()
-                    .get_mut(&pox_addr_0)
-                {
-                    *pox_slot_count += 1;
-                } else {
-                    reward_cycle_pox_addrs
-                        .get_mut(&reward_cycle)
-                        .unwrap()
-                        .insert(pox_addr_0, 1);
-                }
+                    .insert(pox_addr_0, 1);
+            }
 
-                if let Some(pox_slot_count) = reward_cycle_pox_addrs
+            if let Some(pox_slot_count) = reward_cycle_pox_addrs
+                .get_mut(&reward_cycle)
+                .unwrap()
+                .get_mut(&pox_addr_1)
+            {
+                *pox_slot_count += 1;
+            } else {
+                reward_cycle_pox_addrs
                     .get_mut(&reward_cycle)
                     .unwrap()
-                    .get_mut(&pox_addr_1)
-                {
-                    *pox_slot_count += 1;
-                } else {
-                    reward_cycle_pox_addrs
-                        .get_mut(&reward_cycle)
-                        .unwrap()
-                        .insert(pox_addr_1, 1);
-                }
+                    .insert(pox_addr_1, 1);
             }
         }
     }
@@ -548,22 +540,23 @@ fn fix_to_pox_contract() {
     let reward_cycle_max = *reward_cycle_pox_addrs.keys().max().unwrap();
 
     let pox_addr_1 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_1).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_1).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let pox_addr_2 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_2).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_2).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let pox_addr_3 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_3).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_3).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let burn_pox_addr = PoxAddress::Standard(
         StacksAddress::new(
             26,
             Hash160::from_hex("0000000000000000000000000000000000000000").unwrap(),
-        ),
+        )
+        .unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
 
@@ -578,7 +571,7 @@ fn fix_to_pox_contract() {
         ),
         (
             23u64,
-            HashMap::from([(pox_addr_1.clone(), 13u64), (burn_pox_addr.clone(), 1)]),
+            HashMap::from([(pox_addr_1, 13u64), (burn_pox_addr.clone(), 1)]),
         ),
         // cycle 24 is the first 2.1, it should have pox_2 and 1 burn slot
         (
@@ -608,24 +601,18 @@ fn fix_to_pox_contract() {
         // because pox-3 fixes the total-locked bug
         (
             30,
-            HashMap::from([
-                (pox_addr_2.clone(), 7u64),
-                (pox_addr_3.clone(), 6),
-                (burn_pox_addr.clone(), 1),
-            ]),
+            HashMap::from([(pox_addr_2, 7u64), (pox_addr_3, 6), (burn_pox_addr, 1)]),
         ),
     ]);
 
     for reward_cycle in reward_cycle_min..(reward_cycle_max + 1) {
         let cycle_counts = &reward_cycle_pox_addrs[&reward_cycle];
-        assert_eq!(cycle_counts.len(), expected_slots[&reward_cycle].len(), "The number of expected PoX addresses in reward cycle {} is mismatched with the actual count.", reward_cycle);
+        assert_eq!(cycle_counts.len(), expected_slots[&reward_cycle].len(), "The number of expected PoX addresses in reward cycle {reward_cycle} is mismatched with the actual count.");
         for (pox_addr, slots) in cycle_counts.iter() {
             assert_eq!(
                 *slots,
-                expected_slots[&reward_cycle][&pox_addr],
-                "The number of expected slots for PoX address {} in reward cycle {} is mismatched with the actual count.",
-                &pox_addr,
-                reward_cycle,
+                expected_slots[&reward_cycle][pox_addr],
+                "The number of expected slots for PoX address {pox_addr} in reward cycle {reward_cycle} is mismatched with the actual count."
             );
             info!("PoX payment received"; "cycle" => reward_cycle, "pox_addr" => %pox_addr, "slots" => slots);
         }
@@ -645,7 +632,7 @@ fn fix_to_pox_contract() {
             let parsed =
                 StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
             let tx_sender = PrincipalData::from(parsed.auth.origin().address_testnet());
-            if &tx_sender == &spender_addr
+            if tx_sender == spender_addr
                 && (parsed.auth.get_origin_nonce() == aborted_increase_nonce_2_2
                     || parsed.auth.get_origin_nonce() == aborted_increase_nonce_2_3)
             {
@@ -708,23 +695,23 @@ fn verify_auto_unlock_behavior() {
     let first_stacked_incr = 40_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let small_stacked = 17_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    let spender_sk = StacksPrivateKey::new();
+    let spender_sk = StacksPrivateKey::random();
     let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
-    let spender_2_sk = StacksPrivateKey::new();
+    let spender_2_sk = StacksPrivateKey::random();
     let spender_2_stx_addr: StacksAddress = to_addr(&spender_2_sk);
     let spender_2_addr: PrincipalData = to_addr(&spender_2_sk).into();
 
     let mut initial_balances = vec![];
 
     initial_balances.push(InitialBalance {
-        address: spender_addr.clone(),
+        address: spender_addr,
         amount: first_stacked_init + first_stacked_incr + 100_000,
     });
 
     initial_balances.push(InitialBalance {
-        address: spender_2_addr.clone(),
+        address: spender_2_addr,
         amount: small_stacked + 100_000,
     });
 
@@ -732,21 +719,13 @@ fn verify_auto_unlock_behavior() {
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
     )
     .unwrap();
-    let pox_pubkey_hash_1 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_1)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_1 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_1).to_bytes());
 
     let pox_pubkey_2 = Secp256k1PublicKey::from_hex(
         "03cd91307e16c10428dd0120d0a4d37f14d4e0097b3b2ea1651d7bd0fb109cd44b",
     )
     .unwrap();
-    let pox_pubkey_hash_2 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_2)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_2 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_2).to_bytes());
     let pox_pubkey_2_stx_addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -759,11 +738,7 @@ fn verify_auto_unlock_behavior() {
         "0317782e663c77fb02ebf46a3720f41a70f5678ad185974a456d35848e275fe56b",
     )
     .unwrap();
-    let pox_pubkey_hash_3 = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey_3)
-            .to_bytes()
-            .to_vec(),
-    );
+    let pox_pubkey_hash_3 = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey_3).to_bytes());
     let pox_pubkey_3_stx_addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -784,31 +759,26 @@ fn verify_auto_unlock_behavior() {
     conf.node.wait_time_for_blocks = 1_000;
     conf.miner.wait_for_block_download = false;
 
-    conf.miner.min_tx_fee = 1;
-    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.first_attempt_time_ms = i64::MAX as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
     test_observer::spawn();
-
-    conf.events_observers.push(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
+    test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
-    epochs[2].end_height = epoch_2_1;
-    epochs[3].start_height = epoch_2_1;
-    epochs[3].end_height = epoch_2_2;
-    epochs[4].start_height = epoch_2_2;
-    epochs[4].end_height = epoch_2_3;
-    epochs[5].start_height = epoch_2_3;
-    epochs[5].end_height = epoch_2_4;
-    epochs[6].start_height = epoch_2_4;
-    epochs[6].end_height = STACKS_EPOCH_MAX;
-    epochs.truncate(7);
+    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
+    epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22].start_height = epoch_2_2;
+    epochs[StacksEpochId::Epoch22].end_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23].start_height = epoch_2_3;
+    epochs[StacksEpochId::Epoch23].end_height = epoch_2_4;
+    epochs[StacksEpochId::Epoch24].start_height = epoch_2_4;
+    epochs[StacksEpochId::Epoch24].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch24);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -819,10 +789,11 @@ fn verify_auto_unlock_behavior() {
         4 * prepare_phase_len / 5,
         5,
         15,
-        u64::max_value() - 2,
-        u64::max_value() - 1,
+        u64::MAX - 2,
+        u64::MAX - 1,
         v1_unlock_height as u32,
         epoch_2_2 as u32 + 1,
+        u32::MAX,
         pox_3_activation_height as u32,
     );
     burnchain_config.pox_constants = pox_constants.clone();
@@ -877,14 +848,14 @@ fn verify_auto_unlock_behavior() {
     // stack right away
     let sort_height = channel.get_sortitions_processed();
     let pox_addr_tuple_1 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_1,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_1}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
     .unwrap();
 
     let pox_addr_tuple_3 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_3,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_3}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
@@ -894,18 +865,19 @@ fn verify_auto_unlock_behavior() {
         &spender_sk,
         0,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox",
         "stack-stx",
         &[
             Value::UInt(first_stacked_init.into()),
-            pox_addr_tuple_1.clone(),
+            pox_addr_tuple_1,
             Value::UInt(sort_height as u128),
             Value::UInt(12),
         ],
     );
 
-    info!("Submit 2.05 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.05 stacking tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // wait until just before epoch 2.1
@@ -934,7 +906,7 @@ fn verify_auto_unlock_behavior() {
 
     let sort_height = channel.get_sortitions_processed();
     let pox_addr_tuple_2 = execute(
-        &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash_2,),
+        &format!("{{ hashbytes: 0x{pox_pubkey_hash_2}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
     )
     .unwrap()
@@ -943,6 +915,7 @@ fn verify_auto_unlock_behavior() {
         &spender_sk,
         1,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-2",
         "stack-stx",
@@ -954,7 +927,7 @@ fn verify_auto_unlock_behavior() {
         ],
     );
 
-    info!("Submit 2.1 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.1 stacking tx to {http_origin:?}");
     sleep_ms(5_000);
     submit_tx(&http_origin, &tx);
 
@@ -975,12 +948,12 @@ fn verify_auto_unlock_behavior() {
     // transition to epoch 2.3
     loop {
         let tip_info = get_chain_info(&conf);
-        if tip_info.burn_block_height >= epoch_2_3 + 1 {
+        if tip_info.burn_block_height > epoch_2_3 {
             break;
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-        let pox_info = get_pox_info(&http_origin);
+        let pox_info = get_pox_info(&http_origin).unwrap();
         info!(
             "curr height: {}, curr cycle id: {}, pox active: {}",
             tip_info.burn_block_height,
@@ -999,7 +972,7 @@ fn verify_auto_unlock_behavior() {
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-        let pox_info = get_pox_info(&http_origin);
+        let pox_info = get_pox_info(&http_origin).unwrap();
         info!(
             "curr height: {}, curr cycle id: {}, pox active: {}",
             tip_info.burn_block_height,
@@ -1028,18 +1001,19 @@ fn verify_auto_unlock_behavior() {
         &spender_sk,
         2,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-3",
         "stack-stx",
         &[
             Value::UInt(first_stacked_init.into()),
-            pox_addr_tuple_2.clone(),
+            pox_addr_tuple_2,
             Value::UInt(sort_height as u128),
             Value::UInt(12),
         ],
     );
 
-    info!("Submit 2.4 stacking tx to {:?}", &http_origin);
+    info!("Submit 2.4 stacking tx to {http_origin:?}");
     sleep_ms(5_000);
     submit_tx(&http_origin, &tx);
 
@@ -1047,18 +1021,19 @@ fn verify_auto_unlock_behavior() {
         &spender_2_sk,
         0,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-3",
         "stack-stx",
         &[
             Value::UInt(small_stacked.into()),
-            pox_addr_tuple_3.clone(),
+            pox_addr_tuple_3,
             Value::UInt(sort_height as u128),
             Value::UInt(10),
         ],
     );
 
-    info!("Submit second 2.4 stacking tx to {:?}", &http_origin);
+    info!("Submit second 2.4 stacking tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     // that it can mine _at all_ is a success criterion
@@ -1107,10 +1082,10 @@ fn verify_auto_unlock_behavior() {
         .unwrap();
 
         assert_eq!(reward_set_entries.len(), 2);
-        info!("reward set entries: {:?}", reward_set_entries);
+        info!("reward set entries: {reward_set_entries:?}");
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            pox_pubkey_2_stx_addr.bytes.0.to_vec()
+            pox_pubkey_2_stx_addr.bytes().0
         );
         assert_eq!(
             reward_set_entries[0].amount_stacked,
@@ -1118,7 +1093,7 @@ fn verify_auto_unlock_behavior() {
         );
         assert_eq!(
             reward_set_entries[1].reward_address.bytes(),
-            pox_pubkey_3_stx_addr.bytes.0.to_vec()
+            pox_pubkey_3_stx_addr.bytes().0
         );
         assert_eq!(reward_set_entries[1].amount_stacked, small_stacked as u128);
     }
@@ -1128,13 +1103,14 @@ fn verify_auto_unlock_behavior() {
         &spender_sk,
         3,
         3000,
+        conf.burnchain.chain_id,
         &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
         "pox-3",
         "stack-increase",
         &[Value::UInt(first_stacked_incr.into())],
     );
 
-    info!("Submit 2.4 stack-increase tx to {:?}", &http_origin);
+    info!("Submit 2.4 stack-increase tx to {http_origin:?}");
     submit_tx(&http_origin, &tx);
 
     for _i in 0..19 {
@@ -1186,7 +1162,7 @@ fn verify_auto_unlock_behavior() {
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
-            pox_pubkey_2_stx_addr.bytes.0.to_vec()
+            pox_pubkey_2_stx_addr.bytes().0
         );
         assert_eq!(
             reward_set_entries[0].amount_stacked,
@@ -1206,56 +1182,57 @@ fn verify_auto_unlock_behavior() {
             .block_height_to_reward_cycle(burnchain_config.first_block_height, height)
             .unwrap();
 
-        if !reward_cycle_pox_addrs.contains_key(&reward_cycle) {
-            reward_cycle_pox_addrs.insert(reward_cycle, HashMap::new());
-        }
+        reward_cycle_pox_addrs
+            .entry(reward_cycle)
+            .or_insert_with(HashMap::new);
 
-        let iconn = sortdb.index_conn();
+        let iconn = sortdb.index_handle_at_block(&chainstate, &tip).unwrap();
         let pox_addrs = chainstate
             .clarity_eval_read_only(
                 &iconn,
                 &tip,
                 &boot_code_id("pox-2", false),
-                &format!("(get-burn-block-info? pox-addrs u{})", height),
+                &format!("(get-burn-block-info? pox-addrs u{height})"),
             )
             .expect_optional()
             .unwrap()
+            .unwrap()
             .expect_tuple()
+            .unwrap()
             .get_owned("addrs")
             .unwrap()
-            .expect_list();
+            .expect_list()
+            .unwrap();
 
-        if !burnchain_config.is_in_prepare_phase(height) {
-            if pox_addrs.len() > 0 {
-                assert_eq!(pox_addrs.len(), 2);
-                let pox_addr_0 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[0]).unwrap();
-                let pox_addr_1 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[1]).unwrap();
+        if !burnchain_config.is_in_prepare_phase(height) && !pox_addrs.is_empty() {
+            assert_eq!(pox_addrs.len(), 2);
+            let pox_addr_0 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[0]).unwrap();
+            let pox_addr_1 = PoxAddress::try_from_pox_tuple(false, &pox_addrs[1]).unwrap();
 
-                if let Some(pox_slot_count) = reward_cycle_pox_addrs
+            if let Some(pox_slot_count) = reward_cycle_pox_addrs
+                .get_mut(&reward_cycle)
+                .unwrap()
+                .get_mut(&pox_addr_0)
+            {
+                *pox_slot_count += 1;
+            } else {
+                reward_cycle_pox_addrs
                     .get_mut(&reward_cycle)
                     .unwrap()
-                    .get_mut(&pox_addr_0)
-                {
-                    *pox_slot_count += 1;
-                } else {
-                    reward_cycle_pox_addrs
-                        .get_mut(&reward_cycle)
-                        .unwrap()
-                        .insert(pox_addr_0, 1);
-                }
+                    .insert(pox_addr_0, 1);
+            }
 
-                if let Some(pox_slot_count) = reward_cycle_pox_addrs
+            if let Some(pox_slot_count) = reward_cycle_pox_addrs
+                .get_mut(&reward_cycle)
+                .unwrap()
+                .get_mut(&pox_addr_1)
+            {
+                *pox_slot_count += 1;
+            } else {
+                reward_cycle_pox_addrs
                     .get_mut(&reward_cycle)
                     .unwrap()
-                    .get_mut(&pox_addr_1)
-                {
-                    *pox_slot_count += 1;
-                } else {
-                    reward_cycle_pox_addrs
-                        .get_mut(&reward_cycle)
-                        .unwrap()
-                        .insert(pox_addr_1, 1);
-                }
+                    .insert(pox_addr_1, 1);
             }
         }
     }
@@ -1264,22 +1241,23 @@ fn verify_auto_unlock_behavior() {
     let reward_cycle_max = *reward_cycle_pox_addrs.keys().max().unwrap();
 
     let pox_addr_1 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_1).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_1).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let pox_addr_2 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_2).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_2).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let pox_addr_3 = PoxAddress::Standard(
-        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_3).unwrap()),
+        StacksAddress::new(26, Hash160::from_hex(&pox_pubkey_hash_3).unwrap()).unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
     let burn_pox_addr = PoxAddress::Standard(
         StacksAddress::new(
             26,
             Hash160::from_hex("0000000000000000000000000000000000000000").unwrap(),
-        ),
+        )
+        .unwrap(),
         Some(AddressHashMode::SerializeP2PKH),
     );
 
@@ -1294,7 +1272,7 @@ fn verify_auto_unlock_behavior() {
         ),
         (
             23u64,
-            HashMap::from([(pox_addr_1.clone(), 13u64), (burn_pox_addr.clone(), 1)]),
+            HashMap::from([(pox_addr_1, 13u64), (burn_pox_addr.clone(), 1)]),
         ),
         // cycle 24 is the first 2.1, it should have pox_2 and 1 burn slot
         (
@@ -1316,28 +1294,23 @@ fn verify_auto_unlock_behavior() {
             29,
             HashMap::from([
                 (pox_addr_2.clone(), 12u64),
-                (pox_addr_3.clone(), 1),
+                (pox_addr_3, 1),
                 (burn_pox_addr.clone(), 1),
             ]),
         ),
         // stack-increase has been invoked, which causes spender_addr_2 to be below the stacking
         // minimum, and thus they have zero reward addresses in reward cycle 30.
-        (
-            30,
-            HashMap::from([(pox_addr_2.clone(), 13u64), (burn_pox_addr.clone(), 1)]),
-        ),
+        (30, HashMap::from([(pox_addr_2, 13u64), (burn_pox_addr, 1)])),
     ]);
 
     for reward_cycle in reward_cycle_min..(reward_cycle_max + 1) {
         let cycle_counts = &reward_cycle_pox_addrs[&reward_cycle];
-        assert_eq!(cycle_counts.len(), expected_slots[&reward_cycle].len(), "The number of expected PoX addresses in reward cycle {} is mismatched with the actual count.", reward_cycle);
+        assert_eq!(cycle_counts.len(), expected_slots[&reward_cycle].len(), "The number of expected PoX addresses in reward cycle {reward_cycle} is mismatched with the actual count.");
         for (pox_addr, slots) in cycle_counts.iter() {
             assert_eq!(
                 *slots,
-                expected_slots[&reward_cycle][&pox_addr],
-                "The number of expected slots for PoX address {} in reward cycle {} is mismatched with the actual count.",
-                &pox_addr,
-                reward_cycle,
+                expected_slots[&reward_cycle][pox_addr],
+                "The number of expected slots for PoX address {pox_addr} in reward cycle {reward_cycle} is mismatched with the actual count."
             );
             info!("PoX payment received"; "cycle" => reward_cycle, "pox_addr" => %pox_addr, "slots" => slots);
         }

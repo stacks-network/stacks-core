@@ -1,0 +1,11 @@
+[node]
+# working_dir = "/dir/to/save/chainstate" # defaults to: /tmp/stacks-node-[0-9]*
+rpc_bind = "0.0.0.0:20443"
+p2p_bind = "0.0.0.0:20444"
+miner = true
+mock_mining = true
+prometheus_bind = "0.0.0.0:9153" 
+
+[burnchain]
+mode = "mainnet"
+peer_host = "127.0.0.1"

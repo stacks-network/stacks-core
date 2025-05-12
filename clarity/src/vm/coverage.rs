@@ -1,14 +1,13 @@
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    fs::File,
-    io::Write,
-};
+use std::collections::BTreeMap;
+use std::fs::File;
+use std::io::Write;
 
+use hashbrown::{HashMap, HashSet};
+
+use super::functions::define::DefineFunctionsParsed;
+use super::EvalHook;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::SymbolicExpression;
-use serde_json::Value as JsonValue;
-
-use super::{functions::define::DefineFunctionsParsed, EvalHook};
 
 pub struct CoverageReporter {
     executed_lines: HashMap<QualifiedContractIdentifier, HashMap<u32, u64>>,
@@ -24,6 +23,12 @@ struct ContractFileInfo {
 #[derive(Serialize, Deserialize)]
 struct CoverageFileInfo {
     coverage: HashMap<String, Vec<(u32, u64)>>,
+}
+
+impl Default for CoverageReporter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CoverageReporter {
@@ -72,12 +77,14 @@ impl CoverageReporter {
 
     pub fn to_file<P: AsRef<std::path::Path> + Copy>(&self, filename: P) -> std::io::Result<()> {
         let f = File::create(filename)?;
-        let mut coverage = HashMap::new();
-        for (contract, execution_map) in self.executed_lines.iter() {
-            let mut executed_lines = vec![];
-            for (line, count) in execution_map.iter() {
-                executed_lines.push((*line, *count));
-            }
+        let iter = self.executed_lines.iter();
+        let mut coverage = HashMap::with_capacity(iter.len());
+        for (contract, execution_map) in iter {
+            let mut executed_lines = execution_map
+                .iter()
+                .map(|(line, count)| (*line, *count))
+                .collect::<Vec<_>>();
+
             executed_lines.sort_by_key(|f| f.0);
 
             coverage.insert(contract.to_string(), executed_lines);
@@ -144,7 +151,7 @@ impl CoverageReporter {
                     // don't count list expressions as a whole, just their children
                     frontier.extend(children);
                 } else {
-                    let line = cur_expr.span.start_line;
+                    let line = cur_expr.span().start_line;
                     if !lines_seen.contains(&line) {
                         lines_seen.insert(line);
                         lines.push(line);
