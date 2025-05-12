@@ -2476,17 +2476,17 @@ pub struct MinerConfig {
     /// ```toml
     /// [miner]
     /// # Keys are rejection counts, values are timeouts in seconds.
-    /// block_rejection_timeout_steps = { 0 = 600, 10 = 300, 20 = 150, 30 = 0 }
+    /// block_rejection_timeout_steps = { 0 = 180, 10 = 90, 20 = 45, 30 = 0 }
     /// ```
     /// This example means:
-    /// - If rejection weight is 0 <= weight < 10, wait up to 600 seconds.
-    /// - If rejection weight is 10 <= weight < 20, wait up to 300 seconds.
-    /// - If rejection weight is 20 <= weight < 30, wait up to 150 seconds.
+    /// - If rejection weight is 0 <= weight < 10, wait up to 180 seconds.
+    /// - If rejection weight is 10 <= weight < 20, wait up to 90 seconds.
+    /// - If rejection weight is 20 <= weight < 30, wait up to 45 seconds.
     /// - If rejection weight is >= 30, timeout immediately (0 seconds).
     ///
     /// (Note: The actual rejection weight values depend on the specific signer set and their weights.)
     ///
-    /// Default: `{ 0: 600s, 10: 300s, 20: 150s, 30: 0s }`
+    /// Default: `{ 0: 180s, 10: 90s, 20: 45s, 30: 0s }`
     pub block_rejection_timeout_steps: HashMap<u32, Duration>,
     /// Defines the maximum execution time (in seconds) allowed for a single contract call transaction.
     ///
