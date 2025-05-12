@@ -223,6 +223,7 @@ use crate::burnchains::bitcoin_regtest_controller::{
 };
 use crate::burnchains::{make_bitcoin_indexer, Error as BurnchainControllerError};
 use crate::globals::{NeonGlobals as Globals, RelayerDirective};
+use crate::nakamoto_node::miner_db::MinerDB;
 use crate::nakamoto_node::signer_coordinator::SignerCoordinator;
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
@@ -2366,6 +2367,7 @@ impl BlockMinerThread {
         let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
         let mut miners_stackerdb =
             StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
+        let miner_db = MinerDB::open_with_config(&self.config).map_err(|e| e.to_string())?;
 
         SignerCoordinator::send_miners_message(
             &mining_key,
@@ -2377,6 +2379,7 @@ impl BlockMinerThread {
             self.config.is_mainnet(),
             &mut miners_stackerdb,
             &election_sortition,
+            &miner_db,
         )
         .map_err(|e| {
             warn!("Failed to write mock proposal to stackerdb.");
@@ -2405,6 +2408,7 @@ impl BlockMinerThread {
             self.config.is_mainnet(),
             &mut miners_stackerdb,
             &election_sortition,
+            &miner_db,
         )
         .map_err(|e| {
             warn!("Failed to write mock block to stackerdb.");

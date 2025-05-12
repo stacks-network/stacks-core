@@ -32,11 +32,12 @@ use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::codec::StacksMessageCodec;
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::stackerdb::StackerDBs;
-use stacks::types::chainstate::{StacksBlockId, StacksPrivateKey};
+use stacks::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
 use stacks::util::hash::Sha512Trunc256Sum;
 use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
 
+use super::miner_db::MinerDB;
 use super::stackerdb_listener::StackerDBListenerComms;
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
@@ -160,6 +161,7 @@ impl SignerCoordinator {
         is_mainnet: bool,
         miners_session: &mut StackerDBSession,
         election_sortition: &ConsensusHash,
+        miner_db: &MinerDB,
     ) -> Result<(), NakamotoNodeError> {
         let Some(slot_range) = NakamotoChainState::get_miner_slot(sortdb, tip, election_sortition)
             .map_err(|e| {
@@ -185,7 +187,7 @@ impl SignerCoordinator {
         // Add 1 to get the NEXT version number
         // Note: we already check above for the slot's existence
         let miners_contract_id = boot_code_id(MINERS_NAME, is_mainnet);
-        let slot_version = stackerdbs
+        let mut slot_version = stackerdbs
             .get_slot_version(&miners_contract_id, slot_id)
             .map_err(|e| {
                 NakamotoNodeError::SigningCoordinatorFailure(format!(
@@ -194,6 +196,13 @@ impl SignerCoordinator {
             })?
             .unwrap_or(0)
             .saturating_add(1);
+        let miner_pk = StacksPublicKey::from_private(miner_sk);
+        if let Some(prior_version) = miner_db.get_latest_chunk_version(&miner_pk, slot_id)? {
+            if slot_version <= prior_version {
+                slot_version = prior_version.saturating_add(1);
+            }
+        }
+
         let mut chunk = StackerDBChunkData::new(slot_id, slot_version, message.serialize_to_vec());
         chunk.sign(miner_sk).map_err(|e| {
             NakamotoNodeError::SigningCoordinatorFailure(format!(
@@ -204,6 +213,7 @@ impl SignerCoordinator {
         match miners_session.put_chunk(&chunk) {
             Ok(ack) => {
                 if ack.accepted {
+                    miner_db.set_latest_chunk_version(&miner_pk, slot_id, slot_version)?;
                     debug!("Wrote message to stackerdb: {ack:?}");
                     Ok(())
                 } else {
@@ -238,6 +248,7 @@ impl SignerCoordinator {
         stackerdbs: &StackerDBs,
         counters: &Counters,
         election_sortition: &BlockSnapshot,
+        miner_db: &MinerDB,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
         // Add this block to the block status map.
         self.stackerdb_comms.insert_block(&block.header);
@@ -269,6 +280,7 @@ impl SignerCoordinator {
                 self.is_mainnet,
                 &mut self.miners_session,
                 &election_sortition.consensus_hash,
+                miner_db,
             )?;
             counters.bump_naka_proposed_blocks();
 

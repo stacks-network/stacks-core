@@ -58,6 +58,7 @@ use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::tests::TestFlag;
 use stacks_common::util::vrf::VRFProof;
 
+use super::miner_db::MinerDB;
 use super::relayer::{MinerStopHandle, RelayerThread};
 use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
 use crate::nakamoto_node::signer_coordinator::SignerCoordinator;
@@ -227,6 +228,8 @@ pub struct BlockMinerThread {
     abort_flag: Arc<AtomicBool>,
     /// Should the nonce cache be reset before mining the next block?
     reset_nonce_cache: bool,
+    /// Storage for persisting non-confidential miner information
+    miner_db: MinerDB,
 }
 
 impl BlockMinerThread {
@@ -239,8 +242,8 @@ impl BlockMinerThread {
         parent_tenure_id: StacksBlockId,
         burn_tip_at_start: &ConsensusHash,
         reason: MinerReason,
-    ) -> BlockMinerThread {
-        BlockMinerThread {
+    ) -> Result<BlockMinerThread, NakamotoNodeError> {
+        Ok(BlockMinerThread {
             config: rt.config.clone(),
             globals: rt.globals.clone(),
             keychain: rt.keychain.clone(),
@@ -261,7 +264,8 @@ impl BlockMinerThread {
             tenure_cost: ExecutionCost::ZERO,
             tenure_budget: ExecutionCost::ZERO,
             reset_nonce_cache: true,
-        }
+            miner_db: MinerDB::open_with_config(&rt.config)?,
+        })
     }
 
     pub fn get_abort_flag(&self) -> Arc<AtomicBool> {
@@ -843,6 +847,7 @@ impl BlockMinerThread {
             stackerdbs,
             &self.globals.counters,
             &self.burn_election_block,
+            &self.miner_db,
         )
     }
 
@@ -1058,6 +1063,7 @@ impl BlockMinerThread {
             chain_state.mainnet,
             &mut miners_session,
             &self.burn_election_block.consensus_hash,
+            &self.miner_db,
         )
     }
 

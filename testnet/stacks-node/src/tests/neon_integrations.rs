@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{cmp, env, fs, io, thread};
 
@@ -78,6 +78,8 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{bytes_to_hex, hex_bytes, to_hex, Hash160};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::net::{TcpListener, TcpStream};
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use super::{ADDR_4, SK_1, SK_2, SK_3};
@@ -182,6 +184,89 @@ pub fn neon_integration_test_conf() -> (Config, StacksAddress) {
 
 pub fn neon_integration_test_conf_with_seed(seed: Vec<u8>) -> (Config, StacksAddress) {
     inner_neon_integration_test_conf(Some(seed))
+}
+
+#[derive(Clone)]
+pub struct TestProxy {
+    pub bind_port: u16,
+    pub forward_port: u16,
+    pub drop_control: Arc<Mutex<bool>>,
+    pub keep_running: Arc<Mutex<bool>>,
+}
+
+impl TestProxy {
+    async fn proxy(&self) -> Result<(), tokio::io::Error> {
+        let listener = TcpListener::bind(&format!("127.0.0.1:{}", self.bind_port)).await?;
+        let destination = format!("127.0.0.1:{}", self.forward_port);
+        while *self.keep_running.lock().unwrap() {
+            if *self.drop_control.lock().unwrap() {
+                thread::sleep(Duration::from_secs(1));
+                continue;
+            }
+            let (client, _) = listener.accept().await?;
+            let server = TcpStream::connect(&destination).await?;
+
+            info!("Serving...");
+            let (mut c_read, mut c_write) = client.into_split();
+            let (mut s_read, mut s_write) = server.into_split();
+
+            let keep_running_c2s = self.keep_running.clone();
+            let keep_running_s2c = self.keep_running.clone();
+            let drop_control_c2s = self.drop_control.clone();
+            let drop_control_s2c = self.drop_control.clone();
+
+            tokio::spawn(async move {
+                let mut buf = [0; 1024];
+
+                while *keep_running_c2s.lock().unwrap() && !*drop_control_c2s.lock().unwrap() {
+                    let n = match c_read.read(&mut buf).await {
+                        // socket closed
+                        Ok(0) => return,
+                        Ok(n) => n,
+                        Err(e) => {
+                            eprintln!("failed to read from socket; err = {:?}", e);
+                            return;
+                        }
+                    };
+
+                    if let Err(e) = s_write.write_all(&buf[0..n]).await {
+                        eprintln!("failed to write to socket; err = {:?}", e);
+                        return;
+                    }
+                }
+            });
+
+            tokio::spawn(async move {
+                let mut buf = [0; 1024];
+
+                while *keep_running_s2c.lock().unwrap() && !*drop_control_s2c.lock().unwrap() {
+                    let n = match s_read.read(&mut buf).await {
+                        // socket closed
+                        Ok(0) => return,
+                        Ok(n) => n,
+                        Err(e) => {
+                            eprintln!("failed to read from socket; err = {:?}", e);
+                            return;
+                        }
+                    };
+
+                    if let Err(e) = c_write.write_all(&buf[0..n]).await {
+                        eprintln!("failed to write to socket; err = {:?}", e);
+                        return;
+                    }
+                }
+            });
+        }
+        Ok(())
+    }
+
+    pub fn spawn(&self) {
+        let proxy = self.clone();
+        thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
+            rt.block_on(proxy.proxy())
+        });
+    }
 }
 
 pub mod test_observer {
