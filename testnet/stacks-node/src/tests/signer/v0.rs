@@ -3062,7 +3062,7 @@ fn tx_replay_forking_test() {
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr, (send_amt + send_fee) * 10)],
         |_| {},
@@ -3177,7 +3177,7 @@ fn tx_replay_forking_test() {
         );
         let commits_count = submitted_commits.load(Ordering::SeqCst);
         next_block_and_controller(
-            &mut signer_test.running_nodes.btc_regtest_controller,
+            &signer_test.running_nodes.btc_regtest_controller,
             60,
             |_btc_controller| {
                 let commits_submitted = submitted_commits.load(Ordering::SeqCst);
@@ -3341,7 +3341,7 @@ fn tx_replay_forking_test() {
         );
         let commits_count = submitted_commits.load(Ordering::SeqCst);
         next_block_and_controller(
-            &mut signer_test.running_nodes.btc_regtest_controller,
+            &signer_test.running_nodes.btc_regtest_controller,
             60,
             |_btc_controller| {
                 let commits_submitted = submitted_commits.load(Ordering::SeqCst);
