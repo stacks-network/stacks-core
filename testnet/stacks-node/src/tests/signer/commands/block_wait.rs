@@ -47,14 +47,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlock {
             _ => panic!("Invalid miner index: {}", self.miner_index),
         };
 
-        let last_confirmed_nakamoto_height_counter = self
-            .ctx
-            .get_counters_for_miner(self.miner_index)
-            .naka_submitted_commit_last_stacks_tip;
-
-        let last_confirmed_height = last_confirmed_nakamoto_height_counter
-            .0
-            .load(Ordering::SeqCst);
+        let last_confirmed_height = self.ctx.get_last_confirmed_nakamoto_height(self.miner_index);
         let expected_height = last_confirmed_height + 1;
 
         info!(
@@ -120,23 +113,23 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockProposal {
             _ => panic!("Invalid miner index: {}", self.miner_index),
         };
 
-        // FIXME: This is a temporary, "hardcoded" fix. The expected block height should be passed differently.
-        let expected_block_height = state.epoch_3_start_block_height + 2;
+        let last_confirmed_height = self.ctx.get_last_confirmed_nakamoto_height(self.miner_index);
+        let expected_height = last_confirmed_height + 1;
 
         info!(
             "Waiting for block proposal at height {}",
-            expected_block_height
+            expected_height
         );
 
-        let proposed_block = wait_for_block_proposal(30, expected_block_height, &miner_pk)
+        let proposed_block = wait_for_block_proposal(30, expected_height, &miner_pk)
             .expect("Timed out waiting for block proposal");
 
         let block_hash = proposed_block.header.signer_signature_hash();
-        state.last_block_hash = block_hash.clone();
+        state.last_block_hash = Some(block_hash.clone());
 
         info!(
             "Received block proposal at height {} with hash {:?}",
-            expected_block_height, block_hash
+            expected_height, block_hash
         );
     }
 
@@ -179,15 +172,15 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockRejectionWithRe
         info!(
             "Checking: Waiting for block rejection with reason {:?}. Result: {:?}",
             self.reason,
-            state.last_block_hash != stacks_common::util::hash::Sha512Trunc256Sum([0; 32])
+            state.last_block_hash.is_some();
         );
-        state.last_block_hash != stacks_common::util::hash::Sha512Trunc256Sum([0; 32])
+        state.last_block_hash.is_some()
     }
 
     fn apply(&self, state: &mut SignerTestState) {
         wait_for_block_global_rejection_with_reject_reason(
             30,
-            state.last_block_hash, // TODO: I don't really like this approach
+            state.last_block_hash.unwrap(),
             self.num_signers,
             self.reason.clone(),
         )

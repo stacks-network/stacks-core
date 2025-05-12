@@ -61,7 +61,7 @@ impl Command<SignerTestState, SignerTestContext> for VerifyBlockCount {
 
         let miner_blocks_after_boot_to_epoch3 = self.ctx.get_miner_blocks_after_boot_to_epoch3(
             &conf,
-            state.epoch_3_start_block_height,
+            state.epoch_3_start_block_height.unwrap(),
             &miner_pk,
         );
 

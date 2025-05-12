@@ -94,26 +94,24 @@ impl SignerTestContext {
             })
             .count()
     }
+
+    pub fn get_last_confirmed_nakamoto_height(&self, miner_index: usize) -> u64 {
+        let last_confirmed_nakamoto_height_counter = self
+            .get_counters_for_miner(miner_index)
+            .naka_submitted_commit_last_stacks_tip;
+
+        last_confirmed_nakamoto_height_counter
+            .0
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SignerTestState {
     pub is_booted_to_nakamoto: bool,
     pub mining_stalled: bool,
-    pub epoch_3_start_block_height: u64,
-    // TODO: If this approach is correct, we must keep track of the last block hash everywhere
-    pub last_block_hash: Sha512Trunc256Sum,
-}
-
-impl Default for SignerTestState {
-    fn default() -> Self {
-        Self {
-            is_booted_to_nakamoto: false,
-            mining_stalled: false,
-            epoch_3_start_block_height: 0,
-            last_block_hash: Sha512Trunc256Sum([0; 32]), // Initialize with zeros
-        }
-    }
+    pub epoch_3_start_block_height: Option<u64>,
+    pub last_block_hash: Option<Sha512Trunc256Sum>,
 }
 
 impl SignerTestState {}
