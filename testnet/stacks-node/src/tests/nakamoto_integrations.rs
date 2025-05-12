@@ -750,7 +750,7 @@ pub fn next_block_and_mine_commit(
 /// Mine a bitcoin block, and wait until a block-commit has been issued, **or** a timeout occurs
 /// (timeout_secs)
 pub fn next_block_and_commits_only(
-    btc_controller: &mut BitcoinRegtestController,
+    btc_controller: &BitcoinRegtestController,
     timeout_secs: u64,
     node_conf: &Config,
     node_counters: &Counters,
@@ -1234,7 +1234,7 @@ pub fn setup_epoch_3_reward_set(
     blocks_processed: &Arc<AtomicU64>,
     stacker_sks: &[StacksPrivateKey],
     signer_sks: &[StacksPrivateKey],
-    btc_regtest_controller: &mut BitcoinRegtestController,
+    btc_regtest_controller: &BitcoinRegtestController,
     num_stacking_cycles: Option<u64>,
 ) {
     assert_eq!(stacker_sks.len(), signer_sks.len());
@@ -1326,7 +1326,7 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
     blocks_processed: &Arc<AtomicU64>,
     stacker_sks: &[StacksPrivateKey],
     signer_sks: &[StacksPrivateKey],
-    btc_regtest_controller: &mut BitcoinRegtestController,
+    btc_regtest_controller: &BitcoinRegtestController,
     num_stacking_cycles: Option<u64>,
 ) {
     setup_epoch_3_reward_set(
@@ -1371,7 +1371,7 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
 pub fn boot_to_epoch_25(
     naka_conf: &Config,
     blocks_processed: &Arc<AtomicU64>,
-    btc_regtest_controller: &mut BitcoinRegtestController,
+    btc_regtest_controller: &BitcoinRegtestController,
 ) {
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
     let epoch_25 = &epochs[StacksEpochId::Epoch25];
@@ -1414,7 +1414,7 @@ pub fn boot_to_epoch_3_reward_set(
     blocks_processed: &Arc<AtomicU64>,
     stacker_sks: &[StacksPrivateKey],
     signer_sks: &[StacksPrivateKey],
-    btc_regtest_controller: &mut BitcoinRegtestController,
+    btc_regtest_controller: &BitcoinRegtestController,
     num_stacking_cycles: Option<u64>,
 ) {
     boot_to_epoch_3_reward_set_calculation_boundary(
