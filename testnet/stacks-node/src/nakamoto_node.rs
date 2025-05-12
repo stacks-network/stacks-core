@@ -49,6 +49,9 @@ pub mod relayer;
 pub mod signer_coordinator;
 pub mod stackerdb_listener;
 
+#[cfg(test)]
+mod tests;
+
 use self::peer::PeerThread;
 use self::relayer::{RelayerDirective, RelayerThread};
 

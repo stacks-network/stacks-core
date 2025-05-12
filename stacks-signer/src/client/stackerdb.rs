@@ -171,8 +171,7 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
         loop {
             let slot_version = self
                 .signer_db
-                .get_latest_chunk_version(&signer_pk, slot_id.0)
-                .map_err(ClientError::SignerDBError)?
+                .get_latest_chunk_version(&signer_pk, slot_id.0)?
                 .map(|x| x.saturating_add(1))
                 .unwrap_or(0);
 
@@ -194,8 +193,7 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
             if chunk_ack.accepted {
                 debug!("Chunk accepted by stackerdb: {chunk_ack:?}");
                 self.signer_db
-                    .set_latest_chunk_version(&signer_pk, slot_id.0, slot_version)
-                    .map_err(ClientError::SignerDBError)?;
+                    .set_latest_chunk_version(&signer_pk, slot_id.0, slot_version)?;
                 return Ok(chunk_ack);
             } else {
                 warn!("Chunk rejected by stackerdb: {chunk_ack:?}");
@@ -205,18 +203,18 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
                     Some(StackerDBErrorCodes::DataAlreadyExists) => {
                         if let Some(slot_metadata) = chunk_ack.metadata {
                             warn!("Failed to send message to stackerdb due to wrong version number. Attempted {}. Expected {}. Retrying...", slot_version, slot_metadata.slot_version);
-                            self.signer_db
-                                .set_latest_chunk_version(
-                                    &signer_pk,
-                                    slot_id.0,
-                                    slot_metadata.slot_version,
-                                )
-                                .map_err(ClientError::SignerDBError)?;
+                            self.signer_db.set_latest_chunk_version(
+                                &signer_pk,
+                                slot_id.0,
+                                slot_metadata.slot_version,
+                            )?;
                         } else {
                             warn!("Failed to send message to stackerdb due to wrong version number. Attempted {}. Expected unknown version number. Incrementing and retrying...", slot_version);
-                            self.signer_db
-                                .set_latest_chunk_version(&signer_pk, slot_id.0, slot_version)
-                                .map_err(ClientError::SignerDBError)?;
+                            self.signer_db.set_latest_chunk_version(
+                                &signer_pk,
+                                slot_id.0,
+                                slot_version,
+                            )?;
                         }
                     }
                     _ => {
