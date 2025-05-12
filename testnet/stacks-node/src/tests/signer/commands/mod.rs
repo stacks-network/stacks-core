@@ -11,11 +11,13 @@ mod sortition;
 mod stacks_mining;
 mod transfer;
 
-pub use bitcoin_mining::{BuildNextBitcoinBlocks, MineBitcoinBlock, MineBitcoinBlockTenureChange};
+pub use bitcoin_mining::{
+    BuildNextBitcoinBlocks, MineBitcoinBlock, MineBitcoinBlockTenureChangeAndWaitForNakamotoBlock,
+};
 pub use block_commit::SubmitBlockCommit;
-pub use block_verify::VerifyBlockCount;
+pub use block_verify::VerifyBlockCountAfterBootToEpoch3;
 pub use block_wait::{
-    WaitForBlockProposal, WaitForBlockRejectionWithRejectReason, WaitForTenureChangeBlock,
+    WaitForBlockProposal, WaitForBlockRejectionWithRejectReason, WaitForNakamotoBlock,
 };
 pub use boot::BootToEpoch3;
 pub use commit_ops::MinerCommitOp;

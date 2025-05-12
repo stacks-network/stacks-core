@@ -7,13 +7,13 @@ use super::context::{SignerTestContext, SignerTestState};
 
 /// Command to verify that a specified miner has produced the expected number of blocks
 /// since the Epoch 3.0 (Nakamoto) transition.
-pub struct VerifyBlockCount {
+pub struct VerifyBlockCountAfterBootToEpoch3 {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
     expected_block_count: usize,
 }
 
-impl VerifyBlockCount {
+impl VerifyBlockCountAfterBootToEpoch3 {
     pub fn new(
         ctx: Arc<SignerTestContext>,
         miner_index: usize,
@@ -27,7 +27,7 @@ impl VerifyBlockCount {
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for VerifyBlockCount {
+impl Command<SignerTestState, SignerTestContext> for VerifyBlockCountAfterBootToEpoch3 {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
             "Checking: Verifying miner {} block count. Result: {:?}",
@@ -86,7 +86,7 @@ impl Command<SignerTestState, SignerTestContext> for VerifyBlockCount {
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1usize..=2usize, 1usize..=5usize).prop_flat_map(
             move |(miner_index, expected_block_count)| {
-                Just(CommandWrapper::new(VerifyBlockCount::new(
+                Just(CommandWrapper::new(VerifyBlockCountAfterBootToEpoch3::new(
                     ctx.clone(),
                     miner_index,
                     expected_block_count,

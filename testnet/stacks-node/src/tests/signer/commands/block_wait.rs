@@ -1,4 +1,3 @@
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use libsigner::v0::messages::RejectReason;
@@ -14,18 +13,19 @@ use crate::tests::signer::v0::{
 /// Command to wait for a specific miner to produce a Nakamoto block during tenure change.
 /// This command monitors the blockchain until the specified miner successfully
 /// produces their next expected Nakamoto block.
-pub struct WaitForTenureChangeBlock {
+/// This command expects the miner to propose a block at the next height after that miner's last confirmed block.
+pub struct WaitForNakamotoBlock {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
 }
 
-impl WaitForTenureChangeBlock {
+impl WaitForNakamotoBlock {
     pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
         Self { ctx, miner_index }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlock {
+impl Command<SignerTestState, SignerTestContext> for WaitForNakamotoBlock {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Waiting for Nakamoto block from miner {}. Result: {:?}",
@@ -47,7 +47,10 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlock {
             _ => panic!("Invalid miner index: {}", self.miner_index),
         };
 
-        let miner_last_confirmed_height = self.ctx.get_miner_last_confirmed_nakamoto_height(self.miner_index);
+        // Get the last confirmed height for that specific miner
+        let miner_last_confirmed_height = self
+            .ctx
+            .get_miner_last_confirmed_nakamoto_height(self.miner_index);
         let expected_height = miner_last_confirmed_height + 1;
 
         info!(
@@ -55,22 +58,19 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlock {
             expected_height, self.miner_index
         );
 
-        let _miner_1_block = wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk)
+        let _miner_block = wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk)
             .expect(&format!("Failed to get block {}", expected_height));
     }
 
     fn label(&self) -> String {
-        format!(
-            "WAIT_FOR_TENURE_CHANGE_BLOCK_FROM_MINER_{:?}",
-            self.miner_index
-        )
+        format!("WAIT_FOR_NAKAMOTO_BLOCK_FROM_MINER_{:?}", self.miner_index)
     }
 
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1usize..=2usize).prop_flat_map(move |miner_index| {
-            Just(CommandWrapper::new(WaitForTenureChangeBlock::new(
+            Just(CommandWrapper::new(WaitForNakamotoBlock::new(
                 ctx.clone(),
                 miner_index,
             )))
@@ -80,6 +80,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlock {
 
 /// Command to wait for a block proposal from a specific miner in the Nakamoto consensus protocol.
 /// This command monitors the blockchain until the specified miner submits a block proposal at the expected height.
+/// This command expects the miner to propose a block at the next height after that miner's last confirmed block.
 pub struct WaitForBlockProposal {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
@@ -113,13 +114,13 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockProposal {
             _ => panic!("Invalid miner index: {}", self.miner_index),
         };
 
-        let miner_last_confirmed_height = self.ctx.get_miner_last_confirmed_nakamoto_height(self.miner_index);
+        // Get the last confirmed height for that specific miner
+        let miner_last_confirmed_height = self
+            .ctx
+            .get_miner_last_confirmed_nakamoto_height(self.miner_index);
         let expected_height = miner_last_confirmed_height + 1;
 
-        info!(
-            "Waiting for block proposal at height {}",
-            expected_height
-        );
+        info!("Waiting for block proposal at height {}", expected_height);
 
         let proposed_block = wait_for_block_proposal(30, expected_height, &miner_pk)
             .expect("Timed out waiting for block proposal");

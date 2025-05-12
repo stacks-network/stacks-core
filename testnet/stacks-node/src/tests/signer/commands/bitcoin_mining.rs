@@ -20,18 +20,20 @@ use crate::tests::signer::v0::wait_for_block_pushed_by_miner_key;
 /// 1. Mines a Bitcoin block with a tenure change transaction (cause: BlockFound)
 /// 2. Waits for the specified miner to mine a Nakamoto block
 /// 3. Verifies the block was successfully added to the chain
-pub struct MineBitcoinBlockTenureChange {
+pub struct MineBitcoinBlockTenureChangeAndWaitForNakamotoBlock {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
 }
 
-impl MineBitcoinBlockTenureChange {
+impl MineBitcoinBlockTenureChangeAndWaitForNakamotoBlock {
     pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
         Self { ctx, miner_index }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChange {
+impl Command<SignerTestState, SignerTestContext>
+    for MineBitcoinBlockTenureChangeAndWaitForNakamotoBlock
+{
     fn check(&self, state: &SignerTestState) -> bool {
         let (conf_1, conf_2) = self.ctx.get_node_configs();
         let conf = match self.miner_index {
@@ -43,15 +45,16 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChang
         let burn_height = get_chain_info(&conf).burn_block_height;
 
         let (miner_1_submitted_commit_last_burn_height, miner_2_submitted_commit_last_burn_height) = {
-            let miners = self.ctx.miners.lock().unwrap();
-
-            let miner_1_height = miners
-                .get_primary_submitted_commit_last_burn_height()
+            let miner_1_height = self
+                .ctx
+                .get_counters_for_miner(1)
+                .naka_submitted_commit_last_burn_height
                 .0
                 .load(Ordering::SeqCst);
-
-            let miner_2_height = miners
-                .get_secondary_submitted_commit_last_burn_height()
+            let miner_2_height = self
+                .ctx
+                .get_counters_for_miner(2)
+                .naka_submitted_commit_last_burn_height
                 .0
                 .load(Ordering::SeqCst);
 
@@ -125,9 +128,9 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChang
             self.miner_index
         );
 
-        // TODO: We already have the 'WaitForTenureChangeBlockFromMiner1/2' command, perhalps this is where the command can stop
+        // TODO: We already have the 'WaitForTenureChangeBlock' command, perhalps this is where this command can stop
+        // 'WaitForTenureChangeBlock' command calculates the expected height from the last confirmed block for the specified miner - is that ok?
 
-        // This function mines a Nakamoto block
         let miner_block =
             wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk).expect(
                 &format!("Failed to get block for miner {}", self.miner_index),
@@ -157,10 +160,9 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockTenureChang
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1usize..=2usize).prop_flat_map(move |miner_index| {
-            Just(CommandWrapper::new(MineBitcoinBlockTenureChange::new(
-                ctx.clone(),
-                miner_index,
-            )))
+            Just(CommandWrapper::new(
+                MineBitcoinBlockTenureChangeAndWaitForNakamotoBlock::new(ctx.clone(), miner_index),
+            ))
         })
     }
 }

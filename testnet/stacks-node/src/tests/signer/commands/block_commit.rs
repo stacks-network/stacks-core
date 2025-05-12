@@ -5,7 +5,7 @@ use proptest::prelude::{Just, Strategy};
 
 use super::context::{SignerTestContext, SignerTestState};
 
-/// Command to manually trigger a block commit submission for a specified miner (1 or 2)
+/// Command to manually trigger a block commit submission for a specified miner
 pub struct SubmitBlockCommit {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,

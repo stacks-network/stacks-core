@@ -99,7 +99,7 @@ use crate::nakamoto_node::miner::{
     TEST_P2P_BROADCAST_STALL,
 };
 use crate::nakamoto_node::stackerdb_listener::TEST_IGNORE_SIGNERS;
-use crate::neon::{Counters, RunLoopCounter};
+use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
     boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, next_block_and_controller,
@@ -633,34 +633,6 @@ impl MultipleMinerTest {
             2 => self.rl2_counters.clone(),
             _ => panic!("Invalid miner index {}: must be 1 or 2", miner_index),
         }
-    }
-
-    pub fn get_primary_last_stacks_tip_counter(&self) -> RunLoopCounter {
-        self.signer_test
-            .running_nodes
-            .counters
-            .naka_submitted_commit_last_stacks_tip
-            .clone()
-    }
-
-    pub fn get_secondary_last_stacks_tip_counter(&self) -> RunLoopCounter {
-        self.rl2_counters
-            .naka_submitted_commit_last_stacks_tip
-            .clone()
-    }
-
-    pub fn get_primary_submitted_commit_last_burn_height(&self) -> RunLoopCounter {
-        self.signer_test
-            .running_nodes
-            .counters
-            .naka_submitted_commit_last_burn_height
-            .clone()
-    }
-
-    pub fn get_secondary_submitted_commit_last_burn_height(&self) -> RunLoopCounter {
-        self.rl2_counters
-            .naka_submitted_commit_last_burn_height
-            .clone()
     }
 
     /// Boot node 1 to epoch 3.0 and wait for node 2 to catch up.
@@ -10806,11 +10778,11 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs_scenario() {
         (VerifyMinerWonSortition::new(test_context.clone(), MINER1)),
         (SubmitBlockCommit::new(test_context.clone(), MINER2)),
         (StacksMining::resume()),
-        (WaitForTenureChangeBlock::new(test_context.clone(), MINER1)),
+        (WaitForNakamotoBlock::new(test_context.clone(), MINER1)),
         MineBitcoinBlock,
         (VerifyMinerWonSortition::new(test_context.clone(), MINER2)),
         VerifyLastSortitionWinnerReorged,
-        (WaitForTenureChangeBlock::new(test_context.clone(), MINER2)),
+        (WaitForNakamotoBlock::new(test_context.clone(), MINER2)),
         ShutdownMiners
     ]
 }
@@ -10993,14 +10965,14 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         (MinerCommitOp::disable_for(test_context.clone(), MINER2)),
         BootToEpoch3,
         (MinerCommitOp::disable_for(test_context.clone(), MINER1)),
-        (MineBitcoinBlockTenureChange::new(test_context.clone(), MINER1)),
+        (MineBitcoinBlockTenureChangeAndWaitForNakamotoBlock::new(test_context.clone(), MINER1)),
         (VerifyMinerWonSortition::new(test_context.clone(), MINER1)),
         (SubmitBlockCommit::new(test_context.clone(), MINER2)),
         (StacksMining::pause()),
         MineBitcoinBlock,
         (SubmitBlockCommit::new(test_context.clone(), MINER1)),
         (StacksMining::resume()),
-        (WaitForTenureChangeBlock::new(test_context.clone(), MINER2)),
+        (WaitForNakamotoBlock::new(test_context.clone(), MINER2)),
         (VerifyMinerWonSortition::new(test_context.clone(), MINER2)),
         SendAndMineTransferTx,
         SendAndMineTransferTx,
@@ -11011,7 +10983,7 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
             RejectReason::ReorgNotAllowed,
             num_signers
         )),
-        (VerifyBlockCount::new(test_context.clone(), MINER1, 1)), //FIXME: This takes the expected block count as a parameter, I don't like that
+        (VerifyBlockCountAfterBootToEpoch3::new(test_context.clone(), MINER1, 1)), //FIXME: This takes the expected block count as a parameter, I don't like that
         ShutdownMiners,
     ]
 }
