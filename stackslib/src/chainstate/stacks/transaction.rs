@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::hash::{Hash, Hasher};
 use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Write};
@@ -682,6 +683,14 @@ impl StacksTransaction {
         }
     }
 }
+
+impl Hash for StacksTransaction {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.txid().hash(state);
+    }
+}
+
+impl Eq for StacksTransaction {}
 
 impl StacksMessageCodec for StacksTransaction {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
