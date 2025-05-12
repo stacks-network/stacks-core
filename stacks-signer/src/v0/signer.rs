@@ -37,15 +37,16 @@ use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
     RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate,
 };
+use libsigner::v0::signer_state::GlobalStateEvaluator;
 use libsigner::{BlockProposal, SignerEvent};
 use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error, info, warn};
 
+use super::signer_state::LocalStateMachine;
 #[cfg(not(any(test, feature = "testing")))]
 use super::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
-use super::signer_state::{GlobalStateEvaluator, LocalStateMachine};
 use crate::chainstate::{ProposalEvalConfig, SortitionMinerStatus, SortitionsView};
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};

@@ -1444,7 +1444,10 @@ impl BlockMinerThread {
         self.reset_nonce_cache = true;
 
         let replay_transactions = if self.config.miner.replay_transactions {
-            coordinator.get_replay_transactions()
+            coordinator
+                .get_signer_global_state()
+                .map(|state| state.tx_replay_set.unwrap_or_default())
+                .unwrap_or_default()
         } else {
             vec![]
         };
