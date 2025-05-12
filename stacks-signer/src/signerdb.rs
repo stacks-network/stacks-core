@@ -606,7 +606,7 @@ CREATE INDEX IF NOT EXISTS burn_blocks_parent_burn_block_hash_idx on burn_blocks
 static ADD_BLOCK_VALIDATED_BY_REPLAY_TXS_TABLE: &str = r#"
 CREATE TABLE IF NOT EXISTS block_validated_by_replay_txs (
     signer_signature_hash TEXT NOT NULL,
-    replay_tx_hash INTEGER NOT NULL,
+    replay_tx_hash TEXT NOT NULL,
     PRIMARY KEY (signer_signature_hash, replay_tx_hash)
 ) STRICT;"#;
 
@@ -702,9 +702,9 @@ static SCHEMA_13: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (13);",
 ];
 
-static SCHEMA_13: &[&str] = &[
+static SCHEMA_14: &[&str] = &[
     ADD_BLOCK_VALIDATED_BY_REPLAY_TXS_TABLE,
-    "INSERT INTO db_config (version) VALUES (13);",
+    "INSERT INTO db_config (version) VALUES (14);",
 ];
 
 impl SignerDb {
@@ -921,6 +921,20 @@ impl SignerDb {
         Ok(())
     }
 
+    /// Migrate from schema 13 to schema 14
+    fn schema_14_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 14 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_14.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
     /// Register custom scalar functions used by the database
     fn register_scalar_functions(&self) -> Result<(), DBError> {
         // Register helper function for determining if a block is a tenure change transaction
@@ -967,7 +981,8 @@ impl SignerDb {
                 10 => Self::schema_11_migration(&sql_tx)?,
                 11 => Self::schema_12_migration(&sql_tx)?,
                 12 => Self::schema_13_migration(&sql_tx)?,
-                13 => break,
+                13 => Self::schema_14_migration(&sql_tx)?,
+                14 => break,
                 x => return Err(DBError::Other(format!(
                     "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
                     Self::SCHEMA_VERSION,
@@ -1589,7 +1604,7 @@ impl SignerDb {
     ) -> Result<(), DBError> {
         self.db.execute(
             "INSERT INTO block_validated_by_replay_txs (signer_signature_hash, replay_tx_hash) VALUES (?1, ?2)",
-            params![signer_signature_hash.to_string(), u64_to_sql(replay_tx_hash)?],
+            params![signer_signature_hash.to_string(), format!("{replay_tx_hash}")],
         )?;
         Ok(())
     }
@@ -1603,9 +1618,9 @@ impl SignerDb {
         let query = "SELECT replay_tx_hash FROM block_validated_by_replay_txs WHERE signer_signature_hash = ? AND replay_tx_hash = ?";
         let args = params![
             signer_signature_hash.to_string(),
-            u64_to_sql(replay_tx_hash)?
+            format!("{replay_tx_hash}")
         ];
-        let replay_tx_hash_opt: Option<u64> = query_row(&self.db, query, args)?;
+        let replay_tx_hash_opt: Option<String> = query_row(&self.db, query, args)?;
         Ok(replay_tx_hash_opt.is_some())
     }
 }
@@ -2879,5 +2894,22 @@ pub mod tests {
             consensus_hash.to_hex(),
             "Expected the surviving row to have the correct consensus_hash"
         );
+    }
+
+    #[test]
+    fn insert_block_validated_by_replay_tx() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let signer_signature_hash = Sha512Trunc256Sum([0; 32]);
+        let replay_tx_hash = 15559610262907183370_u64;
+
+        db.insert_block_validated_by_replay_tx(&signer_signature_hash, replay_tx_hash)
+            .expect("Failed to insert block validated by replay tx");
+
+        let result = db
+            .get_was_block_validated_by_replay_tx(&signer_signature_hash, replay_tx_hash)
+            .expect("Failed to get block validated by replay tx");
+        assert_eq!(result, true);
     }
 }
