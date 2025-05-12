@@ -264,7 +264,7 @@ impl RPCRequestHandler for RPCNeighborsRequestHandler {
 
         let mut preamble = HttpResponsePreamble::ok_json(&preamble);
         preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
-        let body: HttpResponseContents = HttpResponseContents::try_from_json(&neighbor_data)?;
+        let body = HttpResponseContents::try_from_json(&neighbor_data)?;
         Ok((preamble, body))
     }
 }

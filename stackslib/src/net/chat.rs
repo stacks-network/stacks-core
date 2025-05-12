@@ -342,7 +342,6 @@ pub struct ConversationP2P {
     pub peer_version: u32,
     /// reported services of the remote end of this conversation
     pub peer_services: u16,
-
     /// from socketaddr
     pub peer_addrbytes: PeerAddress,
     /// from socketaddr

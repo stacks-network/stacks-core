@@ -7,6 +7,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+
+## [3.1.0.0.9.0]
+
 ### Changed
 
 - Upgraded `SUPPORTED_SIGNER_PROTOCOL_VERSION` to 1

@@ -1021,11 +1021,9 @@ pub struct NeighborsData {
 pub struct HandshakeData {
     pub addrbytes: PeerAddress,
     pub port: u16,
-    // bit field representing services this node offers
-    pub services: u16,
+    pub services: u16, // bit field representing services this node offers
     pub node_public_key: StacksPublicKeyBuffer,
-    // burn block height after which this node's key will be revoked,
-    pub expire_block_height: u64,
+    pub expire_block_height: u64, // burn block height after which this node's key will be revoked,
     pub data_url: UrlString,
 }
 
@@ -1434,7 +1432,6 @@ pub struct Neighbor {
 
     // fields below this can change at runtime
     pub public_key: Secp256k1PublicKey,
-    // the burn block height at which the neighbor's key expires
     pub expire_block: u64,
     pub last_contact_time: u64, // time when we last authenticated with this peer via a Handshake
 
@@ -2256,12 +2253,12 @@ pub fn infer_initial_burnchain_block_download(
     let ibd = last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
     if ibd {
         debug!(
-            "{} + {} < {}, so initial block download",
+            "PoX watchdog: {} + {} < {}, so initial block download",
             last_processed_height, burnchain.stable_confirmations, burnchain_height
         );
     } else {
         debug!(
-            "{} + {} >= {}, so steady-state",
+            "PoX watchdog: {} + {} >= {}, so steady-state",
             last_processed_height, burnchain.stable_confirmations, burnchain_height
         );
     }

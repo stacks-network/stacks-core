@@ -9,15 +9,21 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
+- Added a new RPC endpoint `/v3/health` to query the node's health status. A node is considered healthy if it
+  is synchronized with its bootstrap peers. The endpoint returns a 200 status code with relevant synchronization information,
+  or a 500 status code if the query cannot retrieve viable data.
+
+
+## [3.1.0.0.9]
+
+### Added
+
 - Added field `vm_error` to EventObserver transaction outputs
 - Added new `ValidateRejectCode` values to the `/v3/block_proposal` endpoint
 - Added `StateMachineUpdateContent::V1` to support a vector of `StacksTransaction` expected to be replayed in subsequent Stacks blocks
 - Include a reason string in the transaction receipt when a transaction is rolled back due to a post-condition. This should help users in understanding what went wrong.
-- Added a new RPC endpoint to query the node's health. A node is considered healthy if it
-is caught up with its bootstrap peers. The endpoint returns
-200 if it is synced to its peers' chaintips, and 500 if the query was unsuccessful (no viable
-data potentially OR the node is not caught up to its peers). This endpoint can be
-accessed at `v3/health`.
+- Updated `StackerDBListener` to monitor signer state machine updates and store signer global state information, enabling miners to perform transaction replays.
+- Added a testnet `replay_transactions` flag to the miner configuration to feature-gate transaction replay. When enabled, the miner will construct a replay block if a threshold of signers signals that a transaction set requires replay.
 
 ### Changed
 

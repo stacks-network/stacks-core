@@ -4,7 +4,7 @@ servers:
     description: Local
 info:
   title: Stacks 3.0+ RPC API
-  version: "1.0.0"
+  version: '1.0.0'
   description: |
     This is the documentation for the `stacks-node` RPC interface.
   license:
@@ -75,8 +75,7 @@ paths:
         in: query
         schema:
           type: string
-        description:
-          The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+        description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
           known tip (includes unconfirmed state).
   /v2/map_entry/{contract_address}/{contract_name}/{map_name}:
     post:
@@ -129,8 +128,7 @@ paths:
           in: query
           schema:
             type: string
-          description:
-            The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
       x-codegen-request-body-name: key
       requestBody:
@@ -179,8 +177,7 @@ paths:
         in: query
         schema:
           type: string
-        description:
-          The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+        description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
           known tip (includes unconfirmed state).
         required: false
 
@@ -229,8 +226,7 @@ paths:
           in: query
           schema:
             type: string
-          description:
-            The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
           required: false
       requestBody:
@@ -239,12 +235,12 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "./entities/contracts/read-only-function-args.schema.json"
+              $ref: './entities/contracts/read-only-function-args.schema.json'
               example:
-                sender: "SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info"
+                sender: 'SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info'
                 arguments:
-                  - "0x0011..."
-                  - "0x00231..."
+                  - '0x0011...'
+                  - '0x00231...'
 
   /v2/accounts/{principal}:
     get:
@@ -274,8 +270,7 @@ paths:
           in: query
           schema:
             type: string
-          description:
-            The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
       responses:
         "200":
@@ -432,8 +427,7 @@ paths:
           in: query
           schema:
             type: string
-          description:
-            The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
 
   /v2/traits/{contract_address}/{contract_name}/{trait_contract_address}/{trait_contract_name}/{trait_name}:
@@ -529,8 +523,7 @@ paths:
           in: query
           schema:
             type: string
-          description:
-            The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
 
   /v2/clarity/metadata/{contract_address}/{contract_name}/{clarity_metadata_key}:
@@ -577,8 +570,7 @@ paths:
           in: query
           schema:
             type: string
-          description:
-            The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
 
   /v2/constant_val/{contract_address}/{contract_name}/{constant_name}:
@@ -625,8 +617,7 @@ paths:
           in: query
           schema:
             type: string
-          description:
-            The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
+          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
 
   /v3/block_proposal:
@@ -701,7 +692,8 @@ paths:
       tags:
         - Blocks
       operationId: get_block_v3
-      description: Fetch a Nakamoto block by its index block hash.
+      description:
+        Fetch a Nakamoto block by its index block hash.
       parameters:
         - name: block_id
           in: path
@@ -728,7 +720,8 @@ paths:
       tags:
         - Blocks
       operationId: get_block_v3_by_height
-      description: Fetch a Nakamoto block by its height and optional tip.
+      description:
+        Fetch a Nakamoto block by its height and optional tip.
       parameters:
         - name: block_height
           in: path
@@ -740,8 +733,7 @@ paths:
           in: query
           schema:
             type: string
-          description:
-            The Stacks chain tip to query from. If tip == latest or empty, the query will be run
+          description: The Stacks chain tip to query from. If tip == latest or empty, the query will be run
             from the latest known tip.
       responses:
         "200":
@@ -762,7 +754,8 @@ paths:
       tags:
         - Blocks
       operationId: get_tenure_info
-      description: Fetch metadata about the ongoing Nakamoto tenure. This information is sufficient to obtain and authenticate the highest complete tenure, as well as obtain new tenure blocks.
+      description:
+        Fetch metadata about the ongoing Nakamoto tenure. This information is sufficient to obtain and authenticate the highest complete tenure, as well as obtain new tenure blocks.
       responses:
         "200":
           description: Metadata about the ongoing tenure
@@ -777,7 +770,8 @@ paths:
       tags:
         - Blocks
       operationId: get_tenures
-      description: Fetch a sequence of Nakamoto blocks in a tenure.  The blocks will be served in order from highest to lowest.  The blocks will be encoded in their SIP-003 wire format, and concatenated together.
+      description:
+        Fetch a sequence of Nakamoto blocks in a tenure.  The blocks will be served in order from highest to lowest.  The blocks will be encoded in their SIP-003 wire format, and concatenated together.
       responses:
         "200":
           description: SIP-003-encoded Nakamoto blocks, concatenated together
@@ -789,13 +783,15 @@ paths:
     parameters:
       - name: block_id
         in: path
-        description: The tenure-start block ID of the tenure to query
+        description:
+          The tenure-start block ID of the tenure to query
         required: true
         schema:
           type: string
       - name: stop
         in: query
-        description: The block ID hash of the highest block in this tenure that is already known to the caller.  Neither the corresponding block nor any of its ancestors will be served.  This is used to fetch tenure blocks that the caller does not have.
+        description:
+          The block ID hash of the highest block in this tenure that is already known to the caller.  Neither the corresponding block nor any of its ancestors will be served.  This is used to fetch tenure blocks that the caller does not have.
         required: false
         schema:
           type: string
@@ -806,7 +802,8 @@ paths:
       tags:
         - Blocks
       operationId: get_sortitions
-      description: Fetch sortition information about a burnchain block. If the `lookup_kind` and `lookup` parameters are empty, it will return information about the latest burn block.
+      description:
+        Fetch sortition information about a burnchain block. If the `lookup_kind` and `lookup` parameters are empty, it will return information about the latest burn block.
       responses:
         "200":
           description: Information for the burn block or in the case of `latest_and_last`, multiple burn blocks
@@ -877,12 +874,12 @@ paths:
       description: Get a JSON with the transaction details including the `index_block_hash`, the hex-encoded transaction body, and the `result`.
       operationId: get_transaction
       parameters:
-        - name: txid
-          in: path
-          required: true
-          description: Transaction ID
-          schema:
-            type: string
+      - name: txid
+        in: path
+        required: true
+        description: Transaction ID
+        schema:
+          type: string
       responses:
         "200":
           description: Transaction JSON with index_block_hash, transaction body and result
@@ -919,10 +916,7 @@ paths:
                 $ref: ./api/core-node/get-health.example.json
         500:
           description:
-            There are two reasons for a 500 error. (a) The node is unhealthy, meaning it is lagging
-            behind its most advanced peer. The `percent_of_blocks_synced` field indicates what percent of
-            the height this node is at, relative to its most advanced peer, `matches_peers` is false, and
-            `error` is set to "Node not at tip". (b) Failed to query for health (no data or no valid peers to query
+            Failed to query for health (no data or no valid peers to query
             from), only the `error` field will be set in this case.
           content:
             application/json:

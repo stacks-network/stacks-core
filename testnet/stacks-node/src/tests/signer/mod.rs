@@ -23,9 +23,11 @@ use std::time::{Duration, Instant};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
+use clarity::vm::Value;
 use libsigner::v0::messages::{
     BlockAccepted, BlockResponse, MessageSlotID, PeerInfo, SignerMessage,
 };
+use libsigner::v0::signer_state::MinerState;
 use libsigner::{BlockProposal, SignerEntries, SignerEventTrait};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
@@ -51,7 +53,7 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_signer::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::{SignerResult, State, StateInfo};
-use stacks_signer::v0::signer_state::{LocalStateMachine, MinerState};
+use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::{Signer, SpawnedSigner};
 
 use super::nakamoto_integrations::{
@@ -451,43 +453,36 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         submit_tx_fallible(&http_origin, &transfer_tx).map(|resp| (resp, sender_nonce))
     }
 
-    /// Submit a burn block dependent contract for publishing
-    ///  and wait until it is included in a block
-    pub fn submit_burn_block_contract_and_wait(
+    /// Submit a contract deploy and return (txid, sender_nonce)
+    pub fn submit_contract_deploy(
         &mut self,
         sender_sk: &StacksPrivateKey,
-    ) -> Result<String, String> {
+        contract_code: &str,
+        contract_name: &str,
+    ) -> Result<(String, u64), String> {
         let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
         let sender_addr = to_addr(&sender_sk);
         let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
-        let burn_height_contract = "
-         (define-data-var local-burn-block-ht uint u0)
-         (define-public (run-update)
-           (ok (var-set local-burn-block-ht burn-block-height)))
-        ";
+
         let contract_tx = make_contract_publish(
             &sender_sk,
-            0,
+            sender_nonce,
             1000,
             self.running_nodes.conf.burnchain.chain_id,
-            "burn-height-local",
-            burn_height_contract,
+            contract_name,
+            contract_code,
         );
-        let txid = submit_tx_fallible(&http_origin, &contract_tx)?;
-
-        wait_for(120, || {
-            let next_nonce = get_account(&http_origin, &sender_addr).nonce;
-            Ok(next_nonce > sender_nonce)
-        })
-        .map(|()| txid)
+        submit_tx_fallible(&http_origin, &contract_tx).map(|resp| (resp, sender_nonce))
     }
 
-    /// Submit a burn block dependent contract-call
-    ///  and wait until it is included in a block
-    pub fn submit_burn_block_call_and_wait(
+    /// Submit a contract call and return (txid, sender_nonce)
+    pub fn submit_contract_call(
         &mut self,
         sender_sk: &StacksPrivateKey,
-    ) -> Result<String, String> {
+        contract_name: &str,
+        contract_func: &str,
+        contract_args: &[Value],
+    ) -> Result<(String, u64), String> {
         let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
         let sender_addr = to_addr(&sender_sk);
         let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
@@ -497,17 +492,54 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             1000,
             self.running_nodes.conf.burnchain.chain_id,
             &sender_addr,
-            "burn-height-local",
-            "run-update",
-            &[],
+            contract_name,
+            contract_func,
+            contract_args,
         );
-        let txid = submit_tx_fallible(&http_origin, &contract_call_tx)?;
+        submit_tx_fallible(&http_origin, &contract_call_tx).map(|resp| (resp, sender_nonce))
+    }
 
+    pub fn wait_for_nonce_increase(
+        &mut self,
+        sender_addr: &StacksAddress,
+        sender_nonce: u64,
+    ) -> Result<(), String> {
+        let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
         wait_for(120, || {
             let next_nonce = get_account(&http_origin, &sender_addr).nonce;
             Ok(next_nonce > sender_nonce)
         })
-        .map(|()| txid)
+    }
+
+    /// Submit a burn block dependent contract for publishing
+    ///  and wait until it is included in a block
+    pub fn submit_burn_block_contract_and_wait(
+        &mut self,
+        sender_sk: &StacksPrivateKey,
+    ) -> Result<String, String> {
+        let burn_height_contract = "
+         (define-data-var local-burn-block-ht uint u0)
+         (define-public (run-update)
+           (ok (var-set local-burn-block-ht burn-block-height)))
+        ";
+        let (txid, sender_nonce) =
+            self.submit_contract_deploy(sender_sk, burn_height_contract, "burn-height-local")?;
+
+        self.wait_for_nonce_increase(&to_addr(&sender_sk), sender_nonce)?;
+        Ok(txid)
+    }
+
+    /// Submit a burn block dependent contract-call
+    ///  and wait until it is included in a block
+    pub fn submit_burn_block_call_and_wait(
+        &mut self,
+        sender_sk: &StacksPrivateKey,
+    ) -> Result<String, String> {
+        let (txid, sender_nonce) =
+            self.submit_contract_call(sender_sk, "burn-height-local", "run-update", &[])?;
+
+        self.wait_for_nonce_increase(&to_addr(&sender_sk), sender_nonce)?;
+        Ok(txid)
     }
 
     /// Get the local state machines and most recent peer info from the stacks-node,
