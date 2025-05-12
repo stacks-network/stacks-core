@@ -294,15 +294,15 @@ impl DBConfig {
         });
         match epoch_id {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 8,
-            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 8,
-            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 8,
-            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 8,
-            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 8,
-            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 8,
-            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 8,
-            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 8,
-            StacksEpochId::Epoch31 => version_u32 >= 3 && version_u32 <= 8,
+            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 9,
+            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 9,
+            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 9,
+            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 9,
+            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 9,
+            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 9,
+            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 9,
+            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 9,
+            StacksEpochId::Epoch31 => version_u32 >= 3 && version_u32 <= 9,
         }
     }
 }
@@ -654,7 +654,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &str = "8";
+pub const CHAINSTATE_VERSION: &str = "9";
 
 const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -853,6 +853,15 @@ const CHAINSTATE_SCHEMA_3: &[&str] = &[
     "#,
 ];
 
+const CHAINSTATE_SCHEMA_4: &[&str] = &[
+    // schema change is JUST a new index, so just bump db_config.version
+    //   and add the index to `CHAINSTATE_INDEXES` (which gets re-execed
+    //   on every schema change)
+    r#"
+    UPDATE db_config SET version = "9";
+    "#,
+];
+
 const CHAINSTATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
     "CREATE INDEX IF NOT EXISTS block_headers_hash_index ON block_headers(block_hash,block_height);",
@@ -877,6 +886,7 @@ const CHAINSTATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_header_by_affirmation_weight ON block_headers(affirmation_weight);",
     "CREATE INDEX IF NOT EXISTS index_block_header_by_height_and_affirmation_weight ON block_headers(block_height,affirmation_weight);",
     "CREATE INDEX IF NOT EXISTS index_headers_by_consensus_hash ON block_headers(consensus_hash);",
+    "CREATE INDEX IF NOT EXISTS processable_block ON staging_blocks(processed, orphaned, attachable);",
 ];
 
 pub use stacks_common::consts::MINER_REWARD_MATURITY;
@@ -1101,6 +1111,14 @@ impl StacksChainState {
                         "Migrating chainstate schema from version 7 to 8: add index for nakamoto block headers"
                     );
                     for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_5.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "8" => {
+                    info!(
+                        "Migrating chainstate schema from version 8 to 9: add index for staging_blocks"
+                    );
+                    for cmd in CHAINSTATE_SCHEMA_4.iter() {
                         tx.execute_batch(cmd)?;
                     }
                 }
@@ -1624,7 +1642,7 @@ impl StacksChainState {
                     &contract,
                     "set-burnchain-parameters",
                     &params,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .expect("Failed to set burnchain parameters in PoX contract");

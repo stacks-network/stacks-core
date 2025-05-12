@@ -2542,9 +2542,9 @@ impl Default for MinerConfig {
 
             block_rejection_timeout_steps: {
                 let mut rejections_timeouts_default_map = HashMap::<u32, Duration>::new();
-                rejections_timeouts_default_map.insert(0, Duration::from_secs(600));
-                rejections_timeouts_default_map.insert(10, Duration::from_secs(300));
-                rejections_timeouts_default_map.insert(20, Duration::from_secs(150));
+                rejections_timeouts_default_map.insert(0, Duration::from_secs(180));
+                rejections_timeouts_default_map.insert(10, Duration::from_secs(90));
+                rejections_timeouts_default_map.insert(20, Duration::from_secs(45));
                 rejections_timeouts_default_map.insert(30, Duration::from_secs(0));
                 rejections_timeouts_default_map
             },
@@ -2556,52 +2556,434 @@ impl Default for MinerConfig {
 #[derive(Clone, Default, Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct ConnectionOptionsFile {
+    /// Maximum number of messages allowed in the per-connection incoming buffer.
+    /// The limits apply individually to each established connection (both P2P and HTTP).
+    ///
+    /// Default: 100.
     pub inbox_maxlen: Option<usize>,
+    /// Maximum number of messages allowed in the per-connection outgoing buffer.
+    /// The limit applies individually to each established connection (both P2P and HTTP).
+    ///
+    /// Default: 100.
     pub outbox_maxlen: Option<usize>,
+    /// Maximum duration (in seconds) a connection attempt is allowed to remain in the connecting state.
+    ///
+    /// This applies to both incoming P2P and HTTP connections. If a remote peer initiates a connection
+    /// but does not complete the connection process (e.g., handshake for P2P) within this time, the node
+    /// will consider it unresponsive and drop the connection attempt.
+    ///
+    /// Default: 10 seconds.
     pub connect_timeout: Option<u64>,
+    /// Maximum duration (in seconds) a P2P peer is allowed after connecting before completing the handshake.
+    ///
+    /// If a P2P peer connects successfully but fails to send the necessary handshake messages
+    /// within this time, the node will consider it unresponsive and drop the connection.
+    ///
+    /// Default: 5 seconds.
     pub handshake_timeout: Option<u64>,
+    /// General communication timeout (in seconds).
+    ///
+    /// - For HTTP connections: Governs two timeout aspects:
+    ///   - Server-side: Defines the maximum allowed time since the last request was received from a client.
+    ///                  An idle connection is dropped if both this timeout and [`ConnectionOptionsFile::idle_timeout`] are exceeded.
+    ///   - Client-side: Sets the timeout duration (TTL) for outgoing HTTP requests initiated by the node itself.
+    /// - For P2P connections: Used as the specific timeout for NAT punch-through requests.
+    ///
+    /// Default: 15 seconds.
     pub timeout: Option<u64>,
+    /// Maximum idle time (in seconds) for HTTP connections.
+    ///
+    /// This applies only to HTTP connections. It defines the maximum allowed time since the
+    /// last response was sent by the node to the client. An HTTP connection is dropped if
+    /// both this `idle_timeout` and the general [`ConnectionOptionsFile::timeout`] (time since last request received)
+    /// are exceeded.
+    ///
+    /// Default: 15 seconds.
     pub idle_timeout: Option<u64>,
+    /// Interval (in seconds) at which this node expects to send or receive P2P keep-alive messages.
+    ///
+    /// During the P2P handshake, this node advertises this configured `heartbeat` value to its peers.
+    /// Each peer uses the other's advertised heartbeat interval (plus a timeout margin) to monitor
+    /// responsiveness and detect potential disconnections. This node also uses its own configured
+    /// value to proactively send Ping messages if the connection would otherwise be idle, helping to keep it active.
+    ///
+    /// Default: 3600 seconds (1 hour).
     pub heartbeat: Option<u32>,
+    /// Validity duration (in number of bitcoin blocks) for the node's P2P session private key.
+    ///
+    /// The node uses a temporary private key for signing P2P messages. This key has an associated
+    /// expiry bitcoin block height stored in the peer database. When the current bitcoin height
+    /// reaches or exceeds the key's expiry height, the node automatically generates a new random
+    /// private key.
+    /// The expiry block height for this new key is calculated by adding the configured
+    /// `private_key_lifetime` (in blocks) to the previous key's expiry block height.
+    /// The node then re-handshakes with peers to transition to the new key.
+    /// This provides periodic key rotation for P2P communication.
+    ///
+    /// Default: `9223372036854775807` (i64::MAX, effectively infinite, disabling automatic re-keying).
     pub private_key_lifetime: Option<u64>,
+    /// Target number of peers for StackerDB replication.
+    ///
+    /// Sets the maximum number of potential replication target peers requested from the
+    /// StackerDB control contract (`get-replication-targets`) when configuring a replica.
+    ///
+    /// Note: Formerly (pre-Epoch 3.0), this also controlled the target peer count for
+    /// inventory synchronization.
+    ///
+    /// Default: 32.
     pub num_neighbors: Option<u64>,
+    /// Maximum number of allowed concurrent inbound P2P connections.
+    ///
+    /// This acts as a hard limit. If the node already has this many active inbound P2P
+    /// connections, any new incoming P2P connection attempts will be rejected.
+    /// Outbound P2P connections initiated by this node are not counted against this limit.
+    ///
+    /// Default: 750.
     pub num_clients: Option<u64>,
+    /// Maximum total number of allowed concurrent HTTP connections.
+    ///
+    /// This limits the total number of simultaneous connections the node's RPC/HTTP server
+    /// will accept. If this limit is reached, new incoming HTTP connection attempts
+    /// will be rejected.
+    ///
+    /// Default: 1000.
     pub max_http_clients: Option<u64>,
+    /// Target number of outbound P2P connections the node aims to maintain.
+    ///
+    /// The connection pruning logic only activates if the current number of established
+    /// outbound P2P connections exceeds this value. Pruning aims to reduce the connection
+    /// count back down to this target, ensuring the node maintains a baseline number
+    /// of outbound peers for network connectivity.
+    ///
+    /// Default: 16.
     pub soft_num_neighbors: Option<u64>,
+    /// Soft limit threshold for triggering inbound P2P connection pruning.
+    ///
+    /// If the total number of currently active inbound P2P connections exceeds this value,
+    /// the node will activate pruning logic to reduce the count, typically by applying
+    /// per-host limits (see [`ConnectionOptionsFile::soft_max_clients_per_host`]).
+    /// This helps manage the overall load from inbound peers.
+    ///
+    /// Default: 750.
     pub soft_num_clients: Option<u64>,
+    /// maximum number of neighbors per host we permit
+    ///
+    /// Default: 1.
+    /// Deprecated: it does not have any effect on the node's behavior.
     pub max_neighbors_per_host: Option<u64>,
+    /// maximum number of inbound p2p connections per host we permit
+    ///
+    /// Default: 4.
+    /// Deprecated: it does not have any effect on the node's behavior.
     pub max_clients_per_host: Option<u64>,
+    /// soft limit on the number of neighbors per host we permit
+    ///
+    /// Default: 1.
+    /// Deprecated: it does not have any effect on the node's behavior.
     pub soft_max_neighbors_per_host: Option<u64>,
+    /// Soft limit on the number of outbound P2P connections per network organization (ASN).
+    ///
+    /// During connection pruning (when total outbound connections > [`ConnectionOptionsFile::soft_num_neighbors`]),
+    /// the node checks if any single network organization (identified by ASN) has more
+    /// outbound connections than this limit. If so, it preferentially prunes the least
+    /// healthy/newest connections from that overrepresented organization until its count
+    /// is reduced to this limit or the total outbound count reaches [`ConnectionOptionsFile::soft_num_neighbors`].
+    /// This encourages connection diversity across different network providers.
+    ///
+    /// Default: 32.
     pub soft_max_neighbors_per_org: Option<u64>,
+    /// Soft limit on the number of inbound P2P connections allowed per host IP address.
+    ///
+    /// During inbound connection pruning (when total inbound connections > [`ConnectionOptionsFile::soft_num_clients`]),
+    /// the node checks if any single IP address has more connections than this limit.
+    /// If so, it preferentially prunes the newest connections originating from that
+    /// specific IP address until its count is reduced to this limit.
+    /// This prevents a single host from dominating the node's inbound connection capacity.
+    ///
+    /// Default: 4.
     pub soft_max_clients_per_host: Option<u64>,
+    /// Maximum total number of concurrent network sockets the node is allowed to manage.
+    ///
+    /// This limit applies globally to all types of sockets handled by the node's networking layer,
+    /// including listening sockets (P2P and RPC/HTTP), established P2P connections (inbound/outbound),
+    /// and established HTTP connections.
+    /// It serves as a hard limit to prevent the node from exhausting operating system
+    /// resources related to socket descriptors.
+    ///
+    /// Default: 800.
     pub max_sockets: Option<u64>,
+    /// Minimum interval (in seconds) between the start of consecutive neighbor discovery walks.
+    ///
+    /// The node periodically performs "neighbor walks" to discover new peers and maintain
+    /// an up-to-date view of the P2P network topology. This setting controls how frequently
+    /// these walks can be initiated, preventing excessive network traffic and processing.
+    ///
+    /// Default: 60 seconds.
     pub walk_interval: Option<u64>,
+    /// Probability (0.0 to 1.0) of forcing a neighbor walk to start from a seed/bootstrap peer.
+    ///
+    /// This probability applies only when the node is not in Initial Block Download (IBD)
+    /// and is already connected to at least one seed/bootstrap peer.
+    /// Normally, in this situation, the walk would start from a random inbound or outbound peer.
+    /// However, with this probability, the walk is forced to start from a seed peer instead.
+    /// This helps ensure the node periodically re-establishes its network view from trusted entry points.
+    ///
+    /// Default: 0.1 (10%).
     pub walk_seed_probability: Option<f64>,
+    /// Frequency (in milliseconds) for logging the current P2P neighbor list at the DEBUG level.
+    ///
+    /// If set to a non-zero value, the node will periodically log details about its currently
+    /// established P2P connections (neighbors). Setting this to 0 disables this periodic logging.
+    ///
+    /// Default: 60_000 ms (1 minute).
     pub log_neighbors_freq: Option<u64>,
+    /// Maximum time (in milliseconds) to wait for a DNS query to resolve.
+    ///
+    /// When the node needs to resolve a hostname (e.g., from a peer's advertised `data_url`
+    /// or an Atlas attachment URL) into an IP address, it initiates a DNS lookup.
+    /// This setting defines the maximum duration the node will wait for the DNS server
+    /// to respond before considering the lookup timed out.
+    ///
+    /// Default: 15_000 ms, (15 seconds).
     pub dns_timeout: Option<u64>,
+    /// Maximum number of concurrent Nakamoto block download requests allowed.
+    ///
+    /// This limits how many separate block download processes for Nakamoto tenures
+    /// (both confirmed and unconfirmed) can be active simultaneously. Helps manage
+    /// network bandwidth and processing load during chain synchronization.
+    ///
+    /// Default: 6.
     pub max_inflight_blocks: Option<u64>,
+    /// Maximum number of concurrent Atlas attachment download requests allowed.
+    ///
+    /// This limits how many separate download requests for Atlas data attachments
+    /// can be active simultaneously. Helps manage network resources when fetching
+    /// potentially large attachment data.
+    ///
+    /// Default: 6.
     pub max_inflight_attachments: Option<u64>,
+    /// Maximum total size (in bytes) of data allowed to be written during a read-only call.
+    /// Note: This limit is effectively forced to 0 by the API handler, ensuring read-only behavior.
+    /// Configuring a non-zero value has no effect on read-only call execution.
+    ///
+    /// Default: 0.
     pub read_only_call_limit_write_length: Option<u64>,
+    /// Maximum total size (in bytes) of data allowed to be read from Clarity data space (variables, maps)
+    /// during a read-only call.
+    ///
+    /// Default: 100_000 bytes (100 KB).
     pub read_only_call_limit_read_length: Option<u64>,
+    /// Total number of independent read operations permitted for an individual write-only function call
+    /// Maximum number of distinct write operations allowed during a read-only call.
+    /// Note: This limit is effectively forced to 0 by the API handler, ensuring read-only behavior.
+    /// Configuring a non-zero value has no effect on read-only call execution.
+    ///
+    /// Default: 0.
     pub read_only_call_limit_write_count: Option<u64>,
+    /// Maximum number of distinct read operations from Clarity data space allowed during a read-only call.
+    ///
+    /// Default: 30.
     pub read_only_call_limit_read_count: Option<u64>,
+    /// Runtime cost limit for an individual read-only function call. This represents
+    /// computation effort within the Clarity VM.
+    /// (https://github.com/stacksgov/sips/blob/main/sips/sip-006/sip-006-runtime-cost-assessment.md)
+    ///
+    /// Default: 1_000_000_000 units.
     pub read_only_call_limit_runtime: Option<u64>,
+    /// Maximum size (in bytes) of the HTTP request body for read-only contract calls.
+    ///
+    /// This limit is enforced on the `Content-Length` of incoming requests to the
+    /// `/v2/contracts/call-read-only/...` RPC endpoint. It prevents excessively large
+    /// request bodies, which might contain numerous or very large hex-encoded function arguments,
+    /// from overwhelming the node.
+    ///
+    /// Default: `83_886_080` bytes (80 MiB), calculated as 20 * [`clarity::vm::types::BOUND_VALUE_SERIALIZATION_HEX`].
     pub maximum_call_argument_size: Option<u32>,
+    /// Minimum interval (in seconds) between consecutive block download scans in epoch 2.x.
+    ///
+    /// In the pre-Nakamoto block download logic, if a full scan for blocks completed without
+    /// finding any new blocks to download, and if the known peer inventories had not changed,
+    /// the node would wait at least this duration before initiating the next download scan.
+    /// This throttled the downloader when the node was likely already synchronized.
+    ///
+    /// Default: 10 seconds.
+    /// Deprecated: This setting is ignored in Epoch 3.0+.
     pub download_interval: Option<u64>,
+    /// Minimum interval (in seconds) between initiating inventory synchronization attempts with the same peer.
+    ///
+    /// Acts as a per-peer cooldown to throttle sync requests. A new sync cycle with a peer generally
+    /// starts only after this interval has passed since the previous attempt began *and* the previous
+    /// cycle is considered complete.
+    ///
+    /// Default: 45 seconds.
     pub inv_sync_interval: Option<u64>,
+    /// Deprecated: it does not have any effect on the node's behavior.
     pub full_inv_sync_interval: Option<u64>,
+    /// Lookback depth (in PoX reward cycles) for Nakamoto inventory synchronization requests.
+    ///
+    /// When initiating an inventory sync cycle with a peer, the node requests data starting
+    /// from `inv_reward_cycles` cycles before the current target reward cycle. This determines
+    /// how much historical inventory information is requested in each sync attempt.
+    ///
+    /// Default: Derived from [`BurnchainConfig::mode`] 3 for `mainnet`, [`INV_REWARD_CYCLES_TESTNET`] otherwise (6).
     pub inv_reward_cycles: Option<u64>,
+    /// The Public IPv4 address and port to advertise to other nodes.
+    ///
+    /// If this option is not set (`None`), the node will attemp to automatically discover its
+    /// public IP address.
+    ///
+    /// Default: `None` (triggers automatic discovery attempt).
     pub public_ip_address: Option<String>,
+    /// If true, disables the neighbor discovery mechanism from starting walks from inbound peers.
+    /// Walks will only initiate from seed/bootstrap peers, outbound connections, or pingbacks.
+    ///
+    /// Primarily intended for testing or specific network debugging scenarios.
+    ///
+    /// Default: `false`.
     pub disable_inbound_walks: Option<bool>,
+    /// If true, prevents the node from processing initial handshake messages from new inbound P2P connections.
+    ///
+    /// This effectively stops the node from establishing new authenticated inbound P2P sessions.
+    /// Outbound connections initiated by this node are unaffected.
+    ///
+    /// Primarily intended for testing purposes.
+    ///
+    /// Default: `false`.
     pub disable_inbound_handshakes: Option<bool>,
+    /// If true, completely disables the block download state machine.
+    ///
+    /// The node will not attempt to download Stacks blocks (neither Nakamoto tenures nor
+    /// legacy blocks) from peers.
+    ///
+    /// Intended for testing or specialized node configurations.
+    ///
+    /// Default: `false`.
     pub disable_block_download: Option<bool>,
+    /// Fault injection setting for testing purposes. Interval (in seconds) for forced disconnection of all peers.
+    ///
+    /// If set to a positive value, the node will periodically disconnect all of its P2P peers at roughly this interval.
+    /// This simulates network churn or partitioning for testing node resilience.
+    ///
+    /// Note: The code enforcing this behavior is conditionally compiled using `cfg!(test)` and is
+    /// only active during test runs (e.g., via `cargo test`). This setting has no effect in
+    /// standard production builds.
+    ///
+    /// Default: `None` (feature disabled).
     pub force_disconnect_interval: Option<u64>,
+    /// Controls whether a node with public inbound connections should still push blocks, even if not NAT'ed.
+    ///
+    /// In the Stacks 2.x anti-entropy logic, if a node detected it had inbound connections
+    /// from public IPs (suggesting it wasn't behind NAT) and this flag was set to `false`,
+    /// it would refrain from proactively pushing blocks and microblocks to peers.
+    /// The assumption was that publicly reachable nodes should primarily serve downloads.
+    /// If set to `true` (default), the node would push data regardless of its perceived reachability.
+    ///
+    /// Default: `true`.
+    /// Deprecated: This setting is ignored in Epoch 3.0+.
     pub antientropy_public: Option<bool>,
+    /// Whether to allow connections and interactions with peers having private IP addresses.
+    ///
+    /// If `false` (default), the node will generally:
+    /// - Reject incoming connection attempts from peers with private IPs.
+    /// - Avoid initiating connections to peers known to have private IPs.
+    /// - Ignore peers with private IPs during neighbor discovery (walks).
+    /// - Skip querying peers with private IPs for mempool or StackerDB data.
+    /// - Filter out peers with private IPs from API responses listing potential peers.
+    ///
+    /// Setting this to `true` disables these restrictions, which can be useful for local testing
+    /// environments or fully private network deployments.
+    ///
+    /// Default: `false`.
     pub private_neighbors: Option<bool>,
+    /// HTTP auth password to use when communicating with stacks-signer binary.
+    ///
+    /// This token is used in the `Authorization` header for certain requests.
+    /// Primarily, it secures the communication channel between this node and a connected
+    /// `stacks-signer` instance.
+    ///
+    /// **Requirement:** This field **must** be configured if the node needs to receive block
+    /// proposals from a configured `stacks-signer`event_observer via the `/v3/block_proposal` endpoint. The value
+    /// must match the token configured on the signer.
+    ///
+    /// It is also used to authenticate requests to `/v2/blocks?broadcast=1`.
+    ///
+    /// Default: `None` (authentication disabled for relevant endpoints).
     pub auth_token: Option<String>,
+    /// Minimum interval (in seconds) between attempts to run the Epoch 2.x anti-entropy data push mechanism.
+    ///
+    /// The Stacks 2.x anti-entropy protocol involves the node proactively pushing its known
+    /// Stacks blocks and microblocks to peers. This `antientropy_retry` value specifies the
+    /// cooldown period for this operation.
+    /// This prevents the node from excessively attempting to push data to its peers.
+    ///
+    /// Default: 3600 seconds (1 hour).
+    /// Deprecated: This setting is ignored in Epoch 3.0+.
     pub antientropy_retry: Option<u64>,
+    /// Controls whether the node accepts Nakamoto blocks pushed proactively by peers.
+    ///
+    /// - If `true`: Pushed blocks are ignored (logged at DEBUG and discarded). The node will
+    ///   still process blocks that it actively downloads.
+    /// - If `false`: Both pushed blocks and actively downloaded blocks are processed.
+    ///
+    /// Default: `false`.
     pub reject_blocks_pushed: Option<bool>,
+    /// Static list of preferred replica peers for specific StackerDB contracts, provided as a JSON string.
+    ///
+    /// This allows manually specifying known peers to use for replicating particular StackerDBs,
+    /// potentially overriding or supplementing the peers discovered via the StackerDB's control contract.
+    ///
+    /// Format: The configuration value must be a TOML string containing valid JSON.
+    /// The JSON structure must be an array of tuples, where each tuple pairs a contract identifier
+    /// with a list of preferred neighbor addresses:
+    /// `[[ContractIdentifier, [NeighborAddress, ...]], ...]`
+    ///
+    /// 1.  `ContractIdentifier`: A JSON object representing the `QualifiedContractIdentifier`.
+    ///     It must have the specific structure:
+    ///     `{"issuer": [version_byte, [byte_array_20]], "name": "contract-name"}`
+    ///     - `version_byte`: The address version byte.
+    ///     - `byte_array_20`: A 20-element array of bytes representing the address.
+    ///     - `name`: The contract name string.
+    ///
+    /// 2.  `NeighborAddress`: A JSON object specifying the peer details.
+    ///     It must contain:
+    ///     - `ip`: string (The peer's IP address)
+    ///     - `port`: number (The peer's P2P port)
+    ///     - `public_key_hash`: string (The peer's 20-byte public key hash, hex-encoded)
+
+    ///
+    /// Example JSON structure expected within the TOML string value:
+    /// ```toml
+    /// stackerdb_hint_replicas = '''
+    /// [
+    ///   [
+    ///     {
+    ///       "issuer": [1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]],
+    ///       "name": "my-contract"
+    ///     },
+    ///     [
+    ///       {
+    ///         "ip": "192.0.2.1",
+    ///         "port": 20444,
+    ///         "public_key_hash": "0102030405060708090a0b0c0d0e0f1011121314"
+    ///       }
+    ///     ]
+    ///   ]
+    /// ]
+    /// '''
+    /// ```
+    ///
+    /// Use this option with caution, primarily for advanced testing or bootstrapping.
+    ///
+    /// Default: `None` (no hints provided).
     pub stackerdb_hint_replicas: Option<String>,
+    /// Maximum age (in seconds) allowed for a block proposal received via the `/v3/block_proposal` RPC endpoint.
+    ///
+    /// If a block proposal is received whose timestamp is older than
+    /// the current time minus this configured value, the node will reject the proposal
+    /// with an HTTP 422 (Unprocessable Entity) error, considering it too stale.
+    /// This prevents the node from spending resources validating outdated proposals.
+    ///
+    /// Default: 600 seconds (10 minutes).
     pub block_proposal_max_age_secs: Option<u64>,
 }
 
@@ -3133,6 +3515,7 @@ impl MinerConfigFile {
         })
     }
 }
+
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct AtlasConfigFile {

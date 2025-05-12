@@ -142,13 +142,6 @@ fn test_simple_signer() {
         chunks.push(chunk_event);
     }
 
-    chunks.sort_by(|ev1, ev2| {
-        ev1.modified_slots[0]
-            .slot_id
-            .partial_cmp(&ev2.modified_slots[0].slot_id)
-            .unwrap()
-    });
-
     let thread_chunks = chunks.clone();
 
     // simulate a node that's trying to push data
@@ -186,41 +179,45 @@ fn test_simple_signer() {
 
     let sent_events: Vec<SignerEvent<SignerMessage>> = chunks
         .iter()
-        .map(|chunk| {
-            let msg = chunk.modified_slots[0].data.clone();
-            let pubkey = chunk.modified_slots[0]
-                .recover_pk()
-                .expect("Faield to recover public key of slot");
-            let signer_message = read_next::<SignerMessage, _>(&mut &msg[..]).unwrap();
+        .map(|event| {
+            let messages: Vec<(StacksPublicKey, SignerMessage)> = event
+                .modified_slots
+                .iter()
+                .filter_map(|chunk| {
+                    Some((
+                        chunk.recover_pk().ok()?,
+                        read_next::<SignerMessage, _>(&mut &chunk.data[..]).ok()?,
+                    ))
+                })
+                .collect();
             SignerEvent::SignerMessages {
                 signer_set: 0,
-                messages: vec![(pubkey, signer_message)],
+                messages,
                 received_time: SystemTime::now(),
             }
         })
         .collect();
 
-    for (sent_event, accepted_event) in sent_events.iter().zip(accepted_events.iter()) {
+    for event in sent_events {
         let SignerEvent::SignerMessages {
-            signer_set,
-            messages,
-            received_time,
-        } = sent_event
+            signer_set: sent_signer_set,
+            messages: sent_messages,
+            ..
+        } = event
         else {
-            panic!("BUG: should not have sent anything but a signer message");
+            panic!("We expect ONLY signer messages");
         };
-        let SignerEvent::SignerMessages {
-            signer_set: accepted_signer_set,
-            messages: accepted_messages,
-            received_time: accepted_time,
-        } = accepted_event
-        else {
-            panic!("BUG: should not have accepted anything but a signer message");
-        };
-
-        assert_eq!(signer_set, accepted_signer_set);
-        assert_eq!(messages, accepted_messages);
-        assert_ne!(received_time, accepted_time);
+        assert!(accepted_events.iter().any(|e| {
+            let SignerEvent::SignerMessages {
+                signer_set: accepted_signer_set,
+                messages: accepted_messages,
+                ..
+            } = e
+            else {
+                panic!("We expect ONLY signer messages");
+            };
+            *accepted_signer_set == sent_signer_set && *accepted_messages == sent_messages
+        }))
     }
     mock_stacks_node.join().unwrap();
 }

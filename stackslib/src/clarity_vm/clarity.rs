@@ -386,7 +386,7 @@ impl ClarityInstance {
                     &ast,
                     BOOT_CODE_COSTS,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -408,7 +408,7 @@ impl ClarityInstance {
                     &ast,
                     &*BOOT_CODE_COST_VOTING,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -434,7 +434,7 @@ impl ClarityInstance {
                     &ast,
                     &*BOOT_CODE_POX_TESTNET,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -486,7 +486,7 @@ impl ClarityInstance {
                     &ast,
                     BOOT_CODE_COSTS_2,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -508,7 +508,7 @@ impl ClarityInstance {
                     &ast,
                     BOOT_CODE_COSTS_3,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -530,7 +530,7 @@ impl ClarityInstance {
                     &ast,
                     &*POX_2_TESTNET_CODE,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -1019,7 +1019,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                         &pox_2_contract_id,
                         "set-burnchain-parameters",
                         &params,
-                        |_, _| false,
+                        |_, _| None,
                         None,
                     )
                     .expect("Failed to set burnchain parameters in PoX-2 contract");
@@ -1263,7 +1263,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                         &pox_3_contract_id,
                         "set-burnchain-parameters",
                         &params,
-                        |_, _| false,
+                        |_, _| None,
                         None,
                     )
                     .expect("Failed to set burnchain parameters in PoX-3 contract");
@@ -1381,7 +1381,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                         &pox_4_contract_id,
                         "set-burnchain-parameters",
                         &params,
-                        |_, _| false,
+                        |_, _| None,
                         None,
                     )
                     .expect("Failed to set burnchain parameters in PoX-3 contract");
@@ -1719,9 +1719,9 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
         &mut self,
         to_do: F,
         abort_call_back: A,
-    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, bool), E>
+    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, Option<String>), E>
     where
-        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
+        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
         F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
         E: From<InterpreterError>,
     {
@@ -1753,7 +1753,11 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
                 let result = match result {
                     Ok((value, asset_map, events)) => {
                         let aborted = abort_call_back(&asset_map, &mut db);
-                        let db_result = if aborted { db.roll_back() } else { db.commit() };
+                        let db_result = if aborted.is_some() {
+                            db.roll_back()
+                        } else {
+                            db.commit()
+                        };
                         match db_result {
                             Ok(_) => Ok((value, asset_map, events, aborted)),
                             Err(e) => Err(e.into()),
@@ -1848,7 +1852,7 @@ impl ClarityTransactionConnection<'_, '_> {
                     })
                     .map_err(Error::from)
             },
-            |_, _| false,
+            |_, _| None,
         )
         .map(|(value, ..)| value)
     }
@@ -1908,7 +1912,7 @@ impl ClarityTransactionConnection<'_, '_> {
                     )
                     .map_err(Error::from)
             },
-            |_, _| true,
+            |_, _| Some("read-only".to_string()),
         )?;
         Ok(result)
     }
@@ -1918,7 +1922,7 @@ impl ClarityTransactionConnection<'_, '_> {
     pub fn clarity_eval_raw(&mut self, code: &str) -> Result<Value, Error> {
         let (result, _, _, _) = self.with_abort_callback(
             |vm_env| vm_env.eval_raw(code).map_err(Error::from),
-            |_, _| false,
+            |_, _| None,
         )?;
         Ok(result)
     }
@@ -1931,7 +1935,7 @@ impl ClarityTransactionConnection<'_, '_> {
     ) -> Result<Value, Error> {
         let (result, _, _, _) = self.with_abort_callback(
             |vm_env| vm_env.eval_read_only(contract, code).map_err(Error::from),
-            |_, _| false,
+            |_, _| None,
         )?;
         Ok(result)
     }
@@ -1940,6 +1944,7 @@ impl ClarityTransactionConnection<'_, '_> {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::PathBuf;
 
     use clarity::vm::analysis::errors::CheckErrors;
     use clarity::vm::database::{ClarityBackingStore, STXBalance};
@@ -1950,9 +1955,56 @@ mod tests {
     use stacks_common::types::sqlite::NO_PARAMS;
 
     use super::*;
+    use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection as _};
     use crate::chainstate::stacks::index::ClarityMarfTrieId;
     use crate::clarity_vm::database::marf::MarfedKV;
     use crate::core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
+
+    #[test]
+    pub fn create_md_index() {
+        let path_db = "/tmp/stacks-node-tests/creat_md_index";
+        let _ = std::fs::remove_dir_all(path_db);
+        let mut path = PathBuf::from(path_db);
+
+        std::fs::create_dir_all(&path).unwrap();
+
+        path.push("marf.sqlite");
+        let marf_path = path.to_str().unwrap().to_string();
+
+        let mut marf_opts = MARFOpenOpts::default();
+        marf_opts.external_blobs = true;
+
+        let mut marf: MARF<StacksBlockId> = MARF::from_path(&marf_path, marf_opts).unwrap();
+
+        let tx = marf.storage_tx().unwrap();
+
+        tx.query_row("PRAGMA journal_mode = WAL;", NO_PARAMS, |_row| Ok(()))
+            .unwrap();
+
+        tx.execute(
+            "CREATE TABLE IF NOT EXISTS data_table
+                      (key TEXT PRIMARY KEY, value TEXT)",
+            NO_PARAMS,
+        )
+        .unwrap();
+
+        tx.execute(
+            "CREATE TABLE IF NOT EXISTS metadata_table
+                      (key TEXT NOT NULL, blockhash TEXT, value TEXT,
+                       UNIQUE (key, blockhash))",
+            NO_PARAMS,
+        )
+        .unwrap();
+
+        tx.commit().unwrap();
+
+        assert!(SqliteConnection::check_schema(marf.sqlite_conn()).is_err());
+
+        MarfedKV::open(path_db, None, None).unwrap();
+
+        // schema should be good now
+        assert!(SqliteConnection::check_schema(marf.sqlite_conn()).is_ok());
+    }
 
     #[test]
     pub fn bad_syntax_test() {
@@ -2033,7 +2085,7 @@ mod tests {
 
             // S1G2081040G2081040G2081040G208105NK8PE5 is the transient address
             let contract = "
-                (begin 
+                (begin
                     (asserts! (is-eq tx-sender 'S1G2081040G2081040G2081040G208105NK8PE5)
                         (err tx-sender))
 
@@ -2056,7 +2108,7 @@ mod tests {
                     &ct_ast,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -2110,7 +2162,7 @@ mod tests {
                     &ct_ast,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -2139,7 +2191,7 @@ mod tests {
                     &ct_ast,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -2172,7 +2224,7 @@ mod tests {
                         &ct_ast,
                         contract,
                         None,
-                        |_, _| false,
+                        |_, _| None,
                         None
                     )
                     .unwrap_err()
@@ -2225,7 +2277,7 @@ mod tests {
                     &ct_ast,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -2240,7 +2292,7 @@ mod tests {
                     &contract_identifier,
                     "foo",
                     &[Value::Int(1)],
-                    |_, _| false,
+                    |_, _| None,
                     None
                 ))
                 .unwrap()
@@ -2287,7 +2339,7 @@ mod tests {
                     &ct_ast,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -2380,7 +2432,7 @@ mod tests {
                     &ct_ast,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -2512,7 +2564,7 @@ mod tests {
                     &ct_ast,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -2527,7 +2579,7 @@ mod tests {
                     &contract_identifier,
                     "get-bar",
                     &[],
-                    |_, _| false,
+                    |_, _| None,
                     None
                 ))
                 .unwrap()
@@ -2542,7 +2594,7 @@ mod tests {
                     &contract_identifier,
                     "set-bar",
                     &[Value::Int(1), Value::Int(1)],
-                    |_, _| false,
+                    |_, _| None,
                     None
                 ))
                 .unwrap()
@@ -2558,13 +2610,13 @@ mod tests {
                         &contract_identifier,
                         "set-bar",
                         &[Value::Int(10), Value::Int(1)],
-                        |_, _| true,
+                        |_, _| Some("testing rollback".to_string()),
                         None,
                     )
                 })
                 .unwrap_err();
-            let result_value = if let Error::AbortedByCallback(v, ..) = e {
-                v.unwrap()
+            let result_value = if let Error::AbortedByCallback { output, .. } = e {
+                output.unwrap()
             } else {
                 panic!("Expects a AbortedByCallback error")
             };
@@ -2579,7 +2631,7 @@ mod tests {
                     &contract_identifier,
                     "get-bar",
                     &[],
-                    |_, _| false,
+                    |_, _| None,
                     None
                 ))
                 .unwrap()
@@ -2595,7 +2647,7 @@ mod tests {
                     &contract_identifier,
                     "set-bar",
                     &[Value::Int(10), Value::Int(0)],
-                    |_, _| true,
+                    |_, _| Some("testing rollback".to_string()),
                     None
                 ))
                 .unwrap_err()
@@ -2610,7 +2662,7 @@ mod tests {
                     &contract_identifier,
                     "get-bar",
                     &[],
-                    |_, _| false,
+                    |_, _| None,
                     None
                 ))
                 .unwrap()
@@ -2904,7 +2956,7 @@ mod tests {
                     &ct_ast,
                     contract,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -2929,7 +2981,7 @@ mod tests {
                     &contract_identifier,
                     "do-expand",
                     &[],
-                    |_, _| false,
+                    |_, _| None,
                     None
                 ))
                 .unwrap_err()

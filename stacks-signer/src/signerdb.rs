@@ -21,12 +21,12 @@ use std::time::{Duration, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::TransactionPayload;
+#[cfg(any(test, feature = "testing"))]
+use blockstack_lib::util_lib::db::FromColumn;
 use blockstack_lib::util_lib::db::{
     query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
-    Error as DBError,
+    Error as DBError, FromRow,
 };
-#[cfg(any(test, feature = "testing"))]
-use blockstack_lib::util_lib::db::{FromColumn, FromRow};
 use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress};
 use clarity::types::Address;
 use libsigner::v0::messages::{RejectReason, RejectReasonPrefix, StateMachineUpdate};
@@ -68,6 +68,34 @@ impl StacksMessageCodec for NakamotoBlockVote {
         Ok(Self {
             signer_signature_hash,
             rejected,
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+/// Struct for storing information about a burn block
+pub struct BurnBlockInfo {
+    /// The hash of the burn block
+    pub block_hash: BurnchainHeaderHash,
+    /// The height of the burn block
+    pub block_height: u64,
+    /// The consensus hash of the burn block
+    pub consensus_hash: ConsensusHash,
+    /// The hash of the parent burn block
+    pub parent_burn_block_hash: BurnchainHeaderHash,
+}
+
+impl FromRow<BurnBlockInfo> for BurnBlockInfo {
+    fn from_row(row: &rusqlite::Row) -> Result<Self, DBError> {
+        let block_hash: BurnchainHeaderHash = row.get(0)?;
+        let block_height: u64 = row.get(1)?;
+        let consensus_hash: ConsensusHash = row.get(2)?;
+        let parent_burn_block_hash: BurnchainHeaderHash = row.get(3)?;
+        Ok(BurnBlockInfo {
+            block_hash,
+            block_height,
+            consensus_hash,
+            parent_burn_block_hash,
         })
     }
 }
@@ -495,6 +523,40 @@ DROP TABLE blocks;
 
 ALTER TABLE temp_blocks RENAME TO blocks;"#;
 
+// Migration logic necessary to move burn blocks from the old burn blocks table to the new burn blocks table
+// with the correct primary key
+static MIGRATE_BURN_STATE_TABLE_1_TO_TABLE_2: &str = r#"
+CREATE TABLE IF NOT EXISTS temp_burn_blocks (
+    block_hash TEXT NOT NULL,
+    block_height INTEGER NOT NULL,
+    received_time INTEGER NOT NULL,
+    consensus_hash TEXT PRIMARY KEY NOT NULL
+) STRICT;
+
+INSERT INTO temp_burn_blocks (block_hash, block_height, received_time, consensus_hash)
+SELECT block_hash, block_height, received_time, consensus_hash
+FROM (
+    SELECT
+        block_hash,
+        block_height,
+        received_time,
+        consensus_hash,
+        ROW_NUMBER() OVER (
+            PARTITION BY consensus_hash
+            ORDER BY received_time DESC
+        ) AS rn
+    FROM burn_blocks
+    WHERE consensus_hash IS NOT NULL
+      AND consensus_hash <> ''
+) AS ordered
+WHERE rn = 1;
+
+DROP TABLE burn_blocks;
+ALTER TABLE temp_burn_blocks RENAME TO burn_blocks;
+
+CREATE INDEX IF NOT EXISTS idx_burn_blocks_block_hash ON burn_blocks(block_hash);
+"#;
+
 static CREATE_BLOCK_VALIDATION_PENDING_TABLE: &str = r#"
 CREATE TABLE IF NOT EXISTS block_validations_pending (
     signer_signature_hash TEXT NOT NULL,
@@ -528,9 +590,18 @@ CREATE TABLE IF NOT EXISTS signer_state_machine_updates (
     signer_addr TEXT NOT NULL,
     reward_cycle INTEGER NOT NULL,
     state_update TEXT NOT NULL,
-    received_time TEXT NOT NULL,
+    received_time INTEGER NOT NULL,
     PRIMARY KEY (signer_addr, reward_cycle)
 ) STRICT;"#;
+
+static ADD_PARENT_BURN_BLOCK_HASH: &str = r#"
+ ALTER TABLE burn_blocks
+    ADD COLUMN parent_burn_block_hash TEXT;
+"#;
+
+static ADD_PARENT_BURN_BLOCK_HASH_INDEX: &str = r#"
+CREATE INDEX IF NOT EXISTS burn_blocks_parent_burn_block_hash_idx on burn_blocks (parent_burn_block_hash);
+"#;
 
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
@@ -613,9 +684,20 @@ static SCHEMA_11: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (11);",
 ];
 
+static SCHEMA_12: &[&str] = &[
+    MIGRATE_BURN_STATE_TABLE_1_TO_TABLE_2,
+    "INSERT OR REPLACE INTO db_config (version) VALUES (12);",
+];
+
+static SCHEMA_13: &[&str] = &[
+    ADD_PARENT_BURN_BLOCK_HASH,
+    ADD_PARENT_BURN_BLOCK_HASH_INDEX,
+    "INSERT INTO db_config (version) VALUES (13);",
+];
+
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 11;
+    pub const SCHEMA_VERSION: u32 = 12;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -799,6 +881,34 @@ impl SignerDb {
         Ok(())
     }
 
+    /// Migrate from schema 11 to schema 12
+    fn schema_12_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 12 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_12.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
+    /// Migrate from schema 12 to schema 13
+    fn schema_13_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 13 {
+            // no migration necessary
+            return Ok(());
+        }
+
+        for statement in SCHEMA_13.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
     /// Register custom scalar functions used by the database
     fn register_scalar_functions(&self) -> Result<(), DBError> {
         // Register helper function for determining if a block is a tenure change transaction
@@ -843,7 +953,9 @@ impl SignerDb {
                 8 => Self::schema_9_migration(&sql_tx)?,
                 9 => Self::schema_10_migration(&sql_tx)?,
                 10 => Self::schema_11_migration(&sql_tx)?,
-                11 => break,
+                11 => Self::schema_12_migration(&sql_tx)?,
+                12 => Self::schema_13_migration(&sql_tx)?,
+                13 => break,
                 x => return Err(DBError::Other(format!(
                     "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
                     Self::SCHEMA_VERSION,
@@ -978,19 +1090,27 @@ impl SignerDb {
         consensus_hash: &ConsensusHash,
         burn_height: u64,
         received_time: &SystemTime,
+        parent_burn_block_hash: &BurnchainHeaderHash,
     ) -> Result<(), DBError> {
         let received_ts = received_time
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|e| DBError::Other(format!("Bad system time: {e}")))?
             .as_secs();
-        debug!("Inserting burn block info"; "burn_block_height" => burn_height, "burn_hash" => %burn_hash, "received" => received_ts, "ch" => %consensus_hash);
+        debug!("Inserting burn block info";
+            "burn_block_height" => burn_height,
+            "burn_hash" => %burn_hash,
+            "received" => received_ts,
+            "ch" => %consensus_hash,
+            "parent_burn_block_hash" => %parent_burn_block_hash
+        );
         self.db.execute(
-            "INSERT OR REPLACE INTO burn_blocks (block_hash, consensus_hash, block_height, received_time) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT OR REPLACE INTO burn_blocks (block_hash, consensus_hash, block_height, received_time, parent_burn_block_hash) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 burn_hash,
                 consensus_hash,
                 u64_to_sql(burn_height)?,
                 u64_to_sql(received_ts)?,
+                parent_burn_block_hash,
             ],
         )?;
         Ok(())
@@ -1028,6 +1148,26 @@ impl SignerDb {
             DBError::Corruption
         })?;
         Ok(Some(receive_time))
+    }
+
+    /// Lookup the burn block for a given burn block hash.
+    pub fn get_burn_block_by_hash(
+        &self,
+        burn_block_hash: &BurnchainHeaderHash,
+    ) -> Result<BurnBlockInfo, DBError> {
+        let query =
+            "SELECT block_hash, block_height, consensus_hash, parent_burn_block_hash FROM burn_blocks WHERE block_hash = ?";
+        let args = params![burn_block_hash];
+
+        query_row(&self.db, query, args)?.ok_or(DBError::NotFoundError)
+    }
+
+    /// Lookup the burn block for a given consensus hash.
+    pub fn get_burn_block_by_ch(&self, ch: &ConsensusHash) -> Result<BurnBlockInfo, DBError> {
+        let query = "SELECT block_hash, block_height, consensus_hash, parent_burn_block_hash FROM burn_blocks WHERE consensus_hash = ?";
+        let args = params![ch];
+
+        query_row(&self.db, query, args)?.ok_or(DBError::NotFoundError)
     }
 
     /// Insert or replace a block into the database.
@@ -1215,12 +1355,18 @@ impl SignerDb {
     /// If found, remove it from the pending table.
     pub fn get_and_remove_pending_block_validation(
         &self,
-    ) -> Result<Option<Sha512Trunc256Sum>, DBError> {
-        let qry = "DELETE FROM block_validations_pending WHERE signer_signature_hash = (SELECT signer_signature_hash FROM block_validations_pending ORDER BY added_time ASC LIMIT 1) RETURNING signer_signature_hash";
+    ) -> Result<Option<(Sha512Trunc256Sum, u64)>, DBError> {
+        let qry = "DELETE FROM block_validations_pending WHERE signer_signature_hash = (SELECT signer_signature_hash FROM block_validations_pending ORDER BY added_time ASC LIMIT 1) RETURNING signer_signature_hash, added_time";
         let args = params![];
         let mut stmt = self.db.prepare(qry)?;
-        let sighash: Option<String> = stmt.query_row(args, |row| row.get(0)).optional()?;
-        Ok(sighash.and_then(|sighash| Sha512Trunc256Sum::from_hex(&sighash).ok()))
+        let result: Option<(String, i64)> = stmt
+            .query_row(args, |row| Ok((row.get(0)?, row.get(1)?)))
+            .optional()?;
+        Ok(result.and_then(|(sighash, ts_i64)| {
+            let signer_sighash = Sha512Trunc256Sum::from_hex(&sighash).ok()?;
+            let ts = u64::try_from(ts_i64).ok()?;
+            Some((signer_sighash, ts))
+        }))
     }
 
     /// Remove a pending block validation
@@ -1405,6 +1551,22 @@ impl SignerDb {
             result.insert(address, update);
         }
         Ok(result)
+    }
+
+    /// Retrieve the elapsed time (in seconds) between
+    /// the oldest and the newest state machine update messages
+    /// produced by the signer set
+    pub fn get_signer_state_machine_updates_latency(
+        &self,
+        reward_cycle: u64,
+    ) -> Result<u64, DBError> {
+        let query = "SELECT COALESCE( (MAX(received_time) - MIN(received_time)), 0 ) AS elapsed_time FROM signer_state_machine_updates WHERE reward_cycle = ?1";
+        let args = params![u64_to_sql(reward_cycle)?];
+        let elapsed_time_opt: Option<u64> = query_row(&self.db, query, args)?;
+        match elapsed_time_opt {
+            Some(seconds) => Ok(seconds),
+            None => Ok(0),
+        }
     }
 }
 
@@ -1641,8 +1803,14 @@ pub mod tests {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        db.insert_burn_block(&test_burn_hash, &test_consensus_hash, 10, &stime)
-            .unwrap();
+        db.insert_burn_block(
+            &test_burn_hash,
+            &test_consensus_hash,
+            10,
+            &stime,
+            &test_burn_hash,
+        )
+        .unwrap();
 
         let stored_time = db
             .get_burn_block_receive_time(&test_burn_hash)
@@ -2183,20 +2351,29 @@ pub mod tests {
         db.insert_pending_block_validation(&Sha512Trunc256Sum([0x03; 32]), 3000)
             .unwrap();
 
-        let pending_hash = db.get_and_remove_pending_block_validation().unwrap();
-        assert_eq!(pending_hash, Some(Sha512Trunc256Sum([0x01; 32])));
+        let (pending_hash, _) = db
+            .get_and_remove_pending_block_validation()
+            .unwrap()
+            .unwrap();
+        assert_eq!(pending_hash, Sha512Trunc256Sum([0x01; 32]));
 
         let pendings = db.get_all_pending_block_validations().unwrap();
         assert_eq!(pendings.len(), 2);
 
-        let pending_hash = db.get_and_remove_pending_block_validation().unwrap();
-        assert_eq!(pending_hash, Some(Sha512Trunc256Sum([0x02; 32])));
+        let (pending_hash, _) = db
+            .get_and_remove_pending_block_validation()
+            .unwrap()
+            .unwrap();
+        assert_eq!(pending_hash, Sha512Trunc256Sum([0x02; 32]));
 
         let pendings = db.get_all_pending_block_validations().unwrap();
         assert_eq!(pendings.len(), 1);
 
-        let pending_hash = db.get_and_remove_pending_block_validation().unwrap();
-        assert_eq!(pending_hash, Some(Sha512Trunc256Sum([0x03; 32])));
+        let (pending_hash, _) = db
+            .get_and_remove_pending_block_validation()
+            .unwrap()
+            .unwrap();
+        assert_eq!(pending_hash, Sha512Trunc256Sum([0x03; 32]));
 
         let pendings = db.get_all_pending_block_validations().unwrap();
         assert!(pendings.is_empty());
@@ -2499,5 +2676,168 @@ pub mod tests {
         assert_eq!(updates.get(&address_1), None);
         assert_eq!(updates.get(&address_2), None);
         assert_eq!(updates.get(&address_3), Some(&update_3));
+    }
+
+    #[test]
+    fn retrieve_latency_for_signer_state_machine_updates() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let reward_cycle_1 = 1;
+        let address_1 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
+        let update_1 = StateMachineUpdate::new(
+            0,
+            3,
+            StateMachineUpdateContent::V0 {
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh: Hash160([0xab; 20]),
+                    tenure_id: ConsensusHash([0x44; 20]),
+                    parent_tenure_id: ConsensusHash([0x22; 20]),
+                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                    parent_tenure_last_block_height: 1,
+                },
+            },
+        )
+        .unwrap();
+        let time_1 = SystemTime::UNIX_EPOCH;
+
+        let address_2 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
+        let update_2 = StateMachineUpdate::new(
+            0,
+            4,
+            StateMachineUpdateContent::V0 {
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::NoValidMiner,
+            },
+        )
+        .unwrap();
+        let time_2 = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
+
+        let address_3 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
+        let update_3 = StateMachineUpdate::new(
+            0,
+            2,
+            StateMachineUpdateContent::V0 {
+                burn_block: ConsensusHash([0x66; 20]),
+                burn_block_height: 101,
+                current_miner: StateMachineUpdateMinerState::NoValidMiner,
+            },
+        )
+        .unwrap();
+        let time_3 = SystemTime::UNIX_EPOCH + Duration::from_secs(10);
+
+        assert_eq!(
+            0,
+            db.get_signer_state_machine_updates_latency(reward_cycle_1)
+                .unwrap(),
+            "latency on empty database should be 0 seconds for reward_cycle {reward_cycle_1}"
+        );
+
+        db.insert_state_machine_update(reward_cycle_1, &address_1, &update_1, &time_1)
+            .expect("Unable to insert block into db");
+
+        assert_eq!(
+            0,
+            db.get_signer_state_machine_updates_latency(reward_cycle_1)
+                .unwrap(),
+            "latency between same update should be 0 seconds"
+        );
+
+        db.insert_state_machine_update(reward_cycle_1, &address_2, &update_2, &time_2)
+            .expect("Unable to insert block into db");
+
+        assert_eq!(
+            1,
+            db.get_signer_state_machine_updates_latency(reward_cycle_1)
+                .unwrap(),
+            "latency between updates should be 1 second"
+        );
+
+        db.insert_state_machine_update(reward_cycle_1, &address_3, &update_3, &time_3)
+            .expect("Unable to insert block into db");
+
+        assert_eq!(
+            10,
+            db.get_signer_state_machine_updates_latency(reward_cycle_1)
+                .unwrap(),
+            "latency between updates should be 10 second"
+        );
+    }
+
+    #[test]
+    fn burn_state_migration_consensus_hash_primary_key() {
+        // Construct the old table
+        let conn = rusqlite::Connection::open_in_memory().expect("Failed to create in mem db");
+        conn.execute_batch(CREATE_BURN_STATE_TABLE)
+            .expect("Failed to create old table");
+        conn.execute_batch(ADD_CONSENSUS_HASH)
+            .expect("Failed to add consensus hash to old table");
+        conn.execute_batch(ADD_CONSENSUS_HASH_INDEX)
+            .expect("Failed to add consensus hash index to old table");
+
+        let consensus_hash = ConsensusHash([0; 20]);
+        let total_nmb_rows = 5;
+        // Fill with old data with conflicting consensus hashes
+        for i in 0..=total_nmb_rows {
+            let now = SystemTime::now();
+            let received_ts = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+            let burn_hash = BurnchainHeaderHash([i; 32]);
+            let burn_height = i;
+            if i % 2 == 0 {
+                // Make sure we have some one empty consensus hash options that will get dropped
+                conn.execute(
+                    "INSERT OR REPLACE INTO burn_blocks (block_hash, block_height, received_time) VALUES (?1, ?2, ?3)",
+                    params![
+                        burn_hash,
+                        u64_to_sql(burn_height.into()).unwrap(),
+                        u64_to_sql(received_ts + i as u64).unwrap(), // Ensure increasing received_time
+                    ]
+                ).unwrap();
+            } else {
+                conn.execute(
+                    "INSERT OR REPLACE INTO burn_blocks (block_hash, consensus_hash, block_height, received_time) VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        burn_hash,
+                        consensus_hash,
+                        u64_to_sql(burn_height.into()).unwrap(),
+                        u64_to_sql(received_ts + i as u64).unwrap(), // Ensure increasing received_time
+                    ]
+                ).unwrap();
+            };
+        }
+
+        // Migrate the data and make sure that the primary key conflict is resolved by using the last received time
+        // and that the block height and consensus hash of the surviving row is as expected
+        conn.execute_batch(MIGRATE_BURN_STATE_TABLE_1_TO_TABLE_2)
+            .expect("Failed to migrate data");
+        let migrated_count: u64 = conn
+            .query_row("SELECT COUNT(*) FROM burn_blocks;", [], |row| row.get(0))
+            .expect("Failed to get row count");
+
+        assert_eq!(
+            migrated_count, 1,
+            "Expected exactly one row after migration"
+        );
+
+        let (block_height, hex_hash): (u64, String) = conn
+            .query_row(
+                "SELECT block_height, consensus_hash FROM burn_blocks;",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("Failed to get block_height and consensus_hash");
+
+        assert_eq!(
+            block_height, total_nmb_rows as u64,
+            "Expected block_height {total_nmb_rows} to be retained (has the latest received time)"
+        );
+
+        assert_eq!(
+            hex_hash,
+            consensus_hash.to_hex(),
+            "Expected the surviving row to have the correct consensus_hash"
+        );
     }
 }
