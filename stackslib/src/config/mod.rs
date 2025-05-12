@@ -2325,8 +2325,8 @@ pub struct MinerConfig {
     /// the mempool walk for block building. If this list is non-empty, any transaction whose
     /// origin address is *not* in this set will be skipped.
     ///
-    /// This allows miners (particularly "boosted" or "neutral" miners) to prioritize transactions
-    /// originating from specific accounts that are important to them.
+    /// This allows miners to prioritize transactions originating from specific accounts that are
+    /// important to them.
     /// Configured as a comma-separated string of standard Stacks addresses (e.g., "ST123...,ST456...")
     /// in the configuration file.
     ///
