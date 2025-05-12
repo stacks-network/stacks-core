@@ -9153,7 +9153,7 @@ fn utxo_check_on_startup_panic() {
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
-    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
     // Do not fully bootstrap the chain, so that the UTXOs are not yet available
     btc_regtest_controller.bootstrap_chain(99);
 
@@ -9229,7 +9229,7 @@ fn utxo_check_on_startup_recover() {
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
-    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
     // Do not fully bootstrap the chain, so that the UTXOs are not yet available
     btc_regtest_controller.bootstrap_chain(99);
     // btc_regtest_controller.bootstrap_chain(108);
@@ -9902,11 +9902,11 @@ fn test_shadow_recovery() {
         return;
     }
 
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(1, vec![]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(1, vec![]);
     signer_test.boot_to_epoch_3();
 
     let naka_conf = signer_test.running_nodes.conf.clone();
-    let btc_regtest_controller = &mut signer_test.running_nodes.btc_regtest_controller;
+    let btc_regtest_controller = &signer_test.running_nodes.btc_regtest_controller;
     let counters = signer_test.running_nodes.counters.clone();
 
     // make another tenure
@@ -10698,7 +10698,7 @@ fn test_tenure_extend_from_flashblocks() {
     let deployer_sk = account_keys.pop().unwrap();
     let deployer_addr = tests::to_addr(&deployer_sk);
 
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         1,
         initial_balances,
         |_| {},
@@ -10711,7 +10711,7 @@ fn test_tenure_extend_from_flashblocks() {
     let naka_conf = signer_test.running_nodes.conf.clone();
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    let btc_regtest_controller = &mut signer_test.running_nodes.btc_regtest_controller;
+    let btc_regtest_controller = &signer_test.running_nodes.btc_regtest_controller;
     let coord_channel = signer_test.running_nodes.coord_channel.clone();
     let counters = signer_test.running_nodes.counters.clone();
 

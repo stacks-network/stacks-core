@@ -7337,7 +7337,7 @@ fn test_chainwork_first_intervals() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
     btc_regtest_controller.bootstrap_chain(2016 * 2 - 1);
 
@@ -7364,7 +7364,7 @@ fn test_chainwork_partial_interval() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
     btc_regtest_controller.bootstrap_chain(2016 - 1);
 
@@ -8345,7 +8345,7 @@ fn push_boot_receipts() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -9661,7 +9661,7 @@ fn listunspent_max_utxos() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -9707,7 +9707,7 @@ fn start_stop_bitcoind() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf, None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf, None);
 
     btc_regtest_controller.bootstrap_chain(201);
 

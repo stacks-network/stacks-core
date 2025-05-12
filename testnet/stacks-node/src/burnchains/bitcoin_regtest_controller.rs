@@ -2280,7 +2280,7 @@ impl BurnchainController for BitcoinRegtestController {
     }
 
     #[cfg(test)]
-    fn bootstrap_chain(&mut self, num_blocks: u64) {
+    fn bootstrap_chain(&self, num_blocks: u64) {
         let Some(ref local_mining_pubkey) = &self.config.burnchain.local_mining_public_key else {
             warn!("No local mining pubkey while bootstrapping bitcoin regtest, will not generate bitcoin blocks");
             return;
