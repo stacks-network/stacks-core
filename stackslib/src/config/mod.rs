@@ -2124,25 +2124,25 @@ impl NodeConfig {
 pub struct MinerConfig {
     /// Time to wait (in milliseconds) before the first attempt to mine a block.
     ///
-    /// Default: 10 ms
+    /// Default: `10` ms
     /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub first_attempt_time_ms: u64,
     /// Time to wait (in milliseconds) for subsequent attempts to mine a block,
     /// after the first attempt fails.
     ///
-    /// Default: 120_0000 ms (2 minutes)
+    /// Default: `120_000` ms (2 minutes)
     /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub subsequent_attempt_time_ms: u64,
     /// Time to wait (in milliseconds) to mine a microblock,
     ///
-    /// Default: 30_000 ms (30 seconds)
+    /// Default: `30_000` ms (30 seconds)
     /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub microblock_attempt_time_ms: u64,
     /// Maximum time (in milliseconds) the miner spends selecting transactions from the mempool
     /// when assembling a Nakamoto block. Once this duration is exceeded, the miner stops
     /// adding transactions and finalizes the block with those already selected.
     ///
-    /// Default: 5000 ms (5 seconds)
+    /// Default: `5_000` ms (5 seconds)
     pub nakamoto_attempt_time_ms: u64,
     /// Strategy for selecting the next transaction candidate from the mempool.
     /// Controls prioritization between maximizing immediate fee capture vs. ensuring
@@ -2165,7 +2165,7 @@ pub struct MinerConfig {
     /// preventing potential starvation. A value of 0 means never prioritize them first,
     /// 100 means always prioritize them first (if available).
     ///
-    /// Default: 25 (25% chance)
+    /// Default: `25` (25% chance)
     pub probability_pick_no_estimate_tx: u8,
     /// Optional recipient for the coinbase block reward, overriding the default miner address.
     ///
@@ -2193,7 +2193,7 @@ pub struct MinerConfig {
     ///
     /// Must be configured to a value greater than 0.
     ///
-    /// Default: `1048576` (1 MiB)
+    /// Default: `1048576` bytes (1 MiB)
     pub nonce_cache_size: usize,
     /// Max size (in *number* of items) of transaction candidates to hold in the in-memory
     /// retry cache. Each element [`MemPoolTxInfoPartial`] is currently 112 bytes.
@@ -2206,7 +2206,7 @@ pub struct MinerConfig {
     /// A larger cache retains more potentially valid future candidates but uses more memory.
     /// This setting is primarily relevant for the `GlobalFeeRate` strategy.
     ///
-    /// Default: `1048576` (112 bytes * 1048576 = 112 MB)
+    /// Default: `1048576` items (112 bytes * 1048576 = 112 MB)
     pub candidate_retry_cache_size: usize,
     /// Amount of time (in seconds) to wait for unprocessed blocks before mining a new block.
     ///
