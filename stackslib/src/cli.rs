@@ -504,6 +504,7 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
                 settings,
                 None,
                 0,
+                &[],
             )
             .map(
                 |BlockMetadata {

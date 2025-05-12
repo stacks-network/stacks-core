@@ -27,6 +27,7 @@ use clarity::vm::Value;
 use libsigner::v0::messages::{
     BlockAccepted, BlockResponse, MessageSlotID, PeerInfo, SignerMessage,
 };
+use libsigner::v0::signer_state::MinerState;
 use libsigner::{BlockProposal, SignerEntries, SignerEventTrait};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
@@ -52,7 +53,7 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_signer::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::{SignerResult, State, StateInfo};
-use stacks_signer::v0::signer_state::{LocalStateMachine, MinerState};
+use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::{Signer, SpawnedSigner};
 
 use super::nakamoto_integrations::{
