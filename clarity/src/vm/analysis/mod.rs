@@ -41,9 +41,9 @@ use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::database::STORE_CONTRACT_SRC_INTERFACE;
 use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::QualifiedContractIdentifier;
 #[cfg(feature = "rusqlite")]
 use crate::vm::types::TypeSignature;
-use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::ClarityVersion;
 
 /// Used by CLI tools like the docs generator. Not used in production
