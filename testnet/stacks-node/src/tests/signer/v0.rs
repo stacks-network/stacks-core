@@ -2824,7 +2824,7 @@ fn bitcoind_forking_test() {
         .unwrap()
         .unwrap();
 
-    let get_unconfirmed_commit_data = |btc_controller: &mut BitcoinRegtestController| {
+    let get_unconfirmed_commit_data = |btc_controller: &BitcoinRegtestController| {
         let unconfirmed_utxo = btc_controller
             .get_all_utxos(&miner_pk)
             .into_iter()

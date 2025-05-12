@@ -513,7 +513,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     /// Get the local state machines and most recent peer info from the stacks-node,
     ///  waiting until all of the signers have updated their state machines to
     ///  reflect the most recent burn block.
-    pub fn get_burn_updated_states(&mut self) -> (Vec<LocalStateMachine>, PeerInfo) {
+    pub fn get_burn_updated_states(&self) -> (Vec<LocalStateMachine>, PeerInfo) {
         let info_cur = self.get_peer_info();
         let current_rc = self.get_current_reward_cycle();
         let mut states = Vec::with_capacity(0);
@@ -731,7 +731,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Get status check results (if returned) from each signer (blocks on the receipt)
     /// Returns Some() or None() for each signer, in order of `self.spawned_signers`
-    pub fn get_all_states(&mut self) -> Vec<StateInfo> {
+    pub fn get_all_states(&self) -> Vec<StateInfo> {
         let mut finished_signers = HashSet::new();
         let mut output_states = Vec::new();
         let mut sent_request = false;
@@ -795,7 +795,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Get status check results (if returned) from each signer without blocking
     /// Returns Some() or None() for each signer, in order of `self.spawned_signers`
-    pub fn get_states(&mut self, exclude: &HashSet<usize>) -> Vec<Option<StateInfo>> {
+    pub fn get_states(&self, exclude: &HashSet<usize>) -> Vec<Option<StateInfo>> {
         let mut output = Vec::new();
         for (ix, signer) in self.spawned_signers.iter().enumerate() {
             if exclude.contains(&ix) {
@@ -817,12 +817,12 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Mine a BTC block and wait for a new Stacks block to be mined
     /// Note: do not use nakamoto blocks mined heuristic if running a test with multiple miners
-    fn mine_nakamoto_block(&mut self, timeout: Duration, use_nakamoto_blocks_mined: bool) {
+    fn mine_nakamoto_block(&self, timeout: Duration, use_nakamoto_blocks_mined: bool) {
         let mined_block_time = Instant::now();
         let mined_before = self.running_nodes.counters.naka_mined_blocks.get();
         let info_before = self.get_peer_info();
         next_block_and_mine_commit(
-            &mut self.running_nodes.btc_regtest_controller,
+            &self.running_nodes.btc_regtest_controller,
             timeout.as_secs(),
             &self.running_nodes.conf,
             &self.running_nodes.counters,

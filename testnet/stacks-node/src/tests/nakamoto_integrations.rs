@@ -659,7 +659,7 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
 }
 
 pub fn next_block_and<F>(
-    btc_controller: &mut BitcoinRegtestController,
+    btc_controller: &BitcoinRegtestController,
     timeout_secs: u64,
     mut check: F,
 ) -> Result<(), String>
@@ -670,12 +670,12 @@ where
 }
 
 pub fn next_block_and_controller<F>(
-    btc_controller: &mut BitcoinRegtestController,
+    btc_controller: &BitcoinRegtestController,
     timeout_secs: u64,
     mut check: F,
 ) -> Result<(), String>
 where
-    F: FnMut(&mut BitcoinRegtestController) -> Result<bool, String>,
+    F: FnMut(&BitcoinRegtestController) -> Result<bool, String>,
 {
     eprintln!("Issuing bitcoin block");
     btc_controller.build_next_block(1);
@@ -708,7 +708,7 @@ where
 /// Mine a bitcoin block, and wait until:
 ///  (1) a new block has been processed by the coordinator
 pub fn next_block_and_process_new_stacks_block(
-    btc_controller: &mut BitcoinRegtestController,
+    btc_controller: &BitcoinRegtestController,
     timeout_secs: u64,
     coord_channels: &Arc<Mutex<CoordinatorChannels>>,
 ) -> Result<(), String> {
@@ -733,7 +733,7 @@ pub fn next_block_and_process_new_stacks_block(
 ///  (2) 2 block commits have been issued ** or ** more than 10 seconds have
 ///      passed since (1) occurred
 pub fn next_block_and_mine_commit(
-    btc_controller: &mut BitcoinRegtestController,
+    btc_controller: &BitcoinRegtestController,
     timeout_secs: u64,
     node_conf: &Config,
     node_counters: &Counters,
@@ -770,7 +770,7 @@ pub fn next_block_and_commits_only(
 ///      passed since (1) occurred
 /// This waits for this check to pass on *all* supplied channels
 pub fn next_block_and_wait_for_commits(
-    btc_controller: &mut BitcoinRegtestController,
+    btc_controller: &BitcoinRegtestController,
     timeout_secs: u64,
     node_confs: &[&Config],
     node_counters: &[&Counters],
