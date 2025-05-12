@@ -523,6 +523,40 @@ DROP TABLE blocks;
 
 ALTER TABLE temp_blocks RENAME TO blocks;"#;
 
+// Migration logic necessary to move burn blocks from the old burn blocks table to the new burn blocks table
+// with the correct primary key
+static MIGRATE_BURN_STATE_TABLE_1_TO_TABLE_2: &str = r#"
+CREATE TABLE IF NOT EXISTS temp_burn_blocks (
+    block_hash TEXT NOT NULL,
+    block_height INTEGER NOT NULL,
+    received_time INTEGER NOT NULL,
+    consensus_hash TEXT PRIMARY KEY NOT NULL
+) STRICT;
+
+INSERT INTO temp_burn_blocks (block_hash, block_height, received_time, consensus_hash)
+SELECT block_hash, block_height, received_time, consensus_hash
+FROM (
+    SELECT
+        block_hash,
+        block_height,
+        received_time,
+        consensus_hash,
+        ROW_NUMBER() OVER (
+            PARTITION BY consensus_hash
+            ORDER BY received_time DESC
+        ) AS rn
+    FROM burn_blocks
+    WHERE consensus_hash IS NOT NULL
+      AND consensus_hash <> ''
+) AS ordered
+WHERE rn = 1;
+
+DROP TABLE burn_blocks;
+ALTER TABLE temp_burn_blocks RENAME TO burn_blocks;
+
+CREATE INDEX IF NOT EXISTS idx_burn_blocks_block_hash ON burn_blocks(block_hash);
+"#;
+
 static CREATE_BLOCK_VALIDATION_PENDING_TABLE: &str = r#"
 CREATE TABLE IF NOT EXISTS block_validations_pending (
     signer_signature_hash TEXT NOT NULL,
@@ -658,9 +692,14 @@ static SCHEMA_11: &[&str] = &[
 ];
 
 static SCHEMA_12: &[&str] = &[
+    MIGRATE_BURN_STATE_TABLE_1_TO_TABLE_2,
+    "INSERT OR REPLACE INTO db_config (version) VALUES (12);",
+];
+
+static SCHEMA_13: &[&str] = &[
     ADD_PARENT_BURN_BLOCK_HASH,
     ADD_PARENT_BURN_BLOCK_HASH_INDEX,
-    "INSERT INTO db_config (version) VALUES (12);",
+    "INSERT INTO db_config (version) VALUES (13);",
 ];
 
 static SCHEMA_13: &[&str] = &[
@@ -2764,6 +2803,81 @@ pub mod tests {
             db.get_signer_state_machine_updates_latency(reward_cycle_1)
                 .unwrap(),
             "latency between updates should be 10 second"
+        );
+    }
+
+    #[test]
+    fn burn_state_migration_consensus_hash_primary_key() {
+        // Construct the old table
+        let conn = rusqlite::Connection::open_in_memory().expect("Failed to create in mem db");
+        conn.execute_batch(CREATE_BURN_STATE_TABLE)
+            .expect("Failed to create old table");
+        conn.execute_batch(ADD_CONSENSUS_HASH)
+            .expect("Failed to add consensus hash to old table");
+        conn.execute_batch(ADD_CONSENSUS_HASH_INDEX)
+            .expect("Failed to add consensus hash index to old table");
+
+        let consensus_hash = ConsensusHash([0; 20]);
+        let total_nmb_rows = 5;
+        // Fill with old data with conflicting consensus hashes
+        for i in 0..=total_nmb_rows {
+            let now = SystemTime::now();
+            let received_ts = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+            let burn_hash = BurnchainHeaderHash([i; 32]);
+            let burn_height = i;
+            if i % 2 == 0 {
+                // Make sure we have some one empty consensus hash options that will get dropped
+                conn.execute(
+                    "INSERT OR REPLACE INTO burn_blocks (block_hash, block_height, received_time) VALUES (?1, ?2, ?3)",
+                    params![
+                        burn_hash,
+                        u64_to_sql(burn_height.into()).unwrap(),
+                        u64_to_sql(received_ts + i as u64).unwrap(), // Ensure increasing received_time
+                    ]
+                ).unwrap();
+            } else {
+                conn.execute(
+                    "INSERT OR REPLACE INTO burn_blocks (block_hash, consensus_hash, block_height, received_time) VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        burn_hash,
+                        consensus_hash,
+                        u64_to_sql(burn_height.into()).unwrap(),
+                        u64_to_sql(received_ts + i as u64).unwrap(), // Ensure increasing received_time
+                    ]
+                ).unwrap();
+            };
+        }
+
+        // Migrate the data and make sure that the primary key conflict is resolved by using the last received time
+        // and that the block height and consensus hash of the surviving row is as expected
+        conn.execute_batch(MIGRATE_BURN_STATE_TABLE_1_TO_TABLE_2)
+            .expect("Failed to migrate data");
+        let migrated_count: u64 = conn
+            .query_row("SELECT COUNT(*) FROM burn_blocks;", [], |row| row.get(0))
+            .expect("Failed to get row count");
+
+        assert_eq!(
+            migrated_count, 1,
+            "Expected exactly one row after migration"
+        );
+
+        let (block_height, hex_hash): (u64, String) = conn
+            .query_row(
+                "SELECT block_height, consensus_hash FROM burn_blocks;",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("Failed to get block_height and consensus_hash");
+
+        assert_eq!(
+            block_height, total_nmb_rows as u64,
+            "Expected block_height {total_nmb_rows} to be retained (has the latest received time)"
+        );
+
+        assert_eq!(
+            hex_hash,
+            consensus_hash.to_hex(),
+            "Expected the surviving row to have the correct consensus_hash"
         );
     }
 }
