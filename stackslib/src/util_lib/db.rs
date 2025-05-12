@@ -613,13 +613,13 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
         ancestor_block_hash: &T,
         tip_block_hash: &T,
     ) -> Result<Option<u64>, Error> {
-        get_ancestor_block_height(self.index, ancestor_block_hash, tip_block_hash)
+        get_ancestor_block_height(&self.index, ancestor_block_hash, tip_block_hash)
     }
 
     /// Get a value from the fork index
     pub fn get_indexed(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
-        let mut ro_index = self.index.reopen_readonly()?;
-        get_indexed(&mut ro_index, header_hash, key)
+        let mut connection = self.index.reopen_connection()?;
+        get_indexed(&mut connection, header_hash, key)
     }
 
     pub fn conn(&self) -> &DBConn {
@@ -727,7 +727,7 @@ pub fn get_ancestor_block_hash<T: MarfTrieId>(
     tip_block_hash: &T,
 ) -> Result<Option<T>, Error> {
     assert!(block_height <= u32::MAX as u64);
-    let mut read_only = index.reopen_readonly()?;
+    let mut read_only = index.reopen_connection()?;
     let bh = read_only.get_block_at_height(block_height as u32, tip_block_hash)?;
     Ok(bh)
 }
@@ -738,7 +738,7 @@ pub fn get_ancestor_block_height<T: MarfTrieId>(
     ancestor_block_hash: &T,
     tip_block_hash: &T,
 ) -> Result<Option<u64>, Error> {
-    let mut read_only = index.reopen_readonly()?;
+    let mut read_only = index.reopen_connection()?;
     let height_opt = read_only
         .get_block_height(ancestor_block_hash, tip_block_hash)?
         .map(|height| height as u64);

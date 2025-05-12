@@ -192,8 +192,14 @@ pub enum SignerEvent<T: SignerEventTrait> {
     /// The `Vec<T>` will contain any signer messages made by the miner.
     MinerMessages(Vec<T>),
     /// The signer messages for other signers and miners to observe
-    /// The u32 is the signer set to which the message belongs (either 0 or 1)
-    SignerMessages(u32, Vec<T>),
+    SignerMessages {
+        /// The signer set to which the message belongs (either 0 or 1)
+        signer_set: u32,
+        /// Each message of type `T` is paired with the `StacksPublicKey` of the slot from which it was retreived
+        messages: Vec<(StacksPublicKey, T)>,
+        /// the time at which this event was received by the signer's event processor
+        received_time: SystemTime,
+    },
     /// A new block proposal validation response from the node
     BlockValidationResponse(BlockValidateResponse),
     /// Status endpoint request
@@ -208,6 +214,8 @@ pub enum SignerEvent<T: SignerEventTrait> {
         consensus_hash: ConsensusHash,
         /// the time at which this event was received by the signer's event processor
         received_time: SystemTime,
+        /// the parent burn block hash for the newly processed burn block
+        parent_burn_block_hash: BurnchainHeaderHash,
     },
     /// A new processed Stacks block was received from the node with the given block hash
     NewBlock {
@@ -518,6 +526,7 @@ impl<T: SignerEventTrait> TryFrom<StackerDBChunksEvent> for SignerEvent<T> {
     type Error = EventError;
 
     fn try_from(event: StackerDBChunksEvent) -> Result<Self, Self::Error> {
+        let received_time = SystemTime::now();
         let signer_event = if event.contract_id.name.as_str() == MINERS_NAME
             && event.contract_id.is_boot()
         {
@@ -536,12 +545,21 @@ impl<T: SignerEventTrait> TryFrom<StackerDBChunksEvent> for SignerEvent<T> {
                 return Err(EventError::UnrecognizedStackerDBContract(event.contract_id));
             };
             // signer-XXX-YYY boot contract
-            let signer_messages: Vec<T> = event
+            let messages: Vec<(StacksPublicKey, T)> = event
                 .modified_slots
                 .iter()
-                .filter_map(|chunk| read_next::<T, _>(&mut &chunk.data[..]).ok())
+                .filter_map(|chunk| {
+                    Some((
+                        chunk.recover_pk().ok()?,
+                        read_next::<T, _>(&mut &chunk.data[..]).ok()?,
+                    ))
+                })
                 .collect();
-            SignerEvent::SignerMessages(signer_set, signer_messages)
+            SignerEvent::SignerMessages {
+                signer_set,
+                messages,
+                received_time,
+            }
         } else {
             return Err(EventError::UnrecognizedStackerDBContract(event.contract_id));
         };
@@ -569,6 +587,8 @@ struct BurnBlockEvent {
     burn_amount: u64,
     #[serde(with = "prefix_hex")]
     consensus_hash: ConsensusHash,
+    #[serde(with = "prefix_hex")]
+    parent_burn_block_hash: BurnchainHeaderHash,
 }
 
 impl<T: SignerEventTrait> TryFrom<BurnBlockEvent> for SignerEvent<T> {
@@ -580,6 +600,7 @@ impl<T: SignerEventTrait> TryFrom<BurnBlockEvent> for SignerEvent<T> {
             received_time: SystemTime::now(),
             burn_header_hash: burn_block_event.burn_block_hash,
             consensus_hash: burn_block_event.consensus_hash,
+            parent_burn_block_hash: burn_block_event.parent_burn_block_hash,
         })
     }
 }
@@ -589,6 +610,7 @@ struct BlockEvent {
     #[serde(with = "prefix_hex")]
     index_block_hash: StacksBlockId,
     #[serde(with = "prefix_opt_hex")]
+    #[serde(default)]
     signer_signature_hash: Option<Sha512Trunc256Sum>,
     #[serde(with = "prefix_hex")]
     consensus_hash: ConsensusHash,
