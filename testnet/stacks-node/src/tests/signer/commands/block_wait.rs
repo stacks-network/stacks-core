@@ -47,8 +47,8 @@ impl Command<SignerTestState, SignerTestContext> for WaitForTenureChangeBlock {
             _ => panic!("Invalid miner index: {}", self.miner_index),
         };
 
-        let last_confirmed_height = self.ctx.get_last_confirmed_nakamoto_height(self.miner_index);
-        let expected_height = last_confirmed_height + 1;
+        let miner_last_confirmed_height = self.ctx.get_miner_last_confirmed_nakamoto_height(self.miner_index);
+        let expected_height = miner_last_confirmed_height + 1;
 
         info!(
             "Waiting for Nakamoto block {} pushed by miner {}",
@@ -113,8 +113,8 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockProposal {
             _ => panic!("Invalid miner index: {}", self.miner_index),
         };
 
-        let last_confirmed_height = self.ctx.get_last_confirmed_nakamoto_height(self.miner_index);
-        let expected_height = last_confirmed_height + 1;
+        let miner_last_confirmed_height = self.ctx.get_miner_last_confirmed_nakamoto_height(self.miner_index);
+        let expected_height = miner_last_confirmed_height + 1;
 
         info!(
             "Waiting for block proposal at height {}",

@@ -95,7 +95,7 @@ impl SignerTestContext {
             .count()
     }
 
-    pub fn get_last_confirmed_nakamoto_height(&self, miner_index: usize) -> u64 {
+    pub fn get_miner_last_confirmed_nakamoto_height(&self, miner_index: usize) -> u64 {
         let last_confirmed_nakamoto_height_counter = self
             .get_counters_for_miner(miner_index)
             .naka_submitted_commit_last_stacks_tip;
