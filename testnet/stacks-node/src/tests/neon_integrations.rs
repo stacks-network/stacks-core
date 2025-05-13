@@ -666,7 +666,7 @@ const PANIC_TIMEOUT_SECS: u64 = 600;
 
 /// Returns `false` on a timeout, true otherwise.
 pub fn next_block_and_wait(
-    btc_controller: &mut BitcoinRegtestController,
+    btc_controller: &BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
 ) -> bool {
     next_block_and_wait_with_timeout(btc_controller, blocks_processed, PANIC_TIMEOUT_SECS)
@@ -674,7 +674,7 @@ pub fn next_block_and_wait(
 
 /// Returns `false` on a timeout, true otherwise.
 pub fn next_block_and_wait_with_timeout(
-    btc_controller: &mut BitcoinRegtestController,
+    btc_controller: &BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
     timeout: u64,
 ) -> bool {
@@ -702,7 +702,7 @@ pub fn next_block_and_wait_with_timeout(
 
 /// Returns `false` on a timeout, true otherwise.
 pub fn next_block_and_iterate(
-    btc_controller: &mut BitcoinRegtestController,
+    btc_controller: &BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
     iteration_delay_ms: u64,
 ) -> bool {
@@ -734,7 +734,7 @@ pub fn next_block_and_iterate(
 ///
 /// Returns `false` if `next_block_and_wait` times out.
 pub fn run_until_burnchain_height(
-    btc_regtest_controller: &mut BitcoinRegtestController,
+    btc_regtest_controller: &BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
     target_height: u64,
     conf: &Config,
@@ -7337,7 +7337,7 @@ fn test_chainwork_first_intervals() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
     btc_regtest_controller.bootstrap_chain(2016 * 2 - 1);
 
@@ -7364,7 +7364,7 @@ fn test_chainwork_partial_interval() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
     btc_regtest_controller.bootstrap_chain(2016 - 1);
 
@@ -8345,7 +8345,7 @@ fn push_boot_receipts() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -9661,7 +9661,7 @@ fn listunspent_max_utxos() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -9707,7 +9707,7 @@ fn start_stop_bitcoind() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf, None);
+    let btc_regtest_controller = BitcoinRegtestController::new(conf, None);
 
     btc_regtest_controller.bootstrap_chain(201);
 
