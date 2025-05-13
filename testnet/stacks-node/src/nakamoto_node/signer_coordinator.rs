@@ -21,6 +21,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use libsigner::v0::messages::{MinerSlotID, SignerMessage as SignerMessageV0};
+use libsigner::v0::signer_state::SignerStateMachine;
 use libsigner::{BlockProposal, BlockProposalData, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -98,6 +99,7 @@ impl SignerCoordinator {
             reward_set,
             election_block,
             burnchain,
+            config,
         )?;
         let is_mainnet = config.is_mainnet();
         let rpc_socket = config
@@ -494,6 +496,11 @@ impl SignerCoordinator {
     pub fn get_tenure_extend_timestamp(&self) -> u64 {
         self.stackerdb_comms
             .get_tenure_extend_timestamp(self.weight_threshold)
+    }
+
+    /// Get the signer global state view if there is one
+    pub fn get_signer_global_state(&self) -> Option<SignerStateMachine> {
+        self.stackerdb_comms.get_signer_global_state()
     }
 
     /// Check if the tenure needs to change
