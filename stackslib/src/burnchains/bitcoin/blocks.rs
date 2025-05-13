@@ -285,6 +285,9 @@ impl BitcoinBlockParser {
                     test_debug!("Data output does not use a standard OP_RETURN");
                     return None;
                 }
+                if data.len() <= MAGIC_BYTES_LENGTH {
+                    return None;
+                }
                 if !data.starts_with(self.magic_bytes.as_bytes()) {
                     test_debug!("Data output does not start with magic bytes");
                     return None;

@@ -7,6 +7,11 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+### Added
+- Persisted tracking of StackerDB slot versions. This improves signer p2p performance.
+
+## [3.1.0.0.9.0]
+
 ### Changed
 
 - Upgraded `SUPPORTED_SIGNER_PROTOCOL_VERSION` to 1

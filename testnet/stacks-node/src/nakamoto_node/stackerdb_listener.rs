@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 #[cfg(test)]
@@ -21,16 +21,20 @@ use std::sync::LazyLock;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use hashbrown::{HashMap, HashSet};
-use libsigner::v0::messages::{BlockAccepted, BlockResponse, SignerMessage as SignerMessageV0};
-use libsigner::SignerEvent;
+use libsigner::v0::messages::{
+    BlockAccepted, BlockResponse, MessageSlotID, SignerMessage as SignerMessageV0,
+    StateMachineUpdate,
+};
+use libsigner::v0::signer_state::{GlobalStateEvaluator, SignerStateMachine};
+use libsigner::{SignerEntries, SignerEvent, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::nakamoto::NakamotoBlockHeader;
 use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, RewardSet, SIGNERS_NAME};
 use stacks::chainstate::stacks::events::StackerDBChunksEvent;
 use stacks::chainstate::stacks::Error as ChainstateError;
-use stacks::types::chainstate::StacksPublicKey;
+use stacks::codec::StacksMessageCodec;
+use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks::types::PublicKey;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{MerkleHashFunc, Sha512Trunc256Sum};
@@ -40,6 +44,7 @@ use stacks_common::util::tests::TestFlag;
 
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
+use crate::Config;
 
 #[cfg(test)]
 /// Fault injection flag to prevent the miner from seeing enough signer signatures.
@@ -96,6 +101,10 @@ pub struct StackerDBListener {
     ///  - key: StacksPublicKey
     ///  - value: TimestampInfo
     pub(crate) signer_idle_timestamps: Arc<Mutex<HashMap<StacksPublicKey, TimestampInfo>>>,
+    /// Tracks the signer's global state machine through signer state machine update messages
+    pub(crate) global_state_evaluator: Arc<Mutex<GlobalStateEvaluator>>,
+    /// Wehther we are operating on mainnet
+    is_mainnet: bool,
 }
 
 /// Interface for other threads to retrieve info from the StackerDBListener
@@ -109,6 +118,8 @@ pub struct StackerDBListenerComms {
     ///  - key: StacksPublicKey
     ///  - value: TimestampInfo
     signer_idle_timestamps: Arc<Mutex<HashMap<StacksPublicKey, TimestampInfo>>>,
+    /// Tracks the signer's global state machine through signer state machine update messages
+    global_state_evaluator: Arc<Mutex<GlobalStateEvaluator>>,
 }
 
 impl StackerDBListener {
@@ -119,6 +130,7 @@ impl StackerDBListener {
         reward_set: &RewardSet,
         burn_tip: &BlockSnapshot,
         burnchain: &Burnchain,
+        config: &Config,
     ) -> Result<Self, ChainstateError> {
         let (receiver, replaced_other) = stackerdb_channel
             .lock()
@@ -161,6 +173,43 @@ impl StackerDBListener {
             })
             .collect::<Result<HashMap<_, _>, ChainstateError>>()?;
 
+        let signers_contract_id = MessageSlotID::StateMachineUpdate
+            .stacker_db_contract(config.is_mainnet(), reward_cycle_id);
+        let rpc_socket = config
+            .node
+            .get_rpc_loopback()
+            .ok_or_else(|| ChainstateError::MinerAborted)?;
+        let mut signers_session =
+            StackerDBSession::new(&rpc_socket.to_string(), signers_contract_id.clone());
+        let entries: Vec<_> = signer_entries.values().cloned().collect();
+        let parsed_entries = SignerEntries::parse(config.is_mainnet(), &entries)
+            .expect("FATAL: could not parse retrieved signer entries");
+        let address_weights = parsed_entries.signer_addr_to_weight;
+        let slot_ids: Vec<_> = parsed_entries.signer_id_to_addr.keys().cloned().collect();
+
+        let chunks = signers_session
+            .get_latest_chunks(&slot_ids)
+            .inspect_err(|e| warn!("Unable to read the latest signer state from signer db: {e}."))
+            .unwrap_or_default();
+        let mut global_state_evaluator = GlobalStateEvaluator::new(HashMap::new(), address_weights);
+        for (chunk, slot_id) in chunks.into_iter().zip(slot_ids) {
+            let Some(chunk) = chunk else {
+                continue;
+            };
+            let Some(signer_entry) = &signer_entries.get(&slot_id) else {
+                continue;
+            };
+            let Ok(signer_pubkey) = StacksPublicKey::from_slice(&signer_entry.signing_key) else {
+                continue;
+            };
+            let address = StacksAddress::p2pkh(config.is_mainnet(), &signer_pubkey);
+            if let Ok(SignerMessageV0::StateMachineUpdate(update)) =
+                SignerMessageV0::consensus_deserialize(&mut chunk.as_slice())
+            {
+                global_state_evaluator.insert_update(address, update);
+            }
+        }
+
         Ok(Self {
             stackerdb_channel,
             receiver: Some(receiver),
@@ -172,6 +221,8 @@ impl StackerDBListener {
             signer_entries,
             blocks: Arc::new((Mutex::new(HashMap::new()), Condvar::new())),
             signer_idle_timestamps: Arc::new(Mutex::new(HashMap::new())),
+            global_state_evaluator: Arc::new(Mutex::new(global_state_evaluator)),
+            is_mainnet: config.is_mainnet(),
         })
     }
 
@@ -179,6 +230,7 @@ impl StackerDBListener {
         StackerDBListenerComms {
             blocks: self.blocks.clone(),
             signer_idle_timestamps: self.signer_idle_timestamps.clone(),
+            global_state_evaluator: self.global_state_evaluator.clone(),
         }
     }
 
@@ -445,8 +497,8 @@ impl StackerDBListener {
                     | SignerMessageV0::MockBlock(_) => {
                         debug!("Received mock message. Ignoring.");
                     }
-                    SignerMessageV0::StateMachineUpdate(_) => {
-                        debug!("Received state machine update message. Ignoring.");
+                    SignerMessageV0::StateMachineUpdate(update) => {
+                        self.update_global_state_evaluator(&signer_pubkey, update);
                     }
                 };
             }
@@ -470,6 +522,16 @@ impl StackerDBListener {
         // Update the map with the new timestamp and weight
         let timestamp_info = TimestampInfo { timestamp, weight };
         idle_timestamps.insert(signer_pubkey, timestamp_info);
+    }
+
+    fn update_global_state_evaluator(&self, pubkey: &StacksPublicKey, update: StateMachineUpdate) {
+        let mut eval = self
+            .global_state_evaluator
+            .lock()
+            .expect("FATAL: failed to lock global state evaluator");
+
+        let address = StacksAddress::p2pkh(self.is_mainnet, pubkey);
+        eval.insert_update(address, update);
     }
 
     /// Do we ignore signer signatures?
@@ -596,5 +658,14 @@ impl StackerDBListenerComms {
         // time, so return u64::MAX to indicate that we should not extend the
         // tenure.
         u64::MAX
+    }
+
+    /// Get the global state if there is one
+    pub fn get_signer_global_state(&self) -> Option<SignerStateMachine> {
+        let mut eval = self
+            .global_state_evaluator
+            .lock()
+            .expect("FATAL: failed to lock global state evaluator");
+        eval.determine_global_state()
     }
 }

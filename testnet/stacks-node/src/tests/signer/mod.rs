@@ -23,9 +23,11 @@ use std::time::{Duration, Instant};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
+use clarity::vm::Value;
 use libsigner::v0::messages::{
     BlockAccepted, BlockResponse, MessageSlotID, PeerInfo, SignerMessage,
 };
+use libsigner::v0::signer_state::MinerState;
 use libsigner::{BlockProposal, SignerEntries, SignerEventTrait};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
@@ -51,7 +53,8 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_signer::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::{SignerResult, State, StateInfo};
-use stacks_signer::v0::signer_state::{LocalStateMachine, MinerState};
+use stacks_signer::signerdb::SignerDb;
+use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::{Signer, SpawnedSigner};
 
 use super::nakamoto_integrations::{
@@ -233,7 +236,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         }
     }
 
-    pub fn wait_for_registered(&mut self) {
+    pub fn wait_for_registered(&self) {
         let mut finished_signers = HashSet::new();
         wait_for(120, || {
             self.send_status_request(&finished_signers);
@@ -253,7 +256,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     /// Send a status request to the signers to ensure they are registered for both reward cycles.
-    pub fn wait_for_registered_both_reward_cycles(&mut self) {
+    pub fn wait_for_registered_both_reward_cycles(&self) {
         let mut finished_signers = HashSet::new();
         wait_for(120, || {
             self.send_status_request(&finished_signers);
@@ -279,7 +282,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         .expect("Timed out while waiting for the signers to be registered for both reward cycles");
     }
 
-    pub fn wait_for_cycle(&mut self, timeout_secs: u64, reward_cycle: u64) {
+    pub fn wait_for_cycle(&self, timeout_secs: u64, reward_cycle: u64) {
         let mut finished_signers = HashSet::new();
         wait_for(timeout_secs, || {
             self.send_status_request(&finished_signers);
@@ -299,9 +302,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         }).unwrap();
     }
 
-    pub fn mine_bitcoin_block(&mut self) {
+    pub fn mine_bitcoin_block(&self) {
         let info = self.get_peer_info();
-        next_block_and(&mut self.running_nodes.btc_regtest_controller, 60, || {
+        next_block_and(&self.running_nodes.btc_regtest_controller, 60, || {
             Ok(get_chain_info(&self.running_nodes.conf).burn_block_height > info.burn_block_height)
         })
         .unwrap();
@@ -314,7 +317,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     ///    1. Having a valid sortition
     ///    2. The active miner is the winner of that sortition
     ///    3. The active miner is building off of the prior tenure
-    pub fn check_signer_states_normal(&mut self) {
+    pub fn check_signer_states_normal(&self) {
         let (state_machines, info_cur) = self.get_burn_updated_states();
 
         let sortition_latest =
@@ -375,7 +378,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     ///  latest burn block:
     ///    1. Having an invalid miner
     ///    2. The active miner is the winner of the prior sortition
-    pub fn check_signer_states_revert_to_prior(&mut self) {
+    pub fn check_signer_states_revert_to_prior(&self) {
         let (state_machines, info_cur) = self.get_burn_updated_states();
 
         let sortition_latest =
@@ -431,7 +434,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Submit a stacks transfer just to trigger block production
     pub fn submit_transfer_tx(
-        &mut self,
+        &self,
         sender_sk: &StacksPrivateKey,
         send_fee: u64,
         send_amt: u64,
@@ -451,43 +454,36 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         submit_tx_fallible(&http_origin, &transfer_tx).map(|resp| (resp, sender_nonce))
     }
 
-    /// Submit a burn block dependent contract for publishing
-    ///  and wait until it is included in a block
-    pub fn submit_burn_block_contract_and_wait(
-        &mut self,
+    /// Submit a contract deploy and return (txid, sender_nonce)
+    pub fn submit_contract_deploy(
+        &self,
         sender_sk: &StacksPrivateKey,
-    ) -> Result<String, String> {
+        contract_code: &str,
+        contract_name: &str,
+    ) -> Result<(String, u64), String> {
         let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
         let sender_addr = to_addr(&sender_sk);
         let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
-        let burn_height_contract = "
-         (define-data-var local-burn-block-ht uint u0)
-         (define-public (run-update)
-           (ok (var-set local-burn-block-ht burn-block-height)))
-        ";
+
         let contract_tx = make_contract_publish(
             &sender_sk,
-            0,
+            sender_nonce,
             1000,
             self.running_nodes.conf.burnchain.chain_id,
-            "burn-height-local",
-            burn_height_contract,
+            contract_name,
+            contract_code,
         );
-        let txid = submit_tx_fallible(&http_origin, &contract_tx)?;
-
-        wait_for(120, || {
-            let next_nonce = get_account(&http_origin, &sender_addr).nonce;
-            Ok(next_nonce > sender_nonce)
-        })
-        .map(|()| txid)
+        submit_tx_fallible(&http_origin, &contract_tx).map(|resp| (resp, sender_nonce))
     }
 
-    /// Submit a burn block dependent contract-call
-    ///  and wait until it is included in a block
-    pub fn submit_burn_block_call_and_wait(
-        &mut self,
+    /// Submit a contract call and return (txid, sender_nonce)
+    pub fn submit_contract_call(
+        &self,
         sender_sk: &StacksPrivateKey,
-    ) -> Result<String, String> {
+        contract_name: &str,
+        contract_func: &str,
+        contract_args: &[Value],
+    ) -> Result<(String, u64), String> {
         let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
         let sender_addr = to_addr(&sender_sk);
         let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
@@ -497,23 +493,60 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             1000,
             self.running_nodes.conf.burnchain.chain_id,
             &sender_addr,
-            "burn-height-local",
-            "run-update",
-            &[],
+            contract_name,
+            contract_func,
+            contract_args,
         );
-        let txid = submit_tx_fallible(&http_origin, &contract_call_tx)?;
+        submit_tx_fallible(&http_origin, &contract_call_tx).map(|resp| (resp, sender_nonce))
+    }
 
+    pub fn wait_for_nonce_increase(
+        &self,
+        sender_addr: &StacksAddress,
+        sender_nonce: u64,
+    ) -> Result<(), String> {
+        let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
         wait_for(120, || {
             let next_nonce = get_account(&http_origin, &sender_addr).nonce;
             Ok(next_nonce > sender_nonce)
         })
-        .map(|()| txid)
+    }
+
+    /// Submit a burn block dependent contract for publishing
+    ///  and wait until it is included in a block
+    pub fn submit_burn_block_contract_and_wait(
+        &self,
+        sender_sk: &StacksPrivateKey,
+    ) -> Result<String, String> {
+        let burn_height_contract = "
+         (define-data-var local-burn-block-ht uint u0)
+         (define-public (run-update)
+           (ok (var-set local-burn-block-ht burn-block-height)))
+        ";
+        let (txid, sender_nonce) =
+            self.submit_contract_deploy(sender_sk, burn_height_contract, "burn-height-local")?;
+
+        self.wait_for_nonce_increase(&to_addr(&sender_sk), sender_nonce)?;
+        Ok(txid)
+    }
+
+    /// Submit a burn block dependent contract-call
+    ///  and wait until it is included in a block
+    pub fn submit_burn_block_call_and_wait(
+        &self,
+        sender_sk: &StacksPrivateKey,
+    ) -> Result<String, String> {
+        let (txid, sender_nonce) =
+            self.submit_contract_call(sender_sk, "burn-height-local", "run-update", &[])?;
+
+        self.wait_for_nonce_increase(&to_addr(&sender_sk), sender_nonce)?;
+        Ok(txid)
     }
 
     /// Get the local state machines and most recent peer info from the stacks-node,
     ///  waiting until all of the signers have updated their state machines to
     ///  reflect the most recent burn block.
-    pub fn get_burn_updated_states(&mut self) -> (Vec<LocalStateMachine>, PeerInfo) {
+    pub fn get_burn_updated_states(&self) -> (Vec<LocalStateMachine>, PeerInfo) {
         let info_cur = self.get_peer_info();
         let current_rc = self.get_current_reward_cycle();
         let mut states = Vec::with_capacity(0);
@@ -582,7 +615,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     ///    1. Not having a sortition!
     ///    2. The active miner is the winner of the last sortition
     ///    3. The active miner is building off of the prior tenure
-    pub fn check_signer_states_normal_missed_sortition(&mut self) {
+    pub fn check_signer_states_normal_missed_sortition(&self) {
         let (state_machines, info_cur) = self.get_burn_updated_states();
         let non_sortition_latest =
             get_sortition_info_ch(&self.running_nodes.conf, &info_cur.pox_consensus);
@@ -653,7 +686,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     ///    2. The active miner is the winner of that sortition
     ///    3. The active miner is building off of the prior tenure
     pub fn check_signer_states_reorg(
-        &mut self,
+        &self,
         accepting_reorg: &[StacksPublicKey],
         rejecting_reorg: &[StacksPublicKey],
     ) {
@@ -731,7 +764,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Get status check results (if returned) from each signer (blocks on the receipt)
     /// Returns Some() or None() for each signer, in order of `self.spawned_signers`
-    pub fn get_all_states(&mut self) -> Vec<StateInfo> {
+    pub fn get_all_states(&self) -> Vec<StateInfo> {
         let mut finished_signers = HashSet::new();
         let mut output_states = Vec::new();
         let mut sent_request = false;
@@ -795,7 +828,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Get status check results (if returned) from each signer without blocking
     /// Returns Some() or None() for each signer, in order of `self.spawned_signers`
-    pub fn get_states(&mut self, exclude: &HashSet<usize>) -> Vec<Option<StateInfo>> {
+    pub fn get_states(&self, exclude: &HashSet<usize>) -> Vec<Option<StateInfo>> {
         let mut output = Vec::new();
         for (ix, signer) in self.spawned_signers.iter().enumerate() {
             if exclude.contains(&ix) {
@@ -817,12 +850,12 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Mine a BTC block and wait for a new Stacks block to be mined
     /// Note: do not use nakamoto blocks mined heuristic if running a test with multiple miners
-    fn mine_nakamoto_block(&mut self, timeout: Duration, use_nakamoto_blocks_mined: bool) {
+    fn mine_nakamoto_block(&self, timeout: Duration, use_nakamoto_blocks_mined: bool) {
         let mined_block_time = Instant::now();
         let mined_before = self.running_nodes.counters.naka_mined_blocks.get();
         let info_before = self.get_peer_info();
         next_block_and_mine_commit(
-            &mut self.running_nodes.btc_regtest_controller,
+            &self.running_nodes.btc_regtest_controller,
             timeout.as_secs(),
             &self.running_nodes.conf,
             &self.running_nodes.counters,
@@ -841,7 +874,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     fn mine_block_wait_on_processing(
-        &mut self,
+        &self,
         node_confs: &[&NeonConfig],
         node_counters: &[&Counters],
         timeout: Duration,
@@ -849,7 +882,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         let blocks_len = test_observer::get_blocks().len();
         let mined_block_time = Instant::now();
         next_block_and_wait_for_commits(
-            &mut self.running_nodes.btc_regtest_controller,
+            &self.running_nodes.btc_regtest_controller,
             timeout.as_secs(),
             node_confs,
             node_counters,
@@ -872,7 +905,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     /// Chain information is captured before `f` is called, and then again after `f`
     /// to ensure that the block was mined.
     /// Note: this function does _not_ mine a BTC block.
-    fn wait_for_nakamoto_block(&mut self, timeout_secs: u64, f: impl FnOnce() -> ()) {
+    fn wait_for_nakamoto_block(&self, timeout_secs: u64, f: impl FnOnce() -> ()) {
         let blocks_before = self.running_nodes.counters.naka_mined_blocks.get();
         let info_before = self.get_peer_info();
 
@@ -891,7 +924,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     /// Wait for a confirmed block and return a list of individual
     /// signer signatures
     fn wait_for_confirmed_block_v0(
-        &mut self,
+        &self,
         block_signer_sighash: &Sha512Trunc256Sum,
         timeout: Duration,
     ) -> Vec<MessageSignature> {
@@ -911,7 +944,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     /// Wait for a confirmed block and return a list of individual
     /// signer signatures
     fn wait_for_confirmed_block_with_hash(
-        &mut self,
+        &self,
         block_signer_sighash: &Sha512Trunc256Sum,
         timeout: Duration,
     ) -> serde_json::Map<String, serde_json::Value> {
@@ -938,7 +971,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         panic!("Timed out while waiting for confirmation of block with signer sighash = {block_signer_sighash}")
     }
 
-    fn wait_for_validate_ok_response(&mut self, timeout: Duration) -> BlockValidateOk {
+    fn wait_for_validate_ok_response(&self, timeout: Duration) -> BlockValidateOk {
         // Wait for the block to show up in the test observer
         let t_start = Instant::now();
         loop {
@@ -958,7 +991,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     fn wait_for_validate_reject_response(
-        &mut self,
+        &self,
         timeout: Duration,
         signer_signature_hash: Sha512Trunc256Sum,
     ) -> BlockValidateReject {
@@ -983,14 +1016,14 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     // Must be called AFTER booting the chainstate
-    fn run_until_epoch_3_boundary(&mut self) {
+    fn run_until_epoch_3_boundary(&self) {
         let epochs = self.running_nodes.conf.burnchain.epochs.clone().unwrap();
         let epoch_3 = &epochs[StacksEpochId::Epoch30];
 
         let epoch_30_boundary = epoch_3.start_height - 1;
         // advance to epoch 3.0 and trigger a sign round (cannot vote on blocks in pre epoch 3.0)
         run_until_burnchain_height(
-            &mut self.running_nodes.btc_regtest_controller,
+            &self.running_nodes.btc_regtest_controller,
             &self.running_nodes.counters.blocks_processed,
             epoch_30_boundary,
             &self.running_nodes.conf,
@@ -1120,6 +1153,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             false,
             self.get_current_reward_cycle(),
             SignerSlotID(0), // We are just reading so again, don't care about index.
+            SignerDb::new(":memory:").unwrap(),
         );
         let latest_msgs = StackerDB::get_messages(
             stackerdb
@@ -1169,6 +1203,17 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .expect("Failed to get peer info")
     }
 
+    pub fn readonly_stackerdb_client(&self, reward_cycle: u64) -> StackerDB<MessageSlotID> {
+        StackerDB::new_normal(
+            &self.running_nodes.conf.node.rpc_bind,
+            StacksPrivateKey::random(), // We are just reading so don't care what the key is
+            self.running_nodes.conf.is_mainnet(),
+            reward_cycle,
+            SignerSlotID(0), // We are just reading so again, don't care about index.
+            SignerDb::new(":memory:").unwrap(), // also don't care about the signer db for version tracking
+        )
+    }
+
     pub fn verify_no_block_response_found(
         &self,
         stackerdb: &mut StackerDB<MessageSlotID>,
@@ -1209,6 +1254,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             self.get_signer_slot_id(reward_cycle, &to_addr(private_key))
                 .expect("Failed to get signer slot id")
                 .expect("Signer does not have a slot id"),
+            SignerDb::new(":memory:").unwrap(),
         );
 
         let signature = private_key

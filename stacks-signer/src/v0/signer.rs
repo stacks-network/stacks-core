@@ -37,20 +37,22 @@ use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
     RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate,
 };
+use libsigner::v0::signer_state::GlobalStateEvaluator;
 use libsigner::{BlockProposal, SignerEvent};
 use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error, info, warn};
 
+use super::signer_state::LocalStateMachine;
 #[cfg(not(any(test, feature = "testing")))]
 use super::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
-use super::signer_state::{GlobalStateEvaluator, LocalStateMachine};
 use crate::chainstate::{ProposalEvalConfig, SortitionMinerStatus, SortitionsView};
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
+use crate::v0::signer_state::NewBurnBlock;
 use crate::Signer as SignerTrait;
 
 /// A global variable that can be used to make signers repeat their proposal
@@ -486,6 +488,7 @@ impl Signer {
                 burn_header_hash,
                 consensus_hash,
                 received_time,
+                parent_burn_block_hash,
             } => {
                 info!("{self}: Received a new burn block event for block height {burn_height}");
                 self.signer_db
@@ -494,6 +497,7 @@ impl Signer {
                         consensus_hash,
                         *burn_height,
                         received_time,
+                        parent_burn_block_hash,
                     )
                     .unwrap_or_else(|e| {
                         error!(
@@ -505,7 +509,10 @@ impl Signer {
                         panic!("{self} Failed to write burn block event to signerdb: {e}");
                     });
                 self.local_state_machine
-                    .bitcoin_block_arrival(&self.signer_db, stacks_client, &self.proposal_config, Some(*burn_height))
+                    .bitcoin_block_arrival(&self.signer_db, stacks_client, &self.proposal_config, Some(NewBurnBlock {
+                        burn_block_height: *burn_height,
+                        consensus_hash: *consensus_hash,
+                    }))
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
                 *sortition_state = None;
             }
