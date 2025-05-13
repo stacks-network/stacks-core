@@ -54,7 +54,7 @@ use stacks_signer::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::{SignerResult, State, StateInfo};
 use stacks_signer::signerdb::SignerDb;
-use stacks_signer::v0::signer_state::{LocalStateMachine, MinerState};
+use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::{Signer, SpawnedSigner};
 
 use super::nakamoto_integrations::{
