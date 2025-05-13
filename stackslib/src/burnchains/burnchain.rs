@@ -578,6 +578,14 @@ impl Burnchain {
             .nakamoto_first_block_of_cycle(self.first_block_height, reward_cycle)
     }
 
+    /// the last burn block that must be *signed* by the signer set of `reward_cycle`.
+    /// this is the modulo 1 block
+    pub fn nakamoto_last_block_of_cycle(&self, reward_cycle: u64) -> u64 {
+        self.nakamoto_first_block_of_cycle(reward_cycle)
+            + self.pox_constants.reward_cycle_length as u64
+            - 1
+    }
+
     /// What is the reward cycle for this block height?
     /// This considers the modulo 0 block to be in reward cycle `n`, even though
     ///  rewards for cycle `n` do not begin until modulo 1.
