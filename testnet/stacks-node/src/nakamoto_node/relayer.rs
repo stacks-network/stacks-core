@@ -1260,7 +1260,7 @@ impl RelayerThread {
             parent_tenure_id,
             burn_tip_at_start,
             reason,
-        );
+        )?;
         Ok(miner_thread_state)
     }
 
@@ -1625,7 +1625,9 @@ impl RelayerThread {
     /// Generate and submit the next block-commit, and record it locally
     fn issue_block_commit(&mut self) -> Result<(), NakamotoNodeError> {
         if self.fault_injection_skip_block_commit() {
-            warn!("Relayer: not submitting block-commit to bitcoin network due to test directive.");
+            debug!(
+                "Relayer: not submitting block-commit to bitcoin network due to test directive."
+            );
             return Ok(());
         }
         let (tip_block_ch, tip_block_bh) = SortitionDB::get_canonical_stacks_chain_tip_hash(

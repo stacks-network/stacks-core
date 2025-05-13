@@ -76,7 +76,7 @@ use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::sleep_ms;
 use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
-use stacks_signer::client::{SignerSlotID, StackerDB};
+use stacks_signer::client::StackerDB;
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::signerdb::SignerDb;
 use stacks_signer::v0::signer::TEST_REPEAT_PROPOSAL_RESPONSE;
@@ -109,6 +109,7 @@ use crate::tests::nakamoto_integrations::{
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, get_sortition_info, get_sortition_info_ch,
     next_block_and_wait, run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer,
+    TestProxy,
 };
 use crate::tests::signer::commands::*;
 use crate::tests::{self, gen_random_port};
@@ -599,7 +600,7 @@ impl MultipleMinerTest {
         conf_node_2.node.working_dir = format!("{}-1", conf_node_2.node.working_dir);
 
         conf_node_2.node.set_bootstrap_nodes(
-            format!("{}@{}", &node_1_pk.to_hex(), conf.node.p2p_bind),
+            format!("{}@{}", &node_1_pk.to_hex(), conf.node.p2p_address),
             conf.burnchain.chain_id,
             conf.burnchain.peer_version,
         );
@@ -632,6 +633,14 @@ impl MultipleMinerTest {
             .running_nodes
             .counters
             .naka_skip_commit_op
+            .clone()
+    }
+
+    pub fn get_primary_proposals_submitted(&self) -> RunLoopCounter {
+        self.signer_test
+            .running_nodes
+            .counters
+            .naka_proposed_blocks
             .clone()
     }
 
@@ -4915,13 +4924,7 @@ fn empty_tenure_delayed() {
 
     info!("------------------------- Test Delayed Block is Rejected  -------------------------");
     let reward_cycle = signer_test.get_current_reward_cycle();
-    let mut stackerdb = StackerDB::new_normal(
-        &signer_test.running_nodes.conf.node.rpc_bind,
-        StacksPrivateKey::random(), // We are just reading so don't care what the key is
-        false,
-        reward_cycle,
-        SignerSlotID(0), // We are just reading so again, don't care about index.
-    );
+    let mut stackerdb = signer_test.readonly_stackerdb_client(reward_cycle);
 
     let signer_slot_ids: Vec<_> = signer_test
         .get_signer_indices(reward_cycle)
@@ -9597,13 +9600,7 @@ fn incoming_signers_ignore_block_proposals() {
     .expect("Timed out waiting for a block to be mined");
 
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
-    let mut stackerdb = StackerDB::new_normal(
-        &signer_test.running_nodes.conf.node.rpc_bind,
-        StacksPrivateKey::random(), // We are just reading so don't care what the key is
-        false,
-        next_reward_cycle,
-        SignerSlotID(0), // We are just reading so again, don't care about index.
-    );
+    let mut stackerdb = signer_test.readonly_stackerdb_client(next_reward_cycle);
 
     let next_signer_slot_ids: Vec<_> = signer_test
         .get_signer_indices(next_reward_cycle)
@@ -9778,13 +9775,7 @@ fn outgoing_signers_ignore_block_proposals() {
         .unwrap()
         .signer_signature_hash;
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
-    let mut stackerdb = StackerDB::new_normal(
-        &signer_test.running_nodes.conf.node.rpc_bind,
-        StacksPrivateKey::random(), // We are just reading so don't care what the key is
-        false,
-        old_reward_cycle,
-        SignerSlotID(0), // We are just reading so again, don't care about index.
-    );
+    let mut stackerdb = signer_test.readonly_stackerdb_client(old_reward_cycle);
 
     let old_signer_slot_ids: Vec<_> = signer_test
         .get_signer_indices(old_reward_cycle)
@@ -10173,16 +10164,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
 
     // The first 50% of the signers are the ones that are ignoring block proposals and thus haven't sent a signature yet
     let forced_signer = &signer_test.signer_stacks_private_keys[ignoring_signers.len()];
-    let mut stackerdb = StackerDB::new_normal(
-        &signer_test.running_nodes.conf.node.rpc_bind,
-        forced_signer.clone(),
-        false,
-        old_reward_cycle,
-        signer_test
-            .get_signer_slot_id(old_reward_cycle, &tests::to_addr(forced_signer))
-            .expect("Failed to get signer slot id")
-            .expect("Signer does not have a slot id"),
-    );
+    let mut stackerdb = signer_test.readonly_stackerdb_client(old_reward_cycle);
     signer_test.verify_no_block_response_found(
         &mut stackerdb,
         next_reward_cycle,
@@ -14942,4 +14924,193 @@ fn rollover_signer_protocol_version() {
     signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);
 
     signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// Tests that a miner keeps their stackerdb chunk versions across tenures.
+/// This test sets up a proxy between two miners, which allows the test to disconnect the miners
+///  from each other temporarily to allow their stackerdbs to temporarily get out of sync.
+fn miner_stackerdb_version_rollover() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 6;
+    let num_txs = 20;
+
+    // Record where node 1 and 2 want to bind, so that the proxy can bind
+    //  there instead.
+    let mut node_1_p2p_bind = "".to_string();
+    let mut node_2_p2p_bind = "".to_string();
+
+    // These are the proxy upstreams, which are where we will tell the
+    //  nodes to bind to.
+    let node_1_p2p_rebind = "127.0.0.1:40402";
+    let node_2_p2p_rebind = "127.0.0.1:40502";
+
+    let mut miners = MultipleMinerTest::new_with_config_modifications(
+        num_signers,
+        num_txs,
+        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+            config.miner.block_rejection_timeout_steps =
+                [(0, Duration::from_secs(120))].into_iter().collect();
+            node_1_p2p_bind = config.node.p2p_bind.clone();
+            // change the bind to the proxy upstream
+            config.node.p2p_bind = node_1_p2p_rebind.to_string();
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+            node_2_p2p_bind = config.node.p2p_bind.clone();
+            // change the bind to the proxy upstream
+            config.node.p2p_bind = node_2_p2p_rebind.to_string();
+        },
+    );
+    let node_1_p2p_bind_port = std::net::SocketAddr::from_str(&node_1_p2p_bind)
+        .unwrap()
+        .port();
+    let node_2_p2p_bind_port = std::net::SocketAddr::from_str(&node_2_p2p_bind)
+        .unwrap()
+        .port();
+
+    let proxy_1 = TestProxy {
+        bind_port: node_1_p2p_bind_port,
+        forward_port: 40402,
+        drop_control: Arc::new(Mutex::new(false)),
+        keep_running: Arc::new(Mutex::new(true)),
+    };
+
+    let proxy_2 = TestProxy {
+        bind_port: node_2_p2p_bind_port,
+        forward_port: 40502,
+        drop_control: Arc::new(Mutex::new(false)),
+        keep_running: Arc::new(Mutex::new(true)),
+    };
+
+    proxy_1.spawn();
+    proxy_2.spawn();
+
+    let (conf_1, conf_2) = miners.get_node_configs();
+    let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
+    test_observer::clear();
+
+    info!("------------------------- Pause Miner 2's Block Commits -------------------------");
+    // Make sure Miner 2 cannot win a sortition at first.
+    miners.pause_commits_miner_2();
+
+    miners.boot_to_epoch_3();
+
+    let burnchain = conf_1.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+
+    info!("------------------------- Pause Miner 1's Block Commit -------------------------");
+
+    // Make sure miner 1 doesn't submit any further block commits for the next tenure BEFORE mining the bitcoin block
+    miners.pause_commits_miner_1();
+
+    info!("------------------------- Miner 1 Wins Normal Tenure A -------------------------");
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .expect("Failed to mine BTC block followed by tenure change tx");
+    verify_sortition_winner(&sortdb, &miner_pkh_1);
+
+    info!("------------------------- Miner 1 Mines 10 more Blocks -------------------------");
+
+    for _i in 0..10 {
+        miners
+            .send_and_mine_transfer_tx(30)
+            .expect("Failed to mine tx");
+    }
+
+    let mut max_chunk: Option<StackerDBChunkData> = None;
+    for chunks in test_observer::get_stackerdb_chunks().into_iter() {
+        if !chunks.contract_id.is_boot() || chunks.contract_id.name.as_str() != MINERS_NAME {
+            continue;
+        }
+        for chunk in chunks.modified_slots.into_iter() {
+            let pkh = Hash160::from_node_public_key(&chunk.recover_pk().unwrap());
+            if pkh != miner_pkh_1 {
+                continue;
+            }
+            match &mut max_chunk {
+                Some(prior_chunk) => {
+                    if prior_chunk.slot_version < chunk.slot_version {
+                        *prior_chunk = chunk;
+                    }
+                }
+                None => max_chunk = Some(chunk),
+            }
+        }
+    }
+    let max_chunk = max_chunk.expect("Should have found a miner stackerdb message from Miner 1");
+
+    info!("------------------------- Miner 2 Wins Tenure B -------------------------");
+    miners.submit_commit_miner_2(&sortdb);
+
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .expect("Failed to mine BTC block");
+    verify_sortition_winner(&sortdb, &miner_pkh_2);
+
+    info!("------------------------- Miner 2 Wins Tenure C -------------------------");
+    miners.submit_commit_miner_2(&sortdb);
+
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .expect("Failed to mine BTC block");
+    verify_sortition_winner(&sortdb, &miner_pkh_2);
+
+    info!("------------------------- Miner 2 Wins Tenure D -------------------------");
+    miners.submit_commit_miner_2(&sortdb);
+
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .expect("Failed to mine BTC block");
+    verify_sortition_winner(&sortdb, &miner_pkh_2);
+
+    info!("----------------- Miner 1 Submits Block Commit ------------------");
+    miners.submit_commit_miner_1(&sortdb);
+
+    info!("------------------------- Miner 1 Wins Tenure E -------------------------");
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .expect("Failed to mine BTC block followed by tenure change tx");
+    verify_sortition_winner(&sortdb, &miner_pkh_1);
+
+    info!(
+        "------------------------- Maximum miner 1 slot version: {} ------------------------",
+        max_chunk.slot_version
+    );
+
+    let mut stackerdb =
+        StackerDBSession::new(&conf_2.node.rpc_bind, boot_code_id(MINERS_NAME, false));
+
+    let proposals_before = miners.get_primary_proposals_submitted().get();
+
+    *proxy_1.drop_control.lock().unwrap() = true;
+    *proxy_2.drop_control.lock().unwrap() = true;
+
+    let (_, _sent_nonce) = miners.send_transfer_tx();
+
+    wait_for(30, || {
+        let proposals = miners.get_primary_proposals_submitted().get();
+        Ok(proposals > proposals_before)
+    })
+    .unwrap();
+
+    info!("------------------------- Broadcasting max chunk ------------------------");
+    stackerdb
+        .put_chunk(&max_chunk)
+        .expect("Failed to broadcast the max slot version chunk");
+
+    *proxy_1.drop_control.lock().unwrap() = false;
+    *proxy_2.drop_control.lock().unwrap() = false;
+
+    miners
+        .send_and_mine_transfer_tx(30)
+        .expect("Failed to mine tx");
+
+    miners.shutdown();
 }

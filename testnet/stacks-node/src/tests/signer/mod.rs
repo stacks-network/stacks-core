@@ -53,6 +53,7 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_signer::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::{SignerResult, State, StateInfo};
+use stacks_signer::signerdb::SignerDb;
 use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::{Signer, SpawnedSigner};
 
@@ -1152,6 +1153,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             false,
             self.get_current_reward_cycle(),
             SignerSlotID(0), // We are just reading so again, don't care about index.
+            SignerDb::new(":memory:").unwrap(),
         );
         let latest_msgs = StackerDB::get_messages(
             stackerdb
@@ -1201,6 +1203,17 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .expect("Failed to get peer info")
     }
 
+    pub fn readonly_stackerdb_client(&self, reward_cycle: u64) -> StackerDB<MessageSlotID> {
+        StackerDB::new_normal(
+            &self.running_nodes.conf.node.rpc_bind,
+            StacksPrivateKey::random(), // We are just reading so don't care what the key is
+            self.running_nodes.conf.is_mainnet(),
+            reward_cycle,
+            SignerSlotID(0), // We are just reading so again, don't care about index.
+            SignerDb::new(":memory:").unwrap(), // also don't care about the signer db for version tracking
+        )
+    }
+
     pub fn verify_no_block_response_found(
         &self,
         stackerdb: &mut StackerDB<MessageSlotID>,
@@ -1241,6 +1254,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             self.get_signer_slot_id(reward_cycle, &to_addr(private_key))
                 .expect("Failed to get signer slot id")
                 .expect("Signer does not have a slot id"),
+            SignerDb::new(":memory:").unwrap(),
         );
 
         let signature = private_key
