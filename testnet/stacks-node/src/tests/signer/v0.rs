@@ -10984,7 +10984,7 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
             RejectReason::ReorgNotAllowed,
             num_signers
         )),
-        (VerifyBlockCountAfterBootToEpoch3::new(test_context.clone(), MINER1, 1)), // FIXME: This takes the expected block count as a parameter, I don't like that
+        (VerifyBlockCountAfterBootToEpoch3::new(test_context.clone(), MINER1, 1)), // FIXME: This takes the expected block count as a parameter - can we avoid that?
         ShutdownMiners, // FIXME: miners.shutdown() is never called
     ]
 }

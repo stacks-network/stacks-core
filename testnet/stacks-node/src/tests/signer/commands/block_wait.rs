@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use libsigner::v0::messages::RejectReason;
 use madhouse::{Command, CommandWrapper};
@@ -108,7 +109,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForNakamotoBlock {
                     .ctx
                     .get_counters_for_miner(self.miner_index)
                     .naka_submitted_commit_last_stacks_tip
-                    .load(std::sync::atomic::Ordering::SeqCst);
+                    .load(Ordering::SeqCst);
                 let expected_height = miner_last_confirmed_height + 1;
             
                 info!(
@@ -219,7 +220,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockProposal {
             .ctx
             .get_counters_for_miner(self.miner_index)
             .naka_submitted_commit_last_stacks_tip
-            .load(std::sync::atomic::Ordering::SeqCst);
+            .load(Ordering::SeqCst);
         let expected_height = miner_last_confirmed_height + 1;
 
         info!("Waiting for block proposal at height {}", expected_height);

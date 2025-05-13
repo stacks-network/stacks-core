@@ -22,7 +22,7 @@ impl VerifyBlockCountAfterBootToEpoch3 {
         Self {
             ctx,
             miner_index,
-            expected_block_count, // TODO: Can we use a better approach? Rather than passing it as a parameter
+            expected_block_count,
         }
     }
 }
@@ -60,7 +60,8 @@ impl Command<SignerTestState, SignerTestContext> for VerifyBlockCountAfterBootTo
 
         info!(
             "Verified miner {} has exactly {} blocks after epoch 3 boot",
-            self.miner_index, self.expected_block_count
+            self.miner_index, 
+            self.expected_block_count
         );
     }
 
