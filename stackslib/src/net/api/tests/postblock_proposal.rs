@@ -47,7 +47,7 @@ use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
 use crate::net::relay::Relayer;
-use crate::net::test::TestEventObserver;
+use crate::net::test::{TestEventObserver, TestPeer};
 use crate::net::ProtocolFamily;
 
 #[warn(unused)]
@@ -396,7 +396,11 @@ fn test_try_make_response() {
     let proposal_observer = Arc::clone(&observer.proposal_observer);
 
     info!("Run requests with observer");
-    let responses = rpc_test.run_with_observer(requests, Some(&observer));
+    let wait_for = |peer_1: &mut TestPeer, peer_2: &mut TestPeer| {
+        !peer_1.network.is_proposal_thread_running() && !peer_2.network.is_proposal_thread_running()
+    };
+
+    let responses = rpc_test.run_with_observer(requests, Some(&observer), wait_for);
 
     for response in responses.iter().take(3) {
         assert_eq!(response.preamble().status_code, 202);
@@ -571,8 +575,12 @@ fn replay_validation_test(
     let observer = ProposalTestObserver::new();
     let proposal_observer = Arc::clone(&observer.proposal_observer);
 
+    let wait_for = |peer_1: &mut TestPeer, peer_2: &mut TestPeer| {
+        !peer_1.network.is_proposal_thread_running() && !peer_2.network.is_proposal_thread_running()
+    };
+
     info!("Run request with observer for validation with replay set test");
-    let responses = rpc_test.run_with_observer(requests, Some(&observer));
+    let responses = rpc_test.run_with_observer(requests, Some(&observer), wait_for);
 
     // Expect 202 Accepted initially
     assert_eq!(responses[0].preamble().status_code, 202);

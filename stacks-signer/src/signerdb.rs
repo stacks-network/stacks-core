@@ -27,7 +27,7 @@ use blockstack_lib::util_lib::db::{
     query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
     Error as DBError, FromRow,
 };
-use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress};
+use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksPublicKey};
 use clarity::types::Address;
 use libsigner::v0::messages::{RejectReason, RejectReasonPrefix, StateMachineUpdate};
 use libsigner::BlockProposal;
@@ -610,6 +610,14 @@ CREATE TABLE IF NOT EXISTS block_validated_by_replay_txs (
     PRIMARY KEY (signer_signature_hash, replay_tx_hash)
 ) STRICT;"#;
 
+static CREATE_STACKERDB_TRACKING: &str = "
+CREATE TABLE stackerdb_tracking(
+   public_key TEXT NOT NULL,
+   slot_id INTEGER NOT NULL,
+   slot_version INTEGER NOT NULL,
+   PRIMARY KEY (public_key, slot_id)
+) STRICT;";
+
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
     CREATE_DB_CONFIG,
@@ -703,8 +711,13 @@ static SCHEMA_13: &[&str] = &[
 ];
 
 static SCHEMA_14: &[&str] = &[
-    ADD_BLOCK_VALIDATED_BY_REPLAY_TXS_TABLE,
+    CREATE_STACKERDB_TRACKING,
     "INSERT INTO db_config (version) VALUES (14);",
+];
+
+static SCHEMA_15: &[&str] = &[
+    ADD_BLOCK_VALIDATED_BY_REPLAY_TXS_TABLE,
+    "INSERT INTO db_config (version) VALUES (15);",
 ];
 
 impl SignerDb {
@@ -935,6 +948,19 @@ impl SignerDb {
         Ok(())
     }
 
+    /// Migrate from schema 14 to schema 15
+    fn schema_15_migration(tx: &Transaction) -> Result<(), DBError> {
+        if Self::get_schema_version(tx)? >= 15 {
+            return Ok(());
+        }
+
+        for statement in SCHEMA_15.iter() {
+            tx.execute_batch(statement)?;
+        }
+
+        Ok(())
+    }
+
     /// Register custom scalar functions used by the database
     fn register_scalar_functions(&self) -> Result<(), DBError> {
         // Register helper function for determining if a block is a tenure change transaction
@@ -982,7 +1008,8 @@ impl SignerDb {
                 11 => Self::schema_12_migration(&sql_tx)?,
                 12 => Self::schema_13_migration(&sql_tx)?,
                 13 => Self::schema_14_migration(&sql_tx)?,
-                14 => break,
+                14 => Self::schema_15_migration(&sql_tx)?,
+                15 => break,
                 x => return Err(DBError::Other(format!(
                     "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
                     Self::SCHEMA_VERSION,
@@ -1000,6 +1027,36 @@ impl SignerDb {
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
             false,
         )
+    }
+
+    /// Get the latest known version from the db for the given slot_id/pk pair
+    pub fn get_latest_chunk_version(
+        &self,
+        pk: &StacksPublicKey,
+        slot_id: u32,
+    ) -> Result<Option<u32>, DBError> {
+        self.db
+            .query_row(
+                "SELECT slot_version FROM stackerdb_tracking WHERE public_key = ? AND slot_id = ?",
+                params![pk.to_hex(), slot_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(DBError::from)
+    }
+
+    /// Set the latest known version for the given slot_id/pk pair
+    pub fn set_latest_chunk_version(
+        &self,
+        pk: &StacksPublicKey,
+        slot_id: u32,
+        slot_version: u32,
+    ) -> Result<(), DBError> {
+        self.db.execute(
+            "INSERT OR REPLACE INTO stackerdb_tracking (public_key, slot_id, slot_version) VALUES (?, ?, ?)",
+            params![pk.to_hex(), slot_id, slot_version],
+        )?;
+        Ok(())
     }
 
     /// Get the signer state for the provided reward cycle if it exists in the database

@@ -662,7 +662,7 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
 }
 
 pub fn next_block_and<F>(
-    btc_controller: &mut BitcoinRegtestController,
+    btc_controller: &BitcoinRegtestController,
     timeout_secs: u64,
     mut check: F,
 ) -> Result<(), String>
@@ -673,12 +673,12 @@ where
 }
 
 pub fn next_block_and_controller<F>(
-    btc_controller: &mut BitcoinRegtestController,
+    btc_controller: &BitcoinRegtestController,
     timeout_secs: u64,
     mut check: F,
 ) -> Result<(), String>
 where
-    F: FnMut(&mut BitcoinRegtestController) -> Result<bool, String>,
+    F: FnMut(&BitcoinRegtestController) -> Result<bool, String>,
 {
     eprintln!("Issuing bitcoin block");
     btc_controller.build_next_block(1);
@@ -711,7 +711,7 @@ where
 /// Mine a bitcoin block, and wait until:
 ///  (1) a new block has been processed by the coordinator
 pub fn next_block_and_process_new_stacks_block(
-    btc_controller: &mut BitcoinRegtestController,
+    btc_controller: &BitcoinRegtestController,
     timeout_secs: u64,
     coord_channels: &Arc<Mutex<CoordinatorChannels>>,
 ) -> Result<(), String> {
@@ -736,7 +736,7 @@ pub fn next_block_and_process_new_stacks_block(
 ///  (2) 2 block commits have been issued ** or ** more than 10 seconds have
 ///      passed since (1) occurred
 pub fn next_block_and_mine_commit(
-    btc_controller: &mut BitcoinRegtestController,
+    btc_controller: &BitcoinRegtestController,
     timeout_secs: u64,
     node_conf: &Config,
     node_counters: &Counters,
@@ -753,7 +753,7 @@ pub fn next_block_and_mine_commit(
 /// Mine a bitcoin block, and wait until a block-commit has been issued, **or** a timeout occurs
 /// (timeout_secs)
 pub fn next_block_and_commits_only(
-    btc_controller: &mut BitcoinRegtestController,
+    btc_controller: &BitcoinRegtestController,
     timeout_secs: u64,
     node_conf: &Config,
     node_counters: &Counters,
@@ -773,7 +773,7 @@ pub fn next_block_and_commits_only(
 ///      passed since (1) occurred
 /// This waits for this check to pass on *all* supplied channels
 pub fn next_block_and_wait_for_commits(
-    btc_controller: &mut BitcoinRegtestController,
+    btc_controller: &BitcoinRegtestController,
     timeout_secs: u64,
     node_confs: &[&Config],
     node_counters: &[&Counters],
@@ -1237,7 +1237,7 @@ pub fn setup_epoch_3_reward_set(
     blocks_processed: &Arc<AtomicU64>,
     stacker_sks: &[StacksPrivateKey],
     signer_sks: &[StacksPrivateKey],
-    btc_regtest_controller: &mut BitcoinRegtestController,
+    btc_regtest_controller: &BitcoinRegtestController,
     num_stacking_cycles: Option<u64>,
 ) {
     assert_eq!(stacker_sks.len(), signer_sks.len());
@@ -1329,7 +1329,7 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
     blocks_processed: &Arc<AtomicU64>,
     stacker_sks: &[StacksPrivateKey],
     signer_sks: &[StacksPrivateKey],
-    btc_regtest_controller: &mut BitcoinRegtestController,
+    btc_regtest_controller: &BitcoinRegtestController,
     num_stacking_cycles: Option<u64>,
 ) {
     setup_epoch_3_reward_set(
@@ -1374,7 +1374,7 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
 pub fn boot_to_epoch_25(
     naka_conf: &Config,
     blocks_processed: &Arc<AtomicU64>,
-    btc_regtest_controller: &mut BitcoinRegtestController,
+    btc_regtest_controller: &BitcoinRegtestController,
 ) {
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
     let epoch_25 = &epochs[StacksEpochId::Epoch25];
@@ -1417,7 +1417,7 @@ pub fn boot_to_epoch_3_reward_set(
     blocks_processed: &Arc<AtomicU64>,
     stacker_sks: &[StacksPrivateKey],
     signer_sks: &[StacksPrivateKey],
-    btc_regtest_controller: &mut BitcoinRegtestController,
+    btc_regtest_controller: &BitcoinRegtestController,
     num_stacking_cycles: Option<u64>,
 ) {
     boot_to_epoch_3_reward_set_calculation_boundary(
@@ -9156,7 +9156,7 @@ fn utxo_check_on_startup_panic() {
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
-    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
     // Do not fully bootstrap the chain, so that the UTXOs are not yet available
     btc_regtest_controller.bootstrap_chain(99);
 
@@ -9232,7 +9232,7 @@ fn utxo_check_on_startup_recover() {
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
-    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    let btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
     // Do not fully bootstrap the chain, so that the UTXOs are not yet available
     btc_regtest_controller.bootstrap_chain(99);
     // btc_regtest_controller.bootstrap_chain(108);
@@ -9905,11 +9905,11 @@ fn test_shadow_recovery() {
         return;
     }
 
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(1, vec![]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(1, vec![]);
     signer_test.boot_to_epoch_3();
 
     let naka_conf = signer_test.running_nodes.conf.clone();
-    let btc_regtest_controller = &mut signer_test.running_nodes.btc_regtest_controller;
+    let btc_regtest_controller = &signer_test.running_nodes.btc_regtest_controller;
     let counters = signer_test.running_nodes.counters.clone();
 
     // make another tenure
@@ -10701,7 +10701,7 @@ fn test_tenure_extend_from_flashblocks() {
     let deployer_sk = account_keys.pop().unwrap();
     let deployer_addr = tests::to_addr(&deployer_sk);
 
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         1,
         initial_balances,
         |_| {},
@@ -10714,7 +10714,7 @@ fn test_tenure_extend_from_flashblocks() {
     let naka_conf = signer_test.running_nodes.conf.clone();
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-    let btc_regtest_controller = &mut signer_test.running_nodes.btc_regtest_controller;
+    let btc_regtest_controller = &signer_test.running_nodes.btc_regtest_controller;
     let coord_channel = signer_test.running_nodes.coord_channel.clone();
     let counters = signer_test.running_nodes.counters.clone();
 

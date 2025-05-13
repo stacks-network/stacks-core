@@ -4,13 +4,10 @@ use hashbrown::{HashMap, HashSet};
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
 
-#[cfg(feature = "rusqlite")]
-use crate::vm::analysis::mem_type_check;
-use crate::vm::analysis::ContractAnalysis;
+use crate::vm::analysis::{mem_type_check, ContractAnalysis};
 use crate::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::LimitedCostTracker;
-#[cfg(feature = "rusqlite")]
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::docs::{get_input_type_string, get_output_type_string, get_signature};
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, Value};
@@ -63,7 +60,6 @@ fn make_func_ref(func_name: &str, func_type: &FunctionType, description: &str) -
     }
 }
 
-#[cfg(feature = "rusqlite")]
 #[allow(clippy::expect_used)]
 fn get_constant_value(var_name: &str, contract_content: &str) -> Value {
     let to_eval = format!("{}\n{}", contract_content, var_name);
@@ -72,7 +68,6 @@ fn get_constant_value(var_name: &str, contract_content: &str) -> Value {
         .expect("BUG: failed to return constant value")
 }
 
-#[cfg(feature = "rusqlite")]
 fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity2);
@@ -99,7 +94,6 @@ fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
     })
 }
 
-#[cfg(feature = "rusqlite")]
 #[allow(clippy::expect_used)]
 pub fn make_docs(
     content: &str,
@@ -185,7 +179,6 @@ pub fn make_docs(
 
 /// Produce a set of documents for multiple contracts, supplied as a list of `(contract_name, contract_content)` pairs,
 ///  and a map from `contract_name` to corresponding `ContractSupportDocs`
-#[cfg(feature = "rusqlite")]
 pub fn produce_docs_refs<A: AsRef<str>, B: AsRef<str>>(
     contracts: &[(A, B)],
     support_docs: &HashMap<&str, ContractSupportDocs>,
