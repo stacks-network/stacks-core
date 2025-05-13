@@ -70,7 +70,13 @@ impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommit {
             ),
         }
 
-        // TODO: Should assert something here?
+        assert!(
+            self.ctx
+                .get_counters_for_miner(self.miner_index)
+                .naka_skip_commit_op
+                .get()
+                == true,
+        );
     }
 
     fn label(&self) -> String {

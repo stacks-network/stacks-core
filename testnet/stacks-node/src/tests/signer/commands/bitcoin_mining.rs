@@ -11,15 +11,8 @@ use crate::tests::neon_integrations::get_chain_info;
 use crate::tests::signer::v0::wait_for_block_pushed_by_miner_key;
 
 /// Command to mine a new Bitcoin block and trigger a tenure change for a specified miner.
-///
 /// This command simulates the process of a miner finding a Bitcoin block, submitting a tenure
-/// change transaction, and then mining a corresponding Stacks Nakamoto block. It is used to test
-/// the tenure rotation mechanism in the Nakamoto consensus protocol.
-///
-/// Upon execution, it:
-/// 1. Mines a Bitcoin block with a tenure change transaction (cause: BlockFound)
-/// 2. Waits for the specified miner to mine a Nakamoto block
-/// 3. Verifies the block was successfully added to the chain
+/// change transaction, and then mining a corresponding Stacks Nakamoto block.
 pub struct MineBitcoinBlockTenureChangeAndWaitForNakamotoBlock {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
@@ -209,8 +202,6 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlock {
                 .mine_bitcoin_blocks_and_confirm(&sortdb, 1, self.timeout_secs)
                 .expect("Failed to mine BTC block");
         }
-
-        // TODO: Should I assert something here?
     }
 
     fn label(&self) -> String {
@@ -266,8 +257,6 @@ impl Command<SignerTestState, SignerTestContext> for BuildNextBitcoinBlocks {
             .unwrap()
             .btc_regtest_controller_mut()
             .build_next_block(self.num_blocks);
-
-        // TODO: Should I assert something here?
     }
 
     fn label(&self) -> String {

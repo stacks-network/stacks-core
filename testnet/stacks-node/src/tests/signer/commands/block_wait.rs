@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use libsigner::v0::messages::RejectReason;
 use madhouse::{Command, CommandWrapper};
-use proptest::prelude::{Just, Strategy};
+use proptest::{prelude::{Just, Strategy}, prop_oneof};
 
 use super::context::{SignerTestContext, SignerTestState};
-use crate::tests::signer::v0::{
+use crate::tests::{neon_integrations::get_chain_info, signer::v0::{
     wait_for_block_global_rejection_with_reject_reason, wait_for_block_proposal,
     wait_for_block_pushed_by_miner_key,
-};
+}};
 
 /// Command to wait for a specific miner to produce a Nakamoto block during tenure change.
 /// This command monitors the blockchain until the specified miner successfully
@@ -17,11 +17,25 @@ use crate::tests::signer::v0::{
 pub struct WaitForNakamotoBlock {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
+    height_strategy: HeightStrategy,
+}
+
+enum HeightStrategy {
+    FromGlobalHeight,
+    FromMinerHeight,
 }
 
 impl WaitForNakamotoBlock {
-    pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
-        Self { ctx, miner_index }
+    fn new(ctx: Arc<SignerTestContext>, miner_index: usize, height_strategy: HeightStrategy) -> Self {
+        Self { ctx, miner_index, height_strategy }
+    }
+    
+    pub fn wait_from_global_height(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
+        Self::new(ctx, miner_index, HeightStrategy::FromGlobalHeight)
+    }
+    
+    pub fn wait_from_miner_height(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
+        Self::new(ctx, miner_index, HeightStrategy::FromMinerHeight)
     }
 }
 
@@ -47,19 +61,64 @@ impl Command<SignerTestState, SignerTestContext> for WaitForNakamotoBlock {
             _ => panic!("Invalid miner index: {}", self.miner_index),
         };
 
-        // Get the last confirmed height for that specific miner
-        let miner_last_confirmed_height = self
-            .ctx
-            .get_miner_last_confirmed_nakamoto_height(self.miner_index);
-        let expected_height = miner_last_confirmed_height + 1;
+        // Calculate expected height based on the strategy
+        match self.height_strategy {
+            HeightStrategy::FromGlobalHeight => {
+                // Use global height approach
+                let (conf_1, conf_2) = self.ctx.get_node_configs();
+                let conf = match self.miner_index {
+                    1 => conf_1,
+                    2 => conf_2,
+                    _ => panic!("Invalid miner index: {}", self.miner_index),
+                };
+                
+                let stacks_height_before = self.ctx.get_peer_stacks_tip_height();
+                let expected_height = stacks_height_before + 1;
+                
+                info!(
+                    "Waiting for Nakamoto block {} pushed by miner {}",
+                    expected_height, self.miner_index
+                );
 
-        info!(
-            "Waiting for Nakamoto block {} pushed by miner {}",
-            expected_height, self.miner_index
-        );
+                let miner_block = wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk)
+                    .expect(&format!("Failed to get block for miner {}", self.miner_index));
+                
+                let mined_block_height = miner_block.header.chain_length;
+                
+                info!(
+                    "Miner {} mined Nakamoto block at height {}",
+                    self.miner_index, mined_block_height
+                );
+                
+                let info_after = get_chain_info(&conf);
+                assert_eq!(info_after.stacks_tip, miner_block.header.block_hash());
+                assert_eq!(info_after.stacks_tip_height, mined_block_height);
+                assert_eq!(mined_block_height, stacks_height_before + 1);
+            },
+            HeightStrategy::FromMinerHeight => {
+                // Use miner-specific height approach
+                let miner_last_confirmed_height = self
+                    .ctx
+                    .get_counters_for_miner(self.miner_index)
+                    .naka_submitted_commit_last_stacks_tip
+                    .0
+                    .load(std::sync::atomic::Ordering::SeqCst);
+                let expected_height = miner_last_confirmed_height + 1;
+                
+                info!(
+                    "Waiting for Nakamoto block {} pushed by miner {}",
+                    expected_height, self.miner_index
+                );
 
-        let _miner_block = wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk)
-            .expect(&format!("Failed to get block {}", expected_height));
+                let _miner_block = wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk)
+                    .expect(&format!("Failed to get block {}", expected_height));
+                
+                info!(
+                    "Miner {} mined Nakamoto block at height {}",
+                    self.miner_index, expected_height
+                );
+            }
+        }
     }
 
     fn label(&self) -> String {
@@ -69,11 +128,18 @@ impl Command<SignerTestState, SignerTestContext> for WaitForNakamotoBlock {
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
+        use proptest::prelude::*;
         (1usize..=2usize).prop_flat_map(move |miner_index| {
-            Just(CommandWrapper::new(WaitForNakamotoBlock::new(
-                ctx.clone(),
-                miner_index,
-            )))
+            prop_oneof![
+                Just(CommandWrapper::new(WaitForNakamotoBlock::wait_from_global_height(
+                    ctx.clone(),
+                    miner_index
+                ))),
+                Just(CommandWrapper::new(WaitForNakamotoBlock::wait_from_miner_height(
+                    ctx.clone(),
+                    miner_index
+                )))
+            ]
         })
     }
 }
@@ -117,7 +183,10 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockProposal {
         // Get the last confirmed height for that specific miner
         let miner_last_confirmed_height = self
             .ctx
-            .get_miner_last_confirmed_nakamoto_height(self.miner_index);
+            .get_counters_for_miner(self.miner_index)
+            .naka_submitted_commit_last_stacks_tip
+            .0
+            .load(std::sync::atomic::Ordering::SeqCst);
         let expected_height = miner_last_confirmed_height + 1;
 
         info!("Waiting for block proposal at height {}", expected_height);

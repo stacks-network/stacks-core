@@ -70,7 +70,7 @@ impl SignerTestContext {
         self.miners.lock().unwrap().get_miner_public_key_hashes()
     }
 
-    pub fn get_miner_blocks_after_boot_to_epoch3(
+    pub fn get_miner_blocks_after_specified_block_height(
         &self,
         conf: &NeonConfig,
         start_block_height: u64,
@@ -93,16 +93,6 @@ impl SignerTestContext {
                     .unwrap()
             })
             .count()
-    }
-
-    pub fn get_miner_last_confirmed_nakamoto_height(&self, miner_index: usize) -> u64 {
-        let last_confirmed_nakamoto_height_counter = self
-            .get_counters_for_miner(miner_index)
-            .naka_submitted_commit_last_stacks_tip;
-
-        last_confirmed_nakamoto_height_counter
-            .0
-            .load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 

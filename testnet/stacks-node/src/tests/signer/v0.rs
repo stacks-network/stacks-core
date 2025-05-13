@@ -10778,11 +10778,11 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs_scenario() {
         (VerifyMinerWonSortition::new(test_context.clone(), MINER1)),
         (SubmitBlockCommit::new(test_context.clone(), MINER2)),
         (StacksMining::resume()),
-        (WaitForNakamotoBlock::new(test_context.clone(), MINER1)),
+        (WaitForNakamotoBlock::wait_from_miner_height(test_context.clone(), MINER1)),
         MineBitcoinBlock,
         (VerifyMinerWonSortition::new(test_context.clone(), MINER2)),
         VerifyLastSortitionWinnerReorged,
-        (WaitForNakamotoBlock::new(test_context.clone(), MINER2)),
+        (WaitForNakamotoBlock::wait_from_miner_height(test_context.clone(), MINER2)),
         ShutdownMiners
     ]
 }
@@ -10966,13 +10966,14 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         BootToEpoch3,
         (MinerCommitOp::disable_for(test_context.clone(), MINER1)),
         (MineBitcoinBlockTenureChangeAndWaitForNakamotoBlock::new(test_context.clone(), MINER1)),
+        //(WaitForNakamotoBlock::wait_from_global_height(test_context.clone(), MINER1)),
         (VerifyMinerWonSortition::new(test_context.clone(), MINER1)),
         (SubmitBlockCommit::new(test_context.clone(), MINER2)),
         (StacksMining::pause()),
         MineBitcoinBlock,
         (SubmitBlockCommit::new(test_context.clone(), MINER1)),
         (StacksMining::resume()),
-        (WaitForNakamotoBlock::new(test_context.clone(), MINER2)),
+        (WaitForNakamotoBlock::wait_from_miner_height(test_context.clone(), MINER2)),
         (VerifyMinerWonSortition::new(test_context.clone(), MINER2)),
         SendAndMineTransferTx,
         SendAndMineTransferTx,
@@ -10983,8 +10984,8 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
             RejectReason::ReorgNotAllowed,
             num_signers
         )),
-        (VerifyBlockCountAfterBootToEpoch3::new(test_context.clone(), MINER1, 1)), //FIXME: This takes the expected block count as a parameter, I don't like that
-        ShutdownMiners,
+        (VerifyBlockCountAfterBootToEpoch3::new(test_context.clone(), MINER1, 1)), // FIXME: This takes the expected block count as a parameter, I don't like that
+        ShutdownMiners, // FIXME: miners.shutdown() is never called
     ]
 }
 

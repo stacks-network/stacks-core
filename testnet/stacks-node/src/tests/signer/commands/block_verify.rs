@@ -59,14 +59,15 @@ impl Command<SignerTestState, SignerTestContext> for VerifyBlockCountAfterBootTo
             (conf, miner_pk)
         };
 
-        let miner_blocks_after_boot_to_epoch3 = self.ctx.get_miner_blocks_after_boot_to_epoch3(
-            &conf,
-            state.epoch_3_start_block_height.unwrap(),
-            &miner_pk,
-        );
+        let miner_blocks_after_boot_to_epoch3 =
+            self.ctx.get_miner_blocks_after_specified_block_height(
+                &conf,
+                state.epoch_3_start_block_height.unwrap(),
+                &miner_pk,
+            );
 
         assert_eq!(
-            miner_blocks_after_boot_to_epoch3, self.expected_block_count,
+            self.expected_block_count, miner_blocks_after_boot_to_epoch3,
             "Expected {} blocks from miner {}, but found {}",
             self.expected_block_count, self.miner_index, miner_blocks_after_boot_to_epoch3
         );

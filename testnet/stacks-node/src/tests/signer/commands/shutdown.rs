@@ -26,19 +26,16 @@ impl Command<SignerTestState, SignerTestContext> for ShutdownMiners {
 
     fn apply(&self, _state: &mut SignerTestState) {
         info!("Applying: Shutting down miners");
-        let mut shutdown_called = false;
+        //let mut shutdown_called = false;
 
-        // FIXME: Is this correct? I don't think so
+        // FIXME: miners.shutdown() is never called
         if let Ok(miners_arc) = Arc::try_unwrap(self.ctx.miners.clone()) {
             if let Ok(miners) = miners_arc.into_inner() {
                 miners.shutdown();
-                shutdown_called = true;
+                //shutdown_called = true;
             }
         }
-        /* assert!(
-            shutdown_called,
-            "Miners shutdown was expected to be called but wasn't."
-        ); */
+        // assert!(shutdown_called, "Miners shutdown was expected to be called but wasn't");
     }
 
     fn label(&self) -> String {
