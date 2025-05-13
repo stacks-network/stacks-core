@@ -3102,26 +3102,8 @@ fn tx_replay_forking_test() {
 
     let burn_blocks = test_observer::get_burn_blocks();
     let forked_blocks = burn_blocks.iter().rev().take(2).collect::<Vec<_>>();
-    let last_forked_tenure: ConsensusHash = hex_bytes(
-        &forked_blocks[0]
-            .get("consensus_hash")
-            .unwrap()
-            .as_str()
-            .unwrap()[2..],
-    )
-    .unwrap()
-    .as_slice()
-    .into();
-    let first_forked_tenure: ConsensusHash = hex_bytes(
-        &forked_blocks[1]
-            .get("consensus_hash")
-            .unwrap()
-            .as_str()
-            .unwrap()[2..],
-    )
-    .unwrap()
-    .as_slice()
-    .into();
+    let last_forked_tenure = forked_blocks[0].consensus_hash;
+    let first_forked_tenure = forked_blocks[1].consensus_hash;
 
     let tip = get_chain_info(&signer_test.running_nodes.conf);
     // Make a transfer tx (this will get forked)
@@ -3203,14 +3185,14 @@ fn tx_replay_forking_test() {
 
     let post_fork_1_nonce = get_account(&http_origin, &sender_addr).nonce;
 
-    let burn_blocks = test_observer::get_burn_blocks().clone();
+    let burn_blocks = test_observer::get_burn_blocks();
 
     for block in burn_blocks {
-        let height = block.get("burn_block_height").unwrap().as_number().unwrap();
-        if height.as_u64().unwrap() < 230 {
+        let height = block.burn_block_height;
+        if height < 230 {
             continue;
         }
-        let consensus_hash = block.get("consensus_hash").unwrap().as_str().unwrap();
+        let consensus_hash = block.consensus_hash;
         info!("---- Burn Block {height} {consensus_hash} ----");
     }
 
@@ -3310,26 +3292,8 @@ fn tx_replay_forking_test() {
 
     let burn_blocks = test_observer::get_burn_blocks();
     let forked_blocks = burn_blocks.iter().rev().take(2).collect::<Vec<_>>();
-    let last_forked_tenure: ConsensusHash = hex_bytes(
-        &forked_blocks[0]
-            .get("consensus_hash")
-            .unwrap()
-            .as_str()
-            .unwrap()[2..],
-    )
-    .unwrap()
-    .as_slice()
-    .into();
-    let first_forked_tenure: ConsensusHash = hex_bytes(
-        &forked_blocks[1]
-            .get("consensus_hash")
-            .unwrap()
-            .as_str()
-            .unwrap()[2..],
-    )
-    .unwrap()
-    .as_slice()
-    .into();
+    let last_forked_tenure = forked_blocks[0].consensus_hash;
+    let first_forked_tenure = forked_blocks[1].consensus_hash;
 
     let fork_info = signer_test
         .stacks_client
@@ -3491,26 +3455,8 @@ fn tx_replay_e2e_test() {
 
     let burn_blocks = test_observer::get_burn_blocks();
     let forked_blocks = burn_blocks.iter().rev().take(2).collect::<Vec<_>>();
-    let last_forked_tenure: ConsensusHash = hex_bytes(
-        &forked_blocks[0]
-            .get("consensus_hash")
-            .unwrap()
-            .as_str()
-            .unwrap()[2..],
-    )
-    .unwrap()
-    .as_slice()
-    .into();
-    let first_forked_tenure: ConsensusHash = hex_bytes(
-        &forked_blocks[1]
-            .get("consensus_hash")
-            .unwrap()
-            .as_str()
-            .unwrap()[2..],
-    )
-    .unwrap()
-    .as_slice()
-    .into();
+    let last_forked_tenure = forked_blocks[0].consensus_hash;
+    let first_forked_tenure = forked_blocks[1].consensus_hash;
 
     let tip = get_chain_info(&signer_test.running_nodes.conf);
     // Make a transfer tx (this will get forked)
@@ -3609,15 +3555,14 @@ fn tx_replay_e2e_test() {
 
     let post_fork_1_nonce = get_account(&http_origin, &sender_addr).nonce;
 
-    let burn_blocks = test_observer::get_burn_blocks().clone();
+    let burn_blocks = test_observer::get_burn_blocks();
 
     for block in burn_blocks {
-        let height = block.get("burn_block_height").unwrap().as_number().unwrap();
-        if height.as_u64().unwrap() < 230 {
+        let height = block.burn_block_height;
+        if height < 230 {
             continue;
         }
-        let consensus_hash = block.get("consensus_hash").unwrap().as_str().unwrap();
-        info!("---- Burn Block {height} {consensus_hash} ----");
+        info!("---- Burn Block {height} {} ----", block.consensus_hash);
     }
 
     let (signer_states, _) = signer_test.get_burn_updated_states();
@@ -4255,10 +4200,7 @@ fn end_of_tenure() {
         let blocks = test_observer::get_burn_blocks()
             .last()
             .unwrap()
-            .get("burn_block_height")
-            .unwrap()
-            .as_u64()
-            .unwrap();
+            .burn_block_height;
         Ok(blocks > final_reward_cycle_height_boundary)
     })
     .expect("Timed out waiting for burn block events");

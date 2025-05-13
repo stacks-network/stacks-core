@@ -10636,25 +10636,11 @@ fn consensus_hash_event_dispatcher() {
     let burn_blocks = test_observer::get_burn_blocks();
     let parent_burn_block = burn_blocks.get(burn_blocks.len() - 2).unwrap();
     let burn_block = burn_blocks.last().unwrap();
-    assert_eq!(
-        burn_block.get("consensus_hash").unwrap().as_str().unwrap(),
-        expected_consensus_hash
-    );
+    assert_eq!(burn_block.consensus_hash, tip.consensus_hash);
 
-    let parent_burn_block_hash = parent_burn_block
-        .get("burn_block_hash")
-        .unwrap()
-        .as_str()
-        .unwrap();
+    let parent_burn_block_hash = parent_burn_block.burn_block_hash;
 
-    assert_eq!(
-        burn_block
-            .get("parent_burn_block_hash")
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        parent_burn_block_hash
-    );
+    assert_eq!(burn_block.parent_burn_block_hash, parent_burn_block_hash);
 
     let stacks_blocks = test_observer::get_blocks();
     for block in stacks_blocks.iter() {
@@ -11225,15 +11211,12 @@ fn reload_miner_config() {
     info!("Burn block: {:?}", &burn_block);
 
     let reward_amount = burn_block
-        .get("reward_recipients")
-        .unwrap()
-        .as_array()
-        .unwrap()
+        .reward_recipients
         .iter()
         .map(|r| r.get("amt").unwrap().as_u64().unwrap())
         .sum::<u64>();
 
-    let burn_amount = burn_block.get("burn_amount").unwrap().as_u64().unwrap();
+    let burn_amount = burn_block.burn_amount;
 
     assert_eq!(reward_amount + burn_amount, old_burn_fee_cap);
 
@@ -11253,15 +11236,12 @@ fn reload_miner_config() {
     info!("Burn block: {:?}", &burn_block);
 
     let reward_amount = burn_block
-        .get("reward_recipients")
-        .unwrap()
-        .as_array()
-        .unwrap()
+        .reward_recipients
         .iter()
         .map(|r| r.get("amt").unwrap().as_u64().unwrap())
         .sum::<u64>();
 
-    let burn_amount = burn_block.get("burn_amount").unwrap().as_u64().unwrap();
+    let burn_amount = burn_block.burn_amount;
 
     assert_eq!(reward_amount + burn_amount, new_amount);
 

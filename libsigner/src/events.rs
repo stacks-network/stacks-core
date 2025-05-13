@@ -577,18 +577,26 @@ impl<T: SignerEventTrait> TryFrom<BlockValidateResponse> for SignerEvent<T> {
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct BurnBlockEvent {
+/// Burn block JSON payload from the event receiver
+#[derive(Debug, Deserialize, Clone)]
+pub struct BurnBlockEvent {
+    /// The hash of the burn block
     #[serde(with = "prefix_hex")]
-    burn_block_hash: BurnchainHeaderHash,
-    burn_block_height: u64,
-    reward_recipients: Vec<serde_json::Value>,
-    reward_slot_holders: Vec<String>,
-    burn_amount: u64,
+    pub burn_block_hash: BurnchainHeaderHash,
+    /// The height of the burn block
+    pub burn_block_height: u64,
+    /// The reward recipients
+    pub reward_recipients: Vec<serde_json::Value>,
+    /// The reward slot holders
+    pub reward_slot_holders: Vec<String>,
+    /// The amount of burn
+    pub burn_amount: u64,
+    /// The consensus hash of the burn block
     #[serde(with = "prefix_hex")]
-    consensus_hash: ConsensusHash,
+    pub consensus_hash: ConsensusHash,
+    /// The parent burn block hash
     #[serde(with = "prefix_hex")]
-    parent_burn_block_hash: BurnchainHeaderHash,
+    pub parent_burn_block_hash: BurnchainHeaderHash,
 }
 
 impl<T: SignerEventTrait> TryFrom<BurnBlockEvent> for SignerEvent<T> {
