@@ -141,7 +141,6 @@ impl SignerTestContext {
         println!("naka_miner_current_rejections: {}", counters.naka_miner_current_rejections.load(Ordering::SeqCst));
         println!("naka_miner_current_rejections_timeout_secs: {}", counters.naka_miner_current_rejections_timeout_secs.load(Ordering::SeqCst));
         println!("naka_skip_commit_op: {}", counters.naka_skip_commit_op.get());
-        
         println!("==============================");
     }
 }
