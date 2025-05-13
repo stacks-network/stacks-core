@@ -3404,7 +3404,7 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr, (send_amt + send_fee) * 10)],
         |_| {},
@@ -3416,10 +3416,9 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
     );
     let conf = signer_test.running_nodes.conf.clone();
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let burn_chain = signer_test
-        .running_nodes
-        .btc_regtest_controller
-        .get_burnchain();
+    let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
+    let burn_chain = btc_controller.get_burnchain();
+    let counters = &signer_test.running_nodes.counters;
 
     signer_test.boot_to_epoch_3();
     info!("------------------------- Reached Epoch 3.0 -------------------------");
@@ -3465,7 +3464,6 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
 
     info!("----- Trigger Bitcoin fork -----");
     //Fork on the third-to-last tenure of prev reward cycle
-    let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
     let burn_block_hash_to_fork = btc_controller.get_block_hash(new_burn_block_height - 2);
     btc_controller.invalidate_block(&burn_block_hash_to_fork);
     btc_controller.build_next_block(3);
@@ -3475,12 +3473,8 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
 
     //mine throught the fork (just check commits because of naka block mining stalled)
     TEST_MINE_STALL.set(true);
-    let submitted_commits = signer_test
-        .running_nodes
-        .counters
-        .naka_submitted_commits
-        .clone();
 
+    let submitted_commits = counters.naka_submitted_commits.clone();
     for i in 0..3 {
         let current_burn_height = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
         info!(
@@ -3488,14 +3482,10 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
             "current_burn_height" => current_burn_height,
         );
         let commits_count = submitted_commits.load(Ordering::SeqCst);
-        next_block_and(
-            &mut signer_test.running_nodes.btc_regtest_controller,
-            60,
-            || {
-                let commits_submitted = submitted_commits.load(Ordering::SeqCst);
-                Ok(commits_submitted > commits_count)
-            },
-        )
+        next_block_and(btc_controller, 60, || {
+            let commits_submitted = submitted_commits.load(Ordering::SeqCst);
+            Ok(commits_submitted > commits_count)
+        })
         .unwrap();
     }
 
