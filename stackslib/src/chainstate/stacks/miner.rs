@@ -2730,7 +2730,7 @@ impl BlockBuilder for StacksBlockBuilder {
     }
 }
 
-pub fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
+fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
     epoch_tx: &mut ClarityTx,
     builder: &mut B,
     mempool: &mut MemPoolDB,
@@ -2990,7 +2990,7 @@ pub fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
     Ok((tx_events, blocked))
 }
 
-pub fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
+fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
     epoch_tx: &mut ClarityTx,
     builder: &mut B,
     tip_height: u64,

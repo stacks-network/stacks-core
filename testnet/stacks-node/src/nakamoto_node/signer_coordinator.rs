@@ -21,6 +21,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use libsigner::v0::messages::{MinerSlotID, SignerMessage as SignerMessageV0};
+use libsigner::v0::signer_state::SignerStateMachine;
 use libsigner::{BlockProposal, BlockProposalData, SignerSession, StackerDBSession};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -28,7 +29,7 @@ use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::boot::{RewardSet, MINERS_NAME};
 use stacks::chainstate::stacks::db::StacksChainState;
-use stacks::chainstate::stacks::{Error as ChainstateError, StacksTransaction};
+use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::codec::StacksMessageCodec;
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::stackerdb::StackerDBs;
@@ -485,11 +486,9 @@ impl SignerCoordinator {
             .get_tenure_extend_timestamp(self.weight_threshold)
     }
 
-    /// Get the transactions that at least 70% of the signing power are
-    /// expecting to be replayed.
-    pub fn get_replay_transactions(&self) -> Vec<StacksTransaction> {
-        self.stackerdb_comms
-            .get_replay_transactions(self.weight_threshold)
+    /// Get the signer global state view if there is one
+    pub fn get_signer_global_state(&self) -> Option<SignerStateMachine> {
+        self.stackerdb_comms.get_signer_global_state()
     }
 
     /// Check if the tenure needs to change
