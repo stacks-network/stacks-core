@@ -28,13 +28,7 @@ impl Command<SignerTestState, SignerTestContext>
     for MineBitcoinBlockTenureChangeAndWaitForNakamotoBlock
 {
     fn check(&self, state: &SignerTestState) -> bool {
-        let (conf_1, conf_2) = self.ctx.get_node_configs();
-        let conf = match self.miner_index {
-            1 => conf_1,
-            2 => conf_2,
-            _ => panic!("Invalid miner index: {}", self.miner_index),
-        };
-
+        let conf = self.ctx.get_node_config(self.miner_index);
         let burn_height = get_chain_info(&conf).burn_block_height;
 
         let (miner_1_submitted_commit_last_burn_height, miner_2_submitted_commit_last_burn_height) = {
@@ -42,13 +36,11 @@ impl Command<SignerTestState, SignerTestContext>
                 .ctx
                 .get_counters_for_miner(1)
                 .naka_submitted_commit_last_burn_height
-                .0
                 .load(Ordering::SeqCst);
             let miner_2_height = self
                 .ctx
                 .get_counters_for_miner(2)
                 .naka_submitted_commit_last_burn_height
-                .0
                 .load(Ordering::SeqCst);
 
             (miner_1_height, miner_2_height)
@@ -85,44 +77,20 @@ impl Command<SignerTestState, SignerTestContext>
             self.miner_index
         );
 
-        let (stacks_height_before, conf, miner_pk) = {
-            let stacks_height_before = self.ctx.get_peer_stacks_tip_height();
+        let stacks_height_before = self.ctx.get_peer_stacks_tip_height();
+        let sortdb = self.ctx.get_sortition_db(self.miner_index);
 
-            let (conf_1, conf_2) = self.ctx.get_node_configs();
-            let conf = match self.miner_index {
-                1 => conf_1,
-                2 => conf_2,
-                _ => panic!("Invalid miner index: {}", self.miner_index),
-            };
-
-            let burnchain = conf.get_burnchain();
-            let sortdb = burnchain.open_sortition_db(true).unwrap();
-
-            self.ctx
-                .miners
-                .lock()
-                .unwrap()
-                .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
-                .expect("Failed to mine BTC block");
-
-            let (miner_pk_1, miner_pk_2) = self.ctx.get_miner_public_keys();
-            let miner_pk = match self.miner_index {
-                1 => miner_pk_1,
-                2 => miner_pk_2,
-                _ => panic!("Invalid miner index: {}", self.miner_index),
-            };
-
-            (stacks_height_before, conf, miner_pk)
-        };
-
-        info!(
-            "Waiting for Nakamoto block {} pushed by miner {}",
-            stacks_height_before + 1,
-            self.miner_index
-        );
+        self.ctx
+            .miners
+            .lock()
+            .unwrap()
+            .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
+            .expect("Failed to mine BTC block");
 
         // TODO: We already have the 'WaitForTenureChangeBlock' command, perhalps this is where this command can stop
         // 'WaitForTenureChangeBlock' command calculates the expected height from the last confirmed block for the specified miner - is that ok?
+
+        let miner_pk = self.ctx.get_miner_public_key(self.miner_index);
 
         let miner_block =
             wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk).expect(
@@ -136,7 +104,9 @@ impl Command<SignerTestState, SignerTestContext>
             self.miner_index, mined_block_height
         );
 
+        let conf = self.ctx.get_node_config(self.miner_index);
         let info_after = get_chain_info(&conf);
+
         assert_eq!(info_after.stacks_tip, miner_block.header.block_hash());
         assert_eq!(info_after.stacks_tip_height, mined_block_height);
         assert_eq!(mined_block_height, stacks_height_before + 1);
@@ -187,12 +157,8 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlock {
             self.timeout_secs
         );
 
-        let sortdb = {
-            let (conf_1, _) = self.ctx.get_node_configs();
-            let burnchain = conf_1.get_burnchain();
-            let sortdb = burnchain.open_sortition_db(true).unwrap();
-            sortdb
-        };
+        // We can use miner 1 sortition db - it's the same for both miners
+        let sortdb = self.ctx.get_sortition_db(1);
 
         {
             self.ctx

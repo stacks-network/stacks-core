@@ -34,8 +34,9 @@ impl Command<SignerTestState, SignerTestContext> for SendAndMineTransferTx {
             self.timeout_secs
         );
 
-        let (conf_1, _) = self.ctx.get_node_configs();
-        let stacks_height_before = get_chain_info(&conf_1).stacks_tip_height;
+        // We can use miner 1 conf to get the sortition db - it's the same for both miners
+        let conf = self.ctx.get_node_config(1);
+        let stacks_height_before = get_chain_info(&conf).stacks_tip_height;
 
         self.ctx
             .miners
@@ -44,7 +45,7 @@ impl Command<SignerTestState, SignerTestContext> for SendAndMineTransferTx {
             .send_and_mine_transfer_tx(self.timeout_secs)
             .expect("Failed to send and mine transfer tx");
 
-        let stacks_height_after = get_chain_info(&conf_1).stacks_tip_height;
+        let stacks_height_after = get_chain_info(&conf).stacks_tip_height;
         assert_eq!(
             stacks_height_after,
             stacks_height_before + 1,

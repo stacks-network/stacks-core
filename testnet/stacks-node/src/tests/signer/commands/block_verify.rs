@@ -42,22 +42,8 @@ impl Command<SignerTestState, SignerTestContext> for VerifyBlockCountAfterBootTo
             self.miner_index, self.expected_block_count
         );
 
-        let (conf, miner_pk) = {
-            let (conf_1, conf_2) = self.ctx.get_node_configs();
-            let conf = match self.miner_index {
-                1 => conf_1,
-                2 => conf_2,
-                _ => panic!("Invalid miner index: {}", self.miner_index),
-            };
-            let (miner_pk_1, miner_pk_2) = self.ctx.get_miner_public_keys();
-            let miner_pk = match self.miner_index {
-                1 => miner_pk_1,
-                2 => miner_pk_2,
-                _ => panic!("Invalid miner index: {}", self.miner_index),
-            };
-
-            (conf, miner_pk)
-        };
+        let conf = self.ctx.get_node_config(self.miner_index);
+        let miner_pk = self.ctx.get_miner_public_key(self.miner_index);
 
         let miner_blocks_after_boot_to_epoch3 =
             self.ctx.get_miner_blocks_after_specified_block_height(

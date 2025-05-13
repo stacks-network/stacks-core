@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use madhouse::{State, TestContext};
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::config::Config as NeonConfig;
 use stacks::types::chainstate::StacksPublicKey;
 use stacks::util::hash::{Hash160, Sha512Trunc256Sum};
@@ -54,20 +55,42 @@ impl SignerTestContext {
             .get_counters_for_miner(miner_index)
     }
 
-    pub fn get_node_configs(&self) -> (NeonConfig, NeonConfig) {
-        self.miners.lock().unwrap().get_node_configs()
+    pub fn get_node_config(&self, miner_index: usize) -> NeonConfig {
+        let configs = self.miners.lock().unwrap().get_node_configs();
+        match miner_index {
+            1 => configs.0,
+            2 => configs.1,
+            _ => panic!("Invalid miner_index: {}", miner_index),
+        }
+    }
+
+    pub fn get_miner_public_key(&self, miner_index: usize) -> StacksPublicKey {
+        let keys = self.miners.lock().unwrap().get_miner_public_keys();
+        match miner_index {
+            1 => keys.0,
+            2 => keys.1,
+            _ => panic!("Invalid miner_index: {}", miner_index),
+        }
+    }
+
+    pub fn get_miner_public_key_hash(&self, miner_index: usize) -> Hash160 {
+        let hashes = self.miners.lock().unwrap().get_miner_public_key_hashes();
+        match miner_index {
+            1 => hashes.0,
+            2 => hashes.1,
+            _ => panic!("Invalid miner_index: {}", miner_index),
+        }
     }
 
     pub fn get_peer_stacks_tip_height(&self) -> u64 {
         self.miners.lock().unwrap().get_peer_stacks_tip_height()
     }
 
-    pub fn get_miner_public_keys(&self) -> (StacksPublicKey, StacksPublicKey) {
-        self.miners.lock().unwrap().get_miner_public_keys()
-    }
-
-    pub fn get_miner_public_key_hashes(&self) -> (Hash160, Hash160) {
-        self.miners.lock().unwrap().get_miner_public_key_hashes()
+    pub fn get_sortition_db(&self, miner_index: usize) -> SortitionDB {
+        let conf = self.get_node_config(miner_index);
+        let burnchain = conf.get_burnchain();
+        let sortdb = burnchain.open_sortition_db(true).unwrap();
+        sortdb
     }
 
     pub fn get_miner_blocks_after_specified_block_height(
@@ -79,8 +102,6 @@ impl SignerTestContext {
         get_nakamoto_headers(conf)
             .into_iter()
             .filter(|block| {
-                // TODO: Before it was ==
-                // Does it make sense to do <= to exclude previous blocks also?
                 if block.stacks_block_height <= start_block_height {
                     return false;
                 }

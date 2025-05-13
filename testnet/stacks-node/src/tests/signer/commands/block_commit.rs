@@ -41,15 +41,7 @@ impl Command<SignerTestState, SignerTestContext> for SubmitBlockCommit {
             self.miner_index
         );
 
-        let (conf_1, conf_2) = self.ctx.get_node_configs();
-        let conf = match self.miner_index {
-            1 => conf_1,
-            2 => conf_2,
-            _ => panic!("Invalid miner index: {}", self.miner_index),
-        };
-
-        let burnchain = conf.get_burnchain();
-        let sortdb = burnchain.open_sortition_db(true).unwrap();
+        let sortdb = self.ctx.get_sortition_db(self.miner_index);
 
         match self.miner_index {
             1 => self

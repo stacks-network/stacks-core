@@ -34,8 +34,9 @@ impl Command<SignerTestState, SignerTestContext> for BootToEpoch3 {
 
         self.ctx.miners.lock().unwrap().boot_to_epoch_3();
 
-        let (conf_1, _) = self.ctx.get_node_configs();
-        let burn_block_height = get_chain_info(&conf_1).burn_block_height;
+        // We can use miner 1 conf to get the chain info - it's the same for both miners
+        let conf = self.ctx.get_node_config(1);
+        let burn_block_height = get_chain_info(&conf).burn_block_height;
 
         state.epoch_3_start_block_height = Some(self.ctx.get_peer_stacks_tip_height());
 

@@ -35,21 +35,8 @@ impl Command<SignerTestState, SignerTestContext> for VerifyMinerWonSortition {
             self.miner_index
         );
 
-        let (sortdb, miner_pkh) = {
-            let (conf_1, conf_2) = self.ctx.get_node_configs();
-            let (miner_pkh_1, miner_pkh_2) = self.ctx.get_miner_public_key_hashes();
-            match self.miner_index {
-                1 => (
-                    conf_1.get_burnchain().open_sortition_db(true).unwrap(),
-                    miner_pkh_1,
-                ),
-                2 => (
-                    conf_2.get_burnchain().open_sortition_db(true).unwrap(),
-                    miner_pkh_2,
-                ),
-                _ => panic!("Invalid miner index: {}", self.miner_index),
-            }
-        };
+        let sortdb = self.ctx.get_sortition_db(self.miner_index);
+        let miner_pkh = self.ctx.get_miner_public_key_hash(self.miner_index);
 
         verify_sortition_winner(&sortdb, &miner_pkh);
     }
