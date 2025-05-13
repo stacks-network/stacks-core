@@ -60,8 +60,7 @@ impl Command<SignerTestState, SignerTestContext> for VerifyBlockCountAfterBootTo
 
         info!(
             "Verified miner {} has exactly {} blocks after epoch 3 boot",
-            self.miner_index, 
-            self.expected_block_count
+            self.miner_index, self.expected_block_count
         );
     }
 

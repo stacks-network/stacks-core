@@ -1,6 +1,6 @@
 use std::fmt::Debug;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use madhouse::{State, TestContext};
@@ -119,28 +119,98 @@ impl SignerTestContext {
 
     pub fn _print_counters(&self, miner_index: usize) {
         let counters = self.get_counters_for_miner(miner_index);
-        
+
         println!("=== COUNTERS FOR MINER {} ===", miner_index);
-        println!("blocks_processed: {}", counters.blocks_processed.load(Ordering::SeqCst));
-        println!("microblocks_processed: {}", counters.microblocks_processed.load(Ordering::SeqCst));
-        println!("missed_tenures: {}", counters.missed_tenures.load(Ordering::SeqCst));
-        println!("missed_microblock_tenures: {}", counters.missed_microblock_tenures.load(Ordering::SeqCst));
-        println!("cancelled_commits: {}", counters.cancelled_commits.load(Ordering::SeqCst));
-        println!("sortitions_processed: {}", counters.sortitions_processed.load(Ordering::SeqCst));
-        println!("naka_submitted_vrfs: {}", counters.naka_submitted_vrfs.load(Ordering::SeqCst));
-        println!("naka_submitted_commits: {}", counters.naka_submitted_commits.load(Ordering::SeqCst));
-        println!("naka_submitted_commit_last_burn_height: {}", counters.naka_submitted_commit_last_burn_height.load(Ordering::SeqCst));
-        println!("naka_mined_blocks: {}", counters.naka_mined_blocks.load(Ordering::SeqCst));
-        println!("naka_rejected_blocks: {}", counters.naka_rejected_blocks.load(Ordering::SeqCst));
-        println!("naka_proposed_blocks: {}", counters.naka_proposed_blocks.load(Ordering::SeqCst));
-        println!("naka_mined_tenures: {}", counters.naka_mined_tenures.load(Ordering::SeqCst));
-        println!("naka_signer_pushed_blocks: {}", counters.naka_signer_pushed_blocks.load(Ordering::SeqCst));
-        println!("naka_miner_directives: {}", counters.naka_miner_directives.load(Ordering::SeqCst));
-        println!("naka_submitted_commit_last_stacks_tip: {}", counters.naka_submitted_commit_last_stacks_tip.load(Ordering::SeqCst));
-        println!("naka_submitted_commit_last_commit_amount: {}", counters.naka_submitted_commit_last_commit_amount.load(Ordering::SeqCst));
-        println!("naka_miner_current_rejections: {}", counters.naka_miner_current_rejections.load(Ordering::SeqCst));
-        println!("naka_miner_current_rejections_timeout_secs: {}", counters.naka_miner_current_rejections_timeout_secs.load(Ordering::SeqCst));
-        println!("naka_skip_commit_op: {}", counters.naka_skip_commit_op.get());
+        println!(
+            "blocks_processed: {}",
+            counters.blocks_processed.load(Ordering::SeqCst)
+        );
+        println!(
+            "microblocks_processed: {}",
+            counters.microblocks_processed.load(Ordering::SeqCst)
+        );
+        println!(
+            "missed_tenures: {}",
+            counters.missed_tenures.load(Ordering::SeqCst)
+        );
+        println!(
+            "missed_microblock_tenures: {}",
+            counters.missed_microblock_tenures.load(Ordering::SeqCst)
+        );
+        println!(
+            "cancelled_commits: {}",
+            counters.cancelled_commits.load(Ordering::SeqCst)
+        );
+        println!(
+            "sortitions_processed: {}",
+            counters.sortitions_processed.load(Ordering::SeqCst)
+        );
+        println!(
+            "naka_submitted_vrfs: {}",
+            counters.naka_submitted_vrfs.load(Ordering::SeqCst)
+        );
+        println!(
+            "naka_submitted_commits: {}",
+            counters.naka_submitted_commits.load(Ordering::SeqCst)
+        );
+        println!(
+            "naka_submitted_commit_last_burn_height: {}",
+            counters
+                .naka_submitted_commit_last_burn_height
+                .load(Ordering::SeqCst)
+        );
+        println!(
+            "naka_mined_blocks: {}",
+            counters.naka_mined_blocks.load(Ordering::SeqCst)
+        );
+        println!(
+            "naka_rejected_blocks: {}",
+            counters.naka_rejected_blocks.load(Ordering::SeqCst)
+        );
+        println!(
+            "naka_proposed_blocks: {}",
+            counters.naka_proposed_blocks.load(Ordering::SeqCst)
+        );
+        println!(
+            "naka_mined_tenures: {}",
+            counters.naka_mined_tenures.load(Ordering::SeqCst)
+        );
+        println!(
+            "naka_signer_pushed_blocks: {}",
+            counters.naka_signer_pushed_blocks.load(Ordering::SeqCst)
+        );
+        println!(
+            "naka_miner_directives: {}",
+            counters.naka_miner_directives.load(Ordering::SeqCst)
+        );
+        println!(
+            "naka_submitted_commit_last_stacks_tip: {}",
+            counters
+                .naka_submitted_commit_last_stacks_tip
+                .load(Ordering::SeqCst)
+        );
+        println!(
+            "naka_submitted_commit_last_commit_amount: {}",
+            counters
+                .naka_submitted_commit_last_commit_amount
+                .load(Ordering::SeqCst)
+        );
+        println!(
+            "naka_miner_current_rejections: {}",
+            counters
+                .naka_miner_current_rejections
+                .load(Ordering::SeqCst)
+        );
+        println!(
+            "naka_miner_current_rejections_timeout_secs: {}",
+            counters
+                .naka_miner_current_rejections_timeout_secs
+                .load(Ordering::SeqCst)
+        );
+        println!(
+            "naka_skip_commit_op: {}",
+            counters.naka_skip_commit_op.get()
+        );
         println!("==============================");
     }
 }

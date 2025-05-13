@@ -23,9 +23,7 @@ impl MineBitcoinBlockAndTenureChange {
     }
 }
 
-impl Command<SignerTestState, SignerTestContext>
-    for MineBitcoinBlockAndTenureChange
-{
+impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockAndTenureChange {
     fn check(&self, state: &SignerTestState) -> bool {
         let conf = self.ctx.get_node_config(self.miner_index);
         let burn_height = get_chain_info(&conf).burn_block_height;
@@ -99,9 +97,10 @@ impl Command<SignerTestState, SignerTestContext>
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1usize..=2usize).prop_flat_map(move |miner_index| {
-            Just(CommandWrapper::new(
-                MineBitcoinBlockAndTenureChange::new(ctx.clone(), miner_index),
-            ))
+            Just(CommandWrapper::new(MineBitcoinBlockAndTenureChange::new(
+                ctx.clone(),
+                miner_index,
+            )))
         })
     }
 }

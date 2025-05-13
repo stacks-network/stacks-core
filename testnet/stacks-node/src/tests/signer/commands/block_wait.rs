@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use libsigner::v0::messages::RejectReason;
 use madhouse::{Command, CommandWrapper};
@@ -111,25 +111,25 @@ impl Command<SignerTestState, SignerTestContext> for WaitForNakamotoBlock {
                     .naka_submitted_commit_last_stacks_tip
                     .load(Ordering::SeqCst);
                 let expected_height = miner_last_confirmed_height + 1;
-            
+
                 info!(
                     "Waiting for Nakamoto block {} pushed by miner {}",
                     expected_height, self.miner_index
                 );
-            
+
                 let miner_block =
                     wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk)
                         .expect(&format!("Failed to get block {}", expected_height));
-            
+
                 let mined_block_height = miner_block.header.chain_length;
-            
+
                 info!(
                     "Miner {} mined Nakamoto block at height {}",
                     self.miner_index, mined_block_height
                 );
-            
+
                 let info_after = get_chain_info(&conf);
-            
+
                 assert_eq!(info_after.stacks_tip, miner_block.header.block_hash());
                 assert_eq!(info_after.stacks_tip_height, mined_block_height);
                 assert_eq!(mined_block_height, expected_height);
@@ -159,7 +159,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForNakamotoBlock {
                 assert_eq!(info_after.stacks_tip, miner_block.header.block_hash());
                 assert_eq!(info_after.stacks_tip_height, mined_block_height);
                 assert_eq!(mined_block_height, expected_height);
-            }            
+            }
         }
     }
 
