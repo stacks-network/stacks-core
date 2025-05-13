@@ -119,10 +119,25 @@ impl SignerTestContext {
 
 #[derive(Debug, Default)]
 pub struct SignerTestState {
+    // Setted by: BootToEpoch3
+    // Gotten by: BootToEpoch3, MineBitcoinBlockAndTenureChange
     pub is_booted_to_nakamoto: bool,
+
+    // Setted by: StacksMining
+    // Gotten by: StacksMining, WaitForNakamotoBlock
     pub mining_stalled: bool,
+
+    // Setted by: BootToEpoch3
+    // Gotten by: VerifyBlockCountAfterBootToEpoch3
     pub epoch_3_start_block_height: Option<u64>,
+
+    // Setted by: WaitForBlockProposal
+    // Gotten by: WaitForBlockRejectionWithRejectReason
     pub last_block_hash: Option<Sha512Trunc256Sum>,
+    
+    // Setted by: MineBitcoinBlockAndTenureChange
+    // Gotten by: WaitForNakamotoBlock
+    pub last_block_height: Option<u64>,
 }
 
 impl SignerTestState {}

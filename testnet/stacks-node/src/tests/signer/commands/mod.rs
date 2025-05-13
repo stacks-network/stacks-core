@@ -12,7 +12,7 @@ mod stacks_mining;
 mod transfer;
 
 pub use bitcoin_mining::{
-    BuildNextBitcoinBlocks, MineBitcoinBlock, MineBitcoinBlockTenureChangeAndWaitForNakamotoBlock,
+    BuildNextBitcoinBlocks, MineBitcoinBlock, MineBitcoinBlockAndTenureChange,
 };
 pub use block_commit::SubmitBlockCommit;
 pub use block_verify::VerifyBlockCountAfterBootToEpoch3;

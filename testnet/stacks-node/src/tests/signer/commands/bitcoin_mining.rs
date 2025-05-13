@@ -8,24 +8,23 @@ use tracing::info;
 
 use super::context::{SignerTestContext, SignerTestState};
 use crate::tests::neon_integrations::get_chain_info;
-use crate::tests::signer::v0::wait_for_block_pushed_by_miner_key;
 
 /// Command to mine a new Bitcoin block and trigger a tenure change for a specified miner.
 /// This command simulates the process of a miner finding a Bitcoin block, submitting a tenure
 /// change transaction, and then mining a corresponding Stacks Nakamoto block.
-pub struct MineBitcoinBlockTenureChangeAndWaitForNakamotoBlock {
+pub struct MineBitcoinBlockAndTenureChange {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
 }
 
-impl MineBitcoinBlockTenureChangeAndWaitForNakamotoBlock {
+impl MineBitcoinBlockAndTenureChange {
     pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
         Self { ctx, miner_index }
     }
 }
 
 impl Command<SignerTestState, SignerTestContext>
-    for MineBitcoinBlockTenureChangeAndWaitForNakamotoBlock
+    for MineBitcoinBlockAndTenureChange
 {
     fn check(&self, state: &SignerTestState) -> bool {
         let conf = self.ctx.get_node_config(self.miner_index);
@@ -71,13 +70,14 @@ impl Command<SignerTestState, SignerTestContext>
             && burn_height > other_miner_height
     }
 
-    fn apply(&self, _state: &mut SignerTestState) {
+    fn apply(&self, state: &mut SignerTestState) {
         info!(
             "Applying: Miner {} mining Bitcoin block and tenure change tx",
             self.miner_index
         );
 
-        let stacks_height_before = self.ctx.get_peer_stacks_tip_height();
+        state.last_block_height = Some(self.ctx.get_peer_stacks_tip_height());
+
         let sortdb = self.ctx.get_sortition_db(self.miner_index);
 
         self.ctx
@@ -86,30 +86,6 @@ impl Command<SignerTestState, SignerTestContext>
             .unwrap()
             .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
             .expect("Failed to mine BTC block");
-
-        // TODO: We already have the 'WaitForTenureChangeBlock' command, perhalps this is where this command can stop
-        // 'WaitForTenureChangeBlock' command calculates the expected height from the last confirmed block for the specified miner - is that ok?
-
-        let miner_pk = self.ctx.get_miner_public_key(self.miner_index);
-
-        let miner_block =
-            wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk).expect(
-                &format!("Failed to get block for miner {}", self.miner_index),
-            );
-
-        let mined_block_height = miner_block.header.chain_length;
-
-        info!(
-            "Miner {} mined Nakamoto block height: {}",
-            self.miner_index, mined_block_height
-        );
-
-        let conf = self.ctx.get_node_config(self.miner_index);
-        let info_after = get_chain_info(&conf);
-
-        assert_eq!(info_after.stacks_tip, miner_block.header.block_hash());
-        assert_eq!(info_after.stacks_tip_height, mined_block_height);
-        assert_eq!(mined_block_height, stacks_height_before + 1);
     }
 
     fn label(&self) -> String {
@@ -124,7 +100,7 @@ impl Command<SignerTestState, SignerTestContext>
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1usize..=2usize).prop_flat_map(move |miner_index| {
             Just(CommandWrapper::new(
-                MineBitcoinBlockTenureChangeAndWaitForNakamotoBlock::new(ctx.clone(), miner_index),
+                MineBitcoinBlockAndTenureChange::new(ctx.clone(), miner_index),
             ))
         })
     }

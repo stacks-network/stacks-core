@@ -26,6 +26,7 @@ pub struct WaitForNakamotoBlock {
 enum HeightStrategy {
     FromGlobalHeight,
     FromMinerHeight,
+    FromStateHeight,
 }
 
 impl WaitForNakamotoBlock {
@@ -48,6 +49,10 @@ impl WaitForNakamotoBlock {
     pub fn wait_from_miner_height(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
         Self::new(ctx, miner_index, HeightStrategy::FromMinerHeight)
     }
+
+    pub fn wait_from_state_height(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
+        Self::new(ctx, miner_index, HeightStrategy::FromStateHeight)
+    }
 }
 
 impl Command<SignerTestState, SignerTestContext> for WaitForNakamotoBlock {
@@ -59,7 +64,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForNakamotoBlock {
         !state.mining_stalled
     }
 
-    fn apply(&self, _state: &mut SignerTestState) {
+    fn apply(&self, state: &mut SignerTestState) {
         info!(
             "Applying: Waiting for Nakamoto block from miner {}",
             self.miner_index
@@ -94,31 +99,66 @@ impl Command<SignerTestState, SignerTestContext> for WaitForNakamotoBlock {
 
                 assert_eq!(info_after.stacks_tip, miner_block.header.block_hash());
                 assert_eq!(info_after.stacks_tip_height, mined_block_height);
-                assert_eq!(mined_block_height, stacks_height_before + 1);
+                assert_eq!(mined_block_height, expected_height);
             }
             HeightStrategy::FromMinerHeight => {
                 // Use miner-specific height approach
+                let conf = self.ctx.get_node_config(self.miner_index);
                 let miner_last_confirmed_height = self
                     .ctx
                     .get_counters_for_miner(self.miner_index)
                     .naka_submitted_commit_last_stacks_tip
                     .load(std::sync::atomic::Ordering::SeqCst);
                 let expected_height = miner_last_confirmed_height + 1;
-
+            
                 info!(
                     "Waiting for Nakamoto block {} pushed by miner {}",
                     expected_height, self.miner_index
                 );
-
-                let _miner_block =
+            
+                let miner_block =
                     wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk)
                         .expect(&format!("Failed to get block {}", expected_height));
+            
+                let mined_block_height = miner_block.header.chain_length;
+            
+                info!(
+                    "Miner {} mined Nakamoto block at height {}",
+                    self.miner_index, mined_block_height
+                );
+            
+                let info_after = get_chain_info(&conf);
+            
+                assert_eq!(info_after.stacks_tip, miner_block.header.block_hash());
+                assert_eq!(info_after.stacks_tip_height, mined_block_height);
+                assert_eq!(mined_block_height, expected_height);
+            }
+            HeightStrategy::FromStateHeight => {
+                // Get the height from the state
+                let conf = self.ctx.get_node_config(self.miner_index);
+                let expected_height = state.last_block_height.unwrap() + 1;
+
+                let miner_block =
+                    wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk).expect(
+                        &format!(
+                            "Failed to get block for miner {} - Strategy: {:?}",
+                            self.miner_index, self.height_strategy
+                        ),
+                    );
+
+                let mined_block_height = miner_block.header.chain_length;
 
                 info!(
                     "Miner {} mined Nakamoto block at height {}",
-                    self.miner_index, expected_height
+                    self.miner_index, mined_block_height
                 );
-            }
+
+                let info_after = get_chain_info(&conf);
+
+                assert_eq!(info_after.stacks_tip, miner_block.header.block_hash());
+                assert_eq!(info_after.stacks_tip_height, mined_block_height);
+                assert_eq!(mined_block_height, expected_height);
+            }            
         }
     }
 
