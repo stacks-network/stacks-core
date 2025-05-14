@@ -49,6 +49,9 @@ pub enum ClientError {
     /// Failed to sign stacker-db chunk
     #[error("Failed to sign stacker-db chunk: {0}")]
     FailToSign(#[from] StackerDBError),
+    /// Failed on a DBError
+    #[error("SignerDB database error: {0}")]
+    SignerDBError(#[from] blockstack_lib::util_lib::db::Error),
     /// Stacker-db instance rejected the chunk
     #[error("Stacker-db rejected the chunk. Reason: {0}")]
     PutChunkRejected(String),
