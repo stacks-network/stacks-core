@@ -4,8 +4,6 @@ name: Core build tests
 #   - PRs are (re)opened against develop branch
 on:
   workflow_call:
-  ## for testing workflow. remove for PR
-  workflow_dispatch:
     
 jobs:
   check-consts:
