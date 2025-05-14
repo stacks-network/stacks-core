@@ -1695,6 +1695,7 @@ impl PeerDB {
 
         // UTC time
         let now_secs = util::get_epoch_time_secs();
+        // Extract the epoch from the peer_version. The epoch is stored in the last byte.
         let node_peer_version = peer_version & 0x000000ff;
 
         if always_include_allowed {

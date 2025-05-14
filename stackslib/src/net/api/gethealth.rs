@@ -155,16 +155,31 @@ impl RPCRequestHandler for RPCGetHealthRequestHandler {
             );
 
             let peer_max_height_opt = {
-                // get max block height amongst bootstrap nodes
-                match network.inv_state.as_ref() {
-                    Some(inv_state) => {
-                        inv_state.get_max_height_of_neighbors(&initial_neighbors, ibd)
+                if current_epoch.epoch_id < StacksEpochId::Epoch30 {
+                    // get max block height amongst bootstrap nodes
+                    match network.inv_state.as_ref() {
+                        Some(inv_state) => {
+                            inv_state.get_max_height_of_neighbors(&initial_neighbors, ibd)
+                        }
+                        None => {
+                            return create_error_response(
+                                &preamble,
+                                "Peer inventory state (Epoch 2.x) not found, unable to determine health.",
+                            );
+                        }
                     }
-                    None => {
-                        return create_error_response(
-                            &preamble,
-                            "Peer inventory state (Epoch 2.x) not found, unable to determine health.",
-                        );
+                } else {
+                    match network.inv_state_nakamoto.as_ref() {
+                        Some(_nakamoto_inv_state) => {
+                            // TODO: Implement Nakamoto peer height determination
+                            Some(0u64) // placeholder
+                        }
+                        None => {
+                            return create_error_response(
+                                &preamble,
+                                "Peer inventory state (Epoch 3.0+) not found, unable to determine health.",
+                            );
+                        }
                     }
                 }
             };
