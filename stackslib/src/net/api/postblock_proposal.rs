@@ -55,7 +55,8 @@ use crate::chainstate::stacks::miner::{
     TransactionSkipped,
 };
 use crate::chainstate::stacks::{
-    Error as ChainError, StacksBlock, StacksBlockHeader, StacksTransaction, TransactionPayload,
+    Error as ChainError, StacksBlock, StacksBlockHeader, StacksTransaction, TenureChangeCause,
+    TenureChangePayload, TransactionPayload,
 };
 use crate::clarity_vm::clarity::Error as ClarityError;
 use crate::core::mempool::{MemPoolDB, ProposalCallbackReceiver};
@@ -579,6 +580,16 @@ impl NakamotoBlockProposal {
             // mineable transaction from this list.
             if let Some(ref mut replay_txs) = replay_txs_maybe {
                 loop {
+                    if matches!(
+                        tx.payload,
+                        TransactionPayload::TenureChange(TenureChangePayload {
+                            cause: TenureChangeCause::Extended,
+                            ..
+                        })
+                    ) {
+                        // Allow this to happen, tenure extend checks happen elsewhere.
+                        break;
+                    }
                     let Some(replay_tx) = replay_txs.pop_front() else {
                         // During transaction replay, we expect that the block only
                         // contains transactions from the replay set. Thus, if we're here,
@@ -586,7 +597,7 @@ impl NakamotoBlockProposal {
                         // and we should reject the block.
                         return Err(BlockValidateRejectReason {
                             reason_code: ValidateRejectCode::InvalidTransactionReplay,
-                            reason: "Transaction is not in the replay set".into(),
+                            reason: "Block contains transactions beyond the replay set".into(),
                         });
                     };
                     if replay_tx.txid() == tx.txid() {

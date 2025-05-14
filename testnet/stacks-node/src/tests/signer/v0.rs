@@ -47,7 +47,9 @@ use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, S
 use stacks::chainstate::stacks::miner::{
     TransactionEvent, TransactionSuccessEvent, TEST_EXCLUDE_REPLAY_TXS,
 };
-use stacks::chainstate::stacks::{StacksTransaction, TenureChangeCause, TransactionPayload};
+use stacks::chainstate::stacks::{
+    StacksTransaction, TenureChangeCause, TenureChangePayload, TransactionPayload,
+};
 use stacks::codec::StacksMessageCodec;
 use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig};
 use stacks::core::mempool::MemPoolWalkStrategy;
@@ -3088,6 +3090,8 @@ fn tx_replay_forking_test() {
     );
     let conf = signer_test.running_nodes.conf.clone();
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let stacks_miner_pk =
+        StacksPublicKey::from_private(&signer_test.running_nodes.conf.miner.mining_key.unwrap());
 
     signer_test.boot_to_epoch_3();
     info!("------------------------- Reached Epoch 3.0 -------------------------");
@@ -3223,14 +3227,14 @@ fn tx_replay_forking_test() {
     info!("---- Mining post-fork block to clear tx replay set ----");
 
     // Now, make a new stacks block, which should clear the tx replay set
-    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
-    let (signer_states, _) = signer_test.get_burn_updated_states();
-    for state in signer_states {
-        assert!(
-            state.get_tx_replay_set().is_none(),
-            "Signer state is in tx replay state, when it shouldn't be"
-        );
-    }
+    // signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+    wait_for(30, || {
+        let (signer_states, _) = signer_test.get_burn_updated_states();
+        Ok(signer_states
+            .iter()
+            .all(|state| state.get_tx_replay_set().is_none()))
+    })
+    .expect("Timed out waiting for tx replay set to be cleared");
 
     // Now, we'll trigger another fork, with more txs, across tenures
 
@@ -3331,28 +3335,66 @@ fn tx_replay_forking_test() {
 
     let expected_tx_replay_txids = vec![transfer_txid, contract_deploy_txid, contract_call_txid];
 
-    let (signer_states, _) = signer_test.get_burn_updated_states();
-    for state in signer_states {
-        match state {
-            LocalStateMachine::Initialized(signer_state_machine) => {
-                let Some(tx_replay_set) = signer_state_machine.tx_replay_set else {
-                    panic!(
-                        "Signer state machine is in tx replay state, but tx replay set is not set"
-                    );
-                };
-                info!("---- Tx replay set: {:?} ----", tx_replay_set);
-                assert_eq!(tx_replay_set.len(), expected_tx_replay_txids.len());
-                let state_replay_txids = tx_replay_set
-                    .iter()
-                    .map(|tx| tx.txid().to_hex())
-                    .collect::<Vec<_>>();
-                assert_eq!(state_replay_txids, expected_tx_replay_txids);
-            }
-            _ => {
-                panic!("Signer state is not in the initialized state");
-            }
-        }
+    wait_for(30, || {
+        let (signer_states, _) = signer_test.get_burn_updated_states();
+        let all_tx_replay_sets_ok = signer_states.iter().all(|state| {
+            let tx_replay_set = state.get_tx_replay_set().unwrap();
+            let tx_replay_set_txids = tx_replay_set
+                .iter()
+                .map(|tx| tx.txid().to_hex())
+                .collect::<Vec<_>>();
+            tx_replay_set_txids == expected_tx_replay_txids
+        });
+        Ok(all_tx_replay_sets_ok)
+    })
+    .expect("Timed out waiting for tx replay set to be updated");
+
+    info!("---- Mining post-fork block to clear tx replay set ----");
+    let tip_after_fork = get_chain_info(&signer_test.running_nodes.conf);
+    let stacks_height_before = tip_after_fork.stacks_tip_height;
+
+    test_observer::clear();
+
+    TEST_MINE_STALL.set(false);
+
+    let expected_height = stacks_height_before + 2;
+    info!(
+        "---- Waiting for block pushed at height: {:?} ----",
+        expected_height
+    );
+
+    let block = wait_for_block_pushed_by_miner_key(60, expected_height, &stacks_miner_pk)
+        .expect("Timed out waiting for block pushed after fork");
+
+    info!("---- Block: {:?} ----", block);
+
+    for (block_tx, expected_txid) in block
+        .txs
+        .iter()
+        .filter(|tx| {
+            // In this case, the miner issued a tenure extend in the block,
+            // because it's continuing a late tenure.
+            !matches!(
+                tx.payload,
+                TransactionPayload::TenureChange(TenureChangePayload {
+                    cause: TenureChangeCause::Extended,
+                    ..
+                })
+            )
+        })
+        .zip(expected_tx_replay_txids.iter())
+    {
+        assert_eq!(block_tx.txid().to_hex(), *expected_txid);
     }
+
+    // Wait for the tx replay set to be cleared
+    wait_for(30, || {
+        let (signer_states, _) = signer_test.get_burn_updated_states();
+        Ok(signer_states
+            .iter()
+            .all(|state| state.get_tx_replay_set().is_none()))
+    })
+    .expect("Timed out waiting for tx replay set to be cleared");
 
     signer_test.shutdown();
 }
@@ -3392,7 +3434,7 @@ fn tx_replay_e2e_test() {
     let sender_addr2 = tests::to_addr(&sender_sk2);
     let send_amt = 100;
     let send_fee = 180;
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![
             (sender_addr, send_amt + send_fee),
@@ -3413,35 +3455,9 @@ fn tx_replay_e2e_test() {
     let _miner_address = Keychain::default(conf.node.seed.clone())
         .origin_address(conf.is_mainnet())
         .unwrap();
-    let miner_pk = signer_test
-        .running_nodes
-        .btc_regtest_controller
-        .get_mining_pubkey()
-        .as_deref()
-        .map(Secp256k1PublicKey::from_hex)
-        .unwrap()
-        .unwrap();
 
     let stacks_miner_pk =
         StacksPublicKey::from_private(&signer_test.running_nodes.conf.miner.mining_key.unwrap());
-    let get_unconfirmed_commit_data = |btc_controller: &BitcoinRegtestController| {
-        let unconfirmed_utxo = btc_controller
-            .get_all_utxos(&miner_pk)
-            .into_iter()
-            .find(|utxo| utxo.confirmations == 0)?;
-        let unconfirmed_txid = Txid::from_bitcoin_tx_hash(&unconfirmed_utxo.txid);
-        let unconfirmed_tx = btc_controller.get_raw_transaction(&unconfirmed_txid);
-        let unconfirmed_tx_opreturn_bytes = unconfirmed_tx.output[0].script_pubkey.as_bytes();
-        info!(
-            "Unconfirmed tx bytes: {}",
-            stacks::util::hash::to_hex(unconfirmed_tx_opreturn_bytes)
-        );
-        let data = LeaderBlockCommitOp::parse_data(
-            &unconfirmed_tx_opreturn_bytes[unconfirmed_tx_opreturn_bytes.len() - 77..],
-        )
-        .unwrap();
-        Some(data)
-    };
 
     signer_test.boot_to_epoch_3();
     info!("------------------------- Reached Epoch 3.0 -------------------------");
@@ -3526,28 +3542,11 @@ fn tx_replay_e2e_test() {
         );
         let commits_count = submitted_commits.load(Ordering::SeqCst);
         next_block_and_controller(
-            &mut signer_test.running_nodes.btc_regtest_controller,
+            &signer_test.running_nodes.btc_regtest_controller,
             60,
-            |btc_controller| {
-                let commits_submitted = submitted_commits
-                    .load(Ordering::SeqCst);
-                if commits_submitted <= commits_count {
-                    // wait until a commit was submitted
-                    return Ok(false)
-                }
-                let Some(payload) = get_unconfirmed_commit_data(btc_controller) else {
-                    warn!("Commit submitted, but bitcoin doesn't see it in the unconfirmed UTXO set, will try to wait.");
-                    return Ok(false)
-                };
-                let burn_parent_modulus = payload.burn_parent_modulus;
-                let current_modulus = u8::try_from((current_burn_height + 1) % 5).unwrap();
-                info!(
-                    "Ongoing Commit Operation check";
-                    "burn_parent_modulus" => burn_parent_modulus,
-                    "current_modulus" => current_modulus,
-                    "payload" => ?payload,
-                );
-                Ok(burn_parent_modulus == current_modulus)
+            |_btc_controller| {
+                let commits_submitted = submitted_commits.load(Ordering::SeqCst);
+                Ok(commits_submitted > commits_count)
             },
         )
         .unwrap();
@@ -3615,10 +3614,6 @@ fn tx_replay_e2e_test() {
     // Next the signers will attempt to propose a block that does not contain the necessary replay tx and signers will reject it
     let rejected_block = wait_for_block_proposal(30, stacks_height_before + 2, &stacks_miner_pk)
         .expect("Timed out waiting for block pushed after fork");
-    // assert!(!rejected_block
-    //     .txs
-    //     .iter()
-    //     .any(|tx| tx.txid().to_string() == txid));
     assert!(rejected_block
         .txs
         .iter()
