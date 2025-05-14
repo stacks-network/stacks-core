@@ -872,18 +872,23 @@ impl SignerDb {
             );
         }
 
-        if current_db_version < Self::SCHEMA_VERSION {
-            sql_tx.rollback()?;
-            return Err(DBError::Other(format!(
-                "Database migration incomplete. Current version: {}, Target application version: {}",
-                current_db_version, Self::SCHEMA_VERSION
-            )));
-        } else if current_db_version > Self::SCHEMA_VERSION {
-            sql_tx.rollback()?;
-            return Err(DBError::Other(format!(
-                "Database schema is newer than SCHEMA_VERSION. SCHEMA_VERSION = {}, current_db_version = {}. Did you forget to update SCHEMA_VERSION?",
-                Self::SCHEMA_VERSION, current_db_version
-            )));
+        match current_db_version.cmp(&Self::SCHEMA_VERSION) {
+            std::cmp::Ordering::Less => {
+                sql_tx.rollback()?;
+                return Err(DBError::Other(format!(
+                    "Database migration incomplete. Current version: {}, SCHEMA_VERSION: {}",
+                    current_db_version,
+                    Self::SCHEMA_VERSION
+                )));
+            }
+            std::cmp::Ordering::Greater => {
+                sql_tx.rollback()?;
+                return Err(DBError::Other(format!(
+                    "Database schema is newer than SCHEMA_VERSION. SCHEMA_VERSION = {}, Current version = {}. Did you forget to update SCHEMA_VERSION?",
+                    Self::SCHEMA_VERSION, current_db_version
+                )));
+            }
+            std::cmp::Ordering::Equal => {}
         }
 
         sql_tx.commit()?;
