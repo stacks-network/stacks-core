@@ -539,7 +539,7 @@ impl Signer {
                     "block_height" => block_height
                 );
                 self.local_state_machine
-                    .stacks_block_arrival(consensus_hash, *block_height, block_id, &signer_sighash, &self.signer_db)
+                    .stacks_block_arrival(consensus_hash, *block_height, block_id, signer_sighash, &self.signer_db)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest stacks block arrival"; "err" => ?e));
 
                 if let Ok(Some(mut block_info)) = self

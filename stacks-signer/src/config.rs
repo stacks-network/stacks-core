@@ -702,7 +702,7 @@ db_path = ":memory:"
         );
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
         assert_eq!(config.stacks_address.to_string(), expected_addr);
-        assert_eq!(config.validate_with_replay_tx, false);
+        assert!(!config.validate_with_replay_tx);
         // 65 bytes (with compression flag)
         let sk_hex = "2de4e77aab89c0c2570bb8bb90824f5cf2a5204a975905fee450ff9dad0fcf2801";
 
@@ -720,7 +720,7 @@ validate_with_replay_tx = true
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
         assert_eq!(config.stacks_address.to_string(), expected_addr);
         assert_eq!(config.to_chain_id(), CHAIN_ID_MAINNET);
-        assert_eq!(config.validate_with_replay_tx, true);
+        assert!(config.validate_with_replay_tx);
     }
 
     #[test]

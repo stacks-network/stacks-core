@@ -2967,6 +2967,6 @@ pub mod tests {
         let result = db
             .get_was_block_validated_by_replay_tx(&signer_signature_hash, replay_tx_hash)
             .expect("Failed to get block validated by replay tx");
-        assert_eq!(result, true);
+        assert!(result);
     }
 }
