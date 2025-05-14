@@ -835,39 +835,41 @@ impl SignerDb {
         debug!("Current SignerDB schema version: {}", current_db_version);
 
         for migration in MIGRATIONS.iter() {
-            if current_db_version < migration.version {
-                if current_db_version != migration.version - 1 {
-                    // This implies a gap or out-of-order migration definition,
-                    // or the database is at a version X, and the next migration is X+2 instead of X+1.
-                    sql_tx.rollback()?;
-                    return Err(DBError::Other(format!(
-                        "Migration step missing or out of order. Current DB version: {}, trying to apply migration for version: {}",
-                        current_db_version, migration.version
-                    )));
-                }
-                debug!(
-                    "Applying SignerDB migration for schema version {}",
-                    migration.version
-                );
-                for statement in migration.statements.iter() {
-                    sql_tx.execute_batch(statement)?;
-                }
-
-                // Verify that the migration script updated the version correctly
-                let new_version_check = Self::get_schema_version(&sql_tx)?;
-                if new_version_check != migration.version {
-                    sql_tx.rollback()?;
-                    return Err(DBError::Other(format!(
-                        "Migration to version {} failed to update DB version. Expected {}, got {}.",
-                        migration.version, migration.version, new_version_check
-                    )));
-                }
-                current_db_version = new_version_check;
-                debug!(
-                    "Successfully migrated to schema version {}",
-                    current_db_version
-                );
+            if current_db_version >= migration.version {
+                // don't need this migration, continue to see if we need later migrations
+                continue;
             }
+            if current_db_version != migration.version - 1 {
+                // This implies a gap or out-of-order migration definition,
+                // or the database is at a version X, and the next migration is X+2 instead of X+1.
+                sql_tx.rollback()?;
+                return Err(DBError::Other(format!(
+                    "Migration step missing or out of order. Current DB version: {}, trying to apply migration for version: {}",
+                    current_db_version, migration.version
+                )));
+            }
+            debug!(
+                "Applying SignerDB migration for schema version {}",
+                migration.version
+            );
+            for statement in migration.statements.iter() {
+                sql_tx.execute_batch(statement)?;
+            }
+
+            // Verify that the migration script updated the version correctly
+            let new_version_check = Self::get_schema_version(&sql_tx)?;
+            if new_version_check != migration.version {
+                sql_tx.rollback()?;
+                return Err(DBError::Other(format!(
+                    "Migration to version {} failed to update DB version. Expected {}, got {}.",
+                    migration.version, migration.version, new_version_check
+                )));
+            }
+            current_db_version = new_version_check;
+            debug!(
+                "Successfully migrated to schema version {}",
+                current_db_version
+            );
         }
 
         if current_db_version < Self::SCHEMA_VERSION {
