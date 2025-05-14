@@ -32,9 +32,7 @@ use clarity::types::Address;
 use libsigner::v0::messages::{RejectReason, RejectReasonPrefix, StateMachineUpdate};
 use libsigner::BlockProposal;
 use rusqlite::functions::FunctionFlags;
-use rusqlite::{
-    params, Connection, Error as SqliteError, OpenFlags, OptionalExtension, Transaction,
-};
+use rusqlite::{params, Connection, Error as SqliteError, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use stacks_common::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::ConsensusHash;
@@ -708,9 +706,73 @@ static SCHEMA_14: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (14);",
 ];
 
+struct Migration {
+    version: u32,
+    statements: &'static [&'static str],
+}
+
+static MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        statements: SCHEMA_1,
+    },
+    Migration {
+        version: 2,
+        statements: SCHEMA_2,
+    },
+    Migration {
+        version: 3,
+        statements: SCHEMA_3,
+    },
+    Migration {
+        version: 4,
+        statements: SCHEMA_4,
+    },
+    Migration {
+        version: 5,
+        statements: SCHEMA_5,
+    },
+    Migration {
+        version: 6,
+        statements: SCHEMA_6,
+    },
+    Migration {
+        version: 7,
+        statements: SCHEMA_7,
+    },
+    Migration {
+        version: 8,
+        statements: SCHEMA_8,
+    },
+    Migration {
+        version: 9,
+        statements: SCHEMA_9,
+    },
+    Migration {
+        version: 10,
+        statements: SCHEMA_10,
+    },
+    Migration {
+        version: 11,
+        statements: SCHEMA_11,
+    },
+    Migration {
+        version: 12,
+        statements: SCHEMA_12,
+    },
+    Migration {
+        version: 13,
+        statements: SCHEMA_13,
+    },
+    Migration {
+        version: 14,
+        statements: SCHEMA_14,
+    },
+];
+
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 12;
+    pub const SCHEMA_VERSION: u32 = 14;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -740,202 +802,6 @@ impl SignerDb {
         }
     }
 
-    /// Migrate from schema 0 to schema 1
-    fn schema_1_migration(tx: &Transaction) -> Result<(), DBError> {
-        if Self::get_schema_version(tx)? >= 1 {
-            // no migration necessary
-            return Ok(());
-        }
-
-        for statement in SCHEMA_1.iter() {
-            tx.execute_batch(statement)?;
-        }
-
-        Ok(())
-    }
-
-    /// Migrate from schema 1 to schema 2
-    fn schema_2_migration(tx: &Transaction) -> Result<(), DBError> {
-        if Self::get_schema_version(tx)? >= 2 {
-            // no migration necessary
-            return Ok(());
-        }
-
-        for statement in SCHEMA_2.iter() {
-            tx.execute_batch(statement)?;
-        }
-
-        Ok(())
-    }
-
-    /// Migrate from schema 2 to schema 3
-    fn schema_3_migration(tx: &Transaction) -> Result<(), DBError> {
-        if Self::get_schema_version(tx)? >= 3 {
-            // no migration necessary
-            return Ok(());
-        }
-
-        for statement in SCHEMA_3.iter() {
-            tx.execute_batch(statement)?;
-        }
-
-        Ok(())
-    }
-
-    /// Migrate from schema 3 to schema 4
-    fn schema_4_migration(tx: &Transaction) -> Result<(), DBError> {
-        if Self::get_schema_version(tx)? >= 4 {
-            // no migration necessary
-            return Ok(());
-        }
-
-        for statement in SCHEMA_4.iter() {
-            tx.execute_batch(statement)?;
-        }
-
-        Ok(())
-    }
-
-    /// Migrate from schema 4 to schema 5
-    fn schema_5_migration(tx: &Transaction) -> Result<(), DBError> {
-        if Self::get_schema_version(tx)? >= 5 {
-            // no migration necessary
-            return Ok(());
-        }
-
-        for statement in SCHEMA_5.iter() {
-            tx.execute_batch(statement)?;
-        }
-
-        Ok(())
-    }
-
-    /// Migrate from schema 5 to schema 6
-    fn schema_6_migration(tx: &Transaction) -> Result<(), DBError> {
-        if Self::get_schema_version(tx)? >= 6 {
-            // no migration necessary
-            return Ok(());
-        }
-
-        for statement in SCHEMA_6.iter() {
-            tx.execute_batch(statement)?;
-        }
-
-        Ok(())
-    }
-
-    /// Migrate from schema 6 to schema 7
-    fn schema_7_migration(tx: &Transaction) -> Result<(), DBError> {
-        if Self::get_schema_version(tx)? >= 7 {
-            // no migration necessary
-            return Ok(());
-        }
-
-        for statement in SCHEMA_7.iter() {
-            tx.execute_batch(statement)?;
-        }
-
-        Ok(())
-    }
-
-    /// Migrate from schema 7 to schema 8
-    fn schema_8_migration(tx: &Transaction) -> Result<(), DBError> {
-        if Self::get_schema_version(tx)? >= 8 {
-            // no migration necessary
-            return Ok(());
-        }
-
-        for statement in SCHEMA_8.iter() {
-            tx.execute_batch(statement)?;
-        }
-
-        Ok(())
-    }
-
-    /// Migrate from schema 8 to schema 9
-    fn schema_9_migration(tx: &Transaction) -> Result<(), DBError> {
-        if Self::get_schema_version(tx)? >= 9 {
-            // no migration necessary
-            return Ok(());
-        }
-
-        for statement in SCHEMA_9.iter() {
-            tx.execute_batch(statement)?;
-        }
-
-        Ok(())
-    }
-
-    /// Migrate from schema 9 to schema 10
-    fn schema_10_migration(tx: &Transaction) -> Result<(), DBError> {
-        if Self::get_schema_version(tx)? >= 10 {
-            // no migration necessary
-            return Ok(());
-        }
-
-        for statement in SCHEMA_10.iter() {
-            tx.execute_batch(statement)?;
-        }
-
-        Ok(())
-    }
-
-    /// Migrate from schema 10 to schema 11
-    fn schema_11_migration(tx: &Transaction) -> Result<(), DBError> {
-        if Self::get_schema_version(tx)? >= 11 {
-            // no migration necessary
-            return Ok(());
-        }
-
-        for statement in SCHEMA_11.iter() {
-            tx.execute_batch(statement)?;
-        }
-
-        Ok(())
-    }
-
-    /// Migrate from schema 11 to schema 12
-    fn schema_12_migration(tx: &Transaction) -> Result<(), DBError> {
-        if Self::get_schema_version(tx)? >= 12 {
-            // no migration necessary
-            return Ok(());
-        }
-
-        for statement in SCHEMA_12.iter() {
-            tx.execute_batch(statement)?;
-        }
-
-        Ok(())
-    }
-
-    /// Migrate from schema 12 to schema 13
-    fn schema_13_migration(tx: &Transaction) -> Result<(), DBError> {
-        if Self::get_schema_version(tx)? >= 13 {
-            // no migration necessary
-            return Ok(());
-        }
-
-        for statement in SCHEMA_13.iter() {
-            tx.execute_batch(statement)?;
-        }
-
-        Ok(())
-    }
-
-    /// Migrate from schema 13 to schema 14
-    fn schema_14_migration(tx: &Transaction) -> Result<(), DBError> {
-        if Self::get_schema_version(tx)? >= 14 {
-            // no migration necessary
-            return Ok(());
-        }
-
-        for statement in SCHEMA_14.iter() {
-            tx.execute_batch(statement)?;
-        }
-
-        Ok(())
-    }
-
     /// Register custom scalar functions used by the database
     fn register_scalar_functions(&self) -> Result<(), DBError> {
         // Register helper function for determining if a block is a tenure change transaction
@@ -961,35 +827,63 @@ impl SignerDb {
     }
 
     /// Either instantiate a new database, or migrate an existing one
-    /// If the detected version of the existing database is 0 (i.e., a pre-migration
-    /// logic DB, the DB will be dropped).
     fn create_or_migrate(&mut self) -> Result<(), DBError> {
         self.register_scalar_functions()?;
         let sql_tx = tx_begin_immediate(&mut self.db)?;
-        loop {
-            let version = Self::get_schema_version(&sql_tx)?;
-            match version {
-                0 => Self::schema_1_migration(&sql_tx)?,
-                1 => Self::schema_2_migration(&sql_tx)?,
-                2 => Self::schema_3_migration(&sql_tx)?,
-                3 => Self::schema_4_migration(&sql_tx)?,
-                4 => Self::schema_5_migration(&sql_tx)?,
-                5 => Self::schema_6_migration(&sql_tx)?,
-                6 => Self::schema_7_migration(&sql_tx)?,
-                7 => Self::schema_8_migration(&sql_tx)?,
-                8 => Self::schema_9_migration(&sql_tx)?,
-                9 => Self::schema_10_migration(&sql_tx)?,
-                10 => Self::schema_11_migration(&sql_tx)?,
-                11 => Self::schema_12_migration(&sql_tx)?,
-                12 => Self::schema_13_migration(&sql_tx)?,
-                13 => Self::schema_14_migration(&sql_tx)?,
-                14 => break,
-                x => return Err(DBError::Other(format!(
-                    "Database schema is newer than supported by this binary. Expected version = {}, Database version = {x}",
-                    Self::SCHEMA_VERSION,
-                ))),
+
+        let mut current_db_version = Self::get_schema_version(&sql_tx)?;
+        debug!("Current SignerDB schema version: {}", current_db_version);
+
+        for migration in MIGRATIONS.iter() {
+            if current_db_version < migration.version {
+                if current_db_version != migration.version - 1 {
+                    // This implies a gap or out-of-order migration definition,
+                    // or the database is at a version X, and the next migration is X+2 instead of X+1.
+                    sql_tx.rollback()?;
+                    return Err(DBError::Other(format!(
+                        "Migration step missing or out of order. Current DB version: {}, trying to apply migration for version: {}",
+                        current_db_version, migration.version
+                    )));
+                }
+                debug!(
+                    "Applying SignerDB migration for schema version {}",
+                    migration.version
+                );
+                for statement in migration.statements.iter() {
+                    sql_tx.execute_batch(statement)?;
+                }
+
+                // Verify that the migration script updated the version correctly
+                let new_version_check = Self::get_schema_version(&sql_tx)?;
+                if new_version_check != migration.version {
+                    sql_tx.rollback()?;
+                    return Err(DBError::Other(format!(
+                        "Migration to version {} failed to update DB version. Expected {}, got {}.",
+                        migration.version, migration.version, new_version_check
+                    )));
+                }
+                current_db_version = new_version_check;
+                debug!(
+                    "Successfully migrated to schema version {}",
+                    current_db_version
+                );
             }
         }
+
+        if current_db_version < Self::SCHEMA_VERSION {
+            sql_tx.rollback()?;
+            return Err(DBError::Other(format!(
+                "Database migration incomplete. Current version: {}, Target application version: {}",
+                current_db_version, Self::SCHEMA_VERSION
+            )));
+        } else if current_db_version > Self::SCHEMA_VERSION {
+            sql_tx.rollback()?;
+            return Err(DBError::Other(format!(
+                "Database schema is newer than SCHEMA_VERSION. SCHEMA_VERSION = {}, current_db_version = {}. Did you forget to update SCHEMA_VERSION?",
+                Self::SCHEMA_VERSION, current_db_version
+            )));
+        }
+
         sql_tx.commit()?;
         self.remove_scalar_functions()?;
         Ok(())
