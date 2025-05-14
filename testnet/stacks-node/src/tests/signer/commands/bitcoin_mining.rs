@@ -39,7 +39,6 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockAndTenureCh
                 .get_counters_for_miner(2)
                 .naka_submitted_commit_last_burn_height
                 .load(Ordering::SeqCst);
-
             (miner_1_height, miner_2_height)
         };
 
@@ -69,10 +68,7 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlockAndTenureCh
     }
 
     fn apply(&self, state: &mut SignerTestState) {
-        info!(
-            "Applying: Miner {} mining Bitcoin block and tenure change tx",
-            self.miner_index
-        );
+        info!("Applying: Mining Bitcoin block and tenure change tx");
 
         state.last_block_height = Some(self.ctx.get_peer_stacks_tip_height());
 
@@ -135,14 +131,12 @@ impl Command<SignerTestState, SignerTestContext> for MineBitcoinBlock {
         // We can use miner 1 sortition db - it's the same for both miners
         let sortdb = self.ctx.get_sortition_db(1);
 
-        {
-            self.ctx
-                .miners
-                .lock()
-                .unwrap()
-                .mine_bitcoin_blocks_and_confirm(&sortdb, 1, self.timeout_secs)
-                .expect("Failed to mine BTC block");
-        }
+        self.ctx
+            .miners
+            .lock()
+            .unwrap()
+            .mine_bitcoin_blocks_and_confirm(&sortdb, 1, self.timeout_secs)
+            .expect("Failed to mine BTC block");
     }
 
     fn label(&self) -> String {
