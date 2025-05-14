@@ -14,12 +14,12 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::{Duration, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
+use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use clarity::types::chainstate::StacksAddress;
 use libsigner::v0::messages::{
     MessageSlotID, SignerMessage, StateMachineUpdate as StateMachineUpdateMessage,
@@ -369,21 +369,26 @@ impl LocalStateMachine {
             }
         };
 
-        if let Some(tx_replay_set) = prior_state_machine.tx_replay_set.clone() {
-            // let replay_set_hash = hash_tx_replay_set(tx_replay_set);
-            let mut hasher = DefaultHasher::new();
-            tx_replay_set.hash(&mut hasher);
-            let replay_set_hash = hasher.finish();
-            if let Ok(true) =
-                db.get_was_block_validated_by_replay_tx(signer_signature_hash, replay_set_hash)
-            {
-                // This block was validated by our current state machine's replay set,
-                // and the block exhausted the replay set. Therefore, clear the tx replay set.
-                info!("Signer State: Incoming Stacks block exhausted the replay set, clearing the tx replay set";
-                    "signer_signature_hash" => %signer_signature_hash,
-                );
-                prior_state_machine.tx_replay_set = None;
-            };
+        if let Some(replay_set_hash) =
+            NakamotoBlockProposal::tx_replay_hash(&prior_state_machine.tx_replay_set)
+        {
+            match db.get_was_block_validated_by_replay_tx(signer_signature_hash, replay_set_hash) {
+                Ok(true) => {
+                    // This block was validated by our current state machine's replay set,
+                    // and the block exhausted the replay set. Therefore, clear the tx replay set.
+                    info!("Signer State: Incoming Stacks block exhausted the replay set, clearing the tx replay set";
+                        "signer_signature_hash" => %signer_signature_hash,
+                    );
+                    prior_state_machine.tx_replay_set = None;
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    warn!("Failed to check if block was validated by replay tx";
+                        "err" => ?e,
+                        "signer_signature_hash" => %signer_signature_hash,
+                    );
+                }
+            }
         }
 
         let MinerState::ActiveMiner {

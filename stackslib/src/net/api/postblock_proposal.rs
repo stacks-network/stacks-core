@@ -756,15 +756,15 @@ impl NakamotoBlockProposal {
             size,
             validation_time_ms,
             replay_tx_hash: if replay_tx_exhausted {
-                self.tx_replay_hash()
+                Self::tx_replay_hash(&self.replay_txs)
             } else {
                 None
             },
         })
     }
 
-    pub fn tx_replay_hash(&self) -> Option<u64> {
-        self.replay_txs.as_ref().map(|txs| {
+    pub fn tx_replay_hash(replay_txs: &Option<Vec<StacksTransaction>>) -> Option<u64> {
+        replay_txs.as_ref().map(|txs| {
             let mut hasher = DefaultHasher::new();
             txs.hash(&mut hasher);
             hasher.finish()
