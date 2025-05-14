@@ -477,7 +477,6 @@ Chain ID: 0x{chain_id}
 Database path: {db_path}
 Metrics endpoint: {metrics_endpoint}
 Dry run: {dry_run}
-Validate with replay tx: {validate_with_replay_tx}
 "#,
             node_host = self.node_host,
             endpoint = self.endpoint,
@@ -489,7 +488,6 @@ Validate with replay tx: {validate_with_replay_tx}
             db_path = self.db_path.to_str().unwrap_or_default(),
             metrics_endpoint = metrics_endpoint,
             dry_run = self.dry_run,
-            validate_with_replay_tx = self.validate_with_replay_tx,
         )
     }
 
@@ -660,7 +658,7 @@ Network: testnet
 Chain ID: 0x80000000
 Database path: :memory:
 Metrics endpoint: 0.0.0.0:9090
-Chain ID: 2147483648
+Dry run: false
 "#;
 
         let expected_str_v6: &'static str = r#"
@@ -672,6 +670,7 @@ Network: testnet
 Chain ID: 0x80000000
 Database path: :memory:
 Metrics endpoint: 0.0.0.0:9090
+Dry run: false
 "#;
 
         assert!(
