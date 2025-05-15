@@ -1631,7 +1631,10 @@ fn should_reevaluate_block(block_info: &BlockInfo) -> bool {
             | RejectReason::InvalidMiner
             | RejectReason::NotLatestSortitionWinner
             | RejectReason::InvalidParentBlock
-            | RejectReason::DuplicateBlockFound => {
+            | RejectReason::DuplicateBlockFound
+            // TODO: The active miner view might have updated since the block was first proposed? Should this be reconsidered? Similarly to PubkeyHashMismatch or InvalidMiner..
+            | RejectReason::ConsensusHashMismatch
+              => {
                 // No need to re-validate these types of rejections.
                 false
             }

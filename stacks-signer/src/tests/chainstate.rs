@@ -164,7 +164,7 @@ fn check_proposal_units() {
         sortitions_view
             .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk)
             .expect_err("Should fail to validate"),
-        RejectReason::SortitionViewMismatch
+        RejectReason::ConsensusHashMismatch
     ));
     sortitions_view.signer_state.current_miner = MinerState::NoValidMiner;
     assert!(matches!(

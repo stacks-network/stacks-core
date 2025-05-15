@@ -1620,8 +1620,11 @@ fn block_proposal_rejection() {
             {
                 if signer_signature_hash == block_signer_signature_hash_1 {
                     found_signer_signature_hash_1 = true;
-                    assert_eq!(reason_code, RejectCode::SortitionViewMismatch,);
-                    assert_eq!(response_data.reject_reason, RejectReason::InvalidBitvec);
+                    assert_eq!(reason_code, RejectCode::SortitionViewMismatch);
+                    assert_eq!(
+                        response_data.reject_reason,
+                        RejectReason::ConsensusHashMismatch
+                    );
                 } else if signer_signature_hash == block_signer_signature_hash_2 {
                     found_signer_signature_hash_2 = true;
                     assert!(matches!(
