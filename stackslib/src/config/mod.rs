@@ -1260,9 +1260,9 @@ pub struct BurnchainConfig {
     /// Default: `5000` milliseconds.
     ///          `10000` milliseconds when launched with the `helium` or `mocknet` subcommands.
     pub commit_anchor_block_within: u64,
-    /// The Maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election.
+    /// The maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election.
     /// Acts as a safety cap to limit the maximum amount spent on mining.
-    /// It serves as both the target fee and a fallback if dynamic fee calculations fail or cannot be performed
+    /// It serves as both the target fee and a fallback if dynamic fee calculations fail or cannot be performed.
     ///
     /// This setting can be hot-reloaded from the config file, allowing adjustment without restarting.
     ///
@@ -1347,7 +1347,7 @@ pub struct BurnchainConfig {
     /// The interval, in seconds, at which the node polls the bitcoin node for new blocks and state updates.
     ///
     /// The default value of 10 seconds is mainly intended for testing purposes.
-    /// It's suggested to set this to a higher value for mainnet e.g. 300 seconds (5 minutes).
+    /// It's suggested to set this to a higher value for mainnet, e.g., 300 seconds (5 minutes).
     ///
     /// Default: `10` seconds
     pub poll_time_secs: u64,
