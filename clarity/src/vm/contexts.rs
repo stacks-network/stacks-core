@@ -14,12 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::mem::replace;
 use std::time::{Duration, Instant};
 
 use hashbrown::{HashMap, HashSet};
+use ouroboros::self_referencing;
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::types::chainstate::StacksBlockId;
@@ -27,10 +28,12 @@ use stacks_common::types::StacksEpochId;
 #[cfg(feature = "clarity-wasm")]
 use wasmtime::Engine;
 
-use super::analysis::{self, ContractAnalysis};
+use super::analysis::{self, CheckResult, ContractAnalysis};
 #[cfg(feature = "clarity-wasm")]
 use super::clarity_wasm::call_function;
+use super::types::FunctionType;
 use super::EvalHook;
+use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
@@ -38,7 +41,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostErrors, CostTracker, ExecutionCost, LimitedCostTracker};
 use crate::vm::database::{
     ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
-    NonFungibleTokenMetadata,
+    MemoryBackingStore, NonFungibleTokenMetadata,
 };
 use crate::vm::errors::{
     CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
@@ -219,6 +222,127 @@ pub struct GlobalContext<'a> {
     pub execution_time_tracker: ExecutionTimeTracker,
     #[cfg(feature = "clarity-wasm")]
     pub engine: Engine,
+    pub analysis_db: MemoryAnalysisDatabase,
+}
+
+#[self_referencing]
+pub struct MemoryAnalysisDatabase {
+    mem_store: MemoryBackingStore,
+    #[not_covariant]
+    #[borrows(mut mem_store)]
+    analysis_db: AnalysisDatabase<'this>,
+}
+
+impl MemoryAnalysisDatabase {
+    pub fn build() -> Self {
+        let mem_store = MemoryBackingStore::new();
+
+        MemoryAnalysisDatabaseBuilder {
+            mem_store,
+            analysis_db_builder: |mem_store| AnalysisDatabase::new(mem_store),
+        }
+        .build()
+    }
+
+    pub fn execute<F, T, E>(&mut self, f: F) -> Result<T, E>
+    where
+        for<'a> F: FnOnce(&mut AnalysisDatabase<'a>) -> Result<T, E>,
+        E: From<CheckErrors>,
+    {
+        self.with_analysis_db_mut(|db| db.execute(f))
+    }
+
+    pub fn begin(&mut self) {
+        self.with_analysis_db_mut(|db| db.begin())
+    }
+
+    pub fn commit(&mut self) -> CheckResult<()> {
+        self.with_analysis_db_mut(|db| db.commit())
+    }
+
+    pub fn roll_back(&mut self) -> CheckResult<()> {
+        self.with_analysis_db_mut(|db| db.roll_back())
+    }
+
+    pub fn storage_key() -> &'static str {
+        AnalysisDatabase::storage_key()
+    }
+
+    pub fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> bool {
+        self.with_analysis_db_mut(|db| db.has_contract(contract_identifier))
+    }
+
+    pub fn load_contract_non_canonical(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> CheckResult<Option<ContractAnalysis>> {
+        self.with_analysis_db_mut(|db| db.load_contract_non_canonical(contract_identifier))
+    }
+
+    pub fn load_contract(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        epoch: &StacksEpochId,
+    ) -> CheckResult<Option<ContractAnalysis>> {
+        self.with_analysis_db_mut(|db| db.load_contract(contract_identifier, epoch))
+    }
+
+    pub fn insert_contract(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        contract: &ContractAnalysis,
+    ) -> CheckResult<()> {
+        self.with_analysis_db_mut(|db| db.insert_contract(contract_identifier, contract))
+    }
+
+    pub fn get_clarity_version(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> CheckResult<ClarityVersion> {
+        self.with_analysis_db_mut(|db| db.get_clarity_version(contract_identifier))
+    }
+
+    pub fn get_public_function_type(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        function_name: &str,
+        epoch: &StacksEpochId,
+    ) -> CheckResult<Option<FunctionType>> {
+        self.with_analysis_db_mut(|db| {
+            db.get_public_function_type(contract_identifier, function_name, epoch)
+        })
+    }
+
+    pub fn get_read_only_function_type(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        function_name: &str,
+        epoch: &StacksEpochId,
+    ) -> CheckResult<Option<FunctionType>> {
+        self.with_analysis_db_mut(|db| {
+            db.get_read_only_function_type(contract_identifier, function_name, epoch)
+        })
+    }
+
+    pub fn get_defined_trait(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        trait_name: &str,
+        epoch: &StacksEpochId,
+    ) -> CheckResult<Option<BTreeMap<ClarityName, FunctionSignature>>> {
+        self.with_analysis_db_mut(|db| db.get_defined_trait(contract_identifier, trait_name, epoch))
+    }
+
+    pub fn get_implemented_traits(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> CheckResult<BTreeSet<TraitIdentifier>> {
+        self.with_analysis_db_mut(|db| db.get_implemented_traits(contract_identifier))
+    }
+
+    // pub fn destroy(self) -> RollbackWrapper<'a> {
+    //     todo!()
+    // }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -1341,9 +1465,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         contract_content: &str,
         ast_rules: ASTRules,
     ) -> Result<()> {
-        use super::database::MemoryBackingStore;
-
-        let clarity_version = self.contract_context.clarity_version.clone();
+        let clarity_version = self.contract_context.clarity_version;
 
         let mut contract_ast = ast::build_ast_with_rules(
             &contract_identifier,
@@ -1354,18 +1476,22 @@ impl<'a, 'b> Environment<'a, 'b> {
             ast_rules,
         )?;
 
-        let mut store = MemoryBackingStore::new();
-        let contract_analysis = analysis::run_analysis(
-            &contract_identifier,
-            &mut contract_ast.expressions,
-            &mut store.as_analysis_db(),
-            false,
-            LimitedCostTracker::Free,
-            self.global_context.epoch_id,
-            clarity_version,
-            true,
-        )
-        .unwrap();
+        let contract_analysis =
+            self.global_context
+                .analysis_db
+                .with_analysis_db_mut(|analysis_db| {
+                    analysis::run_analysis(
+                        &contract_identifier,
+                        &contract_ast.expressions,
+                        analysis_db,
+                        true,
+                        LimitedCostTracker::Free,
+                        self.global_context.epoch_id,
+                        clarity_version,
+                        true,
+                    )
+                    .unwrap()
+                });
 
         self.initialize_contract_from_ast(
             contract_identifier,
@@ -1683,6 +1809,7 @@ impl<'a> GlobalContext<'a> {
             execution_time_tracker: ExecutionTimeTracker::NoTracking,
             #[cfg(feature = "clarity-wasm")]
             engine,
+            analysis_db: MemoryAnalysisDatabase::build(),
         }
     }
 
@@ -1804,6 +1931,7 @@ impl<'a> GlobalContext<'a> {
         self.database.begin();
         let read_only = self.is_read_only();
         self.read_only.push(read_only);
+        self.analysis_db.begin();
     }
 
     pub fn begin_read_only(&mut self) {

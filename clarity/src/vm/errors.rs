@@ -193,7 +193,7 @@ impl fmt::Display for WasmError {
 #[cfg(feature = "clarity-wasm")]
 impl std::error::Error for WasmError {}
 
-pub type InterpreterResult<R> = Result<R, Error>;
+pub type InterpreterResult<R, E = Error> = Result<R, E>;
 
 impl<T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     fn eq(&self, _other: &IncomparableError<T>) -> bool {
