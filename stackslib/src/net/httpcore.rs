@@ -1779,7 +1779,7 @@ fn handle_net_error(e: NetError, msg: &str) -> io::Error {
     match e {
         NetError::ReadError(ioe) | NetError::WriteError(ioe) => ioe,
         NetError::RecvTimeout => io::Error::new(io::ErrorKind::WouldBlock, "recv timeout"),
-        _ => io::Error::new(io::ErrorKind::Other, format!("{}: {:?}", &e, msg).as_str()),
+        _ => io::Error::other(format!("{e}: {msg:?}").as_str()),
     }
 }
 
@@ -1815,10 +1815,7 @@ pub fn send_http_request(
     }
 
     let Some((mut stream, addr)) = stream_and_addr else {
-        return Err(last_err.unwrap_or(io::Error::new(
-            io::ErrorKind::Other,
-            "Unable to connect to {host}:{port}",
-        )));
+        return Err(last_err.unwrap_or(io::Error::other("Unable to connect to {host}:{port}")));
     };
 
     stream.set_read_timeout(Some(timeout))?;
@@ -1870,10 +1867,7 @@ pub fn send_http_request(
     let mut request_handle = connection
         .make_request_handle(0, get_epoch_time_secs() + timeout.as_secs(), 0)
         .map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Failed to create request handle: {:?}", &e).as_str(),
-            )
+            io::Error::other(format!("Failed to create request handle: {e:?}").as_str())
         })?;
 
     // Step 3: load up the request with the message we're gonna send, and iteratively dump its
@@ -1979,18 +1973,14 @@ pub fn send_http_request(
             let path = &request.preamble().path_and_query_str;
             let resp_status_code = response.preamble().status_code;
             let resp_body = response.body();
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
+            return Err(io::Error::other(
                 format!(
                     "HTTP '{verb} {path}' did not succeed ({resp_status_code} != 200). Response body = {resp_body:?}"
                 ),
             ));
         }
         _ => {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Did not receive an HTTP response",
-            ));
+            return Err(io::Error::other("Did not receive an HTTP response"));
         }
     };
 

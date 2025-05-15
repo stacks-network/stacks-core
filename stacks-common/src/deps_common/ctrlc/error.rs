@@ -22,7 +22,7 @@ impl Error {
 
 impl From<platform::Error> for Error {
     fn from(e: platform::Error) -> Error {
-        let system_error = std::io::Error::new(std::io::ErrorKind::Other, e);
+        let system_error = std::io::Error::other(e);
         Error::System(system_error)
     }
 }
