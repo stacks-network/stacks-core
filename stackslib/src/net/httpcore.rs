@@ -1979,18 +1979,14 @@ pub fn send_http_request(
             let path = &request.preamble().path_and_query_str;
             let resp_status_code = response.preamble().status_code;
             let resp_body = response.body();
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
+            return Err(io::Error::other(
                 format!(
                     "HTTP '{verb} {path}' did not succeed ({resp_status_code} != 200). Response body = {resp_body:?}"
                 ),
             ));
         }
         _ => {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Did not receive an HTTP response",
-            ));
+            return Err(io::Error::other("Did not receive an HTTP response"));
         }
     };
 
