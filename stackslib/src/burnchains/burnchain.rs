@@ -580,7 +580,7 @@ impl Burnchain {
 
     #[cfg(any(test, feature = "testing"))]
     /// the last burn block that must be *signed* by the signer set of `reward_cycle`.
-    /// this is the modulo 1 block
+    /// this is the modulo -1 block
     pub fn nakamoto_last_block_of_cycle(&self, reward_cycle: u64) -> u64 {
         self.nakamoto_first_block_of_cycle(reward_cycle)
             + self.pox_constants.reward_cycle_length as u64
