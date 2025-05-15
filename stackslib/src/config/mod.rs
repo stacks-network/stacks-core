@@ -2226,7 +2226,7 @@ pub struct MinerConfig {
     /// Default: `None`
     /// Deprecated: use [`MinerConfig::min_time_between_blocks_ms`] instead.
     pub wait_on_interim_blocks: Option<Duration>,
-    /// minimum number of transactions that must be in a block if we're going to replace a pending
+    /// Minimum number of transactions that must be in a block if we're going to replace a pending
     /// block-commit with a new block-commit
     ///
     /// Default: `0`
