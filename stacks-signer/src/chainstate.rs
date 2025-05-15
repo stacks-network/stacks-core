@@ -20,12 +20,13 @@ use blockstack_lib::chainstate::stacks::TenureChangePayload;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
 use blockstack_lib::util_lib::db::Error as DBError;
 use libsigner::v0::messages::RejectReason;
+use libsigner::v0::signer_state::{MinerState, SignerStateMachine};
 use stacks_common::types::chainstate::{BurnchainHeaderHash, ConsensusHash, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::{info, warn};
 
-use crate::client::{ClientError, CurrentAndLastSortition, StacksClient};
+use crate::client::{ClientError, StacksClient};
 use crate::config::SignerConfig;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
 
@@ -41,26 +42,12 @@ pub enum SignerChainstateError {
     /// The signer could not find information about the parent tenure
     #[error("No information available for parent tenure '{0}'")]
     NoParentTenureInfo(ConsensusHash),
-    /// The local state machine wasn't ready to be queried
-    #[error("The local state machine is not ready, so no update message can be produced")]
-    LocalStateMachineNotReady,
 }
 
 impl From<SignerChainstateError> for RejectReason {
     fn from(error: SignerChainstateError) -> Self {
         RejectReason::ConnectivityIssues(error.to_string())
     }
-}
-
-/// Captures this signer's current view of a sortition's miner.
-#[derive(PartialEq, Eq, Debug)]
-pub enum SortitionMinerStatus {
-    /// The signer thinks this sortition's miner is invalid, and hasn't signed any blocks for them.
-    InvalidatedBeforeFirstBlock,
-    /// The signer thinks this sortition's miner is invalid, but already signed one or more blocks for them.
-    InvalidatedAfterFirstBlock,
-    /// The signer thinks this sortition's miner is valid
-    Valid,
 }
 
 /// Captures the Stacks sortition related state for
@@ -82,44 +69,238 @@ pub struct SortitionState {
     pub parent_tenure_id: ConsensusHash,
     /// this sortition's consensus hash
     pub consensus_hash: ConsensusHash,
-    /// what is this signer's view of the this sortition's miner? did they misbehave?
-    pub miner_status: SortitionMinerStatus,
     /// the timestamp in the burn block that performed this sortition
     pub burn_header_timestamp: u64,
     /// the burn header hash of the burn block that performed this sortition
     pub burn_block_hash: BurnchainHeaderHash,
 }
 
+impl TryFrom<SortitionInfo> for SortitionState {
+    type Error = ClientError;
+    fn try_from(value: SortitionInfo) -> Result<Self, Self::Error> {
+        Ok(Self {
+            miner_pkh: value
+                .miner_pk_hash160
+                .ok_or_else(|| ClientError::UnexpectedSortitionInfo)?,
+            miner_pubkey: None,
+            prior_sortition: value
+                .last_sortition_ch
+                .ok_or_else(|| ClientError::UnexpectedSortitionInfo)?,
+            consensus_hash: value.consensus_hash,
+            parent_tenure_id: value
+                .stacks_parent_ch
+                .ok_or_else(|| ClientError::UnexpectedSortitionInfo)?,
+            burn_header_timestamp: value.burn_header_timestamp,
+            burn_block_hash: value.burn_block_hash,
+        })
+    }
+}
+
 impl SortitionState {
-    /// Check if the sortition is timed out (i.e., the miner did not propose a block in time)
+    /// Check if the sortition identified by the ConsensusHash is timed out based on
+    /// the blocks within the signer db and the block proposal timeout
     pub fn is_timed_out(
-        &self,
-        timeout: Duration,
-        signer_db: &SignerDb,
+        sortition: &ConsensusHash,
+        db: &SignerDb,
+        block_proposal_timeout: Duration,
     ) -> Result<bool, SignerChainstateError> {
-        // if the miner has already been invalidated, we don't need to check if they've timed out.
-        if self.miner_status != SortitionMinerStatus::Valid {
-            return Ok(false);
-        }
         // if we've already signed a block in this tenure, the miner can't have timed out.
-        let has_block = signer_db.has_signed_block_in_tenure(&self.consensus_hash)?;
+        let has_block = db.has_signed_block_in_tenure(sortition)?;
         if has_block {
             return Ok(false);
         }
-        let Some(received_ts) = signer_db.get_burn_block_receive_time(&self.burn_block_hash)?
-        else {
+        let Some(received_ts) = db.get_burn_block_receive_time_ch(sortition)? else {
             return Ok(false);
         };
         let received_time = UNIX_EPOCH + Duration::from_secs(received_ts);
-        let last_activity = signer_db
-            .get_last_activity_time(&self.consensus_hash)?
+        let last_activity = db
+            .get_last_activity_time(sortition)?
             .map(|time| UNIX_EPOCH + Duration::from_secs(time))
             .unwrap_or(received_time);
 
         let Ok(elapsed) = std::time::SystemTime::now().duration_since(last_activity) else {
             return Ok(false);
         };
-        Ok(elapsed > timeout)
+
+        if elapsed > block_proposal_timeout {
+            info!(
+                "Tenure miner was inactive too long and timed out";
+                "tenure_ch" => %sortition,
+                "elapsed_inactive" => elapsed.as_secs(),
+                "config_block_proposal_timeout" => block_proposal_timeout.as_secs()
+            );
+        }
+        Ok(elapsed > block_proposal_timeout)
+    }
+
+    /// check if the tenure defined by sortition state:
+    ///  (1) chose an appropriate parent tenure
+    ///  (2) has not "timed out"
+    pub fn is_tenure_valid(
+        &self,
+        signer_db: &SignerDb,
+        client: &StacksClient,
+        proposal_config: &ProposalEvalConfig,
+    ) -> Result<bool, SignerChainstateError> {
+        let chose_good_parent = self.check_parent_tenure_choice(
+            signer_db,
+            client,
+            &proposal_config.first_proposal_burn_block_timing,
+        )?;
+        if !chose_good_parent {
+            return Ok(false);
+        }
+        Self::is_timed_out(
+            &self.consensus_hash,
+            signer_db,
+            proposal_config.block_proposal_timeout,
+        )
+        .map(|timed_out| !timed_out)
+    }
+
+    /// Check if the tenure defined by `sortition_state` is building off of an
+    ///  appropriate tenure.
+    pub fn check_parent_tenure_choice(
+        &self,
+        signer_db: &SignerDb,
+        client: &StacksClient,
+        first_proposal_burn_block_timing: &Duration,
+    ) -> Result<bool, SignerChainstateError> {
+        // if the parent tenure is the last sortition, it is a valid choice.
+        // if the parent tenure is a reorg, then all of the reorged sortitions
+        //  must either have produced zero blocks _or_ produced their first (and only) block
+        //  very close to the burn block transition.
+        if self.prior_sortition == self.parent_tenure_id {
+            return Ok(true);
+        }
+        info!(
+            "Most recent miner's tenure does not build off the prior sortition, checking if this is valid behavior";
+            "sortition_state.consensus_hash" => %self.consensus_hash,
+            "sortition_state.prior_sortition" => %self.prior_sortition,
+            "sortition_state.parent_tenure_id" => %self.parent_tenure_id,
+        );
+
+        let tenures_reorged =
+            client.get_tenure_forking_info(&self.parent_tenure_id, &self.prior_sortition)?;
+        if tenures_reorged.is_empty() {
+            warn!("Miner is not building off of most recent tenure, but stacks node was unable to return information about the relevant sortitions. Marking miner invalid.");
+            return Ok(false);
+        }
+
+        // this value *should* always be some, but try to do the best we can if it isn't
+        let sortition_state_received_time =
+            signer_db.get_burn_block_receive_time(&self.burn_block_hash)?;
+
+        for tenure in tenures_reorged.iter() {
+            if tenure.consensus_hash == self.parent_tenure_id {
+                // this was a built-upon tenure, no need to check this tenure as part of the reorg.
+                continue;
+            }
+
+            // disallow reorg if more than one block has already been signed
+            let globally_accepted_blocks =
+                signer_db.get_globally_accepted_block_count_in_tenure(&tenure.consensus_hash)?;
+            if globally_accepted_blocks > 1 {
+                warn!(
+                    "Miner is not building off of most recent tenure, but a tenure they attempted to reorg has already more than one globally accepted block.";
+                    "parent_tenure" => %self.parent_tenure_id,
+                    "last_sortition" => %self.prior_sortition,
+                    "violating_tenure_id" => %tenure.consensus_hash,
+                    "violating_tenure_first_block_id" => ?tenure.first_block_mined,
+                    "globally_accepted_blocks" => globally_accepted_blocks,
+                );
+                return Ok(false);
+            }
+
+            if tenure.first_block_mined.is_some() {
+                let Some(local_block_info) =
+                    signer_db.get_first_signed_block_in_tenure(&tenure.consensus_hash)?
+                else {
+                    warn!(
+                        "Miner is not building off of most recent tenure, but a tenure they attempted to reorg has already mined blocks, and there is no local knowledge for that tenure's block timing.";
+                        "parent_tenure" => %self.parent_tenure_id,
+                        "last_sortition" => %self.prior_sortition,
+                        "violating_tenure_id" => %tenure.consensus_hash,
+                        "violating_tenure_first_block_id" => ?tenure.first_block_mined,
+                    );
+                    return Ok(false);
+                };
+
+                let checked_proposal_timing = if let Some(sortition_state_received_time) =
+                    sortition_state_received_time
+                {
+                    // how long was there between when the proposal was received and the next sortition started?
+                    let proposal_to_sortition = if let Some(signed_at) =
+                        local_block_info.signed_self
+                    {
+                        sortition_state_received_time.saturating_sub(signed_at)
+                    } else {
+                        info!("We did not sign over the reorged tenure's first block, considering it as a late-arriving proposal");
+                        0
+                    };
+                    if Duration::from_secs(proposal_to_sortition)
+                        < *first_proposal_burn_block_timing
+                    {
+                        info!(
+                            "Miner is not building off of most recent tenure. A tenure they reorg has already mined blocks, but the block was poorly timed, allowing the reorg.";
+                            "parent_tenure" => %self.parent_tenure_id,
+                            "last_sortition" => %self.prior_sortition,
+                            "violating_tenure_id" => %tenure.consensus_hash,
+                            "violating_tenure_first_block_id" => ?tenure.first_block_mined,
+                            "violating_tenure_proposed_time" => local_block_info.proposed_time,
+                            "new_tenure_received_time" => sortition_state_received_time,
+                            "new_tenure_burn_timestamp" => self.burn_header_timestamp,
+                            "first_proposal_burn_block_timing_secs" => first_proposal_burn_block_timing.as_secs(),
+                            "proposal_to_sortition" => proposal_to_sortition,
+                        );
+                        continue;
+                    }
+                    true
+                } else {
+                    false
+                };
+
+                warn!(
+                    "Miner is not building off of most recent tenure, but a tenure they attempted to reorg has already mined blocks.";
+                    "parent_tenure" => %self.parent_tenure_id,
+                    "last_sortition" => %self.prior_sortition,
+                    "violating_tenure_id" => %tenure.consensus_hash,
+                    "violating_tenure_first_block_id" => ?tenure.first_block_mined,
+                    "checked_proposal_timing" => checked_proposal_timing,
+                );
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+
+    /// Get the last block from the given tenure
+    /// Returns the last locally accepted block if it is not timed out, otherwise it will return the last globally accepted block.
+    pub fn get_tenure_last_block_info(
+        consensus_hash: &ConsensusHash,
+        signer_db: &SignerDb,
+        tenure_last_block_proposal_timeout: Duration,
+    ) -> Result<Option<BlockInfo>, ClientError> {
+        // Get the last known block in the previous tenure
+        let last_locally_accepted_block = signer_db
+            .get_last_accepted_block(consensus_hash)
+            .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
+
+        if let Some(local_info) = last_locally_accepted_block {
+            if let Some(signed_over_time) = local_info.signed_self {
+                if signed_over_time.saturating_add(tenure_last_block_proposal_timeout.as_secs())
+                    > get_epoch_time_secs()
+                {
+                    // The last locally accepted block is not timed out, return it
+                    return Ok(Some(local_info));
+                }
+            }
+        }
+        // The last locally accepted block is timed out, get the last globally accepted block
+        signer_db
+            .get_last_globally_accepted_block(consensus_hash)
+            .map_err(|e| ClientError::InvalidResponse(e.to_string()))
     }
 }
 
@@ -163,129 +344,56 @@ impl From<&SignerConfig> for ProposalEvalConfig {
 ///  state
 #[derive(Debug)]
 pub struct SortitionsView {
-    /// the prior successful sortition (this corresponds to the "prior" miner slot)
-    pub last_sortition: Option<SortitionState>,
-    /// the current successful sortition (this corresponds to the "current" miner slot)
-    pub cur_sortition: SortitionState,
+    /// The signer's state machine
+    pub signer_state: SignerStateMachine,
     /// configuration settings for evaluating proposals
     pub config: ProposalEvalConfig,
 }
 
-impl TryFrom<SortitionInfo> for SortitionState {
-    type Error = ClientError;
-    fn try_from(value: SortitionInfo) -> Result<Self, Self::Error> {
-        Ok(Self {
-            miner_pkh: value
-                .miner_pk_hash160
-                .ok_or_else(|| ClientError::UnexpectedSortitionInfo)?,
-            miner_pubkey: None,
-            prior_sortition: value
-                .last_sortition_ch
-                .ok_or_else(|| ClientError::UnexpectedSortitionInfo)?,
-            consensus_hash: value.consensus_hash,
-            parent_tenure_id: value
-                .stacks_parent_ch
-                .ok_or_else(|| ClientError::UnexpectedSortitionInfo)?,
-            burn_header_timestamp: value.burn_header_timestamp,
-            burn_block_hash: value.burn_block_hash,
-            miner_status: SortitionMinerStatus::Valid,
-        })
-    }
-}
-
-enum ProposedBy<'a> {
-    LastSortition(&'a SortitionState),
-    CurrentSortition(&'a SortitionState),
-}
-
-impl ProposedBy<'_> {
-    pub fn state(&self) -> &SortitionState {
-        match self {
-            ProposedBy::LastSortition(x) => x,
-            ProposedBy::CurrentSortition(x) => x,
-        }
-    }
-}
-
 impl SortitionsView {
-    /// Apply checks from the SortitionsView on the block proposal.
+    /// Apply checks from the signer state machine on the block proposal.
     pub fn check_proposal(
-        &mut self,
+        &self,
         client: &StacksClient,
         signer_db: &mut SignerDb,
         block: &NakamotoBlock,
         block_pk: &StacksPublicKey,
-        reset_view_if_wrong_consensus_hash: bool,
     ) -> Result<(), RejectReason> {
-        if self
-            .cur_sortition
-            .is_timed_out(self.config.block_proposal_timeout, signer_db)?
-        {
+        let MinerState::ActiveMiner {
+            current_miner_pkh,
+            tenure_id,
+            parent_tenure_id,
+            ..
+        } = self.signer_state.current_miner
+        else {
             info!(
-                "Current miner timed out, marking as invalid.";
+                "No valid current miner. Considering invalid.";
                 "block_height" => block.header.chain_length,
-                "block_proposal_timeout" => ?self.config.block_proposal_timeout,
-                "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
+                "signer_signature_hash" => %block.header.signer_signature_hash()
             );
-            self.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
-
-            // If the current proposal is also for this current
-            // sortition, then we can return early here.
-            if self.cur_sortition.consensus_hash == block.header.consensus_hash {
-                return Err(RejectReason::InvalidMiner);
-            }
-        } else if let Some(tip) = signer_db
-            .get_canonical_tip()
-            .map_err(SignerChainstateError::from)?
-        {
-            // Check if the current sortition is aligned with the expected tenure:
-            // - If the tip is in the current tenure, we are in the process of mining this tenure.
-            // - If the tip is not in the current tenure, then we’re starting a new tenure,
-            //   and the current sortition's parent tenure must match the tenure of the tip.
-            // - If the tip is not building off of the current sortition's parent tenure, then
-            //   check to see if the tip's parent is within the first proposal burn block timeout,
-            //   which allows for forks when a burn block arrives quickly.
-            // - Else the miner of the current sortition has committed to an incorrect parent tenure.
-            let consensus_hash_match =
-                self.cur_sortition.consensus_hash == tip.block.header.consensus_hash;
-            let parent_tenure_id_match =
-                self.cur_sortition.parent_tenure_id == tip.block.header.consensus_hash;
-            if !consensus_hash_match && !parent_tenure_id_match {
-                // More expensive check, so do it only if we need to.
-                let is_valid_parent_tenure = Self::check_parent_tenure_choice(
-                    &self.cur_sortition,
-                    block,
-                    signer_db,
-                    client,
-                    &self.config.first_proposal_burn_block_timing,
-                )?;
-                if !is_valid_parent_tenure {
-                    warn!(
-                        "Current sortition does not build off of canonical tip tenure, marking as invalid";
-                        "current_sortition_parent" => ?self.cur_sortition.parent_tenure_id,
-                        "tip_consensus_hash" => ?tip.block.header.consensus_hash,
-                    );
-                    self.cur_sortition.miner_status =
-                        SortitionMinerStatus::InvalidatedBeforeFirstBlock;
-
-                    // If the current proposal is also for this current
-                    // sortition, then we can return early here.
-                    if self.cur_sortition.consensus_hash == block.header.consensus_hash {
-                        return Err(RejectReason::ReorgNotAllowed);
-                    }
-                }
-            }
+            return Err(RejectReason::InvalidMiner);
+        };
+        if block.header.consensus_hash != tenure_id {
+            info!("Miner block proposal consensus hash does not match the current miner's tenure id. Considering invalid.";
+                "block_height" => block.header.chain_length,
+                "signer_signature_hash" => %block.header.signer_signature_hash(),
+                "block_cosensus_hash" => %block.header.consensus_hash,
+                "active_miner_tenure_id" => %tenure_id,
+                "active_miner_parent_tenure_id" => %parent_tenure_id,
+            );
+            return Err(RejectReason::SortitionViewMismatch);
         }
-
-        if let Some(last_sortition) = self.last_sortition.as_mut() {
-            if last_sortition.is_timed_out(self.config.block_proposal_timeout, signer_db)? {
-                info!(
-                    "Last miner timed out, marking as invalid.";
-                    "block_height" => block.header.chain_length,
-                    "last_sortition_consensus_hash" => ?last_sortition.consensus_hash,
-                );
-                last_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
-            }
+        let block_pkh = Hash160::from_data(&block_pk.to_bytes_compressed());
+        if current_miner_pkh != block_pkh {
+            warn!(
+                "Miner block proposal pubkey does not match the winning pubkey hash for its sortition. Considering invalid.";
+                "proposed_block_consensus_hash" => %block.header.consensus_hash,
+                "signer_signature_hash" => %block.header.signer_signature_hash(),
+                "proposed_block_pubkey" => &block_pk.to_hex(),
+                "proposed_block_pubkey_hash" => %block_pkh,
+                "active_miner_pubkey_hash" => %current_miner_pkh,
+            );
+            return Err(RejectReason::PubkeyHashMismatch);
         }
         let bitvec_all_1s = block.header.pox_treatment.iter().all(|entry| entry);
         if !bitvec_all_1s {
@@ -293,99 +401,19 @@ impl SortitionsView {
                 "Miner block proposal has bitvec field which punishes in disagreement with signer. Considering invalid.";
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
                 "signer_signature_hash" => %block.header.signer_signature_hash(),
-                "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
-                "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| x.consensus_hash),
+                "active_miner_consensus_hash" => ?tenure_id,
+                "active_miner_parent_consensus_hash" => ?parent_tenure_id,
             );
             return Err(RejectReason::InvalidBitvec);
         }
 
-        let block_pkh = Hash160::from_data(&block_pk.to_bytes_compressed());
-        let Some(proposed_by) =
-            (if block.header.consensus_hash == self.cur_sortition.consensus_hash {
-                Some(ProposedBy::CurrentSortition(&self.cur_sortition))
-            } else {
-                None
-            })
-            .or_else(|| {
-                self.last_sortition.as_ref().and_then(|last_sortition| {
-                    if block.header.consensus_hash == last_sortition.consensus_hash {
-                        Some(ProposedBy::LastSortition(last_sortition))
-                    } else {
-                        None
-                    }
-                })
-            })
-        else {
-            if reset_view_if_wrong_consensus_hash {
-                info!(
-                    "Miner block proposal has consensus hash that is neither the current or last sortition. Resetting view.";
-                    "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                    "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
-                    "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| x.consensus_hash),
-                );
-                self.reset_view(client)
-                    .map_err(SignerChainstateError::from)?;
-                return self.check_proposal(client, signer_db, block, block_pk, false);
-            }
-            warn!(
-                "Miner block proposal has consensus hash that is neither the current or last sortition. Considering invalid.";
-                "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                "signer_signature_hash" => %block.header.signer_signature_hash(),
-                "current_sortition_consensus_hash" => ?self.cur_sortition.consensus_hash,
-                "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| x.consensus_hash),
-            );
-            return Err(RejectReason::SortitionViewMismatch);
-        };
-
-        if proposed_by.state().miner_pkh != block_pkh {
-            warn!(
-                "Miner block proposal pubkey does not match the winning pubkey hash for its sortition. Considering invalid.";
-                "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                "signer_signature_hash" => %block.header.signer_signature_hash(),
-                "proposed_block_pubkey" => &block_pk.to_hex(),
-                "proposed_block_pubkey_hash" => %block_pkh,
-                "sortition_winner_pubkey_hash" => %proposed_by.state().miner_pkh,
-            );
-            return Err(RejectReason::PubkeyHashMismatch);
-        }
-
-        // check that this miner is the most recent sortition
-        match proposed_by {
-            ProposedBy::CurrentSortition(sortition) => {
-                if sortition.miner_status != SortitionMinerStatus::Valid {
-                    warn!(
-                        "Current miner behaved improperly, this signer views the miner as invalid.";
-                        "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                        "signer_signature_hash" => %block.header.signer_signature_hash(),
-                    );
-                    return Err(RejectReason::InvalidMiner);
-                }
-            }
-            ProposedBy::LastSortition(last_sortition) => {
-                // should only consider blocks from the last sortition if the new sortition was invalidated
-                //  before we signed their first block.
-                if self.cur_sortition.miner_status
-                    != SortitionMinerStatus::InvalidatedBeforeFirstBlock
-                {
-                    warn!(
-                        "Miner block proposal is from last sortition winner, when the new sortition winner is still valid. Considering proposal invalid.";
-                        "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                        "signer_signature_hash" => %block.header.signer_signature_hash(),
-                        "current_sortition_miner_status" => ?self.cur_sortition.miner_status,
-                        "last_sortition" => %last_sortition.consensus_hash
-                    );
-                    return Err(RejectReason::NotLatestSortitionWinner);
-                }
-            }
-        };
-
         if let Some(tenure_change) = block.get_tenure_change_tx_payload() {
-            self.validate_tenure_change_payload(
-                &proposed_by,
+            Self::validate_tenure_change_payload(
                 tenure_change,
                 block,
                 signer_db,
                 client,
+                &self.config,
             )?;
         } else {
             // check if the new block confirms the last block in the current tenure
@@ -401,9 +429,7 @@ impl SortitionsView {
             // in tenure extends, we need to check:
             // (1) if this is the most recent sortition, an extend is allowed if it changes the burnchain view
             // (2) if this is the most recent sortition, an extend is allowed if enough time has passed to refresh the block limit
-            let sortition_consensus_hash = proposed_by.state().consensus_hash;
-            let changed_burn_view =
-                tenure_extend.burn_view_consensus_hash != sortition_consensus_hash;
+            let changed_burn_view = tenure_extend.burn_view_consensus_hash != tenure_id;
             let extend_timestamp = signer_db.calculate_tenure_extend_timestamp(
                 self.config.tenure_idle_timeout,
                 block,
@@ -422,172 +448,7 @@ impl SortitionsView {
                 return Err(RejectReason::InvalidTenureExtend);
             }
         }
-
         Ok(())
-    }
-
-    /// Check if the tenure defined by `sortition_state` is building off of an
-    ///  appropriate tenure. Note that this does not check that it confirms the correct
-    ///  number of blocks from that tenure!
-    pub fn check_parent_tenure_choice(
-        sortition_state: &SortitionState,
-        block: &NakamotoBlock,
-        signer_db: &SignerDb,
-        client: &StacksClient,
-        first_proposal_burn_block_timing: &Duration,
-    ) -> Result<bool, SignerChainstateError> {
-        // if the parent tenure is the last sortition, it is a valid choice.
-        // if the parent tenure is a reorg, then all of the reorged sortitions
-        //  must either have produced zero blocks _or_ produced their first (and only) block
-        //  very close to the burn block transition.
-        if sortition_state.prior_sortition == sortition_state.parent_tenure_id {
-            return Ok(true);
-        }
-        info!(
-            "Most recent miner's tenure does not build off the prior sortition, checking if this is valid behavior";
-            "proposed_block_consensus_hash" => %block.header.consensus_hash,
-            "signer_signature_hash" => %block.header.signer_signature_hash(),
-            "sortition_state.consensus_hash" => %sortition_state.consensus_hash,
-            "sortition_state.prior_sortition" => %sortition_state.prior_sortition,
-            "sortition_state.parent_tenure_id" => %sortition_state.parent_tenure_id,
-            "block_height" => block.header.chain_length,
-        );
-
-        let tenures_reorged = client.get_tenure_forking_info(
-            &sortition_state.parent_tenure_id,
-            &sortition_state.prior_sortition,
-        )?;
-        if tenures_reorged.is_empty() {
-            warn!("Miner is not building off of most recent tenure, but stacks node was unable to return information about the relevant sortitions. Marking miner invalid.";
-                    "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                    "signer_signature_hash" => %block.header.signer_signature_hash(),
-            );
-            return Ok(false);
-        }
-
-        // this value *should* always be some, but try to do the best we can if it isn't
-        let sortition_state_received_time =
-            signer_db.get_burn_block_receive_time(&sortition_state.burn_block_hash)?;
-
-        for tenure in tenures_reorged.iter() {
-            if tenure.consensus_hash == sortition_state.parent_tenure_id {
-                // this was a built-upon tenure, no need to check this tenure as part of the reorg.
-                continue;
-            }
-
-            // disallow reorg if more than one block has already been signed
-            let globally_accepted_blocks =
-                signer_db.get_globally_accepted_block_count_in_tenure(&tenure.consensus_hash)?;
-            if globally_accepted_blocks > 1 {
-                warn!(
-                    "Miner is not building off of most recent tenure, but a tenure they attempted to reorg has already more than one globally accepted block.";
-                    "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                    "signer_signature_hash" => %block.header.signer_signature_hash(),
-                    "parent_tenure" => %sortition_state.parent_tenure_id,
-                    "last_sortition" => %sortition_state.prior_sortition,
-                    "violating_tenure_id" => %tenure.consensus_hash,
-                    "violating_tenure_first_block_id" => ?tenure.first_block_mined,
-                    "globally_accepted_blocks" => globally_accepted_blocks,
-                );
-                return Ok(false);
-            }
-
-            if tenure.first_block_mined.is_some() {
-                let Some(local_block_info) =
-                    signer_db.get_first_signed_block_in_tenure(&tenure.consensus_hash)?
-                else {
-                    warn!(
-                        "Miner is not building off of most recent tenure, but a tenure they attempted to reorg has already mined blocks, and there is no local knowledge for that tenure's block timing.";
-                        "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                        "signer_signature_hash" => %block.header.signer_signature_hash(),
-                        "parent_tenure" => %sortition_state.parent_tenure_id,
-                        "last_sortition" => %sortition_state.prior_sortition,
-                        "violating_tenure_id" => %tenure.consensus_hash,
-                        "violating_tenure_first_block_id" => ?tenure.first_block_mined,
-                    );
-                    return Ok(false);
-                };
-
-                let checked_proposal_timing = if let Some(sortition_state_received_time) =
-                    sortition_state_received_time
-                {
-                    // how long was there between when the proposal was received and the next sortition started?
-                    let proposal_to_sortition = if let Some(signed_at) =
-                        local_block_info.signed_self
-                    {
-                        sortition_state_received_time.saturating_sub(signed_at)
-                    } else {
-                        info!("We did not sign over the reorged tenure's first block, considering it as a late-arriving proposal");
-                        0
-                    };
-                    if Duration::from_secs(proposal_to_sortition)
-                        < *first_proposal_burn_block_timing
-                    {
-                        info!(
-                            "Miner is not building off of most recent tenure. A tenure they reorg has already mined blocks, but the block was poorly timed, allowing the reorg.";
-                            "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                            "signer_signature_hash" => %block.header.signer_signature_hash(),
-                            "proposed_block_height" => block.header.chain_length,
-                            "parent_tenure" => %sortition_state.parent_tenure_id,
-                            "last_sortition" => %sortition_state.prior_sortition,
-                            "violating_tenure_id" => %tenure.consensus_hash,
-                            "violating_tenure_first_block_id" => ?tenure.first_block_mined,
-                            "violating_tenure_proposed_time" => local_block_info.proposed_time,
-                            "new_tenure_received_time" => sortition_state_received_time,
-                            "new_tenure_burn_timestamp" => sortition_state.burn_header_timestamp,
-                            "first_proposal_burn_block_timing_secs" => first_proposal_burn_block_timing.as_secs(),
-                            "proposal_to_sortition" => proposal_to_sortition,
-                        );
-                        continue;
-                    }
-                    true
-                } else {
-                    false
-                };
-
-                warn!(
-                    "Miner is not building off of most recent tenure, but a tenure they attempted to reorg has already mined blocks.";
-                    "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                    "signer_signature_hash" => %block.header.signer_signature_hash(),
-                    "parent_tenure" => %sortition_state.parent_tenure_id,
-                    "last_sortition" => %sortition_state.prior_sortition,
-                    "violating_tenure_id" => %tenure.consensus_hash,
-                    "violating_tenure_first_block_id" => ?tenure.first_block_mined,
-                    "checked_proposal_timing" => checked_proposal_timing,
-                );
-                return Ok(false);
-            }
-        }
-
-        Ok(true)
-    }
-
-    /// Get the last block from the given tenure
-    /// Returns the last locally accepted block if it is not timed out, otherwise it will return the last globally accepted block.
-    pub fn get_tenure_last_block_info(
-        consensus_hash: &ConsensusHash,
-        signer_db: &SignerDb,
-        tenure_last_block_proposal_timeout: Duration,
-    ) -> Result<Option<BlockInfo>, ClientError> {
-        // Get the last known block in the previous tenure
-        let last_locally_accepted_block = signer_db
-            .get_last_accepted_block(consensus_hash)
-            .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
-
-        if let Some(local_info) = last_locally_accepted_block {
-            if let Some(signed_over_time) = local_info.signed_self {
-                if signed_over_time.saturating_add(tenure_last_block_proposal_timeout.as_secs())
-                    > get_epoch_time_secs()
-                {
-                    // The last locally accepted block is not timed out, return it
-                    return Ok(Some(local_info));
-                }
-            }
-        }
-        // The last locally accepted block is timed out, get the last globally accepted block
-        signer_db
-            .get_last_globally_accepted_block(consensus_hash)
-            .map_err(|e| ClientError::InvalidResponse(e.to_string()))
     }
 
     /// Check if the tenure change block confirms the expected parent block
@@ -608,7 +469,7 @@ impl SortitionsView {
     ) -> Result<bool, ClientError> {
         // If the tenure change block confirms the expected parent block, it should confirm at least one more block than the last accepted block in the parent tenure.
         // NOTE: returns the locally accepted block if it is not timed out, otherwise it will return the last globally accepted block.
-        let last_block_info = Self::get_tenure_last_block_info(
+        let last_block_info = SortitionState::get_tenure_last_block_info(
             &tenure_change.prev_tenure_consensus_hash,
             signer_db,
             tenure_last_block_proposal_timeout,
@@ -645,7 +506,6 @@ impl SortitionsView {
                 return Ok(false);
             }
         }
-
         let tip = match client.get_tenure_tip(&tenure_change.prev_tenure_consensus_hash) {
             Ok(tip) => tip,
             Err(e) => {
@@ -689,16 +549,14 @@ impl SortitionsView {
     }
 
     /// in tenure changes, we need to check:
-    /// (1) if the tenure change confirms the expected parent block (i.e.,
+    /// if the tenure change confirms the expected parent block (i.e.,
     /// the last globally accepted block in the parent tenure)
-    /// (2) if the parent tenure was a valid choice
     fn validate_tenure_change_payload(
-        &self,
-        proposed_by: &ProposedBy,
         tenure_change: &TenureChangePayload,
         block: &NakamotoBlock,
         signer_db: &mut SignerDb,
         client: &StacksClient,
+        config: &ProposalEvalConfig,
     ) -> Result<(), RejectReason> {
         // Ensure that the tenure change block confirms the expected parent block
         let confirms_expected_parent = Self::check_tenure_change_confirms_parent(
@@ -706,24 +564,15 @@ impl SortitionsView {
             block,
             signer_db,
             client,
-            self.config.tenure_last_block_proposal_timeout,
-            self.config.reorg_attempts_activity_timeout,
+            config.tenure_last_block_proposal_timeout,
+            config.reorg_attempts_activity_timeout,
         )
         .map_err(SignerChainstateError::from)?;
         if !confirms_expected_parent {
             return Err(RejectReason::InvalidParentBlock);
         }
-        // now, we have to check if the parent tenure was a valid choice.
-        let is_valid_parent_tenure = Self::check_parent_tenure_choice(
-            proposed_by.state(),
-            block,
-            signer_db,
-            client,
-            &self.config.first_proposal_burn_block_timing,
-        )?;
-        if !is_valid_parent_tenure {
-            return Err(RejectReason::ReorgNotAllowed);
-        }
+        // We already confirmed in check miner activity that the current tenure is valid. So check we are not
+        // reorging the tenure blocks
         let last_in_current_tenure = signer_db
             .get_last_globally_accepted_block(&block.header.consensus_hash)
             .map_err(|e| {
@@ -741,6 +590,7 @@ impl SortitionsView {
         Ok(())
     }
 
+    /// Check if the block confirms the expected block in the same tenure
     fn confirms_latest_block_in_same_tenure(
         block: &NakamotoBlock,
         signer_db: &SignerDb,
@@ -769,48 +619,5 @@ impl SortitionsView {
             );
             Ok(false)
         }
-    }
-
-    /// Fetch a new view of the recent sortitions
-    pub fn fetch_view(
-        config: ProposalEvalConfig,
-        client: &StacksClient,
-    ) -> Result<Self, ClientError> {
-        let CurrentAndLastSortition {
-            current_sortition,
-            last_sortition,
-        } = client.get_current_and_last_sortition()?;
-
-        let cur_sortition = SortitionState::try_from(current_sortition)?;
-        let last_sortition = last_sortition
-            .map(SortitionState::try_from)
-            .transpose()
-            .ok()
-            .flatten();
-
-        Ok(Self {
-            cur_sortition,
-            last_sortition,
-            config,
-        })
-    }
-
-    /// Reset the view to the current sortition and last sortition
-    pub fn reset_view(&mut self, client: &StacksClient) -> Result<(), ClientError> {
-        let CurrentAndLastSortition {
-            current_sortition,
-            last_sortition,
-        } = client.get_current_and_last_sortition()?;
-
-        let cur_sortition = SortitionState::try_from(current_sortition)?;
-        let last_sortition = last_sortition
-            .map(SortitionState::try_from)
-            .transpose()
-            .ok()
-            .flatten();
-
-        self.cur_sortition = cur_sortition;
-        self.last_sortition = last_sortition;
-        Ok(())
     }
 }

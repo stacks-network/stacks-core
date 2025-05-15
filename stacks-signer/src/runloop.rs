@@ -22,7 +22,6 @@ use hashbrown::HashMap;
 use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
 use stacks_common::{debug, error, info, warn};
 
-use crate::chainstate::SortitionsView;
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig, SignerConfigMode};
 use crate::v0::signer_state::LocalStateMachine;
@@ -192,8 +191,6 @@ where
     pub state: State,
     /// The current reward cycle info. Only None if the runloop is uninitialized
     pub current_reward_cycle_info: Option<RewardCycleInfo>,
-    /// Cache sortitin data from `stacks-node`
-    pub sortition_state: Option<SortitionsView>,
 }
 
 impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLoop<Signer, T> {
@@ -206,7 +203,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             stacks_signers: HashMap::with_capacity(2),
             state: State::Uninitialized,
             current_reward_cycle_info: None,
-            sortition_state: None,
         }
     }
     /// Get the registered signers for a specific reward cycle
@@ -580,7 +576,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
 
             signer.process_event(
                 &self.stacks_client,
-                &mut self.sortition_state,
                 event.as_ref(),
                 res,
                 current_reward_cycle,
