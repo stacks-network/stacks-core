@@ -71,12 +71,8 @@ pub unsafe fn block_ctrl_c() -> Result<SignalId, Error> {
     match WaitForSingleObject(SEMAPHORE, INFINITE) {
         WAIT_OBJECT_0 => Ok(SignalId::CtrlC),
         WAIT_FAILED => Err(io::Error::last_os_error()),
-        ret => Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!(
-                "WaitForSingleObject(), unexpected return value \"{:x}\"",
-                ret
-            ),
-        )),
+        ret => Err(io::Error::other(format!(
+            "WaitForSingleObject(), unexpected return value \"{ret:x}\""
+        ))),
     }
 }
