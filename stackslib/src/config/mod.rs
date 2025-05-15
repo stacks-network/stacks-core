@@ -1213,53 +1213,363 @@ impl std::default::Default for Config {
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct BurnchainConfig {
+    /// The underlying blockchain used for Proof-of-Transfer.
+    /// Currently, only `"bitcoin"` is supported.
+    ///
+    /// Default: `"bitcoin"`
     pub chain: String,
+    /// The operational mode or network profile for the Stacks node.
+    /// This setting determines network parameters (like chain ID, peer version),
+    /// default configurations, genesis block definitions, and overall node behavior.
+    ///
+    /// Supported values:
+    /// ```text
+    /// | Mode            | Network Type |
+    /// |-----------------|--------------|
+    /// | "mainnet"       | mainnet      |
+    /// | "xenon"         | testnet      |
+    /// | "mocknet"       | regtest      |
+    /// | "helium"        | regtest      |
+    /// | "neon"          | regtest      |
+    /// | "argon"         | regtest      |
+    /// | "krypton"       | regtest      |
+    /// | "nakamoto-neon" | regtest      |
+    /// ```
+    ///
+    /// Default: `"mocknet"`
     pub mode: String,
+    /// The network-specific identifier used in P2P communication and database initialization.
+    /// Derived from `mode` during config load, unless explicitly overridden (for test purposes).
+    ///
+    /// **Warning:** Do not modify this unless you really know what you're doing.
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: Derived from [`BurnchainConfig::mode`] ([`CHAIN_ID_MAINNET`] for `mainnet`, [`CHAIN_ID_TESTNET`] otherwise).
     pub chain_id: u32,
+    /// The peer protocol version number used in P2P communication.
+    /// This parameter cannot be set via the configuration file.
+    ///
+    /// **Warning:** Do not modify this unless you really know what you're doing.
+    ///
+    /// Default: Derived from [`BurnchainConfig::mode`] ([`PEER_VERSION_MAINNET`] for `mainnet`, [`PEER_VERSION_TESTNET`] otherwise).
     pub peer_version: u32,
+    /// Specifies a mandatory wait period (in milliseconds) after receiving a burnchain tip
+    /// before the node attempts to build the anchored block for the new tenure.
+    /// This duration effectively schedules the start of the block-building
+    /// process relative to the tip's arrival time.
+    ///
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `5000` milliseconds.
+    ///          `10000` milliseconds when launched with the `helium` or `mocknet` subcommands.
     pub commit_anchor_block_within: u64,
+    /// The maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election.
+    /// Acts as a safety cap to limit the maximum amount spent on mining.
+    /// It serves as both the target fee and a fallback if dynamic fee calculations fail or cannot be performed.
+    ///
+    /// This setting can be hot-reloaded from the config file, allowing adjustment without restarting.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: `20000` satoshis
     pub burn_fee_cap: u64,
+    /// The hostname or IP address of the bitcoin node peer.
+    ///
+    /// This field is required for all node configurations as it specifies where to find the underlying
+    /// bitcoin node to interact with for PoX operations, block validation, and mining.
+    ///
+    /// Default: `"0.0.0.0"`
     pub peer_host: String,
+    /// The P2P network port of the bitcoin node specified by [`BurnchainConfig::peer_host`].
+    ///
+    /// Default: `8333`
     pub peer_port: u16,
+    /// The RPC port of the bitcoin node specified by [`BurnchainConfig::peer_host`].
+    ///
+    /// Default: `8332`
     pub rpc_port: u16,
+    /// Flag indicating whether to use SSL/TLS when connecting to the bitcoin node's RPC interface.
+    ///
+    /// Default: `false`
     pub rpc_ssl: bool,
+    /// The username for authenticating with the bitcoin node's RPC interface.
+    /// Required if the bitcoin node requires RPC authentication.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: `None`
     pub username: Option<String>,
+    /// The password for authenticating with the bitcoin node's RPC interface.
+    /// Required if the bitcoin node requires RPC authentication.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: `None`
     pub password: Option<String>,
-    /// Timeout, in seconds, for communication with bitcoind
+    /// Timeout duration, in seconds, for RPC calls made to the bitcoin node.
+    /// Configures the timeout on the underlying HTTP client.
+    ///
+    /// Default: `60` seconds
     pub timeout: u32,
+    /// The network "magic bytes" used to identify packets for the specific bitcoin network instance
+    /// (e.g., mainnet, testnet, regtest). Must match the magic bytes of the connected bitcoin node.
+    ///
+    /// These two-byte identifiers help ensure that nodes only connect to peers on the same network type.
+    /// Common values include:
+    /// - "X2" for mainnet
+    /// - "T2" for testnet (xenon)
+    /// - Other values for specific test networks
+    ///
+    /// Configured as a 2-character ASCII string (e.g., "X2" for mainnet).
+    ///
+    /// Default: [`BLOCKSTACK_MAGIC_MAINNET`] (corresponds to "X2") unless overridden by [`BurnchainConfig::mode`] (e.g., "T2" for testnet (xenon)).
     pub magic_bytes: MagicBytes,
+    /// The public key associated with the local mining address for the underlying Bitcoin regtest node.
+    /// Provided as a hex string representing an uncompressed public key.
+    ///
+    /// It is primarily used in modes that rely on a controlled Bitcoin regtest backend
+    /// (e.g., "helium", "mocknet", "neon") where the Stacks node itself needs to
+    /// instruct the Bitcoin node to generate blocks.
+    ///
+    /// The key is used to derive the Bitcoin address that receives the coinbase rewards
+    /// when generating blocks on the regtest network.
+    ///
+    /// Mandatory if [`BurnchainConfig::mode`] is "helium".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None`
     pub local_mining_public_key: Option<String>,
+    /// Optional bitcoin block height at which the Stacks node process should gracefully exit.
+    /// When bitcoin reaches this height, the node logs a message and initiates a graceful shutdown.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None`
     pub process_exit_at_block_height: Option<u64>,
+    /// The interval, in seconds, at which the node polls the bitcoin node for new blocks and state updates.
+    ///
+    /// The default value of 10 seconds is mainly intended for testing purposes.
+    /// It's suggested to set this to a higher value for mainnet, e.g., 300 seconds (5 minutes).
+    ///
+    /// Default: `10` seconds
     pub poll_time_secs: u64,
+    /// The default fee rate in satoshis per virtual byte (sats/vB) to use when estimating fees for miners
+    /// to submit bitcoin transactions (like block commits or leader key registrations).
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: [`DEFAULT_SATS_PER_VB`] (currently 50 satoshis per virtual byte)
     pub satoshis_per_byte: u64,
-    /// Maximum percentage of `satoshis_per_byte` that a Bitcoin fee rate may
-    /// be increased to when RBFing a transaction
+    /// Maximum fee rate multiplier allowed when using Replace-By-Fee (RBF) for bitcoin transactions.
+    /// Expressed as a percentage of the original [`BurnchainConfig::satoshis_per_byte`] rate (e.g.,
+    /// 150 means the fee rate can be increased up to 1.5x). Used in mining logic for RBF decisions
+    /// to cap the replacement fee rate.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: [`DEFAULT_MAX_RBF_RATE`] (currently 150, i.e., 1.5x)
     pub max_rbf: u64,
+    /// Estimated size (in virtual bytes) of a leader key registration transaction on bitcoin.
+    /// Used for fee calculation in mining logic by multiplying with the fee rate [`BurnchainConfig::satoshis_per_byte`].
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: [`OP_TX_LEADER_KEY_ESTIM_SIZE`] (currently 290)
     pub leader_key_tx_estimated_size: u64,
+    /// Estimated size (in virtual bytes) of a block commit transaction on bitcoin.
+    /// Used for fee calculation in mining logic by multiplying with the fee rate [`BurnchainConfig::satoshis_per_byte`].
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: [`OP_TX_BLOCK_COMMIT_ESTIM_SIZE`] (currently 380)
     pub block_commit_tx_estimated_size: u64,
-    /// Amount to increment the fee by, in Sats/vByte, when RBFing a Bitcoin
-    /// transaction
+    /// The incremental amount (in Sats/vByte) to add to the previous transaction's
+    /// fee rate for RBF bitcoin transactions.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: [`DEFAULT_RBF_FEE_RATE_INCREMENT`] (currently 5 satoshis per virtual byte)
     pub rbf_fee_increment: u64,
+    /// Overrides the default starting bitcoin block height for the node.
+    /// Allows starting synchronization from a specific historical point in test environments.
+    /// Should be used together with [`BurnchainConfig::first_burn_block_timestamp`] and [`BurnchainConfig::first_burn_block_hash`] for proper operation.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None` (uses the burnchain's default starting height for the mode).
     pub first_burn_block_height: Option<u64>,
+    /// Overrides the default starting block timestamp of the burnchain.
+    /// Should be used together with [`BurnchainConfig::first_burn_block_height`] and [`BurnchainConfig::first_burn_block_hash`] for proper operation.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None` (uses the burnchain's default starting timestamp).
     pub first_burn_block_timestamp: Option<u32>,
+    /// Overrides the default starting block hash of the burnchain.
+    /// Should be used together with [`BurnchainConfig::first_burn_block_timestamp`] and [`BurnchainConfig::first_burn_block_height`] for proper operation.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None` (uses the burnchain's default starting block hash).
     pub first_burn_block_hash: Option<String>,
-    /// Custom override for the definitions of the epochs. This will only be applied for testnet and
-    /// regtest nodes.
+    /// Custom override for the definitions of Stacks epochs (start/end burnchain heights, consensus rules).
+    /// This setting allows testing specific epoch transitions or custom consensus rules by defining exactly
+    /// when each epoch starts on bitcoin.
+    ///
+    /// **Configuration:**
+    /// Configured as a list `[[burnchain.epochs]]` in TOML, each with:
+    /// - `epoch_name`: A string identifying the epoch (e.g., `"1.0"`, `"2.05"`, `"3.1"`).
+    /// - `start_height`: The Bitcoin block height at which this epoch becomes active.
+    ///
+    /// Example TOML entry:
+    /// ```toml
+    /// [[burnchain.epochs]]
+    /// epoch_name = "2.1"
+    /// start_height = 150
+    /// ```
+    ///
+    /// **Details:**
+    /// Epochs define distinct protocol rule sets (consensus rules, execution costs, capabilities).
+    /// When configured, the list must include all epochs sequentially from "1.0" up to the
+    /// highest desired epoch, without skipping any intermediate ones.
+    /// Valid `epoch_name` values currently include:
+    /// `"1.0"`, `"2.0"`, `"2.05"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"`, `"2.5"`, `"3.0"`, `"3.1"`.
+    ///
+    /// **Validation Rules:**
+    /// - Epochs must be provided in strict chronological order (`1.0`, `2.0`, `2.05`...).
+    /// - `start_height` values must be non-decreasing across the list.
+    /// - Epoch `"1.0"` must have `start_height = 0`.
+    /// - The number of defined epochs cannot exceed the maximum supported by the node software.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None` (uses the standard epoch definitions for the selected `mode`).
     pub epochs: Option<EpochList<ExecutionCost>>,
+    /// Sets a custom burnchain height for PoX-2 activation (for testing).
+    ///
+    /// This affects two key transitions:
+    /// 1. The block height at which PoX v1 lockups are automatically unlocked.
+    /// 2. The block height from which PoX reward set calculations switch to PoX v2 rules.
+    ///
+    /// **Behavior:**
+    /// - This value directly sets the auto unlock height for PoX v1 lockups before transition to PoX v2. This
+    ///   also defines the burn height at which PoX reward sets are calculated using PoX v2 rather than v1.
+    /// - If custom [`BurnchainConfig::epochs`] are provided:
+    ///   - This value is used to validate that Epoch 2.1's start height is ≤ this value.
+    ///   - However, the height specified in `epochs` for Epoch 2.1 takes precedence.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None`.
     pub pox_2_activation: Option<u32>,
+    /// Overrides the length (in bitcoin blocks) of the PoX reward cycle.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None` (uses the standard reward cycle length for the mode).
     pub pox_reward_length: Option<u32>,
+    /// Overrides the length (in bitcoin blocks) of the PoX prepare phase.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None` (uses the standard prepare phase length for the mode).
     pub pox_prepare_length: Option<u32>,
+    /// Overrides the bitcoin height at which the PoX sunset period begins in epochs before 2.1.
+    /// The sunset period represents a planned phase-out of the PoX mechanism. During this period,
+    /// stacking rewards gradually decrease, eventually ceasing entirely. This parameter allows
+    /// testing the PoX sunset transition by explicitly setting its start height.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None` (uses the standard sunset start height for the mode).
+    /// Deprecated: The sunset phase was removed in Epoch 2.1. This parameter can still be used for testing purposes for epochs before 2.1.
     pub sunset_start: Option<u32>,
+    ///
+    /// Overrides the bitcoin height, non-inclusive, at which the PoX sunset period ends in epochs before 2.1.
+    /// After this height, Stacking rewards are disabled completely. This parameter works together
+    /// with `sunset_start` to define the full sunset transition period for PoX.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None` (uses the standard sunset end height for the mode).
+    /// Deprecated: The sunset phase was removed in Epoch 2.1. This parameter can still be used for testing purposes for epochs before 2.1.
     pub sunset_end: Option<u32>,
+    /// Specifies the name of the Bitcoin wallet to use within the connected bitcoin node.
+    /// Used to interact with a specific named wallet if the bitcoin node manages multiple wallets.
+    ///
+    /// If the specified wallet doesn't exist, the node will attempt to create it via the createwallet RPC call.
+    /// This is particularly useful for miners who need to manage separate wallets.
+    ///
+    /// Primarily relevant for miners interacting with multi-wallet Bitcoin nodes.
+    ///
+    /// Default: `""` (empty string, implying the default wallet or no specific wallet needed).
     pub wallet_name: String,
+    /// Override for the burnchain height activating stricter AST size checks pre-epoch 3.0 for testing purposes.
+    ///
+    /// Used pre-epoch 3.0 to control activation before it became standard (at burn height `752000`).
+    /// Ignored in standard production builds as the underlying mechanism is disabled unless the `testing` feature is active.
+    ///
+    /// Default: `None`.
+    /// Deprecated: This setting is ignored in Epoch 3.0+.
     pub ast_precheck_size_height: Option<u64>,
+    /// Overrides for the burnchain block affirmation map for specific reward cycles.
+    /// Allows manually setting the miner affirmation ('p'resent/'n'ot-present/'a'bsent) map for a
+    /// given cycle, bypassing the map normally derived from sortition results.
+    ///
+    /// **Configuration:**
+    /// Configured as a list `[[burnchain.affirmation_overrides]]` in TOML, each with:
+    /// - `reward_cycle`: The cycle number to override.
+    /// - `affirmation`: The 'p'/'n'/'a' sequence representing the map. Must have length `reward_cycle - 1`.
+    ///
+    /// Example TOML:
+    /// ```toml
+    /// [[burnchain.affirmation_overrides]]
+    /// reward_cycle = 413
+    /// affirmation = "pna..." # Must be 412 chars long
+    /// ```
+    ///
+    /// **Details:**
+    /// Special defaults are added when [`BurnchainConfig::mode`] is "xenon" or the node
+    /// is launched with the `testnet` subcommand, but config entries take precedence.
+    /// At startup, these overrides are written to the `BurnchainDB` (`overrides` table).
+    /// Primarily used for testing or recovering from network issues.
+    ///
+    /// Default: Empty `HashMap`.
+    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub affirmation_overrides: HashMap<u64, AffirmationMap>,
-    /// fault injection to simulate a slow burnchain peer.
-    /// Delay burnchain block downloads by the given number of millseconds
+    /// Fault injection setting for testing. Introduces an artificial delay (in milliseconds)
+    /// before processing each burnchain block download. Simulates a slow burnchain connection.
+    ///
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `0` (no delay).
     pub fault_injection_burnchain_block_delay: u64,
-    /// The maximum number of unspent UTXOs to request from the bitcoin node.
-    /// This value is passed as the `maximumCount` query option to the
-    /// `listunspent` RPC call.
+    /// The maximum number of unspent transaction outputs (UTXOs) to request from the bitcoin node.
+    ///
+    /// This value is passed as the `maximumCount` parameter to the bitcoin node. It helps manage
+    /// response size and processing load, particularly relevant for miners querying for available
+    /// UTXOs to fund operations like block commits or leader key registrations.
+    ///
+    /// Setting this limit too high might lead to performance issues or timeouts when querying
+    /// nodes with a very large number of UTXOs. Conversely, setting it too low might prevent
+    /// the miner from finding enough UTXOs in a single query to meet the required funding amount
+    /// for a transaction, even if sufficient funds exist across more UTXOs not returned by the limited query.
+    ///
+    /// This value must be `<= 1024`.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: `Some(1024)`
     pub max_unspent_utxos: Option<u64>,
 }
 
