@@ -1731,39 +1731,32 @@ impl PeerDB {
         if (ret.len() as u32) >= count {
             return Ok(ret);
         }
+        // In case we don't have enough allowed peers, fill in also with non-allowed, randomly-chosen, fresh peers
 
-        // fill in with non-allowed, randomly-chosen, fresh peers
-        let use_public = if public_only { "AND public = 1" } else { "" };
+        // only include public peers if requested
+        let use_public_condition = if public_only { "AND public = 1" } else { "" };
 
-        let random_peers_qry = if always_include_allowed {
-            format!(
-                r#"
-                SELECT *
-                FROM frontier
-                WHERE network_id = ?1
-                  AND last_contact_time >= ?2
-                  AND ?3 < expire_block_height
-                  AND denied < ?4
-                  AND (allowed >= 0 AND allowed <= ?5)
-                  AND (?6 <= (peer_version & 0x000000ff) OR ?7 <= (peer_version & 0x000000ff))
-                  {use_public}
-                  ORDER BY RANDOM() LIMIT ?8"#
-            )
+        // If always_include_allowed is true, we've already collected all allowed peers above,
+        // so exclude them from this query to avoid duplicates
+        let include_allowed_condition = if always_include_allowed {
+            "AND (allowed >= 0 AND allowed <= ?5)"
         } else {
-            format!(
-                r#"
-                SELECT *
-                FROM frontier
-                WHERE network_id = ?1
-                  AND last_contact_time >= ?2
-                  AND ?3 < expire_block_height
-                  AND denied < ?4
-                  AND (allowed < 0 OR (allowed >= 0 AND allowed <= ?5))
-                  AND (?6 <= (peer_version & 0x000000ff) OR ?7 <= (peer_version & 0x000000ff))
-                  {use_public}
-                  ORDER BY RANDOM() LIMIT ?8"#
-            )
+            "AND (allowed < 0 OR (allowed >= 0 AND allowed <= ?5))"
         };
+
+        let random_peers_qry = format!(
+            r#"
+            SELECT *
+            FROM frontier
+            WHERE network_id = ?1
+                AND last_contact_time >= ?2
+                AND ?3 < expire_block_height
+                AND denied < ?4
+                {include_allowed_condition}
+                AND (?6 <= (peer_version & 0x000000ff) OR ?7 <= (peer_version & 0x000000ff))
+                {use_public_condition}
+                ORDER BY RANDOM() LIMIT ?8"#
+        );
 
         let random_peers_args = params![
             network_id,
@@ -1813,13 +1806,20 @@ impl PeerDB {
     ) -> Result<Vec<Neighbor>, db_error> {
         // UTC time
         let now_secs = util::get_epoch_time_secs();
+        // Extract the epoch from the peer_version. The epoch is stored in the last byte.
         let node_peer_version = peer_version & 0x000000ff;
 
         // the peer_version check mirrors the check in `has_acceptable_epoch`:
         //    (my_epoch <= peer_epoch) OR (curr_epoch <= peer_epoch)
-        let query = "SELECT * FROM frontier WHERE initial = 1 AND (allowed < 0 OR ?1 < allowed) \
-         AND network_id = ?2 AND denied < ?3 AND ?4 < expire_block_height \
-         AND (?5 <= (peer_version & 0x000000ff) OR ?6 <= (peer_version & 0x000000ff))";
+        let query = r#"
+            SELECT *
+            FROM frontier
+            WHERE initial = 1
+              AND (allowed < 0 OR ?1 < allowed)
+              AND network_id = ?2
+              AND denied < ?3
+              AND ?4 < expire_block_height
+              AND (?5 <= (peer_version & 0x000000ff) OR ?6 <= (peer_version & 0x000000ff))"#;
 
         let args = params![
             u64_to_sql(now_secs)?,
@@ -1830,7 +1830,6 @@ impl PeerDB {
             network_epoch,
         ];
 
-        // let initial_peers = query_rows::<Neighbor, _>(conn, &query, args)?;
         Self::query_peers(conn, query, args)
     }
 

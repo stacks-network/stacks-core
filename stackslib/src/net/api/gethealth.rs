@@ -45,18 +45,23 @@ use crate::net::httpcore::{
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::{
-    infer_initial_burnchain_block_download, Error as NetError, StacksNodeState, TipRequest,
+    infer_initial_burnchain_block_download, Error as NetError, NeighborAddress, StacksNodeState,
+    TipRequest,
 };
 
 /// The response for the GET /v3/health endpoint
-/// A node is considered healthy if it is up to the max height of its bootstrap nodes.
-/// This endpoint also returns what percent of the max height the node height is at.
+/// This endpoint returns the difference in height between the node and its most advanced neighbor
+/// and the heights of the node and its most advanced neighbor.
+/// A user can use `difference_from_max_peer` to decide what is a good value
+/// for them before considering the node out of sync.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCGetHealthResponse {
-    /// if this is true, this node is caught up to the tip of its most advanced neighbor
-    pub matches_peers: bool,
-    /// provides the percent the node is at relative to its most advanced neighbor (wrt burnchain height)
-    pub percent_of_blocks_synced: u8,
+    /// provides the difference in height between the node and its most advanced neighbor
+    pub difference_from_max_peer: u64,
+    /// the max height of the node's most advanced neighbor
+    pub max_stacks_height_of_neighbors: u64,
+    /// the height of this node
+    pub node_stacks_tip_height: u64,
 }
 
 #[derive(Clone)]
@@ -134,8 +139,8 @@ impl RPCRequestHandler for RPCGetHealthRequestHandler {
             )
             .map_err(NetError::from)?;
 
+            let node_stacks_tip_height = network.burnchain_tip.canonical_stacks_tip_height;
             let bitcoin_tip_height = network.chain_view.burn_block_height;
-            let stacks_tip_height = network.burnchain_tip.canonical_stacks_tip_height;
             let bitcoin_last_processed_height = network.burnchain_tip.block_height;
             // no bootstrap nodes found, unable to determine health.
             if initial_neighbors.len() == 0 {
@@ -148,18 +153,21 @@ impl RPCRequestHandler for RPCGetHealthRequestHandler {
                 .try_into_contents()
                 .map_err(NetError::from);
             }
-            let ibd = infer_initial_burnchain_block_download(
-                &network.burnchain,
-                bitcoin_last_processed_height,
-                bitcoin_tip_height,
-            );
 
-            let peer_max_height_opt = {
+            let peer_max_stacks_height_opt  = {
                 if current_epoch.epoch_id < StacksEpochId::Epoch30 {
+                    // When the node enters Epoch 3.0, ibd is not accurate. In nakamoto it's always set to false.
+                    // See the implementation of `RunLoop::start` in `testnet/stacks-node/src/run_loop/nakamoto.rs`,
+                    // specifically the section and comment where `let ibd = false`, for details.
+                    let ibd = infer_initial_burnchain_block_download(
+                        &network.burnchain,
+                        bitcoin_last_processed_height,
+                        bitcoin_tip_height,
+                    );
                     // get max block height amongst bootstrap nodes
                     match network.inv_state.as_ref() {
                         Some(inv_state) => {
-                            inv_state.get_max_height_of_neighbors(&initial_neighbors, ibd)
+                            inv_state.get_max_stacks_height_of_neighbors(&initial_neighbors, ibd)
                         }
                         None => {
                             return create_error_response(
@@ -169,36 +177,29 @@ impl RPCRequestHandler for RPCGetHealthRequestHandler {
                         }
                     }
                 } else {
-                    match network.inv_state_nakamoto.as_ref() {
-                        Some(_nakamoto_inv_state) => {
-                            // TODO: Implement Nakamoto peer height determination
-                            Some(0u64) // placeholder
-                        }
+                    let initial_neighbours_addresses: Vec<NeighborAddress> = initial_neighbors.iter().map(NeighborAddress::from_neighbor).collect();
+                    match network.block_downloader_nakamoto.as_ref() {
+                        Some(block_downloader_nakamoto) => block_downloader_nakamoto.get_max_stacks_height_of_neighbors(&initial_neighbours_addresses),
                         None => {
                             return create_error_response(
                                 &preamble,
-                                "Peer inventory state (Epoch 3.0+) not found, unable to determine health.",
+                                "Nakamoto block downloader not found (Epoch 3.0+), unable to determine health.",
                             );
                         }
                     }
                 }
             };
 
-            match peer_max_height_opt {
-                Some(max_height) => {
-                    let matches_peers = stacks_tip_height >= max_height.saturating_sub(1);
-                    let percent_of_blocks_synced = if matches_peers {
-                        100
-                    } else if max_height == 0 {
-                        0 // Avoid division by zero if max_height is 0 and not matching
-                    } else {
-                        (stacks_tip_height * 100 / max_height) as u8
-                    };
+            match peer_max_stacks_height_opt  {
+                Some(max_stacks_height_of_neighbors) => {
+                    // There could be a edge case where our node is ahead of all peers.
+                    let difference_from_max_peer = max_stacks_height_of_neighbors.saturating_sub(node_stacks_tip_height);
 
                     let preamble = HttpResponsePreamble::ok_json(&preamble);
                     let data = RPCGetHealthResponse {
-                        matches_peers,
-                        percent_of_blocks_synced,
+                        difference_from_max_peer,
+                        max_stacks_height_of_neighbors,
+                        node_stacks_tip_height,
                     };
                     let body = HttpResponseContents::try_from_json(&data)?;
                     Ok((preamble, body))
