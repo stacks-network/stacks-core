@@ -1749,13 +1749,13 @@ impl PeerDB {
             SELECT *
             FROM frontier
             WHERE network_id = ?1
-                AND last_contact_time >= ?2
-                AND ?3 < expire_block_height
-                AND denied < ?4
-                {include_allowed_condition}
-                AND (?6 <= (peer_version & 0x000000ff) OR ?7 <= (peer_version & 0x000000ff))
-                {use_public_condition}
-                ORDER BY RANDOM() LIMIT ?8"#
+              AND last_contact_time >= ?2
+              AND ?3 < expire_block_height
+              AND denied < ?4
+              {include_allowed_condition}
+              AND (?6 <= (peer_version & 0x000000ff) OR ?7 <= (peer_version & 0x000000ff))
+              {use_public_condition}
+              ORDER BY RANDOM() LIMIT ?8"#
         );
 
         let random_peers_args = params![
