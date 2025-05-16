@@ -4,13 +4,23 @@
   "title": "GetHealthResponse",
   "type": "object",
   "additionalProperties": false,
-  "required": ["matches_peers", "percent_of_blocks_synced"],
+  "required": [
+    "difference_from_max_peer",
+    "max_stacks_height_of_neighbors",
+    "node_stacks_tip_height"
+  ],
   "properties": {
-    "matches_peers": {
-      "type": "boolean"
+    "difference_from_max_peer": {
+      "type": "integer",
+      "description": "The difference in height between the node and its most advanced neighbor."
     },
-    "percent_of_blocks_synced": {
-      "type": "integer"
+    "max_stacks_height_of_neighbors": {
+      "type": "integer",
+      "description": "The max Stacks height of the node's most advanced neighbor."
+    },
+    "node_stacks_tip_height": {
+      "type": "integer",
+      "description": "The Stacks height of this node."
     }
   }
 }

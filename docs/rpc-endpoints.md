@@ -599,11 +599,9 @@ transaction indexing is not enabled.
 
 ### GET /v3/health
 
-Determine whether a node is healthy. A node is considered healthy if its block height
-is greater than or equal to the max block height of its initial peers. If there are no valid
-initial peers or data for the node to determine this information, this endpoint
-returns an error. The endpoint also returns an error if the node's height is
-less than the max block height amongst its initial peers, and this error includes
-the percent of blocks the node has relative to its most advanced peer.
+Determine node's synchronization health, comparing the node's current Stacks tip height
+with the maximum Stacks tip height observed among its connected peers.
+If there are no valid initial peers or data for the node to determine this information, this endpoint returns an error. The endpoint returns the node's current Stacks tip height, the maximum Stacks tip height observed among its connected peers, and the difference between these two heights.
+A user can utilize the `difference_from_max_peer` to establish their own criteria for determining if a node is out of sync.
 
 See OpenAPI [spec](./rpc/openapi.yaml) for details.

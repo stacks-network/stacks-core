@@ -899,9 +899,13 @@ paths:
   /v3/health:
     get:
       summary: Query the health of the node.
-      description:
-        Get a boolean determining whether a node is synced up with its boostrap nodes, and the percent of
-        blocks the node has relative to its most advanced peer.
+      description: |
+        Get node health information.
+        A node is considered healthy if its Stacks tip height matches the maximum Stacks tip height observed among its connected peers.
+        This endpoint returns:
+        - `difference_from_max_peer`: The difference in Stacks height between this node and its most advanced peer.
+        - `max_stacks_height_of_neighbors`: The maximum Stacks height observed among the node's connected peers.
+        - `node_stacks_tip_height`: The current Stacks tip height of this node.
       tags:
         - Info
       operationId: get_health
@@ -915,9 +919,9 @@ paths:
               example:
                 $ref: ./api/core-node/get-health.example.json
         500:
-          description:
-            Failed to query for health (no data or no valid peers to query
-            from), only the `error` field will be set in this case.
+          description: |
+            Failed to query for health (e.g., no data or no valid peers to query from).
+            Only the `error` field will be set in this case, providing a message about the failure.
           content:
             application/json:
               schema:

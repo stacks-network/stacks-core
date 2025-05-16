@@ -1,4 +1,5 @@
 {
-  "matches_peers": true,
-  "percent_of_blocks_synced": 100
+  "difference_from_max_peer": 0,
+  "max_stacks_height_of_neighbors": 12345,
+  "node_stacks_tip_height": 12345
 }
