@@ -1148,13 +1148,29 @@ impl InvState {
         list
     }
 
-    /// This function obtains the block stats of each of the neighbors provided as an input to this
-    /// function, and returns the max height amongst those neighbors as an option. If no stats
-    /// exist for any of the neighbors, the function returns `None`.
-    pub fn get_max_height_of_neighbors(&self, neighbors: &Vec<Neighbor>, ibd: bool) -> Option<u64> {
+    /// Returns the highest Stacks tip height reported by the given neighbors.
+    ///
+    /// This function iterates through the provided neighbors, checks their block stats,
+    /// and determines the maximum block height. The status of the neighbor (Online or Diverged during IBD,
+    /// or Online when not in IBD) is considered.
+    ///
+    /// # Arguments
+    ///
+    /// * `neighbors` - A slice of `Neighbor` structs to check.
+    /// * `ibd` - A boolean indicating if the node is in Initial Block Download (IBD) mode.
+    ///
+    /// # Returns
+    ///
+    /// * `Some(u64)` if at least one neighbor has a tip height according to its status.
+    /// * `None` if no tip heights are found.
+    pub fn get_max_stacks_height_of_neighbors(
+        &self,
+        neighbors: &[Neighbor],
+        ibd: bool,
+    ) -> Option<u64> {
         let mut max_height: u64 = 1;
         let mut stats_obtained = false;
-        for neighbor in neighbors.iter() {
+        for neighbor in neighbors {
             let nk = &neighbor.addr;
             match self.block_stats.get(nk) {
                 Some(stats) => {
@@ -2807,7 +2823,7 @@ impl PeerNetwork {
     }
 
     /// Do an inventory state machine pass for epoch 2.x.
-    /// Returns the new work state  
+    /// Returns the new work state
     pub fn work_inv_sync_epoch2x(
         &mut self,
         sortdb: &SortitionDB,
