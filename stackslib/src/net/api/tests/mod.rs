@@ -16,6 +16,8 @@
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
@@ -1061,16 +1063,20 @@ impl<'a> TestRPC<'a> {
     }
 
     pub fn run(self, requests: Vec<StacksHttpRequest>) -> Vec<StacksHttpResponse> {
-        self.run_with_observer(requests, None)
+        self.run_with_observer(requests, None, |_, _| true)
     }
 
     /// Run zero or more HTTP requests on this setup RPC test harness.
     /// Return the list of responses.
-    pub fn run_with_observer(
+    pub fn run_with_observer<F>(
         self,
         requests: Vec<StacksHttpRequest>,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-    ) -> Vec<StacksHttpResponse> {
+        wait_for: F,
+    ) -> Vec<StacksHttpResponse>
+    where
+        F: Fn(&mut TestPeer, &mut TestPeer) -> bool,
+    {
         let mut peer_1 = self.peer_1;
         let mut peer_2 = self.peer_2;
         let peer_1_indexer = self.peer_1_indexer;
@@ -1080,7 +1086,14 @@ impl<'a> TestRPC<'a> {
         let unconfirmed_state = self.unconfirmed_state;
 
         let mut responses = vec![];
-        for request in requests.into_iter() {
+        for (ix, request) in requests.into_iter().enumerate() {
+            let start = Instant::now();
+            while !wait_for(&mut peer_1, &mut peer_2) {
+                if start.elapsed() > Duration::from_secs(120) {
+                    panic!("Timed out waiting for wait_for check to pass");
+                }
+                thread::sleep(Duration::from_secs(1));
+            }
             peer_1.refresh_burnchain_view();
             peer_2.refresh_burnchain_view();
 

@@ -1213,53 +1213,363 @@ impl std::default::Default for Config {
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct BurnchainConfig {
+    /// The underlying blockchain used for Proof-of-Transfer.
+    /// Currently, only `"bitcoin"` is supported.
+    ///
+    /// Default: `"bitcoin"`
     pub chain: String,
+    /// The operational mode or network profile for the Stacks node.
+    /// This setting determines network parameters (like chain ID, peer version),
+    /// default configurations, genesis block definitions, and overall node behavior.
+    ///
+    /// Supported values:
+    /// ```text
+    /// | Mode            | Network Type |
+    /// |-----------------|--------------|
+    /// | "mainnet"       | mainnet      |
+    /// | "xenon"         | testnet      |
+    /// | "mocknet"       | regtest      |
+    /// | "helium"        | regtest      |
+    /// | "neon"          | regtest      |
+    /// | "argon"         | regtest      |
+    /// | "krypton"       | regtest      |
+    /// | "nakamoto-neon" | regtest      |
+    /// ```
+    ///
+    /// Default: `"mocknet"`
     pub mode: String,
+    /// The network-specific identifier used in P2P communication and database initialization.
+    /// Derived from `mode` during config load, unless explicitly overridden (for test purposes).
+    ///
+    /// **Warning:** Do not modify this unless you really know what you're doing.
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: Derived from [`BurnchainConfig::mode`] ([`CHAIN_ID_MAINNET`] for `mainnet`, [`CHAIN_ID_TESTNET`] otherwise).
     pub chain_id: u32,
+    /// The peer protocol version number used in P2P communication.
+    /// This parameter cannot be set via the configuration file.
+    ///
+    /// **Warning:** Do not modify this unless you really know what you're doing.
+    ///
+    /// Default: Derived from [`BurnchainConfig::mode`] ([`PEER_VERSION_MAINNET`] for `mainnet`, [`PEER_VERSION_TESTNET`] otherwise).
     pub peer_version: u32,
+    /// Specifies a mandatory wait period (in milliseconds) after receiving a burnchain tip
+    /// before the node attempts to build the anchored block for the new tenure.
+    /// This duration effectively schedules the start of the block-building
+    /// process relative to the tip's arrival time.
+    ///
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `5000` milliseconds.
+    ///          `10000` milliseconds when launched with the `helium` or `mocknet` subcommands.
     pub commit_anchor_block_within: u64,
+    /// The maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election.
+    /// Acts as a safety cap to limit the maximum amount spent on mining.
+    /// It serves as both the target fee and a fallback if dynamic fee calculations fail or cannot be performed.
+    ///
+    /// This setting can be hot-reloaded from the config file, allowing adjustment without restarting.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: `20000` satoshis
     pub burn_fee_cap: u64,
+    /// The hostname or IP address of the bitcoin node peer.
+    ///
+    /// This field is required for all node configurations as it specifies where to find the underlying
+    /// bitcoin node to interact with for PoX operations, block validation, and mining.
+    ///
+    /// Default: `"0.0.0.0"`
     pub peer_host: String,
+    /// The P2P network port of the bitcoin node specified by [`BurnchainConfig::peer_host`].
+    ///
+    /// Default: `8333`
     pub peer_port: u16,
+    /// The RPC port of the bitcoin node specified by [`BurnchainConfig::peer_host`].
+    ///
+    /// Default: `8332`
     pub rpc_port: u16,
+    /// Flag indicating whether to use SSL/TLS when connecting to the bitcoin node's RPC interface.
+    ///
+    /// Default: `false`
     pub rpc_ssl: bool,
+    /// The username for authenticating with the bitcoin node's RPC interface.
+    /// Required if the bitcoin node requires RPC authentication.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: `None`
     pub username: Option<String>,
+    /// The password for authenticating with the bitcoin node's RPC interface.
+    /// Required if the bitcoin node requires RPC authentication.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: `None`
     pub password: Option<String>,
-    /// Timeout, in seconds, for communication with bitcoind
+    /// Timeout duration, in seconds, for RPC calls made to the bitcoin node.
+    /// Configures the timeout on the underlying HTTP client.
+    ///
+    /// Default: `60` seconds
     pub timeout: u32,
+    /// The network "magic bytes" used to identify packets for the specific bitcoin network instance
+    /// (e.g., mainnet, testnet, regtest). Must match the magic bytes of the connected bitcoin node.
+    ///
+    /// These two-byte identifiers help ensure that nodes only connect to peers on the same network type.
+    /// Common values include:
+    /// - "X2" for mainnet
+    /// - "T2" for testnet (xenon)
+    /// - Other values for specific test networks
+    ///
+    /// Configured as a 2-character ASCII string (e.g., "X2" for mainnet).
+    ///
+    /// Default: [`BLOCKSTACK_MAGIC_MAINNET`] (corresponds to "X2") unless overridden by [`BurnchainConfig::mode`] (e.g., "T2" for testnet (xenon)).
     pub magic_bytes: MagicBytes,
+    /// The public key associated with the local mining address for the underlying Bitcoin regtest node.
+    /// Provided as a hex string representing an uncompressed public key.
+    ///
+    /// It is primarily used in modes that rely on a controlled Bitcoin regtest backend
+    /// (e.g., "helium", "mocknet", "neon") where the Stacks node itself needs to
+    /// instruct the Bitcoin node to generate blocks.
+    ///
+    /// The key is used to derive the Bitcoin address that receives the coinbase rewards
+    /// when generating blocks on the regtest network.
+    ///
+    /// Mandatory if [`BurnchainConfig::mode`] is "helium".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None`
     pub local_mining_public_key: Option<String>,
+    /// Optional bitcoin block height at which the Stacks node process should gracefully exit.
+    /// When bitcoin reaches this height, the node logs a message and initiates a graceful shutdown.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None`
     pub process_exit_at_block_height: Option<u64>,
+    /// The interval, in seconds, at which the node polls the bitcoin node for new blocks and state updates.
+    ///
+    /// The default value of 10 seconds is mainly intended for testing purposes.
+    /// It's suggested to set this to a higher value for mainnet, e.g., 300 seconds (5 minutes).
+    ///
+    /// Default: `10` seconds
     pub poll_time_secs: u64,
+    /// The default fee rate in satoshis per virtual byte (sats/vB) to use when estimating fees for miners
+    /// to submit bitcoin transactions (like block commits or leader key registrations).
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: [`DEFAULT_SATS_PER_VB`] (currently 50 satoshis per virtual byte)
     pub satoshis_per_byte: u64,
-    /// Maximum percentage of `satoshis_per_byte` that a Bitcoin fee rate may
-    /// be increased to when RBFing a transaction
+    /// Maximum fee rate multiplier allowed when using Replace-By-Fee (RBF) for bitcoin transactions.
+    /// Expressed as a percentage of the original [`BurnchainConfig::satoshis_per_byte`] rate (e.g.,
+    /// 150 means the fee rate can be increased up to 1.5x). Used in mining logic for RBF decisions
+    /// to cap the replacement fee rate.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: [`DEFAULT_MAX_RBF_RATE`] (currently 150, i.e., 1.5x)
     pub max_rbf: u64,
+    /// Estimated size (in virtual bytes) of a leader key registration transaction on bitcoin.
+    /// Used for fee calculation in mining logic by multiplying with the fee rate [`BurnchainConfig::satoshis_per_byte`].
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: [`OP_TX_LEADER_KEY_ESTIM_SIZE`] (currently 290)
     pub leader_key_tx_estimated_size: u64,
+    /// Estimated size (in virtual bytes) of a block commit transaction on bitcoin.
+    /// Used for fee calculation in mining logic by multiplying with the fee rate [`BurnchainConfig::satoshis_per_byte`].
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: [`OP_TX_BLOCK_COMMIT_ESTIM_SIZE`] (currently 380)
     pub block_commit_tx_estimated_size: u64,
-    /// Amount to increment the fee by, in Sats/vByte, when RBFing a Bitcoin
-    /// transaction
+    /// The incremental amount (in Sats/vByte) to add to the previous transaction's
+    /// fee rate for RBF bitcoin transactions.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: [`DEFAULT_RBF_FEE_RATE_INCREMENT`] (currently 5 satoshis per virtual byte)
     pub rbf_fee_increment: u64,
+    /// Overrides the default starting bitcoin block height for the node.
+    /// Allows starting synchronization from a specific historical point in test environments.
+    /// Should be used together with [`BurnchainConfig::first_burn_block_timestamp`] and [`BurnchainConfig::first_burn_block_hash`] for proper operation.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None` (uses the burnchain's default starting height for the mode).
     pub first_burn_block_height: Option<u64>,
+    /// Overrides the default starting block timestamp of the burnchain.
+    /// Should be used together with [`BurnchainConfig::first_burn_block_height`] and [`BurnchainConfig::first_burn_block_hash`] for proper operation.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None` (uses the burnchain's default starting timestamp).
     pub first_burn_block_timestamp: Option<u32>,
+    /// Overrides the default starting block hash of the burnchain.
+    /// Should be used together with [`BurnchainConfig::first_burn_block_timestamp`] and [`BurnchainConfig::first_burn_block_height`] for proper operation.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None` (uses the burnchain's default starting block hash).
     pub first_burn_block_hash: Option<String>,
-    /// Custom override for the definitions of the epochs. This will only be applied for testnet and
-    /// regtest nodes.
+    /// Custom override for the definitions of Stacks epochs (start/end burnchain heights, consensus rules).
+    /// This setting allows testing specific epoch transitions or custom consensus rules by defining exactly
+    /// when each epoch starts on bitcoin.
+    ///
+    /// **Configuration:**
+    /// Configured as a list `[[burnchain.epochs]]` in TOML, each with:
+    /// - `epoch_name`: A string identifying the epoch (e.g., `"1.0"`, `"2.05"`, `"3.1"`).
+    /// - `start_height`: The Bitcoin block height at which this epoch becomes active.
+    ///
+    /// Example TOML entry:
+    /// ```toml
+    /// [[burnchain.epochs]]
+    /// epoch_name = "2.1"
+    /// start_height = 150
+    /// ```
+    ///
+    /// **Details:**
+    /// Epochs define distinct protocol rule sets (consensus rules, execution costs, capabilities).
+    /// When configured, the list must include all epochs sequentially from "1.0" up to the
+    /// highest desired epoch, without skipping any intermediate ones.
+    /// Valid `epoch_name` values currently include:
+    /// `"1.0"`, `"2.0"`, `"2.05"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"`, `"2.5"`, `"3.0"`, `"3.1"`.
+    ///
+    /// **Validation Rules:**
+    /// - Epochs must be provided in strict chronological order (`1.0`, `2.0`, `2.05`...).
+    /// - `start_height` values must be non-decreasing across the list.
+    /// - Epoch `"1.0"` must have `start_height = 0`.
+    /// - The number of defined epochs cannot exceed the maximum supported by the node software.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None` (uses the standard epoch definitions for the selected `mode`).
     pub epochs: Option<EpochList<ExecutionCost>>,
+    /// Sets a custom burnchain height for PoX-2 activation (for testing).
+    ///
+    /// This affects two key transitions:
+    /// 1. The block height at which PoX v1 lockups are automatically unlocked.
+    /// 2. The block height from which PoX reward set calculations switch to PoX v2 rules.
+    ///
+    /// **Behavior:**
+    /// - This value directly sets the auto unlock height for PoX v1 lockups before transition to PoX v2. This
+    ///   also defines the burn height at which PoX reward sets are calculated using PoX v2 rather than v1.
+    /// - If custom [`BurnchainConfig::epochs`] are provided:
+    ///   - This value is used to validate that Epoch 2.1's start height is ≤ this value.
+    ///   - However, the height specified in `epochs` for Epoch 2.1 takes precedence.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None`.
     pub pox_2_activation: Option<u32>,
+    /// Overrides the length (in bitcoin blocks) of the PoX reward cycle.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None` (uses the standard reward cycle length for the mode).
     pub pox_reward_length: Option<u32>,
+    /// Overrides the length (in bitcoin blocks) of the PoX prepare phase.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None` (uses the standard prepare phase length for the mode).
     pub pox_prepare_length: Option<u32>,
+    /// Overrides the bitcoin height at which the PoX sunset period begins in epochs before 2.1.
+    /// The sunset period represents a planned phase-out of the PoX mechanism. During this period,
+    /// stacking rewards gradually decrease, eventually ceasing entirely. This parameter allows
+    /// testing the PoX sunset transition by explicitly setting its start height.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None` (uses the standard sunset start height for the mode).
+    /// Deprecated: The sunset phase was removed in Epoch 2.1. This parameter can still be used for testing purposes for epochs before 2.1.
     pub sunset_start: Option<u32>,
+    ///
+    /// Overrides the bitcoin height, non-inclusive, at which the PoX sunset period ends in epochs before 2.1.
+    /// After this height, Stacking rewards are disabled completely. This parameter works together
+    /// with `sunset_start` to define the full sunset transition period for PoX.
+    ///
+    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `None` (uses the standard sunset end height for the mode).
+    /// Deprecated: The sunset phase was removed in Epoch 2.1. This parameter can still be used for testing purposes for epochs before 2.1.
     pub sunset_end: Option<u32>,
+    /// Specifies the name of the Bitcoin wallet to use within the connected bitcoin node.
+    /// Used to interact with a specific named wallet if the bitcoin node manages multiple wallets.
+    ///
+    /// If the specified wallet doesn't exist, the node will attempt to create it via the createwallet RPC call.
+    /// This is particularly useful for miners who need to manage separate wallets.
+    ///
+    /// Primarily relevant for miners interacting with multi-wallet Bitcoin nodes.
+    ///
+    /// Default: `""` (empty string, implying the default wallet or no specific wallet needed).
     pub wallet_name: String,
+    /// Override for the burnchain height activating stricter AST size checks pre-epoch 3.0 for testing purposes.
+    ///
+    /// Used pre-epoch 3.0 to control activation before it became standard (at burn height `752000`).
+    /// Ignored in standard production builds as the underlying mechanism is disabled unless the `testing` feature is active.
+    ///
+    /// Default: `None`.
+    /// Deprecated: This setting is ignored in Epoch 3.0+.
     pub ast_precheck_size_height: Option<u64>,
+    /// Overrides for the burnchain block affirmation map for specific reward cycles.
+    /// Allows manually setting the miner affirmation ('p'resent/'n'ot-present/'a'bsent) map for a
+    /// given cycle, bypassing the map normally derived from sortition results.
+    ///
+    /// **Configuration:**
+    /// Configured as a list `[[burnchain.affirmation_overrides]]` in TOML, each with:
+    /// - `reward_cycle`: The cycle number to override.
+    /// - `affirmation`: The 'p'/'n'/'a' sequence representing the map. Must have length `reward_cycle - 1`.
+    ///
+    /// Example TOML:
+    /// ```toml
+    /// [[burnchain.affirmation_overrides]]
+    /// reward_cycle = 413
+    /// affirmation = "pna..." # Must be 412 chars long
+    /// ```
+    ///
+    /// **Details:**
+    /// Special defaults are added when [`BurnchainConfig::mode`] is "xenon" or the node
+    /// is launched with the `testnet` subcommand, but config entries take precedence.
+    /// At startup, these overrides are written to the `BurnchainDB` (`overrides` table).
+    /// Primarily used for testing or recovering from network issues.
+    ///
+    /// Default: Empty `HashMap`.
+    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub affirmation_overrides: HashMap<u64, AffirmationMap>,
-    /// fault injection to simulate a slow burnchain peer.
-    /// Delay burnchain block downloads by the given number of millseconds
+    /// Fault injection setting for testing. Introduces an artificial delay (in milliseconds)
+    /// before processing each burnchain block download. Simulates a slow burnchain connection.
+    ///
+    /// This is intended strictly for testing purposes.
+    ///
+    /// Default: `0` (no delay).
     pub fault_injection_burnchain_block_delay: u64,
-    /// The maximum number of unspent UTXOs to request from the bitcoin node.
-    /// This value is passed as the `maximumCount` query option to the
-    /// `listunspent` RPC call.
+    /// The maximum number of unspent transaction outputs (UTXOs) to request from the bitcoin node.
+    ///
+    /// This value is passed as the `maximumCount` parameter to the bitcoin node. It helps manage
+    /// response size and processing load, particularly relevant for miners querying for available
+    /// UTXOs to fund operations like block commits or leader key registrations.
+    ///
+    /// Setting this limit too high might lead to performance issues or timeouts when querying
+    /// nodes with a very large number of UTXOs. Conversely, setting it too low might prevent
+    /// the miner from finding enough UTXOs in a single query to meet the required funding amount
+    /// for a transaction, even if sufficient funds exist across more UTXOs not returned by the limited query.
+    ///
+    /// This value must be `<= 1024`.
+    ///
+    /// Only relevant if [`NodeConfig::miner`] is `true`.
+    ///
+    /// Default: `Some(1024)`
     pub max_unspent_utxos: Option<u64>,
 }
 
@@ -2125,82 +2435,380 @@ impl NodeConfig {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MinerConfig {
+    /// Time to wait (in milliseconds) before the first attempt to mine a block.
+    ///
+    /// Default: `10` ms
+    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub first_attempt_time_ms: u64,
+    /// Time to wait (in milliseconds) for subsequent attempts to mine a block,
+    /// after the first attempt fails.
+    ///
+    /// Default: `120_000` ms (2 minutes)
+    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub subsequent_attempt_time_ms: u64,
+    /// Time to wait (in milliseconds) to mine a microblock,
+    ///
+    /// Default: `30_000` ms (30 seconds)
+    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub microblock_attempt_time_ms: u64,
-    /// Max time to assemble Nakamoto block
+    /// Maximum time (in milliseconds) the miner spends selecting transactions from the mempool
+    /// when assembling a Nakamoto block. Once this duration is exceeded, the miner stops
+    /// adding transactions and finalizes the block with those already selected.
+    ///
+    /// Default: `5_000` ms (5 seconds)
     pub nakamoto_attempt_time_ms: u64,
-    /// Strategy to follow when picking next mempool transactions to consider.
+    /// Strategy for selecting the next transaction candidate from the mempool.
+    /// Controls prioritization between maximizing immediate fee capture vs. ensuring
+    /// transaction nonce order for account progression and processing efficiency.
+    ///
+    /// See [`MemPoolWalkStrategy`] for variant details.
+    ///
+    /// Possible values (use variant names for configuration):
+    /// - `"GlobalFeeRate"`: Selects the transaction with the highest fee rate globally.
+    /// - `"NextNonceWithHighestFeeRate"`: Selects the highest-fee transaction among those
+    ///   matching the next expected nonce for sender/sponsor accounts.
+    ///
+    /// Default: `"GlobalFeeRate"`
     pub mempool_walk_strategy: MemPoolWalkStrategy,
+    /// Probability (percentage, 0-100) of prioritizing a transaction without a known fee rate
+    /// during candidate selection.
+    ///
+    /// Only effective when `mempool_walk_strategy` is `GlobalFeeRate`. Helps ensure
+    /// transactions lacking fee estimates are periodically considered alongside high-fee ones,
+    /// preventing potential starvation. A value of 0 means never prioritize them first,
+    /// 100 means always prioritize them first (if available).
+    ///
+    /// Default: `25` (25% chance)
     pub probability_pick_no_estimate_tx: u8,
+    /// Optional recipient for the coinbase block reward, overriding the default miner address.
+    ///
+    /// By default (`None`), the reward is sent to the miner's primary address ([`NodeConfig::seed`]).
+    /// If set to some principal address *and* the current Stacks epoch is 2.1+,
+    /// the reward will be directed to the specified address instead.
+    ///
+    /// Default: `None`
     pub block_reward_recipient: Option<PrincipalData>,
-    /// If possible, mine with a p2wpkh address
+    /// If possible, mine with a p2wpkh address.
+    ///
+    /// Default: `false`
     pub segwit: bool,
     /// Wait for a downloader pass before mining.
     /// This can only be disabled in testing; it can't be changed in the config file.
+    ///
+    /// Default: `true`
     pub wait_for_block_download: bool,
+    /// Max size (in bytes) of the in-memory cache for storing expected account nonces.
+    ///
+    /// This cache accelerates mempool processing (e.g., during block building) by storing
+    /// the anticipated next nonce for accounts, reducing expensive lookups into the node's
+    /// state (MARF trie). A larger cache can improve performance for workloads involving
+    /// many unique accounts but increases memory consumption.
+    ///
+    /// Must be configured to a value greater than 0.
+    ///
+    /// Default: `1048576` bytes (1 MiB)
     pub nonce_cache_size: usize,
+    /// Max size (in *number* of items) of transaction candidates to hold in the in-memory
+    /// retry cache. Each element [`MemPoolTxInfoPartial`] is currently 112 bytes.
+    ///
+    /// This cache stores transactions encountered during a `GlobalFeeRate` mempool walk
+    /// whose nonces are currently too high for immediate processing. These candidates
+    /// are prioritized for reconsideration later within the *same* walk, potentially
+    /// becoming valid if other processed transactions update the expected nonces.
+    ///
+    /// A larger cache retains more potentially valid future candidates but uses more memory.
+    /// This setting is primarily relevant for the `GlobalFeeRate` strategy.
+    ///
+    /// Default: `1048576` items (112 bytes * 1048576 = 112 MB)
     pub candidate_retry_cache_size: usize,
+    /// Amount of time (in seconds) to wait for unprocessed blocks before mining a new block.
+    ///
+    /// Default: `30`
+    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub unprocessed_block_deadline_secs: u64,
+    /// The private key (Secp256k1) used for signing blocks, provided as a hex string.
+    ///
+    /// This key must be present at runtime for mining operations to succeed.
+    ///
+    /// Default: The effective default depends on:
+    /// - If the `[miner]` section *is present* in the config file, the [`NodeConfig::seed`] is used.
+    /// - If the `[miner]` section *is not present* in the config file, `None`. Mining operations will fail at runtime.
     pub mining_key: Option<Secp256k1PrivateKey>,
     /// Amount of time while mining in nakamoto to wait in between mining interim blocks
-    /// DEPRECATED: use `min_time_between_blocks_ms` instead
+    ///
+    /// Default: `None`
+    /// Deprecated: use [`MinerConfig::min_time_between_blocks_ms`] instead.
     pub wait_on_interim_blocks: Option<Duration>,
-    /// minimum number of transactions that must be in a block if we're going to replace a pending
+    /// Minimum number of transactions that must be in a block if we're going to replace a pending
     /// block-commit with a new block-commit
+    ///
+    /// Default: `0`
+    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub min_tx_count: u64,
-    /// Only allow a block's tx count to increase across RBFs.
+    /// If true, requires subsequent mining attempts for the same block height
+    /// to have a transaction count >= the previous best attempt.
+    ///
+    /// Default: `false`
+    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub only_increase_tx_count: bool,
-    /// Path to a script that prints out all unconfirmed block-commits for a list of addresses
+    /// Optional path to an external helper script for fetching unconfirmed block-commits.
+    /// Used to inform the miner's dynamic burn fee bidding strategy with off-chain data.
+    ///
+    /// If a path is provided, the target script must:
+    /// - Be executable by the user running the Stacks node process.
+    /// - Accept a list of active miner burnchain addresses as command-line arguments.
+    /// - On successful execution, print a JSON array representing `Vec<UnconfirmedBlockCommit>`
+    ///   (see [`stacks::config::chain_data::UnconfirmedBlockCommit`] struct) to stdout.
+    /// - Exit with code 0 on success.
+    ///
+    /// Look at [`test_get_unconfirmed_commits`](stackslib/src/config/chain_data.rs) for an example script.
+    ///
+    /// Default: `None` (feature disabled).
+    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode and
+    /// by the `get-spend-amount` cli subcommand.
     pub unconfirmed_commits_helper: Option<String>,
-    /// Targeted win probability for this miner.  Used to deduce when to stop trying to mine.
+    /// The minimum win probability this miner aims to achieve in block sortitions.
+    ///
+    /// This target is used to detect prolonged periods of underperformance. If the miner's
+    /// calculated win probability consistently falls below this value for a duration specified
+    /// by [`MinerConfig::underperform_stop_threshold`] (after an initial startup phase), the miner may
+    /// cease spending in subsequent sortitions (returning a burn fee cap of 0) to conserve resources.
+    ///
+    /// Setting this value close to 0.0 effectively disables the underperformance check.
+    ///
+    /// Default: `0.0`
+    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub target_win_probability: f64,
-    /// Path to a serialized RegisteredKey struct, which points to an already-registered VRF key
-    /// (so we don't have to go make a new one)
+    /// Path to a file for storing and loading the currently active, registered VRF leader key.
+    ///
+    /// Loading: On startup or when needing to register a key, if this path is set, the relayer first
+    /// attempts to load a serialized [`RegisteredKey`] from this file. If successful, it uses the
+    /// loaded key and skips the on-chain VRF key registration transaction, saving time and fees.
+    /// Saving: After a new VRF key registration transaction is confirmed and activated on the burnchain,
+    /// if this path is set, the node saves the details of the newly activated [`RegisteredKey`] to this file.
+    /// This allows the miner to persist its active VRF key across restarts.
+    /// If the file doesn't exist during load, or the path is `None`, the node proceeds with a new registration.
+    ///
+    /// Default: `None`
     pub activated_vrf_key_path: Option<String>,
-    /// When estimating win probability, whether or not to use the assumed win rate 6+ blocks from
-    /// now (true), or the current win rate (false)
+    /// Controls how the miner estimates its win probability when checking for underperformance.
+    ///
+    /// This estimation is used in conjunction with [`MinerConfig::target_win_probability`] and
+    /// [`MinerConfig::underperform_stop_threshold`] to decide whether to pause mining due to
+    /// low predicted success rate.
+    ///
+    /// - If `true`: The win probability estimation looks at projected spend distributions
+    ///   ~6 blocks into the future. This might help the miner adjust its spending more quickly
+    ///   based on anticipated competition changes.
+    /// - If `false`: The win probability estimation uses the currently observed spend distribution
+    ///   for the next block.
+    ///
+    /// Default: `false`
+    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode and
+    /// by the `get-spend-amount` cli subcommand.
     pub fast_rampup: bool,
-    /// Number of Bitcoin blocks which must pass where the boostes+neutrals are a minority, at which
-    /// point the miner will stop trying.
+    /// The maximum number of consecutive Bitcoin blocks the miner will tolerate underperforming
+    /// (i.e., having a calculated win probability below [`MinerConfig::target_win_probability`])
+    /// before temporarily pausing mining efforts.
+    ///
+    /// This check is only active after an initial startup phase (6 blocks past the mining start height).
+    /// If the miner underperforms for this number of consecutive blocks, the [`BlockMinerThread::get_mining_spend_amount`]
+    /// function will return 0, effectively preventing the miner from submitting a block commit
+    /// for the current sortition to conserve funds.
+    ///
+    /// If set to `None`, this underperformance check is disabled.
+    ///
+    /// Default: `None`
+    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub underperform_stop_threshold: Option<u64>,
-    /// Kinds of transactions to consider from the mempool.  This is used by boosted and neutral
-    /// miners to push past averse fee estimations.
+    /// Specifies which types of transactions the miner should consider including in a block
+    /// during the mempool walk process. Transactions of types not included in this set will be skipped.
+    ///
+    /// This allows miners to exclude specific transaction categories.
+    /// Configured as a comma-separated string of transaction type names in the configuration file.
+    ///
+    /// Accepted values correspond to variants of [`MemPoolWalkTxTypes`]:
+    /// - `"TokenTransfer"`
+    /// - `"SmartContract"`
+    /// - `"ContractCall"`
+    ///
+    /// Default: all transaction types are considered.
     pub txs_to_consider: HashSet<MemPoolWalkTxTypes>,
-    /// Origin addresses to whitelist when doing a mempool walk.  This is used by boosted and
-    /// neutral miners to push transactions through that are important to them.
+    /// A whitelist of Stacks addresses whose transactions should be exclusively considered during
+    /// the mempool walk for block building. If this list is non-empty, any transaction whose
+    /// origin address is *not* in this set will be skipped.
+    ///
+    /// This allows miners to prioritize transactions originating from specific accounts that are
+    /// important to them.
+    /// Configured as a comma-separated string of standard Stacks addresses (e.g., "ST123...,ST456...")
+    /// in the configuration file.
+    ///
+    /// Default: `HashSet::new()` (empty set, meaning all origins are considered).
     pub filter_origins: HashSet<StacksAddress>,
-    /// When selecting the "nicest" tip, do not consider tips that are more than this many blocks
-    /// behind the highest tip.
+    /// Defines the maximum depth (in Stacks blocks) the miner considers when evaluating
+    /// potential chain tips when selecting the best tip to mine the next block on.
+    ///
+    /// The miner analyzes candidate tips within this depth from the highest known tip.
+    /// It selects the "nicest" tip, often defined as the one that minimizes chain reorganizations
+    /// or orphans within this lookback window. A lower value restricts the analysis to shallower forks,
+    /// while a higher value considers deeper potential reorganizations.
+    ///
+    /// This setting influences which fork the miner chooses to build upon if multiple valid tips exist.
+    ///
+    /// Default: `3`
+    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode and
+    /// the `pick-best-tip` cli subcommand.
     pub max_reorg_depth: u64,
-    /// Whether to mock sign in Epoch 2.5 through the .miners and .signers contracts. This is used for testing purposes in Epoch 2.5 only.
+    /// Enables a mock signing process for testing purposes, specifically designed for use during Epoch 2.5
+    /// before the activation of Nakamoto consensus.
+    ///
+    /// When set to `true` and [`MinerConfig::mining_key`] is provided, the miner will interact
+    /// with the `.miners` and `.signers` contracts via the stackerdb to send and receive mock
+    /// proposals and signatures, simulating aspects of the Nakamoto leader election and block signing flow.
+    ///
+    /// This is intended strictly for testing purposes for Epoch 2.5 conditions.
+    ///
+    /// Default: `false`
+    /// Deprecated: This setting is ignored in Epoch 3.0+.
     pub pre_nakamoto_mock_signing: bool,
-    /// The minimum time to wait between mining blocks in milliseconds. The value must be greater than or equal to 1000 ms because if a block is mined
-    /// within the same second as its parent, it will be rejected by the signers.
+    /// The minimum time to wait between mining blocks in milliseconds. The value must be greater
+    /// than or equal to 1000 ms because if a block is mined within the same second as its parent,
+    /// it will be rejected by the signers.
+    ///
+    /// This check ensures compliance with signer rules that prevent blocks with identical timestamps
+    /// (at second resolution) to their parents. If a lower value is configured, 1000 ms is used instead.
+    ///
+    /// Default: [`DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS`] (currently 1000 ms)
     pub min_time_between_blocks_ms: u64,
-    /// The amount of time that the miner should sleep in between attempts to
-    /// mine a block when the mempool is empty
+    /// The amount of time in milliseconds that the miner should sleep in between attempts to
+    /// mine a block when the mempool is empty.
+    ///
+    /// This prevents the miner from busy-looping when there are no pending transactions,
+    /// conserving CPU resources. During this sleep, the miner still checks burnchain tip changes.
+    ///
+    /// Default: [`DEFAULT_EMPTY_MEMPOOL_SLEEP_MS`] (currently 2500 ms)
     pub empty_mempool_sleep_time: Duration,
     /// Time in milliseconds to pause after receiving the first threshold rejection, before proposing a new block.
+    ///
+    /// When a miner's block proposal fails to gather enough signatures from the signers for the first time
+    /// at a given height, the miner will pause for this duration before attempting to mine and propose again.
+    ///
+    /// Default: [`DEFAULT_FIRST_REJECTION_PAUSE_MS`] (currently 5000 ms)
     pub first_rejection_pause_ms: u64,
     /// Time in milliseconds to pause after receiving subsequent threshold rejections, before proposing a new block.
+    ///
+    /// If a miner's block proposal is rejected multiple times at the same height (after the first rejection),
+    /// this potentially longer pause duration is used before retrying. This gives more significant time
+    /// for network state changes or signer coordination.
+    ///
+    /// Default: [`DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS`] (currently 10_000 ms)
     pub subsequent_rejection_pause_ms: u64,
-    /// Duration to wait for a Nakamoto block after seeing a burnchain block before submitting a block commit.
+    /// Time in milliseconds to wait for a Nakamoto block after seeing a burnchain block before submitting a block commit.
+    ///
+    /// After observing a new burnchain block, the miner's relayer waits for this duration
+    /// before submitting its next block commit transaction to Bitcoin. This delay provides an opportunity
+    /// for a new Nakamoto block (produced by the winner of the latest sortition) to arrive.
+    /// Waiting helps avoid situations where the relayer immediately submits a commit that needs
+    /// to be replaced via RBF if a new Stacks block appears shortly after.
+    /// This delay is skipped if the new burnchain blocks leading to the tip contain no sortitions.
+    ///
+    /// Default: [`DEFAULT_BLOCK_COMMIT_DELAY_MS`] (currently 40_000 ms)
     pub block_commit_delay: Duration,
     /// The percentage of the remaining tenure cost limit to consume each block.
+    ///
+    /// This setting limits the execution cost (Clarity cost) a single Nakamoto block can incur,
+    /// expressed as a percentage of the *remaining* cost budget for the current mining tenure.
+    /// For example, if set to 25, a block can use at most 25% of the tenure's currently available cost limit.
+    /// This allows miners to spread the tenure's total execution budget across multiple blocks rather than
+    /// potentially consuming it all in the first block.
+    ///
+    /// A value of `100` (or setting this to `None`) effectively disables this per-block limit, allowing
+    /// a block to use the entire remaining tenure budget.
+    /// The value must be between 1 and 100, inclusive.
+    ///
+    /// Default: [`DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE`] (currently 25 %)
     pub tenure_cost_limit_per_block_percentage: Option<u8>,
     /// Duration to wait in-between polling the sortition DB to see if we need to
     /// extend the ongoing tenure (e.g. because the current sortition is empty or invalid).
+    ///
+    /// After the relayer determines that a tenure extension might be needed but cannot proceed immediately
+    /// (e.g., because a miner thread is already active for the current burn view), it will wait for this
+    /// duration before re-checking the conditions for tenure extension.
+    ///
+    /// Default: [`DEFAULT_TENURE_EXTEND_POLL_SECS`] (currently 1 second)
     pub tenure_extend_poll_timeout: Duration,
-    /// Duration to wait before trying to continue a tenure because the next miner did not produce blocks
+    /// Duration to wait before trying to continue a tenure because the next miner did not produce blocks.
+    ///
+    /// If the node was the winner of the previous sortition but not the most recent one,
+    /// the relayer waits for this duration before attempting to extend its own tenure.
+    /// This gives the new winner of the most recent sortition a grace period to produce their first block.
+    /// Also used in scenarios with empty sortitions to give the winner of the *last valid* sortition time
+    /// to produce a block before the current miner attempts an extension.
+    ///
+    /// Default: [`DEFAULT_TENURE_EXTEND_WAIT_MS`] (currently 120_000 ms)
     pub tenure_extend_wait_timeout: Duration,
-    /// Duration to wait before attempting to issue a tenure extend
+    /// Duration to wait before attempting to issue a time-based tenure extend.
+    ///
+    /// A miner can proactively attempt to extend its tenure if a significant amount of time has passed
+    /// since the last tenure change, even without an explicit trigger like an empty sortition.
+    /// If the time elapsed since the last tenure change exceeds this value, and the signer coordinator
+    /// indicates an extension is timely, and the cost usage threshold ([`MinerConfig::tenure_extend_cost_threshold`])
+    /// is met, the miner will include a tenure extension transaction in its next block.
+    ///
+    /// Default: [`DEFAULT_TENURE_TIMEOUT_SECS`] (currently 180 seconds)
     pub tenure_timeout: Duration,
-    /// Percentage of block budget that must be used before attempting a time-based tenure extend
+    /// Percentage of block budget that must be used before attempting a time-based tenure extend.
+    ///
+    /// This sets a minimum threshold for the accumulated execution cost within a tenure before a
+    /// time-based tenure extension ([`MinerConfig::tenure_timeout`]) can be initiated.
+    /// The miner checks if the proportion of the total tenure budget consumed so far exceeds this percentage.
+    /// If the cost usage is below this threshold, a time-based extension will not be attempted, even if
+    /// the [`MinerConfig::tenure_timeout`] duration has elapsed.
+    /// This prevents miners from extending tenures very early if they have produced only low-cost blocks.
+    ///
+    /// Default: [`DEFAULT_TENURE_EXTEND_COST_THRESHOLD`] (currently 50 %)
     pub tenure_extend_cost_threshold: u64,
-    /// Define the timeout to apply while waiting for signers responses, based on the amount of rejections
+    /// Defines adaptive timeouts for waiting for signer responses, based on the accumulated weight of rejections.
+    ///
+    /// Configured as a map where keys represent rejection count thresholds in percentage,
+    /// and values are the timeout durations (in seconds) to apply when the rejection count
+    /// reaches or exceeds that key but is less than the next key.
+    ///
+    /// When a miner proposes a block, it waits for signer responses (approvals or rejections).
+    /// The SignerCoordinator tracks the total weight of received rejections. It uses this map to determine
+    /// the current timeout duration. It selects the timeout value associated with the largest key
+    /// in the map that is less than or equal to the current accumulated rejection weight.
+    /// If this timeout duration expires before a decision is reached, the coordinator signals a timeout.
+    /// This prompts the miner to potentially retry proposing the block.
+    /// As more rejections come in, the applicable timeout step might change (likely decrease),
+    /// allowing the miner to abandon unviable proposals faster.
+    ///
+    /// A key for 0 (zero rejections) must be defined, representing the initial timeout when no rejections have been received.
+    ///
+    /// **Example TOML:**
+    /// ```toml
+    /// [miner]
+    /// # Keys are rejection counts, values are timeouts in seconds.
+    /// block_rejection_timeout_steps = { 0 = 180, 10 = 90, 20 = 45, 30 = 0 }
+    /// ```
+    /// This example means:
+    /// - If rejection weight is 0 <= weight < 10, wait up to 180 seconds.
+    /// - If rejection weight is 10 <= weight < 20, wait up to 90 seconds.
+    /// - If rejection weight is 20 <= weight < 30, wait up to 45 seconds.
+    /// - If rejection weight is >= 30, timeout immediately (0 seconds).
+    ///
+    /// (Note: The actual rejection weight values depend on the specific signer set and their weights.)
+    ///
+    /// Default: `{ 0: 180s, 10: 90s, 20: 45s, 30: 0s }`
     pub block_rejection_timeout_steps: HashMap<u32, Duration>,
-    /// Define max execution time for contract calls: transactions taking more than the specified amount of seconds will be rejected
+    /// Defines the maximum execution time (in seconds) allowed for a single contract call transaction.
+    ///
+    /// When processing a transaction (contract call or smart contract deployment), if this option is set,
+    /// and the execution time exceeds this limit, the transaction processing fails with an `ExecutionTimeout` error,
+    /// and the transaction is skipped. This prevents potentially long-running or infinite-loop transactions
+    /// from blocking block production.
+    ///
+    /// Default: `None` (no execution time limit)
     pub max_execution_time_secs: Option<u64>,
     /// TODO: remove this option when its no longer a testing feature and it becomes default behaviour
     /// The miner will attempt to replay transactions that a threshold number of signers are expecting in the next block
