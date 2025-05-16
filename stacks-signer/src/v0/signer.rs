@@ -273,6 +273,22 @@ impl SignerTrait<SignerMessage> for Signer {
         }
         self.check_submitted_block_proposal();
         self.check_pending_block_validations(stacks_client);
+
+        let mut prior_state = self.local_state_machine.clone();
+        // Check first if our local state machine view of the miner changes before attempting to check any other events
+        if let Err(e) = self.local_state_machine.check_miner_inactivity(
+            &self.signer_db,
+            stacks_client,
+            &self.proposal_config,
+        ) {
+            warn!("{self}: An error occurred checking the current miner activity: {e}");
+        }
+        if prior_state != self.local_state_machine {
+            let version = self.get_signer_protocol_version();
+            self.local_state_machine
+                .send_signer_update_message(&mut self.stackerdb, version);
+            prior_state = self.local_state_machine.clone();
+        }
         debug!("{self}: Processing event: {event:?}");
         let Some(event) = event else {
             // No event. Do nothing.
@@ -290,8 +306,6 @@ impl SignerTrait<SignerMessage> for Signer {
             debug!("{self}: Signer reward cycle has not yet started. Ignoring event.");
             return;
         }
-
-        let mut prior_state = self.local_state_machine.clone();
         if self.reward_cycle <= current_reward_cycle {
             self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client, &self.proposal_config)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
@@ -607,6 +621,16 @@ impl Signer {
     ) -> Option<BlockResponse> {
         let signer_signature_hash = block.header.signer_signature_hash();
         let block_id = block.block_id();
+        // First update our global state evaluator with our local state if we have one
+        let version = self.get_signer_protocol_version();
+        if let Ok(update) = self
+            .local_state_machine
+            .try_into_update_message_with_version(version)
+        {
+            self.global_state_evaluator
+                .insert_update(self.stacks_address, update);
+        };
+
         let Some(global_state) = self.global_state_evaluator.determine_global_state() else {
             warn!(
                 "{self}: Cannot validate block, no global signer state";
@@ -810,26 +834,6 @@ impl Signer {
             "consensus_hash" => %block_proposal.block.header.consensus_hash,
         );
         crate::monitoring::actions::increment_block_proposals_received();
-
-        // Check first if our local state machine view of the miner changes before attempting to check against the global state
-        let prior_state = self.local_state_machine.clone();
-        if let Err(e) = self.local_state_machine.check_miner_inactivity(
-            &self.signer_db,
-            stacks_client,
-            &self.proposal_config,
-        ) {
-            warn!("{self}: An error occurred checking the current miner activity: {e}");
-        }
-        if prior_state != self.local_state_machine {
-            let version = self.get_signer_protocol_version();
-            if let Ok(update) = self
-                .local_state_machine
-                .try_into_update_message_with_version(version)
-            {
-                self.global_state_evaluator
-                    .insert_update(self.stacks_address, update.clone());
-            }
-        }
 
         // Check if proposal can be rejected now if not valid against global signer view
         let block_response = self.check_block_against_global_state(
