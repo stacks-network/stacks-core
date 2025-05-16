@@ -925,6 +925,6 @@ paths:
           content:
             application/json:
               schema:
-                $ref: ./api/core-node/get-health-false.schema.json
+                $ref: ./api/core-node/get-health-error.schema.json
               example:
-                $ref: ./api/core-node/get-health-false.example.json
+                $ref: ./api/core-node/get-health-error.example.json
