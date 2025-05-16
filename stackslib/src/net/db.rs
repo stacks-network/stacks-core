@@ -1741,7 +1741,7 @@ impl PeerDB {
         let include_allowed_condition = if always_include_allowed {
             "AND (allowed >= 0 AND allowed <= ?5)"
         } else {
-            "AND (allowed < 0 OR (allowed >= 0 AND allowed <= ?5))"
+            ""
         };
 
         let random_peers_qry = format!(
