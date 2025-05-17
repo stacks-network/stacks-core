@@ -1465,6 +1465,8 @@ impl<'a, 'b> Environment<'a, 'b> {
         contract_content: &str,
         ast_rules: ASTRules,
     ) -> Result<()> {
+        use super::analysis::CheckError;
+
         let clarity_version = self.contract_context.clarity_version;
 
         let mut contract_ast = ast::build_ast_with_rules(
@@ -1490,8 +1492,11 @@ impl<'a, 'b> Environment<'a, 'b> {
                         clarity_version,
                         true,
                     )
-                    .unwrap()
-                });
+                    .map_err(|e| {
+                        let check_error: CheckError = e.0;
+                        check_error.err
+                    })
+                })?;
 
         self.initialize_contract_from_ast(
             contract_identifier,
