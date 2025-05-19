@@ -1513,7 +1513,6 @@ pub fn wait_for_state_machine_update(
                     }
                 }
             };
-            // We only need one update to match our conditions
             found_updates.insert(address);
         }
         Ok(found_updates.len() == signer_keys.len())
@@ -2155,11 +2154,13 @@ fn regr_use_block_header_pk() {
         .unwrap();
 
     let timeout = Duration::from_secs(200);
+    info!("------------------------- Booting to Epoch 3.0 -------------------------");
     signer_test.boot_to_epoch_3();
 
     let prior_stacks_height = signer_test.get_peer_info().stacks_tip_height;
 
     let tenures_to_mine = 2;
+    info!("------------------------- Mine {tenures_to_mine} Tenures -------------------------");
     for _i in 0..tenures_to_mine {
         signer_test.mine_nakamoto_block(timeout, false);
     }
@@ -4991,13 +4992,16 @@ fn empty_tenure_delayed() {
 
     info!("------------------------- Test Mine Regular Tenure A  -------------------------");
     let commits_before = submitted_commits.load(Ordering::SeqCst);
+    let info_before = get_chain_info(&signer_test.running_nodes.conf);
     // Mine a regular tenure, but wait for commits to be submitted
     next_block_and(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
         || {
+            let info = get_chain_info(&signer_test.running_nodes.conf);
             let commits_count = submitted_commits.load(Ordering::SeqCst);
-            Ok(commits_count > commits_before)
+            Ok(commits_count > commits_before
+                && info.burn_block_height > info_before.burn_block_height)
         },
     )
     .unwrap();
@@ -5082,7 +5086,7 @@ fn empty_tenure_delayed() {
             })) = latest_msg
             {
                 assert_eq!(reason_code, RejectCode::SortitionViewMismatch);
-                assert_eq!(response_data.reject_reason, RejectReason::InvalidMiner);
+                assert_eq!(response_data.reject_reason, RejectReason::ConsensusHashMismatch);
                 assert_eq!(metadata.server_version, VERSION_STRING.to_string());
                 found_rejections.push(*slot_id);
             } else {
@@ -7067,17 +7071,33 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     let block_n_1_prime =
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
             .expect("Timed out waiting for block N+1' to be mined");
-    // Ensure that the block was accepted globally so the stacks tip has advanced to N+1' (even though they signed a sister block in the prior tenure)
-    let info_after = signer_test.get_peer_info();
-    assert_eq!(
-        info_before.stacks_tip_height + 1,
-        info_after.stacks_tip_height
-    );
-    assert_eq!(info_after.stacks_tip, block_n_1_prime.header.block_hash());
+    let block_n_2 =
+        wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 2, &miner_pk)
+            .expect("Timed out waiting for block N+1' to be mined");
     assert_ne!(
         block_n_1_prime.header.signer_signature_hash(),
         block_n_1_proposal.header.signer_signature_hash()
     );
+    assert_eq!(
+        block_n_1_prime.header.chain_length,
+        block_n_1_proposal.header.chain_length
+    );
+    info!(
+        "------------------------- Mine Nakamoto Block N+2 in Tenure B -------------------------"
+    );
+    wait_for(30, || {
+        let info = signer_test.get_peer_info();
+        Ok(info.stacks_tip_height > info_before.stacks_tip_height + 1)
+    })
+    .expect("Timed out waiting for the chain tip to advance");
+    // Ensure that the block was accepted globally so the stacks tip has advanced to N+2 (built on N+1' even though they signed a sister block in the prior tenure)
+    let info_after = signer_test.get_peer_info();
+    assert_eq!(
+        info_before.stacks_tip_height + 2,
+        info_after.stacks_tip_height
+    );
+    assert_eq!(info_after.stacks_tip, block_n_2.header.block_hash());
+    assert_eq!(block_n_2.header.parent_block_id, block_n_1_prime.block_id());
 
     signer_test.shutdown();
 }
@@ -11020,7 +11040,9 @@ fn block_proposal_timeout() {
 
     let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
+    let miner_pkh = Hash160::from_node_public_key(&miner_pk);
 
+    let all_signers = signer_test.signer_test_pks();
     signer_test.boot_to_epoch_3();
 
     // Pause the miner's block proposals
@@ -11033,24 +11055,41 @@ fn block_proposal_timeout() {
         .naka_submitted_commits
         .load(Ordering::SeqCst);
 
+    let chain_before = get_chain_info(&signer_test.running_nodes.conf);
     next_block_and(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
         || {
+            let chain_info = get_chain_info(&signer_test.running_nodes.conf);
             let commits_count = signer_test
                 .running_nodes
                 .counters
                 .naka_submitted_commits
                 .load(Ordering::SeqCst);
-            Ok(commits_count > commits_before)
+            Ok(commits_count > commits_before
+                && chain_info.burn_block_height > chain_before.burn_block_height)
         },
     )
     .unwrap();
 
-    let chain_before = get_chain_info(&signer_test.running_nodes.conf);
     std::thread::sleep(block_proposal_timeout.add(Duration::from_secs(1)));
-    test_observer::clear();
-
+    let reverted_height = chain_before.stacks_tip_height;
+    let chain_before = get_chain_info(&signer_test.running_nodes.conf);
+    info!("------------------------- Wait for Signers to Mark {miner_pkh} at height {} invalid -------------------------", chain_before.stacks_tip_height;
+        "expected_burn_block" => %chain_before.pox_consensus,
+        "expected_burn_block_height" => chain_before.burn_block_height,
+        "new_miner_pkh" => %miner_pkh,
+        "new_stacks_tip_height" => reverted_height
+    );
+    wait_for_state_machine_update(
+        30,
+        &chain_before.pox_consensus,
+        chain_before.burn_block_height,
+        Some((miner_pkh, reverted_height)),
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Timed out waiting for signers state to revert to old miner");
     info!("------------------------- Attempt Mine Block N  -------------------------");
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
 
@@ -11365,8 +11404,18 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         block_n_height + 3
     );
 
+    let burn_height_before = get_chain_info(&conf_1).burn_block_height;
     info!("------------------------- Miner 1 Wins the Next Tenure, Mines N+1', got rejected -------------------------");
     miners.btc_regtest_controller_mut().build_next_block(1);
+
+    wait_for(30, || {
+        let info = get_chain_info(&conf_1);
+        Ok(info.burn_block_height == burn_height_before + 1)
+    })
+    .expect("Failed to advance chain tip");
+
+    // assure we have a successful sortition that miner 1 won
+    verify_sortition_winner(&sortdb, &miner_pkh_1);
 
     // wait for a block N+1' proposal from miner1
     let proposed_block = wait_for_block_proposal(30, block_n_height + 1, &miner_pk_1)
@@ -11376,9 +11425,9 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         30,
         proposed_block.header.signer_signature_hash(),
         num_signers,
-        RejectReason::ReorgNotAllowed,
+        RejectReason::ConsensusHashMismatch,
     )
-    .expect("Timed out waiting for a block proposal to be rejected due to invalid reorg");
+    .expect("Timed out waiting for a block proposal to be rejected due to invalid consensus hash");
 
     // check only 1 block from miner1 has been added after the epoch3 boot
     let miner1_blocks_after_boot_to_epoch3 = get_nakamoto_headers(&conf_1)
@@ -12527,13 +12576,13 @@ fn non_blocking_minority_configured_to_favour_incoming_miner() {
 /// Miner 1 proposes a block N with a TenureChangeCause::BlockFound
 /// Signers accept and the stacks tip advances to N
 /// Miner 2 wins the second tenure B.
-/// A minority of signers mark miner 2 as invalid.
+/// A minority of signers consider miner 2 invalid.
 /// Miner 1 proposes block N+1' with a TenureChangeCause::Extended
-/// A majority of signers reject block N+1'
+/// All signers reject block N+1' because global state dictates it
 /// Miner 2 proposes block N+1 with a TenureChangeCause::BlockFound
-/// A majority fo signers accept block N+1.
+/// All signers accept block N+1 because global state dictates it
 /// Miner 2 proposes block N+2 with a transfer tx
-/// A majority of signers should accept block N+2.
+/// All signers should accept block N+2.
 /// Miner 1 wins the third tenure C.
 /// Miner 1 proposes block N+3 with a TenureChangeCause::BlockFound
 /// Signers accept and the stacks tip advances to N+3
@@ -12585,6 +12634,7 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
+    let all_signers = miners.signer_test.signer_test_pks();
 
     let rl1_skip_commit_op = miners
         .signer_test
@@ -12687,13 +12737,13 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
     assert_eq!(peer_info.stacks_tip, miner_2_block_n_1.header.block_hash());
     assert_eq!(peer_info.stacks_tip_height, stacks_height_before + 1);
 
-    info!("------------------------- Verify Minority of Signer's Rejected Miner 2's Block N+1 -------------------------");
-    wait_for_block_rejections(
+    info!("------------------------- Verify ALL Signers Accept Miner 2's Block N+1 -------------------------");
+    wait_for_block_acceptance_from_signers(
         30,
-        miner_2_block_n_1.header.signer_signature_hash(),
-        non_block_minority,
+        &miner_2_block_n_1.header.signer_signature_hash(),
+        &all_signers,
     )
-    .expect("Failed to get expected rejections for Miner 2's block N+1.");
+    .expect("Failed to get expected acceptance for Miner 2's block N+1.");
     info!(
         "------------------------- Verify BlockFound in Miner 2's Block N+1 -------------------------"
     );
@@ -12713,14 +12763,14 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
     assert_eq!(peer_info.stacks_tip_height, stacks_height_before + 1);
 
     info!(
-        "------------------------- Verify Miner 2's Block N+2 is still Rejected by Minority Signers -------------------------"
+        "------------------------- Verify Miner 2's Block N+2 is Accepted by ALL Signers -------------------------"
     );
-    wait_for_block_rejections(
+    wait_for_block_acceptance_from_signers(
         30,
-        miner_2_block_n_2.header.signer_signature_hash(),
-        non_block_minority,
+        &miner_2_block_n_2.header.signer_signature_hash(),
+        &all_signers,
     )
-    .expect("Failed to get expected rejections for Miner 2's block N+1.");
+    .expect("Failed to get expected acceptance for Miner 2's block N+1.");
 
     info!("------------------------- Unpause Miner 1's Block Commits -------------------------");
     miners.submit_commit_miner_1(&sortdb);
@@ -12755,15 +12805,12 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
 /// Miner 2 successfully mines blocks N+1
 /// Miner 1 wins the next sortition, with its block commit not confirming the last tenure.
 /// Miner 1 proposes block N+1'
-/// 3 signers approve N+1', saying "Miner is not building off of most recent tenure. A tenure they
-///   reorg has already mined blocks, but the block was poorly timed, allowing the reorg."
-/// The other 3 signers reject N+1', because their `first_proposal_burn_block_timing_secs` is
-///   shorter and has been exceeded.
-/// Miner 1 proposes N+1' again, and all signers reject it this time.
-/// Miner 2 proposes N+2, a tenure extend block and it is accepted by all signers.
+/// All 5 signers reject N+1', because `first_proposal_burn_block_timing_secs` is
+///   shorter and has been exceeded for a blocking threshold number of signers. The global
+///   state will then capitualte to this blocking threshold and reject the proposal
 #[test]
 #[ignore]
-fn mark_miner_as_invalid_if_reorg_is_rejected() {
+fn global_state_overrides_first_proposal_burn_block_timing_secs() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -12840,7 +12887,17 @@ fn mark_miner_as_invalid_if_reorg_is_rejected() {
         .expect("Failed to mine BTC block followed by Block N");
     verify_sortition_winner(&sortdb, &miner_pkh_1);
     miners.signer_test.check_signer_states_normal();
+    let info = get_chain_info(&conf_1);
 
+    wait_for_state_machine_update(
+        30,
+        &info.pox_consensus,
+        info.burn_block_height,
+        Some((miner_pkh_1, info_before.stacks_tip_height)),
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Timed out waiting for signers to update their miner viewpoint");
     let block_n =
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk_1)
             .expect("Failed to get block N");
@@ -12899,38 +12956,16 @@ fn mark_miner_as_invalid_if_reorg_is_rejected() {
         .signer_test
         .check_signer_states_reorg(&[], &all_signers);
 
-    info!("------------------------- Wait for 3 acceptances and 2 rejections -------------------------");
+    info!("------------------------- Should have 5 Rejections Since Checking against Global State -------------------------");
     let signer_signature_hash = block_n_1_prime.header.signer_signature_hash();
-    wait_for_block_acceptance_from_signers(30, &signer_signature_hash, &approving_signers)
-        .expect("Timed out waiting for block acceptance from approving signers");
     let rejections =
-        wait_for_block_rejections_from_signers(30, &signer_signature_hash, &rejecting_signers)
+        wait_for_block_rejections_from_signers(30, &signer_signature_hash, &all_signers)
             .expect("Timed out waiting for block rejection from rejecting signers");
     for rejection in rejections {
         assert_eq!(
             rejection.response_data.reject_reason,
-            RejectReason::ReorgNotAllowed,
-            "Reject reason is not ReorgNotAllowed"
-        );
-    }
-
-    info!("------------------------- Miner 1 Proposes N+1' Again -------------------------");
-    test_observer::clear();
-    // Allow the miner to propose again
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
-    let block_n_1_prime = wait_for_block_proposal(30, block_n_height + 1, &miner_pk_1)
-        .expect("Failed to propose block N+1' again");
-
-    info!("------------------------- Wait for 5 rejections -------------------------");
-
-    let signer_signature_hash = block_n_1_prime.header.signer_signature_hash();
-    let rejections =
-        wait_for_block_rejections_from_signers(30, &signer_signature_hash, &all_signers)
-            .expect("Timed out waiting for block rejection from all signers");
-    for rejection in rejections {
-        assert!(
-            rejection.response_data.reject_reason == RejectReason::ReorgNotAllowed
-                || rejection.response_data.reject_reason == RejectReason::InvalidMiner
+            RejectReason::ConsensusHashMismatch,
+            "Reject reason is not ConsenusHashMismatch"
         );
     }
     miners.shutdown();
@@ -14834,56 +14869,19 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     assert_ne!(tip_c.burn_header_hash, tip_a.burn_header_hash);
     assert_eq!(tip_c.block_height, burn_height_before + 1);
 
-    wait_for(30, || {
-        let mut nmb_matches = 0;
-        let stackerdb_events = test_observer::get_stackerdb_chunks();
-        for chunk in stackerdb_events
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-        {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
-            let SignerMessage::StateMachineUpdate(update) = message else {
-                continue;
-            };
-            let (burn_block, burn_block_height, current_miner_pkh) =
-                match (SUPPORTED_SIGNER_PROTOCOL_VERSION, update.content) {
-                    (
-                        0,
-                        StateMachineUpdateContent::V0 {
-                            burn_block,
-                            burn_block_height,
-                            current_miner:
-                                StateMachineUpdateMinerState::ActiveMiner {
-                                    current_miner_pkh, ..
-                                },
-                            ..
-                        },
-                    )
-                    | (
-                        1,
-                        StateMachineUpdateContent::V1 {
-                            burn_block,
-                            burn_block_height,
-                            current_miner:
-                                StateMachineUpdateMinerState::ActiveMiner {
-                                    current_miner_pkh, ..
-                                },
-                            ..
-                        },
-                    ) => (burn_block, burn_block_height, current_miner_pkh),
-                    _ => continue,
-                };
-            if burn_block == tenure_c_block_proposal.header.consensus_hash
-                && burn_block_height == burn_height_before + 1
-                && current_miner_pkh == miner_pkh_1
-            {
-                nmb_matches += 1;
-            }
-        }
-        Ok(nmb_matches == 5)
-    })
-    .unwrap();
+    let all_signers = miners.signer_test.signer_test_pks();
+
+    info!("--------------- Waiting for Signers to Capitulate to Miner {miner_pkh_1} with Expected Stacks Height {} ----------------", tip_a.stacks_block_height;
+    );
+    wait_for_state_machine_update(
+        30,
+        &tenure_c_block_proposal.header.consensus_hash,
+        burn_height_before + 1,
+        Some((miner_pkh_1, tip_a.stacks_block_height)),
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Timed out waiting for state machine updates");
 
     info!("--------------- Miner 1 Extends Tenure B over Tenure C ---------------");
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);

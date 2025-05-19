@@ -6670,7 +6670,7 @@ fn signer_check_proposal() {
                 .expect_err("Sortitions view should reject proposals from prior tenure");
             assert_eq!(
                 reject_code,
-                RejectReason::SortitionViewMismatch,
+                RejectReason::ConsensusHashMismatch,
                 "Sortitions view should reject proposals from prior tenure"
             );
             for block in prior_tenure_interims.iter() {
@@ -6679,7 +6679,7 @@ fn signer_check_proposal() {
                     .expect_err("Sortitions view should reject proposals from prior tenure");
                 assert_eq!(
                     reject_code,
-                    RejectReason::SortitionViewMismatch,
+                    RejectReason::ConsensusHashMismatch,
                     "Sortitions view should reject proposals from prior tenure"
                 );
             }
