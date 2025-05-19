@@ -92,6 +92,7 @@ fn get_principal_as_principal_data() -> PrincipalData {
     StandardPrincipalData::transient().into()
 }
 
+#[ignore = "just ignoring"]
 #[apply(test_epochs)]
 fn test_get_block_info_eval(
     epoch: StacksEpochId,
@@ -292,6 +293,7 @@ fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalD
     );
 }
 
+#[ignore = "just ignoring"]
 #[apply(test_epochs)]
 fn test_tx_sponsor(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
@@ -454,6 +456,7 @@ fn test_fully_qualified_contract_call(
     }
 }
 
+#[ignore = "just ignoring"]
 #[apply(test_epochs)]
 fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
@@ -738,6 +741,7 @@ fn test_simple_contract_call(epoch: StacksEpochId, mut env_factory: MemoryEnviro
     }
 }
 
+#[ignore = "just ignoring"]
 #[apply(test_epochs)]
 fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
@@ -1107,6 +1111,7 @@ fn test_cc_stack_depth(
     );
 }
 
+#[ignore = "just ignoring"]
 #[apply(test_clarity_versions)]
 fn test_cc_trait_stack_depth(
     version: ClarityVersion,

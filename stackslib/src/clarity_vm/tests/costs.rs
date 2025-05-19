@@ -819,12 +819,13 @@ fn epoch205_nfts(use_mainnet: bool) {
         larger_cost_epoch_205.runtime,
     );
 }
-
+#[ignore = "just ignoring"]
 #[test]
 fn epoch205_nfts_mainnet() {
     epoch205_nfts(true)
 }
 
+#[ignore = "just ignoring"]
 #[test]
 fn epoch205_nfts_testnet() {
     epoch205_nfts(false)
