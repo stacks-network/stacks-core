@@ -139,7 +139,7 @@ impl RPCRequestHandler for RPCGetHealthRequestHandler {
             )
             .map_err(NetError::from)?;
 
-            let node_stacks_tip_height = network.burnchain_tip.canonical_stacks_tip_height;
+            let node_stacks_tip_height = network.stacks_tip.height;
             let bitcoin_tip_height = network.chain_view.burn_block_height;
             let bitcoin_last_processed_height = network.burnchain_tip.block_height;
             // no bootstrap nodes found, unable to determine health.
