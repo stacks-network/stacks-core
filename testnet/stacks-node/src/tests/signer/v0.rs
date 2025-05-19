@@ -3390,6 +3390,131 @@ fn tx_replay_forking_test() {
 
 #[test]
 #[ignore]
+/// Trigger a Bitcoin fork across reward cycle
+/// and ensure that the signers detect the fork,
+/// but reject to move into a tx replay state
+///
+/// The test flow is:
+///
+/// - Boot to Epoch 3 (that is in the middle of reward cycle N)
+/// - Mine until the last tenure of the reward cycle N
+/// - Include a STX transfer in the last tenure
+/// - Mine 1 Bitcoin block in the next reward cycle N+1
+/// - Trigger a Bitcoin fork from reward cycle N (3 blocks)
+/// - Verify that signers don't move into tx replay state
+/// - In the end, the STX transfer transaction is not replayed
+fn tx_replay_rejected_when_forking_across_reward_cycle() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr, (send_amt + send_fee) * 10)],
+        |_| {},
+        |node_config| {
+            node_config.miner.block_commit_delay = Duration::from_secs(1);
+        },
+        None,
+        None,
+    );
+    let conf = signer_test.running_nodes.conf.clone();
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
+    let burn_chain = btc_controller.get_burnchain();
+    let counters = &signer_test.running_nodes.counters;
+
+    signer_test.boot_to_epoch_3();
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    let burn_block_height = get_chain_info(&conf).burn_block_height;
+    let initial_reward_cycle = signer_test.get_current_reward_cycle();
+    let rc_last_height = burn_chain.nakamoto_last_block_of_cycle(initial_reward_cycle);
+
+    info!("----- Mine to the end of reward cycle {initial_reward_cycle} height {rc_last_height} -----");
+    let pre_fork_tenures = rc_last_height - burn_block_height;
+    for i in 1..=pre_fork_tenures {
+        info!("Mining pre-fork tenure {i} of {pre_fork_tenures}");
+        signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+    }
+    signer_test.check_signer_states_normal();
+
+    info!("----- Submit Stx transfer in last tenure height {rc_last_height} -----");
+    // Make a transfer tx that will get forked
+    let tip = get_chain_info(&conf);
+    let _ = signer_test
+        .submit_transfer_tx(&sender_sk, send_fee, send_amt)
+        .unwrap();
+    wait_for(30, || {
+        let new_tip = get_chain_info(&conf);
+        Ok(new_tip.stacks_tip_height > tip.stacks_tip_height)
+    })
+    .expect("Timed out waiting for transfer tx to be mined");
+
+    let pre_fork_tx_nonce = get_account(&http_origin, &sender_addr).nonce;
+    assert_eq!(1, pre_fork_tx_nonce);
+
+    info!("----- Mine 1 block in new reward cycle -----");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+    signer_test.check_signer_states_normal();
+
+    let next_reward_cycle = initial_reward_cycle + 1;
+    let new_burn_block_height = get_chain_info(&conf).burn_block_height;
+    assert_eq!(next_reward_cycle, signer_test.get_current_reward_cycle());
+    assert_eq!(
+        new_burn_block_height,
+        burn_chain.nakamoto_first_block_of_cycle(next_reward_cycle)
+    );
+
+    info!("----- Trigger Bitcoin fork -----");
+    //Fork on the third-to-last tenure of prev reward cycle
+    let burn_block_hash_to_fork = btc_controller.get_block_hash(new_burn_block_height - 2);
+    btc_controller.invalidate_block(&burn_block_hash_to_fork);
+    btc_controller.build_next_block(3);
+
+    // note, we should still have normal signer states!
+    signer_test.check_signer_states_normal();
+
+    //mine throught the fork (just check commits because of naka block mining stalled)
+    TEST_MINE_STALL.set(true);
+
+    let submitted_commits = counters.naka_submitted_commits.clone();
+    for i in 0..3 {
+        let current_burn_height = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
+        info!(
+            "Mining block #{i} to be considered a frequent miner";
+            "current_burn_height" => current_burn_height,
+        );
+        let commits_count = submitted_commits.load(Ordering::SeqCst);
+        next_block_and(btc_controller, 60, || {
+            let commits_submitted = submitted_commits.load(Ordering::SeqCst);
+            Ok(commits_submitted > commits_count)
+        })
+        .unwrap();
+    }
+
+    let post_fork_tx_nonce = get_account(&http_origin, &sender_addr).nonce;
+    assert_eq!(0, post_fork_tx_nonce);
+
+    info!("----- Check Signers Tx Replay state -----");
+    let (signer_states, _) = signer_test.get_burn_updated_states();
+    for state in signer_states {
+        assert!(
+            state.get_tx_replay_set().is_none(),
+            "Signer state is in tx replay state, when it shouldn't be"
+        );
+    }
+
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
 fn multiple_miners() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
