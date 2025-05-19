@@ -114,7 +114,8 @@ pub struct NakamotoDownloadStateMachine {
     /// Unconfirmed tenure download schedule
     unconfirmed_tenure_download_schedule: VecDeque<NeighborAddress>,
     /// Ongoing unconfirmed tenure downloads, prioritized in who announces the latest block
-    unconfirmed_tenure_downloads: HashMap<NeighborAddress, NakamotoUnconfirmedTenureDownloader>,
+    pub(crate) unconfirmed_tenure_downloads:
+        HashMap<NeighborAddress, NakamotoUnconfirmedTenureDownloader>,
     /// Ongoing confirmed tenure downloads for when we know the start and end block hashes.
     tenure_downloads: NakamotoTenureDownloaderSet,
     /// comms to remote neighbors
