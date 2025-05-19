@@ -1123,7 +1123,11 @@ impl Relayer {
             ) {
                 Ok(x) => x,
                 Err(e) => {
-                    warn!("Failed to process Nakamoto block {}: {:?}", &block_id, &e);
+                    warn!("Failed to process Nakamoto block: {e:?}";
+                        "block_id" => %block_id,
+                        "consensus_hash" => %block.header.consensus_hash,
+                        "stacks_block_hash" => %block.header.block_hash(),
+                    );
                     continue;
                 }
             };
