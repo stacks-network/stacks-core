@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::{HashMap, VecDeque};
-use std::fmt::Display;
-use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
@@ -600,36 +598,6 @@ impl StacksClient {
         }
         let account_entry = response.json::<AccountEntryResponse>()?;
         Ok(account_entry)
-    }
-
-    /// Post a block to the stacks-node, retry forever on errors.
-    ///
-    /// In tests, this panics if the retry takes longer than 30 seconds.
-    pub fn post_block_until_ok<F: Display>(&self, log_fmt: &F, block: &NakamotoBlock) -> bool {
-        debug!("StacksClient: Posting block to stacks node";
-            "signer_signature_hash" => %block.header.signer_signature_hash(),
-            "block_id" => %block.header.block_id(),
-            "block_height" => %block.header.chain_length,
-        );
-        let start_time = Instant::now();
-        loop {
-            match self.post_block(block) {
-                Ok(block_push_result) => {
-                    debug!("{log_fmt}: Block pushed to stacks node: {block_push_result:?}");
-                    return block_push_result;
-                }
-                Err(e) => {
-                    if cfg!(any(test, feature = "testing"))
-                        && start_time.elapsed() > Duration::from_secs(30)
-                    {
-                        panic!(
-                            "{log_fmt}: Timed out in test while pushing block to stacks node: {e}"
-                        );
-                    }
-                    warn!("{log_fmt}: Failed to push block to stacks node: {e}. Retrying...");
-                }
-            };
-        }
     }
 
     /// Try to post a completed nakamoto block to our connected stacks-node
