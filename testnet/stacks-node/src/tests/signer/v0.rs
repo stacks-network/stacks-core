@@ -11088,6 +11088,7 @@ fn block_proposal_timeout() {
         .load(Ordering::SeqCst);
 
     let chain_before = get_chain_info(&signer_test.running_nodes.conf);
+    test_observer::clear();
     next_block_and(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
@@ -11104,7 +11105,6 @@ fn block_proposal_timeout() {
     )
     .unwrap();
 
-    std::thread::sleep(block_proposal_timeout.add(Duration::from_secs(1)));
     let reverted_height = chain_before.stacks_tip_height;
     let chain_before = get_chain_info(&signer_test.running_nodes.conf);
     info!("------------------------- Wait for Signers to Mark {miner_pkh} at height {} invalid -------------------------", chain_before.stacks_tip_height;
@@ -11114,7 +11114,7 @@ fn block_proposal_timeout() {
         "new_stacks_tip_height" => reverted_height
     );
     wait_for_state_machine_update(
-        30,
+        block_proposal_timeout.as_secs() + 30,
         &chain_before.pox_consensus,
         chain_before.burn_block_height,
         Some((miner_pkh, reverted_height)),
