@@ -10402,7 +10402,7 @@ fn reorg_attempts_count_towards_miner_validity() {
     let send_amt = 100;
     let send_fee = 180;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let block_proposal_timeout = Duration::from_secs(30);
+    let block_proposal_timeout = Duration::from_secs(60);
     let reorg_attempts_activity_timeout = Duration::from_secs(20);
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
@@ -10426,6 +10426,7 @@ fn reorg_attempts_count_towards_miner_validity() {
 
     let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
+    let all_signers = signer_test.signer_test_pks();
 
     info!("------------------------- Test Mine Block N -------------------------");
     let chain_before = get_chain_info(&signer_test.running_nodes.conf);
@@ -10450,25 +10451,42 @@ fn reorg_attempts_count_towards_miner_validity() {
     let chain_after = get_chain_info(&signer_test.running_nodes.conf);
     assert_eq!(chain_after, chain_before);
     test_observer::clear();
-
     info!("------------------------- Start Tenure B  -------------------------");
     let commits_before = commits_submitted.load(Ordering::SeqCst);
+    TEST_MINE_STALL.set(true);
+    let chain_before = get_chain_info(&signer_test.running_nodes.conf);
 
+    let start = std::time::Instant::now();
     next_block_and(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
-        || Ok(commits_submitted.load(Ordering::SeqCst) > commits_before),
+        || {
+            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before
+                && get_chain_info(&signer_test.running_nodes.conf).burn_block_height
+                    > chain_before.burn_block_height)
+        },
     )
     .unwrap();
 
+    let chain_after = get_chain_info(&signer_test.running_nodes.conf);
+    wait_for_state_machine_update(
+        30,
+        &chain_after.pox_consensus,
+        chain_after.burn_block_height,
+        None,
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Timed out waiting for the signers to update their state");
+    TEST_MINE_STALL.set(false);
     let block_proposal_n_prime =
         wait_for_block_proposal(30, chain_before.stacks_tip_height + 1, &miner_pk)
             .expect("Failed to get block proposal N'");
     test_observer::clear();
-    std::thread::sleep(block_proposal_timeout.add(Duration::from_secs(1)));
 
     assert_ne!(block_proposal_n, block_proposal_n_prime);
     let chain_before = get_chain_info(&signer_test.running_nodes.conf);
+    TEST_MINE_STALL.set(true);
     TEST_VALIDATE_STALL.set(false);
 
     wait_for(30, || {
@@ -10490,6 +10508,16 @@ fn reorg_attempts_count_towards_miner_validity() {
         num_signers,
     )
     .expect("Failed to see majority rejections of block N'");
+
+    let wait_for = block_proposal_timeout
+        .saturating_sub(start.elapsed())
+        .add(Duration::from_secs(1));
+    info!(
+        "------------------------ Wait {} Seconds for Block Proposal timeout to Be Exceeded",
+        wait_for.as_secs()
+    );
+    std::thread::sleep(wait_for);
+    TEST_MINE_STALL.set(false);
 
     info!("------------------------- Test Mine Block N+1 -------------------------");
     // The signer should automatically attempt to mine a new block once the signers eventually tell it to abandon the previous block
@@ -10618,6 +10646,10 @@ fn reorg_attempts_activity_timeout_exceeded() {
         },
     )
     .unwrap();
+    debug!(
+        "TENURE HERE: {}",
+        get_chain_info(&signer_test.running_nodes.conf).pox_consensus
+    );
 
     info!("------------------------- Wait for block N' to arrive late  -------------------------");
     test_observer::clear();
