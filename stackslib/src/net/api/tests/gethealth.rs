@@ -11,8 +11,9 @@ use crate::net::download::nakamoto::{
     NakamotoDownloadStateMachine, NakamotoUnconfirmedTenureDownloader,
 };
 use crate::net::httpcore::{StacksHttp, StacksHttpRequest};
+use crate::net::inv::epoch2x::NodeStatus;
 use crate::net::test::TestEventObserver;
-use crate::net::{NeighborAddress, ProtocolFamily};
+use crate::net::{NeighborAddress, NeighborKey, ProtocolFamily};
 
 #[test]
 fn test_try_parse_request() {
@@ -39,19 +40,31 @@ fn test_try_parse_request() {
     assert_eq!(&preamble, request.preamble());
 }
 
-#[test]
-fn test_get_health_happy_path() {
-    // `rpc_test` will have peer_1 (client) and peer_2 (server)
-    // peer_2 can be conceptually our "initial_neighbor".
+// Helper function for Nakamoto health test scenarios
+fn setup_and_run_nakamoto_health_test(
+    test_function_name_suffix: &str,
+    peer_1_height_relative_to_node: i64, // How many blocks peer_1 is ahead (positive) or behind (negative) the node.
+    expected_difference_from_max_peer: u64,
+) {
+    // `rpc_test` will have peer_1 (client) and peer_2 (server/node)
     let test_observer = TestEventObserver::new();
-    let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
-    // Refresh the burnchain view to get the tip height
+    let rpc_test_name = format!("{}{}", function_name!(), test_function_name_suffix);
+    let mut rpc_test = TestRPC::setup_nakamoto(&rpc_test_name, &test_observer);
+
+    // The node being tested is peer_2 (server role in TestRPC)
     rpc_test.peer_2.refresh_burnchain_view();
-    let peer_2_height = rpc_test.peer_2.network.stacks_tip.height;
-    let peer_1_height = peer_2_height + 100;
+    let node_stacks_tip_height = rpc_test.peer_2.network.stacks_tip.height;
+
+    // Calculate the target height for peer_1 based on the node's height and the relative offset
+    let peer_1_actual_height = if peer_1_height_relative_to_node < 0 {
+        node_stacks_tip_height.saturating_sub(peer_1_height_relative_to_node.abs() as u64)
+    } else {
+        node_stacks_tip_height + (peer_1_height_relative_to_node as u64)
+    };
 
     let peer_1_address = NeighborAddress::from_neighbor(&rpc_test.peer_1.config.to_neighbor());
 
+    // Setup peer_1's tenure information to reflect its calculated height
     let peer_1_tenure_tip = RPCGetTenureInfo {
         consensus_hash: rpc_test.peer_1.network.stacks_tip.consensus_hash.clone(),
         tenure_start_block_id: rpc_test.peer_1.network.tenure_start_block_id.clone(),
@@ -66,10 +79,10 @@ fn test_get_health_happy_path() {
             &rpc_test.peer_1.network.parent_stacks_tip.block_hash,
         ),
         tip_block_id: StacksBlockId::new(
-            &rpc_test.peer_1.network.stacks_tip.consensus_hash,
+            &rpc_test.peer_1.network.stacks_tip.consensus_hash, // We are not changing the tip block id for this height adjustment
             &rpc_test.peer_1.network.stacks_tip.block_hash,
         ),
-        tip_height: peer_1_height,
+        tip_height: peer_1_actual_height,
         reward_cycle: rpc_test
             .peer_1
             .network
@@ -84,17 +97,18 @@ fn test_get_health_happy_path() {
     );
     unconfirmed_tenure.tenure_tip = Some(peer_1_tenure_tip);
 
+    // Initialize the downloader state for peer_2 (the node)
     let epoch = rpc_test
         .peer_1
         .network
         .get_epoch_by_epoch_id(StacksEpochId::Epoch30);
     let mut downloader = NakamotoDownloadStateMachine::new(
         epoch.start_height,
-        rpc_test.peer_1.network.stacks_tip.block_id(),
+        rpc_test.peer_1.network.stacks_tip.block_id(), // Initial tip for the downloader state machine
     );
     downloader
         .unconfirmed_tenure_downloads
-        .insert(peer_1_address, unconfirmed_tenure);
+        .insert(peer_1_address, unconfirmed_tenure); // Add peer_1's state to peer_2's downloader
     rpc_test.peer_2.network.block_downloader_nakamoto = Some(downloader);
 
     // --- Invoke the Handler ---
@@ -105,20 +119,146 @@ fn test_get_health_happy_path() {
 
     // --- Assertions ---
     let (http_resp_preamble, contents) = response.destruct();
-    assert_eq!(http_resp_preamble.status_code, 200, "Expected HTTP 200 OK");
+    assert_eq!(
+        http_resp_preamble.status_code, 200,
+        "Expected HTTP 200 OK for test case: {}",
+        test_function_name_suffix
+    );
 
-    let response_json_val: serde_json::Value = contents
+    let response_json_val: serde_json::Value = contents.try_into().unwrap_or_else(|e| {
+        panic!(
+            "Failed to parse JSON for test case {}: {}",
+            test_function_name_suffix, e
+        )
+    });
+    let health_response: RPCGetHealthResponse = serde_json::from_value(response_json_val)
+        .unwrap_or_else(|e| {
+            panic!(
+                "Failed to deserialize RPCGetHealthResponse for test case {}: {}",
+                test_function_name_suffix, e
+            )
+        });
+
+    assert_eq!(
+        health_response.node_stacks_tip_height, node_stacks_tip_height,
+        "Mismatch in node_stacks_tip_height for test case: {}",
+        test_function_name_suffix
+    );
+    // In these scenarios, peer_1 is the only peer configured with stats in the downloader.
+    assert_eq!(
+        health_response.max_stacks_height_of_neighbors, peer_1_actual_height,
+        "Mismatch in max_stacks_height_of_neighbors for test case: {}",
+        test_function_name_suffix
+    );
+    assert_eq!(
+        health_response.difference_from_max_peer, expected_difference_from_max_peer,
+        "Mismatch in difference_from_max_peer for test case: {}",
+        test_function_name_suffix
+    );
+}
+
+#[test]
+fn test_get_health_node_behind_of_peers() {
+    // This test simulates peer_2 (node) being behind peer_1.
+    // So, peer_1's height is greater than peer_2's height.
+    setup_and_run_nakamoto_health_test(
+        "node_behind",
+        100, // peer_1 is 100 blocks *ahead* of the node (node's height + 100)
+        100, // Expected difference: node is 100 blocks behind max peer height
+    );
+}
+
+#[test]
+fn test_get_health_same_height_as_peers() {
+    // Test when node is at the same height as its most advanced peer (peer_1)
+    setup_and_run_nakamoto_health_test(
+        "same_height",
+        0, // peer_1 is at the same height as the node (node's height + 0)
+        0, // Expected difference: node is at the same height as max peer
+    );
+}
+
+#[test]
+fn test_get_health_node_ahead_of_peers() {
+    // Test when node (peer_2) is ahead of its peer (peer_1)
+    // So, peer_1's height is less than peer_2's height.
+    setup_and_run_nakamoto_health_test(
+        "node_ahead",
+        -10, // peer_1 is 10 blocks *behind* the node (node's height - 10)
+        0, // Expected difference: 0, because difference is node_height.saturating_sub(peer_height)
+           // when the node is ahead, this results in 0 if peer_height < node_height.
+    );
+}
+
+#[test]
+fn test_get_health_500_no_initial_neighbors() {
+    // Test error handling when no initial neighbors are found
+    use crate::net::db::PeerDB;
+
+    let test_observer = TestEventObserver::new();
+    let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
+    rpc_test.peer_2.refresh_burnchain_view();
+    rpc_test.peer_2.network.init_nakamoto_block_downloader();
+
+    // Mock the PeerDB::get_valid_initial_neighbors to return empty vec by
+    // clearing all peers from the peer DB
+    rpc_test
+        .peer_2
+        .network
+        .peerdb
+        .conn()
+        .execute("DELETE FROM frontier", [])
+        .unwrap();
+
+    // --- Invoke the Handler ---
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let request = StacksHttpRequest::new_gethealth(addr.into());
+    let mut responses = rpc_test.run(vec![request]);
+    let response = responses.remove(0);
+
+    // --- Assertions ---
+    let (http_resp_preamble, contents) = response.destruct();
+    assert_eq!(
+        http_resp_preamble.status_code, 500,
+        "Expected HTTP 500 Internal Server Error"
+    );
+    let error_message: String = contents
         .try_into()
         .expect("Failed to parse JSON from HttpResponseContents");
-    let health_response: RPCGetHealthResponse = serde_json::from_value(response_json_val)
-        .expect("Failed to deserialize into RPCGetHealthResponse");
-
-    assert_eq!(health_response.node_stacks_tip_height, peer_2_height);
     assert_eq!(
-        health_response.max_stacks_height_of_neighbors,
-        peer_1_height
+        error_message,
+        "No viable bootstrap peers found, unable to determine health"
     );
-    assert_eq!(health_response.difference_from_max_peer, 100);
+}
+
+#[test]
+fn test_get_health_500_no_inv_state_pre_nakamoto() {
+    // Test when inv_state is None in pre-Nakamoto epochs
+    let test_observer = TestEventObserver::new();
+    let mut rpc_test = TestRPC::setup(function_name!());
+
+    // Reset inv_state to None
+    rpc_test.peer_2.network.inv_state = None;
+
+    // --- Invoke the Handler ---
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let request = StacksHttpRequest::new_gethealth(addr.into());
+    let mut responses = rpc_test.run(vec![request]);
+    let response = responses.remove(0);
+
+    // --- Assertions ---
+    let (http_resp_preamble, contents) = response.destruct();
+    assert_eq!(
+        http_resp_preamble.status_code, 500,
+        "Expected HTTP 500 Internal Server Error"
+    );
+    let error_message: String = contents
+        .try_into()
+        .expect("Failed to parse JSON from HttpResponseContents");
+    assert_eq!(
+        error_message,
+        "Peer inventory state (Epoch 2.x) not found, unable to determine health."
+    );
 }
 
 #[test]
