@@ -788,7 +788,7 @@ static MIGRATIONS: &[Migration] = &[
 
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 14;
+    pub const SCHEMA_VERSION: u32 = 15;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
