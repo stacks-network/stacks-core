@@ -25,7 +25,9 @@ use libsigner::v0::messages::{
     MessageSlotID, SignerMessage, StateMachineUpdate as StateMachineUpdateMessage,
     StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
-use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
+use libsigner::v0::signer_state::{
+    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
+};
 use serde::{Deserialize, Serialize};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::Error as CodecError;
@@ -148,7 +150,7 @@ impl LocalStateMachine {
             burn_block_height: 0,
             current_miner: MinerState::NoValidMiner,
             active_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
-            tx_replay_set: None,
+            tx_replay_set: ReplayTransactionSet::none(),
         }
     }
 
@@ -369,9 +371,9 @@ impl LocalStateMachine {
             }
         };
 
-        if let Some(replay_set_hash) =
-            NakamotoBlockProposal::tx_replay_hash(&prior_state_machine.tx_replay_set)
-        {
+        if let Some(replay_set_hash) = NakamotoBlockProposal::tx_replay_hash(
+            &prior_state_machine.tx_replay_set.into_optional(),
+        ) {
             match db.get_was_block_validated_by_replay_tx(signer_signature_hash, replay_set_hash) {
                 Ok(true) => {
                     // This block was validated by our current state machine's replay set,
@@ -379,7 +381,7 @@ impl LocalStateMachine {
                     info!("Signer State: Incoming Stacks block exhausted the replay set, clearing the tx replay set";
                         "signer_signature_hash" => %signer_signature_hash,
                     );
-                    prior_state_machine.tx_replay_set = None;
+                    prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
                 }
                 Ok(false) => {}
                 Err(e) => {
@@ -535,7 +537,7 @@ impl LocalStateMachine {
                 &prior_state_machine,
                 tx_replay_set.is_some(),
             )? {
-                tx_replay_set = Some(new_replay_set);
+                tx_replay_set = ReplayTransactionSet::new(new_replay_set);
             }
         }
 
@@ -621,7 +623,12 @@ impl LocalStateMachine {
                     burn_block_height,
                     current_miner,
                     ..
-                } => (burn_block, burn_block_height, current_miner, None),
+                } => (
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    ReplayTransactionSet::none(),
+                ),
                 StateMachineUpdateContent::V1 {
                     burn_block,
                     burn_block_height,
@@ -631,7 +638,7 @@ impl LocalStateMachine {
                     burn_block,
                     burn_block_height,
                     current_miner,
-                    Some(replay_transactions),
+                    ReplayTransactionSet::new(replay_transactions.clone()),
                 ),
             };
 
@@ -645,7 +652,7 @@ impl LocalStateMachine {
                 burn_block_height: *burn_block_height,
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
-                tx_replay_set: tx_replay_set.cloned(),
+                tx_replay_set: tx_replay_set.clone(),
             });
             // Because we updated our active signer protocol version, update local_update so its included in the subsequent evaluations
             let Ok(update) =
@@ -670,7 +677,12 @@ impl LocalStateMachine {
                     burn_block_height,
                     current_miner,
                     ..
-                } => (burn_block, burn_block_height, current_miner, None),
+                } => (
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    ReplayTransactionSet::none(),
+                ),
                 StateMachineUpdateContent::V1 {
                     burn_block,
                     burn_block_height,
@@ -680,7 +692,7 @@ impl LocalStateMachine {
                     burn_block,
                     burn_block_height,
                     current_miner,
-                    Some(replay_transactions),
+                    ReplayTransactionSet::new(replay_transactions.clone()),
                 ),
             };
 
@@ -817,7 +829,7 @@ impl LocalStateMachine {
         let Self::Initialized(state) = self else {
             return None;
         };
-        state.tx_replay_set.clone()
+        state.tx_replay_set.into_optional()
     }
 
     /// Handle a possible bitcoin fork. If a fork is detetected,

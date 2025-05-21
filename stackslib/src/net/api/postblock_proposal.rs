@@ -595,6 +595,10 @@ impl NakamotoBlockProposal {
                         // contains transactions from the replay set. Thus, if we're here,
                         // the block contains a transaction that is not in the replay set,
                         // and we should reject the block.
+                        warn!("Rejected block proposal. Block contains transactions beyond the replay set.";
+                            "txid" => %tx.txid(),
+                            "tx_index" => i,
+                        );
                         return Err(BlockValidateRejectReason {
                             reason_code: ValidateRejectCode::InvalidTransactionReplay,
                             reason: "Block contains transactions beyond the replay set".into(),
@@ -653,6 +657,11 @@ impl NakamotoBlockProposal {
                         }
                         TransactionResult::Success(_) => {
                             // Tx should have been included
+                            warn!("Rejected block proposal. Block doesn't contain replay transaction that should have been included.";
+                                "block_txid" => %tx.txid(),
+                                "block_tx_index" => i,
+                                "replay_txid" => %replay_tx.txid(),
+                            );
                             return Err(BlockValidateRejectReason {
                                 reason_code: ValidateRejectCode::InvalidTransactionReplay,
                                 reason: "Transaction is not in the replay set".into(),
