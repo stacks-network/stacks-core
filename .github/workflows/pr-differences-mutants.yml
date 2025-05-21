@@ -29,7 +29,7 @@ jobs:
         with:
           username: ${{ github.actor }}
           team: 'blockchain-team'
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     outputs:
       ignore_timeout: ${{ steps.check_access_permissions.outputs.is_team_member == 'true' && github.event_name == 'workflow_dispatch' }}
