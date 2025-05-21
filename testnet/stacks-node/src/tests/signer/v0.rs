@@ -7052,16 +7052,28 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
         .naka_submitted_commits
         .clone();
     let commits_before = commits_submitted.load(Ordering::SeqCst);
+    let chain_before = get_chain_info(&signer_test.running_nodes.conf);
     next_block_and(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
         || {
+            let info = get_chain_info(&signer_test.running_nodes.conf);
             let commits_count = commits_submitted.load(Ordering::SeqCst);
-            Ok(commits_count > commits_before)
+            Ok(commits_count > commits_before
+                && info.burn_block_height > chain_before.burn_block_height)
         },
     )
     .unwrap();
-
+    let chain_after = get_chain_info(&signer_test.running_nodes.conf);
+    wait_for_state_machine_update(
+        30,
+        &chain_after.pox_consensus,
+        chain_after.burn_block_height,
+        None,
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Timed out waiting for the signers to update their state");
     info!(
         "------------------------- Mine Nakamoto Block N+1' in Tenure B -------------------------"
     );
@@ -7073,7 +7085,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
             .expect("Timed out waiting for block N+1' to be mined");
     let block_n_2 =
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 2, &miner_pk)
-            .expect("Timed out waiting for block N+1' to be mined");
+            .expect("Timed out waiting for block N+2 to be mined");
     assert_ne!(
         block_n_1_prime.header.signer_signature_hash(),
         block_n_1_proposal.header.signer_signature_hash()
