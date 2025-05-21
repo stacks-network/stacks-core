@@ -41,7 +41,7 @@ jobs:
         id: cleanup
         uses: stacks-network/actions/cleanup/workflows@main
         with:
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           cache-ttl: ${{ inputs.cache-ttl || env.CACHE_TTL}}
           workflow-ttl: ${{ inputs.workflow-ttl || env.WORKFLOW_TTL}}
           failed-workflow-ttl: ${{ inputs.failed-workflow-ttl || env.FAILED_WORKFLOW_TTL }}
