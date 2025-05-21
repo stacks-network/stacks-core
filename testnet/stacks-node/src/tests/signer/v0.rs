@@ -11952,6 +11952,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2]);
 
     info!("------------------------- Miner 2 Mines an Empty Tenure B -------------------------");
+    test_observer::clear();
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
         .expect("Timed out waiting for BTC block");
@@ -11963,24 +11964,34 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
         "------------------------- Wait for Miner 2 to be Marked Invalid -------------------------"
     );
     let stacks_height_before = miners.get_peer_stacks_tip_height();
+    let chain_before = get_chain_info(&miners.signer_test.running_nodes.conf);
+    let all_signers = miners.signer_test.signer_test_pks();
+
     // Make sure that miner 2 gets marked invalid by not proposing a block BEFORE block_proposal_timeout
-    std::thread::sleep(block_proposal_timeout.add(Duration::from_secs(1)));
+    wait_for_state_machine_update(
+        block_proposal_timeout.as_secs() + 30,
+        &chain_before.pox_consensus,
+        chain_before.burn_block_height,
+        Some((miner_pkh_1, stacks_height_before.saturating_sub(1))),
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Timed out waiting for Miner 2 be marked Invalid");
+
+    // Unpause miner 2's block proposal broadcast
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
 
     info!("------------------------- Wait for Miner 1's Block N+1 to be Mined ------------------------";
         "stacks_height_before" => %stacks_height_before);
 
-    let miner_1_block_n_1 = wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk_1)
-        .expect("Timed out waiting for block proposal N+1 from miner 1");
-    // Unpause miner 2's block proposal broadcast
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
+    let miner_1_block_n_1 =
+        wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_1)
+            .expect("Timed out waiting for block proposal N+1 from miner 1");
 
     let miner_2_block_n_1 = wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk_2)
         .expect("Timed out waiting for block proposal N+1' from miner 2");
-    info!("------------------------- Verify Miner 2's N+1' was Rejected and Miner 1's N+1 Accepted-------------------------");
 
-    let miner_1_block_n_1 =
-        wait_for_block_pushed(30, miner_1_block_n_1.header.signer_signature_hash())
-            .expect("Timed out waiting for Miner 1's block N+1 to be approved pushed");
+    info!("------------------------- Verify Miner 2's N+1' was Rejected -------------------------");
     wait_for_block_global_rejection(
         30,
         miner_2_block_n_1.header.signer_signature_hash(),
