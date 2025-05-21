@@ -21,6 +21,10 @@ on:
     ## Run every day at 00:00:00
     - cron: "0 0 * * *"
 
+permissions:
+  actions: write    # to delete workflow runs and caches
+  contents: read    # to access repo contents 
+
 ## env vars are transferred to composite action steps
 env:
   CACHE_TTL: 7 ## number of days to keep a cache
