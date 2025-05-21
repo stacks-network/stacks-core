@@ -64,7 +64,6 @@ use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
-use stacks::net::api::{prefix_hex, prefix_hex_codec, prefix_opt_hex};
 use stacks::net::atlas::{Attachment, AttachmentInstance};
 use stacks::net::http::HttpRequestContents;
 use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
@@ -79,6 +78,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, Sta
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::serde_serializers::{prefix_hex, prefix_hex_codec, prefix_opt_hex};
 use url::Url;
 
 #[cfg(any(test, feature = "testing"))]

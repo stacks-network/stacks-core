@@ -26,6 +26,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::{to_hex, Hash160};
+use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex};
 use stacks_common::util::HexError;
 use {serde, serde_json};
 
@@ -37,7 +38,6 @@ use crate::chainstate::nakamoto::{
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::api::getblock_v3::NakamotoBlockStream;
-use crate::net::api::{prefix_hex, prefix_opt_hex};
 use crate::net::http::{
     parse_bytes, parse_json, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType,
     HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
