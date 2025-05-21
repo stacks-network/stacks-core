@@ -748,6 +748,8 @@ impl Signer {
         update: &StateMachineUpdate,
         received_time: &SystemTime,
     ) {
+        info!("{self}: Received a new state machine update from signer {signer_public_key:?}: {update:?}");
+
         let address = StacksAddress::p2pkh(self.mainnet, signer_public_key);
         // Store the state machine update so we can reload it if we crash
         if let Err(e) = self.signer_db.insert_state_machine_update(

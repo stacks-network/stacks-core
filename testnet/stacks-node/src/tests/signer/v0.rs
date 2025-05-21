@@ -7275,7 +7275,7 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
 /// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
 ///
 /// Test Execution:
-/// The node mines 1 stacks block N (all signers sign it). The subsequent block N+1 is proposed, but >70% accept it.
+/// The node mines 1 stacks block N (all signers sign it). The subsequent block N+1 is proposed and >70% accept it.
 /// The signers delay broadcasting the block and the miner ends its tenure before it receives these signatures. The
 /// miner will propose an invalid block N+1' which all signers reject. The broadcast delay is removed and the miner
 /// proposes a new block N+2 which all signers accept.
@@ -7406,12 +7406,15 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         &signer_test.running_nodes.btc_regtest_controller,
         60,
         || {
+            let info = signer_test.get_peer_info();
             let commits_count = commits_submitted.load(Ordering::SeqCst);
-            Ok(commits_count > commits_before)
+            Ok(commits_count > commits_before
+                && info.burn_block_height > info_before.burn_block_height)
         },
     )
     .unwrap();
 
+    let info_after = signer_test.get_peer_info();
     info!(
         "------------------------- Attempt to Mine Nakamoto Block N+1' -------------------------"
     );
@@ -7427,6 +7430,11 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     info!("Allowing signers to broadcast block N+1 to the miner");
     TEST_PAUSE_BLOCK_BROADCAST.set(false);
 
+    wait_for(30, || {
+        let info = signer_test.get_peer_info();
+        Ok(info.stacks_tip_height > info_after.stacks_tip_height)
+    })
+    .expect("Timed out waiting for the node to advance its Stacks tip");
     // Assert the N+1' block was rejected
     wait_for_block_global_rejection(
         30,
@@ -7435,6 +7443,16 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     )
     .expect("Timed out waiting for block N+1' to be rejected");
 
+    // Wait first for state machine to update before submitting the tx to mine so the prior miner doesn't manage to get a last block in
+    wait_for_state_machine_update(
+        30,
+        &info_after.pox_consensus,
+        info_after.burn_block_height,
+        None,
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Timed out waiting for signer state to update");
     // Induce block N+2 to get mined
     let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
@@ -7446,9 +7464,12 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     );
 
     let tx = submit_tx(&http_origin, &transfer_tx);
-    info!("Submitted tx {tx} in to attempt to mine block N+2");
+    info!("Submitted tx {tx} in attempt to mine block N+2");
 
-    info!("------------------------- Asserting a both N+1 and N+2 are accepted -------------------------");
+    info!(
+        "------------------------- Wait for block N+2 at height {} -------------------------",
+        info_before.stacks_tip_height + 2
+    );
     let block_n_2 =
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 2, &miner_pk)
             .expect("Timed out waiting for block N+2 to be mined");
@@ -10533,7 +10554,10 @@ fn reorg_attempts_count_towards_miner_validity() {
     std::thread::sleep(wait_for);
     TEST_MINE_STALL.set(false);
 
-    info!("------------------------- Test Mine Block N+1 -------------------------");
+    info!(
+        "------------------------- Test Mine Block N+1 at height {} -------------------------",
+        block_proposal_n.header.chain_length + 1
+    );
     // The signer should automatically attempt to mine a new block once the signers eventually tell it to abandon the previous block
     // It will accept it even though block proposal timeout is exceeded because the miner did manage to propose block N' BEFORE the timeout.
     let block_n_1 =
