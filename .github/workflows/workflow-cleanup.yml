@@ -12,11 +12,11 @@ on:
       workflow-ttl:
         description: "How many days to keep a successful workflow (default: 30)"
         required: false
-        default: "30"
+        default: "60"
       failed-workflow-ttl:
         description: "How many days to keep failed workflows (default: 15)"
         required: false
-        default: "15"
+        default: "60"
   schedule:
     ## Run every day at 00:00:00
     - cron: "0 0 * * *"
