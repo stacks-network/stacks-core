@@ -7074,15 +7074,16 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
         SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
     .expect("Timed out waiting for the signers to update their state");
-    info!(
-        "------------------------- Mine Nakamoto Block N+1' in Tenure B -------------------------"
-    );
+
+    info!("------------------------- Mine Nakamoto Block N+1' at height {} in Tenure B -------------------------", info_before.stacks_tip_height + 1);
     let info_before = signer_test.get_peer_info();
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(Vec::new());
 
     let block_n_1_prime =
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
             .expect("Timed out waiting for block N+1' to be mined");
+
+    info!("------------------------- Mine Nakamoto Block N+2 at height {} in Tenure B -------------------------", info_before.stacks_tip_height + 2);
     let block_n_2 =
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 2, &miner_pk)
             .expect("Timed out waiting for block N+2 to be mined");
@@ -7094,6 +7095,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
         block_n_1_prime.header.chain_length,
         block_n_1_proposal.header.chain_length
     );
+
     info!(
         "------------------------- Mine Nakamoto Block N+2 in Tenure B -------------------------"
     );
