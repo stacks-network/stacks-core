@@ -15239,3 +15239,162 @@ fn miner_stackerdb_version_rollover() {
 
     miners.shutdown();
 }
+
+#[test]
+#[ignore]
+fn bitcoin_reorg_extended_tenure() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    let num_signers = 6;
+
+    let mut miners = MultipleMinerTest::new_with_config_modifications(
+        num_signers,
+        60,
+        |signer_config| {
+            // We don't want the miner of the "inactive" sortition before the flash block
+            //  to get timed out.
+            signer_config.block_proposal_timeout = Duration::from_secs(600);
+        },
+        |_| {},
+        |_| {},
+    );
+
+    let (conf_1, _conf_2) = miners.get_node_configs();
+
+    let rl1_counters = miners.signer_test.running_nodes.counters.clone();
+
+    let sortdb = SortitionDB::open(
+        &conf_1.get_burn_db_file_path(),
+        false,
+        conf_1.get_burnchain().pox_constants,
+    )
+    .unwrap();
+
+    miners.pause_commits_miner_2();
+    let (mining_pkh_1, _mining_pkh_2) = miners.get_miner_public_key_hashes();
+
+    miners.boot_to_epoch_3();
+
+    let info = get_chain_info(&conf_1);
+
+    miners
+        .signer_test
+        .submit_burn_block_contract_and_wait(&miners.sender_sk)
+        .expect("Timed out waiting for contract publish");
+
+    wait_for(60, || {
+        Ok(
+            rl1_counters.naka_submitted_commit_last_burn_height.get() >= info.burn_block_height
+                && rl1_counters.naka_submitted_commit_last_stacks_tip.get()
+                    >= info.stacks_tip_height,
+        )
+    })
+    .expect("Timed out waiting for commits from Miner 1 for Tenure 1 of the test");
+
+    for _ in 0..2 {
+        miners
+            .signer_test
+            .submit_burn_block_call_and_wait(&miners.sender_sk)
+            .expect("Timed out waiting for contract-call");
+    }
+
+    let tenure_0_stacks_height = get_chain_info(&conf_1).stacks_tip_height;
+    miners.pause_commits_miner_1();
+    miners.signer_test.mine_bitcoin_block();
+    miners.signer_test.check_signer_states_normal();
+    let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1));
+
+    wait_for(60, || {
+        Ok(get_chain_info(&conf_1).stacks_tip_height > tenure_0_stacks_height)
+    })
+    .expect("Timed out waiting for Miner 1 to mine the first block of Tenure 1");
+
+    for _ in 0..2 {
+        miners
+            .signer_test
+            .submit_burn_block_call_and_wait(&miners.sender_sk)
+            .expect("Timed out waiting for contract-call");
+    }
+
+    let last_active_sortition = get_sortition_info(&conf_1);
+    assert!(last_active_sortition.was_sortition);
+
+    let tenure_1_info = get_chain_info(&conf_1);
+    info!("Mining empty block!");
+    miners.btc_regtest_controller_mut().build_next_block(1);
+
+    wait_for(60, || {
+        let info = get_chain_info(&conf_1);
+        Ok(info.burn_block_height >= 1 + tenure_1_info.burn_block_height)
+    })
+    .expect("Timed out waiting for the flash blocks to be processed by the stacks nodes");
+
+    let cur_empty_sortition = get_sortition_info(&conf_1);
+    assert!(!cur_empty_sortition.was_sortition);
+
+    // after the flash block, make sure we get block processing without a new bitcoin block
+    //   being mined.
+    for _ in 0..2 {
+        miners
+            .signer_test
+            .submit_burn_block_call_and_wait(&miners.sender_sk)
+            .expect("Timed out waiting for contract-call");
+    }
+
+    miners
+        .signer_test
+        .check_signer_states_normal_missed_sortition();
+
+    info!("------------------------- Triggering Bitcoin Fork -------------------------");
+
+    let burn_block_height = get_chain_info(&conf_1).burn_block_height;
+    let burn_header_hash_to_fork = miners
+        .signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_block_hash(burn_block_height);
+    let before_fork = get_chain_info(&conf_1).pox_consensus;
+
+    miners
+        .signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .invalidate_block(&burn_header_hash_to_fork);
+    miners
+        .signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .build_next_block(2);
+
+    info!("Bitcoin fork triggered"; "ch" => %before_fork, "btc_height" => burn_block_height);
+    info!("Chain info before fork: {:?}", get_chain_info(&conf_1));
+
+    wait_for(60, || {
+        let after_fork = get_chain_info(&conf_1).pox_consensus;
+        Ok(after_fork != before_fork)
+    })
+    .unwrap();
+
+    info!("Chain info after fork: {:?}", get_chain_info(&conf_1));
+
+    for _ in 0..2 {
+        miners
+            .signer_test
+            .submit_burn_block_call_and_wait(&miners.sender_sk)
+            .expect("Timed out waiting for contract-call");
+    }
+
+    miners.submit_commit_miner_1(&sortdb);
+    miners.signer_test.mine_bitcoin_block();
+
+    let last_active_sortition = get_sortition_info(&conf_1);
+    assert!(last_active_sortition.was_sortition);
+    miners
+        .signer_test
+        .submit_burn_block_call_and_wait(&miners.sender_sk)
+        .expect("Timed out waiting for contract-call");
+
+    miners.shutdown();
+}

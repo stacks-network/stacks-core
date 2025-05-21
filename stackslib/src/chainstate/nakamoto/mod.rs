@@ -2887,6 +2887,75 @@ impl NakamotoChainState {
         Ok(StacksChainState::get_stacks_block_header_info_by_consensus_hash(db, consensus_hash)?)
     }
 
+    /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
+    /// tenure.
+    ///
+    /// Get the highest block in a given tenure (identified by its consensus hash) with a canonical
+    ///  burn_view (i.e., burn_view on the canonical sortition fork)
+    pub fn find_highest_known_block_header_in_tenure(
+        chainstate: &StacksChainState,
+        sort_db: &SortitionDB,
+        tenure_id: &ConsensusHash,
+    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
+        let chainstate_db_conn = chainstate.db();
+
+        let candidates = Self::get_highest_known_block_header_in_tenure_at_each_burnview(
+            chainstate_db_conn,
+            tenure_id,
+        )?;
+
+        let canonical_sortition_handle = sort_db.index_handle_at_tip();
+        for candidate in candidates.into_iter() {
+            let Some(ref candidate_ch) = candidate.burn_view else {
+                // this is an epoch 2.x header, no burn view to check
+                return Ok(Some(candidate));
+            };
+            let in_canonical_fork = canonical_sortition_handle.processed_block(&candidate_ch)?;
+            if in_canonical_fork {
+                return Ok(Some(candidate));
+            }
+        }
+
+        // did not find any blocks in the tenure
+        Ok(None)
+    }
+
+    /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
+    /// tenure.
+    ///
+    /// Get the highest blocks in a given tenure (identified by its consensus hash) at each burn view
+    ///  active in that tenure. If there are ties at a given burn view, they will both be returned
+    fn get_highest_known_block_header_in_tenure_at_each_burnview(
+        db: &Connection,
+        tenure_id: &ConsensusHash,
+    ) -> Result<Vec<StacksHeaderInfo>, ChainstateError> {
+        // see if we have a nakamoto block in this tenure
+        let qry = "
+        SELECT h.*
+        FROM nakamoto_block_headers h
+        JOIN (
+            SELECT burn_view, MAX(block_height) AS max_height
+            FROM nakamoto_block_headers
+            WHERE consensus_hash = ?1
+            GROUP BY burn_view
+        ) maxed
+        ON h.burn_view = maxed.burn_view
+        AND h.block_height = maxed.max_height
+        WHERE h.consensus_hash = ?1
+        ORDER BY h.block_height DESC, h.timestamp
+        ";
+        let args = params![tenure_id];
+        let out = query_rows(db, qry, args)?;
+        if !out.is_empty() {
+            return Ok(out);
+        }
+
+        // see if this is an epoch2 header. If it exists, then there will only be one.
+        let epoch2_x =
+            StacksChainState::get_stacks_block_header_info_by_consensus_hash(db, tenure_id)?;
+        Ok(Vec::from_iter(epoch2_x))
+    }
+
     /// Get the VRF proof for a Stacks block.
     /// For Nakamoto blocks, this is the VRF proof contained in the coinbase of the tenure-start
     /// block of the given tenure identified by the consensus hash.

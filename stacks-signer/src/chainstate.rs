@@ -389,9 +389,9 @@ impl SortitionsView {
             )?;
         } else {
             // check if the new block confirms the last block in the current tenure
-            let confirms_latest_in_tenure =
-                Self::confirms_latest_block_in_same_tenure(block, signer_db)
-                    .map_err(SignerChainstateError::from)?;
+            let confirms_latest_in_tenure = self
+                .confirms_latest_block_in_same_tenure(block, signer_db, client)
+                .map_err(SignerChainstateError::from)?;
             if !confirms_latest_in_tenure {
                 return Err(RejectReason::InvalidParentBlock);
             }
@@ -562,8 +562,7 @@ impl SortitionsView {
         Ok(true)
     }
 
-    /// Get the last block from the given tenure
-    /// Returns the last locally accepted block if it is not timed out, otherwise it will return the last globally accepted block.
+    /// Get the last locally signed block from the given tenure if it has not timed out
     pub fn get_tenure_last_block_info(
         consensus_hash: &ConsensusHash,
         signer_db: &SignerDb,
@@ -573,43 +572,41 @@ impl SortitionsView {
         let last_locally_accepted_block = signer_db
             .get_last_accepted_block(consensus_hash)
             .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
+        let Some(local_info) = last_locally_accepted_block else {
+            return Ok(None);
+        };
 
-        if let Some(local_info) = last_locally_accepted_block {
-            if let Some(signed_over_time) = local_info.signed_self {
-                if signed_over_time.saturating_add(tenure_last_block_proposal_timeout.as_secs())
-                    > get_epoch_time_secs()
-                {
-                    // The last locally accepted block is not timed out, return it
-                    return Ok(Some(local_info));
-                }
-            }
+        let Some(signed_over_time) = local_info.signed_self else {
+            return Ok(None);
+        };
+
+        if signed_over_time.saturating_add(tenure_last_block_proposal_timeout.as_secs())
+            > get_epoch_time_secs()
+        {
+            // The last locally accepted block is not timed out, return it
+            Ok(Some(local_info))
+        } else {
+            // The last locally accepted block is timed out, get the last globally accepted block
+            Ok(None)
         }
-        // The last locally accepted block is timed out, get the last globally accepted block
-        signer_db
-            .get_last_globally_accepted_block(consensus_hash)
-            .map_err(|e| ClientError::InvalidResponse(e.to_string()))
     }
 
-    /// Check if the tenure change block confirms the expected parent block
-    /// (i.e., the last locally accepted block in the parent tenure, or if that block is timed out, the last globally accepted block in the parent tenure)
-    /// It checks the local DB first, and if the block is not present in the local DB, it asks the
-    /// Stacks node for the highest processed block header in the given tenure (and then caches it
-    /// in the DB).
+    /// Check whether or not `block` is higher than the highest block in `tenure_id`.
+    ///  returns `Ok(true)` if `block` is higher, `Ok(false)` if not.
     ///
-    /// The rationale here is that the signer DB can be out-of-sync with the node.  For example,
-    /// the signer may have been added to an already-running node.
-    pub fn check_tenure_change_confirms_parent(
-        tenure_change: &TenureChangePayload,
+    /// If we can't look up `tenure_id`, assume `block` is higher.
+    ///
+    /// This updates the activity timer for the miner of `block`.
+    pub fn check_latest_block_in_tenure(
+        tenure_id: &ConsensusHash,
         block: &NakamotoBlock,
         signer_db: &mut SignerDb,
         client: &StacksClient,
         tenure_last_block_proposal_timeout: Duration,
         reorg_attempts_activity_timeout: Duration,
     ) -> Result<bool, ClientError> {
-        // If the tenure change block confirms the expected parent block, it should confirm at least one more block than the last accepted block in the parent tenure.
-        // NOTE: returns the locally accepted block if it is not timed out, otherwise it will return the last globally accepted block.
         let last_block_info = Self::get_tenure_last_block_info(
-            &tenure_change.prev_tenure_consensus_hash,
+            tenure_id,
             signer_db,
             tenure_last_block_proposal_timeout,
         )?;
@@ -636,7 +633,7 @@ impl SortitionsView {
                     // to give the miner some extra buffer time to wait for its chain tip to advance
                     // The miner may just be slow, so count this invalid block proposal towards valid miner activity.
                     if let Err(e) = signer_db.update_last_activity_time(
-                        &tenure_change.tenure_consensus_hash,
+                        &block.header.consensus_hash,
                         get_epoch_time_secs(),
                     ) {
                         warn!("Failed to update last activity time: {e}");
@@ -646,16 +643,16 @@ impl SortitionsView {
             }
         }
 
-        let tip = match client.get_tenure_tip(&tenure_change.prev_tenure_consensus_hash) {
+        let tip = match client.get_tenure_tip(tenure_id) {
             Ok(tip) => tip,
             Err(e) => {
                 warn!(
-                    "Miner block proposal contains a tenure change, but failed to fetch the tenure tip for the parent tenure: {e:?}. Considering proposal invalid.";
+                    "Failed to fetch the tenure tip for the parent tenure: {e:?}. Assuming proposal is higher than the parent tenure for now.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
                     "signer_signature_hash" => %block.header.signer_signature_hash(),
-                    "parent_tenure" => %tenure_change.prev_tenure_consensus_hash,
+                    "parent_tenure" => %tenure_id,
                 );
-                return Ok(false);
+                return Ok(true);
             }
         };
         if let Some(nakamoto_tip) = tip.as_stacks_nakamoto() {
@@ -673,19 +670,33 @@ impl SortitionsView {
                 }
             }
         }
-        let tip_height = tip.height();
-        if block.header.chain_length > tip_height {
-            Ok(true)
-        } else {
-            warn!(
-                "Miner's block proposal does not confirm as many blocks as we expect";
-                "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                "signer_signature_hash" => %block.header.signer_signature_hash(),
-                "proposed_chain_length" => block.header.chain_length,
-                "expected_at_least" => tip_height + 1,
-            );
-            Ok(false)
-        }
+        return Ok(tip.height() < block.header.chain_length);
+    }
+
+    /// Check if the tenure change block confirms the expected parent block
+    /// (i.e., the last locally accepted block in the parent tenure, or if that block is timed out, the last globally accepted block in the parent tenure)
+    /// It checks the local DB first, and if the block is not present in the local DB, it asks the
+    /// Stacks node for the highest processed block header in the given tenure (and then caches it
+    /// in the DB).
+    ///
+    /// The rationale here is that the signer DB can be out-of-sync with the node.  For example,
+    /// the signer may have been added to an already-running node.
+    pub fn check_tenure_change_confirms_parent(
+        tenure_change: &TenureChangePayload,
+        block: &NakamotoBlock,
+        signer_db: &mut SignerDb,
+        client: &StacksClient,
+        tenure_last_block_proposal_timeout: Duration,
+        reorg_attempts_activity_timeout: Duration,
+    ) -> Result<bool, ClientError> {
+        Self::check_latest_block_in_tenure(
+            &tenure_change.prev_tenure_consensus_hash,
+            block,
+            signer_db,
+            client,
+            tenure_last_block_proposal_timeout,
+            reorg_attempts_activity_timeout,
+        )
     }
 
     /// in tenure changes, we need to check:
@@ -742,33 +753,19 @@ impl SortitionsView {
     }
 
     fn confirms_latest_block_in_same_tenure(
+        &self,
         block: &NakamotoBlock,
-        signer_db: &SignerDb,
+        signer_db: &mut SignerDb,
+        client: &StacksClient,
     ) -> Result<bool, ClientError> {
-        let Some(last_known_block) = signer_db
-            .get_last_accepted_block(&block.header.consensus_hash)
-            .map_err(|e| ClientError::InvalidResponse(e.to_string()))?
-        else {
-            info!(
-                "Have no accepted blocks in the tenure, assuming block confirmation is correct";
-                "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                "signer_signature_hash" => %block.header.signer_signature_hash(),
-                "proposed_block_height" => block.header.chain_length,
-            );
-            return Ok(true);
-        };
-        if block.header.chain_length > last_known_block.block.header.chain_length {
-            Ok(true)
-        } else {
-            warn!(
-                "Miner's block proposal does not confirm as many blocks as we expect";
-                "proposed_block_consensus_hash" => %block.header.consensus_hash,
-                "signer_signature_hash" => %block.header.signer_signature_hash(),
-                "proposed_chain_length" => block.header.chain_length,
-                "expected_at_least" => last_known_block.block.header.chain_length + 1,
-            );
-            Ok(false)
-        }
+        Self::check_latest_block_in_tenure(
+            &block.header.consensus_hash,
+            block,
+            signer_db,
+            client,
+            self.config.tenure_last_block_proposal_timeout,
+            self.config.reorg_attempts_activity_timeout,
+        )
     }
 
     /// Fetch a new view of the recent sortitions
