@@ -586,7 +586,7 @@ impl SortitionsView {
             // The last locally accepted block is not timed out, return it
             Ok(Some(local_info))
         } else {
-            // The last locally accepted block is timed out, get the last globally accepted block
+            // The last locally accepted block is timed out
             Ok(None)
         }
     }
