@@ -131,3 +131,23 @@ pub mod prefix_opt_hex_codec {
         Ok(Some(val))
     }
 }
+
+/// Serialize strings as 0x-prefixed strings.
+pub mod prefix_string_0x {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(val: &str, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&format!("0x{}", val))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+        let s: String = Deserialize::deserialize(d)?;
+        let Some(hex_str) = s.get(2..) else {
+            return Err(serde::de::Error::invalid_length(
+                s.len(),
+                &"at least length 2 string",
+            ));
+        };
+        Ok(hex_str.to_string())
+    }
+}
