@@ -170,6 +170,27 @@ pub struct ConfigFile {
     pub __path: Option<String>, // Only used for config file reloads
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
+    /// Represents an initial STX balance allocation for an address at genesis
+    /// for testing purposes.
+    ///
+    /// This struct is used to define pre-allocated STX balances that are credited to
+    /// specific addresses when the Stacks node first initializes its chainstate. These balances
+    /// are included in the genesis block and are immediately available for spending.
+    ///
+    /// **Configuration:**
+    /// Configured as a list `[[ustx_balance]]` in TOML.
+    ///
+    /// Example TOML entry:
+    /// ```toml
+    /// [[ustx_balance]]
+    /// address = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"
+    /// amount = 10000000000000000
+    /// ```
+    ///
+    /// This is intended strictly for testing purposes.
+    /// Attempting to specify initial balances if [`BurnchainConfig::mode`] is "mainnet" will result in an error.
+    ///
+    /// Default: `None`
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
     /// Deprecated: use `ustx_balance` instead
     pub mstx_balance: Option<Vec<InitialBalanceFile>>,
@@ -4152,7 +4173,15 @@ pub struct InitialBalance {
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct InitialBalanceFile {
+    /// The Stacks address to receive the initial STX balance.
+    /// Must be a valid Stacks address string (e.g., "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2").
+    ///
+    /// Default: `""`
     pub address: String,
+    /// The amount of microSTX to allocate to the address at node startup.
+    /// 1 STX = 1_000_000 microSTX.
+    ///
+    /// Default: `0`
     pub amount: u64,
 }
 
