@@ -1532,6 +1532,7 @@ impl Signer {
             {
                 info!("{self}: Have not processed parent of block proposal yet, inserting pending block validation and will try again later";
                         "signer_signature_hash" => %signer_signature_hash,
+                        "parent_block_id" => %block.header.parent_block_id,
                 );
                 self.signer_db
                     .insert_pending_block_validation(&signer_signature_hash, added_epoch_time)
