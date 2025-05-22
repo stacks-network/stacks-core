@@ -3805,12 +3805,97 @@ impl NodeConfigFile {
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct FeeEstimationConfigFile {
+    /// Specifies the name of the cost estimator to use.
+    /// This controls how the node estimates computational costs for transactions.
+    ///
+    /// Accepted values:
+    /// - `"NaivePessimistic"`: The only currently supported cost estimator. This estimator
+    ///   tracks the highest observed costs for each operation type and uses the average
+    ///   of the top 10 values as its estimate, providing a conservative approach to
+    ///   cost estimation.
+    ///
+    /// If not specified, or if [`FeeEstimationConfigFile::disabled`] is `true`,
+    /// the node will use the default cost estimator.
+    ///
+    /// Default: `"NaivePessimistic"`
     pub cost_estimator: Option<String>,
+    /// Specifies the name of the fee estimator to use.
+    /// This controls how the node calculates appropriate transaction fees based on costs.
+    ///
+    /// Accepted values:
+    /// - `"ScalarFeeRate"`: Simple multiplier-based fee estimation that uses percentiles
+    ///   (5th, 50th, and 95th) of observed fee rates from recent blocks.
+    /// - `"FuzzedWeightedMedianFeeRate"`: Fee estimation that adds controlled randomness
+    ///   to a weighted median rate calculator. This helps prevent fee optimization attacks
+    ///   by adding unpredictability to fee estimates while still maintaining accuracy.
+    ///
+    /// If not specified, or if [`FeeEstimationConfigFile::disabled`] is `true`,
+    /// the node will use the default fee estimator.
+    ///
+    /// Default: `"ScalarFeeRate"`
     pub fee_estimator: Option<String>,
+    /// Specifies the name of the cost metric to use.
+    /// This controls how the node measures and compares transaction costs.
+    ///
+    /// Accepted values:
+    /// - `"ProportionDotProduct"`: The only currently supported cost metric. This metric
+    ///   computes a weighted sum of cost dimensions (runtime, read/write counts, etc.)
+    ///   proportional to how much of the block limit they consume.
+    ///
+    /// If not specified, or if [`FeeEstimationConfigFile::disabled`] is `true`,
+    /// the node will use the default cost metric.
+    ///
+    /// Default: `"ProportionDotProduct"`
     pub cost_metric: Option<String>,
+    /// If `true`, all fee and cost estimation features are disabled.
+    /// The node will use unit estimators and metrics, which effectively
+    /// provide no actual estimation capabilities.
+    ///
+    /// When disabled, the node will:
+    /// 1. Not track historical transaction costs or fee rates
+    /// 2. Return simple unit values for costs for any transaction, regardless of its actual complexity
+    /// 3. Be unable to provide meaningful fee estimates for API requests (always returns an error)
+    /// 4. Consider only raw transaction fees (not fees per cost unit) when assembling blocks
+    ///
+    /// This setting takes precedence over individual estimator/metric configurations.
+    /// When `true`, the values for [`FeeEstimationConfigFile::cost_estimator`],
+    /// [`FeeEstimationConfigFile::fee_estimator`], and [`FeeEstimationConfigFile::cost_metric`]
+    /// are ignored and treated as `None`.
+    ///
+    /// Default: `false`
     pub disabled: Option<bool>,
+    /// If `true`, errors encountered during cost or fee estimation will be logged.
+    /// This can help diagnose issues with the fee estimation subsystem.
+    ///
+    /// Default: `false`
     pub log_error: Option<bool>,
+    /// Specifies the fraction of random noise to add if using the `FuzzedWeightedMedianFeeRate` fee estimator.
+    /// This value should be in the range [0, 1], representing a percentage of the base fee rate.
+    ///
+    /// For example, with a value of 0.1 (10%), fee rate estimates will have random noise added
+    /// within the range of ±10% of the original estimate. This randomization makes it difficult
+    /// for users to precisely optimize their fees while still providing reasonable estimates.
+    ///
+    /// This setting is only relevant when [`FeeEstimationConfigFile::fee_estimator`] is set to
+    /// `"FuzzedWeightedMedianFeeRate"`. It controls how much randomness is introduced in the
+    /// fee estimation process to prevent fee optimization attacks.
+    ///
+    /// Default: `0.1` (10%)
     pub fee_rate_fuzzer_fraction: Option<f64>,
+    /// Specifies the window size for the [`WeightedMedianFeeRateEstimator`].
+    /// This determines how many historical fee rate data points are considered
+    /// when calculating the median fee rate.
+    ///
+    /// The window size controls how quickly the fee estimator responds to changing
+    /// network conditions. A smaller window size (e.g., 5) makes the estimator more
+    /// responsive to recent fee rate changes but potentially more volatile. A larger
+    /// window size (e.g., 10) produces more stable estimates but may be slower to
+    /// adapt to rapid network changes.
+    ///
+    /// This setting is primarily relevant when [`FeeEstimationConfigFile::fee_estimator`] is set to
+    /// `"FuzzedWeightedMedianFeeRate"`, as it's used by the underlying [`WeightedMedianFeeRateEstimator`].
+    ///
+    /// Default: `5`
     pub fee_rate_window_size: Option<u64>,
 }
 
