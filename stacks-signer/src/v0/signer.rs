@@ -995,12 +995,12 @@ impl Signer {
                         "proposed_block_signer_signature_hash" => %signer_signature_hash,
                         "proposed_chain_length" => proposed_block.header.chain_length,
                     );
-                    return Some(self.create_block_rejection(
+                    Some(self.create_block_rejection(
                         RejectReason::SortitionViewMismatch,
                         proposed_block,
-                    ));
+                    ))
                 } else {
-                    return None;
+                    None
                 }
             }
             Err(e) => {
@@ -1008,12 +1008,12 @@ impl Signer {
                     "signer_signature_hash" => %signer_signature_hash,
                     "block_id" => %proposed_block.block_id()
                 );
-                return Some(self.create_block_rejection(
+                Some(self.create_block_rejection(
                     RejectReason::ConnectivityIssues(
                         "failed to check block against signer db".to_string(),
                     ),
                     proposed_block,
-                ));
+                ))
             }
         }
     }

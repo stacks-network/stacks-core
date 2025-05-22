@@ -863,12 +863,10 @@ const CHAINSTATE_SCHEMA_4: &[&str] = &[
 ];
 
 const CHAINSTATE_SCHEMA_5: &[&str] = &[
-    // schema change is JUST a new index, so just bump db_config.version
-    //   and add the index to `CHAINSTATE_INDEXES` (which gets re-execed
-    //   on every schema change)
-    r#"
-    UPDATE db_config SET version = "10";
-    "#,
+    // schema change is JUST a new index, but the index is on a table
+    //  created by a migration, so don't add the index to the CHAINSTATE_INDEXES
+    r#"UPDATE db_config SET version = "10";"#,
+    "CREATE INDEX IF NOT EXISTS nakamoto_block_headers_by_ch_bv ON nakamoto_block_headers(consensus_hash, burn_view);"
 ];
 
 const CHAINSTATE_INDEXES: &[&str] = &[
@@ -896,7 +894,6 @@ const CHAINSTATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_header_by_height_and_affirmation_weight ON block_headers(block_height,affirmation_weight);",
     "CREATE INDEX IF NOT EXISTS index_headers_by_consensus_hash ON block_headers(consensus_hash);",
     "CREATE INDEX IF NOT EXISTS processable_block ON staging_blocks(processed, orphaned, attachable);",
-    "CREATE INDEX IF NOT EXISTS nakamoto_block_headers_by_ch_bv ON nakamoto_block_headers(consensus_hash, burn_view);"
 ];
 
 pub use stacks_common::consts::MINER_REWARD_MATURITY;

@@ -670,7 +670,7 @@ impl SortitionsView {
                 }
             }
         }
-        return Ok(tip.height() < block.header.chain_length);
+        Ok(tip.height() < block.header.chain_length)
     }
 
     /// Check if the tenure change block confirms the expected parent block
