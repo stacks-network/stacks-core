@@ -1052,7 +1052,6 @@ impl BlockMinerThread {
             );
             return Ok(());
         }
-
         SignerCoordinator::send_miners_message(
             miner_privkey,
             &sort_db,

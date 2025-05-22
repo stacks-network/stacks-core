@@ -6967,10 +6967,12 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
 
     let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
+    let miner_pkh = Hash160::from_node_public_key(&miner_pk);
+
     signer_test.boot_to_epoch_3();
     info!("------------------------- Starting Tenure A -------------------------");
-    info!("------------------------- Test Mine Nakamoto Block N -------------------------");
     let info_before = signer_test.get_peer_info();
+    info!("------------------------- Test Mine Nakamoto Block N at Height {} -------------------------", info_before.stacks_tip_height + 1);
     // submit a tx so that the miner will mine a stacks block
     let mut sender_nonce = 0;
     let transfer_tx = make_stacks_transfer_serialized(
@@ -6998,7 +7000,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     );
     assert_eq!(info_after.stacks_tip, block_n.header.block_hash());
 
-    info!("------------------------- Attempt to Mine Nakamoto Block N+1 -------------------------");
+    info!("------------------------- Attempt to Mine Nakamoto Block N+1 at Height {} -------------------------", info_before.stacks_tip_height + 2);
     // Make more than >70% of the signers ignore the block proposal to ensure it it is not globally accepted/rejected
     let ignoring_signers: Vec<_> = all_signers
         .iter()
@@ -7069,24 +7071,24 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
         30,
         &chain_after.pox_consensus,
         chain_after.burn_block_height,
-        None,
+        Some((miner_pkh, chain_before.stacks_tip_height)),
         &all_signers,
         SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
     .expect("Timed out waiting for the signers to update their state");
 
-    info!("------------------------- Mine Nakamoto Block N+1' at height {} in Tenure B -------------------------", info_before.stacks_tip_height + 1);
+    info!(
+        "------------------------- Mine Nakamoto Block N+1' at Height {} -------------------------",
+        info_before.stacks_tip_height + 1
+    );
     let info_before = signer_test.get_peer_info();
+    test_observer::clear();
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(Vec::new());
 
     let block_n_1_prime =
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
             .expect("Timed out waiting for block N+1' to be mined");
 
-    info!("------------------------- Mine Nakamoto Block N+2 at height {} in Tenure B -------------------------", info_before.stacks_tip_height + 2);
-    let block_n_2 =
-        wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 2, &miner_pk)
-            .expect("Timed out waiting for block N+2 to be mined");
     assert_ne!(
         block_n_1_prime.header.signer_signature_hash(),
         block_n_1_proposal.header.signer_signature_hash()
@@ -7097,8 +7099,13 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     );
 
     info!(
-        "------------------------- Mine Nakamoto Block N+2 in Tenure B -------------------------"
+        "------------------------- Mine Nakamoto Block N+2 at Height {} -------------------------",
+        info_before.stacks_tip_height + 2
     );
+    let block_n_2 =
+        wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 2, &miner_pk)
+            .expect("Timed out waiting for block N+2 to be mined");
+
     wait_for(30, || {
         let info = signer_test.get_peer_info();
         Ok(info.stacks_tip_height > info_before.stacks_tip_height + 1)
