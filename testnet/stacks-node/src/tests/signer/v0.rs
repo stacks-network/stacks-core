@@ -15307,6 +15307,8 @@ fn bitcoin_reorg_extended_tenure() {
         },
         |_| {},
         |config| {
+            // we will interpose with the testproxy on the second node's bitcoind
+            //  connection, so that we can shut off communication before the reorg.
             config.burnchain.rpc_port = 28132;
             config.burnchain.peer_port = 28133;
         },
@@ -15353,19 +15355,18 @@ fn bitcoin_reorg_extended_tenure() {
 
     miners.boot_to_epoch_3();
 
-    let info = get_chain_info(&conf_1);
-
     miners
         .signer_test
         .submit_burn_block_contract_and_wait(&miners.sender_sk)
         .expect("Timed out waiting for contract publish");
 
+    let info = get_chain_info(&conf_1);
+
     wait_for(60, || {
-        Ok(
-            rl1_counters.naka_submitted_commit_last_burn_height.get() >= info.burn_block_height
-                && rl1_counters.naka_submitted_commit_last_stacks_tip.get()
-                    >= info.stacks_tip_height,
-        )
+        Ok(rl1_counters
+            .naka_submitted_commit_last_parent_tenure_id
+            .get()
+            == info.stacks_tip_consensus_hash)
     })
     .expect("Timed out waiting for commits from Miner 1 for Tenure 1 of the test");
 

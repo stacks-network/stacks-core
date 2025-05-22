@@ -234,44 +234,45 @@ lazy_static! {
     UPDATE db_config SET version = "4";
     "#.into(),
     ];
+}
 
-    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_2: Vec<String> = vec![
-    NAKAMOTO_TENURES_SCHEMA_2.into(),
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_2: &[&str] = &[
+    NAKAMOTO_TENURES_SCHEMA_2,
     r#"
     ALTER TABLE nakamoto_block_headers
       ADD COLUMN timestamp INTEGER NOT NULL;
-    "#.into(),
+    "#,
     r#"
     UPDATE db_config SET version = "5";
-    "#.into(),
-        // make burn_view NULLable. We could use a default value, but NULL should be safer (because it will error).
-        // there should be no entries in nakamoto_block_headers with a NULL entry when this column is added, because
-        // nakamoto blocks have not been produced yet.
+    "#,
+    // make burn_view NULLable. We could use a default value, but NULL should be safer (because it will error).
+    // there should be no entries in nakamoto_block_headers with a NULL entry when this column is added, because
+    // nakamoto blocks have not been produced yet.
     r#"
     ALTER TABLE nakamoto_block_headers
     ADD COLUMN burn_view TEXT;
-    "#.into(),
-    ];
+    "#,
+];
 
-    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_3: Vec<String> = vec![
-    NAKAMOTO_TENURES_SCHEMA_3.into(),
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_3: &[&str] = &[
+    NAKAMOTO_TENURES_SCHEMA_3,
     r#"
     UPDATE db_config SET version = "6";
-    "#.into(),
-        // Add a `height_in_tenure` field to the block header row, so we know how high this block is
-        // within its tenure.  This is needed to process malleablized Nakamoto blocks with the same
-        // height, as well as accidental forks that can arise from slow miners.
-        //
-        //
-        //
-        // No default value is needed because at the time of this writing, this table is actually empty.
+    "#,
+    // Add a `height_in_tenure` field to the block header row, so we know how high this block is
+    // within its tenure.  This is needed to process malleablized Nakamoto blocks with the same
+    // height, as well as accidental forks that can arise from slow miners.
+    //
+    //
+    //
+    // No default value is needed because at the time of this writing, this table is actually empty.
     r#"
     ALTER TABLE nakamoto_block_headers
     ADD COLUMN height_in_tenure;
-    "#.into(),
-    ];
+    "#,
+];
 
-    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_4: [&'static str; 2] = [
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_4: &[&str] = &[
     r#"
         UPDATE db_config SET version = "7";
     "#,
@@ -289,16 +290,22 @@ lazy_static! {
             PRIMARY KEY(public_key,reward_cycle)
         );
     "#,
-    ];
+];
 
-    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_5: [&'static str; 2] = [
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_5: &[&str] = &[
     r#"
         UPDATE db_config SET version = "8";
     "#,
     // Add an index for index block hash in nakamoto block headers
     "CREATE INDEX IF NOT EXISTS index_block_hash ON nakamoto_block_headers(index_block_hash);",
-    ];
-}
+];
+
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_6: &[&str] = &[
+    // schema change is JUST a new index, but the index is on a table
+    //  created by a migration, so don't add the index to the CHAINSTATE_INDEXES
+    r#"UPDATE db_config SET version = "10";"#,
+    "CREATE INDEX IF NOT EXISTS nakamoto_block_headers_by_ch_bv ON nakamoto_block_headers(consensus_hash, burn_view);"
+];
 
 #[cfg(test)]
 mod fault_injection {

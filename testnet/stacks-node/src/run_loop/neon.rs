@@ -10,7 +10,7 @@ use libc;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::{Burnchain, Error as burnchain_error};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::BlockSnapshot;
+use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{
     migrate_chainstate_dbs, static_get_canonical_affirmation_map,
@@ -51,6 +51,14 @@ use crate::{
 pub const STDERR: i32 = 2;
 
 #[cfg(test)]
+#[derive(Clone, Default)]
+pub struct RunLoopField<T>(pub Arc<Mutex<T>>);
+
+#[cfg(not(test))]
+#[derive(Clone, Default)]
+pub struct RunLoopField<T>(pub std::marker::PhantomData<T>);
+
+#[cfg(test)]
 #[derive(Clone)]
 pub struct RunLoopCounter(pub Arc<AtomicU64>);
 
@@ -72,6 +80,13 @@ impl Default for RunLoopCounter {
     #[cfg(not(test))]
     fn default() -> Self {
         Self()
+    }
+}
+
+impl<T: Clone> RunLoopField<Option<T>> {
+    #[cfg(test)]
+    pub fn get(&self) -> T {
+        self.0.lock().unwrap().clone().unwrap()
     }
 }
 
@@ -118,6 +133,7 @@ pub struct Counters {
     pub naka_miner_directives: RunLoopCounter,
     pub naka_submitted_commit_last_stacks_tip: RunLoopCounter,
     pub naka_submitted_commit_last_commit_amount: RunLoopCounter,
+    pub naka_submitted_commit_last_parent_tenure_id: RunLoopField<Option<ConsensusHash>>,
 
     pub naka_miner_current_rejections: RunLoopCounter,
     pub naka_miner_current_rejections_timeout_secs: RunLoopCounter,
@@ -146,6 +162,15 @@ impl Counters {
 
     #[cfg(not(test))]
     fn set(_ctr: &RunLoopCounter, _value: u64) {}
+
+    #[cfg(test)]
+    fn update<T: Clone>(ctr: &RunLoopField<Option<T>>, value: &T) {
+        let mut mutex = ctr.0.lock().expect("FATAL: test counter mutext poisoned");
+        let _ = mutex.replace(value.clone());
+    }
+
+    #[cfg(not(test))]
+    fn update<T: Clone>(_ctr: &RunLoopField<Option<T>>, _value: &T) {}
 
     pub fn bump_blocks_processed(&self) {
         Counters::inc(&self.blocks_processed);
@@ -180,6 +205,7 @@ impl Counters {
         committed_burn_height: u64,
         committed_stacks_height: u64,
         committed_sats_amount: u64,
+        committed_parent_tenure_id: &ConsensusHash,
     ) {
         Counters::inc(&self.naka_submitted_commits);
         Counters::set(
@@ -193,6 +219,10 @@ impl Counters {
         Counters::set(
             &self.naka_submitted_commit_last_commit_amount,
             committed_sats_amount,
+        );
+        Counters::update(
+            &self.naka_submitted_commit_last_parent_tenure_id,
+            committed_parent_tenure_id,
         );
     }
 

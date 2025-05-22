@@ -56,6 +56,7 @@ use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
     NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2,
     NAKAMOTO_CHAINSTATE_SCHEMA_3, NAKAMOTO_CHAINSTATE_SCHEMA_4, NAKAMOTO_CHAINSTATE_SCHEMA_5,
+    NAKAMOTO_CHAINSTATE_SCHEMA_6,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -862,13 +863,6 @@ const CHAINSTATE_SCHEMA_4: &[&str] = &[
     "#,
 ];
 
-const CHAINSTATE_SCHEMA_5: &[&str] = &[
-    // schema change is JUST a new index, but the index is on a table
-    //  created by a migration, so don't add the index to the CHAINSTATE_INDEXES
-    r#"UPDATE db_config SET version = "10";"#,
-    "CREATE INDEX IF NOT EXISTS nakamoto_block_headers_by_ch_bv ON nakamoto_block_headers(consensus_hash, burn_view);"
-];
-
 const CHAINSTATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
     "CREATE INDEX IF NOT EXISTS block_headers_hash_index ON block_headers(block_hash,block_height);",
@@ -1133,7 +1127,7 @@ impl StacksChainState {
                     info!(
                         "Migrating chainstate schema from version 9 to 10: add index for nakamoto_block_headers"
                     );
-                    for cmd in CHAINSTATE_SCHEMA_5.iter() {
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_6.iter() {
                         tx.execute_batch(cmd)?;
                     }
                 }
