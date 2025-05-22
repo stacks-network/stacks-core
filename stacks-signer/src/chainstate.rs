@@ -595,6 +595,10 @@ impl SortitionsView {
     ///  returns `Ok(true)` if `block` is higher, `Ok(false)` if not.
     ///
     /// If we can't look up `tenure_id`, assume `block` is higher.
+    /// This assumption is safe because this proposal ultimately must be passed
+    /// to the `stacks-node` for proposal processing: so, if we pass the block
+    /// height check here, we are relying on the `stacks-node` proposal endpoint
+    /// to do the validation on the chainstate data that it has.
     ///
     /// This updates the activity timer for the miner of `block`.
     pub fn check_latest_block_in_tenure(
