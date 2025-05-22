@@ -525,6 +525,7 @@ impl Signer {
                 block_id,
                 consensus_hash,
                 signer_sighash,
+                transactions,
             } => {
                 let Some(signer_sighash) = signer_sighash else {
                     debug!("{self}: received a new block event for a pre-nakamoto block, no processing necessary");
@@ -536,10 +537,11 @@ impl Signer {
                     "block_id" => %block_id,
                     "signer_signature_hash" => %signer_sighash,
                     "consensus_hash" => %consensus_hash,
-                    "block_height" => block_height
+                    "block_height" => block_height,
+                    "total_txs" => transactions.len()
                 );
                 self.local_state_machine
-                    .stacks_block_arrival(consensus_hash, *block_height, block_id, signer_sighash, &self.signer_db)
+                    .stacks_block_arrival(consensus_hash, *block_height, block_id, signer_sighash, &self.signer_db, transactions)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest stacks block arrival"; "err" => ?e));
 
                 if let Ok(Some(mut block_info)) = self
@@ -1615,7 +1617,10 @@ impl Signer {
             if is_block_found || !self.validate_with_replay_tx {
                 None
             } else {
-                self.local_state_machine.get_tx_replay_set()
+                self.global_state_evaluator
+                    .get_global_tx_replay_set()
+                    .unwrap_or_default()
+                    .into_optional()
             },
         ) {
             Ok(_) => {

@@ -182,6 +182,13 @@ impl GlobalStateEvaluator {
     pub fn reached_agreement(&self, vote_weight: u32) -> bool {
         vote_weight >= self.total_weight * 7 / 10
     }
+
+    /// Get the global transaction replay set. Returns `None` if there
+    /// is no global state.
+    pub fn get_global_tx_replay_set(&mut self) -> Option<ReplayTransactionSet> {
+        let global_state = self.determine_global_state()?;
+        Some(global_state.tx_replay_set)
+    }
 }
 
 /// A "wrapper" struct around Vec<StacksTransaction> that behaves like

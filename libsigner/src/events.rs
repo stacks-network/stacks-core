@@ -29,7 +29,6 @@ use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
 };
-use blockstack_lib::net::api::{prefix_hex, prefix_opt_hex};
 use blockstack_lib::net::stackerdb::MINER_SLOT_COUNT;
 use blockstack_lib::util_lib::boot::boot_code_id;
 use blockstack_lib::version_string;
@@ -46,7 +45,8 @@ pub use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksPublicKey,
 };
-use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
+use stacks_common::util::hash::{hex_bytes, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex, prefix_string_0x};
 use stacks_common::util::HexError;
 use stacks_common::versions::STACKS_NODE_VERSION;
 use tiny_http::{
@@ -229,6 +229,8 @@ pub enum SignerEvent<T: SignerEventTrait> {
         signer_sighash: Option<Sha512Trunc256Sum>,
         /// The block height for the newly processed stacks block
         block_height: u64,
+        /// The transactions included in the block
+        transactions: Vec<StacksTransaction>,
     },
 }
 
@@ -613,6 +615,45 @@ impl<T: SignerEventTrait> TryFrom<BurnBlockEvent> for SignerEvent<T> {
     }
 }
 
+/// A subset of `TransactionEventPayload`, received from the event
+/// dispatcher.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NewBlockTransaction {
+    /// The raw transaction bytes. If this is a burn operation,
+    /// this will be "00".
+    #[serde(with = "prefix_string_0x")]
+    raw_tx: String,
+}
+
+impl NewBlockTransaction {
+    pub fn get_stacks_transaction(&self) -> Result<Option<StacksTransaction>, CodecError> {
+        if self.raw_tx == "00" {
+            Ok(None)
+        } else {
+            let tx_bytes = hex_bytes(&self.raw_tx).map_err(|e| {
+                CodecError::DeserializeError(format!("Failed to deserialize raw tx: {}", e))
+            })?;
+            let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])?;
+            Ok(Some(tx))
+        }
+    }
+}
+
+/// "Special" deserializer to turn `{ tx_raw: "0x..." }` into `StacksTransaction`.
+fn deserialize_raw_tx_hex<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<StacksTransaction>, D::Error> {
+    let tx_objs: Vec<NewBlockTransaction> = serde::Deserialize::deserialize(d)?;
+    Ok(tx_objs
+        .iter()
+        .map(|tx| tx.get_stacks_transaction())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(serde::de::Error::custom)?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>())
+}
+
 #[derive(Debug, Deserialize)]
 struct BlockEvent {
     #[serde(with = "prefix_hex")]
@@ -625,6 +666,8 @@ struct BlockEvent {
     #[serde(with = "prefix_hex")]
     block_hash: BlockHeaderHash,
     block_height: u64,
+    #[serde(deserialize_with = "deserialize_raw_tx_hex")]
+    transactions: Vec<StacksTransaction>,
 }
 
 impl<T: SignerEventTrait> TryFrom<BlockEvent> for SignerEvent<T> {
@@ -636,6 +679,7 @@ impl<T: SignerEventTrait> TryFrom<BlockEvent> for SignerEvent<T> {
             block_id: block_event.index_block_hash,
             consensus_hash: block_event.consensus_hash,
             block_height: block_event.block_height,
+            transactions: block_event.transactions,
         })
     }
 }

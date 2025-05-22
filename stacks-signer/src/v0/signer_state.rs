@@ -14,13 +14,19 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
+#[cfg(any(test, feature = "testing"))]
+use std::sync::LazyLock;
 use std::time::{Duration, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
-use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
+use blockstack_lib::chainstate::stacks::{
+    StacksTransaction, TenureChangeCause, TenureChangePayload, TransactionPayload,
+};
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use clarity::types::chainstate::StacksAddress;
+#[cfg(any(test, feature = "testing"))]
+use clarity::util::tests::TestFlag;
 use libsigner::v0::messages::{
     MessageSlotID, SignerMessage, StateMachineUpdate as StateMachineUpdateMessage,
     StateMachineUpdateContent, StateMachineUpdateMinerState,
@@ -34,6 +40,8 @@ use stacks_common::codec::Error as CodecError;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::{debug, info, warn};
 
 use crate::chainstate::{
@@ -44,6 +52,11 @@ use crate::signerdb::SignerDb;
 
 /// This is the latest supported protocol version for this signer binary
 pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 1;
+
+/// Vec of pubkeys that should ignore checking for a bitcoin fork
+#[cfg(any(test, feature = "testing"))]
+pub static TEST_IGNORE_BITCOIN_FORK_PUBKEYS: LazyLock<TestFlag<Vec<Secp256k1PublicKey>>> =
+    LazyLock::new(TestFlag::default);
 
 /// The local signer state machine
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -346,6 +359,7 @@ impl LocalStateMachine {
         block_id: &StacksBlockId,
         signer_signature_hash: &Sha512Trunc256Sum,
         db: &SignerDb,
+        txs: &Vec<StacksTransaction>,
     ) -> Result<(), SignerChainstateError> {
         // set self to uninitialized so that if this function errors,
         //  self is left as uninitialized.
@@ -383,7 +397,25 @@ impl LocalStateMachine {
                     );
                     prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
                 }
-                Ok(false) => {}
+                Ok(false) => {
+                    info!("Signer state: got a new block during replay that wasn't validated by our replay set.";
+                        "txs" => ?txs,
+                    );
+                    // If any of the transactions aren't TenureChange/Coinbase, we should
+                    // capitulate and clear the tx replay set.
+                    if txs.iter().any(|tx| {
+                        !matches!(
+                            tx.payload,
+                            TransactionPayload::TenureChange(TenureChangePayload {
+                                cause: TenureChangeCause::BlockFound,
+                                ..
+                            }) | TransactionPayload::Coinbase(..)
+                        )
+                    }) {
+                        info!("Signer state: clearing the tx replay set due to unrecognized transactions");
+                        prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
+                    }
+                }
                 Err(e) => {
                     warn!("Failed to check if block was validated by replay tx";
                         "err" => ?e,
@@ -861,6 +893,17 @@ impl LocalStateMachine {
             "prior_state_machine.burn_block_height" => prior_state_machine.burn_block_height,
             "prior_state_machine.burn_block" => %prior_state_machine.burn_block,
         );
+        #[cfg(any(test, feature = "testing"))]
+        {
+            let ignore_bitcoin_fork = TEST_IGNORE_BITCOIN_FORK_PUBKEYS
+                .get()
+                .iter()
+                .any(|pubkey| &StacksAddress::p2pkh(false, pubkey) == client.get_signer_address());
+            if ignore_bitcoin_fork {
+                warn!("Ignoring bitcoin fork due to test flag");
+                return Ok(None);
+            }
+        }
         // Determine the tenures that were forked
         let mut parent_burn_block_info =
             db.get_burn_block_by_ch(&prior_state_machine.burn_block)?;
