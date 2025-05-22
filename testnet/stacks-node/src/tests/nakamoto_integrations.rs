@@ -6668,18 +6668,16 @@ fn signer_check_proposal() {
             let reject_code = sortitions_view
                 .check_proposal(&signer_client, &mut signer_db, prior_tenure_first, miner_pk)
                 .expect_err("Sortitions view should reject proposals from prior tenure");
-            assert_eq!(
-                reject_code,
-                RejectReason::ConsensusHashMismatch,
+            assert!(
+                matches!(reject_code, RejectReason::ConsensusHashMismatch(_)),
                 "Sortitions view should reject proposals from prior tenure"
             );
             for block in prior_tenure_interims.iter() {
                 let reject_code = sortitions_view
                     .check_proposal(&signer_client, &mut signer_db, block, miner_pk)
                     .expect_err("Sortitions view should reject proposals from prior tenure");
-                assert_eq!(
-                    reject_code,
-                    RejectReason::ConsensusHashMismatch,
+                assert!(
+                    matches!(reject_code, RejectReason::ConsensusHashMismatch(_)),
                     "Sortitions view should reject proposals from prior tenure"
                 );
             }

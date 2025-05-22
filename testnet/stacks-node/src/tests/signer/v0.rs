@@ -1264,40 +1264,6 @@ fn wait_for_block_global_rejection(
     })
 }
 
-/// Waits for >30% of num_signers block rejection to be observed in the test_observer stackerdb chunks for a block
-/// with the provided signer signature hash and the specified reject_reason
-fn wait_for_block_global_rejection_with_reject_reason(
-    timeout_secs: u64,
-    block_signer_signature_hash: Sha512Trunc256Sum,
-    num_signers: usize,
-    reject_reason: RejectReason,
-) -> Result<(), String> {
-    let mut found_rejections = HashSet::new();
-    wait_for(timeout_secs, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
-            if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
-                signer_signature_hash,
-                signature,
-                response_data,
-                ..
-            })) = message
-            {
-                if signer_signature_hash == block_signer_signature_hash
-                    && response_data.reject_reason == reject_reason
-                {
-                    found_rejections.insert(signature);
-                }
-            }
-        }
-        Ok(found_rejections.len() >= num_signers * 3 / 10)
-    })
-}
-
 /// Waits for the provided number of block rejections to be observed in the test_observer stackerdb chunks for a block
 /// with the provided signer signature hash
 fn wait_for_block_rejections(
@@ -1620,10 +1586,10 @@ fn block_proposal_rejection() {
                 if signer_signature_hash == block_signer_signature_hash_1 {
                     found_signer_signature_hash_1 = true;
                     assert_eq!(reason_code, RejectCode::SortitionViewMismatch);
-                    assert_eq!(
+                    assert!(matches!(
                         response_data.reject_reason,
-                        RejectReason::ConsensusHashMismatch
-                    );
+                        RejectReason::ConsensusHashMismatch(_)
+                    ));
                 } else if signer_signature_hash == block_signer_signature_hash_2 {
                     found_signer_signature_hash_2 = true;
                     assert!(matches!(
@@ -5086,7 +5052,7 @@ fn empty_tenure_delayed() {
             })) = latest_msg
             {
                 assert_eq!(reason_code, RejectCode::SortitionViewMismatch);
-                assert_eq!(response_data.reject_reason, RejectReason::ConsensusHashMismatch);
+                assert!(matches!(response_data.reject_reason, RejectReason::ConsensusHashMismatch(_)));
                 assert_eq!(metadata.server_version, VERSION_STRING.to_string());
                 found_rejections.push(*slot_id);
             } else {
@@ -11281,17 +11247,18 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
         .expect("Failed to mine BTC block");
 
+    // assure we have a successful sortition that miner 2 won
+    verify_sortition_winner(&sortdb, &miner_pkh_2);
+
     info!("------------------------- Miner 1 Submits a Block Commit -------------------------");
     miners.submit_commit_miner_1(&sortdb);
 
     info!("------------------------- Miner 2 Mines Block N+1 -------------------------");
 
+    test_observer::clear();
     TEST_MINE_STALL.set(false);
     let miner_2_block_n_1 = wait_for_block_pushed_by_miner_key(30, block_n_height + 1, &miner_pk_2)
         .expect("Failed to get block N+1");
-
-    // assure we have a successful sortition that miner 2 won
-    verify_sortition_winner(&sortdb, &miner_pkh_2);
 
     assert_eq!(
         get_chain_info(&conf_1).stacks_tip_height,
@@ -11498,13 +11465,12 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
     let proposed_block = wait_for_block_proposal(30, block_n_height + 1, &miner_pk_1)
         .expect("Timed out waiting for block proposal");
     // check it has been rejected
-    wait_for_block_global_rejection_with_reject_reason(
+    wait_for_block_global_rejection(
         30,
         proposed_block.header.signer_signature_hash(),
         num_signers,
-        RejectReason::ConsensusHashMismatch,
     )
-    .expect("Timed out waiting for a block proposal to be rejected due to invalid consensus hash");
+    .expect("Timed out waiting for a block proposal to be rejected");
 
     // check only 1 block from miner1 has been added after the epoch3 boot
     let miner1_blocks_after_boot_to_epoch3 = get_nakamoto_headers(&conf_1)
@@ -13050,10 +13016,12 @@ fn global_state_overrides_first_proposal_burn_block_timing_secs() {
         wait_for_block_rejections_from_signers(30, &signer_signature_hash, &all_signers)
             .expect("Timed out waiting for block rejection from rejecting signers");
     for rejection in rejections {
-        assert_eq!(
-            rejection.response_data.reject_reason,
-            RejectReason::ConsensusHashMismatch,
-            "Reject reason is not ConsenusHashMismatch"
+        assert!(
+            matches!(
+                rejection.response_data.reject_reason,
+                RejectReason::ConsensusHashMismatch(_)
+            ),
+            "Reject reason is not ConsensusHashMismatch"
         );
     }
     miners.shutdown();

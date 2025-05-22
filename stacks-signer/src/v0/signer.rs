@@ -1623,6 +1623,7 @@ fn should_reevaluate_block(block_info: &BlockInfo) -> bool {
     if let Some(reject_reason) = &block_info.reject_reason {
         match reject_reason {
             RejectReason::ValidationFailed(ValidateRejectCode::UnknownParent)
+            | RejectReason::ConsensusHashMismatch(_)
             | RejectReason::NoSortitionView
             | RejectReason::ConnectivityIssues(_)
             | RejectReason::TestingDirective
@@ -1635,12 +1636,11 @@ fn should_reevaluate_block(block_info: &BlockInfo) -> bool {
             | RejectReason::ReorgNotAllowed
             | RejectReason::InvalidBitvec
             | RejectReason::PubkeyHashMismatch
-            | RejectReason::InvalidMiner
             | RejectReason::NotLatestSortitionWinner
             | RejectReason::InvalidParentBlock
             | RejectReason::DuplicateBlockFound
-            // TODO: The active miner view might have updated since the block was first proposed? Should this be reconsidered? Similarly to PubkeyHashMismatch or InvalidMiner..
-            | RejectReason::ConsensusHashMismatch
+            // TODO: The active miner view might have updated since the block was first proposed? Should this be reconsidered?
+            | RejectReason::InvalidMiner
               => {
                 // No need to re-validate these types of rejections.
                 false

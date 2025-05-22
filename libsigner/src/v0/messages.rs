@@ -848,7 +848,7 @@ impl From<&RejectReason> for RejectReasonPrefix {
             RejectReason::InvalidParentBlock => RejectReasonPrefix::InvalidParentBlock,
             RejectReason::DuplicateBlockFound => RejectReasonPrefix::DuplicateBlockFound,
             RejectReason::InvalidTenureExtend => RejectReasonPrefix::InvalidTenureExtend,
-            RejectReason::ConsensusHashMismatch => RejectReasonPrefix::ConsensusHashMismatch,
+            RejectReason::ConsensusHashMismatch(_) => RejectReasonPrefix::ConsensusHashMismatch,
             RejectReason::Unknown(_) => RejectReasonPrefix::Unknown,
             RejectReason::NotRejected => RejectReasonPrefix::NotRejected,
         }
@@ -924,7 +924,7 @@ pub enum RejectReason {
     /// and not enough time has passed for a time-based tenure extend
     InvalidTenureExtend,
     /// The block consensus hash does not match the active miner's tenure id
-    ConsensusHashMismatch,
+    ConsensusHashMismatch((ConsensusHash, ConsensusHash)),
     /// The block was approved, no rejection details needed
     NotRejected,
     /// Handle unknown codes gracefully
@@ -1582,6 +1582,10 @@ impl StacksMessageCodec for RejectReason {
         // Do not do a single match here as we may add other variants in the future and don't want to miss adding it
         match self {
             RejectReason::ValidationFailed(code) => write_next(fd, &(*code as u8))?,
+            RejectReason::ConsensusHashMismatch((expected, actual)) => {
+                write_next(fd, expected)?;
+                write_next(fd, actual)?;
+            }
             RejectReason::ConnectivityIssues(_)
             | RejectReason::RejectedInPriorRound
             | RejectReason::NoSortitionView
@@ -1595,7 +1599,6 @@ impl StacksMessageCodec for RejectReason {
             | RejectReason::InvalidParentBlock
             | RejectReason::DuplicateBlockFound
             | RejectReason::InvalidTenureExtend
-            | RejectReason::ConsensusHashMismatch
             | RejectReason::Unknown(_)
             | RejectReason::NotRejected => {
                 // No additional data to serialize / deserialize
@@ -1633,7 +1636,11 @@ impl StacksMessageCodec for RejectReason {
             RejectReasonPrefix::InvalidParentBlock => RejectReason::InvalidParentBlock,
             RejectReasonPrefix::DuplicateBlockFound => RejectReason::DuplicateBlockFound,
             RejectReasonPrefix::InvalidTenureExtend => RejectReason::InvalidTenureExtend,
-            RejectReasonPrefix::ConsensusHashMismatch => RejectReason::ConsensusHashMismatch,
+            RejectReasonPrefix::ConsensusHashMismatch => {
+                let expected = read_next::<ConsensusHash, _>(fd)?;
+                let actual = read_next::<ConsensusHash, _>(fd)?;
+                RejectReason::ConsensusHashMismatch((expected, actual))
+            }
             RejectReasonPrefix::Unknown => RejectReason::Unknown(type_prefix_byte),
             RejectReasonPrefix::NotRejected => RejectReason::NotRejected,
         };
@@ -1734,14 +1741,14 @@ impl std::fmt::Display for RejectReason {
                     "The block attempted a tenure extend but the burn view has not changed and not enough time has passed for a time-based tenure extend."
                 )
             }
-            RejectReason::ConsensusHashMismatch => {
+            RejectReason::ConsensusHashMismatch((expected, actual)) => {
                 write!(
                     f,
-                    "The block's consensus hash does not match the active miner's tenure id",
+                    "The block's consensus hash ({expected}) does not match the active miner's tenure id ({actual})",
                 )
             }
             RejectReason::Unknown(code) => {
-                write!(f, "Unknown reject code: {}", code)
+                write!(f, "Unknown reject code: {code}")
             }
             RejectReason::NotRejected => {
                 write!(f, "The block was approved, no rejection details needed.")

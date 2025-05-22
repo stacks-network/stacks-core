@@ -381,7 +381,10 @@ impl SortitionsView {
                 "active_miner_tenure_id" => %tenure_id,
                 "active_miner_parent_tenure_id" => %parent_tenure_id,
             );
-            return Err(RejectReason::ConsensusHashMismatch);
+            return Err(RejectReason::ConsensusHashMismatch((
+                block.header.consensus_hash,
+                tenure_id,
+            )));
         }
         let block_pkh = Hash160::from_data(&block_pk.to_bytes_compressed());
         if current_miner_pkh != block_pkh {
