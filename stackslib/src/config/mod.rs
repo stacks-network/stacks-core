@@ -4153,9 +4153,101 @@ impl AtlasConfigFile {
 #[derive(Clone, Deserialize, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
 #[serde(deny_unknown_fields)]
 pub struct EventObserverConfigFile {
+    /// URL endpoint (hostname and port) where event notifications will be sent via HTTP POST requests.
+    ///
+    /// The node will automatically prepend `http://` to this endpoint and append the
+    /// specific event path (e.g., `/new_block`, `/new_mempool_tx`).
+    /// Therefore, this value should be specified as `hostname:port` (e.g., "localhost:3700").
+    ///
+    /// **Do NOT include the `http://` scheme in this configuration value.**
+    ///
+    /// This should point to a service capable of receiving and processing Stacks event data.
+    ///
+    /// Default: No default. This field is required.
     pub endpoint: String,
+    /// List of event types that this observer wants to receive.
+    ///
+    /// Each string in the list specifies an event category or a specific event to subscribe to.
+    /// Providing an invalid string that doesn't match any of the valid formats below will cause
+    /// the node to panic on startup when parsing the configuration.
+    /// For an observer to receive any notifications, this list must contain at least one valid key.
+    ///
+    /// Valid string values and their corresponding event types:
+    /// - `"*"`: Subscribes to a broad set of events. Specifically, an observer with `"*"` will receive:
+    ///     - Payloads on `/new_block` if the block contains any transactions generating STX, FT, NFT, or smart contract events.
+    ///     - Payloads on `/new_microblocks` for all new microblock streams. NOTE: Only until epoch 2.5.
+    ///     - Payloads on `/new_mempool_tx` for new mempool transactions.
+    ///     - Payloads on `/drop_mempool_tx` for dropped mempool transactions.
+    ///     - Payloads on `/new_burn_block` for new burnchain blocks.
+    ///     - (Implicitly, like all observers) Payloads on `/attachments/new`.
+    ///   It does NOT by itself subscribe to `/stackerdb_chunks` or `/proposal_response`.
+    /// - `"stx"`: Subscribes to STX token operation events (transfer, mint, burn, lock).
+    ///   These are delivered as part of new block or microblock event payloads sent to
+    ///   the `/new_block` or `/new_microblocks` paths, with the "events" array filtered to include STX-related events.
+    /// - `"memtx"`: Subscribes to new and dropped mempool transaction events.
+    ///   Payloads are sent to `/new_mempool_tx` and `/drop_mempool_tx` paths respectively.
+    /// - `"burn_blocks"`: Subscribes to new burnchain block events.
+    ///   Payloads are sent to the `/new_burn_block` path.
+    /// - `"microblocks"`: Subscribes to new microblock stream events. NOTE: Only until epoch 2.5.
+    ///   Payloads are sent to the `/new_microblocks` path.
+    ///   The payload's "transactions" field will contain all transactions from the microblocks.
+    ///   The payload's "events" field will contain STX, FT, NFT, or specific smart contract events
+    ///   *only if* this observer is also subscribed to those more specific event types (e.g., via `"stx"`, `"*"`,
+    ///   a specific contract event key, or a specific asset identifier key).
+    /// - `"stackerdb"`: Subscribes to StackerDB chunk update events.
+    ///   Payloads are sent to the `/stackerdb_chunks` path.
+    /// - `"block_proposal"`: Subscribes to block proposal response events (for Nakamoto consensus).
+    ///   Payloads are sent to the `/proposal_response` path.
+    /// - Smart Contract Event (format: `"{contract_address}.{contract_name}::{event_name}"`):
+    ///   Subscribes to a specific smart contract event. The `{contract_address}.{contract_name}` part identifies the contract,
+    ///   and `::{event_name}` specifies the event defined within that contract.
+    ///   Example: `"ST0000000000000000000000000000000000000000.my-contract::my-custom-event"`
+    ///   These are delivered as part of `/new_block` or `/new_microblocks` payloads, with the "events" array filtered for this specific event.
+    /// - Asset Identifier for FT/NFT Events (format: `"{contract_address}.{contract_name}.{asset_name}"`):
+    ///   Subscribes to events (mint, burn, transfer) for a specific Fungible Token (FT) or Non-Fungible Token (NFT).
+    ///   Example for an FT: `"ST0000000000000000000000000000000000000000.my-ft-contract.my-fungible-token"`
+    ///   These are delivered as part of `/new_block` or `/new_microblocks` payloads, with the "events" array filtered for the specified asset.
+    ///
+    /// **Example `events_keys` in TOML:**
+    /// ```toml
+    /// events_keys = [
+    ///   "burn_blocks",
+    ///   "memtx",
+    ///   "ST0000000000000000000000000000000000000000.my-contract::my-custom-event",  // Smart contract event
+    ///   "ST0000000000000000000000000000000000000000.token-contract.my-ft"         // Fungible token asset event
+    /// ]
+    /// ```
+    ///
+    /// Default: No default. This field is required.
     pub events_keys: Vec<String>,
+    /// Maximum duration (in milliseconds) to wait for the observer endpoint to respond.
+    ///
+    /// When the node sends an event notification to this observer, it will wait at most this long
+    /// for a successful HTTP response (status code 200) before considering the request timed out.
+    /// If a timeout occurs and retries are enabled (see [`EventObserverConfig::disable_retries`]),
+    /// the request will be attempted again according to the retry strategy.
+    ///
+    /// Default: `1_000` ms (1 second).
     pub timeout_ms: Option<u64>,
+    /// Controls whether the node should retry sending event notifications if delivery fails or times out.
+    ///
+    /// - If `false` (default): The node will attempt to deliver event notifications persistently.
+    ///   If an attempt fails (due to network error, timeout, or a non-200 HTTP response),
+    ///   the event payload is typically saved to a local database (if [`NodeConfig::working_dir`] is configured for the node)
+    ///   and retried indefinitely. This ensures that, under normal circumstances, all events will eventually be delivered.
+    ///   However, this can cause the node's own block processing to stall if an observer is down,
+    ///   or fails to process the event.
+    ///
+    /// - If `true`: The node will make only a single attempt to deliver each event notification.
+    ///   If this single attempt fails for any reason, the event is discarded, and no further
+    ///   retries will be made for that specific event. The local database for pending payloads is
+    ///   not used for this observer.
+    ///
+    /// **Warning:** Setting this to `true` can lead to missed events if the observer endpoint is
+    /// temporarily unavailable or experiences issues. This setting should only be used for observers
+    /// where completeness of the event history is not critical.
+    ///
+    /// Default: `false` (retries are enabled).
     pub disable_retries: Option<bool>,
 }
 
