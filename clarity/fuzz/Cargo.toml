@@ -37,3 +37,10 @@ name = "fuzz_value_sanitize"
 path = "fuzz_targets/fuzz_value_sanitize.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "execute_v2_raw"
+path = "fuzz_targets/execute_v2_raw.rs"
+test = false
+doc = false
+bench = false
