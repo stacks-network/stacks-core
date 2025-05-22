@@ -29,7 +29,6 @@ use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
 };
-use blockstack_lib::net::api::{prefix_hex, prefix_opt_hex};
 use blockstack_lib::net::stackerdb::MINER_SLOT_COUNT;
 use blockstack_lib::util_lib::boot::boot_code_id;
 use blockstack_lib::version_string;
@@ -47,6 +46,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksPublicKey,
 };
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
+use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex};
 use stacks_common::util::HexError;
 use stacks_common::versions::STACKS_NODE_VERSION;
 use tiny_http::{
