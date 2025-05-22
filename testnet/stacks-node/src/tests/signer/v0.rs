@@ -508,9 +508,38 @@ impl MultipleMinerTest {
     >(
         num_signers: usize,
         num_transfer_txs: u64,
+        signer_config_modifier: F,
+        node_1_config_modifier: G,
+        node_2_config_modifier: H,
+    ) -> MultipleMinerTest {
+        Self::new_with_signer_dist(
+            num_signers,
+            num_transfer_txs,
+            signer_config_modifier,
+            node_1_config_modifier,
+            node_2_config_modifier,
+            |port| u8::try_from(port % 2).unwrap(),
+        )
+    }
+
+    /// Create a new test harness for running multiple miners with num_signers underlying signers and enough funds to send
+    /// num_txs transfer transactions.
+    ///
+    /// Will also modify the signer config and the node 1 and node 2 configs with the provided
+    /// modifiers. Will partition the signer set so that ~half are listening and using node 1 for RPC and events,
+    /// and the rest are using node 2 unless otherwise specified via the signer config modifier.
+    pub fn new_with_signer_dist<
+        F: FnMut(&mut SignerConfig),
+        G: FnMut(&mut NeonConfig),
+        H: FnMut(&mut NeonConfig),
+        S: Fn(u16) -> u8,
+    >(
+        num_signers: usize,
+        num_transfer_txs: u64,
         mut signer_config_modifier: F,
         mut node_1_config_modifier: G,
         mut node_2_config_modifier: H,
+        signer_distributor: S,
     ) -> MultipleMinerTest {
         let sender_sk = Secp256k1PrivateKey::random();
         let sender_addr = tests::to_addr(&sender_sk);
@@ -538,10 +567,10 @@ impl MultipleMinerTest {
             num_signers,
             vec![(sender_addr, (send_amt + send_fee) * num_transfer_txs)],
             |signer_config| {
-                let node_host = if signer_config.endpoint.port() % 2 == 0 {
-                    &node_1_rpc_bind
-                } else {
-                    &node_2_rpc_bind
+                let node_host = match signer_distributor(signer_config.endpoint.port()) {
+                    0 => &node_1_rpc_bind,
+                    1 => &node_2_rpc_bind,
+                    o => panic!("Multiminer test can't distribute signer to node #{o}"),
                 };
                 signer_config.node_host = node_host.to_string();
                 signer_config_modifier(signer_config);
@@ -567,11 +596,17 @@ impl MultipleMinerTest {
                         );
                         return true;
                     };
-                    if addr.port() % 2 == 0 || addr.port() == test_observer::EVENT_OBSERVER_PORT {
+                    if addr.port() == test_observer::EVENT_OBSERVER_PORT {
                         return true;
                     }
-                    node_2_listeners.push(listener.clone());
-                    false
+                    match signer_distributor(addr.port()) {
+                        0 => true,
+                        1 => {
+                            node_2_listeners.push(listener.clone());
+                            false
+                        }
+                        o => panic!("Multiminer test can't distribute signer to node #{o}"),
+                    }
                 });
                 node_1_config_modifier(config);
             },
@@ -15260,9 +15295,9 @@ fn bitcoin_reorg_extended_tenure() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
-    let num_signers = 6;
+    let num_signers = 5;
 
-    let mut miners = MultipleMinerTest::new_with_config_modifications(
+    let mut miners = MultipleMinerTest::new_with_signer_dist(
         num_signers,
         60,
         |signer_config| {
@@ -15271,10 +15306,38 @@ fn bitcoin_reorg_extended_tenure() {
             signer_config.block_proposal_timeout = Duration::from_secs(600);
         },
         |_| {},
-        |_| {},
+        |config| {
+            config.burnchain.rpc_port = 28132;
+            config.burnchain.peer_port = 28133;
+        },
+        |signer_port| {
+            // only put 1 out of 5 signers on the second node.
+            // this way, the 4 out of 5 signers can approve a block in bitcoin fork
+            // that the fifth signer does not witness
+            if signer_port % 5 == 0 {
+                1
+            } else {
+                0
+            }
+        },
     );
 
     let (conf_1, _conf_2) = miners.get_node_configs();
+    let btc_p2p_proxy = TestProxy {
+        bind_port: 28133,
+        forward_port: conf_1.burnchain.peer_port,
+        drop_control: Arc::new(Mutex::new(false)),
+        keep_running: Arc::new(Mutex::new(true)),
+    };
+    let btc_rpc_proxy = TestProxy {
+        bind_port: 28132,
+        forward_port: conf_1.burnchain.rpc_port,
+        drop_control: Arc::new(Mutex::new(false)),
+        keep_running: Arc::new(Mutex::new(true)),
+    };
+
+    btc_p2p_proxy.spawn();
+    btc_rpc_proxy.spawn();
 
     let rl1_counters = miners.signer_test.running_nodes.counters.clone();
 
@@ -15315,7 +15378,9 @@ fn bitcoin_reorg_extended_tenure() {
 
     let tenure_0_stacks_height = get_chain_info(&conf_1).stacks_tip_height;
     miners.pause_commits_miner_1();
-    miners.signer_test.mine_bitcoin_block();
+    miners
+        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+        .unwrap();
     miners.signer_test.check_signer_states_normal();
     let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1));
@@ -15336,7 +15401,13 @@ fn bitcoin_reorg_extended_tenure() {
     assert!(last_active_sortition.was_sortition);
 
     let tenure_1_info = get_chain_info(&conf_1);
+
     info!("Mining empty block!");
+    // make sure that the second node *doesn't* get this bitcoin block
+    //  that way they will never see the losing side of the btc fork.
+    *btc_p2p_proxy.drop_control.lock().unwrap() = true;
+    *btc_rpc_proxy.drop_control.lock().unwrap() = true;
+
     miners.btc_regtest_controller_mut().build_next_block(1);
 
     wait_for(60, || {
@@ -15356,10 +15427,6 @@ fn bitcoin_reorg_extended_tenure() {
             .submit_burn_block_call_and_wait(&miners.sender_sk)
             .expect("Timed out waiting for contract-call");
     }
-
-    miners
-        .signer_test
-        .check_signer_states_normal_missed_sortition();
 
     info!("------------------------- Triggering Bitcoin Fork -------------------------");
 
@@ -15382,6 +15449,9 @@ fn bitcoin_reorg_extended_tenure() {
         .btc_regtest_controller
         .build_next_block(2);
 
+    *btc_p2p_proxy.drop_control.lock().unwrap() = false;
+    *btc_rpc_proxy.drop_control.lock().unwrap() = false;
+
     info!("Bitcoin fork triggered"; "ch" => %before_fork, "btc_height" => burn_block_height);
     info!("Chain info before fork: {:?}", get_chain_info(&conf_1));
 
@@ -15393,15 +15463,40 @@ fn bitcoin_reorg_extended_tenure() {
 
     info!("Chain info after fork: {:?}", get_chain_info(&conf_1));
 
-    for _ in 0..2 {
-        miners
-            .signer_test
-            .submit_burn_block_call_and_wait(&miners.sender_sk)
-            .expect("Timed out waiting for contract-call");
-    }
+    miners
+        .signer_test
+        .submit_burn_block_call_and_wait(&miners.sender_sk)
+        .expect("Timed out waiting for contract-call");
+
+    let latest = get_chain_info(&conf_1);
+
+    let rc = miners.signer_test.get_current_reward_cycle();
+    let slot_ids = miners.signer_test.get_signer_indices(rc);
+    let mut block_responses: Vec<_> = vec![];
+    wait_for(60, || {
+        block_responses = slot_ids
+            .iter()
+            .filter_map(|slot_id| {
+                let latest_br = miners.signer_test.get_latest_block_response(slot_id.0);
+                if latest_br.get_signer_signature_hash().0 == latest.stacks_tip.0 {
+                    Some(latest_br)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        Ok(block_responses.len() == num_signers)
+    })
+    .unwrap();
+
+    assert!(block_responses
+        .iter()
+        .all(|resp| resp.as_block_accepted().is_some()));
 
     miners.submit_commit_miner_1(&sortdb);
-    miners.signer_test.mine_bitcoin_block();
+    miners
+        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+        .unwrap();
 
     let last_active_sortition = get_sortition_info(&conf_1);
     assert!(last_active_sortition.was_sortition);
