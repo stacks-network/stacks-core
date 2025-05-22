@@ -4958,16 +4958,16 @@ fn empty_tenure_delayed() {
 
     info!("------------------------- Test Mine Regular Tenure A  -------------------------");
     let commits_before = submitted_commits.load(Ordering::SeqCst);
-    let info_before = get_chain_info(&signer_test.running_nodes.conf);
+    let info_before = signer_test.get_peer_info();
     // Mine a regular tenure, but wait for commits to be submitted
     next_block_and(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
         || {
-            let info = get_chain_info(&signer_test.running_nodes.conf);
+            let info = signer_test.get_peer_info();
             let commits_count = submitted_commits.load(Ordering::SeqCst);
             Ok(commits_count > commits_before
-                && info.burn_block_height > info_before.burn_block_height)
+                && info.stacks_tip_height > info_before.stacks_tip_height)
         },
     )
     .unwrap();
@@ -5066,6 +5066,8 @@ fn empty_tenure_delayed() {
         // the signers have rejected the block
         Ok(found_rejections.len() == signer_slot_ids.len() && rejections > rejected_before)
     }).unwrap();
+
+    info!("------------------------- Shutting Down -------------------------");
     signer_test.shutdown();
 }
 
