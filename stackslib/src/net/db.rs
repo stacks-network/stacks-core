@@ -1205,7 +1205,7 @@ impl PeerDB {
         peer_addr: &PeerAddress,
         peer_port: u16,
     ) -> Result<(), db_error> {
-        tx.execute("UPDATE frontier SET initial = 1 WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3", 
+        tx.execute("UPDATE frontier SET initial = 1 WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3",
                     params![network_id, peer_addr.to_bin(), peer_port])
             .map_err(db_error::SqliteError)?;
 
@@ -1695,7 +1695,14 @@ impl PeerDB {
 
         if always_include_allowed {
             // always include allowed neighbors, freshness be damned
-            let allow_qry = "SELECT * FROM frontier WHERE network_id = ?1 AND denied < ?2 AND (allowed < 0 OR ?3 < allowed) AND (peer_version & 0x000000ff) >= ?4";
+            let allow_qry = r#"
+                SELECT *
+                FROM frontier
+                WHERE network_id = ?1
+                  AND denied < ?2
+                  AND (allowed < 0 OR ?3 < allowed)
+                  AND (peer_version & 0x000000ff) >= ?4"#;
+
             let allow_args = params![
                 network_id,
                 u64_to_sql(now_secs)?,
@@ -1716,17 +1723,33 @@ impl PeerDB {
         if (ret.len() as u32) >= count {
             return Ok(ret);
         }
+        // In case we don't have enough allowed peers, fill in also with non-allowed, randomly-chosen, fresh peers
 
-        // fill in with non-allowed, randomly-chosen, fresh peers
-        let use_public = if public_only { "AND public = 1" } else { "" };
+        // only include public peers if requested
+        let use_public_condition = if public_only { "AND public = 1" } else { "" };
 
-        let random_peers_qry = if always_include_allowed {
-            format!("SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= ?2 AND ?3 < expire_block_height AND denied < ?4 AND \
-                 (allowed >= 0 AND allowed <= ?5) AND (peer_version & 0x000000ff) >= ?6 {use_public} ORDER BY RANDOM() LIMIT ?7")
+        // If always_include_allowed is true, we've already collected all allowed peers above,
+        // so exclude them from this query to avoid duplicates
+        let include_allowed_condition = if always_include_allowed {
+            "AND (allowed >= 0 AND allowed <= ?5)"
         } else {
-            format!("SELECT * FROM frontier WHERE network_id = ?1 AND last_contact_time >= ?2 AND ?3 < expire_block_height AND denied < ?4 AND \
-                 (allowed < 0 OR (allowed >= 0 AND allowed <= ?5)) AND (peer_version & 0x000000ff) >= ?6 {use_public} ORDER BY RANDOM() LIMIT ?7")
+            ""
         };
+
+        let random_peers_qry = format!(
+            r#"
+            SELECT *
+            FROM frontier
+            WHERE network_id = ?1
+                AND last_contact_time >= ?2
+                AND ?3 < expire_block_height
+                AND denied < ?4
+                {include_allowed_condition}
+                AND (peer_version & 0x000000ff) >= ?6
+                {use_public_condition}
+            ORDER BY RANDOM()
+            LIMIT ?7"#
+        );
 
         let random_peers_args = params![
             network_id,
@@ -1873,12 +1896,18 @@ impl PeerDB {
 
 #[cfg(any(test, feature = "testing"))]
 mod test {
+    use std::collections::HashSet;
+
     use clarity::vm::types::{StacksAddressExtensions, StandardPrincipalData};
     use stacks_common::types::chainstate::StacksAddress;
     use stacks_common::types::net::{PeerAddress, PeerHost};
     use stacks_common::util::hash::Hash160;
 
     use super::*;
+    use crate::core::{
+        NETWORK_ID_MAINNET, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1,
+        PEER_VERSION_TESTNET_MAJOR,
+    };
     use crate::net::{Neighbor, NeighborKey};
 
     impl PeerDB {
@@ -3808,5 +3837,289 @@ mod test {
         let peer = peers.pop().unwrap();
         assert_eq!(peer.addr.port, 1033);
         assert_eq!(peer.last_contact_time, 1552509651);
+    }
+
+    #[test]
+    fn test_get_fresh_random_neighbors_allowed_logic() {
+        let now_secs = util::get_epoch_time_secs();
+        let current_block_height = 1000;
+
+        let network_id = NETWORK_ID_MAINNET;
+        let query_network_epoch_param = PEER_VERSION_EPOCH_3_0; // Query for peers supporting at least 3.0
+
+        let min_age_fresh = now_secs - 7200; // Fresh if contacted in last 2 hours
+
+        let mut db =
+            PeerDB::connect_memory(network_id, 0, 0, "http://test.com".into(), &[], &[]).unwrap();
+
+        let base_neighbor = Neighbor {
+            addr: NeighborKey {
+                peer_version: PEER_VERSION_TESTNET_MAJOR | PEER_VERSION_EPOCH_3_0 as u32, // Default to a matching epoch
+                network_id,
+                addrbytes: PeerAddress::from_ipv4(127, 0, 0, 1),
+                port: 10000, // Will change per peer
+            },
+            public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random()),
+            expire_block: current_block_height + 100,
+            last_contact_time: now_secs - 10,
+            allowed: 0,
+            denied: 0,
+            asn: 123,
+            org: 456,
+            in_degree: 1,
+            out_degree: 1,
+        };
+
+        let mut peers_to_insert = Vec::new();
+
+        // 1. Always Allowed (Fresh, Epoch 3.0)
+        let mut n_always_allowed = base_neighbor.clone();
+        n_always_allowed.addr.port = 10001;
+        n_always_allowed.addr.peer_version =
+            PEER_VERSION_TESTNET_MAJOR | PEER_VERSION_EPOCH_3_0 as u32;
+        n_always_allowed.public_key =
+            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random());
+        n_always_allowed.allowed = -1;
+        peers_to_insert.push(n_always_allowed.clone());
+
+        // 2. Temporarily Allowed - Valid (Fresh, Epoch 3.1 - newer)
+        let mut n_temp_allowed_valid = base_neighbor.clone();
+        n_temp_allowed_valid.addr.port = 10002;
+        n_temp_allowed_valid.addr.peer_version =
+            PEER_VERSION_TESTNET_MAJOR | PEER_VERSION_EPOCH_3_1 as u32;
+        n_temp_allowed_valid.public_key =
+            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random());
+        n_temp_allowed_valid.allowed = (now_secs + 3600) as i64;
+        peers_to_insert.push(n_temp_allowed_valid.clone());
+
+        // 3. Temporarily Allowed - Expired (Fresh, Epoch 3.0)
+        let mut n_temp_allowed_expired = base_neighbor.clone();
+        n_temp_allowed_expired.addr.port = 10003;
+        n_temp_allowed_expired.addr.peer_version =
+            PEER_VERSION_TESTNET_MAJOR | PEER_VERSION_EPOCH_3_0 as u32;
+        n_temp_allowed_expired.public_key =
+            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random());
+        n_temp_allowed_expired.allowed = (now_secs - 3600) as i64;
+        peers_to_insert.push(n_temp_allowed_expired.clone());
+
+        // 4. Neutral (allowed = 0) (Fresh, Epoch 3.0)
+        let mut n_neutral = base_neighbor.clone();
+        n_neutral.addr.port = 10004;
+        n_neutral.addr.peer_version = PEER_VERSION_TESTNET_MAJOR | PEER_VERSION_EPOCH_3_0 as u32;
+        n_neutral.public_key = Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random());
+        n_neutral.allowed = 0;
+        peers_to_insert.push(n_neutral.clone());
+
+        // 5. Denied (Fresh, Epoch 3.0) - Should not be picked
+        let mut n_denied = base_neighbor.clone();
+        n_denied.addr.port = 10005;
+        n_denied.addr.peer_version = PEER_VERSION_TESTNET_MAJOR | PEER_VERSION_EPOCH_3_0 as u32;
+        n_denied.public_key = Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random());
+        n_denied.denied = (now_secs + 3600) as i64;
+        peers_to_insert.push(n_denied.clone());
+
+        // 6. Denied - Expired (Effectively NOT Denied) (Fresh, Epoch 3.0)
+        let mut n_denied_expired = base_neighbor.clone();
+        n_denied_expired.addr.port = 10006;
+        n_denied_expired.addr.peer_version =
+            PEER_VERSION_TESTNET_MAJOR | PEER_VERSION_EPOCH_3_0 as u32;
+        n_denied_expired.public_key =
+            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random());
+        n_denied_expired.denied = (now_secs - 3600) as i64;
+        peers_to_insert.push(n_denied_expired.clone());
+
+        // 7. Always Allowed - But actually Denied (Fresh, Epoch 3.0) - Should not be picked
+        let mut n_always_allowed_denied = base_neighbor.clone();
+        n_always_allowed_denied.addr.port = 10007;
+        n_always_allowed_denied.addr.peer_version =
+            PEER_VERSION_TESTNET_MAJOR | PEER_VERSION_EPOCH_3_0 as u32;
+        n_always_allowed_denied.public_key =
+            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random());
+        n_always_allowed_denied.allowed = -1;
+        n_always_allowed_denied.denied = (now_secs + 3600) as i64;
+        peers_to_insert.push(n_always_allowed_denied.clone());
+
+        // 8. Temp Allowed Valid - But actually Denied (Fresh, Epoch 3.0) - Should not be picked
+        let mut n_temp_allowed_valid_denied = base_neighbor.clone();
+        n_temp_allowed_valid_denied.addr.port = 10008;
+        n_temp_allowed_valid_denied.addr.peer_version =
+            PEER_VERSION_TESTNET_MAJOR | PEER_VERSION_EPOCH_3_0 as u32;
+        n_temp_allowed_valid_denied.public_key =
+            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random());
+        n_temp_allowed_valid_denied.allowed = (now_secs + 3600) as i64;
+        n_temp_allowed_valid_denied.denied = (now_secs + 3600) as i64;
+        peers_to_insert.push(n_temp_allowed_valid_denied.clone());
+
+        // 9. Not Fresh LCT - But Always Allowed (Epoch 3.0) (For always_include_allowed=true test)
+        let mut n_not_fresh_lct_always_allowed = base_neighbor.clone();
+        n_not_fresh_lct_always_allowed.addr.port = 10009;
+        n_not_fresh_lct_always_allowed.addr.peer_version =
+            PEER_VERSION_TESTNET_MAJOR | PEER_VERSION_EPOCH_3_0 as u32;
+        n_not_fresh_lct_always_allowed.public_key =
+            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random());
+        n_not_fresh_lct_always_allowed.allowed = -1;
+        n_not_fresh_lct_always_allowed.last_contact_time = min_age_fresh - 10;
+        peers_to_insert.push(n_not_fresh_lct_always_allowed.clone());
+
+        // 10. Not Fresh Expire - But Temp Allowed Valid (Epoch 3.0) (For always_include_allowed=true test)
+        let mut n_not_fresh_expire_temp_allowed = base_neighbor.clone();
+        n_not_fresh_expire_temp_allowed.addr.port = 10010;
+        n_not_fresh_expire_temp_allowed.addr.peer_version =
+            PEER_VERSION_TESTNET_MAJOR | PEER_VERSION_EPOCH_3_0 as u32;
+        n_not_fresh_expire_temp_allowed.public_key =
+            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random());
+        n_not_fresh_expire_temp_allowed.allowed = (now_secs + 3600) as i64;
+        n_not_fresh_expire_temp_allowed.expire_block = current_block_height - 10;
+        peers_to_insert.push(n_not_fresh_expire_temp_allowed.clone());
+
+        // 11. Old Epoch Peer (Fresh, Neutral) - Should be filtered by query_network_epoch_param
+        let mut n_old_epoch_peer = base_neighbor.clone();
+        n_old_epoch_peer.addr.port = 10012; // New port for this peer
+        n_old_epoch_peer.addr.peer_version =
+            PEER_VERSION_TESTNET_MAJOR | PEER_VERSION_EPOCH_2_0 as u32; // Older epoch
+        n_old_epoch_peer.public_key =
+            Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::random());
+        n_old_epoch_peer.allowed = 0; // Neutral
+        n_old_epoch_peer.denied = 0; // Not denied
+        n_old_epoch_peer.last_contact_time = now_secs - 10; // Fresh LCT
+        n_old_epoch_peer.expire_block = current_block_height + 100; // Fresh expire
+        peers_to_insert.push(n_old_epoch_peer.clone());
+
+        {
+            let tx = db.tx_begin().unwrap();
+            for peer in &peers_to_insert {
+                assert!(PeerDB::try_insert_peer(&tx, peer, &[]).unwrap());
+            }
+            tx.commit().unwrap();
+        }
+
+        // --- Test Case 1: always_include_allowed = false ---
+        // Expected to pick from fresh, non-denied peers matching query_network_epoch_param.
+        // Candidates: n_always_allowed, n_temp_allowed_valid, n_temp_allowed_expired, n_neutral, n_denied_expired (5 total)
+        // n_old_epoch_peer is filtered out due to its older epoch.
+        let count_false = 5;
+        let results_false = PeerDB::get_fresh_random_neighbors(
+            db.conn(),
+            network_id,
+            query_network_epoch_param,
+            min_age_fresh,
+            count_false,
+            current_block_height,
+            false,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(results_false.len() as u32, count_false, "Should get all fresh, non-denied peers matching epoch for always_include_allowed=false");
+
+        let result_ports_false: HashSet<u16> = results_false.iter().map(|p| p.addr.port).collect();
+        let expected_candidate_ports_false: HashSet<u16> = [
+            n_always_allowed.addr.port,
+            n_temp_allowed_valid.addr.port,
+            n_temp_allowed_expired.addr.port,
+            n_neutral.addr.port,
+            n_denied_expired.addr.port,
+        ]
+        .iter()
+        .cloned()
+        .collect();
+
+        assert_eq!(
+            result_ports_false, expected_candidate_ports_false,
+            "Mismatch in candidates for always_include_allowed=false with epoch filtering"
+        );
+        assert!(
+            !result_ports_false.contains(&n_old_epoch_peer.addr.port),
+            "Old epoch peer should be filtered out"
+        );
+
+        // --- Test Case 2: always_include_allowed = true ---
+        // Phase 1 (allow_qry picks, matching query_network_epoch_param):
+        //   - n_always_allowed (Fresh, Allowed<0, Epoch 3.0) -> YES
+        //   - n_temp_allowed_valid (Fresh, TempAllowedValid, Epoch 3.1) -> YES
+        //   - n_not_fresh_lct_always_allowed (NotFreshLCT, Allowed<0, Epoch 3.0) -> YES
+        //   - n_not_fresh_expire_temp_allowed (NotFreshExpire, TempAllowedValid, Epoch 3.0) -> YES
+        // Phase 1 count = 4.
+        // Phase 2 (random_peers_qry with include_allowed_condition, freshness from params, and matching query_network_epoch_param):
+        //   - n_temp_allowed_expired (Fresh, TempAllowedExpired, Epoch 3.0) -> YES
+        //   - n_neutral (Fresh, Neutral, Epoch 3.0) -> YES
+        //   - n_denied_expired (Fresh, DeniedExpired, NeutralAllowed, Epoch 3.0) -> YES
+        // Phase 2 count = 3.
+        // Total possible unique peers = 7 (n_old_epoch_peer still filtered out)
+
+        let count_true = 7;
+        let results_true = PeerDB::get_fresh_random_neighbors(
+            db.conn(),
+            network_id,
+            query_network_epoch_param,
+            min_age_fresh,
+            count_true,
+            current_block_height,
+            true,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(
+            results_true.len() as u32,
+            count_true,
+            "Should get all 7 expected peers for always_include_allowed=true with epoch filtering"
+        );
+
+        let result_ports_true: HashSet<u16> = results_true.iter().map(|p| p.addr.port).collect();
+        let expected_candidate_ports_true: HashSet<u16> = [
+            n_always_allowed.addr.port,
+            n_temp_allowed_valid.addr.port,
+            n_temp_allowed_expired.addr.port,
+            n_neutral.addr.port,
+            n_denied_expired.addr.port,
+            n_not_fresh_lct_always_allowed.addr.port,
+            n_not_fresh_expire_temp_allowed.addr.port,
+        ]
+        .iter()
+        .cloned()
+        .collect();
+
+        assert_eq!(
+            result_ports_true, expected_candidate_ports_true,
+            "Mismatch in candidates for always_include_allowed=true with epoch filtering"
+        );
+        assert!(
+            !result_ports_true.contains(&n_old_epoch_peer.addr.port),
+            "Old epoch peer should be filtered out for always_include_allowed=true as well"
+        );
+
+        // Test Case 2 Small: Verify that when count is less than or equal to the number of Phase 1 candidates,
+        // the result should only contain Phase 1 candidates (only allowed peers), when always_include_allowed=true.
+        // This ensures we prioritize Phase 1 candidates over Phase 2 candidates when we have a limited count.
+        let count_true_small = 4;
+        let results_true_small = PeerDB::get_fresh_random_neighbors(
+            db.conn(),
+            network_id,
+            query_network_epoch_param,
+            min_age_fresh,
+            count_true_small,
+            current_block_height,
+            true,
+            false,
+        )
+        .unwrap();
+        assert_eq!(results_true_small.len() as u32, count_true_small);
+        let result_ports_true_small: HashSet<u16> =
+            results_true_small.iter().map(|p| p.addr.port).collect();
+
+        let phase1_candidate_ports: HashSet<u16> = [
+            n_always_allowed.addr.port,                // Epoch 3.0
+            n_temp_allowed_valid.addr.port,            // Epoch 3.1
+            n_not_fresh_lct_always_allowed.addr.port,  // Epoch 3.0
+            n_not_fresh_expire_temp_allowed.addr.port, // Epoch 3.0
+        ]
+        .iter()
+        .cloned()
+        .collect();
+
+        for port in result_ports_true_small {
+            assert!(phase1_candidate_ports.contains(&port), "Peers for always_include_allowed=true with small count should come from Phase 1 candidates (epoch filtered)");
+        }
     }
 }
