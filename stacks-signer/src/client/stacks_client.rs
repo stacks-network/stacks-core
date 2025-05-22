@@ -612,7 +612,8 @@ impl StacksClient {
         let path = format!("{}{}?broadcast=1", self.http_origin, postblock_v3::PATH);
         let timer = crate::monitoring::actions::new_rpc_call_timer(&path, &self.http_origin);
         let send_request = || {
-            self.stacks_node_client
+            let response = self
+                .stacks_node_client
                 .post(&path)
                 .header("Content-Type", "application/octet-stream")
                 .header(AUTHORIZATION, self.auth_password.clone())
@@ -620,14 +621,21 @@ impl StacksClient {
                 .send()
                 .map_err(|e| {
                     debug!("Failed to submit block to the Stacks node: {e:?}");
-                    backoff::Error::transient(e)
-                })
+                    backoff::Error::transient(ClientError::from(e))
+                })?;
+            if !response.status().is_success() {
+                warn!(
+                    "Failed to post block to stacks-node, will retry until limit reached";
+                    "http_status" => %response.status(),
+                );
+                return Err(backoff::Error::transient(ClientError::RequestFailure(
+                    response.status(),
+                )));
+            }
+            Ok(response)
         };
         let response = retry_with_exponential_backoff(send_request)?;
         timer.stop_and_record();
-        if !response.status().is_success() {
-            return Err(ClientError::RequestFailure(response.status()));
-        }
         let post_block_resp = response.json::<StacksBlockAcceptedData>()?;
         Ok(post_block_resp.accepted)
     }
