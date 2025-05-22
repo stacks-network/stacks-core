@@ -455,7 +455,7 @@ impl Signer {
                             if self.test_skip_block_broadcast(b) {
                                 return;
                             }
-                            stacks_client.post_block_until_ok(self, b);
+                            self.handle_post_block(stacks_client, b);
                         }
                         SignerMessage::MockProposal(mock_proposal) => {
                             let epoch = match stacks_client.get_node_epoch() {
@@ -1530,12 +1530,11 @@ impl Signer {
     }
 
     fn broadcast_signed_block(
-        &self,
+        &mut self,
         stacks_client: &StacksClient,
         mut block: NakamotoBlock,
         addrs_to_sigs: &HashMap<StacksAddress, MessageSignature>,
     ) {
-        let block_hash = block.header.signer_signature_hash();
         // collect signatures for the block
         let signatures: Vec<_> = self
             .signer_addresses
@@ -1550,17 +1549,25 @@ impl Signer {
         if self.test_skip_block_broadcast(&block) {
             return;
         }
-        debug!(
-            "{self}: Broadcasting Stacks block {} to node",
-            &block.block_id()
-        );
-        stacks_client.post_block_until_ok(self, &block);
+        self.handle_post_block(stacks_client, &block);
+    }
 
-        if let Err(e) = self
-            .signer_db
-            .set_block_broadcasted(&block_hash, get_epoch_time_secs())
-        {
-            warn!("{self}: Failed to set block broadcasted for {block_hash}: {e:?}");
+    /// Attempt to post a block to the stacks-node and handle the result
+    pub fn handle_post_block(&mut self, stacks_client: &StacksClient, block: &NakamotoBlock) {
+        let block_hash = block.header.signer_signature_hash();
+        match stacks_client.post_block(block) {
+            Ok(accepted) => {
+                debug!("{self}: Block {block_hash} accepted by stacks node: {accepted}");
+                if let Err(e) = self
+                    .signer_db
+                    .set_block_broadcasted(&block_hash, get_epoch_time_secs())
+                {
+                    warn!("{self}: Failed to set block broadcasted for {block_hash}: {e:?}");
+                }
+            }
+            Err(e) => {
+                warn!("{self}: Failed to broadcast block {block_hash} to the node: {e}")
+            }
         }
     }
 
@@ -1580,6 +1587,7 @@ impl Signer {
             {
                 info!("{self}: Have not processed parent of block proposal yet, inserting pending block validation and will try again later";
                         "signer_signature_hash" => %signer_signature_hash,
+                        "parent_block_id" => %block.header.parent_block_id,
                 );
                 self.signer_db
                     .insert_pending_block_validation(&signer_signature_hash, added_epoch_time)
