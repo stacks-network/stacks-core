@@ -614,7 +614,7 @@ macro_rules! impl_byte_array_newtype {
             }
         }
 
-        impl crate::util::HexDeser for $thing {
+        impl $crate::util::HexDeser for $thing {
             fn try_from_hex(hex_str: &str) -> Result<Self, $crate::util::HexError> {
                 $thing::from_hex(hex_str)
             }
