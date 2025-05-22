@@ -31,6 +31,7 @@ use crate::v0::tests::TEST_SKIP_SIGNER_CLEANUP;
 use crate::Signer as SignerTrait;
 
 #[derive(thiserror::Error, Debug)]
+#[allow(clippy::large_enum_variant)]
 /// Configuration error type
 pub enum ConfigurationError {
     /// Error occurred while fetching data from the stacks node

@@ -924,6 +924,21 @@ impl LocalStateMachine {
         }
         let fork_info =
             client.get_tenure_forking_info(&first_forked_tenure, &last_forked_tenure)?;
+
+        // Check if fork occurred within current reward cycle. Reject tx replay otherwise.
+        let reward_cycle_info = client.get_current_reward_cycle_info()?;
+        let current_reward_cycle = reward_cycle_info.reward_cycle;
+        let is_fork_in_current_reward_cycle = fork_info.iter().all(|fork_info| {
+            let block_height = fork_info.burn_block_height;
+            let block_rc = reward_cycle_info.get_reward_cycle(block_height);
+            block_rc == current_reward_cycle
+        });
+        if !is_fork_in_current_reward_cycle {
+            info!("Detected bitcoin fork occurred in previous reward cycle. Tx replay won't be executed");
+            return Ok(None);
+        }
+
+        // Collect transactions to be replayed across the forked blocks
         let mut forked_blocks = fork_info
             .iter()
             .flat_map(|fork_info| fork_info.nakamoto_blocks.iter().flatten())
