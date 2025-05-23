@@ -51,7 +51,7 @@ use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig};
 use stacks::core::mempool::MemPoolWalkStrategy;
 use stacks::core::test_util::{
     insert_tx_in_mempool, make_contract_call, make_contract_publish,
-    make_stacks_transfer_serialized,
+    make_stacks_transfer_serialized, to_addr,
 };
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::libstackerdb::StackerDBChunkData;
@@ -15424,6 +15424,11 @@ fn bitcoin_reorg_extended_tenure() {
             .expect("Timed out waiting for contract-call");
     }
 
+    let last_nonce = miners
+        .signer_test
+        .get_account(&to_addr(&miners.sender_sk))
+        .nonce;
+
     info!("------------------------- Triggering Bitcoin Fork -------------------------");
 
     let burn_block_height = get_chain_info(&conf_1).burn_block_height;
@@ -15460,12 +15465,14 @@ fn bitcoin_reorg_extended_tenure() {
 
     info!("Chain info after fork: {:?}", get_chain_info(&conf_1));
 
-    // get at least one block produced before we stall broadcasts
+    // get blocks produced with the "reorged" txs before we stall broadcasts
     //  to check signer approvals
     miners
         .signer_test
-        .submit_burn_block_call_and_wait(&miners.sender_sk)
-        .expect("Timed out waiting for contract-call");
+        .wait_for_nonce_increase(&to_addr(&miners.sender_sk), last_nonce - 1)
+        .unwrap();
+
+    miners.wait_for_chains(60);
 
     // stall p2p broadcast and signer block announcements
     //  so that we can ensure all the signers approve the proposal
