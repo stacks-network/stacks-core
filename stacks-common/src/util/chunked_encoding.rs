@@ -308,6 +308,19 @@ impl HttpChunkedTransferReaderState {
                     break;
                 }
             }
+            if decoded == 0 && consumed == 0 && self.parse_step != HttpChunkedTransferParseMode::EOF
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "Stream ended before HTTP chunked message finished",
+                ));
+            }
+        }
+        if decoded == 0 && consumed == 0 && self.parse_step != HttpChunkedTransferParseMode::EOF {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "Stream ended before HTTP chunked message finished",
+            ));
         }
         Ok((decoded, consumed))
     }
