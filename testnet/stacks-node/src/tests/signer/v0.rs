@@ -15377,19 +15377,10 @@ fn bitcoin_reorg_extended_tenure() {
             .expect("Timed out waiting for contract-call");
     }
 
-    let tenure_0_stacks_height = get_chain_info(&conf_1).stacks_tip_height;
     miners.pause_commits_miner_1();
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
         .unwrap();
-    miners.signer_test.check_signer_states_normal();
-    let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1));
-
-    wait_for(60, || {
-        Ok(get_chain_info(&conf_1).stacks_tip_height > tenure_0_stacks_height)
-    })
-    .expect("Timed out waiting for Miner 1 to mine the first block of Tenure 1");
 
     for _ in 0..2 {
         miners
@@ -15397,6 +15388,10 @@ fn bitcoin_reorg_extended_tenure() {
             .submit_burn_block_call_and_wait(&miners.sender_sk)
             .expect("Timed out waiting for contract-call");
     }
+
+    miners.signer_test.check_signer_states_normal();
+    let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1));
 
     let last_active_sortition = get_sortition_info(&conf_1);
     assert!(last_active_sortition.was_sortition);
@@ -15456,20 +15451,37 @@ fn bitcoin_reorg_extended_tenure() {
     info!("Bitcoin fork triggered"; "ch" => %before_fork, "btc_height" => burn_block_height);
     info!("Chain info before fork: {:?}", get_chain_info(&conf_1));
 
+    let mut after_fork = get_chain_info(&conf_1).pox_consensus;
     wait_for(60, || {
-        let after_fork = get_chain_info(&conf_1).pox_consensus;
+        after_fork = get_chain_info(&conf_1).pox_consensus;
         Ok(after_fork != before_fork)
     })
     .unwrap();
 
     info!("Chain info after fork: {:?}", get_chain_info(&conf_1));
 
+    // get at least one block produced before we stall broadcasts
+    //  to check signer approvals
     miners
         .signer_test
         .submit_burn_block_call_and_wait(&miners.sender_sk)
         .expect("Timed out waiting for contract-call");
 
-    let latest = get_chain_info(&conf_1);
+    // stall p2p broadcast and signer block announcements
+    //  so that we can ensure all the signers approve the proposal
+    //  before it gets accepted by stacks-nodes
+    TEST_P2P_BROADCAST_STALL.set(true);
+    stacks_signer::v0::tests::TEST_SKIP_BLOCK_BROADCAST.set(true);
+
+    // the signer signature hash is the same as the block header hash.
+    // we use the latest_signer_sighash to make sure we're getting block responses for the
+    //  block we expect to be mined after the next contract call is submitted.
+    let latest_signer_sighash = Sha512Trunc256Sum(get_chain_info(&conf_1).stacks_tip.0);
+
+    miners
+        .signer_test
+        .submit_contract_call(&miners.sender_sk, "burn-height-local", "run-update", &[])
+        .unwrap();
 
     let rc = miners.signer_test.get_current_reward_cycle();
     let slot_ids = miners.signer_test.get_signer_indices(rc);
@@ -15479,20 +15491,38 @@ fn bitcoin_reorg_extended_tenure() {
             .iter()
             .filter_map(|slot_id| {
                 let latest_br = miners.signer_test.get_latest_block_response(slot_id.0);
-                if latest_br.get_signer_signature_hash().0 == latest.stacks_tip.0 {
+                if latest_br.get_signer_signature_hash() != latest_signer_sighash {
                     Some(latest_br)
                 } else {
                     None
                 }
             })
             .collect();
-        Ok(block_responses.len() == num_signers)
+        let Some(sighash) = block_responses
+            .first()
+            .map(BlockResponse::get_signer_signature_hash)
+        else {
+            return Ok(false);
+        };
+        let all_same_block = block_responses
+            .iter()
+            .all(|x| x.get_signer_signature_hash() == sighash);
+        let all_responded = block_responses.len() == num_signers;
+        Ok(all_same_block && all_responded)
     })
     .unwrap();
 
     assert!(block_responses
         .iter()
         .all(|resp| resp.as_block_accepted().is_some()));
+
+    TEST_P2P_BROADCAST_STALL.set(false);
+    stacks_signer::v0::tests::TEST_SKIP_BLOCK_BROADCAST.set(false);
+
+    miners
+        .signer_test
+        .submit_burn_block_call_and_wait(&miners.sender_sk)
+        .expect("Timed out waiting for contract-call");
 
     miners.submit_commit_miner_1(&sortdb);
     miners
