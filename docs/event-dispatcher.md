@@ -22,7 +22,7 @@ disable_retries = false                 # Optional: If true, failed deliveries w
 
 The `stacks-node` will then execute HTTP POST requests with JSON payloads to the configured `endpoint` for the subscribed events.
 
-## Important Global Notes
+## Important Notes
 
 *   **`/new_microblocks` Endpoint Limitation:** Event delivery via the `/new_microblocks` endpoint (and by extension, events sourced from microblocks delivered to `/new_block`) is **only supported until epoch 2.5**. After this epoch, observers will no longer receive events on this path for new microblocks.
 *   **`/attachments/new` Implicit Subscription:** All observers, regardless of their `events_keys` configuration, implicitly receive payloads on the `/attachments/new` endpoint for new AtlasDB attachments.
