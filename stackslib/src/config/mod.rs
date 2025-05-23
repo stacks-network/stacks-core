@@ -4367,14 +4367,14 @@ pub struct InitialBalance {
 #[serde(deny_unknown_fields)]
 pub struct InitialBalanceFile {
     /// The Stacks address to receive the initial STX balance.
-    /// Must be a valid Stacks address string (e.g., "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2").
+    /// Must be a valid "non-mainnet" Stacks address (e.g., "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2").
     ///
-    /// Default: `""`
+    /// Default: No default. This field is required.
     pub address: String,
     /// The amount of microSTX to allocate to the address at node startup.
     /// 1 STX = 1_000_000 microSTX.
     ///
-    /// Default: `0`
+    /// Default: No default. This field is required.
     pub amount: u64,
 }
 
