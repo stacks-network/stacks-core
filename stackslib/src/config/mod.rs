@@ -188,7 +188,8 @@ pub struct ConfigFile {
     /// ```
     ///
     /// This is intended strictly for testing purposes.
-    /// Attempting to specify initial balances if [`BurnchainConfig::mode`] is "mainnet" will result in an error.
+    /// Attempting to specify initial balances if [`BurnchainConfig::mode`] is "mainnet" will
+    /// result in an invalid config error.
     ///
     /// Default: `None`
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
@@ -4165,56 +4166,73 @@ pub struct EventObserverConfigFile {
     ///
     /// Default: No default. This field is required.
     pub endpoint: String,
-    /// List of event types that this observer wants to receive.
+    /// List of event types that this observer is configured to receive.
     ///
     /// Each string in the list specifies an event category or a specific event to subscribe to.
+    /// For an observer to receive any notifications, this list must contain at least one valid key.
     /// Providing an invalid string that doesn't match any of the valid formats below will cause
     /// the node to panic on startup when parsing the configuration.
-    /// For an observer to receive any notifications, this list must contain at least one valid key.
     ///
-    /// Valid string values and their corresponding event types:
-    /// - `"*"`: Subscribes to a broad set of events. Specifically, an observer with `"*"` will receive:
-    ///     - Payloads on `/new_block` if the block contains any transactions generating STX, FT, NFT, or smart contract events.
-    ///     - Payloads on `/new_microblocks` for all new microblock streams. NOTE: Only until epoch 2.5.
-    ///     - Payloads on `/new_mempool_tx` for new mempool transactions.
-    ///     - Payloads on `/drop_mempool_tx` for dropped mempool transactions.
-    ///     - Payloads on `/new_burn_block` for new burnchain blocks.
-    ///     - (Implicitly, like all observers) Payloads on `/attachments/new`.
-    ///   It does NOT by itself subscribe to `/stackerdb_chunks` or `/proposal_response`.
+    /// All observers, regardless of their `events_keys` configuration, implicitly receive
+    /// payloads on the `/attachments/new` endpoint.
+    ///
+    /// **Valid Event Keys:**
+    ///
+    /// - `"*"`: Subscribes to a broad set of common events.
+    ///   - **Events delivered to:**
+    ///     - `/new_block`: For blocks containing transactions that generate STX, FT, NFT, or smart contract events.
+    ///     - `/new_microblocks`: For all new microblock streams. **Note:** Only until epoch 2.5.
+    ///     - `/new_mempool_tx`: For new mempool transactions.
+    ///     - `/drop_mempool_tx`: For dropped mempool transactions.
+    ///     - `/new_burn_block`: For new burnchain blocks.
+    ///   - **Note:** This key does NOT by itself subscribe to `/stackerdb_chunks` or `/proposal_response`.
+    ///
     /// - `"stx"`: Subscribes to STX token operation events (transfer, mint, burn, lock).
-    ///   These are delivered as part of new block or microblock event payloads sent to
-    ///   the `/new_block` or `/new_microblocks` paths, with the "events" array filtered to include STX-related events.
-    /// - `"memtx"`: Subscribes to new and dropped mempool transaction events.
-    ///   Payloads are sent to `/new_mempool_tx` and `/drop_mempool_tx` paths respectively.
-    /// - `"burn_blocks"`: Subscribes to new burnchain block events.
-    ///   Payloads are sent to the `/new_burn_block` path.
-    /// - `"microblocks"`: Subscribes to new microblock stream events. NOTE: Only until epoch 2.5.
-    ///   Payloads are sent to the `/new_microblocks` path.
-    ///   The payload's "transactions" field will contain all transactions from the microblocks.
-    ///   The payload's "events" field will contain STX, FT, NFT, or specific smart contract events
-    ///   *only if* this observer is also subscribed to those more specific event types (e.g., via `"stx"`, `"*"`,
-    ///   a specific contract event key, or a specific asset identifier key).
-    /// - `"stackerdb"`: Subscribes to StackerDB chunk update events.
-    ///   Payloads are sent to the `/stackerdb_chunks` path.
-    /// - `"block_proposal"`: Subscribes to block proposal response events (for Nakamoto consensus).
-    ///   Payloads are sent to the `/proposal_response` path.
-    /// - Smart Contract Event (format: `"{contract_address}.{contract_name}::{event_name}"`):
-    ///   Subscribes to a specific smart contract event. The `{contract_address}.{contract_name}` part identifies the contract,
-    ///   and `::{event_name}` specifies the event defined within that contract.
-    ///   Example: `"ST0000000000000000000000000000000000000000.my-contract::my-custom-event"`
-    ///   These are delivered as part of `/new_block` or `/new_microblocks` payloads, with the "events" array filtered for this specific event.
-    /// - Asset Identifier for FT/NFT Events (format: `"{contract_address}.{contract_name}.{asset_name}"`):
-    ///   Subscribes to events (mint, burn, transfer) for a specific Fungible Token (FT) or Non-Fungible Token (NFT).
-    ///   Example for an FT: `"ST0000000000000000000000000000000000000000.my-ft-contract.my-fungible-token"`
-    ///   These are delivered as part of `/new_block` or `/new_microblocks` payloads, with the "events" array filtered for the specified asset.
+    ///   - **Events delivered to:** `/new_block`, `/new_microblocks`.
+    ///   - **Payload details:** The "events" array in the delivered payloads will be filtered to include only STX-related events.
     ///
-    /// **Example `events_keys` in TOML:**
+    /// - `"memtx"`: Subscribes to new and dropped mempool transaction events.
+    ///   - **Events delivered to:** `/new_mempool_tx`, `/drop_mempool_tx`.
+    ///
+    /// - `"burn_blocks"`: Subscribes to new burnchain block events.
+    ///   - **Events delivered to:** `/new_burn_block`.
+    ///
+    /// - `"microblocks"`: Subscribes to new microblock stream events.
+    ///   - **Events delivered to:** `/new_microblocks`.
+    ///   - **Payload details:**
+    ///     - The "transactions" field will contain all transactions from the microblocks.
+    ///     - The "events" field will contain STX, FT, NFT, or specific smart contract events
+    ///       *only if* this observer is also subscribed to those more specific event types
+    ///       (e.g., via `"stx"`, `"*"`, a specific contract event key, or a specific asset identifier key).
+    ///   - **Note:** Only until epoch 2.5.
+    ///
+    /// - `"stackerdb"`: Subscribes to StackerDB chunk update events.
+    ///   - **Events delivered to:** `/stackerdb_chunks`.
+    ///
+    /// - `"block_proposal"`: Subscribes to block proposal response events (for Nakamoto consensus).
+    ///   - **Events delivered to:** `/proposal_response`.
+    ///
+    /// - **Smart Contract Event**: Subscribes to a specific smart contract event.
+    ///   - **Format:** `"{contract_address}.{contract_name}::{event_name}"`
+    ///     (e.g., `ST0000000000000000000000000000000000000000.my-contract::my-custom-event`)
+    ///   - **Events delivered to:** `/new_block`, `/new_microblocks`.
+    ///   - **Payload details:** The "events" array in the delivered payloads will be filtered for this specific event.
+    ///
+    /// - **Asset Identifier for FT/NFT Events**: Subscribes to events (mint, burn, transfer) for a specific Fungible Token (FT) or Non-Fungible Token (NFT).
+    ///   - **Format:** `"{contract_address}.{contract_name}.{asset_name}"`
+    ///     (e.g., for an FT: `ST0000000000000000000000000000000000000000.my-ft-contract.my-fungible-token`)
+    ///   - **Events delivered to:** `/new_block`, `/new_microblocks`.
+    ///   - **Payload details:** The "events" array in the delivered payloads will be filtered for events related to the specified asset.
+    ///
+    /// **Configuration:**
+    ///
     /// ```toml
+    /// # Example events_keys in TOML configuration:
     /// events_keys = [
     ///   "burn_blocks",
     ///   "memtx",
-    ///   "ST0000000000000000000000000000000000000000.my-contract::my-custom-event",  // Smart contract event
-    ///   "ST0000000000000000000000000000000000000000.token-contract.my-ft"         // Fungible token asset event
+    ///   "ST0000000000000000000000000000000000000000.my-contract::my-custom-event",  # Smart contract event
+    ///   "ST0000000000000000000000000000000000000000.token-contract.my-ft"           # Fungible token asset event
     /// ]
     /// ```
     ///
@@ -4232,16 +4250,14 @@ pub struct EventObserverConfigFile {
     /// Controls whether the node should retry sending event notifications if delivery fails or times out.
     ///
     /// - If `false` (default): The node will attempt to deliver event notifications persistently.
-    ///   If an attempt fails (due to network error, timeout, or a non-200 HTTP response),
-    ///   the event payload is typically saved to a local database (if [`NodeConfig::working_dir`] is configured for the node)
-    ///   and retried indefinitely. This ensures that, under normal circumstances, all events will eventually be delivered.
-    ///   However, this can cause the node's own block processing to stall if an observer is down,
-    ///   or fails to process the event.
+    ///   If an attempt fails (due to network error, timeout, or a non-200 HTTP response), the event
+    ///   payload is saved and retried indefinitely. This ensures that all events will eventually be
+    ///   delivered. However, this can cause the node's block processing to stall if an observer is
+    ///   down, or indefinitely fails to process the event.
     ///
     /// - If `true`: The node will make only a single attempt to deliver each event notification.
-    ///   If this single attempt fails for any reason, the event is discarded, and no further
-    ///   retries will be made for that specific event. The local database for pending payloads is
-    ///   not used for this observer.
+    ///   If this single attempt fails for any reason, the event is discarded, and no further retries
+    ///   will be made for that specific event.
     ///
     /// **Warning:** Setting this to `true` can lead to missed events if the observer endpoint is
     /// temporarily unavailable or experiences issues. This setting should only be used for observers
