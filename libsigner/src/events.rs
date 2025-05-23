@@ -46,7 +46,9 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksPublicKey,
 };
 use stacks_common::util::hash::{hex_bytes, Hash160, Sha512Trunc256Sum};
-use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex, prefix_string_0x};
+use stacks_common::util::serde_serializers::{
+    prefix_hex, prefix_opt_hex, prefix_opt_hex, prefix_string_0x,
+};
 use stacks_common::util::HexError;
 use stacks_common::versions::STACKS_NODE_VERSION;
 use tiny_http::{
