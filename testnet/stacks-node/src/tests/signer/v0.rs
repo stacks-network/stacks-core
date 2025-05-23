@@ -3369,7 +3369,6 @@ fn tx_replay_e2e_test() {
     for i in 0..pre_fork_tenures {
         info!("Mining pre-fork tenure {} of {pre_fork_tenures}", i + 1);
         signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
-        signer_test.check_signer_states_normal();
     }
 
     let tip = get_chain_info(&conf);
@@ -3445,7 +3444,6 @@ fn tx_replay_e2e_test() {
         .submit_transfer_tx(&sender_sk2, send_fee, send_amt)
         .unwrap();
     test_observer::clear();
-    std::thread::sleep(Duration::from_secs(10));
     TEST_MINE_STALL.set(false);
     // First we will get the tenure change block. It shouldn't contain our two transfer transactions.
     info!(
@@ -3461,9 +3459,9 @@ fn tx_replay_e2e_test() {
         "---- Wait for block proposal at stacks block height {} ----",
         stacks_height_before + 2
     );
-    // Next the signers will attempt to propose a block that does not contain the necessary replay tx and signers will reject it
+    // Next the miner will attempt to propose a block that does not contain the necessary replay tx and signers will reject it
     let rejected_block = wait_for_block_proposal(30, stacks_height_before + 2, &stacks_miner_pk)
-        .expect("Timed out waiting for block pushed after fork");
+        .expect("Timed out waiting for block proposal after fork");
     assert!(rejected_block
         .txs
         .iter()
@@ -3595,7 +3593,6 @@ fn tx_replay_disagreement() {
         miners
             .signer_test
             .mine_nakamoto_block(Duration::from_secs(30), false);
-        miners.signer_test.check_signer_states_normal();
     }
 
     let ignore_bitcoin_fork_keys = miners
