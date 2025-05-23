@@ -695,24 +695,33 @@ impl LocalStateMachine {
         local_address: StacksAddress,
         local_update: &StateMachineUpdateMessage,
     ) -> Option<StateMachineUpdateMinerState> {
+        // First always make sure we consider our own viewpoint
+        eval.insert_update(local_address, local_update.clone());
+
+        // Determine the current burn block from the local update
         let current_burn_block = match local_update.content {
             StateMachineUpdateContent::V0 { burn_block, .. }
             | StateMachineUpdateContent::V1 { burn_block, .. } => burn_block,
         };
-        eval.insert_update(local_address, local_update.clone());
+
+        // Determine the global burn view
         let (global_burn_view, _) = eval.determine_global_burn_view()?;
         if current_burn_block != global_burn_view {
+            // We don't have the majority's burn block yet...will have to wait
             crate::monitoring::actions::increment_signer_agreement_state_conflict(
                 crate::monitoring::SignerAgreementStateConflict::BurnBlockDelay,
             );
             return None;
         }
-        let mut current_miners = HashMap::new();
+
+        let mut miners = HashMap::new();
+        let mut potential_matches = Vec::new();
+
         for (address, update) in &eval.address_updates {
             let Some(weight) = eval.address_weights.get(address) else {
                 continue;
             };
-            let (burn_block, current_miner) = match &update.content {
+            let (burn_block, miner_state) = match &update.content {
                 StateMachineUpdateContent::V0 {
                     burn_block,
                     current_miner,
@@ -724,31 +733,48 @@ impl LocalStateMachine {
                     ..
                 } => (burn_block, current_miner),
             };
-
             if *burn_block != global_burn_view {
                 continue;
             }
-
-            let StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. } = current_miner else {
+            let StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. } = miner_state else {
+                // Only consider potential active miners
                 continue;
             };
 
-            let entry = current_miners.entry(current_miner).or_insert_with(|| 0);
+            let entry = miners.entry(miner_state).or_insert(0);
             *entry += weight;
+            if *entry <= eval.total_weight * 3 / 10 {
+                // We don't even see a blocking minority threshold. Ignore.
+                continue;
+            }
 
-            if *entry >= eval.total_weight * 3 / 10 {
-                let nmb_blocks = signerdb
-                    .get_globally_accepted_block_count_in_tenure(tenure_id)
-                    .unwrap_or(0);
-                if nmb_blocks > 0 || eval.reached_agreement(*entry) {
-                    return Some(current_miner.clone());
+            let nmb_blocks = signerdb
+                .get_globally_accepted_block_count_in_tenure(tenure_id)
+                .unwrap_or(0);
+            if nmb_blocks == 0 && !eval.reached_agreement(*entry) {
+                continue;
+            }
+
+            match signerdb.get_burn_block_by_ch(tenure_id) {
+                Ok(block) => {
+                    potential_matches.push((block.block_height, miner_state.clone()));
+                }
+                Err(e) => {
+                    warn!("Error retrieving burn block for consensus_hash {tenure_id} from signerdb: {e}");
                 }
             }
         }
-        crate::monitoring::actions::increment_signer_agreement_state_conflict(
-            crate::monitoring::SignerAgreementStateConflict::MinerView,
-        );
-        None
+
+        potential_matches.sort_by_key(|(block_height, _)| *block_height);
+
+        let new_miner = potential_matches.last().map(|(_, miner)| miner.clone());
+        if new_miner.is_none() {
+            crate::monitoring::actions::increment_signer_agreement_state_conflict(
+                crate::monitoring::SignerAgreementStateConflict::MinerView,
+            );
+        }
+
+        new_miner
     }
 
     #[allow(unused_variables)]

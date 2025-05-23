@@ -7344,6 +7344,36 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     // Clear the stackerdb chunks
     info!("Forcing miner to ignore block responses for block N+1");
     TEST_IGNORE_SIGNERS.set(true);
+
+    info!("------------------------- Wait for All Signers to Update their Canonical Tip to Block N -------------------------");
+    let current_rc = signer_test.get_current_reward_cycle();
+    let expected_tip = block_n.header.signer_signature_hash();
+    wait_for(30, || {
+        let states = signer_test.get_all_states();
+        let canonical_tips = states
+            .iter()
+            .filter(|state| {
+                state
+                    .signer_canonical_tips
+                    .iter()
+                    .find_map(|(rc, block_info_opt)| {
+                        if current_rc % 2 == *rc {
+                            block_info_opt.as_ref()
+                        } else {
+                            None
+                        }
+                    })
+                    .map(|block_info| {
+                        block_info.block.header.signer_signature_hash() == expected_tip
+                    })
+                    .unwrap_or(false)
+            })
+            .count();
+
+        Ok(canonical_tips == num_signers)
+    })
+    .expect("Timed out waiting for all signers to update their global state to Block N");
+
     info!("Delaying signer block N+1 broadcasting to the miner");
     TEST_PAUSE_BLOCK_BROADCAST.set(true);
     test_observer::clear();
@@ -14866,56 +14896,19 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     assert_ne!(tip_c.burn_header_hash, tip_a.burn_header_hash);
     assert_eq!(tip_c.block_height, burn_height_before + 1);
 
-    wait_for(30, || {
-        let mut nmb_matches = 0;
-        let stackerdb_events = test_observer::get_stackerdb_chunks();
-        for chunk in stackerdb_events
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-        {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
-            let SignerMessage::StateMachineUpdate(update) = message else {
-                continue;
-            };
-            let (burn_block, burn_block_height, current_miner_pkh) =
-                match (SUPPORTED_SIGNER_PROTOCOL_VERSION, update.content) {
-                    (
-                        0,
-                        StateMachineUpdateContent::V0 {
-                            burn_block,
-                            burn_block_height,
-                            current_miner:
-                                StateMachineUpdateMinerState::ActiveMiner {
-                                    current_miner_pkh, ..
-                                },
-                            ..
-                        },
-                    )
-                    | (
-                        1,
-                        StateMachineUpdateContent::V1 {
-                            burn_block,
-                            burn_block_height,
-                            current_miner:
-                                StateMachineUpdateMinerState::ActiveMiner {
-                                    current_miner_pkh, ..
-                                },
-                            ..
-                        },
-                    ) => (burn_block, burn_block_height, current_miner_pkh),
-                    _ => continue,
-                };
-            if burn_block == tenure_c_block_proposal.header.consensus_hash
-                && burn_block_height == burn_height_before + 1
-                && current_miner_pkh == miner_pkh_1
-            {
-                nmb_matches += 1;
-            }
-        }
-        Ok(nmb_matches == 5)
-    })
-    .unwrap();
+    let all_signers = miners.signer_test.signer_test_pks();
+
+    info!("--------------- Waiting for Signers to Capitulate to Miner {miner_pkh_1} with Expected Stacks Height {} ----------------", tip_a.stacks_block_height;
+    );
+    wait_for_state_machine_update(
+        30,
+        &tenure_c_block_proposal.header.consensus_hash,
+        burn_height_before + 1,
+        Some((miner_pkh_1, tip_a.stacks_block_height)),
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Timed out waiting for state machine updates");
 
     info!("--------------- Miner 1 Extends Tenure B over Tenure C ---------------");
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);

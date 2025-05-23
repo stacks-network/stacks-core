@@ -336,6 +336,14 @@ impl SignerTrait<SignerMessage> for Signer {
             .map(|results| u64::try_from(results.len()).unwrap())
             .unwrap_or(0)
     }
+
+    fn get_canonical_tip(&self) -> Option<BlockInfo> {
+        self.signer_db
+            .get_canonical_tip()
+            .inspect_err(|e| error!("{self}: Failed to check for canonical tip: {e:?}"))
+            .ok()
+            .flatten()
+    }
 }
 
 impl Signer {
@@ -1374,7 +1382,7 @@ impl Signer {
             // Not enough rejection signatures to make a decision
             return;
         }
-        debug!("{self}: {total_reject_weight}/{total_weight} signers voted to reject the block {block_hash}");
+        info!("{self}: {total_reject_weight}/{total_weight} signers voted to reject the block {block_hash}");
         if let Err(e) = self.signer_db.mark_block_globally_rejected(&mut block_info) {
             warn!("{self}: Failed to mark block as globally rejected: {e:?}",);
         }
