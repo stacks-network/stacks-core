@@ -1374,7 +1374,7 @@ impl Signer {
             // Not enough rejection signatures to make a decision
             return;
         }
-        debug!("{self}: {total_reject_weight}/{total_weight} signers voted to reject the block {block_hash}");
+        info!("{self}: {total_reject_weight}/{total_weight} signers voted to reject the block {block_hash}");
         if let Err(e) = self.signer_db.mark_block_globally_rejected(&mut block_info) {
             warn!("{self}: Failed to mark block as globally rejected: {e:?}",);
         }
