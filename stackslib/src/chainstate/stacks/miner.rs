@@ -91,6 +91,10 @@ fn fault_injection_stall_tx() {
 #[cfg(not(any(test, feature = "testing")))]
 fn fault_injection_stall_tx() {}
 
+#[cfg(any(test, feature = "testing"))]
+/// Test flag to exclude replay txs from the next block
+pub static TEST_EXCLUDE_REPLAY_TXS: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+
 /// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
 /// linked to the burnchain and what view(s) the miner had of the burnchain before and after
 /// completing the block.
@@ -2311,7 +2315,12 @@ impl StacksBlockBuilder {
             }
         }
 
-        let result = if replay_transactions.is_empty() {
+        #[cfg(any(test, feature = "testing"))]
+        let use_mempool_txs = replay_transactions.is_empty() || TEST_EXCLUDE_REPLAY_TXS.get();
+        #[cfg(not(any(test, feature = "testing")))]
+        let use_mempool_txs = replay_transactions.is_empty();
+
+        let result = if use_mempool_txs {
             select_and_apply_transactions_from_mempool(
                 epoch_tx,
                 builder,
@@ -2322,6 +2331,7 @@ impl StacksBlockBuilder {
                 ast_rules,
             )
         } else {
+            info!("Miner: constructing block with replay transactions");
             let txs = select_and_apply_transactions_from_vec(
                 epoch_tx,
                 builder,
