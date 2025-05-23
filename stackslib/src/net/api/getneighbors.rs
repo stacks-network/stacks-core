@@ -151,6 +151,7 @@ impl RPCNeighborsInfo {
             peerdb_conn,
             network_id,
             network_epoch,
+            network.peer_version,
             get_epoch_time_secs().saturating_sub(max_neighbor_age),
             MAX_NEIGHBORS_DATA_LEN,
             burnchain_view.burn_block_height,

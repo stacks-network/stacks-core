@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "GET request to query node health",
+  "title": "GetHealthResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "difference_from_max_peer",
+    "max_stacks_height_of_neighbors",
+    "node_stacks_tip_height"
+  ],
+  "properties": {
+    "difference_from_max_peer": {
+      "type": "integer",
+      "description": "The difference in height between the node and its most advanced neighbor."
+    },
+    "max_stacks_height_of_neighbors": {
+      "type": "integer",
+      "description": "The max Stacks height of the node's most advanced neighbor."
+    },
+    "node_stacks_tip_height": {
+      "type": "integer",
+      "description": "The Stacks height of this node."
+    }
+  }
+}
