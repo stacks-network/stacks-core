@@ -30,6 +30,7 @@ use crate::monitoring::actions::{update_signer_nonce, update_stacks_tip_height};
 use crate::monitoring::prometheus::gather_metrics_string;
 
 #[derive(thiserror::Error, Debug)]
+#[allow(clippy::large_enum_variant)]
 /// Monitoring server errors
 pub enum MonitoringError {
     /// Already bound to an address

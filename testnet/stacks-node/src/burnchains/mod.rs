@@ -56,7 +56,7 @@ pub trait BurnchainController {
     fn get_stacks_epochs(&self) -> EpochList;
 
     #[cfg(test)]
-    fn bootstrap_chain(&mut self, blocks_count: u64);
+    fn bootstrap_chain(&self, blocks_count: u64);
 }
 
 #[derive(Debug, Clone)]

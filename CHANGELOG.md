@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [3.1.0.0.10]
+
+### Added
+- Persisted tracking of StackerDB slot versions for mining. This improves miner p2p performance.
+
 ## [3.1.0.0.9]
 
 ### Added
@@ -13,6 +18,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Added new `ValidateRejectCode` values to the `/v3/block_proposal` endpoint
 - Added `StateMachineUpdateContent::V1` to support a vector of `StacksTransaction` expected to be replayed in subsequent Stacks blocks
 - Include a reason string in the transaction receipt when a transaction is rolled back due to a post-condition. This should help users in understanding what went wrong.
+- Updated `StackerDBListener` to monitor signer state machine updates and store signer global state information, enabling miners to perform transaction replays.
+- Added a testnet `replay_transactions` flag to the miner configuration to feature-gate transaction replay. When enabled, the miner will construct a replay block if a threshold of signers signals that a transaction set requires replay.
 
 ### Changed
 
