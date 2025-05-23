@@ -1755,8 +1755,8 @@ impl PeerDB {
               {include_allowed_condition}
               AND (?6 <= (peer_version & 0x000000ff) OR ?7 <= (peer_version & 0x000000ff))
               {use_public_condition}
-              ORDER BY RANDOM()
-              LIMIT ?8"#
+            ORDER BY RANDOM()
+            LIMIT ?8"#
         );
 
         let random_peers_args = params![
