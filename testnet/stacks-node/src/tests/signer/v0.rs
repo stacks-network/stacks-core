@@ -3458,7 +3458,9 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
         let commits_count = submitted_commits.load(Ordering::SeqCst);
         next_block_and(btc_controller, 60, || {
             let commits_submitted = submitted_commits.load(Ordering::SeqCst);
-            Ok(commits_submitted > commits_count)
+            Ok(commits_submitted > commits_count
+                && get_chain_info(&signer_test.running_nodes.conf).burn_block_height
+                    > current_burn_height)
         })
         .unwrap();
     }
@@ -3467,6 +3469,18 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
     assert_eq!(0, post_fork_tx_nonce);
 
     info!("----- Check Signers Tx Replay state -----");
+
+    let info = get_chain_info(&signer_test.running_nodes.conf);
+    let all_signers = signer_test.signer_test_pks();
+    wait_for_state_machine_update(
+        30,
+        &info.pox_consensus,
+        info.burn_block_height,
+        None,
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Timed out waiting for signer states to update");
     let (signer_states, _) = signer_test.get_burn_updated_states();
     for state in signer_states {
         assert!(
