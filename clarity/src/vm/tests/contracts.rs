@@ -295,6 +295,10 @@ fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalD
 
 #[apply(test_epochs)]
 fn test_tx_sponsor(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
+    if epoch < StacksEpochId::Epoch21 {
+        return;
+    }
+
     let mut owned_env = env_factory.get_env(epoch);
 
     let contract_a = "(define-read-only (get-sponsor)
