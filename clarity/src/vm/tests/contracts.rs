@@ -767,12 +767,12 @@ fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator
     let contract_2 = "
 (define-public (fail-in-other)
   (begin
-    (contract-call? .contract-1 modify-data 100 101)
+    (is-ok (contract-call? .contract-1 modify-data 100 101))
     (ok 1)))
 
 (define-public (fail-in-self)
   (begin
-    (contract-call? .contract-1 modify-data 105 105)
+    (is-ok (contract-call? .contract-1 modify-data 105 105))
     (err 1)))
 ";
     let mut placeholder_context = ContractContext::new(
