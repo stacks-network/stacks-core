@@ -1,4 +1,3 @@
-use std::num;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
