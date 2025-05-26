@@ -4168,6 +4168,8 @@ pub struct EventObserverConfigFile {
     pub endpoint: String,
     /// List of event types that this observer is configured to receive.
     ///
+    /// For a more detailed documentation check the event-dispatcher docs in the `/docs` folder.
+    ///
     /// Each string in the list specifies an event category or a specific event to subscribe to.
     /// For an observer to receive any notifications, this list must contain at least one valid key.
     /// Providing an invalid string that doesn't match any of the valid formats below will cause
