@@ -6,28 +6,64 @@ use proptest::prelude::{Just, Strategy};
 use super::context::{SignerTestContext, SignerTestState};
 
 /// Command to verify that a specified miner has produced the expected number of blocks
-/// since the Epoch 3.0 (Nakamoto) transition.
-pub struct VerifyBlockCountAfterBootToEpoch3 {
+/// based on different height calculation strategies.
+pub struct ChainVerifyMinerBlockCount {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
     expected_block_count: usize,
+    height_strategy: HeightStrategy,
 }
 
-impl VerifyBlockCountAfterBootToEpoch3 {
-    pub fn new(
+#[derive(Debug)]
+enum HeightStrategy {
+    AfterBootToEpoch3,
+    AfterSpecificHeight(u64),
+}
+
+impl ChainVerifyMinerBlockCount {
+    fn new(
         ctx: Arc<SignerTestContext>,
         miner_index: usize,
         expected_block_count: usize,
+        height_strategy: HeightStrategy,
     ) -> Self {
         Self {
             ctx,
             miner_index,
             expected_block_count,
+            height_strategy,
         }
+    }
+
+    pub fn after_boot_to_epoch3(
+        ctx: Arc<SignerTestContext>,
+        miner_index: usize,
+        expected_block_count: usize,
+    ) -> Self {
+        Self::new(
+            ctx,
+            miner_index,
+            expected_block_count,
+            HeightStrategy::AfterBootToEpoch3,
+        )
+    }
+
+    pub fn after_specific_height(
+        ctx: Arc<SignerTestContext>,
+        miner_index: usize,
+        expected_block_count: usize,
+        height: u64,
+    ) -> Self {
+        Self::new(
+            ctx,
+            miner_index,
+            expected_block_count,
+            HeightStrategy::AfterSpecificHeight(height),
+        )
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for VerifyBlockCountAfterBootToEpoch3 {
+impl Command<SignerTestState, SignerTestContext> for ChainVerifyMinerBlockCount {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
             "Checking: Verifying miner {} block count. Result: {:?}",
@@ -38,34 +74,44 @@ impl Command<SignerTestState, SignerTestContext> for VerifyBlockCountAfterBootTo
 
     fn apply(&self, state: &mut SignerTestState) {
         info!(
-            "Applying: Verifying miner {} block count is {}",
-            self.miner_index, self.expected_block_count
+            "Applying: Verifying miner {} block count is {} - Strategy: {:?}",
+            self.miner_index, self.expected_block_count, self.height_strategy
         );
 
         let conf = self.ctx.get_node_config(self.miner_index);
         let miner_pk = self.ctx.get_miner_public_key(self.miner_index);
 
-        let miner_blocks_after_boot_to_epoch3 =
-            self.ctx.get_miner_blocks_after_specified_block_height(
-                &conf,
-                state.epoch_3_start_block_height.unwrap(),
-                &miner_pk,
-            );
+        let miner_blocks_after_height = match self.height_strategy {
+            HeightStrategy::AfterBootToEpoch3 => {
+                self.ctx.get_miner_blocks_after_specified_block_height(
+                    &conf,
+                    state.epoch_3_start_block_height.unwrap(),
+                    &miner_pk,
+                )
+            }
+            HeightStrategy::AfterSpecificHeight(height) => {
+                self.ctx.get_miner_blocks_after_specified_block_height(
+                    &conf,
+                    height,
+                    &miner_pk,
+                )
+            }
+        };
 
         assert_eq!(
-            self.expected_block_count, miner_blocks_after_boot_to_epoch3,
-            "Expected {} blocks from miner {}, but found {}",
-            self.expected_block_count, self.miner_index, miner_blocks_after_boot_to_epoch3
+            self.expected_block_count, miner_blocks_after_height,
+            "Expected {} blocks from miner {} after {:?}, but found {}",
+            self.expected_block_count, self.miner_index, self.height_strategy, miner_blocks_after_height
         );
 
         info!(
-            "Verified miner {} has exactly {} blocks after epoch 3 boot",
-            self.miner_index, self.expected_block_count
+            "Verified miner {} has exactly {} blocks after {:?}",
+            self.miner_index, self.expected_block_count, self.height_strategy
         );
     }
 
     fn label(&self) -> String {
-        format!("VERIFY_MINER_{}_BLOCK_COUNT", self.miner_index)
+        format!("VERIFY_MINER_{}_BLOCK_COUNT_{:?}", self.miner_index, self.height_strategy)
     }
 
     fn build(
@@ -73,11 +119,13 @@ impl Command<SignerTestState, SignerTestContext> for VerifyBlockCountAfterBootTo
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1usize..=2usize, 1usize..=5usize).prop_flat_map(
             move |(miner_index, expected_block_count)| {
-                Just(CommandWrapper::new(VerifyBlockCountAfterBootToEpoch3::new(
-                    ctx.clone(),
-                    miner_index,
-                    expected_block_count,
-                )))
+                Just(CommandWrapper::new(
+                    ChainVerifyMinerBlockCount::after_boot_to_epoch3(
+                        ctx.clone(),
+                        miner_index,
+                        expected_block_count,
+                    ),
+                ))
             },
         )
     }

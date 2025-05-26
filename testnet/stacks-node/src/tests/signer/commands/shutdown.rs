@@ -8,17 +8,17 @@ use super::context::{SignerTestContext, SignerTestState};
 /// Command to attempt to shut down the miner instances managed in the test context.
 /// This command is typically intended for use at the end of a test scenario or
 /// when simulating a complete halt of mining operations.
-pub struct ShutdownMiners {
+pub struct ChainShutdownMiners {
     ctx: Arc<SignerTestContext>,
 }
 
-impl ShutdownMiners {
+impl ChainShutdownMiners {
     pub fn new(ctx: Arc<SignerTestContext>) -> Self {
         Self { ctx }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for ShutdownMiners {
+impl Command<SignerTestState, SignerTestContext> for ChainShutdownMiners {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!("Checking: Shutting down miners. Result: {:?}", true);
         true
@@ -45,6 +45,6 @@ impl Command<SignerTestState, SignerTestContext> for ShutdownMiners {
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(ShutdownMiners::new(ctx.clone())))
+        Just(CommandWrapper::new(ChainShutdownMiners::new(ctx.clone())))
     }
 }

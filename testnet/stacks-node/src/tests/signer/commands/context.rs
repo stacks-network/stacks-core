@@ -16,11 +16,16 @@ use crate::tests::signer::v0::{get_nakamoto_headers, MultipleMinerTest};
 #[derive(Clone)]
 pub struct SignerTestContext {
     pub miners: Arc<Mutex<MultipleMinerTest>>,
+    num_signers: usize,
+    num_transfer_txs: u64,
 }
 
 impl Debug for SignerTestContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SignerTestContext").finish()
+        f.debug_struct("SignerTestContext")
+            .field("num_signers", &self.num_signers)
+            .field("num_transfer_txs", &self.num_transfer_txs)
+            .finish()
     }
 }
 
@@ -46,7 +51,19 @@ impl SignerTestContext {
 
         Self {
             miners: Arc::new(Mutex::new(miners)),
+            num_signers,
+            num_transfer_txs,
         }
+    }
+
+    // Getter for num_signers
+    pub fn get_num_signers(&self) -> usize {
+        self.num_signers
+    }
+
+    // Getter for num_transfer_txs  
+    pub fn get_num_transfer_txs(&self) -> u64 {
+        self.num_transfer_txs
     }
 
     pub fn get_counters_for_miner(&self, miner_index: usize) -> Counters {

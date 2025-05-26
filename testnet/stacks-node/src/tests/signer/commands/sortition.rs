@@ -9,18 +9,18 @@ use crate::tests::signer::v0::verify_sortition_winner;
 
 /// Command to verify that a specific miner is correctly recorded as
 /// the winner of the latest sortition in that miner's local sortition database.
-pub struct VerifyMinerWonSortition {
+pub struct MinerCheckWonSortition {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
 }
 
-impl VerifyMinerWonSortition {
+impl MinerCheckWonSortition {
     pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
         Self { ctx, miner_index }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for VerifyMinerWonSortition {
+impl Command<SignerTestState, SignerTestContext> for MinerCheckWonSortition {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
             "Checking: Verifying miner {} won sortition. Result: {:?}",
@@ -49,7 +49,7 @@ impl Command<SignerTestState, SignerTestContext> for VerifyMinerWonSortition {
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1usize..=2usize).prop_flat_map(move |miner_index| {
-            Just(CommandWrapper::new(VerifyMinerWonSortition::new(
+            Just(CommandWrapper::new(MinerCheckWonSortition::new(
                 ctx.clone(),
                 miner_index,
             )))
@@ -60,17 +60,17 @@ impl Command<SignerTestState, SignerTestContext> for VerifyMinerWonSortition {
 /// Command to verify that a Stacks chain reorganization has occurred by comparing consensus hashes.
 /// This checks if the last sortition's consensus hash differs from the current Stacks parent consensus hash,
 /// indicating that the previously selected sortition winner is no longer part of the canonical chain.
-pub struct VerifyLastSortitionWinnerReorged {
+pub struct ChainVerifyLastSortitionWinnerReorged {
     ctx: Arc<SignerTestContext>,
 }
 
-impl VerifyLastSortitionWinnerReorged {
+impl ChainVerifyLastSortitionWinnerReorged {
     pub fn new(ctx: Arc<SignerTestContext>) -> Self {
         Self { ctx }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for VerifyLastSortitionWinnerReorged {
+impl Command<SignerTestState, SignerTestContext> for ChainVerifyLastSortitionWinnerReorged {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
             "Checking: Verifying last sortition winner reorged. Result: {:?}",
@@ -95,8 +95,8 @@ impl Command<SignerTestState, SignerTestContext> for VerifyLastSortitionWinnerRe
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(VerifyLastSortitionWinnerReorged::new(
-            ctx.clone(),
-        )))
+        Just(CommandWrapper::new(
+            ChainVerifyLastSortitionWinnerReorged::new(ctx.clone()),
+        ))
     }
 }

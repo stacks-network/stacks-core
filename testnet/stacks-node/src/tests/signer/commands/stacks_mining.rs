@@ -7,11 +7,11 @@ use super::context::{SignerTestContext, SignerTestState};
 
 /// Command to globally pause or resume Stacks block mining within the test environment.
 /// This command is used to simulate network-wide conditions where Stacks block production might halt or resume.
-pub struct StacksMining {
+pub struct ChainStacksMining {
     should_pause: bool,
 }
 
-impl StacksMining {
+impl ChainStacksMining {
     fn new(should_pause: bool) -> Self {
         Self { should_pause }
     }
@@ -25,7 +25,7 @@ impl StacksMining {
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for StacksMining {
+impl Command<SignerTestState, SignerTestContext> for ChainStacksMining {
     fn check(&self, state: &SignerTestState) -> bool {
         // Pause should apply if mining is not currently stalled.
         // Resume should apply if mining is currently stalled.
@@ -62,8 +62,8 @@ impl Command<SignerTestState, SignerTestContext> for StacksMining {
         _ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         prop_oneof![
-            Just(CommandWrapper::new(StacksMining::pause())),
-            Just(CommandWrapper::new(StacksMining::resume())),
+            Just(CommandWrapper::new(ChainStacksMining::pause())),
+            Just(CommandWrapper::new(ChainStacksMining::resume())),
         ]
     }
 }

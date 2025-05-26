@@ -10770,20 +10770,20 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs_scenario() {
 
     scenario![
         test_context,
-        (MinerCommitOp::disable_for(test_context.clone(), MINER2)),
-        BootToEpoch3,
-        (MinerCommitOp::disable_for(test_context.clone(), MINER1)),
-        (StacksMining::pause()),
-        MineBitcoinBlock,
-        (VerifyMinerWonSortition::new(test_context.clone(), MINER1)),
-        (SubmitBlockCommit::new(test_context.clone(), MINER2)),
-        (StacksMining::resume()),
-        (WaitForNakamotoBlock::wait_from_miner_height(test_context.clone(), MINER1)),
-        MineBitcoinBlock,
-        (VerifyMinerWonSortition::new(test_context.clone(), MINER2)),
-        VerifyLastSortitionWinnerReorged,
-        (WaitForNakamotoBlock::wait_from_miner_height(test_context.clone(), MINER2)),
-        ShutdownMiners
+        (ChainMinerCommitOp::disable_for(test_context.clone(), MINER2)),
+        ChainBootToEpoch3,
+        (ChainMinerCommitOp::disable_for(test_context.clone(), MINER1)),
+        (ChainStacksMining::pause()),
+        (MinerMineBtcBlocks::one(test_context.clone())),
+        (MinerCheckWonSortition::new(test_context.clone(), MINER1)),
+        (MinerSubmitBlockCommit::new(test_context.clone(), MINER2)),
+        (ChainStacksMining::resume()),
+        (MinerPushNakaBlock::wait_from_miner_height(test_context.clone(), MINER1)),
+        (MinerMineBtcBlocks::one(test_context.clone())),
+        (MinerCheckWonSortition::new(test_context.clone(), MINER2)),
+        ChainVerifyLastSortitionWinnerReorged,
+        (MinerPushNakaBlock::wait_from_miner_height(test_context.clone(), MINER2)),
+        ChainShutdownMiners
     ]
 }
 
@@ -10955,37 +10955,34 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
 
     let num_signers = 5;
     let num_txs = 3;
-    let num_blocks = 1;
 
     let test_context = Arc::new(SignerTestContext::new(num_signers, num_txs));
 
     scenario![
-        // TODO: Command naming: Actor(ex: btc miner, stx miner, signer, chain) + Action
         test_context,
-        (MinerCommitOp::disable_for(test_context.clone(), MINER2)),
-        BootToEpoch3,
-        (MinerCommitOp::disable_for(test_context.clone(), MINER1)),
-        (MineBitcoinBlockAndTenureChange::new(test_context.clone(), MINER1)),
-        (WaitForNakamotoBlock::wait_from_state_height(test_context.clone(), MINER1)),
-        (VerifyMinerWonSortition::new(test_context.clone(), MINER1)),
-        (SubmitBlockCommit::new(test_context.clone(), MINER2)),
-        (StacksMining::pause()),
-        MineBitcoinBlock,
-        (SubmitBlockCommit::new(test_context.clone(), MINER1)),
-        (StacksMining::resume()),
-        (WaitForNakamotoBlock::wait_from_miner_height(test_context.clone(), MINER2)),
-        (VerifyMinerWonSortition::new(test_context.clone(), MINER2)),
-        SendAndMineTransferTx,
-        SendAndMineTransferTx,
-        (BuildNextBitcoinBlocks::new(test_context.clone(), num_blocks)),
-        (WaitForBlockProposal::new(test_context.clone(), MINER1)),
-        (WaitForBlockRejectionWithRejectReason::new(
+        (ChainMinerCommitOp::disable_for(test_context.clone(), MINER2)),
+        ChainBootToEpoch3,
+        (ChainMinerCommitOp::disable_for(test_context.clone(), MINER1)),
+        (MinerMineBlockAndTriggerTenureChange::new(test_context.clone(), MINER1)),
+        (MinerPushNakaBlock::wait_from_state_height(test_context.clone(), MINER1)),
+        (MinerCheckWonSortition::new(test_context.clone(), MINER1)),
+        (MinerSubmitBlockCommit::new(test_context.clone(), MINER2)),
+        (ChainStacksMining::pause()),
+        (MinerMineBtcBlocks::one(test_context.clone())),
+        (MinerSubmitBlockCommit::new(test_context.clone(), MINER1)),
+        (ChainStacksMining::resume()),
+        (MinerPushNakaBlock::wait_from_miner_height(test_context.clone(), MINER2)),
+        (MinerCheckWonSortition::new(test_context.clone(), MINER2)),
+        MinerSendAndMineTransferTx,
+        MinerSendAndMineTransferTx,
+        (ChainGenerateBtcBlocks::one(test_context.clone())),
+        (MinerPushNakaBlockProposal::new(test_context.clone(), MINER1)),
+        (SignerCheckBlockRejection::new(
             test_context.clone(),
             RejectReason::ReorgNotAllowed,
-            num_signers
         )),
-        (VerifyBlockCountAfterBootToEpoch3::new(test_context.clone(), MINER1, 1)), // FIXME: This takes the expected block count as a parameter - can we avoid that?
-        ShutdownMiners, // FIXME: miners.shutdown() is never called
+        (ChainVerifyMinerBlockCount::after_boot_to_epoch3(test_context.clone(), MINER1, 1)), // FIXME: This takes the expected block count as a parameter - can we avoid that?
+        ChainShutdownMiners, // FIXME: miners.shutdown() is never called
     ]
 }
 

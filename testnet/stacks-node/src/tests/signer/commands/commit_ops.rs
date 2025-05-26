@@ -9,13 +9,13 @@ use super::context::{SignerTestContext, SignerTestState};
 /// miner within the test environment.
 /// This command is used to simulate scenarios where a miner might temporarily or
 /// intentionally stop sending its block commit transactions to the burn chain.
-pub struct MinerCommitOp {
+pub struct ChainMinerCommitOp {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
     skip: bool, // true to disable commit operations, false to enable
 }
 
-impl MinerCommitOp {
+impl ChainMinerCommitOp {
     fn new(ctx: Arc<SignerTestContext>, miner_index: usize, skip: bool) -> Self {
         Self {
             ctx,
@@ -33,7 +33,7 @@ impl MinerCommitOp {
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for MinerCommitOp {
+impl Command<SignerTestState, SignerTestContext> for ChainMinerCommitOp {
     fn check(&self, _state: &SignerTestState) -> bool {
         let current_state = self
             .ctx
@@ -73,11 +73,11 @@ impl Command<SignerTestState, SignerTestContext> for MinerCommitOp {
         use proptest::prelude::*;
         (1usize..=2usize).prop_flat_map(move |miner_index| {
             prop_oneof![
-                Just(CommandWrapper::new(MinerCommitOp::enable_for(
+                Just(CommandWrapper::new(ChainMinerCommitOp::enable_for(
                     ctx.clone(),
                     miner_index
                 ))),
-                Just(CommandWrapper::new(MinerCommitOp::disable_for(
+                Just(CommandWrapper::new(ChainMinerCommitOp::disable_for(
                     ctx.clone(),
                     miner_index
                 )))

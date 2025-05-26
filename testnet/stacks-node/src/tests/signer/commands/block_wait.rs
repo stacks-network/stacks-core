@@ -17,7 +17,7 @@ use crate::tests::signer::v0::{
 /// This command monitors the blockchain until the specified miner successfully
 /// produces their next expected Nakamoto block.
 /// This command expects the miner to propose a block at the next height after that miner's last confirmed block.
-pub struct WaitForNakamotoBlock {
+pub struct MinerPushNakaBlock {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
     height_strategy: HeightStrategy,
@@ -30,7 +30,7 @@ enum HeightStrategy {
     FromStateHeight,
 }
 
-impl WaitForNakamotoBlock {
+impl MinerPushNakaBlock {
     fn new(
         ctx: Arc<SignerTestContext>,
         miner_index: usize,
@@ -56,7 +56,7 @@ impl WaitForNakamotoBlock {
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for WaitForNakamotoBlock {
+impl Command<SignerTestState, SignerTestContext> for MinerPushNakaBlock {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Waiting for Nakamoto block from miner {}. Result: {:?}",
@@ -174,10 +174,10 @@ impl Command<SignerTestState, SignerTestContext> for WaitForNakamotoBlock {
         (1usize..=2usize).prop_flat_map(move |miner_index| {
             prop_oneof![
                 Just(CommandWrapper::new(
-                    WaitForNakamotoBlock::wait_from_global_height(ctx.clone(), miner_index)
+                    MinerPushNakaBlock::wait_from_global_height(ctx.clone(), miner_index)
                 )),
                 Just(CommandWrapper::new(
-                    WaitForNakamotoBlock::wait_from_miner_height(ctx.clone(), miner_index)
+                    MinerPushNakaBlock::wait_from_miner_height(ctx.clone(), miner_index)
                 ))
             ]
         })
@@ -187,18 +187,18 @@ impl Command<SignerTestState, SignerTestContext> for WaitForNakamotoBlock {
 /// Command to wait for a block proposal from a specific miner in the Nakamoto consensus protocol.
 /// This command monitors the blockchain until the specified miner submits a block proposal at the expected height.
 /// This command expects the miner to propose a block at the next height after that miner's last confirmed block.
-pub struct WaitForBlockProposal {
+pub struct MinerPushNakaBlockProposal {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
 }
 
-impl WaitForBlockProposal {
+impl MinerPushNakaBlockProposal {
     pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
         Self { ctx, miner_index }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for WaitForBlockProposal {
+impl Command<SignerTestState, SignerTestContext> for MinerPushNakaBlockProposal {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
             "Checking: Waiting for block proposal from miner {:?}",
@@ -245,7 +245,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockProposal {
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1usize..=2usize).prop_flat_map(move |miner_index| {
-            Just(CommandWrapper::new(WaitForBlockProposal::new(
+            Just(CommandWrapper::new(MinerPushNakaBlockProposal::new(
                 ctx.clone(),
                 miner_index,
             )))
@@ -255,23 +255,23 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockProposal {
 
 /// Command to wait for a specific block to be rejected with an expected rejection reason.
 /// This command monitors the network for rejection signatures of a previously identified block.
-pub struct WaitForBlockRejectionWithRejectReason {
-    _ctx: Arc<SignerTestContext>,
+pub struct SignerCheckBlockRejection {
+    ctx: Arc<SignerTestContext>,
     reason: RejectReason,
-    num_signers: usize,
 }
 
-impl WaitForBlockRejectionWithRejectReason {
-    pub fn new(_ctx: Arc<SignerTestContext>, reason: RejectReason, num_signers: usize) -> Self {
+impl SignerCheckBlockRejection {
+    pub fn new(ctx: Arc<SignerTestContext>, reason: RejectReason) -> Self {
         Self {
-            _ctx,
+            ctx,
             reason,
-            num_signers,
         }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for WaitForBlockRejectionWithRejectReason {
+impl Command<SignerTestState, SignerTestContext>
+    for SignerCheckBlockRejection
+{
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Waiting for block rejection with reason {:?}. Result: {:?}",
@@ -285,7 +285,7 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockRejectionWithRe
         wait_for_block_global_rejection_with_reject_reason(
             30,
             state.last_block_hash.unwrap(),
-            self.num_signers,
+            self.ctx.get_num_signers(),
             self.reason.clone(),
         )
         .expect("Timed out waiting for block rejection");
@@ -306,12 +306,9 @@ impl Command<SignerTestState, SignerTestContext> for WaitForBlockRejectionWithRe
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        (1usize..=5usize).prop_map(move |num_signers: usize| {
-            CommandWrapper::new(WaitForBlockRejectionWithRejectReason::new(
-                ctx.clone(),
-                RejectReason::ReorgNotAllowed,
-                num_signers,
-            ))
-        })
+        Just(CommandWrapper::new(SignerCheckBlockRejection::new(
+            ctx.clone(),
+            RejectReason::ReorgNotAllowed
+        )))
     }
 }

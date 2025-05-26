@@ -9,17 +9,17 @@ use crate::tests::neon_integrations::get_chain_info;
 /// Command to advance the test environment's burn chain and Stacks chain
 /// to the beginning of Stacks Epoch 3.0 (Nakamoto).
 /// This command also mines a Nakamoto block
-pub struct BootToEpoch3 {
+pub struct ChainBootToEpoch3 {
     ctx: Arc<SignerTestContext>,
 }
 
-impl BootToEpoch3 {
+impl ChainBootToEpoch3 {
     pub fn new(ctx: Arc<SignerTestContext>) -> Self {
         Self { ctx }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for BootToEpoch3 {
+impl Command<SignerTestState, SignerTestContext> for ChainBootToEpoch3 {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Booting miners to Nakamoto. Result: {:?}",
@@ -53,6 +53,6 @@ impl Command<SignerTestState, SignerTestContext> for BootToEpoch3 {
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(BootToEpoch3::new(ctx.clone())))
+        Just(CommandWrapper::new(ChainBootToEpoch3::new(ctx.clone())))
     }
 }
