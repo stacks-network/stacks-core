@@ -9,18 +9,18 @@ use crate::tests::signer::v0::verify_sortition_winner;
 
 /// Command to verify that a specific miner is correctly recorded as
 /// the winner of the latest sortition in that miner's local sortition database.
-pub struct MinerCheckWonSortition {
+pub struct ChainExpectSortitionWinner {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
 }
 
-impl MinerCheckWonSortition {
+impl ChainExpectSortitionWinner {
     pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
         Self { ctx, miner_index }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for MinerCheckWonSortition {
+impl Command<SignerTestState, SignerTestContext> for ChainExpectSortitionWinner {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
             "Checking: Verifying miner {} won sortition. Result: {:?}",
@@ -49,7 +49,7 @@ impl Command<SignerTestState, SignerTestContext> for MinerCheckWonSortition {
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1usize..=2usize).prop_flat_map(move |miner_index| {
-            Just(CommandWrapper::new(MinerCheckWonSortition::new(
+            Just(CommandWrapper::new(ChainExpectSortitionWinner::new(
                 ctx.clone(),
                 miner_index,
             )))

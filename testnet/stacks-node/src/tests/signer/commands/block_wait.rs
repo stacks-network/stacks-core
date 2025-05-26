@@ -17,7 +17,7 @@ use crate::tests::signer::v0::{
 /// This command monitors the blockchain until the specified miner successfully
 /// produces their next expected Nakamoto block.
 /// This command expects the miner to propose a block at the next height after that miner's last confirmed block.
-pub struct MinerPushNakaBlock {
+pub struct ChainExpectNakaBlock {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
     height_strategy: HeightStrategy,
@@ -30,7 +30,7 @@ enum HeightStrategy {
     FromStateHeight,
 }
 
-impl MinerPushNakaBlock {
+impl ChainExpectNakaBlock {
     fn new(
         ctx: Arc<SignerTestContext>,
         miner_index: usize,
@@ -43,20 +43,20 @@ impl MinerPushNakaBlock {
         }
     }
 
-    pub fn wait_from_global_height(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
+    pub fn from_global_height(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
         Self::new(ctx, miner_index, HeightStrategy::FromGlobalHeight)
     }
 
-    pub fn wait_from_miner_height(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
+    pub fn from_miner_height(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
         Self::new(ctx, miner_index, HeightStrategy::FromMinerHeight)
     }
 
-    pub fn wait_from_state_height(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
+    pub fn from_state_height(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
         Self::new(ctx, miner_index, HeightStrategy::FromStateHeight)
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for MinerPushNakaBlock {
+impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlock {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
             "Checking: Waiting for Nakamoto block from miner {}. Result: {:?}",
@@ -174,10 +174,10 @@ impl Command<SignerTestState, SignerTestContext> for MinerPushNakaBlock {
         (1usize..=2usize).prop_flat_map(move |miner_index| {
             prop_oneof![
                 Just(CommandWrapper::new(
-                    MinerPushNakaBlock::wait_from_global_height(ctx.clone(), miner_index)
+                    ChainExpectNakaBlock::from_global_height(ctx.clone(), miner_index)
                 )),
                 Just(CommandWrapper::new(
-                    MinerPushNakaBlock::wait_from_miner_height(ctx.clone(), miner_index)
+                    ChainExpectNakaBlock::from_miner_height(ctx.clone(), miner_index)
                 ))
             ]
         })
@@ -187,18 +187,18 @@ impl Command<SignerTestState, SignerTestContext> for MinerPushNakaBlock {
 /// Command to wait for a block proposal from a specific miner in the Nakamoto consensus protocol.
 /// This command monitors the blockchain until the specified miner submits a block proposal at the expected height.
 /// This command expects the miner to propose a block at the next height after that miner's last confirmed block.
-pub struct MinerPushNakaBlockProposal {
+pub struct ChainExpectNakaBlockProposal {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
 }
 
-impl MinerPushNakaBlockProposal {
+impl ChainExpectNakaBlockProposal {
     pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
         Self { ctx, miner_index }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for MinerPushNakaBlockProposal {
+impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlockProposal {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
             "Checking: Waiting for block proposal from miner {:?}",
@@ -245,7 +245,7 @@ impl Command<SignerTestState, SignerTestContext> for MinerPushNakaBlockProposal 
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1usize..=2usize).prop_flat_map(move |miner_index| {
-            Just(CommandWrapper::new(MinerPushNakaBlockProposal::new(
+            Just(CommandWrapper::new(ChainExpectNakaBlockProposal::new(
                 ctx.clone(),
                 miner_index,
             )))
