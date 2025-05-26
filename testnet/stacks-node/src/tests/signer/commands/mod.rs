@@ -17,7 +17,7 @@ pub use bitcoin_mining::{
 pub use block_commit::MinerSubmitBlockCommit;
 pub use block_verify::ChainVerifyMinerBlockCount;
 pub use block_wait::{
-    SignerCheckBlockRejection, ChainExpectNakaBlock,
+    ChainExpectNakaBlock,
     ChainExpectNakaBlockProposal,
 };
 pub use boot::ChainBootToEpoch3;

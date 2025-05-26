@@ -10963,7 +10963,7 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         (ChainMinerCommitOp::disable_for(test_context.clone(), MINER2)),
         ChainBootToEpoch3,
         (ChainMinerCommitOp::disable_for(test_context.clone(), MINER1)),
-        (MinerMineBlockAndTriggerTenureChange::new(test_context.clone(), MINER1)), // Splittable in two (MinerMineBtcBlocks + ChainExpectTenureChange)
+        (MinerMineBlockAndTriggerTenureChange::new(test_context.clone(), MINER1)), // TODO: This can be splitted in two commands (MinerMineBtcBlocks + ChainExpectTenureChange)
         (ChainExpectNakaBlock::from_state_height(test_context.clone(), MINER1)),
         (ChainExpectSortitionWinner::new(test_context.clone(), MINER1)),
         (MinerSubmitBlockCommit::new(test_context.clone(), MINER2)),
@@ -10976,13 +10976,9 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         MinerSendAndMineTransferTx,
         MinerSendAndMineTransferTx,
         (ChainGenerateBtcBlocks::one(test_context.clone())),
-        (ChainExpectNakaBlockProposal::new(test_context.clone(), MINER1)),
-        (SignerCheckBlockRejection::new(
-            test_context.clone(),
-            RejectReason::ReorgNotAllowed,
-        )),
+        (ChainExpectNakaBlockProposal::with_rejection(test_context.clone(), MINER1, RejectReason::ReorgNotAllowed)),
         (ChainVerifyMinerBlockCount::after_boot_to_epoch3(test_context.clone(), MINER1, 1)), // FIXME: This takes the expected block count as a parameter - can we avoid that?
-        ChainShutdownMiners, // FIXME: miners.shutdown() is never called
+        ChainShutdownMiners, // FIXME: miners.shutdown() says: Cannot shutdown miners: other references to Arc still exist
     ]
 }
 
