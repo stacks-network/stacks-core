@@ -92,6 +92,7 @@ fn get_principal_as_principal_data() -> PrincipalData {
     StandardPrincipalData::transient().into()
 }
 
+#[ignore = "waiting clarity-wasm #654"]
 #[apply(test_epochs)]
 fn test_get_block_info_eval(
     epoch: StacksEpochId,
