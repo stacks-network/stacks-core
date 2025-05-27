@@ -3237,13 +3237,16 @@ fn tx_replay_forking_test() {
 
     // Now, make a new stacks block, which should clear the tx replay set
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
-    let (signer_states, _) = signer_test.get_burn_updated_states();
-    for state in signer_states {
-        assert!(
-            state.get_tx_replay_set().is_none(),
-            "Signer state is in tx replay state, when it shouldn't be"
-        );
-    }
+    wait_for(30, || {
+        let (states, _) = signer_test.get_burn_updated_states();
+        if states.is_empty() {
+            return Ok(false);
+        }
+        Ok(states
+            .iter()
+            .all(|state| state.get_tx_replay_set().is_none()))
+    })
+    .expect("Unable to confirm tx replay state");
 
     // Now, we'll trigger another fork, with more txs, across tenures
 
@@ -3504,25 +3507,16 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
     assert_eq!(0, post_fork_tx_nonce);
 
     info!("----- Check Signers Tx Replay state -----");
-
-    let info = get_chain_info(&signer_test.running_nodes.conf);
-    let all_signers = signer_test.signer_test_pks();
-    wait_for_state_machine_update(
-        30,
-        &info.pox_consensus,
-        info.burn_block_height,
-        None,
-        &all_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
-    )
-    .expect("Timed out waiting for signer states to update");
-    let (signer_states, _) = signer_test.get_burn_updated_states();
-    for state in signer_states {
-        assert!(
-            state.get_tx_replay_set().is_none(),
-            "Signer state is in tx replay state, when it shouldn't be"
-        );
-    }
+    wait_for(30, || {
+        let (states, _) = signer_test.get_burn_updated_states();
+        if states.is_empty() {
+            return Ok(false);
+        }
+        Ok(states
+            .iter()
+            .all(|state| state.get_tx_replay_set().is_none()))
+    })
+    .expect("Unable to confirm tx replay state");
 
     signer_test.shutdown();
 }
