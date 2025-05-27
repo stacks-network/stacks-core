@@ -222,7 +222,7 @@ When a transaction in the `/new_block` payload has a `raw_tx` field of `"0x00"`,
 More details on burnchain operations can be found in [SIP-007](https://github.com/stacksgov/sips/blob/main/sips/sip-007/sip-007-stacking-consensus.md#stx-operations-on-bitcoin).
 
 #### Example JSON values for `burnchain_op` field:
-*   **TransferStx:**
+*   **transfer-stx:**
     ```json
     {
       "transfer_stx": {
@@ -246,7 +246,7 @@ More details on burnchain operations can be found in [SIP-007](https://github.co
     }
     ```
 
-*   **StackStx:**
+*   **stack-stx:**
     ```json
     {
       "stack_stx": {
@@ -266,7 +266,7 @@ More details on burnchain operations can be found in [SIP-007](https://github.co
     }
     ```
 
-*   **DelegateStx:**
+*   **delegate-stx:**
     ```json
     {
       "delegate_stx": {
@@ -286,6 +286,41 @@ More details on burnchain operations can be found in [SIP-007](https://github.co
         "reward_addr": [10, "16Jswqk47s9PUcyCc88MMVwzgvHPvtEpf"],
         "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
         "until_burn_height": null,
+        "vtxindex": 10
+      }
+    }
+    ```
+
+*   **pre-stx:**
+    ```json
+    {
+      "pre_stx": {
+        "burn_block_height": 10,
+        "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
+        "output": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
+        "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+        "vtxindex": 10
+      }
+    }
+    ```
+
+*   **vote-for-aggregate-key:**
+    ```json
+    {
+      "vote_for_aggregate_key": {
+        "burn_block_height": 10,
+        "burn_header_hash": "1010101010101010101010101010101010101010101010101010101010101010",
+        "aggregate_key": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "reward_cycle": 10,
+        "round": 10,
+        "sender": {
+          "address": "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2",
+          "address_hash_bytes": "0xaf3f91f38aa21ade7e9f95efdbc4201eeb4cf0f8",
+          "address_version": 26
+        },
+        "signer_index": 10,
+        "signer_key": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "burn_txid": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
         "vtxindex": 10
       }
     }
