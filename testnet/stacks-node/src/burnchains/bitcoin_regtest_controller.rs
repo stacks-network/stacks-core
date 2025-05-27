@@ -1539,6 +1539,12 @@ impl BitcoinRegtestController {
                     Ok(true)
                 );
             if ongoing_tx_confirmed {
+                if ongoing_op.payload == payload {
+                    info!("Abort attempt to re-submit confirmed LeaderBlockCommit");
+                    self.ongoing_block_commit = Some(ongoing_op);
+                    return Err(BurnchainControllerError::IdenticalOperation);
+                }
+
                 debug!("Was able to retrieve confirmation of ongoing burnchain TXID - {txid}");
                 let res = self.send_block_commit_operation(
                     epoch_id,
@@ -1600,49 +1606,30 @@ impl BitcoinRegtestController {
         }
 
         // An ongoing operation is in the mempool and we received a new block. The desired behaviour is the following:
-        // 1) If the ongoing and the incoming operation are **strictly** identical, we will be idempotent and discard the incoming.
-        // 2) If the 2 operations are different, we will try to avoid wasting UTXOs, and attempt to RBF the outgoing transaction:
-        //  i) If UTXOs are insufficient,
-        //    a) If no other UTXOs, we'll have to wait on the ongoing operation to be mined before resuming operation.
-        //    b) If we have some other UTXOs, drop the ongoing operation, and track the new one.
-        //  ii) If UTXOs initially used are sufficient for paying for a fee bump, then RBF
+        // (1) If the ongoing and the incoming operation are **strictly** identical, we will be idempotent and discard the incoming.
+        // (2) If the 2 operations are different, attempt to RBF the outgoing transaction:
 
-        // Let's start by early returning 1)
+        // Let's start by early returning (1)
         if payload == ongoing_op.payload {
             info!("Abort attempt to re-submit identical LeaderBlockCommit");
             self.ongoing_block_commit = Some(ongoing_op);
             return Err(BurnchainControllerError::IdenticalOperation);
         }
 
-        // Let's proceed and early return 2) i)
-        let res = if ongoing_op.fees.estimated_amount_required() > ongoing_op.sum_utxos() {
-            // Try to build and submit op, excluding UTXOs currently used
-            info!("Attempt to submit another leader_block_commit, despite an ongoing (outdated) commit");
-            self.send_block_commit_operation(
-                epoch_id,
-                payload,
-                signer,
-                None,
-                Some(ongoing_op.utxos.clone()),
-                None,
-                &[],
-            )
-        } else {
-            // Case 2) ii): Attempt to RBF
-            info!(
-                "Attempt to replace by fee an outdated leader block commit";
-                "ongoing_txids" => ?ongoing_op.txids
-            );
-            self.send_block_commit_operation(
-                epoch_id,
-                payload,
-                signer,
-                Some(ongoing_op.utxos.clone()),
-                None,
-                Some(ongoing_op.fees.clone()),
-                &ongoing_op.txids,
-            )
-        };
+        // If we reach this point, we are attempting to RBF the ongoing operation (2)
+        info!(
+            "Attempt to replace by fee an outdated leader block commit";
+            "ongoing_txids" => ?ongoing_op.txids
+        );
+        let res = self.send_block_commit_operation(
+            epoch_id,
+            payload,
+            signer,
+            Some(ongoing_op.utxos.clone()),
+            None,
+            Some(ongoing_op.fees.clone()),
+            &ongoing_op.txids,
+        );
 
         if res.is_err() {
             self.ongoing_block_commit = Some(ongoing_op);
