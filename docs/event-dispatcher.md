@@ -462,9 +462,11 @@ Reason can be one of:
 ### `POST /stackerdb_chunks`
 
 Delivers data related to mutations in a StackerDB replica this node subscribes to.
-*   **Triggered by keys**: `"stackerdb"`. **Not** included in `*`.
+*   **Triggered by keys**: `"stackerdb"`.
 *   **Payload Summary**: Contains the contract ID and an array of modified StackerDB slots, each with ID, version, signature, and data.
-*   **Note**: The data will only get sent if the corresponding chunk has already been successfully stored.
+*   **Note**:
+    * **Not** included in `*`.
+    * The data will only get sent if the corresponding chunk has already been successfully stored.
 
 *Example Payload:*
 
@@ -516,8 +518,9 @@ Delivers information about new AtlasDB attachments processed by the node.
 
 ### `POST /proposal_response`
 Delivers the validation response for a block proposal submitted to this node (relevant for Nakamoto consensus).
-*   **Triggered by keys**: `"block_proposal"`. **Not** included in `*`.
+*   **Triggered by keys**: `"block_proposal"`.
 *   **Payload Summary**: Contains the result of the block validation, which can be an acceptance (`BlockValidateOk`) or rejection (`BlockValidateReject`) with details.
+*   **Note**: **Not** included in `*`.
 
 *Example Payload:*
 ```json
