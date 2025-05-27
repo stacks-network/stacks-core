@@ -255,6 +255,22 @@ impl SignerTrait<SignerMessage> for Signer {
         _res: &Sender<SignerResult>,
         current_reward_cycle: u64,
     ) {
+        self.check_submitted_block_proposal();
+        self.check_pending_block_validations(stacks_client);
+
+        let mut prior_state = self.local_state_machine.clone();
+        if self.reward_cycle <= current_reward_cycle {
+            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client, &self.proposal_config)
+                .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
+        }
+
+        if prior_state != self.local_state_machine {
+            let version = self.get_signer_protocol_version();
+            self.local_state_machine
+                .send_signer_update_message(&mut self.stackerdb, version);
+            prior_state = self.local_state_machine.clone();
+        }
+
         let event_parity = match event {
             // Block proposal events do have reward cycles, but each proposal has its own cycle,
             //  and the vec could be heterogeneous, so, don't differentiate.
@@ -272,8 +288,6 @@ impl SignerTrait<SignerMessage> for Signer {
         if event_parity == Some(other_signer_parity) {
             return;
         }
-        self.check_submitted_block_proposal();
-        self.check_pending_block_validations(stacks_client);
         debug!("{self}: Processing event: {event:?}");
         let Some(event) = event else {
             // No event. Do nothing.
@@ -290,12 +304,6 @@ impl SignerTrait<SignerMessage> for Signer {
             // Do not process any events other than status checks or new burn blocks
             debug!("{self}: Signer reward cycle has not yet started. Ignoring event.");
             return;
-        }
-
-        let prior_state = self.local_state_machine.clone();
-        if self.reward_cycle <= current_reward_cycle {
-            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client, &self.proposal_config)
-                .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
         }
 
         self.handle_event_match(stacks_client, sortition_state, event, current_reward_cycle);
@@ -1374,7 +1382,7 @@ impl Signer {
             // Not enough rejection signatures to make a decision
             return;
         }
-        debug!("{self}: {total_reject_weight}/{total_weight} signers voted to reject the block {block_hash}");
+        info!("{self}: {total_reject_weight}/{total_weight} signers voted to reject the block {block_hash}");
         if let Err(e) = self.signer_db.mark_block_globally_rejected(&mut block_info) {
             warn!("{self}: Failed to mark block as globally rejected: {e:?}",);
         }

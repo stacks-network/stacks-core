@@ -3237,13 +3237,16 @@ fn tx_replay_forking_test() {
 
     // Now, make a new stacks block, which should clear the tx replay set
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
-    let (signer_states, _) = signer_test.get_burn_updated_states();
-    for state in signer_states {
-        assert!(
-            state.get_tx_replay_set().is_none(),
-            "Signer state is in tx replay state, when it shouldn't be"
-        );
-    }
+    wait_for(30, || {
+        let (states, _) = signer_test.get_burn_updated_states();
+        if states.is_empty() {
+            return Ok(false);
+        }
+        Ok(states
+            .iter()
+            .all(|state| state.get_tx_replay_set().is_none()))
+    })
+    .expect("Unable to confirm tx replay state");
 
     // Now, we'll trigger another fork, with more txs, across tenures
 
@@ -3504,25 +3507,16 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
     assert_eq!(0, post_fork_tx_nonce);
 
     info!("----- Check Signers Tx Replay state -----");
-
-    let info = get_chain_info(&signer_test.running_nodes.conf);
-    let all_signers = signer_test.signer_test_pks();
-    wait_for_state_machine_update(
-        30,
-        &info.pox_consensus,
-        info.burn_block_height,
-        None,
-        &all_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
-    )
-    .expect("Timed out waiting for signer states to update");
-    let (signer_states, _) = signer_test.get_burn_updated_states();
-    for state in signer_states {
-        assert!(
-            state.get_tx_replay_set().is_none(),
-            "Signer state is in tx replay state, when it shouldn't be"
-        );
-    }
+    wait_for(30, || {
+        let (states, _) = signer_test.get_burn_updated_states();
+        if states.is_empty() {
+            return Ok(false);
+        }
+        Ok(states
+            .iter()
+            .all(|state| state.get_tx_replay_set().is_none()))
+    })
+    .expect("Unable to confirm tx replay state");
 
     signer_test.shutdown();
 }
@@ -14866,56 +14860,19 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     assert_ne!(tip_c.burn_header_hash, tip_a.burn_header_hash);
     assert_eq!(tip_c.block_height, burn_height_before + 1);
 
-    wait_for(30, || {
-        let mut nmb_matches = 0;
-        let stackerdb_events = test_observer::get_stackerdb_chunks();
-        for chunk in stackerdb_events
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-        {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
-            let SignerMessage::StateMachineUpdate(update) = message else {
-                continue;
-            };
-            let (burn_block, burn_block_height, current_miner_pkh) =
-                match (SUPPORTED_SIGNER_PROTOCOL_VERSION, update.content) {
-                    (
-                        0,
-                        StateMachineUpdateContent::V0 {
-                            burn_block,
-                            burn_block_height,
-                            current_miner:
-                                StateMachineUpdateMinerState::ActiveMiner {
-                                    current_miner_pkh, ..
-                                },
-                            ..
-                        },
-                    )
-                    | (
-                        1,
-                        StateMachineUpdateContent::V1 {
-                            burn_block,
-                            burn_block_height,
-                            current_miner:
-                                StateMachineUpdateMinerState::ActiveMiner {
-                                    current_miner_pkh, ..
-                                },
-                            ..
-                        },
-                    ) => (burn_block, burn_block_height, current_miner_pkh),
-                    _ => continue,
-                };
-            if burn_block == tenure_c_block_proposal.header.consensus_hash
-                && burn_block_height == burn_height_before + 1
-                && current_miner_pkh == miner_pkh_1
-            {
-                nmb_matches += 1;
-            }
-        }
-        Ok(nmb_matches == 5)
-    })
-    .unwrap();
+    let all_signers = miners.signer_test.signer_test_pks();
+
+    info!("--------------- Waiting for Signers to Capitulate to Miner {miner_pkh_1} with Expected Stacks Height {} ----------------", tip_a.stacks_block_height;
+    );
+    wait_for_state_machine_update(
+        30,
+        &tenure_c_block_proposal.header.consensus_hash,
+        burn_height_before + 1,
+        Some((miner_pkh_1, tip_a.stacks_block_height)),
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Timed out waiting for state machine updates");
 
     info!("--------------- Miner 1 Extends Tenure B over Tenure C ---------------");
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
