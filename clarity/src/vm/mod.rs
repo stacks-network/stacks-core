@@ -109,6 +109,7 @@ pub struct SnippetEvaluationResult {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum EvaluationResult {
     Contract(ContractEvaluationResult),
     Snippet(SnippetEvaluationResult),

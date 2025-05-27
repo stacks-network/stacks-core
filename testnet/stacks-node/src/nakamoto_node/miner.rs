@@ -45,6 +45,7 @@ use stacks::net::api::poststackerdbchunk::StackerDBErrorCodes;
 use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
+use stacks::types::chainstate::BlockHeaderHash;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::secp256k1::MessageSignature;
 #[cfg(test)]
@@ -57,6 +58,7 @@ use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::tests::TestFlag;
 use stacks_common::util::vrf::VRFProof;
 
+use super::miner_db::MinerDB;
 use super::relayer::{MinerStopHandle, RelayerThread};
 use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
 use crate::nakamoto_node::signer_coordinator::SignerCoordinator;
@@ -187,8 +189,8 @@ pub struct BlockMinerThread {
     keychain: Keychain,
     /// burnchain configuration
     burnchain: Burnchain,
-    /// Last block mined
-    last_block_mined: Option<NakamotoBlock>,
+    /// Consensus hash and header hash of the last block mined
+    last_block_mined: Option<(ConsensusHash, BlockHeaderHash)>,
     /// Number of blocks mined since a tenure change/extend was attempted
     mined_blocks: u64,
     /// Cost consumed by the current tenure
@@ -226,6 +228,8 @@ pub struct BlockMinerThread {
     abort_flag: Arc<AtomicBool>,
     /// Should the nonce cache be reset before mining the next block?
     reset_nonce_cache: bool,
+    /// Storage for persisting non-confidential miner information
+    miner_db: MinerDB,
 }
 
 impl BlockMinerThread {
@@ -238,8 +242,8 @@ impl BlockMinerThread {
         parent_tenure_id: StacksBlockId,
         burn_tip_at_start: &ConsensusHash,
         reason: MinerReason,
-    ) -> BlockMinerThread {
-        BlockMinerThread {
+    ) -> Result<BlockMinerThread, NakamotoNodeError> {
+        Ok(BlockMinerThread {
             config: rt.config.clone(),
             globals: rt.globals.clone(),
             keychain: rt.keychain.clone(),
@@ -260,7 +264,8 @@ impl BlockMinerThread {
             tenure_cost: ExecutionCost::ZERO,
             tenure_budget: ExecutionCost::ZERO,
             reset_nonce_cache: true,
-        }
+            miner_db: MinerDB::open_with_config(&rt.config)?,
+        })
     }
 
     pub fn get_abort_flag(&self) -> Arc<AtomicBool> {
@@ -742,7 +747,10 @@ impl BlockMinerThread {
         Self::fault_injection_block_announce_stall(&new_block);
         self.globals.coord().announce_new_stacks_block();
 
-        self.last_block_mined = Some(new_block);
+        self.last_block_mined = Some((
+            new_block.header.consensus_hash,
+            new_block.header.block_hash(),
+        ));
         self.mined_blocks += 1;
         Ok(true)
     }
@@ -756,16 +764,24 @@ impl BlockMinerThread {
         &mut self,
         chain_state: &mut StacksChainState,
     ) -> Result<(), NakamotoNodeError> {
-        let Some(last_block_mined) = &self.last_block_mined else {
+        let Some((last_consensus_hash, last_bhh)) = &self.last_block_mined else {
             return Ok(());
         };
+
+        // If mock-mining, we don't need to wait for the last block to be
+        // processed (because it will never be). Instead just wait
+        // `min_time_between_blocks_ms`, then resume mining.
+        if self.config.node.mock_mining {
+            thread::sleep(Duration::from_millis(
+                self.config.miner.min_time_between_blocks_ms,
+            ));
+            return Ok(());
+        }
+
         loop {
             let (_, processed, _, _) = chain_state
                 .nakamoto_blocks_db()
-                .get_block_processed_and_signed_weight(
-                    &last_block_mined.header.consensus_hash,
-                    &last_block_mined.header.block_hash(),
-                )?
+                .get_block_processed_and_signed_weight(last_consensus_hash, &last_bhh)?
                 .ok_or_else(|| NakamotoNodeError::UnexpectedChainState)?;
 
             // Once the block has been processed and the miner is no longer
@@ -831,6 +847,7 @@ impl BlockMinerThread {
             stackerdbs,
             &self.globals.counters,
             &self.burn_election_block,
+            &self.miner_db,
         )
     }
 
@@ -1046,6 +1063,7 @@ impl BlockMinerThread {
             chain_state.mainnet,
             &mut miners_session,
             &self.burn_election_block.consensus_hash,
+            &self.miner_db,
         )
     }
 
@@ -1380,6 +1398,30 @@ impl BlockMinerThread {
             return Err(NakamotoNodeError::ParentNotFound);
         };
 
+        // If we're mock mining, we need to manipulate the `last_block_mined`
+        // to match what it should be based on the actual chainstate.
+        if self.config.node.mock_mining {
+            if let Some((last_block_consensus_hash, _)) = &self.last_block_mined {
+                // If the parent block is in the same tenure, then we should
+                // pretend that we mined it.
+                if last_block_consensus_hash
+                    == &parent_block_info.stacks_parent_header.consensus_hash
+                {
+                    self.last_block_mined = Some((
+                        parent_block_info.stacks_parent_header.consensus_hash,
+                        parent_block_info
+                            .stacks_parent_header
+                            .anchored_header
+                            .block_hash(),
+                    ));
+                } else {
+                    // If the parent block is not in the same tenure, then we
+                    // should act as though we haven't mined anything yet.
+                    self.last_block_mined = None;
+                }
+            }
+        }
+
         // create our coinbase if this is the first block we've mined this tenure
         let tenure_start_info = self.make_tenure_start_info(
             &chain_state,
@@ -1407,6 +1449,14 @@ impl BlockMinerThread {
         // be reset to false.
         self.reset_nonce_cache = true;
 
+        let replay_transactions = if self.config.miner.replay_transactions {
+            coordinator
+                .get_signer_global_state()
+                .map(|state| state.tx_replay_set.unwrap_or_default())
+                .unwrap_or_default()
+        } else {
+            vec![]
+        };
         // build the block itself
         let mut block_metadata = NakamotoBlockBuilder::build_nakamoto_block(
             &chain_state,
@@ -1424,6 +1474,7 @@ impl BlockMinerThread {
             //  correct signer_signature_hash for `process_mined_nakamoto_block_event`
             Some(&self.event_dispatcher),
             signer_bitvec_len.unwrap_or(0),
+            &replay_transactions,
         )
         .map_err(|e| {
             if !matches!(

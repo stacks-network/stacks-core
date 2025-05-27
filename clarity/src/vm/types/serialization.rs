@@ -1183,18 +1183,14 @@ struct WriteCounter {
 
 impl Write for WriteCounter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let input: u32 = buf.len().try_into().map_err(|_e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Serialization size would overflow u32",
-            )
-        })?;
-        self.count = self.count.checked_add(input).ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Serialization size would overflow u32",
-            )
-        })?;
+        let input: u32 = buf
+            .len()
+            .try_into()
+            .map_err(|_e| std::io::Error::other("Serialization size would overflow u32"))?;
+        self.count = self
+            .count
+            .checked_add(input)
+            .ok_or_else(|| std::io::Error::other("Serialization size would overflow u32"))?;
         Ok(input as usize)
     }
 

@@ -24,7 +24,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
-use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
+use clarity::vm::analysis::contract_interface_builder::{
+    build_contract_interface, ContractInterface,
+};
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
@@ -34,7 +36,10 @@ use rand::Rng;
 use rusqlite::{params, Connection};
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
-use stacks::chainstate::burn::operations::BlockstackOperationType;
+use stacks::chainstate::burn::operations::{
+    blockstack_op_extended_deserialize, blockstack_op_extended_serialize_opt,
+    BlockstackOperationType,
+};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::nakamoto::NakamotoBlock;
@@ -73,6 +78,9 @@ use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, Sta
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::serde_serializers::{
+    prefix_hex, prefix_hex_codec, prefix_opt_hex, prefix_string_0x,
+};
 use url::Url;
 
 #[cfg(any(test, feature = "testing"))]
@@ -93,15 +101,6 @@ pub struct EventObserver {
     /// If true, the stacks-node will not retry if event delivery fails for any reason.
     /// WARNING: This should not be set on observers that require successful delivery of all events.
     pub disable_retries: bool,
-}
-
-struct ReceiptPayloadInfo<'a> {
-    txid: String,
-    success: &'a str,
-    raw_result: String,
-    raw_tx: String,
-    contract_interface_json: serde_json::Value,
-    burnchain_op_json: serde_json::Value,
 }
 
 const STATUS_RESP_TRUE: &str = "success";
@@ -332,6 +331,43 @@ impl RewardSetEventPayload {
             pox_ustx_threshold: reward_set.pox_ustx_threshold,
         }
     }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct TransactionEventPayload<'a> {
+    #[serde(with = "prefix_hex")]
+    /// The transaction id
+    pub txid: Txid,
+    /// The transaction index
+    pub tx_index: u32,
+    /// The transaction status
+    pub status: &'a str,
+    #[serde(with = "prefix_hex_codec")]
+    /// The raw transaction result
+    pub raw_result: Value,
+    /// The hex encoded raw transaction
+    #[serde(with = "prefix_string_0x")]
+    pub raw_tx: String,
+    /// The contract interface
+    pub contract_interface: Option<ContractInterface>,
+    /// The burnchain op
+    #[serde(
+        serialize_with = "blockstack_op_extended_serialize_opt",
+        deserialize_with = "blockstack_op_extended_deserialize"
+    )]
+    pub burnchain_op: Option<BlockstackOperationType>,
+    /// The transaction execution cost
+    pub execution_cost: ExecutionCost,
+    /// The microblock sequence
+    pub microblock_sequence: Option<u16>,
+    #[serde(with = "prefix_opt_hex")]
+    /// The microblock hash
+    pub microblock_hash: Option<BlockHeaderHash>,
+    #[serde(with = "prefix_opt_hex")]
+    /// The microblock parent hash
+    pub microblock_parent_hash: Option<BlockHeaderHash>,
+    /// Error information if one occurred in the Clarity VM
+    pub vm_error: Option<String>,
 }
 
 #[cfg(test)]
@@ -575,11 +611,14 @@ impl EventObserver {
         })
     }
 
-    /// Returns tuple of (txid, success, raw_result, raw_tx, contract_interface_json)
-    fn generate_payload_info_for_receipt(receipt: &StacksTransactionReceipt) -> ReceiptPayloadInfo {
+    /// Returns transaction event payload to send for new block or microblock event
+    fn make_new_block_txs_payload(
+        receipt: &StacksTransactionReceipt,
+        tx_index: u32,
+    ) -> TransactionEventPayload {
         let tx = &receipt.transaction;
 
-        let success = match (receipt.post_condition_aborted, &receipt.result) {
+        let status = match (receipt.post_condition_aborted, &receipt.result) {
             (false, Value::Response(response_data)) => {
                 if response_data.committed {
                     STATUS_RESP_TRUE
@@ -589,75 +628,45 @@ impl EventObserver {
             }
             (true, Value::Response(_)) => STATUS_RESP_POST_CONDITION,
             _ => {
-                if let TransactionOrigin::Stacks(inner_tx) = &tx {
-                    if let TransactionPayload::PoisonMicroblock(..) = &inner_tx.payload {
-                        STATUS_RESP_TRUE
-                    } else {
-                        unreachable!() // Transaction results should otherwise always be a Value::Response type
-                    }
-                } else {
-                    unreachable!() // Transaction results should always be a Value::Response type
+                if !matches!(
+                    tx,
+                    TransactionOrigin::Stacks(StacksTransaction {
+                        payload: TransactionPayload::PoisonMicroblock(_, _),
+                        ..
+                    })
+                ) {
+                    unreachable!("Unexpected transaction result type");
                 }
+                STATUS_RESP_TRUE
             }
         };
 
-        let (txid, raw_tx, burnchain_op_json) = match tx {
-            TransactionOrigin::Burn(op) => (
-                op.txid().to_string(),
-                "00".to_string(),
-                BlockstackOperationType::blockstack_op_to_json(op),
-            ),
+        let (txid, raw_tx, burnchain_op) = match tx {
+            TransactionOrigin::Burn(op) => (op.txid(), "00".to_string(), Some(op.clone())),
             TransactionOrigin::Stacks(ref tx) => {
-                let txid = tx.txid().to_string();
-                let bytes = tx.serialize_to_vec();
-                (txid, bytes_to_hex(&bytes), json!(null))
+                let txid = tx.txid();
+                let bytes = bytes_to_hex(&tx.serialize_to_vec());
+                (txid, bytes, None)
             }
         };
 
-        let raw_result = {
-            let bytes = receipt
-                .result
-                .serialize_to_vec()
-                .expect("FATAL: failed to serialize transaction receipt");
-            bytes_to_hex(&bytes)
-        };
-        let contract_interface_json = {
-            match &receipt.contract_analysis {
-                Some(analysis) => json!(build_contract_interface(analysis)
-                    .expect("FATAL: failed to serialize contract publish receipt")),
-                None => json!(null),
-            }
-        };
-        ReceiptPayloadInfo {
+        TransactionEventPayload {
             txid,
-            success,
-            raw_result,
+            tx_index,
+            status,
+            raw_result: receipt.result.clone(),
             raw_tx,
-            contract_interface_json,
-            burnchain_op_json,
+            contract_interface: receipt.contract_analysis.as_ref().map(|analysis| {
+                build_contract_interface(analysis)
+                    .expect("FATAL: failed to serialize contract publish receipt")
+            }),
+            burnchain_op,
+            execution_cost: receipt.execution_cost.clone(),
+            microblock_sequence: receipt.microblock_header.as_ref().map(|x| x.sequence),
+            microblock_hash: receipt.microblock_header.as_ref().map(|x| x.block_hash()),
+            microblock_parent_hash: receipt.microblock_header.as_ref().map(|x| x.prev_block),
+            vm_error: receipt.vm_error.clone(),
         }
-    }
-
-    /// Returns json payload to send for new block or microblock event
-    fn make_new_block_txs_payload(
-        receipt: &StacksTransactionReceipt,
-        tx_index: u32,
-    ) -> serde_json::Value {
-        let receipt_payload_info = EventObserver::generate_payload_info_for_receipt(receipt);
-
-        json!({
-            "txid": format!("0x{}", &receipt_payload_info.txid),
-            "tx_index": tx_index,
-            "status": receipt_payload_info.success,
-            "raw_result": format!("0x{}", &receipt_payload_info.raw_result),
-            "raw_tx": format!("0x{}", &receipt_payload_info.raw_tx),
-            "contract_abi": receipt_payload_info.contract_interface_json,
-            "burnchain_op": receipt_payload_info.burnchain_op_json,
-            "execution_cost": receipt.execution_cost,
-            "microblock_sequence": receipt.microblock_header.as_ref().map(|x| x.sequence),
-            "microblock_hash": receipt.microblock_header.as_ref().map(|x| format!("0x{}", x.block_hash())),
-            "microblock_parent_hash": receipt.microblock_header.as_ref().map(|x| format!("0x{}", x.prev_block)),
-        })
     }
 
     fn make_new_attachment_payload(
@@ -688,7 +697,7 @@ impl EventObserver {
         &self,
         parent_index_block_hash: StacksBlockId,
         filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
-        serialized_txs: &Vec<serde_json::Value>,
+        serialized_txs: &Vec<TransactionEventPayload>,
         burn_block_hash: BurnchainHeaderHash,
         burn_block_height: u32,
         burn_block_timestamp: u64,
@@ -1847,14 +1856,27 @@ mod test {
     use std::thread;
     use std::time::Instant;
 
+    use clarity::boot_util::boot_code_id;
     use clarity::vm::costs::ExecutionCost;
+    use clarity::vm::events::SmartContractEventData;
+    use clarity::vm::types::StacksAddressExtensions;
     use serial_test::serial;
+    use stacks::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
     use stacks::burnchains::{PoxConstants, Txid};
+    use stacks::chainstate::burn::operations::PreStxOp;
     use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
     use stacks::chainstate::stacks::events::StacksBlockEventData;
-    use stacks::chainstate::stacks::StacksBlock;
-    use stacks::types::chainstate::BlockHeaderHash;
+    use stacks::chainstate::stacks::{
+        SinglesigHashMode, SinglesigSpendingCondition, StacksBlock, TenureChangeCause,
+        TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
+        TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSpendingCondition,
+        TransactionVersion,
+    };
+    use stacks::types::chainstate::{
+        BlockHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+    };
+    use stacks::util::hash::Hash160;
     use stacks::util::secp256k1::MessageSignature;
     use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
@@ -2664,5 +2686,173 @@ mod test {
         );
 
         assert_eq!(event_dispatcher.registered_observers.len(), 1);
+    }
+
+    #[test]
+    /// This test checks that tx payloads properly convert the stacks transaction receipt regardless of the presence of the vm_error
+    fn make_new_block_txs_payload_vm_error() {
+        let privkey = StacksPrivateKey::random();
+        let pubkey = StacksPublicKey::from_private(&privkey);
+        let addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![pubkey],
+        )
+        .unwrap();
+
+        let tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: 0x80000000,
+            auth: TransactionAuth::from_p2pkh(&privkey).unwrap(),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::TokenTransfer(
+                addr.to_account_principal(),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        };
+
+        let mut receipt = StacksTransactionReceipt {
+            transaction: TransactionOrigin::Burn(BlockstackOperationType::PreStx(PreStxOp {
+                output: StacksAddress::new(0, Hash160([1; 20])).unwrap(),
+                txid: tx.txid(),
+                vtxindex: 0,
+                block_height: 1,
+                burn_header_hash: BurnchainHeaderHash([5u8; 32]),
+            })),
+            events: vec![],
+            post_condition_aborted: true,
+            result: Value::okay_true(),
+            contract_analysis: None,
+            execution_cost: ExecutionCost {
+                write_length: 0,
+                write_count: 0,
+                read_length: 0,
+                read_count: 0,
+                runtime: 0,
+            },
+            microblock_header: None,
+            vm_error: None,
+            stx_burned: 0u128,
+            tx_index: 0,
+        };
+
+        let payload_no_error = EventObserver::make_new_block_txs_payload(&receipt, 0);
+        assert_eq!(payload_no_error.vm_error, receipt.vm_error);
+
+        receipt.vm_error = Some("Inconceivable!".into());
+
+        let payload_with_error = EventObserver::make_new_block_txs_payload(&receipt, 0);
+        assert_eq!(payload_with_error.vm_error, receipt.vm_error);
+    }
+
+    fn make_tenure_change_payload() -> TenureChangePayload {
+        TenureChangePayload {
+            tenure_consensus_hash: ConsensusHash([0; 20]),
+            prev_tenure_consensus_hash: ConsensusHash([0; 20]),
+            burn_view_consensus_hash: ConsensusHash([0; 20]),
+            previous_tenure_end: StacksBlockId([0; 32]),
+            previous_tenure_blocks: 1,
+            cause: TenureChangeCause::Extended,
+            pubkey_hash: Hash160([0; 20]),
+        }
+    }
+
+    fn make_tenure_change_tx(payload: TenureChangePayload) -> StacksTransaction {
+        StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: 1,
+            auth: TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(
+                SinglesigSpendingCondition {
+                    hash_mode: SinglesigHashMode::P2PKH,
+                    signer: Hash160([0; 20]),
+                    nonce: 0,
+                    tx_fee: 0,
+                    key_encoding: TransactionPublicKeyEncoding::Compressed,
+                    signature: MessageSignature([0; 65]),
+                },
+            )),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::TenureChange(payload),
+        }
+    }
+
+    #[test]
+    fn backwards_compatibility_transaction_event_payload() {
+        let tx = make_tenure_change_tx(make_tenure_change_payload());
+        let receipt = StacksTransactionReceipt {
+            transaction: TransactionOrigin::Burn(BlockstackOperationType::PreStx(PreStxOp {
+                output: StacksAddress::new(0, Hash160([1; 20])).unwrap(),
+                txid: tx.txid(),
+                vtxindex: 0,
+                block_height: 1,
+                burn_header_hash: BurnchainHeaderHash([5u8; 32]),
+            })),
+            events: vec![StacksTransactionEvent::SmartContractEvent(
+                SmartContractEventData {
+                    key: (boot_code_id("some-contract", false), "some string".into()),
+                    value: Value::Bool(false),
+                },
+            )],
+            post_condition_aborted: false,
+            result: Value::okay_true(),
+            stx_burned: 100,
+            contract_analysis: None,
+            execution_cost: ExecutionCost {
+                write_length: 1,
+                write_count: 2,
+                read_length: 3,
+                read_count: 4,
+                runtime: 5,
+            },
+            microblock_header: None,
+            tx_index: 1,
+            vm_error: None,
+        };
+        let payload = EventObserver::make_new_block_txs_payload(&receipt, 0);
+        let new_serialized_data = serde_json::to_string_pretty(&payload).expect("Failed");
+        let old_serialized_data = r#"
+        {
+            "burnchain_op": {
+                "pre_stx": {
+                    "burn_block_height": 1,
+                    "burn_header_hash": "0505050505050505050505050505050505050505050505050505050505050505",
+                    "burn_txid": "ace70e63009a2c2d22c0f948b146d8a28df13a2900f3b5f3cc78b56459ffef05",
+                    "output": {
+                        "address": "S0G2081040G2081040G2081040G2081054GYN98",
+                        "address_hash_bytes": "0x0101010101010101010101010101010101010101",
+                        "address_version": 0
+                    },
+                    "vtxindex": 0
+                }
+            },
+            "contract_abi": null,
+            "execution_cost": {
+                "read_count": 4,
+                "read_length": 3,
+                "runtime": 5,
+                "write_count": 2,
+                "write_length": 1
+            },
+            "microblock_hash": null,
+            "microblock_parent_hash": null,
+            "microblock_sequence": null,
+            "raw_result": "0x0703",
+            "raw_tx": "0x00",
+            "status": "success",
+            "tx_index": 0,
+            "txid": "0xace70e63009a2c2d22c0f948b146d8a28df13a2900f3b5f3cc78b56459ffef05"
+        }
+        "#;
+        let new_value: TransactionEventPayload = serde_json::from_str(&new_serialized_data)
+            .expect("Failed to deserialize new data as TransactionEventPayload");
+        let old_value: TransactionEventPayload = serde_json::from_str(&old_serialized_data)
+            .expect("Failed to deserialize old data as TransactionEventPayload");
+        assert_eq!(new_value, old_value);
     }
 }

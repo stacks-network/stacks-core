@@ -35,7 +35,7 @@ use crate::vm::types::{
 };
 use crate::vm::{eval, Environment, LocalContext, Value};
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::large_enum_variant)]
 pub enum CallableType {
     UserFunction(DefinedFunction),
     NativeFunction(&'static str, NativeHandle, ClarityCostFunction),

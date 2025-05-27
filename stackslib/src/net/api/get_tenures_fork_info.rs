@@ -25,6 +25,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{to_hex, Hash160};
+use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex, prefix_opt_hex_codec};
 use stacks_common::util::HexError;
 use {serde, serde_json};
 
@@ -34,7 +35,6 @@ use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NakamotoSta
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::api::getblock_v3::NakamotoBlockStream;
-use crate::net::api::{prefix_hex, prefix_opt_hex};
 use crate::net::http::{
     parse_bytes, parse_json, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType,
     HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
@@ -80,6 +80,9 @@ pub struct TenureForkingInfo {
     /// tenure's first block.
     #[serde(with = "prefix_opt_hex")]
     pub first_block_mined: Option<StacksBlockId>,
+    /// Nakamoto blocks in the tenure
+    #[serde(with = "prefix_opt_hex_codec")]
+    pub nakamoto_blocks: Option<Vec<NakamotoBlock>>,
 }
 
 #[derive(Clone, Default)]
@@ -154,8 +157,8 @@ impl TenureForkingInfo {
         chainstate: &StacksChainState,
         tip_block_id: &StacksBlockId,
     ) -> Result<Self, ChainError> {
-        let first_block_mined = if !sn.sortition {
-            None
+        let (first_block_mined, nakamoto_blocks) = if !sn.sortition {
+            (None, None)
         } else {
             // is this a nakamoto sortition?
             let epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), sn.block_height)?.ok_or_else(
@@ -168,18 +171,28 @@ impl TenureForkingInfo {
                 },
             )?;
             if epoch.epoch_id < StacksEpochId::Epoch30 {
-                StacksChainState::get_stacks_block_header_info_by_consensus_hash(
-                    chainstate.db(),
-                    &sn.consensus_hash,
-                )?
-                .map(|header| header.index_block_hash())
+                (
+                    StacksChainState::get_stacks_block_header_info_by_consensus_hash(
+                        chainstate.db(),
+                        &sn.consensus_hash,
+                    )?
+                    .map(|header| header.index_block_hash()),
+                    None,
+                )
             } else {
-                NakamotoChainState::get_nakamoto_tenure_start_block_header(
-                    &mut chainstate.index_conn(),
-                    tip_block_id,
-                    &sn.consensus_hash,
-                )?
-                .map(|header| header.index_block_hash())
+                (
+                    NakamotoChainState::get_nakamoto_tenure_start_block_header(
+                        &mut chainstate.index_conn(),
+                        tip_block_id,
+                        &sn.consensus_hash,
+                    )?
+                    .map(|header| header.index_block_hash()),
+                    Some(
+                        chainstate
+                            .nakamoto_blocks_db()
+                            .get_nakamoto_blocks_in_tenure(&sn.consensus_hash)?,
+                    ),
+                )
             }
         };
         Ok(TenureForkingInfo {
@@ -190,6 +203,7 @@ impl TenureForkingInfo {
             consensus_hash: sn.consensus_hash.clone(),
             was_sortition: sn.sortition,
             first_block_mined,
+            nakamoto_blocks,
         })
     }
 }
