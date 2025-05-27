@@ -52,6 +52,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use config::GlobalConfig;
 use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait, VERSION_STRING};
 use runloop::SignerResult;
+use signerdb::BlockInfo;
 use stacks_common::{info, warn};
 use v0::signer_state::LocalStateMachine;
 
@@ -79,6 +80,8 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
     fn get_local_state_machine(&self) -> &LocalStateMachine;
     /// Get the number of pending block proposals
     fn get_pending_proposals_count(&self) -> u64;
+    /// Get canonical block according to this signer's db
+    fn get_canonical_tip(&self) -> Option<BlockInfo>;
 }
 
 /// A wrapper around the running signer type for the signer

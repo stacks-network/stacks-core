@@ -270,6 +270,9 @@ impl SignerTrait<SignerMessage> for Signer {
             prior_state = self.local_state_machine.clone();
         }
 
+        self.check_submitted_block_proposal();
+        self.check_pending_block_validations(stacks_client);
+
         let event_parity = match event {
             // Block proposal events do have reward cycles, but each proposal has its own cycle,
             //  and the vec could be heterogeneous, so, don't differentiate.
@@ -286,20 +289,6 @@ impl SignerTrait<SignerMessage> for Signer {
         let other_signer_parity = (self.reward_cycle + 1) % 2;
         if event_parity == Some(other_signer_parity) {
             return;
-        }
-        // Check first if our local state machine view of the miner changes before attempting to check any other events
-        if let Err(e) = self.local_state_machine.check_miner_inactivity(
-            &self.signer_db,
-            stacks_client,
-            &self.proposal_config,
-        ) {
-            warn!("{self}: An error occurred checking the current miner activity: {e}");
-        }
-        if prior_state != self.local_state_machine {
-            let version = self.get_signer_protocol_version();
-            self.local_state_machine
-                .send_signer_update_message(&mut self.stackerdb, version);
-            prior_state = self.local_state_machine.clone();
         }
         debug!("{self}: Processing event: {event:?}");
         let Some(event) = event else {
@@ -354,6 +343,14 @@ impl SignerTrait<SignerMessage> for Signer {
             .get_all_pending_block_validations()
             .map(|results| u64::try_from(results.len()).unwrap())
             .unwrap_or(0)
+    }
+
+    fn get_canonical_tip(&self) -> Option<BlockInfo> {
+        self.signer_db
+            .get_canonical_tip()
+            .inspect_err(|e| error!("{self}: Failed to check for canonical tip: {e:?}"))
+            .ok()
+            .flatten()
     }
 }
 
