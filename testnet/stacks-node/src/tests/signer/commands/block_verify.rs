@@ -89,19 +89,19 @@ impl Command<SignerTestState, SignerTestContext> for ChainVerifyMinerBlockCount 
                     &miner_pk,
                 )
             }
-            HeightStrategy::AfterSpecificHeight(height) => {
-                self.ctx.get_miner_blocks_after_specified_block_height(
-                    &conf,
-                    height,
-                    &miner_pk,
-                )
-            }
+            HeightStrategy::AfterSpecificHeight(height) => self
+                .ctx
+                .get_miner_blocks_after_specified_block_height(&conf, height, &miner_pk),
         };
 
         assert_eq!(
-            self.expected_block_count, miner_blocks_after_height,
+            self.expected_block_count,
+            miner_blocks_after_height,
             "Expected {} blocks from miner {} after {:?}, but found {}",
-            self.expected_block_count, self.miner_index, self.height_strategy, miner_blocks_after_height
+            self.expected_block_count,
+            self.miner_index,
+            self.height_strategy,
+            miner_blocks_after_height
         );
 
         info!(
@@ -111,7 +111,10 @@ impl Command<SignerTestState, SignerTestContext> for ChainVerifyMinerBlockCount 
     }
 
     fn label(&self) -> String {
-        format!("VERIFY_MINER_{}_BLOCK_COUNT_{:?}", self.miner_index, self.height_strategy)
+        format!(
+            "VERIFY_MINER_{}_BLOCK_COUNT_{:?}",
+            self.miner_index, self.height_strategy
+        )
     }
 
     fn build(

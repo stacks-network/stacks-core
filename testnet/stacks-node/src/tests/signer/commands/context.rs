@@ -61,7 +61,7 @@ impl SignerTestContext {
         self.num_signers
     }
 
-    // Getter for num_transfer_txs  
+    // Getter for num_transfer_txs
     pub fn get_num_transfer_txs(&self) -> u64 {
         self.num_transfer_txs
     }

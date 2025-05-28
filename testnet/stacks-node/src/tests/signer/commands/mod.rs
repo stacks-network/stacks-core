@@ -12,18 +12,15 @@ mod stacks_mining;
 mod transfer;
 
 pub use bitcoin_mining::{
-    MinerMineBtcBlocks, MinerMineBlockAndTriggerTenureChange, ChainGenerateBtcBlocks,
+    ChainGenerateBtcBlocks, MinerMineBlockAndTriggerTenureChange, MinerMineBtcBlocks,
 };
 pub use block_commit::MinerSubmitBlockCommit;
 pub use block_verify::ChainVerifyMinerBlockCount;
-pub use block_wait::{
-    ChainExpectNakaBlock,
-    ChainExpectNakaBlockProposal,
-};
+pub use block_wait::{ChainExpectNakaBlock, ChainExpectNakaBlockProposal};
 pub use boot::ChainBootToEpoch3;
 pub use commit_ops::ChainMinerCommitOp;
 pub use context::SignerTestContext;
 pub use shutdown::ChainShutdownMiners;
-pub use sortition::{ChainVerifyLastSortitionWinnerReorged, ChainExpectSortitionWinner};
+pub use sortition::{ChainExpectSortitionWinner, ChainVerifyLastSortitionWinnerReorged};
 pub use stacks_mining::ChainStacksMining;
 pub use transfer::MinerSendAndMineTransferTx;

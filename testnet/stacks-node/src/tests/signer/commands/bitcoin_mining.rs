@@ -111,10 +111,7 @@ pub struct MinerMineBtcBlocks {
 
 impl MinerMineBtcBlocks {
     fn new(ctx: Arc<SignerTestContext>, num_blocks: u64) -> Self {
-        Self {
-            ctx,
-            num_blocks,
-        }
+        Self { ctx, num_blocks }
     }
 
     pub fn one(ctx: Arc<SignerTestContext>) -> Self {
@@ -133,10 +130,7 @@ impl Command<SignerTestState, SignerTestContext> for MinerMineBtcBlocks {
     }
 
     fn apply(&self, _state: &mut SignerTestState) {
-        info!(
-            "Applying: Mining {} Bitcoin block(s)",
-            self.num_blocks
-        );
+        info!("Applying: Mining {} Bitcoin block(s)", self.num_blocks);
 
         // We can use miner 1 sortition db - it's the same for both miners
         let sortdb = self.ctx.get_sortition_db(1);
@@ -222,7 +216,9 @@ impl Command<SignerTestState, SignerTestContext> for ChainGenerateBtcBlocks {
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         use proptest::prelude::*;
         prop_oneof![
-            Just(CommandWrapper::new(ChainGenerateBtcBlocks::one(ctx.clone()))),
+            Just(CommandWrapper::new(ChainGenerateBtcBlocks::one(
+                ctx.clone()
+            ))),
             (2u64..=5u64).prop_map({
                 let ctx = ctx.clone();
                 move |num_blocks| {

@@ -26,22 +26,20 @@ impl Command<SignerTestState, SignerTestContext> for ChainShutdownMiners {
 
     fn apply(&self, _state: &mut SignerTestState) {
         info!("Applying: Shutting down miners");
-        
+
         let miners_arc = self.ctx.miners.clone();
-        
+
         // Try to unwrap the Arc - this only works if we're the last reference
         match Arc::try_unwrap(miners_arc) {
-            Ok(mutex) => {
-                match mutex.into_inner() {
-                    Ok(miners) => {
-                        miners.shutdown();
-                        info!("Miners have been shut down");
-                    }
-                    Err(_) => {
-                        warn!("Mutex was poisoned, cannot shutdown miners cleanly");
-                    }
+            Ok(mutex) => match mutex.into_inner() {
+                Ok(miners) => {
+                    miners.shutdown();
+                    info!("Miners have been shut down");
                 }
-            }
+                Err(_) => {
+                    warn!("Mutex was poisoned, cannot shutdown miners cleanly");
+                }
+            },
             Err(_) => {
                 warn!("Cannot shutdown miners: other references to Arc still exist");
                 // Could potentially set a flag or use some other coordination mechanism

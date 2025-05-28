@@ -189,9 +189,9 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlock {
 /// Can optionally wait for the proposed block to be rejected or accepted based on the expectation.
 #[derive(Debug, Clone)]
 enum BlockExpectation {
-    JustProposal,                    // Just wait for proposal, don't check outcome
-    ExpectRejection(RejectReason),   // Expect rejection with specific reason  
-    ExpectAcceptance,                // Expect the block to be accepted/confirmed
+    JustProposal,                  // Just wait for proposal, don't check outcome
+    ExpectRejection(RejectReason), // Expect rejection with specific reason
+    ExpectAcceptance,              // Expect the block to be accepted/confirmed
 }
 
 pub struct ChainExpectNakaBlockProposal {
@@ -201,15 +201,19 @@ pub struct ChainExpectNakaBlockProposal {
 }
 
 impl ChainExpectNakaBlockProposal {
-    fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
-        Self { 
-            ctx, 
+    pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
+        Self {
+            ctx,
             miner_index,
             expectation: BlockExpectation::JustProposal,
         }
     }
 
-    pub fn with_rejection(ctx: Arc<SignerTestContext>, miner_index: usize, reason: RejectReason) -> Self {
+    pub fn with_rejection(
+        ctx: Arc<SignerTestContext>,
+        miner_index: usize,
+        reason: RejectReason,
+    ) -> Self {
         Self {
             ctx,
             miner_index,
@@ -235,7 +239,7 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlockProposa
                     self.miner_index,
                 );
                 true
-            },
+            }
             BlockExpectation::ExpectRejection(reason) => {
                 info!(
                     "Checking: Waiting for block proposal from miner {:?} and rejection with reason {:?}",
@@ -243,14 +247,14 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlockProposa
                     reason,
                 );
                 true
-            },
+            }
             BlockExpectation::ExpectAcceptance => {
                 info!(
                     "Checking: Waiting for block proposal from miner {:?} and acceptance",
                     self.miner_index,
                 );
                 true
-            },
+            }
         }
     }
 
@@ -286,12 +290,9 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlockProposa
         match &self.expectation {
             BlockExpectation::JustProposal => {
                 info!("Block proposal received, no further expectations");
-            },
+            }
             BlockExpectation::ExpectRejection(reason) => {
-                info!(
-                    "Now waiting for block rejection with reason {:?}",
-                    reason
-                );
+                info!("Now waiting for block rejection with reason {:?}", reason);
 
                 wait_for_block_global_rejection_with_reject_reason(
                     30,
@@ -301,15 +302,12 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlockProposa
                 )
                 .expect("Timed out waiting for block rejection");
 
-                info!(
-                    "Block was rejected with the expected reason: {:?}",
-                    reason
-                );
-            },
+                info!("Block was rejected with the expected reason: {:?}", reason);
+            }
             BlockExpectation::ExpectAcceptance => {
                 info!("Now waiting for block acceptance");
                 // TODO: Implement waiting for block acceptance/confirmation
-            },
+            }
         }
     }
 

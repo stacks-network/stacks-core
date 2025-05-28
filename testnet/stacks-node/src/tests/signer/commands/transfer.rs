@@ -62,10 +62,7 @@ impl Command<SignerTestState, SignerTestContext> for MinerSendAndMineTransferTx 
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (20u64..40u64).prop_map(move |timeout_secs| {
             // Originally, timeout was 30 seconds
-            CommandWrapper::new(MinerSendAndMineTransferTx::new(
-                ctx.clone(),
-                timeout_secs,
-            ))
+            CommandWrapper::new(MinerSendAndMineTransferTx::new(ctx.clone(), timeout_secs))
         })
     }
 }
