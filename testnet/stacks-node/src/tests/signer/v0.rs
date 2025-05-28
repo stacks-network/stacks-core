@@ -79,8 +79,7 @@ use stacks::util_lib::signed_structured_data::pox4::{
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::sleep_ms;
-use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
-use stacks_signer::client::StackerDB;
+use stacks_signer::client::{CurrentAndLastSortition, StackerDB};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::signerdb::SignerDb;
 use stacks_signer::v0::signer::TEST_REPEAT_PROPOSAL_RESPONSE;
@@ -1596,15 +1595,6 @@ fn block_proposal_rejection() {
     let short_timeout = Duration::from_secs(30);
 
     info!("------------------------- Send Block Proposal To Signers -------------------------");
-    let proposal_conf = ProposalEvalConfig {
-        proposal_wait_for_parent_time: Duration::from_secs(0),
-        first_proposal_burn_block_timing: Duration::from_secs(0),
-        block_proposal_timeout: Duration::from_secs(100),
-        tenure_last_block_proposal_timeout: Duration::from_secs(30),
-        tenure_idle_timeout: Duration::from_secs(300),
-        tenure_idle_timeout_buffer: Duration::from_secs(2),
-        reorg_attempts_activity_timeout: Duration::from_secs(30),
-    };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
         txs: vec![],
@@ -1624,9 +1614,14 @@ fn block_proposal_rejection() {
     signer_test.wait_for_validate_ok_response(short_timeout);
 
     // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
-    let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
+    let CurrentAndLastSortition {
+        current_sortition, ..
+    } = signer_test
+        .stacks_client
+        .get_current_and_last_sortition()
+        .unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
-    block.header.consensus_hash = view.cur_sortition.consensus_hash;
+    block.header.consensus_hash = current_sortition.consensus_hash;
     block.header.chain_length = 35; // We have mined 35 blocks so far.
 
     block
@@ -1666,8 +1661,11 @@ fn block_proposal_rejection() {
             {
                 if signer_signature_hash == block_signer_signature_hash_1 {
                     found_signer_signature_hash_1 = true;
-                    assert_eq!(reason_code, RejectCode::SortitionViewMismatch,);
-                    assert_eq!(response_data.reject_reason, RejectReason::InvalidBitvec);
+                    assert_eq!(reason_code, RejectCode::SortitionViewMismatch);
+                    assert!(matches!(
+                        response_data.reject_reason,
+                        RejectReason::ConsensusHashMismatch(_)
+                    ));
                 } else if signer_signature_hash == block_signer_signature_hash_2 {
                     found_signer_signature_hash_2 = true;
                     assert!(matches!(
@@ -5427,7 +5425,7 @@ fn empty_tenure_delayed() {
             })) = latest_msg
             {
                 assert_eq!(reason_code, RejectCode::SortitionViewMismatch);
-                assert_eq!(response_data.reject_reason, RejectReason::InvalidMiner);
+                assert!(matches!(response_data.reject_reason, RejectReason::ConsensusHashMismatch(_)));
                 assert_eq!(metadata.server_version, VERSION_STRING.to_string());
                 found_rejections.push(*slot_id);
             } else {
@@ -8554,15 +8552,6 @@ fn block_validation_response_timeout() {
     );
 
     info!("------------------------- Propose Another Block Before Hitting the Timeout -------------------------");
-    let proposal_conf = ProposalEvalConfig {
-        proposal_wait_for_parent_time: Duration::from_secs(0),
-        first_proposal_burn_block_timing: Duration::from_secs(0),
-        tenure_last_block_proposal_timeout: Duration::from_secs(30),
-        block_proposal_timeout: Duration::from_secs(100),
-        tenure_idle_timeout: Duration::from_secs(300),
-        tenure_idle_timeout_buffer: Duration::from_secs(2),
-        reorg_attempts_activity_timeout: Duration::from_secs(30),
-    };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
         txs: vec![],
@@ -8571,9 +8560,14 @@ fn block_validation_response_timeout() {
 
     let info_before = get_chain_info(&signer_test.running_nodes.conf);
     // Propose a block to the signers that passes initial checks but will not be submitted to the stacks node due to the submission stall
-    let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
+    let CurrentAndLastSortition {
+        current_sortition, ..
+    } = signer_test
+        .stacks_client
+        .get_current_and_last_sortition()
+        .unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
-    block.header.consensus_hash = view.cur_sortition.consensus_hash;
+    block.header.consensus_hash = current_sortition.consensus_hash;
     block.header.chain_length = info_before.stacks_tip_height + 1;
 
     block
@@ -8843,24 +8837,20 @@ fn block_validation_pending_table() {
     .expect("Timed out waiting for miner to propose a block");
 
     info!("----- Proposing a concurrent block -----");
-    let proposal_conf = ProposalEvalConfig {
-        proposal_wait_for_parent_time: Duration::from_secs(0),
-        first_proposal_burn_block_timing: Duration::from_secs(0),
-        block_proposal_timeout: Duration::from_secs(100),
-        tenure_last_block_proposal_timeout: Duration::from_secs(30),
-        tenure_idle_timeout: Duration::from_secs(300),
-        tenure_idle_timeout_buffer: Duration::from_secs(2),
-        reorg_attempts_activity_timeout: Duration::from_secs(30),
-    };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
         txs: vec![],
     };
     block.header.timestamp = get_epoch_time_secs();
 
-    let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
+    let CurrentAndLastSortition {
+        current_sortition, ..
+    } = signer_test
+        .stacks_client
+        .get_current_and_last_sortition()
+        .unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
-    block.header.consensus_hash = view.cur_sortition.consensus_hash;
+    block.header.consensus_hash = current_sortition.consensus_hash;
     block.header.chain_length = peer_info.stacks_tip_height + 1;
     block
         .header
@@ -10126,15 +10116,6 @@ fn incoming_signers_ignore_block_proposals() {
 
     no_next_signer_messages();
 
-    let proposal_conf = ProposalEvalConfig {
-        proposal_wait_for_parent_time: Duration::from_secs(0),
-        first_proposal_burn_block_timing: Duration::from_secs(0),
-        block_proposal_timeout: Duration::from_secs(100),
-        tenure_last_block_proposal_timeout: Duration::from_secs(30),
-        tenure_idle_timeout: Duration::from_secs(300),
-        tenure_idle_timeout_buffer: Duration::from_secs(2),
-        reorg_attempts_activity_timeout: Duration::from_secs(30),
-    };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
         txs: vec![],
@@ -10153,9 +10134,14 @@ fn incoming_signers_ignore_block_proposals() {
     test_observer::clear();
 
     // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
-    let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
+    let CurrentAndLastSortition {
+        current_sortition, ..
+    } = signer_test
+        .stacks_client
+        .get_current_and_last_sortition()
+        .unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
-    block.header.consensus_hash = view.cur_sortition.consensus_hash;
+    block.header.consensus_hash = current_sortition.consensus_hash;
     block.header.chain_length =
         get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height + 1;
     block
@@ -10301,15 +10287,6 @@ fn outgoing_signers_ignore_block_proposals() {
     };
     old_signers_ignore_block_proposals(new_signature_hash);
 
-    let proposal_conf = ProposalEvalConfig {
-        proposal_wait_for_parent_time: Duration::from_secs(0),
-        first_proposal_burn_block_timing: Duration::from_secs(0),
-        block_proposal_timeout: Duration::from_secs(100),
-        tenure_last_block_proposal_timeout: Duration::from_secs(30),
-        tenure_idle_timeout: Duration::from_secs(300),
-        tenure_idle_timeout_buffer: Duration::from_secs(2),
-        reorg_attempts_activity_timeout: Duration::from_secs(30),
-    };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
         txs: vec![],
@@ -10320,9 +10297,14 @@ fn outgoing_signers_ignore_block_proposals() {
     test_observer::clear();
 
     // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
-    let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
+    let CurrentAndLastSortition {
+        current_sortition, ..
+    } = signer_test
+        .stacks_client
+        .get_current_and_last_sortition()
+        .unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
-    block.header.consensus_hash = view.cur_sortition.consensus_hash;
+    block.header.consensus_hash = current_sortition.consensus_hash;
     block.header.chain_length =
         get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height + 1;
     block
