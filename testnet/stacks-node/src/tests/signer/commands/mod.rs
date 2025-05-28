@@ -12,11 +12,11 @@ mod stacks_mining;
 mod transfer;
 
 pub use bitcoin_mining::{
-    ChainGenerateBtcBlocks, MinerMineBlockAndTriggerTenureChange, MinerMineBtcBlocks,
+    ChainGenerateBtcBlocks, MinerMineBtcBlocks,
 };
 pub use block_commit::MinerSubmitBlockCommit;
 pub use block_verify::ChainVerifyMinerBlockCount;
-pub use block_wait::{ChainExpectNakaBlock, ChainExpectNakaBlockProposal};
+pub use block_wait::{ChainExpectNakaBlock, ChainExpectNakaBlockProposal, ChainExpectTenureChange};
 pub use boot::ChainBootToEpoch3;
 pub use commit_ops::ChainMinerCommitOp;
 pub use context::SignerTestContext;

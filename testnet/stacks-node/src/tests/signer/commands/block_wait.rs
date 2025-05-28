@@ -5,6 +5,7 @@ use libsigner::v0::messages::RejectReason;
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 use proptest::prop_oneof;
+use stacks::chainstate::stacks::{TenureChangeCause, TransactionPayload};
 
 use super::context::{SignerTestContext, SignerTestState};
 use crate::tests::neon_integrations::get_chain_info;
@@ -320,6 +321,84 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlockProposa
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1usize..=2usize).prop_flat_map(move |miner_index| {
             Just(CommandWrapper::new(ChainExpectNakaBlockProposal::new(
+                ctx.clone(),
+                miner_index,
+            )))
+        })
+    }
+}
+
+/// Command to wait for a tenure change block from a specific miner.
+/// This command waits for a block that contains exactly 2 transactions:
+/// 1. A TenureChange transaction with cause BlockFound
+/// 2. A Coinbase transaction
+/// This verifies that a proper tenure change has occurred.
+pub struct ChainExpectTenureChange {
+    ctx: Arc<SignerTestContext>,
+    miner_index: usize,
+}
+
+impl ChainExpectTenureChange {
+    pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
+        Self { ctx, miner_index }
+    }
+}
+
+impl Command<SignerTestState, SignerTestContext> for ChainExpectTenureChange {
+    fn check(&self, _state: &SignerTestState) -> bool {
+        info!(
+            "Checking: Waiting for tenure change block from miner {}",
+            self.miner_index
+        );
+        true
+    }
+
+    fn apply(&self, _state: &mut SignerTestState) {
+        let miner_pk = self.ctx.get_miner_public_key(self.miner_index);
+        let expected_height = self.ctx.get_peer_stacks_tip_height() + 1;
+
+        info!(
+            "Applying: Waiting for tenure change block at height {} from miner {}",
+            expected_height, self.miner_index
+        );
+
+        let block = wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk)
+            .expect(&format!(
+                "Failed to get tenure change block for miner {} at height {}",
+                self.miner_index, expected_height
+            ));
+
+        // Verify this is a tenure change block
+        let is_tenure_change_block_found = block.txs.len() == 2
+            && matches!(
+                block.txs[0].payload,
+                TransactionPayload::TenureChange(ref payload) if payload.cause == TenureChangeCause::BlockFound
+            )
+            && matches!(block.txs[1].payload, TransactionPayload::Coinbase(..));
+
+        assert!(
+            is_tenure_change_block_found,
+            "Block at height {} from miner {} is not a proper tenure change block. Transactions: {:?}",
+            expected_height,
+            self.miner_index,
+            block.txs.iter().map(|tx| &tx.payload).collect::<Vec<_>>()
+        );
+
+        info!(
+            "Successfully verified tenure change block at height {} from miner {}",
+            expected_height, self.miner_index
+        );
+    }
+
+    fn label(&self) -> String {
+        format!("WAIT_FOR_TENURE_CHANGE_BLOCK_FROM_MINER_{}", self.miner_index)
+    }
+
+    fn build(
+        ctx: Arc<SignerTestContext>,
+    ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
+        (1usize..=2usize).prop_flat_map(move |miner_index| {
+            Just(CommandWrapper::new(ChainExpectTenureChange::new(
                 ctx.clone(),
                 miner_index,
             )))
