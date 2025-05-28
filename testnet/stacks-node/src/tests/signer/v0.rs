@@ -51,7 +51,7 @@ use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig};
 use stacks::core::mempool::MemPoolWalkStrategy;
 use stacks::core::test_util::{
     insert_tx_in_mempool, make_contract_call, make_contract_publish,
-    make_stacks_transfer_serialized,
+    make_stacks_transfer_serialized, to_addr,
 };
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::libstackerdb::StackerDBChunkData;
@@ -508,9 +508,38 @@ impl MultipleMinerTest {
     >(
         num_signers: usize,
         num_transfer_txs: u64,
+        signer_config_modifier: F,
+        node_1_config_modifier: G,
+        node_2_config_modifier: H,
+    ) -> MultipleMinerTest {
+        Self::new_with_signer_dist(
+            num_signers,
+            num_transfer_txs,
+            signer_config_modifier,
+            node_1_config_modifier,
+            node_2_config_modifier,
+            |port| u8::try_from(port % 2).unwrap(),
+        )
+    }
+
+    /// Create a new test harness for running multiple miners with num_signers underlying signers and enough funds to send
+    /// num_txs transfer transactions.
+    ///
+    /// Will also modify the signer config and the node 1 and node 2 configs with the provided
+    /// modifiers. Will partition the signer set so that ~half are listening and using node 1 for RPC and events,
+    /// and the rest are using node 2 unless otherwise specified via the signer config modifier.
+    pub fn new_with_signer_dist<
+        F: FnMut(&mut SignerConfig),
+        G: FnMut(&mut NeonConfig),
+        H: FnMut(&mut NeonConfig),
+        S: Fn(u16) -> u8,
+    >(
+        num_signers: usize,
+        num_transfer_txs: u64,
         mut signer_config_modifier: F,
         mut node_1_config_modifier: G,
         mut node_2_config_modifier: H,
+        signer_distributor: S,
     ) -> MultipleMinerTest {
         let sender_sk = Secp256k1PrivateKey::random();
         let sender_addr = tests::to_addr(&sender_sk);
@@ -538,10 +567,10 @@ impl MultipleMinerTest {
             num_signers,
             vec![(sender_addr, (send_amt + send_fee) * num_transfer_txs)],
             |signer_config| {
-                let node_host = if signer_config.endpoint.port() % 2 == 0 {
-                    &node_1_rpc_bind
-                } else {
-                    &node_2_rpc_bind
+                let node_host = match signer_distributor(signer_config.endpoint.port()) {
+                    0 => &node_1_rpc_bind,
+                    1 => &node_2_rpc_bind,
+                    o => panic!("Multiminer test can't distribute signer to node #{o}"),
                 };
                 signer_config.node_host = node_host.to_string();
                 signer_config_modifier(signer_config);
@@ -567,11 +596,17 @@ impl MultipleMinerTest {
                         );
                         return true;
                     };
-                    if addr.port() % 2 == 0 || addr.port() == test_observer::EVENT_OBSERVER_PORT {
+                    if addr.port() == test_observer::EVENT_OBSERVER_PORT {
                         return true;
                     }
-                    node_2_listeners.push(listener.clone());
-                    false
+                    match signer_distributor(addr.port()) {
+                        0 => true,
+                        1 => {
+                            node_2_listeners.push(listener.clone());
+                            false
+                        }
+                        o => panic!("Multiminer test can't distribute signer to node #{o}"),
+                    }
                 });
                 node_1_config_modifier(config);
             },
@@ -15237,6 +15272,263 @@ fn miner_stackerdb_version_rollover() {
     miners
         .send_and_mine_transfer_tx(30)
         .expect("Failed to mine tx");
+
+    miners.shutdown();
+}
+
+#[test]
+#[ignore]
+fn bitcoin_reorg_extended_tenure() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    let num_signers = 5;
+
+    let mut miners = MultipleMinerTest::new_with_signer_dist(
+        num_signers,
+        60,
+        |signer_config| {
+            // We don't want the miner of the "inactive" sortition before the flash block
+            //  to get timed out.
+            signer_config.block_proposal_timeout = Duration::from_secs(600);
+        },
+        |_| {},
+        |config| {
+            // we will interpose with the testproxy on the second node's bitcoind
+            //  connection, so that we can shut off communication before the reorg.
+            config.burnchain.rpc_port = 28132;
+            config.burnchain.peer_port = 28133;
+        },
+        |signer_port| {
+            // only put 1 out of 5 signers on the second node.
+            // this way, the 4 out of 5 signers can approve a block in bitcoin fork
+            // that the fifth signer does not witness
+            if signer_port % 5 == 0 {
+                1
+            } else {
+                0
+            }
+        },
+    );
+
+    let (conf_1, _conf_2) = miners.get_node_configs();
+    let btc_p2p_proxy = TestProxy {
+        bind_port: 28133,
+        forward_port: conf_1.burnchain.peer_port,
+        drop_control: Arc::new(Mutex::new(false)),
+        keep_running: Arc::new(Mutex::new(true)),
+    };
+    let btc_rpc_proxy = TestProxy {
+        bind_port: 28132,
+        forward_port: conf_1.burnchain.rpc_port,
+        drop_control: Arc::new(Mutex::new(false)),
+        keep_running: Arc::new(Mutex::new(true)),
+    };
+
+    btc_p2p_proxy.spawn();
+    btc_rpc_proxy.spawn();
+
+    let rl1_counters = miners.signer_test.running_nodes.counters.clone();
+
+    let sortdb = SortitionDB::open(
+        &conf_1.get_burn_db_file_path(),
+        false,
+        conf_1.get_burnchain().pox_constants,
+    )
+    .unwrap();
+
+    miners.pause_commits_miner_2();
+    let (mining_pkh_1, _mining_pkh_2) = miners.get_miner_public_key_hashes();
+
+    miners.boot_to_epoch_3();
+
+    miners
+        .signer_test
+        .submit_burn_block_contract_and_wait(&miners.sender_sk)
+        .expect("Timed out waiting for contract publish");
+
+    let info = get_chain_info(&conf_1);
+
+    wait_for(60, || {
+        Ok(rl1_counters
+            .naka_submitted_commit_last_parent_tenure_id
+            .get()
+            == info.stacks_tip_consensus_hash)
+    })
+    .expect("Timed out waiting for commits from Miner 1 for Tenure 1 of the test");
+
+    for _ in 0..2 {
+        miners
+            .signer_test
+            .submit_burn_block_call_and_wait(&miners.sender_sk)
+            .expect("Timed out waiting for contract-call");
+    }
+
+    miners.pause_commits_miner_1();
+    miners
+        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+        .unwrap();
+
+    for _ in 0..2 {
+        miners
+            .signer_test
+            .submit_burn_block_call_and_wait(&miners.sender_sk)
+            .expect("Timed out waiting for contract-call");
+    }
+
+    miners.signer_test.check_signer_states_normal();
+    let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1));
+
+    let last_active_sortition = get_sortition_info(&conf_1);
+    assert!(last_active_sortition.was_sortition);
+
+    let tenure_1_info = get_chain_info(&conf_1);
+
+    info!("Mining empty block!");
+    // make sure that the second node *doesn't* get this bitcoin block
+    //  that way they will never see the losing side of the btc fork.
+    *btc_p2p_proxy.drop_control.lock().unwrap() = true;
+    *btc_rpc_proxy.drop_control.lock().unwrap() = true;
+
+    miners.btc_regtest_controller_mut().build_next_block(1);
+
+    wait_for(60, || {
+        let info = get_chain_info(&conf_1);
+        Ok(info.burn_block_height >= 1 + tenure_1_info.burn_block_height)
+    })
+    .expect("Timed out waiting for the flash blocks to be processed by the stacks nodes");
+
+    let cur_empty_sortition = get_sortition_info(&conf_1);
+    assert!(!cur_empty_sortition.was_sortition);
+
+    // after the flash block, make sure we get block processing without a new bitcoin block
+    //   being mined.
+    for _ in 0..2 {
+        miners
+            .signer_test
+            .submit_burn_block_call_and_wait(&miners.sender_sk)
+            .expect("Timed out waiting for contract-call");
+    }
+
+    let last_nonce = miners
+        .signer_test
+        .get_account(&to_addr(&miners.sender_sk))
+        .nonce;
+
+    info!("------------------------- Triggering Bitcoin Fork -------------------------");
+
+    let burn_block_height = get_chain_info(&conf_1).burn_block_height;
+    let burn_header_hash_to_fork = miners
+        .signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_block_hash(burn_block_height);
+    let before_fork = get_chain_info(&conf_1).pox_consensus;
+
+    miners
+        .signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .invalidate_block(&burn_header_hash_to_fork);
+    miners
+        .signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .build_next_block(2);
+
+    *btc_p2p_proxy.drop_control.lock().unwrap() = false;
+    *btc_rpc_proxy.drop_control.lock().unwrap() = false;
+
+    info!("Bitcoin fork triggered"; "ch" => %before_fork, "btc_height" => burn_block_height);
+    info!("Chain info before fork: {:?}", get_chain_info(&conf_1));
+
+    let mut after_fork = get_chain_info(&conf_1).pox_consensus;
+    wait_for(60, || {
+        after_fork = get_chain_info(&conf_1).pox_consensus;
+        Ok(after_fork != before_fork)
+    })
+    .unwrap();
+
+    info!("Chain info after fork: {:?}", get_chain_info(&conf_1));
+
+    // get blocks produced with the "reorged" txs before we stall broadcasts
+    //  to check signer approvals
+    miners
+        .signer_test
+        .wait_for_nonce_increase(&to_addr(&miners.sender_sk), last_nonce - 1)
+        .unwrap();
+
+    miners.wait_for_chains(60);
+
+    // stall p2p broadcast and signer block announcements
+    //  so that we can ensure all the signers approve the proposal
+    //  before it gets accepted by stacks-nodes
+    TEST_P2P_BROADCAST_STALL.set(true);
+    stacks_signer::v0::tests::TEST_SKIP_BLOCK_BROADCAST.set(true);
+
+    // the signer signature hash is the same as the block header hash.
+    // we use the latest_signer_sighash to make sure we're getting block responses for the
+    //  block we expect to be mined after the next contract call is submitted.
+    let latest_signer_sighash = Sha512Trunc256Sum(get_chain_info(&conf_1).stacks_tip.0);
+
+    miners
+        .signer_test
+        .submit_contract_call(&miners.sender_sk, "burn-height-local", "run-update", &[])
+        .unwrap();
+
+    let rc = miners.signer_test.get_current_reward_cycle();
+    let slot_ids = miners.signer_test.get_signer_indices(rc);
+    let mut block_responses: Vec<_> = vec![];
+    wait_for(60, || {
+        block_responses = slot_ids
+            .iter()
+            .filter_map(|slot_id| {
+                let latest_br = miners.signer_test.get_latest_block_response(slot_id.0);
+                if latest_br.get_signer_signature_hash() != latest_signer_sighash {
+                    Some(latest_br)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let Some(sighash) = block_responses
+            .first()
+            .map(BlockResponse::get_signer_signature_hash)
+        else {
+            return Ok(false);
+        };
+        let all_same_block = block_responses
+            .iter()
+            .all(|x| x.get_signer_signature_hash() == sighash);
+        let all_responded = block_responses.len() == num_signers;
+        Ok(all_same_block && all_responded)
+    })
+    .unwrap();
+
+    assert!(block_responses
+        .iter()
+        .all(|resp| resp.as_block_accepted().is_some()));
+
+    TEST_P2P_BROADCAST_STALL.set(false);
+    stacks_signer::v0::tests::TEST_SKIP_BLOCK_BROADCAST.set(false);
+
+    miners
+        .signer_test
+        .submit_burn_block_call_and_wait(&miners.sender_sk)
+        .expect("Timed out waiting for contract-call");
+
+    miners.submit_commit_miner_1(&sortdb);
+    miners
+        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+        .unwrap();
+
+    let last_active_sortition = get_sortition_info(&conf_1);
+    assert!(last_active_sortition.was_sortition);
+    miners
+        .signer_test
+        .submit_burn_block_call_and_wait(&miners.sender_sk)
+        .expect("Timed out waiting for contract-call");
 
     miners.shutdown();
 }

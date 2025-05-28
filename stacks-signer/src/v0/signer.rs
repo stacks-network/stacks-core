@@ -961,7 +961,6 @@ impl Signer {
         proposed_block: &NakamotoBlock,
     ) -> Option<BlockResponse> {
         let signer_signature_hash = proposed_block.header.signer_signature_hash();
-        let proposed_block_consensus_hash = proposed_block.header.consensus_hash;
         // If this is a tenure change block, ensure that it confirms the correct number of blocks from the parent tenure.
         if let Some(tenure_change) = proposed_block.get_tenure_change_tx_payload() {
             // Ensure that the tenure change block confirms the expected parent block
@@ -973,7 +972,7 @@ impl Signer {
                 self.proposal_config.tenure_last_block_proposal_timeout,
                 self.proposal_config.reorg_attempts_activity_timeout,
             ) {
-                Ok(true) => {}
+                Ok(true) => return None,
                 Ok(false) => {
                     return Some(self.create_block_rejection(
                         RejectReason::SortitionViewMismatch,
@@ -996,40 +995,43 @@ impl Signer {
         }
 
         // Ensure that the block is the last block in the chain of its current tenure.
-        match self
-            .signer_db
-            .get_last_accepted_block(&proposed_block_consensus_hash)
-        {
-            Ok(Some(last_block_info)) => {
-                if proposed_block.header.chain_length <= last_block_info.block.header.chain_length {
+        match SortitionsView::check_latest_block_in_tenure(
+            &proposed_block.header.consensus_hash,
+            proposed_block,
+            &mut self.signer_db,
+            stacks_client,
+            self.proposal_config.tenure_last_block_proposal_timeout,
+            self.proposal_config.reorg_attempts_activity_timeout,
+        ) {
+            Ok(is_latest) => {
+                if !is_latest {
                     warn!(
                         "Miner's block proposal does not confirm as many blocks as we expect";
-                        "proposed_block_consensus_hash" => %proposed_block_consensus_hash,
+                        "proposed_block_consensus_hash" => %proposed_block.header.consensus_hash,
                         "proposed_block_signer_signature_hash" => %signer_signature_hash,
                         "proposed_chain_length" => proposed_block.header.chain_length,
-                        "expected_at_least" => last_block_info.block.header.chain_length + 1,
                     );
-                    return Some(self.create_block_rejection(
+                    Some(self.create_block_rejection(
                         RejectReason::SortitionViewMismatch,
                         proposed_block,
-                    ));
+                    ))
+                } else {
+                    None
                 }
             }
-            Ok(_) => {}
             Err(e) => {
                 warn!("{self}: Failed to check block against signer db: {e}";
                     "signer_signature_hash" => %signer_signature_hash,
                     "block_id" => %proposed_block.block_id()
                 );
-                return Some(self.create_block_rejection(
+                Some(self.create_block_rejection(
                     RejectReason::ConnectivityIssues(
                         "failed to check block against signer db".to_string(),
                     ),
                     proposed_block,
-                ));
+                ))
             }
         }
-        None
     }
 
     /// Handle the block validate ok response. Returns our block response if we have one
