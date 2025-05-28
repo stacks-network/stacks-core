@@ -128,7 +128,7 @@ impl HttpRequest for RPCMicroblocksUnconfirmedRequestHandler {
         let parent_block_id = request::get_block_hash(captures, "parent_block_id")?;
         let start_sequence_u32 = request::get_u32(captures, "start_sequence")?;
 
-        if start_sequence_u32 > u16::MAX.into() {
+        if start_sequence_u32 > u32::from(u16::MAX) {
             return Err(Error::DecodeError("`start_sequence` is too big".into()));
         }
 

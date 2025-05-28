@@ -117,6 +117,7 @@ pub struct Counters {
     pub naka_signer_pushed_blocks: RunLoopCounter,
     pub naka_miner_directives: RunLoopCounter,
     pub naka_submitted_commit_last_stacks_tip: RunLoopCounter,
+    pub naka_submitted_commit_last_commit_amount: RunLoopCounter,
 
     pub naka_miner_current_rejections: RunLoopCounter,
     pub naka_miner_current_rejections_timeout_secs: RunLoopCounter,
@@ -178,6 +179,7 @@ impl Counters {
         &self,
         committed_burn_height: u64,
         committed_stacks_height: u64,
+        committed_sats_amount: u64,
     ) {
         Counters::inc(&self.naka_submitted_commits);
         Counters::set(
@@ -187,6 +189,10 @@ impl Counters {
         Counters::set(
             &self.naka_submitted_commit_last_stacks_tip,
             committed_stacks_height,
+        );
+        Counters::set(
+            &self.naka_submitted_commit_last_commit_amount,
+            committed_sats_amount,
         );
     }
 
@@ -274,10 +280,11 @@ impl RunLoop {
             config.burnchain.burn_fee_cap,
         )));
 
-        let mut event_dispatcher = EventDispatcher::new();
+        let mut event_dispatcher = EventDispatcher::new(Some(config.get_working_dir()));
         for observer in config.events_observers.iter() {
-            event_dispatcher.register_observer(observer, config.get_working_dir());
+            event_dispatcher.register_observer(observer);
         }
+        event_dispatcher.process_pending_payloads();
 
         Self {
             config,
@@ -407,6 +414,11 @@ impl RunLoop {
     /// If there's a network error, then assume that we're not a miner.
     fn check_is_miner(&mut self, burnchain: &mut BitcoinRegtestController) -> bool {
         if self.config.node.miner {
+            // If we are mock mining, then we don't need to check for UTXOs and
+            // we can just return true.
+            if self.config.get_node_config(false).mock_mining {
+                return true;
+            }
             let keychain = Keychain::default(self.config.node.seed.clone());
             let mut op_signer = keychain.generate_op_signer();
             if let Err(e) = burnchain.create_wallet_if_dne() {
@@ -446,10 +458,6 @@ impl RunLoop {
                         info!("UTXOs found - will run as a Miner node");
                         return true;
                     }
-                }
-                if self.config.get_node_config(false).mock_mining {
-                    info!("No UTXOs found, but configured to mock mine");
-                    return true;
                 }
                 thread::sleep(std::time::Duration::from_secs(Self::UTXO_RETRY_INTERVAL));
             }
@@ -657,6 +665,7 @@ impl RunLoop {
                     require_affirmed_anchor_blocks: moved_config
                         .node
                         .require_affirmed_anchor_blocks,
+                    txindex: moved_config.node.txindex,
                 };
                 ChainsCoordinator::run(
                     coord_config,

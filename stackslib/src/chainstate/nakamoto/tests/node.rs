@@ -1037,6 +1037,7 @@ impl TestStacksNode {
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 ASTRules::PrecheckSize,
+                None,
             ) {
                 TransactionResult::Success(..) => {
                     debug!("Included {}", &tx.txid());
@@ -1396,6 +1397,7 @@ impl TestPeer<'_> {
                 self.sortdb.as_mut().unwrap(),
                 &sort_tip,
                 None,
+                self.config.txindex,
             )?
         else {
             return Ok(false);

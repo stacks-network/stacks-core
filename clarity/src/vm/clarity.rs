@@ -20,18 +20,30 @@ pub enum Error {
     Interpreter(InterpreterError),
     BadTransaction(String),
     CostError(ExecutionCost, ExecutionCost),
-    AbortedByCallback(Option<Value>, AssetMap, Vec<StacksTransactionEvent>),
+    AbortedByCallback {
+        /// What the output value of the transaction would have been.
+        /// This will be a Some for contract-calls, and None for contract initialization txs.
+        output: Option<Value>,
+        /// The asset map which was evaluated by the abort callback
+        assets_modified: AssetMap,
+        /// The events from the transaction processing
+        tx_events: Vec<StacksTransactionEvent>,
+        /// A human-readable explanation for aborting the transaction
+        reason: String,
+    },
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self {
             Error::CostError(ref a, ref b) => {
-                write!(f, "Cost Error: {} cost exceeded budget of {} cost", a, b)
+                write!(f, "Cost Error: {a} cost exceeded budget of {b} cost")
             }
             Error::Analysis(ref e) => fmt::Display::fmt(e, f),
             Error::Parse(ref e) => fmt::Display::fmt(e, f),
-            Error::AbortedByCallback(..) => write!(f, "Post condition aborted transaction"),
+            Error::AbortedByCallback { reason, .. } => {
+                write!(f, "Post condition aborted transaction: {reason}")
+            }
             Error::Interpreter(ref e) => fmt::Display::fmt(e, f),
             Error::BadTransaction(ref s) => fmt::Display::fmt(s, f),
         }
@@ -42,7 +54,7 @@ impl std::error::Error for Error {
     fn cause(&self) -> Option<&dyn std::error::Error> {
         match *self {
             Error::CostError(ref _a, ref _b) => None,
-            Error::AbortedByCallback(..) => None,
+            Error::AbortedByCallback { .. } => None,
             Error::Analysis(ref e) => Some(e),
             Error::Parse(ref e) => Some(e),
             Error::Interpreter(ref e) => Some(e),
@@ -61,6 +73,9 @@ impl From<CheckError> for Error {
             CheckErrors::MemoryBalanceExceeded(_a, _b) => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
+            CheckErrors::ExecutionTimeExpired => {
+                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+            }
             _ => Error::Analysis(e),
         }
     }
@@ -73,6 +88,9 @@ impl From<InterpreterError> for Error {
                 Error::CostError(a.clone(), b.clone())
             }
             InterpreterError::Unchecked(CheckErrors::CostOverflow) => {
+                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+            }
+            InterpreterError::Unchecked(CheckErrors::ExecutionTimeExpired) => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => Error::Interpreter(e),
@@ -88,6 +106,9 @@ impl From<ParseError> for Error {
             }
             ParseErrors::CostBalanceExceeded(a, b) => Error::CostError(a, b),
             ParseErrors::MemoryBalanceExceeded(_a, _b) => {
+                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+            }
+            ParseErrors::ExecutionTimeExpired => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => Error::Parse(e),
@@ -159,16 +180,17 @@ pub trait TransactionConnection: ClarityConnection {
     /// * the asset changes during `to_do` in an `AssetMap`
     /// * the Stacks events during the transaction
     ///
-    /// and a `bool` value which is `true` if the `abort_call_back` caused the changes to abort.
+    /// and an optional string value which is the result of `abort_call_back`,
+    /// containing a human-readable reason for aborting the transaction.
     ///
     /// If `to_do` returns an `Err` variant, then the changes are aborted.
     fn with_abort_callback<F, A, R, E>(
         &mut self,
         to_do: F,
         abort_call_back: A,
-    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, bool), E>
+    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, Option<String>), E>
     where
-        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
+        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
         F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
         E: From<InterpreterError>;
 
@@ -274,16 +296,17 @@ pub trait TransactionConnection: ClarityConnection {
                     .stx_transfer(from, to, amount, memo)
                     .map_err(Error::from)
             },
-            |_, _| false,
+            |_, _| None,
         )
         .map(|(value, assets, events, _)| (value, assets, events))
     }
 
     /// Execute a contract call in the current block.
-    ///  If an error occurs while processing the transaction, its modifications will be rolled back.
-    /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
-    ///   if abort_call_back returns true, all modifications from this transaction will be rolled back.
-    ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
+    /// If an error occurs while processing the transaction, its modifications will be rolled back.
+    /// `abort_call_back` is called with an `AssetMap` and a `ClarityDatabase` reference,
+    /// If `abort_call_back` returns `Some(reason)`, all modifications from this transaction will be rolled back.
+    /// Otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
+    #[allow(clippy::too_many_arguments)]
     fn run_contract_call<F>(
         &mut self,
         sender: &PrincipalData,
@@ -292,9 +315,10 @@ pub trait TransactionConnection: ClarityConnection {
         public_function: &str,
         args: &[Value],
         abort_call_back: F,
+        max_execution_time: Option<std::time::Duration>,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error>
     where
-        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
+        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
     {
         let expr_args: Vec<_> = args
             .iter()
@@ -303,6 +327,11 @@ pub trait TransactionConnection: ClarityConnection {
 
         self.with_abort_callback(
             |vm_env| {
+                if let Some(max_execution_time_duration) = max_execution_time {
+                    vm_env
+                        .context
+                        .set_max_execution_time(max_execution_time_duration);
+                }
                 vm_env
                     .execute_transaction(
                         sender.clone(),
@@ -315,20 +344,26 @@ pub trait TransactionConnection: ClarityConnection {
             },
             abort_call_back,
         )
-        .and_then(|(value, assets, events, aborted)| {
-            if aborted {
-                Err(Error::AbortedByCallback(Some(value), assets, events))
+        .and_then(|(value, assets_modified, tx_events, reason)| {
+            if let Some(reason) = reason {
+                Err(Error::AbortedByCallback {
+                    output: Some(value),
+                    assets_modified,
+                    tx_events,
+                    reason,
+                })
             } else {
-                Ok((value, assets, events))
+                Ok((value, assets_modified, tx_events))
             }
         })
     }
 
     /// Initialize a contract in the current block.
     ///  If an error occurs while processing the initialization, it's modifications will be rolled back.
-    /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
-    ///   if abort_call_back returns true, all modifications from this transaction will be rolled back.
-    ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
+    /// `abort_call_back` is called with an `AssetMap` and a `ClarityDatabase` reference,
+    /// If `abort_call_back` returns `Some(reason)`, all modifications from this transaction will be rolled back.
+    /// Otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
+    #[allow(clippy::too_many_arguments)]
     fn initialize_smart_contract<F>(
         &mut self,
         identifier: &QualifiedContractIdentifier,
@@ -337,12 +372,18 @@ pub trait TransactionConnection: ClarityConnection {
         contract_str: &str,
         sponsor: Option<PrincipalData>,
         abort_call_back: F,
+        max_execution_time: Option<std::time::Duration>,
     ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), Error>
     where
-        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
+        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
     {
-        let (_, asset_map, events, aborted) = self.with_abort_callback(
+        let (_, assets_modified, tx_events, reason) = self.with_abort_callback(
             |vm_env| {
+                if let Some(max_execution_time_duration) = max_execution_time {
+                    vm_env
+                        .context
+                        .set_max_execution_time(max_execution_time_duration);
+                }
                 vm_env
                     .initialize_contract_from_ast(
                         identifier.clone(),
@@ -355,10 +396,15 @@ pub trait TransactionConnection: ClarityConnection {
             },
             abort_call_back,
         )?;
-        if aborted {
-            Err(Error::AbortedByCallback(None, asset_map, events))
+        if let Some(reason) = reason {
+            Err(Error::AbortedByCallback {
+                output: None,
+                assets_modified,
+                tx_events,
+                reason,
+            })
         } else {
-            Ok((asset_map, events))
+            Ok((assets_modified, tx_events))
         }
     }
 }

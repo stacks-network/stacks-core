@@ -25,11 +25,10 @@ use clarity::vm::errors::Error as ClarityError;
 use clarity::vm::types::serialization::SerializationError;
 use libsigner::RPCError;
 use libstackerdb::Error as StackerDBError;
-use slog::slog_debug;
 pub use stackerdb::*;
 pub use stacks_client::*;
 use stacks_common::codec::Error as CodecError;
-use stacks_common::debug;
+use stacks_common::{debug, warn};
 
 /// Backoff timer initial interval in milliseconds
 const BACKOFF_INITIAL_INTERVAL: u64 = 128;
@@ -50,6 +49,9 @@ pub enum ClientError {
     /// Failed to sign stacker-db chunk
     #[error("Failed to sign stacker-db chunk: {0}")]
     FailToSign(#[from] StackerDBError),
+    /// Failed on a DBError
+    #[error("SignerDB database error: {0}")]
+    SignerDBError(#[from] blockstack_lib::util_lib::db::Error),
     /// Stacker-db instance rejected the chunk
     #[error("Stacker-db rejected the chunk. Reason: {0}")]
     PutChunkRejected(String),
@@ -101,7 +103,7 @@ pub enum ClientError {
 pub fn retry_with_exponential_backoff<F, E, T>(request_fn: F) -> Result<T, ClientError>
 where
     F: FnMut() -> Result<T, backoff::Error<E>>,
-    E: std::fmt::Debug,
+    E: std::fmt::Debug + Into<ClientError>,
 {
     let notify = |err, dur| {
         debug!(
@@ -115,7 +117,16 @@ where
         .with_max_elapsed_time(Some(Duration::from_secs(BACKOFF_MAX_ELAPSED)))
         .build();
 
-    backoff::retry_notify(backoff_timer, request_fn, notify).map_err(|_| ClientError::RetryTimeout)
+    backoff::retry_notify(backoff_timer, request_fn, notify).map_err(|e| match e {
+        backoff::Error::Permanent(err) => {
+            warn!("Non-retry error during request: {err:?}");
+            err.into()
+        }
+        backoff::Error::Transient { err, .. } => {
+            warn!("Exceeded max retries during request: {err:?}");
+            err.into()
+        }
+    })
 }
 
 #[cfg(test)]
@@ -419,6 +430,7 @@ pub(crate) mod tests {
             tenure_idle_timeout_buffer: config.tenure_idle_timeout_buffer,
             block_proposal_max_age_secs: config.block_proposal_max_age_secs,
             reorg_attempts_activity_timeout: config.reorg_attempts_activity_timeout,
+            proposal_wait_for_parent_time: config.proposal_wait_for_parent_time,
         }
     }
 

@@ -219,6 +219,7 @@ pub struct BlockBuilderSettings {
     pub miner_status: Arc<Mutex<MinerStatus>>,
     /// Should the builder attempt to confirm any parent microblocks
     pub confirm_microblocks: bool,
+    pub max_execution_time: Option<std::time::Duration>,
 }
 
 impl BlockBuilderSettings {
@@ -230,6 +231,7 @@ impl BlockBuilderSettings {
             mempool_settings: MemPoolWalkSettings::default(),
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
+            max_execution_time: None,
         }
     }
 
@@ -241,6 +243,7 @@ impl BlockBuilderSettings {
             mempool_settings: MemPoolWalkSettings::zero(),
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
+            max_execution_time: None,
         }
     }
 }
@@ -418,10 +421,11 @@ pub enum TransactionEvent {
 impl TransactionResult {
     /// Logs a queryable message for the case where `txid` has succeeded.
     pub fn log_transaction_success(tx: &StacksTransaction) {
-        info!("Tx successfully processed.";
+        info!("Tx successfully processed";
             "event_name" => %"transaction_result",
             "tx_id" => %tx.txid(),
             "event_type" => %"success",
+            "fee" => tx.get_tx_fee()
         );
     }
 
@@ -445,6 +449,7 @@ impl TransactionResult {
             "tx_id" => %tx.txid(),
             "event_type" => "skip",
             "reason" => %err,
+            "fee" => tx.get_tx_fee()
         );
     }
 
@@ -463,13 +468,12 @@ impl TransactionResult {
     /// This method logs "transaction success" as a side effect.
     pub fn success(
         transaction: &StacksTransaction,
-        fee: u64,
         receipt: StacksTransactionReceipt,
     ) -> TransactionResult {
         Self::log_transaction_success(transaction);
         Self::Success(TransactionSuccess {
             tx: transaction.clone(),
-            fee,
+            fee: transaction.get_tx_fee(),
             receipt,
             soft_limit_reached: false,
         })
@@ -479,14 +483,13 @@ impl TransactionResult {
     /// This method logs "transaction success" as a side effect.
     pub fn success_with_soft_limit(
         transaction: &StacksTransaction,
-        fee: u64,
         receipt: StacksTransactionReceipt,
         soft_limit_reached: bool,
     ) -> TransactionResult {
         Self::log_transaction_success(transaction);
         Self::Success(TransactionSuccess {
             tx: transaction.clone(),
-            fee,
+            fee: transaction.get_tx_fee(),
             receipt,
             soft_limit_reached,
         })
@@ -647,9 +650,17 @@ impl TransactionResult {
                         clarity_err
                     }
                 }
-                ClarityRuntimeTxError::AbortedByCallback(val, assets, events) => {
-                    Error::ClarityError(clarity_error::AbortedByCallback(val, assets, events))
-                }
+                ClarityRuntimeTxError::AbortedByCallback {
+                    output,
+                    assets_modified,
+                    tx_events,
+                    reason,
+                } => Error::ClarityError(clarity_error::AbortedByCallback {
+                    output,
+                    assets_modified,
+                    tx_events,
+                    reason,
+                }),
             },
             Error::InvalidFee => {
                 // The transaction didn't have enough STX left over after it was run.
@@ -679,6 +690,7 @@ pub trait BlockBuilder {
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
         ast_rules: ASTRules,
+        max_execution_time: Option<std::time::Duration>,
     ) -> TransactionResult;
 
     /// Append a transaction if doing so won't exceed the epoch data size.
@@ -688,6 +700,7 @@ pub trait BlockBuilder {
         clarity_tx: &mut ClarityTx,
         tx: &StacksTransaction,
         ast_rules: ASTRules,
+        max_execution_time: Option<std::time::Duration>,
     ) -> Result<TransactionResult, Error> {
         let tx_len = tx.tx_len();
         match self.try_mine_tx_with_len(
@@ -696,6 +709,7 @@ pub trait BlockBuilder {
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
             ast_rules,
+            max_execution_time,
         ) {
             TransactionResult::Success(s) => Ok(TransactionResult::Success(s)),
             TransactionResult::Skipped(TransactionSkipped { error, .. })
@@ -997,7 +1011,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
             ));
         }
 
-        if bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+        if bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
             info!(
                 "Adding microblock tx {} would exceed epoch data size",
                 &tx.txid()
@@ -1053,8 +1067,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
         }
 
         let quiet = !cfg!(test);
-        match StacksChainState::process_transaction(clarity_tx, &tx, quiet, ast_rules) {
-            Ok((fee, receipt)) => Ok(TransactionResult::success(&tx, fee, receipt)),
+        match StacksChainState::process_transaction(clarity_tx, &tx, quiet, ast_rules, None) {
+            Ok((_fee, receipt)) => Ok(TransactionResult::success(&tx, receipt)),
             Err(e) => {
                 let (is_problematic, e) =
                     TransactionResult::is_problematic(&tx, e, clarity_tx.get_epoch());
@@ -1246,7 +1260,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let deadline = get_epoch_time_ms() + u128::from(self.settings.max_miner_time_ms);
         let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
 
-        mem_pool.reset_nonce_cache()?;
+        mem_pool.reset_mempool_caches()?;
         let stacks_epoch_id = clarity_tx.get_epoch();
         let block_limit = clarity_tx
             .block_limit()
@@ -1675,7 +1689,7 @@ impl StacksBlockBuilder {
             .map_err(Error::CodecError)?;
         let tx_len = u64::try_from(tx_bytes.len()).expect("tx len exceeds 2^64 bytes");
 
-        if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+        if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
             warn!(
                 "Epoch size is {} >= {}",
                 self.bytes_so_far + tx_len,
@@ -1686,7 +1700,13 @@ impl StacksBlockBuilder {
         let quiet = !cfg!(test);
         if !self.anchored_done {
             // save
-            match StacksChainState::process_transaction(clarity_tx, tx, quiet, ASTRules::Typical) {
+            match StacksChainState::process_transaction(
+                clarity_tx,
+                tx,
+                quiet,
+                ASTRules::Typical,
+                None,
+            ) {
                 Ok((fee, receipt)) => {
                     self.total_anchored_fees += fee;
                 }
@@ -1697,7 +1717,13 @@ impl StacksBlockBuilder {
 
             self.txs.push(tx.clone());
         } else {
-            match StacksChainState::process_transaction(clarity_tx, tx, quiet, ASTRules::Typical) {
+            match StacksChainState::process_transaction(
+                clarity_tx,
+                tx,
+                quiet,
+                ASTRules::Typical,
+                None,
+            ) {
                 Ok((fee, receipt)) => {
                     self.total_streamed_fees += fee;
                 }
@@ -2097,7 +2123,7 @@ impl StacksBlockBuilder {
         let ast_rules = miner_epoch_info.ast_rules;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
         for tx in txs.into_iter() {
-            match builder.try_mine_tx(&mut epoch_tx, &tx, ast_rules.clone()) {
+            match builder.try_mine_tx(&mut epoch_tx, &tx, ast_rules.clone(), None) {
                 Ok(_) => {
                     debug!("Included {}", &tx.txid());
                 }
@@ -2253,21 +2279,19 @@ impl StacksBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         ast_rules: ASTRules,
+        replay_transactions: &[StacksTransaction],
     ) -> Result<(bool, Vec<TransactionEvent>), Error> {
-        let max_miner_time_ms = settings.max_miner_time_ms;
-        let mempool_settings = settings.mempool_settings.clone();
-        let ts_start = get_epoch_time_ms();
-        let stacks_epoch_id = epoch_tx.get_epoch();
-        let block_limit = epoch_tx
-            .block_limit()
-            .expect("Failed to obtain block limit from miner's block connection");
-
         let mut tx_events = Vec::new();
 
         for initial_tx in initial_txs.iter() {
             tx_events.push(
                 builder
-                    .try_mine_tx(epoch_tx, initial_tx, ast_rules.clone())?
+                    .try_mine_tx(
+                        epoch_tx,
+                        initial_tx,
+                        ast_rules.clone(),
+                        settings.max_execution_time,
+                    )?
                     .convert_to_event(),
             );
         }
@@ -2287,300 +2311,37 @@ impl StacksBlockBuilder {
             }
         }
 
-        mempool.reset_nonce_cache()?;
-        mempool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
-
-        let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
-        let mut considered = HashSet::new(); // txids of all transactions we looked at
-        let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
-        let mut mined_sponsor_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction sponsors to the nonces we used
-
-        let mut invalidated_txs = vec![];
-        let mut to_drop_and_blacklist = vec![];
-        let mut update_timings = vec![];
-
-        let deadline = ts_start + u128::from(max_miner_time_ms);
-        let mut num_txs = 0;
-        let mut blocked = false;
-
-        debug!("Block transaction selection begins (parent height = {tip_height})");
-        let result = {
-            let mut loop_result = Ok(());
-            while block_limit_hit != BlockLimitFunction::LIMIT_REACHED {
-                let mut num_considered = 0;
-                let intermediate_result = mempool.iterate_candidates(
-                    epoch_tx,
-                    &mut tx_events,
-                    mempool_settings.clone(),
-                    |epoch_tx, to_consider, estimator| {
-                        // first, have we been preempted?
-                        blocked = (*settings.miner_status.lock().expect("FATAL: mutex poisoned"))
-                            .is_blocked();
-                        if blocked {
-                            debug!("Miner stopping due to preemption");
-                            return Ok(None);
-                        }
-
-                        let txinfo = &to_consider.tx;
-                        let update_estimator = to_consider.update_estimate;
-
-                        if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
-                            return Ok(None);
-                        }
-                        let time_now = get_epoch_time_ms();
-                        if time_now >= deadline {
-                            debug!("Miner mining time exceeded ({} ms)", max_miner_time_ms);
-                            return Ok(None);
-                        }
-                        if let Some(time_estimate) = txinfo.metadata.time_estimate_ms {
-                            if time_now.saturating_add(time_estimate.into()) > deadline {
-                                debug!("Mining tx would cause us to exceed our deadline, skipping";
-                                       "txid" => %txinfo.tx.txid(),
-                                       "deadline" => deadline,
-                                       "now" => time_now,
-                                       "estimate" => time_estimate);
-                                return Ok(Some(
-                                    TransactionResult::skipped(
-                                        &txinfo.tx,
-                                        "Transaction would exceed deadline.".into(),
-                                    )
-                                    .convert_to_event(),
-                                ));
-                            }
-                        }
-
-                        // skip transactions early if we can
-                        if considered.contains(&txinfo.tx.txid()) {
-                            return Ok(Some(
-                                TransactionResult::skipped(
-                                    &txinfo.tx,
-                                    "Transaction already considered.".to_string(),
-                                )
-                                .convert_to_event(),
-                            ));
-                        }
-
-                        if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
-                            if *nonce >= txinfo.tx.get_origin_nonce() {
-                                return Ok(Some(
-                                    TransactionResult::skipped(
-                                        &txinfo.tx,
-                                        format!(
-                                            "Bad origin nonce, tx nonce {} versus {}.",
-                                            txinfo.tx.get_origin_nonce(),
-                                            *nonce
-                                        ),
-                                    )
-                                    .convert_to_event(),
-                                ));
-                            }
-                        }
-                        if let Some(sponsor_addr) = txinfo.tx.sponsor_address() {
-                            if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
-                                if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
-                                    if *nonce >= sponsor_nonce {
-                                        return Ok(Some(
-                                            TransactionResult::skipped(
-                                                &txinfo.tx,
-                                                format!(
-                                                    "Bad sponsor nonce, tx nonce {} versus {}.",
-                                                    sponsor_nonce, *nonce
-                                                ),
-                                            )
-                                            .convert_to_event(),
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-
-                        considered.insert(txinfo.tx.txid());
-                        num_considered += 1;
-
-                        let tx_start = Instant::now();
-
-                        fault_injection_stall_tx();
-
-                        let tx_result = builder.try_mine_tx_with_len(
-                            epoch_tx,
-                            &txinfo.tx,
-                            txinfo.metadata.len,
-                            &block_limit_hit,
-                            ast_rules,
-                        );
-
-                        let result_event = tx_result.convert_to_event();
-                        match tx_result {
-                            TransactionResult::Success(TransactionSuccess {
-                                tx: _,
-                                fee: _,
-                                receipt,
-                                soft_limit_reached,
-                            }) => {
-                                if txinfo.metadata.time_estimate_ms.is_none() {
-                                    // use i64 to avoid running into issues when storing in
-                                    //  rusqlite.
-                                    let time_estimate_ms: i64 = tx_start
-                                        .elapsed()
-                                        .as_millis()
-                                        .try_into()
-                                        .unwrap_or(i64::MAX);
-                                    let time_estimate_ms: u64 = time_estimate_ms
-                                        .try_into()
-                                        // should be unreachable
-                                        .unwrap_or(0);
-                                    update_timings.push((txinfo.tx.txid(), time_estimate_ms));
-                                }
-
-                                num_txs += 1;
-                                if update_estimator {
-                                    if let Err(e) = estimator.notify_event(
-                                        &txinfo.tx.payload,
-                                        &receipt.execution_cost,
-                                        &block_limit,
-                                        &stacks_epoch_id,
-                                    ) {
-                                        warn!("Error updating estimator";
-                                              "txid" => %txinfo.metadata.txid,
-                                              "error" => ?e);
-                                    }
-                                }
-                                mined_origin_nonces.insert(
-                                    txinfo.tx.origin_address(),
-                                    txinfo.tx.get_origin_nonce(),
-                                );
-                                if let (Some(sponsor_addr), Some(sponsor_nonce)) =
-                                    (txinfo.tx.sponsor_address(), txinfo.tx.get_sponsor_nonce())
-                                {
-                                    mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
-                                }
-                                if soft_limit_reached {
-                                    // done mining -- our soft limit execution budget is exceeded.
-                                    // Make the block from the transactions we did manage to get
-                                    debug!(
-                                        "Soft block budget exceeded on tx {}",
-                                        &txinfo.tx.txid()
-                                    );
-                                    if block_limit_hit != BlockLimitFunction::CONTRACT_LIMIT_HIT {
-                                        debug!("Switch to mining stx-transfers only");
-                                        block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
-                                    }
-                                }
-                            }
-                            TransactionResult::Skipped(TransactionSkipped { error, .. })
-                            | TransactionResult::ProcessingError(TransactionError {
-                                error, ..
-                            }) => {
-                                match &error {
-                                    Error::StacksTransactionSkipped(_) => {}
-                                    Error::BlockTooBigError => {
-                                        // done mining -- our execution budget is exceeded.
-                                        // Make the block from the transactions we did manage to get
-                                        debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
-                                        if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                                            debug!("Switch to mining stx-transfers only");
-                                            block_limit_hit =
-                                                BlockLimitFunction::CONTRACT_LIMIT_HIT;
-                                        } else if block_limit_hit
-                                            == BlockLimitFunction::CONTRACT_LIMIT_HIT
-                                        {
-                                            debug!(
-                                                "Stop mining anchored block due to limit exceeded"
-                                            );
-                                            block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
-                                            return Ok(None);
-                                        }
-                                    }
-                                    Error::TransactionTooBigError(measured_cost) => {
-                                        if update_estimator {
-                                            if let Some(measured_cost) = measured_cost {
-                                                if let Err(e) = estimator.notify_event(
-                                                    &txinfo.tx.payload,
-                                                    measured_cost,
-                                                    &block_limit,
-                                                    &stacks_epoch_id,
-                                                ) {
-                                                    warn!("Error updating estimator";
-                                                                  "txid" => %txinfo.metadata.txid,
-                                                                  "error" => ?e);
-                                                }
-                                            }
-                                        }
-
-                                        invalidated_txs.push(txinfo.metadata.txid);
-                                    }
-                                    Error::InvalidStacksTransaction(_, true) => {
-                                        // if we have an invalid transaction that was quietly ignored, don't warn here either
-                                    }
-                                    e => {
-                                        info!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
-                                        return Ok(Some(result_event));
-                                    }
-                                }
-                            }
-                            TransactionResult::Problematic(TransactionProblematic {
-                                tx, ..
-                            }) => {
-                                // drop from the mempool
-                                debug!("Drop and blacklist problematic transaction {}", &tx.txid());
-                                to_drop_and_blacklist.push(tx.txid());
-                            }
-                        }
-
-                        Ok(Some(result_event))
-                    },
-                );
-
-                if !update_timings.is_empty() {
-                    if let Err(e) = mempool.update_tx_time_estimates(&update_timings) {
-                        warn!("Error while updating time estimates for mempool"; "err" => ?e);
-                    }
-                }
-
-                if !to_drop_and_blacklist.is_empty() {
-                    let _ = mempool.drop_and_blacklist_txs(&to_drop_and_blacklist);
-                }
-
-                match intermediate_result {
-                    Err(e) => {
-                        loop_result = Err(e);
-                        break;
-                    }
-                    Ok((_txs_considered, stop_reason)) => {
-                        match stop_reason {
-                            MempoolIterationStopReason::NoMoreCandidates => break,
-                            MempoolIterationStopReason::DeadlineReached => break,
-                            // if the iterator function exited, let the loop tick: it checks the block limits
-                            MempoolIterationStopReason::IteratorExited => {}
-                        }
-                    }
-                }
-
-                if num_considered == 0 {
-                    break;
-                }
-            }
-            debug!("Block transaction selection finished (parent height {}): {} transactions selected ({} considered)", &tip_height, num_txs, considered.len());
-            loop_result
+        let result = if replay_transactions.is_empty() {
+            select_and_apply_transactions_from_mempool(
+                epoch_tx,
+                builder,
+                mempool,
+                tip_height,
+                settings,
+                event_observer,
+                ast_rules,
+            )
+        } else {
+            let txs = select_and_apply_transactions_from_vec(
+                epoch_tx,
+                builder,
+                tip_height,
+                ast_rules,
+                replay_transactions,
+            );
+            Ok((txs, false))
         };
 
-        mempool.drop_txs(&invalidated_txs)?;
-
-        if let Some(observer) = event_observer {
-            observer.mempool_txs_dropped(invalidated_txs, None, MemPoolDropReason::TOO_EXPENSIVE);
-            observer.mempool_txs_dropped(
-                to_drop_and_blacklist,
-                None,
-                MemPoolDropReason::PROBLEMATIC,
-            );
+        match result {
+            Ok((events, blocked)) => {
+                tx_events.extend(events);
+                Ok((blocked, tx_events))
+            }
+            Err(e) => {
+                warn!("Failure building block: {e}");
+                Err(e)
+            }
         }
-
-        if let Err(e) = result {
-            warn!("Failure building block: {}", e);
-            return Err(e);
-        }
-
-        Ok((blocked, tx_events))
     }
 
     // TODO: add tests from mutation testing results #4861
@@ -2652,6 +2413,7 @@ impl StacksBlockBuilder {
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
 
+        mempool.reset_mempool_caches()?;
         let (blocked, tx_events) = match Self::select_and_apply_transactions(
             &mut epoch_tx,
             &mut builder,
@@ -2661,6 +2423,7 @@ impl StacksBlockBuilder {
             settings,
             event_observer,
             ast_rules,
+            &vec![],
         ) {
             Ok(x) => x,
             Err(e) => {
@@ -2732,8 +2495,9 @@ impl BlockBuilder for StacksBlockBuilder {
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
         ast_rules: ASTRules,
+        _max_execution_time: Option<std::time::Duration>,
     ) -> TransactionResult {
-        if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+        if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
             return TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError);
         }
 
@@ -2797,7 +2561,7 @@ impl BlockBuilder for StacksBlockBuilder {
                 return TransactionResult::problematic(tx, Error::NetError(e));
             }
             let (fee, receipt) = match StacksChainState::process_transaction(
-                clarity_tx, tx, quiet, ast_rules,
+                clarity_tx, tx, quiet, ast_rules, None,
             ) {
                 Ok((fee, receipt)) => (fee, receipt),
                 Err(e) => {
@@ -2858,7 +2622,7 @@ impl BlockBuilder for StacksBlockBuilder {
             self.txs.push(tx.clone());
             self.total_anchored_fees += fee;
 
-            TransactionResult::success(tx, fee, receipt)
+            TransactionResult::success(tx, receipt)
         } else {
             // building up the microblocks
             if tx.anchor_mode != TransactionAnchorMode::OffChainOnly
@@ -2887,7 +2651,7 @@ impl BlockBuilder for StacksBlockBuilder {
                 return TransactionResult::problematic(tx, Error::NetError(e));
             }
             let (fee, receipt) = match StacksChainState::process_transaction(
-                clarity_tx, tx, quiet, ast_rules,
+                clarity_tx, tx, quiet, ast_rules, None,
             ) {
                 Ok((fee, receipt)) => (fee, receipt),
                 Err(e) => {
@@ -2948,10 +2712,325 @@ impl BlockBuilder for StacksBlockBuilder {
             self.micro_txs.push(tx.clone());
             self.total_streamed_fees += fee;
 
-            TransactionResult::success(tx, fee, receipt)
+            TransactionResult::success(tx, receipt)
         };
 
         self.bytes_so_far += tx_len;
         result
     }
+}
+
+fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
+    epoch_tx: &mut ClarityTx,
+    builder: &mut B,
+    mempool: &mut MemPoolDB,
+    tip_height: u64,
+    settings: BlockBuilderSettings,
+    event_observer: Option<&dyn MemPoolEventDispatcher>,
+    ast_rules: ASTRules,
+) -> Result<(Vec<TransactionEvent>, bool), Error> {
+    let mut tx_events = vec![];
+    let max_miner_time_ms = settings.max_miner_time_ms;
+    let mempool_settings = settings.mempool_settings.clone();
+    let ts_start = get_epoch_time_ms();
+    let stacks_epoch_id = epoch_tx.get_epoch();
+    let block_limit = epoch_tx
+        .block_limit()
+        .expect("Failed to obtain block limit from miner's block connection");
+    mempool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
+
+    let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
+    let mut considered = HashSet::new();
+
+    let mut invalidated_txs = vec![];
+    let mut to_drop_and_blacklist = vec![];
+    let mut update_timings = vec![];
+
+    let deadline = ts_start + u128::from(max_miner_time_ms);
+    let mut num_txs = 0;
+    let mut blocked = false;
+
+    debug!("Block transaction selection begins (parent height = {tip_height})");
+    let mut loop_result: Result<(), Error> = Ok(());
+    while block_limit_hit != BlockLimitFunction::LIMIT_REACHED {
+        let mut num_considered = 0;
+
+        // Check if we've been preempted before we attempt mining.
+        // This is important because otherwise, we will add unnecessary
+        // contention on the mempool DB.
+        blocked = (*settings.miner_status.lock().expect("FATAL: mutex poisoned")).is_blocked();
+        if blocked {
+            info!("Miner stopping due to preemption");
+            break;
+        }
+
+        let intermediate_result = mempool.iterate_candidates(
+            epoch_tx,
+            &mut tx_events,
+            mempool_settings.clone(),
+            |epoch_tx, to_consider, estimator| {
+                // first, have we been preempted?
+                blocked =
+                    (*settings.miner_status.lock().expect("FATAL: mutex poisoned")).is_blocked();
+                if blocked {
+                    info!("Miner stopping due to preemption");
+                    return Ok(None);
+                }
+
+                let txinfo = &to_consider.tx;
+                let update_estimator = to_consider.update_estimate;
+
+                if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
+                    info!("Miner stopping due to limit reached");
+                    return Ok(None);
+                }
+                let time_now = get_epoch_time_ms();
+                if time_now >= deadline {
+                    info!(
+                        "Miner stopping due to mining time exceeded ({} ms)",
+                        max_miner_time_ms
+                    );
+                    return Ok(None);
+                }
+                if let Some(time_estimate) = txinfo.metadata.time_estimate_ms {
+                    if time_now.saturating_add(time_estimate.into()) > deadline {
+                        info!("Mining tx would cause us to exceed our deadline, skipping";
+                                   "txid" => %txinfo.tx.txid(),
+                                   "deadline" => deadline,
+                                   "now" => time_now,
+                                   "estimate" => time_estimate);
+                        return Ok(Some(
+                            TransactionResult::skipped(
+                                &txinfo.tx,
+                                "Transaction would exceed deadline.".into(),
+                            )
+                            .convert_to_event(),
+                        ));
+                    }
+                }
+
+                // skip transactions early if we can
+                if considered.contains(&txinfo.tx.txid()) {
+                    debug!("Skipping {}", txinfo.tx.txid());
+                    return Ok(Some(
+                        TransactionResult::skipped(
+                            &txinfo.tx,
+                            "Transaction already considered.".to_string(),
+                        )
+                        .convert_to_event(),
+                    ));
+                }
+
+                considered.insert(txinfo.tx.txid());
+                num_considered += 1;
+
+                let tx_start = Instant::now();
+
+                fault_injection_stall_tx();
+
+                let tx_result = builder.try_mine_tx_with_len(
+                    epoch_tx,
+                    &txinfo.tx,
+                    txinfo.metadata.len,
+                    &block_limit_hit,
+                    ast_rules,
+                    settings.max_execution_time,
+                );
+
+                let result_event = tx_result.convert_to_event();
+                match tx_result {
+                    TransactionResult::Success(TransactionSuccess {
+                        tx: _,
+                        fee: _,
+                        receipt,
+                        soft_limit_reached,
+                    }) => {
+                        if txinfo.metadata.time_estimate_ms.is_none() {
+                            // use i64 to avoid running into issues when storing in
+                            //  rusqlite.
+                            let time_estimate_ms: i64 = tx_start
+                                .elapsed()
+                                .as_millis()
+                                .try_into()
+                                .unwrap_or(i64::MAX);
+                            let time_estimate_ms: u64 = time_estimate_ms
+                                .try_into()
+                                // should be unreachable
+                                .unwrap_or(0);
+                            update_timings.push((txinfo.tx.txid(), time_estimate_ms));
+                        }
+
+                        num_txs += 1;
+                        if update_estimator {
+                            if let Err(e) = estimator.notify_event(
+                                &txinfo.tx.payload,
+                                &receipt.execution_cost,
+                                &block_limit,
+                                &stacks_epoch_id,
+                            ) {
+                                warn!("Error updating estimator";
+                                          "txid" => %txinfo.metadata.txid,
+                                          "error" => ?e);
+                            }
+                        }
+
+                        if soft_limit_reached {
+                            // done mining -- our soft limit execution budget is exceeded.
+                            // Make the block from the transactions we did manage to get
+                            debug!("Soft block budget exceeded on tx {}", &txinfo.tx.txid());
+                            if block_limit_hit != BlockLimitFunction::CONTRACT_LIMIT_HIT {
+                                debug!("Switch to mining stx-transfers only");
+                                block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                            }
+                        }
+                    }
+                    TransactionResult::Skipped(TransactionSkipped { error, .. })
+                    | TransactionResult::ProcessingError(TransactionError { error, .. }) => {
+                        match &error {
+                            Error::StacksTransactionSkipped(_) => {}
+                            Error::BlockTooBigError => {
+                                // done mining -- our execution budget is exceeded.
+                                // Make the block from the transactions we did manage to get
+                                debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
+                                if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
+                                    debug!("Switch to mining stx-transfers only");
+                                    block_limit_hit = BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                                } else if block_limit_hit == BlockLimitFunction::CONTRACT_LIMIT_HIT
+                                {
+                                    info!("Miner stopping due to limit reached");
+                                    block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
+                                    return Ok(None);
+                                }
+                            }
+                            Error::TransactionTooBigError(measured_cost) => {
+                                if update_estimator {
+                                    if let Some(measured_cost) = measured_cost {
+                                        if let Err(e) = estimator.notify_event(
+                                            &txinfo.tx.payload,
+                                            measured_cost,
+                                            &block_limit,
+                                            &stacks_epoch_id,
+                                        ) {
+                                            warn!("Error updating estimator";
+                                                              "txid" => %txinfo.metadata.txid,
+                                                              "error" => ?e);
+                                        }
+                                    }
+                                }
+
+                                invalidated_txs.push(txinfo.metadata.txid);
+                            }
+                            Error::InvalidStacksTransaction(_, true) => {
+                                // if we have an invalid transaction that was quietly ignored, don't warn here either
+                            }
+                            e => {
+                                info!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
+                                return Ok(Some(result_event));
+                            }
+                        }
+                    }
+                    TransactionResult::Problematic(TransactionProblematic { tx, .. }) => {
+                        // drop from the mempool
+                        debug!("Drop and blacklist problematic transaction {}", &tx.txid());
+                        to_drop_and_blacklist.push(tx.txid());
+                    }
+                }
+
+                Ok(Some(result_event))
+            },
+        );
+
+        if !update_timings.is_empty() {
+            if let Err(e) = mempool.update_tx_time_estimates(&update_timings) {
+                warn!("Error while updating time estimates for mempool"; "err" => ?e);
+            }
+        }
+
+        if !to_drop_and_blacklist.is_empty() {
+            let _ = mempool.drop_and_blacklist_txs(&to_drop_and_blacklist);
+        }
+
+        match intermediate_result {
+            Err(e) => {
+                loop_result = Err(e);
+                break;
+            }
+            Ok((_txs_considered, stop_reason)) => {
+                match stop_reason {
+                    MempoolIterationStopReason::NoMoreCandidates => break,
+                    MempoolIterationStopReason::DeadlineReached => break,
+                    // if the iterator function exited, let the loop tick: it checks the block limits
+                    MempoolIterationStopReason::IteratorExited => {}
+                }
+            }
+        }
+
+        if num_considered == 0 {
+            break;
+        }
+    }
+    debug!("Block transaction selection finished (parent height {tip_height}): {num_txs} transactions selected ({} considered)", considered.len());
+    mempool.drop_txs(&invalidated_txs)?;
+
+    if let Some(observer) = event_observer {
+        observer.mempool_txs_dropped(invalidated_txs, None, MemPoolDropReason::TOO_EXPENSIVE);
+        observer.mempool_txs_dropped(to_drop_and_blacklist, None, MemPoolDropReason::PROBLEMATIC);
+    }
+    loop_result?;
+    Ok((tx_events, blocked))
+}
+
+fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
+    epoch_tx: &mut ClarityTx,
+    builder: &mut B,
+    tip_height: u64,
+    ast_rules: ASTRules,
+    replay_transactions: &[StacksTransaction],
+) -> Vec<TransactionEvent> {
+    let mut tx_events = vec![];
+
+    let mut num_txs = 0;
+    let mut num_considered = 0;
+
+    debug!("Replay block transaction selection begins (parent height = {tip_height})");
+    for replay_tx in replay_transactions {
+        fault_injection_stall_tx();
+        let txid = replay_tx.txid();
+        let tx_result = builder.try_mine_tx_with_len(
+            epoch_tx,
+            replay_tx,
+            replay_tx.tx_len(),
+            &BlockLimitFunction::NO_LIMIT_HIT,
+            ast_rules,
+            None,
+        );
+        let tx_event = tx_result.convert_to_event();
+        match tx_result {
+            TransactionResult::Success(TransactionSuccess { .. }) => {
+                num_txs += 1;
+            }
+            TransactionResult::Skipped(TransactionSkipped { error, .. })
+            | TransactionResult::ProcessingError(TransactionError { error, .. }) => {
+                match &error {
+                    Error::BlockTooBigError => {
+                        // done mining -- our execution budget is exceeded.
+                        // Make the block from the transactions we did manage to get
+                        debug!("Block budget exceeded on tx {txid}");
+                        info!("Miner stopping due to limit reached");
+                        break;
+                    }
+                    e => {
+                        info!("Failed to apply tx {txid}: {e:?}");
+                    }
+                }
+            }
+            TransactionResult::Problematic(TransactionProblematic { .. }) => {
+                info!("Failed to apply problematic tx {txid}");
+            }
+        }
+        tx_events.push(tx_event);
+        num_considered += 1;
+    }
+    debug!("Replay block transaction selection finished (parent height {tip_height}): {num_txs} transactions selected ({num_considered} considered)");
+    tx_events
 }

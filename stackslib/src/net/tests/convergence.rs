@@ -21,7 +21,6 @@ use std::collections::{HashMap, HashSet};
 use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use rand::prelude::*;
 use rand::thread_rng;
-use rlimit;
 
 use crate::core::PEER_VERSION_TESTNET;
 use crate::net::db::*;
@@ -29,12 +28,19 @@ use crate::net::test::*;
 use crate::net::*;
 use crate::util_lib::test::*;
 
+#[cfg(unix)]
 fn setup_rlimit_nofiles() {
+    use rlimit;
     info!("Attempt to set nofile rlimit to 4096 (required for these tests to run)");
     assert!(rlimit::Resource::NOFILE.get().is_ok());
     let (slimit, hlimit) = rlimit::getrlimit(rlimit::Resource::NOFILE).unwrap();
     rlimit::setrlimit(rlimit::Resource::NOFILE, 4096.max(slimit), hlimit).unwrap();
     info!("Successfully set nofile rlimit to 4096");
+}
+
+#[cfg(windows)]
+fn setup_rlimit_nofiles() {
+    // rlimit empty stub, since windows hasn't a hard file descriptor limit
 }
 
 fn stacker_db_id(i: usize) -> QualifiedContractIdentifier {
@@ -46,7 +52,7 @@ fn stacker_db_id(i: usize) -> QualifiedContractIdentifier {
 
 fn make_stacker_db_ids(i: usize) -> Vec<QualifiedContractIdentifier> {
     let mut dbs = vec![];
-    for j in 0..i {
+    for j in 0..i + 1 {
         dbs.push(stacker_db_id(j));
     }
     dbs
@@ -1046,6 +1052,45 @@ fn run_topology_test_ex<F>(
             "Network convergence rate: {}%",
             (100.0 * (peer_counts as f64)) / ((peer_count * peer_count) as f64),
         );
+
+        // wait for stacker DBs to converge
+        for (i, peer) in peers.iter().enumerate() {
+            if i % 2 != 0 {
+                continue;
+            }
+            for (j, other_peer) in peers.iter().enumerate() {
+                if i == j {
+                    continue;
+                }
+
+                let all_neighbors =
+                    PeerDB::get_all_peers(other_peer.network.peerdb.conn()).unwrap();
+
+                if (all_neighbors.len() as u64) < ((peer_count - 1) as u64) {
+                    // this is a simulated-NAT'ed node -- it won't learn about other NAT'ed nodes'
+                    // DBs
+                    continue;
+                }
+
+                if j % 2 != 0 {
+                    continue; // this peer doesn't support Stacker DBs
+                }
+                let dbs = peer
+                    .network
+                    .peerdb
+                    .get_peer_stacker_dbs(&other_peer.config.to_neighbor())
+                    .unwrap();
+                if dbs.is_empty() {
+                    test_debug!(
+                        "waiting for peer {i} {} to learn about peer {j} {}'s stacker DBs",
+                        &peer.config.to_neighbor(),
+                        &other_peer.config.to_neighbor()
+                    );
+                    finished = false;
+                    break;
+                }
+            }
+        }
 
         if finished {
             break;

@@ -391,7 +391,8 @@ pub fn setup_states_with_epochs(
                         Value::UInt(burnchain.pox_constants.reward_cycle_length as u128),
                         Value::UInt(burnchain.pox_constants.pox_rejection_fraction as u128),
                     ],
-                    |_, _| false,
+                    |_, _| None,
+                    None,
                 )
                 .expect("Failed to set burnchain parameters in PoX contract");
             });
@@ -445,6 +446,7 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _burns: u64,
         _slot_holders: Vec<PoxAddress>,
         _consensus_hash: &ConsensusHash,
+        _parent_burn_block_hash: &BurnchainHeaderHash,
     ) {
     }
 }
@@ -469,6 +471,7 @@ pub fn make_coordinator<'a>(
         path,
         OnChainRewardSetProvider(None),
         indexer,
+        false,
     )
 }
 
@@ -476,6 +479,7 @@ pub fn make_coordinator_atlas<'a>(
     path: &str,
     burnchain: Option<Burnchain>,
     atlas_config: Option<AtlasConfig>,
+    txindex: bool,
 ) -> ChainsCoordinator<
     'a,
     NullEventDispatcher,
@@ -495,6 +499,7 @@ pub fn make_coordinator_atlas<'a>(
         None,
         indexer,
         atlas_config,
+        txindex,
     )
 }
 
@@ -544,6 +549,7 @@ fn make_reward_set_coordinator<'a>(
         path,
         StubbedRewardSetProvider(addrs),
         indexer,
+        false,
     )
 }
 
@@ -646,7 +652,7 @@ fn make_genesis_block_with_recipients(
 
     let parent_stacks_header = StacksHeaderInfo::regtest_genesis();
 
-    let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes());
+    let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes()).unwrap();
 
     let mut builder = StacksBlockBuilder::make_regtest_block_builder(
         burnchain,
@@ -666,7 +672,7 @@ fn make_genesis_block_with_recipients(
         .0;
 
     builder
-        .try_mine_tx(&mut epoch_tx, &coinbase_op, ast_rules)
+        .try_mine_tx(&mut epoch_tx, &coinbase_op, ast_rules, None)
         .unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
@@ -909,7 +915,7 @@ fn make_stacks_block_with_input(
 
     eprintln!("Build off of {:?}", &parent_stacks_header);
 
-    let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes());
+    let proof = VRF::prove(vrf_key, sortition_tip.sortition_hash.as_bytes()).unwrap();
 
     let total_burn = parents_sortition.total_burn;
 
@@ -931,11 +937,13 @@ fn make_stacks_block_with_input(
         .0;
 
     builder
-        .try_mine_tx(&mut epoch_tx, &coinbase_op, ast_rules)
+        .try_mine_tx(&mut epoch_tx, &coinbase_op, ast_rules, None)
         .unwrap();
 
     for tx in txs {
-        builder.try_mine_tx(&mut epoch_tx, tx, ast_rules).unwrap();
+        builder
+            .try_mine_tx(&mut epoch_tx, tx, ast_rules, None)
+            .unwrap();
     }
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
@@ -1549,7 +1557,7 @@ fn missed_block_commits_2_1() {
             // did we have a bad missed commit in this window?
             // bad missed commits land in the prepare phase.
             let have_bad_missed_commit = b.is_in_prepare_phase(last_bad_op_height)
-                && ix >= MINING_COMMITMENT_WINDOW.into()
+                && ix >= usize::from(MINING_COMMITMENT_WINDOW)
                 && last_bad_op_height + (MINING_COMMITMENT_WINDOW as u64) > tip.block_height;
             if have_bad_missed_commit {
                 // bad commit breaks the chain if its PoX outputs are invalid
@@ -4656,6 +4664,7 @@ fn atlas_stop_start() {
         path,
         Some(burnchain_conf.clone()),
         Some(atlas_config.clone()),
+        false,
     );
 
     coord.handle_new_burnchain_block().unwrap();
@@ -4850,7 +4859,7 @@ fn atlas_stop_start() {
     // now, we'll shut down all the coordinator connections and reopen them
     //  to ensure that the queue remains in place
     let coord = (); // dispose of the coordinator, closing all its connections
-    let coord = make_coordinator_atlas(path, Some(burnchain_conf), Some(atlas_config));
+    let coord = make_coordinator_atlas(path, Some(burnchain_conf), Some(atlas_config), false);
 
     let atlas_queue = coord
         .atlas_db
@@ -5159,7 +5168,7 @@ fn test_epoch_verify_active_pox_contract() {
 
         let active_pox_contract = b.pox_constants.active_pox_contract(burn_block_height);
 
-        if burn_block_height <= pox_v1_unlock_ht.into() {
+        if burn_block_height <= u64::from(pox_v1_unlock_ht) {
             assert_eq!(active_pox_contract, POX_1_NAME);
             if curr_reward_cycle == 1 {
                 // This is a result of the first stack stx sent.

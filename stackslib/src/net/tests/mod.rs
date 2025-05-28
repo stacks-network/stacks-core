@@ -108,6 +108,7 @@ pub struct NakamotoBootPlan {
     /// Whether or not to produce malleablized blocks
     pub malleablized_blocks: bool,
     pub network_id: u32,
+    pub txindex: bool,
 }
 
 impl NakamotoBootPlan {
@@ -125,6 +126,7 @@ impl NakamotoBootPlan {
             add_default_balance: true,
             malleablized_blocks: true,
             network_id: TestPeerConfig::default().network_id,
+            txindex: false,
         }
     }
 
@@ -182,6 +184,11 @@ impl NakamotoBootPlan {
 
     pub fn with_malleablized_blocks(mut self, malleablized_blocks: bool) -> Self {
         self.malleablized_blocks = malleablized_blocks;
+        self
+    }
+
+    pub fn with_txindex(mut self, txindex: bool) -> Self {
+        self.txindex = txindex;
         self
     }
 
@@ -359,6 +366,8 @@ impl NakamotoBootPlan {
         let mut peer_config = TestPeerConfig::new(&self.test_name, 0, 0);
         peer_config.network_id = self.network_id;
         peer_config.private_key = self.private_key.clone();
+        peer_config.txindex = self.txindex;
+
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,

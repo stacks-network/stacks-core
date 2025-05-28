@@ -5,13 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
+## [3.1.0.0.11]
 
-## Added
+- Hotfix for p2p stack misbehavior in mempool syncing conditions
+
+## [3.1.0.0.10]
+
+### Added
+- Persisted tracking of StackerDB slot versions for mining. This improves miner p2p performance.
+
+## [3.1.0.0.9]
+
+### Added
+
+- Added field `vm_error` to EventObserver transaction outputs
+- Added new `ValidateRejectCode` values to the `/v3/block_proposal` endpoint
+- Added `StateMachineUpdateContent::V1` to support a vector of `StacksTransaction` expected to be replayed in subsequent Stacks blocks
+- Include a reason string in the transaction receipt when a transaction is rolled back due to a post-condition. This should help users in understanding what went wrong.
+- Updated `StackerDBListener` to monitor signer state machine updates and store signer global state information, enabling miners to perform transaction replays.
+- Added a testnet `replay_transactions` flag to the miner configuration to feature-gate transaction replay. When enabled, the miner will construct a replay block if a threshold of signers signals that a transaction set requires replay.
+
+### Changed
+
+- Reduce the default `block_rejection_timeout_steps` configuration so that miners will retry faster when blocks fail to reach 70% approved or 30% rejected.
+- Added index for `next_ready_nakamoto_block()` which improves block processing performance.
+- Added a new field, `parent_burn_block_hash`, to the payload that is included in the `/new_burn_block` event observer payload.
+
+### Fixed
+
+- Fix regression in mock-mining, allowing the mock miner to continue mining blocks throughout a tenure instead of failing after mining the tenure change block.
+
+## [3.1.0.0.8]
+
+### Added
+
+- Add fee information to transaction log ending with "success" or "skipped", while building a new block
+- Add `max_execution_time_secs` to miner config for limiting duration of contract calls
+- When a miner's config file is updated (ie with a new fee rate), a new block commit is issued using
+  the new values ([#5924](https://github.com/stacks-network/stacks-core/pull/5924))
+- Add `txindex` configuration option enabling the storage (and querying via api) of transactions. Note: the old STACKS_TRANSACTION_LOG environment var configuration is no longer available.
+
+### Changed
+
+- When a miner times out waiting for signatures, it will re-propose the same block instead of building a new block ([#5877](https://github.com/stacks-network/stacks-core/pull/5877))
+- Improve tenure downloader trace verbosity applying proper logging level depending on the tenure state ("debug" if unconfirmed, "info" otherwise) ([#5871](https://github.com/stacks-network/stacks-core/issues/5871))
+- Remove warning log about missing UTXOs when a node is configured as `miner` with `mock_mining` mode enabled ([#5841](https://github.com/stacks-network/stacks-core/issues/5841))
+- Deprecated the `wait_on_interim_blocks` option in the miner config file. This option is no longer needed, as the miner will always wait for interim blocks to be processed before mining a new block. To wait extra time in between blocks, use the `min_time_between_blocks_ms` option instead. ([#5979](https://github.com/stacks-network/stacks-core/pull/5979))
+- Added `empty_mempool_sleep_ms` to the miner config file to control the time to wait in between mining attempts when the mempool is empty. If not set, the default sleep time is 2.5s. ([#5997](https://github.com/stacks-network/stacks-core/pull/5997))
+
+## [3.1.0.0.7]
+
+### Added
 
 - Add `disable_retries` mode for events_observer disabling automatic retry on error
 
-## Changed
+### Changed
 
 - Implement faster cost tracker for default cost functions in Clarity
 - By default, miners will wait for a new tenure to start for a configurable amount of time after receiving a burn block before
@@ -21,7 +69,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [3.1.0.0.6]
 
-## Added
+### Added
 
 - The `BlockProposal` StackerDB message serialization struct now includes a `server_version` string, which represents the version of the node that the miner is using. ([#5803](https://github.com/stacks-network/stacks-core/pull/5803))
 - Add `vrf_seed` to the `/v3/sortitions` rpc endpoint
@@ -33,6 +81,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Logging improvements:
   - P2P logs now includes a reason for dropping a peer or neighbor
   - Improvements to how a PeerAddress is logged (human readable format vs hex)
+- Pending event dispatcher requests will no longer be sent to URLs that are no longer registered as event observers ([#5834](https://github.com/stacks-network/stacks-core/pull/5834))
 
 ### Fixed
 

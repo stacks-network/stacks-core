@@ -78,6 +78,7 @@ fn make_dummy_cc_tx(fee: u64, execution_cost: &ExecutionCost) -> StacksTransacti
         Value::okay(Value::Bool(true)).unwrap(),
         0,
         execution_cost.clone(),
+        None,
     )
 }
 

@@ -97,11 +97,6 @@ pub mod headers;
 pub mod transactions;
 pub mod unconfirmed;
 
-lazy_static! {
-    pub static ref TRANSACTION_LOG: bool =
-        std::env::var("STACKS_TRANSACTION_LOG") == Ok("1".into());
-}
-
 /// Fault injection struct for various kinds of faults we'd like to introduce into the system
 pub struct StacksChainStateFaults {
     // if true, then the envar STACKS_HIDE_BLOCKS_AT_HEIGHT will be consulted to get a list of
@@ -299,15 +294,15 @@ impl DBConfig {
         });
         match epoch_id {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 8,
-            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 8,
-            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 8,
-            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 8,
-            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 8,
-            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 8,
-            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 8,
-            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 8,
-            StacksEpochId::Epoch31 => version_u32 >= 3 && version_u32 <= 8,
+            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 9,
+            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 9,
+            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 9,
+            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 9,
+            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 9,
+            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 9,
+            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 9,
+            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 9,
+            StacksEpochId::Epoch31 => version_u32 >= 3 && version_u32 <= 9,
         }
     }
 }
@@ -636,24 +631,7 @@ impl<'a> ChainstateTx<'a> {
         &self.config
     }
 
-    pub fn log_transactions_processed(
-        &self,
-        block_id: &StacksBlockId,
-        events: &[StacksTransactionReceipt],
-    ) {
-        if *TRANSACTION_LOG {
-            let insert =
-                "INSERT INTO transactions (txid, index_block_hash, tx_hex, result) VALUES (?, ?, ?, ?)";
-            for tx_event in events.iter() {
-                let txid = tx_event.transaction.txid();
-                let tx_hex = tx_event.transaction.serialize_to_dbstring();
-                let result = tx_event.result.to_string();
-                let params = params![txid, block_id, tx_hex, result];
-                if let Err(e) = self.tx.tx().execute(insert, params) {
-                    warn!("Failed to log TX: {}", e);
-                }
-            }
-        }
+    pub fn log_transactions_processed(&self, events: &[StacksTransactionReceipt]) {
         for tx_event in events.iter() {
             let txid = tx_event.transaction.txid();
             if let Err(e) = monitoring::log_transaction_processed(&txid, &self.root_path) {
@@ -676,7 +654,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &str = "8";
+pub const CHAINSTATE_VERSION: &str = "9";
 
 const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -875,6 +853,15 @@ const CHAINSTATE_SCHEMA_3: &[&str] = &[
     "#,
 ];
 
+const CHAINSTATE_SCHEMA_4: &[&str] = &[
+    // schema change is JUST a new index, so just bump db_config.version
+    //   and add the index to `CHAINSTATE_INDEXES` (which gets re-execed
+    //   on every schema change)
+    r#"
+    UPDATE db_config SET version = "9";
+    "#,
+];
+
 const CHAINSTATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
     "CREATE INDEX IF NOT EXISTS block_headers_hash_index ON block_headers(block_hash,block_height);",
@@ -899,6 +886,7 @@ const CHAINSTATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_header_by_affirmation_weight ON block_headers(affirmation_weight);",
     "CREATE INDEX IF NOT EXISTS index_block_header_by_height_and_affirmation_weight ON block_headers(block_height,affirmation_weight);",
     "CREATE INDEX IF NOT EXISTS index_headers_by_consensus_hash ON block_headers(consensus_hash);",
+    "CREATE INDEX IF NOT EXISTS processable_block ON staging_blocks(processed, orphaned, attachable);",
 ];
 
 pub use stacks_common::consts::MINER_REWARD_MATURITY;
@@ -1126,6 +1114,14 @@ impl StacksChainState {
                         tx.execute_batch(cmd)?;
                     }
                 }
+                "8" => {
+                    info!(
+                        "Migrating chainstate schema from version 8 to 9: add index for staging_blocks"
+                    );
+                    for cmd in CHAINSTATE_SCHEMA_4.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
                 _ => {
                     error!(
                         "Invalid chain state database: expected version = {}, got {}",
@@ -1323,6 +1319,7 @@ impl StacksChainState {
                         &boot_code_smart_contract,
                         &boot_code_account,
                         ASTRules::PrecheckSize,
+                        None,
                     )
                 })?;
                 receipts.push(tx_receipt);
@@ -1645,7 +1642,8 @@ impl StacksChainState {
                     &contract,
                     "set-burnchain-parameters",
                     &params,
-                    |_, _| false,
+                    |_, _| None,
+                    None,
                 )
                 .expect("Failed to set burnchain parameters in PoX contract");
             });

@@ -25,7 +25,6 @@ regex = "1"
 libsigner = { path = "../../libsigner" }
 url = "2.1.0"
 rand = { workspace = true }
-rand_core = { workspace = true }
 hashbrown = { workspace = true }
 rusqlite = { workspace = true }
 async-h1 = { version = "2.3.2", optional = true }
@@ -52,6 +51,9 @@ http-types = "2.12"
 tempfile = "3.3"
 mockito = "1.5"
 serial_test = "3.2.0"
+pinny = { git = "https://github.com/BitcoinL2-Labs/pinny-rs.git", rev = "54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49" } #v0.0.2
+madhouse = { git = "https://github.com/stacks-network/madhouse-rs.git", rev = "fc651ddcbaf85e888b06d4a87aa788c4b7ba9309" }
+proptest = { git = "https://github.com/proptest-rs/proptest.git", rev = "c9bdf18c232665b2b740c667c81866b598d06dc7" }
 
 [[bin]]
 name = "stacks-node"
@@ -62,8 +64,11 @@ name = "stacks-events"
 path = "src/stacks_events.rs"
 
 [features]
-monitoring_prom = ["stacks/monitoring_prom", "libsigner/monitoring_prom", "stacks-signer/monitoring_prom", "async-h1", "async-std", "http-types"]
+monitoring_prom = ["stacks/monitoring_prom", "stacks-signer/monitoring_prom", "async-h1", "async-std", "http-types"]
 slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []
 testing = []
+
+[package.metadata.pinny] 
+allowed = ["bitcoind", "flaky", "slow"]

@@ -21,13 +21,11 @@ jobs:
   image:
     name: Build Image
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      ## Build a maximum of 2 images concurrently based on matrix.dist
-      max-parallel: 2
-      matrix:
-        dist:
-          - debian
+    ## Requires the repo environment "Push to Docker", which will trigger a secondary approval step before running this workflow.
+    environment: "Push to Docker"
+    permissions:
+      id-token: write
+      attestations: write
     steps:
       ## Setup Docker for the builds
       - name: Docker setup
@@ -49,7 +47,7 @@ jobs:
       ## Set docker metatdata
       - name: Docker Metadata ( ${{matrix.dist}} )
         id: docker_metadata
-        uses: docker/metadata-action@8e5442c4ef9f78752691e2d8f8d19755c6f78e81 #v5.5.1
+        uses: docker/metadata-action@369eb591f429131d6889c46b94e711f089e6ca96 #v5.6.1
         with:
           images: |
             ${{env.docker-org}}/${{ github.event.repository.name }}
@@ -61,9 +59,9 @@ jobs:
       ## Build docker image
       - name: Build and Push ( ${{matrix.dist}} )
         id: docker_build
-        uses: docker/build-push-action@2cdde995de11925a030ce8070c3d77a52ffcf1c0 # v5.3.0
+        uses: docker/build-push-action@ca877d9245402d1537745e0e356eab47c3520991 # v6.13.0
         with:
-          file: ./.github/actions/dockerfiles/Dockerfile.${{matrix.dist}}-source
+          file: ./Dockerfile
           platforms: ${{ env.docker_platforms }}
           tags: ${{ steps.docker_metadata.outputs.tags }}
           labels: ${{ steps.docker_metadata.outputs.labels }}
@@ -73,3 +71,22 @@ jobs:
             GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
             TARGET_CPU=x86-64-v3
           push: ${{ env.DOCKER_PUSH }}
+
+      ## Generate docker image attestation(s)
+      - name: Generate artifact attestation (${{ github.event.repository.name }})
+        id: attest_primary
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
+        with:
+          subject-name: |
+            index.docker.io/${{env.docker-org}}/${{ github.event.repository.name }}
+          subject-digest: ${{ steps.docker_build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Generate artifact attestation (stacks-blockchain)
+        id: attest_secondary
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
+        with:
+          subject-name: |
+            index.docker.io/${{env.docker-org}}/stacks-blockchain
+          subject-digest: ${{ steps.docker_build.outputs.digest }}
+          push-to-registry: true

@@ -24,13 +24,13 @@
 //! checks if the function called requires applying or updating the
 //! `STXBalance` struct's locks, and if the function was successfully
 //! invoked. If so, it updates the PoX lock.
+#![allow(clippy::result_large_err)]
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
-use slog::slog_warn;
 use stacks_common::types::StacksEpochId;
 use stacks_common::warn;
 
@@ -42,6 +42,7 @@ mod pox_3;
 mod pox_4;
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum LockingError {
     DefunctPoxContract,
     PoxAlreadyLocked,

@@ -19,7 +19,6 @@ on:
       - opened
       - reopened
       - synchronize
-      - ready_for_review
 
 defaults:
   run:
@@ -94,6 +93,7 @@ jobs:
     needs:
       - rustfmt
       - check-release
+    secrets: inherit 
     uses: ./.github/workflows/github-release.yml
     with:
       node_tag: ${{ needs.check-release.outputs.node_tag }}
@@ -102,22 +102,6 @@ jobs:
       signer_docker_tag: ${{ needs.check-release.outputs.signer_docker_tag }}
       is_node_release: ${{ needs.check-release.outputs.is_node_release }}
       is_signer_release: ${{ needs.check-release.outputs.is_signer_release }}
-    secrets: inherit
-
-  ## Build and push Debian image built from source
-  ##
-  ## Runs when:
-  ##  - it is not a node or signer-only release run
-  docker-image:
-    if: |
-      needs.check-release.outputs.is_node_release != 'true' ||
-      needs.check-release.outputs.is_signer_release != 'true'
-    name: Docker Image (Source)
-    uses: ./.github/workflows/image-build-source.yml
-    needs:
-      - rustfmt
-      - check-release
-    secrets: inherit
 
   ## Create a reusable cache for tests
   ##

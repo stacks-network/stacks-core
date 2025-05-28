@@ -659,6 +659,8 @@ pub struct StacksNodeState<'a> {
     relay_message: Option<StacksMessageType>,
     /// Are we in Initial Block Download (IBD) phase?
     ibd: bool,
+    /// Are we indexing transactions?
+    txindex: bool,
 }
 
 impl<'a> StacksNodeState<'a> {
@@ -669,6 +671,7 @@ impl<'a> StacksNodeState<'a> {
         inner_mempool: &'a mut MemPoolDB,
         inner_rpc_args: &'a RPCHandlerArgs<'a>,
         ibd: bool,
+        txindex: bool,
     ) -> StacksNodeState<'a> {
         StacksNodeState {
             inner_network: Some(inner_network),
@@ -678,6 +681,7 @@ impl<'a> StacksNodeState<'a> {
             inner_rpc_args: Some(inner_rpc_args),
             relay_message: None,
             ibd,
+            txindex,
         }
     }
 
@@ -2572,6 +2576,7 @@ pub mod test {
             _burns: u64,
             _reward_recipients: Vec<PoxAddress>,
             _consensus_hash: &ConsensusHash,
+            _parent_burn_block_hash: &BurnchainHeaderHash,
         ) {
             // pass
         }
@@ -2686,6 +2691,7 @@ pub mod test {
         pub aggregate_public_key: Option<Vec<u8>>,
         pub test_stackers: Option<Vec<TestStacker>>,
         pub test_signers: Option<TestSigners>,
+        pub txindex: bool,
     }
 
     impl TestPeerConfig {
@@ -2738,6 +2744,7 @@ pub mod test {
                 aggregate_public_key: None,
                 test_stackers: None,
                 test_signers: None,
+                txindex: false,
             }
         }
 
@@ -2877,9 +2884,10 @@ pub mod test {
         pub fn test_path(config: &TestPeerConfig) -> String {
             let random = thread_rng().gen::<u64>();
             let random_bytes = to_hex(&random.to_be_bytes());
+            let cleaned_config_test_name = config.test_name.replace("::", "_");
             format!(
                 "/tmp/stacks-node-tests/units-test-peer/{}-{}",
-                &config.test_name, random_bytes
+                &cleaned_config_test_name, random_bytes
             )
         }
 
@@ -3097,6 +3105,7 @@ pub mod test {
                             &boot_code_smart_contract,
                             &boot_code_account,
                             ASTRules::PrecheckSize,
+                            None,
                         )
                         .unwrap()
                     });
@@ -3135,6 +3144,7 @@ pub mod test {
                 observer,
                 indexer,
                 None,
+                config.txindex,
             );
             coord.handle_new_burnchain_block().unwrap();
 
@@ -3420,6 +3430,7 @@ pub mod test {
                 ibd,
                 100,
                 &rpc_handler_args,
+                self.config.txindex,
             );
 
             if self.network.get_current_epoch().epoch_id >= StacksEpochId::Epoch30 {
@@ -3531,6 +3542,7 @@ pub mod test {
                 ibd,
                 100,
                 &rpc_handler_args,
+                self.config.txindex,
             );
 
             if self.network.get_current_epoch().epoch_id >= StacksEpochId::Epoch30 {
@@ -4928,15 +4940,5 @@ pub mod test {
             self.stacks_node = Some(node);
             acct
         }
-    }
-
-    pub fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
-        StacksAddress::from_public_keys(
-            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            &AddressHashMode::SerializeP2PKH,
-            1,
-            &vec![StacksPublicKey::from_private(sk)],
-        )
-        .unwrap()
     }
 }

@@ -3797,7 +3797,7 @@ fn test_get_pox_addrs() {
                     assert!(opdata.all_outputs_burn());
                     assert!(opdata.burn_fee > 0);
 
-                    if tenure_id > 1 && cur_reward_cycle > lockup_reward_cycle.into() {
+                    if tenure_id > 1 && cur_reward_cycle > u128::from(lockup_reward_cycle) {
                         prepared = true;
                     }
                 }
@@ -3807,7 +3807,7 @@ fn test_get_pox_addrs() {
             for op in burn_ops.iter() {
                 if let BlockstackOperationType::LeaderBlockCommit(ref opdata) = &op {
                     eprintln!("reward phase {}: {:?}", burn_height, opdata);
-                    if tenure_id > 1 && cur_reward_cycle == (lockup_reward_cycle + 1).into() {
+                    if tenure_id > 1 && cur_reward_cycle == u128::from(lockup_reward_cycle + 1) {
                         assert!(!opdata.all_outputs_burn());
                         rewarded = true;
                     } else {
@@ -3874,7 +3874,7 @@ fn test_get_pox_addrs() {
             eprintln!("ntotal_liquid_ustx: {total_liquid_ustx}");
             eprintln!("total-stacked: {total_stacked}");
 
-            if cur_reward_cycle == lockup_reward_cycle.into() {
+            if cur_reward_cycle == u128::from(lockup_reward_cycle) {
                 assert_eq!(reward_addrs.len(), 4);
                 all_reward_addrs = reward_addrs;
             }
@@ -4095,7 +4095,7 @@ fn test_stack_with_segwit() {
                     assert!(opdata.all_outputs_burn());
                     assert!(opdata.burn_fee > 0);
 
-                    if tenure_id > 1 && cur_reward_cycle > lockup_reward_cycle.into() {
+                    if tenure_id > 1 && cur_reward_cycle > u128::from(lockup_reward_cycle) {
                         prepared = true;
                     }
                 }
@@ -4105,7 +4105,7 @@ fn test_stack_with_segwit() {
             for op in burn_ops.iter() {
                 if let BlockstackOperationType::LeaderBlockCommit(ref opdata) = &op {
                     eprintln!("reward phase {}: {:?}", burn_height, opdata);
-                    if tenure_id > 1 && cur_reward_cycle == (lockup_reward_cycle + 1).into() {
+                    if tenure_id > 1 && cur_reward_cycle == u128::from(lockup_reward_cycle + 1) {
                         assert!(!opdata.all_outputs_burn());
                         rewarded = true;
                     } else {
@@ -4172,7 +4172,7 @@ fn test_stack_with_segwit() {
             eprintln!("total_liquid_ustx: {total_liquid_ustx}");
             eprintln!("total-stacked: {total_stacked}");
 
-            if cur_reward_cycle == lockup_reward_cycle.into() {
+            if cur_reward_cycle == u128::from(lockup_reward_cycle) {
                 assert_eq!(reward_addrs.len(), 4);
                 all_reward_addrs = reward_addrs;
             }

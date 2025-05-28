@@ -131,7 +131,8 @@ fn setup_tracked_cost_test(
                 &ct_ast,
                 contract_trait,
                 None,
-                |_, _| false,
+                |_, _| None,
+                None,
             )
             .unwrap();
             conn.save_analysis(&trait_contract_id, &ct_analysis)
@@ -164,7 +165,8 @@ fn setup_tracked_cost_test(
                 &ct_ast,
                 contract_other,
                 None,
-                |_, _| false,
+                |_, _| None,
+                None,
             )
             .unwrap();
             conn.save_analysis(&other_contract_id, &ct_analysis)
@@ -239,7 +241,8 @@ fn test_tracked_costs(
                 &ct_ast,
                 &contract_self,
                 None,
-                |_, _| false,
+                |_, _| None,
+                None,
             )
             .unwrap();
             conn.save_analysis(&self_contract_id, &ct_analysis).unwrap();

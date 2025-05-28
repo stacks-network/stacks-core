@@ -541,6 +541,7 @@ impl NakamotoBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         signer_bitvec_len: u16,
+        replay_transactions: &[StacksTransaction],
     ) -> Result<BlockMetadata, Error> {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
@@ -622,10 +623,11 @@ impl NakamotoBlockBuilder {
             settings,
             event_observer,
             ASTRules::PrecheckSize,
+            replay_transactions,
         ) {
             Ok(x) => x,
             Err(e) => {
-                warn!("Failure building block: {}", e);
+                warn!("Failure building block: {e}");
                 tenure_tx.rollback_block();
                 return Err(e);
             }
@@ -691,8 +693,9 @@ impl BlockBuilder for NakamotoBlockBuilder {
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
         ast_rules: ASTRules,
+        max_execution_time: Option<std::time::Duration>,
     ) -> TransactionResult {
-        if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+        if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
             return TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError);
         }
 
@@ -737,13 +740,20 @@ impl BlockBuilder for NakamotoBlockBuilder {
             }
 
             let cost_before = clarity_tx.cost_so_far();
-            let (fee, receipt) =
-                match StacksChainState::process_transaction(clarity_tx, tx, quiet, ast_rules) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        return parse_process_transaction_error(clarity_tx, tx, e);
-                    }
-                };
+
+            let (_fee, receipt) = match StacksChainState::process_transaction(
+                clarity_tx,
+                tx,
+                quiet,
+                ast_rules,
+                max_execution_time,
+            ) {
+                Ok(x) => x,
+                Err(e) => {
+                    return parse_process_transaction_error(clarity_tx, tx, e);
+                }
+            };
+
             let cost_after = clarity_tx.cost_so_far();
             let mut soft_limit_reached = false;
             // We only attempt to apply the soft limit to non-boot code contract calls.
@@ -764,7 +774,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
 
             // save
             self.txs.push(tx.clone());
-            TransactionResult::success_with_soft_limit(tx, fee, receipt, soft_limit_reached)
+            TransactionResult::success_with_soft_limit(tx, receipt, soft_limit_reached)
         };
 
         self.bytes_so_far += tx_len;

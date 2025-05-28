@@ -24,7 +24,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
-use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
+use clarity::vm::analysis::contract_interface_builder::{
+    build_contract_interface, ContractInterface,
+};
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
@@ -34,7 +36,10 @@ use rand::Rng;
 use rusqlite::{params, Connection};
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
-use stacks::chainstate::burn::operations::BlockstackOperationType;
+use stacks::chainstate::burn::operations::{
+    blockstack_op_extended_deserialize, blockstack_op_extended_serialize_opt,
+    BlockstackOperationType,
+};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::nakamoto::NakamotoBlock;
@@ -73,6 +78,9 @@ use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, Sta
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::serde_serializers::{
+    prefix_hex, prefix_hex_codec, prefix_opt_hex, prefix_string_0x,
+};
 use url::Url;
 
 #[cfg(any(test, feature = "testing"))]
@@ -93,15 +101,6 @@ pub struct EventObserver {
     /// If true, the stacks-node will not retry if event delivery fails for any reason.
     /// WARNING: This should not be set on observers that require successful delivery of all events.
     pub disable_retries: bool,
-}
-
-struct ReceiptPayloadInfo<'a> {
-    txid: String,
-    success: &'a str,
-    raw_result: String,
-    raw_tx: String,
-    contract_interface_json: serde_json::Value,
-    burnchain_op_json: serde_json::Value,
 }
 
 const STATUS_RESP_TRUE: &str = "success";
@@ -334,24 +333,47 @@ impl RewardSetEventPayload {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct TransactionEventPayload<'a> {
+    #[serde(with = "prefix_hex")]
+    /// The transaction id
+    pub txid: Txid,
+    /// The transaction index
+    pub tx_index: u32,
+    /// The transaction status
+    pub status: &'a str,
+    #[serde(with = "prefix_hex_codec")]
+    /// The raw transaction result
+    pub raw_result: Value,
+    /// The hex encoded raw transaction
+    #[serde(with = "prefix_string_0x")]
+    pub raw_tx: String,
+    /// The contract interface
+    pub contract_interface: Option<ContractInterface>,
+    /// The burnchain op
+    #[serde(
+        serialize_with = "blockstack_op_extended_serialize_opt",
+        deserialize_with = "blockstack_op_extended_deserialize"
+    )]
+    pub burnchain_op: Option<BlockstackOperationType>,
+    /// The transaction execution cost
+    pub execution_cost: ExecutionCost,
+    /// The microblock sequence
+    pub microblock_sequence: Option<u16>,
+    #[serde(with = "prefix_opt_hex")]
+    /// The microblock hash
+    pub microblock_hash: Option<BlockHeaderHash>,
+    #[serde(with = "prefix_opt_hex")]
+    /// The microblock parent hash
+    pub microblock_parent_hash: Option<BlockHeaderHash>,
+    /// Error information if one occurred in the Clarity VM
+    pub vm_error: Option<String>,
+}
+
 #[cfg(test)]
 static TEST_EVENT_OBSERVER_SKIP_RETRY: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 impl EventObserver {
-    fn init_db(db_path: &str) -> Result<Connection, db_error> {
-        let conn = Connection::open(db_path)?;
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS pending_payloads (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                url TEXT NOT NULL,
-                payload TEXT NOT NULL,
-                timeout INTEGER NOT NULL
-            )",
-            [],
-        )?;
-        Ok(conn)
-    }
-
     fn insert_payload(
         conn: &Connection,
         url: &str,
@@ -403,60 +425,9 @@ impl EventObserver {
         }
     }
 
-    fn get_pending_payloads(
-        conn: &Connection,
-    ) -> Result<Vec<(i64, String, serde_json::Value, u64)>, db_error> {
-        let mut stmt =
-            conn.prepare("SELECT id, url, payload, timeout FROM pending_payloads ORDER BY id")?;
-        let payload_iter = stmt.query_and_then(
-            [],
-            |row| -> Result<(i64, String, serde_json::Value, u64), db_error> {
-                let id: i64 = row.get(0)?;
-                let url: String = row.get(1)?;
-                let payload_text: String = row.get(2)?;
-                let payload: serde_json::Value =
-                    serde_json::from_str(&payload_text).map_err(db_error::SerializationError)?;
-                let timeout_ms: u64 = row.get(3)?;
-                Ok((id, url, payload, timeout_ms))
-            },
-        )?;
-        payload_iter.collect()
-    }
-
     fn delete_payload(conn: &Connection, id: i64) -> Result<(), db_error> {
         conn.execute("DELETE FROM pending_payloads WHERE id = ?1", params![id])?;
         Ok(())
-    }
-
-    fn process_pending_payloads(conn: &Connection) {
-        let pending_payloads = match Self::get_pending_payloads(conn) {
-            Ok(payloads) => payloads,
-            Err(e) => {
-                error!(
-                    "Event observer: failed to retrieve pending payloads from database";
-                    "error" => ?e
-                );
-                return;
-            }
-        };
-
-        for (id, url, payload, timeout_ms) in pending_payloads {
-            let timeout = Duration::from_millis(timeout_ms);
-            Self::send_payload_directly(&payload, &url, timeout, false);
-
-            #[cfg(test)]
-            if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
-                warn!("Fault injection: delete_payload");
-                return;
-            }
-
-            if let Err(e) = Self::delete_payload(conn, id) {
-                error!(
-                    "Event observer: failed to delete pending payload from database";
-                    "error" => ?e
-                );
-            }
-        }
     }
 
     fn send_payload_directly(
@@ -464,7 +435,7 @@ impl EventObserver {
         full_url: &str,
         timeout: Duration,
         disable_retries: bool,
-    ) {
+    ) -> bool {
         debug!(
             "Event dispatcher: Sending payload"; "url" => %full_url, "payload" => ?payload
         );
@@ -516,13 +487,13 @@ impl EventObserver {
 
             if disable_retries {
                 warn!("Observer is configured in disable_retries mode: skipping retry of payload");
-                return;
+                return false;
             }
 
             #[cfg(test)]
             if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
                 warn!("Fault injection: skipping retry of payload");
-                return;
+                return false;
             }
 
             sleep(backoff);
@@ -533,28 +504,15 @@ impl EventObserver {
             );
             attempts = attempts.saturating_add(1);
         }
+        true
     }
 
     fn new(
-        working_dir: Option<PathBuf>,
+        db_path: Option<PathBuf>,
         endpoint: String,
         timeout: Duration,
         disable_retries: bool,
     ) -> Self {
-        let db_path = if let Some(mut db_path) = working_dir {
-            db_path.push("event_observers.sqlite");
-
-            Self::init_db(
-                db_path
-                    .to_str()
-                    .expect("Failed to convert chainstate path to string"),
-            )
-            .expect("Failed to initialize database for event observer");
-            Some(db_path)
-        } else {
-            None
-        };
-
         EventObserver {
             db_path,
             endpoint,
@@ -565,7 +523,7 @@ impl EventObserver {
 
     /// Send the payload to the given URL.
     /// Before sending this payload, any pending payloads in the database will be sent first.
-    pub fn send_payload(&self, payload: &serde_json::Value, path: &str) {
+    pub fn send_payload(&self, payload: &serde_json::Value, path: &str, id: Option<i64>) {
         // Construct the full URL
         let url_str = if path.starts_with('/') {
             format!("{}{path}", &self.endpoint)
@@ -581,11 +539,26 @@ impl EventObserver {
             let conn =
                 Connection::open(db_path).expect("Failed to open database for event observer");
 
-            // Insert the new payload into the database
-            Self::insert_payload_with_retry(&conn, &full_url, payload, self.timeout);
+            let id = match id {
+                Some(id) => id,
+                None => {
+                    Self::insert_payload_with_retry(&conn, &full_url, payload, self.timeout);
+                    conn.last_insert_rowid()
+                }
+            };
 
-            // Process all pending payloads
-            Self::process_pending_payloads(&conn);
+            let success = Self::send_payload_directly(payload, &full_url, self.timeout, false);
+            // This is only `false` when the TestFlag is set to skip retries
+            if !success {
+                return;
+            }
+
+            if let Err(e) = Self::delete_payload(&conn, id) {
+                error!(
+                    "Event observer: failed to delete pending payload from database";
+                    "error" => ?e
+                );
+            }
         } else {
             // No database, just send the payload
             Self::send_payload_directly(payload, &full_url, self.timeout, false);
@@ -610,6 +583,7 @@ impl EventObserver {
         burns: u64,
         slot_holders: Vec<PoxAddress>,
         consensus_hash: &ConsensusHash,
+        parent_burn_block_hash: &BurnchainHeaderHash,
     ) -> serde_json::Value {
         let reward_recipients = rewards
             .into_iter()
@@ -633,14 +607,18 @@ impl EventObserver {
             "reward_slot_holders": serde_json::Value::Array(reward_slot_holders),
             "burn_amount": burns,
             "consensus_hash": format!("0x{consensus_hash}"),
+            "parent_burn_block_hash": format!("0x{parent_burn_block_hash}"),
         })
     }
 
-    /// Returns tuple of (txid, success, raw_result, raw_tx, contract_interface_json)
-    fn generate_payload_info_for_receipt(receipt: &StacksTransactionReceipt) -> ReceiptPayloadInfo {
+    /// Returns transaction event payload to send for new block or microblock event
+    fn make_new_block_txs_payload(
+        receipt: &StacksTransactionReceipt,
+        tx_index: u32,
+    ) -> TransactionEventPayload {
         let tx = &receipt.transaction;
 
-        let success = match (receipt.post_condition_aborted, &receipt.result) {
+        let status = match (receipt.post_condition_aborted, &receipt.result) {
             (false, Value::Response(response_data)) => {
                 if response_data.committed {
                     STATUS_RESP_TRUE
@@ -650,75 +628,45 @@ impl EventObserver {
             }
             (true, Value::Response(_)) => STATUS_RESP_POST_CONDITION,
             _ => {
-                if let TransactionOrigin::Stacks(inner_tx) = &tx {
-                    if let TransactionPayload::PoisonMicroblock(..) = &inner_tx.payload {
-                        STATUS_RESP_TRUE
-                    } else {
-                        unreachable!() // Transaction results should otherwise always be a Value::Response type
-                    }
-                } else {
-                    unreachable!() // Transaction results should always be a Value::Response type
+                if !matches!(
+                    tx,
+                    TransactionOrigin::Stacks(StacksTransaction {
+                        payload: TransactionPayload::PoisonMicroblock(_, _),
+                        ..
+                    })
+                ) {
+                    unreachable!("Unexpected transaction result type");
                 }
+                STATUS_RESP_TRUE
             }
         };
 
-        let (txid, raw_tx, burnchain_op_json) = match tx {
-            TransactionOrigin::Burn(op) => (
-                op.txid().to_string(),
-                "00".to_string(),
-                BlockstackOperationType::blockstack_op_to_json(op),
-            ),
+        let (txid, raw_tx, burnchain_op) = match tx {
+            TransactionOrigin::Burn(op) => (op.txid(), "00".to_string(), Some(op.clone())),
             TransactionOrigin::Stacks(ref tx) => {
-                let txid = tx.txid().to_string();
-                let bytes = tx.serialize_to_vec();
-                (txid, bytes_to_hex(&bytes), json!(null))
+                let txid = tx.txid();
+                let bytes = bytes_to_hex(&tx.serialize_to_vec());
+                (txid, bytes, None)
             }
         };
 
-        let raw_result = {
-            let bytes = receipt
-                .result
-                .serialize_to_vec()
-                .expect("FATAL: failed to serialize transaction receipt");
-            bytes_to_hex(&bytes)
-        };
-        let contract_interface_json = {
-            match &receipt.contract_analysis {
-                Some(analysis) => json!(build_contract_interface(analysis)
-                    .expect("FATAL: failed to serialize contract publish receipt")),
-                None => json!(null),
-            }
-        };
-        ReceiptPayloadInfo {
+        TransactionEventPayload {
             txid,
-            success,
-            raw_result,
+            tx_index,
+            status,
+            raw_result: receipt.result.clone(),
             raw_tx,
-            contract_interface_json,
-            burnchain_op_json,
+            contract_interface: receipt.contract_analysis.as_ref().map(|analysis| {
+                build_contract_interface(analysis)
+                    .expect("FATAL: failed to serialize contract publish receipt")
+            }),
+            burnchain_op,
+            execution_cost: receipt.execution_cost.clone(),
+            microblock_sequence: receipt.microblock_header.as_ref().map(|x| x.sequence),
+            microblock_hash: receipt.microblock_header.as_ref().map(|x| x.block_hash()),
+            microblock_parent_hash: receipt.microblock_header.as_ref().map(|x| x.prev_block),
+            vm_error: receipt.vm_error.clone(),
         }
-    }
-
-    /// Returns json payload to send for new block or microblock event
-    fn make_new_block_txs_payload(
-        receipt: &StacksTransactionReceipt,
-        tx_index: u32,
-    ) -> serde_json::Value {
-        let receipt_payload_info = EventObserver::generate_payload_info_for_receipt(receipt);
-
-        json!({
-            "txid": format!("0x{}", &receipt_payload_info.txid),
-            "tx_index": tx_index,
-            "status": receipt_payload_info.success,
-            "raw_result": format!("0x{}", &receipt_payload_info.raw_result),
-            "raw_tx": format!("0x{}", &receipt_payload_info.raw_tx),
-            "contract_abi": receipt_payload_info.contract_interface_json,
-            "burnchain_op": receipt_payload_info.burnchain_op_json,
-            "execution_cost": receipt.execution_cost,
-            "microblock_sequence": receipt.microblock_header.as_ref().map(|x| x.sequence),
-            "microblock_hash": receipt.microblock_header.as_ref().map(|x| format!("0x{}", x.block_hash())),
-            "microblock_parent_hash": receipt.microblock_header.as_ref().map(|x| format!("0x{}", x.prev_block)),
-        })
     }
 
     fn make_new_attachment_payload(
@@ -737,11 +685,11 @@ impl EventObserver {
     }
 
     fn send_new_attachments(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_ATTACHMENT_PROCESSED);
+        self.send_payload(payload, PATH_ATTACHMENT_PROCESSED, None);
     }
 
     fn send_new_mempool_txs(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT);
+        self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT, None);
     }
 
     /// Serializes new microblocks data into a JSON payload and sends it off to the correct path
@@ -749,7 +697,7 @@ impl EventObserver {
         &self,
         parent_index_block_hash: StacksBlockId,
         filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
-        serialized_txs: &Vec<serde_json::Value>,
+        serialized_txs: &Vec<TransactionEventPayload>,
         burn_block_hash: BurnchainHeaderHash,
         burn_block_height: u32,
         burn_block_timestamp: u64,
@@ -773,31 +721,31 @@ impl EventObserver {
             "burn_block_timestamp": burn_block_timestamp,
         });
 
-        self.send_payload(&payload, PATH_MICROBLOCK_SUBMIT);
+        self.send_payload(&payload, PATH_MICROBLOCK_SUBMIT, None);
     }
 
     fn send_dropped_mempool_txs(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_MEMPOOL_TX_DROP);
+        self.send_payload(payload, PATH_MEMPOOL_TX_DROP, None);
     }
 
     fn send_mined_block(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_MINED_BLOCK);
+        self.send_payload(payload, PATH_MINED_BLOCK, None);
     }
 
     fn send_mined_microblock(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_MINED_MICROBLOCK);
+        self.send_payload(payload, PATH_MINED_MICROBLOCK, None);
     }
 
     fn send_mined_nakamoto_block(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_MINED_NAKAMOTO_BLOCK);
+        self.send_payload(payload, PATH_MINED_NAKAMOTO_BLOCK, None);
     }
 
     pub fn send_stackerdb_chunks(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_STACKERDB_CHUNKS);
+        self.send_payload(payload, PATH_STACKERDB_CHUNKS, None);
     }
 
     fn send_new_burn_block(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_BURN_BLOCK_SUBMIT);
+        self.send_payload(payload, PATH_BURN_BLOCK_SUBMIT, None);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -945,6 +893,8 @@ pub struct EventDispatcher {
     block_proposal_observers_lookup: HashSet<u16>,
     /// Channel for sending StackerDB events to the miner coordinator
     pub stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
+    /// Database path for pending payloads
+    db_path: Option<PathBuf>,
 }
 
 /// This struct is used specifically for receiving proposal responses.
@@ -966,7 +916,7 @@ impl ProposalCallbackReceiver for ProposalCallbackHandler {
             }
         };
         for observer in self.observers.iter() {
-            observer.send_payload(&response, PATH_PROPOSAL_RESPONSE);
+            observer.send_payload(&response, PATH_PROPOSAL_RESPONSE, None);
         }
     }
 }
@@ -1123,6 +1073,7 @@ impl BlockEventDispatcher for EventDispatcher {
         burns: u64,
         recipient_info: Vec<PoxAddress>,
         consensus_hash: &ConsensusHash,
+        parent_burn_block_hash: &BurnchainHeaderHash,
     ) {
         self.process_burn_block(
             burn_block,
@@ -1131,18 +1082,25 @@ impl BlockEventDispatcher for EventDispatcher {
             burns,
             recipient_info,
             consensus_hash,
+            parent_burn_block_hash,
         )
     }
 }
 
 impl Default for EventDispatcher {
     fn default() -> Self {
-        EventDispatcher::new()
+        EventDispatcher::new(None)
     }
 }
 
 impl EventDispatcher {
-    pub fn new() -> EventDispatcher {
+    pub fn new(working_dir: Option<PathBuf>) -> EventDispatcher {
+        let db_path = if let Some(mut db_path) = working_dir {
+            db_path.push("event_observers.sqlite");
+            Some(db_path)
+        } else {
+            None
+        };
         EventDispatcher {
             stackerdb_channel: Arc::new(Mutex::new(StackerDBChannel::new())),
             registered_observers: vec![],
@@ -1157,6 +1115,7 @@ impl EventDispatcher {
             mined_microblocks_observers_lookup: HashSet::new(),
             stackerdb_observers_lookup: HashSet::new(),
             block_proposal_observers_lookup: HashSet::new(),
+            db_path,
         }
     }
 
@@ -1168,6 +1127,7 @@ impl EventDispatcher {
         burns: u64,
         recipient_info: Vec<PoxAddress>,
         consensus_hash: &ConsensusHash,
+        parent_burn_block_hash: &BurnchainHeaderHash,
     ) {
         // lazily assemble payload only if we have observers
         let interested_observers = self.filter_observers(&self.burn_block_observers_lookup, true);
@@ -1182,6 +1142,7 @@ impl EventDispatcher {
             burns,
             recipient_info,
             consensus_hash,
+            parent_burn_block_hash,
         );
 
         for observer in interested_observers.iter() {
@@ -1370,7 +1331,11 @@ impl EventDispatcher {
                     );
 
                 // Send payload
-                self.registered_observers[observer_id].send_payload(&payload, PATH_BLOCK_PROCESSED);
+                self.registered_observers[observer_id].send_payload(
+                    &payload,
+                    PATH_BLOCK_PROCESSED,
+                    None,
+                );
             }
         }
     }
@@ -1682,10 +1647,10 @@ impl EventDispatcher {
         }
     }
 
-    pub fn register_observer(&mut self, conf: &EventObserverConfig, working_dir: PathBuf) {
+    pub fn register_observer(&mut self, conf: &EventObserverConfig) -> EventObserver {
         info!("Registering event observer at: {}", conf.endpoint);
         let event_observer = EventObserver::new(
-            Some(working_dir),
+            self.db_path.clone(),
             conf.endpoint.clone(),
             Duration::from_millis(conf.timeout_ms),
             conf.disable_retries,
@@ -1757,7 +1722,119 @@ impl EventDispatcher {
             }
         }
 
-        self.registered_observers.push(event_observer);
+        self.registered_observers.push(event_observer.clone());
+
+        event_observer
+    }
+
+    fn init_db(db_path: &PathBuf) -> Result<Connection, db_error> {
+        let conn = Connection::open(db_path.to_str().unwrap())?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS pending_payloads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                timeout INTEGER NOT NULL
+            )",
+            [],
+        )?;
+        Ok(conn)
+    }
+
+    fn get_pending_payloads(
+        conn: &Connection,
+    ) -> Result<Vec<(i64, String, serde_json::Value, u64)>, db_error> {
+        let mut stmt =
+            conn.prepare("SELECT id, url, payload, timeout FROM pending_payloads ORDER BY id")?;
+        let payload_iter = stmt.query_and_then(
+            [],
+            |row| -> Result<(i64, String, serde_json::Value, u64), db_error> {
+                let id: i64 = row.get(0)?;
+                let url: String = row.get(1)?;
+                let payload_text: String = row.get(2)?;
+                let payload: serde_json::Value =
+                    serde_json::from_str(&payload_text).map_err(db_error::SerializationError)?;
+                let timeout_ms: u64 = row.get(3)?;
+                Ok((id, url, payload, timeout_ms))
+            },
+        )?;
+        payload_iter.collect()
+    }
+
+    fn delete_payload(conn: &Connection, id: i64) -> Result<(), db_error> {
+        conn.execute("DELETE FROM pending_payloads WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    /// Process any pending payloads in the database.
+    /// This is called when the event dispatcher is first instantiated.
+    pub fn process_pending_payloads(&self) {
+        let Some(db_path) = &self.db_path else {
+            return;
+        };
+        let conn = EventDispatcher::init_db(db_path).expect("Failed to initialize database");
+        let pending_payloads = match Self::get_pending_payloads(&conn) {
+            Ok(payloads) => payloads,
+            Err(e) => {
+                error!(
+                    "Event observer: failed to retrieve pending payloads from database";
+                    "error" => ?e
+                );
+                return;
+            }
+        };
+
+        info!(
+            "Event dispatcher: processing {} pending payloads",
+            pending_payloads.len()
+        );
+
+        for (id, url, payload, _timeout_ms) in pending_payloads {
+            info!("Event dispatcher: processing pending payload: {url}");
+            let full_url = Url::parse(url.as_str())
+                .unwrap_or_else(|_| panic!("Event dispatcher: unable to parse {url} as a URL"));
+            // find the right observer
+            let observer = self.registered_observers.iter().find(|observer| {
+                let endpoint_url = Url::parse(format!("http://{}", &observer.endpoint).as_str())
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Event dispatcher: unable to parse {} as a URL",
+                            observer.endpoint
+                        )
+                    });
+                full_url.origin() == endpoint_url.origin()
+            });
+
+            let Some(observer) = observer else {
+                // This observer is no longer registered, skip and delete
+                info!(
+                    "Event dispatcher: observer {} no longer registered, skipping",
+                    url
+                );
+                if let Err(e) = Self::delete_payload(&conn, id) {
+                    error!(
+                        "Event observer: failed to delete pending payload from database";
+                        "error" => ?e
+                    );
+                }
+                continue;
+            };
+
+            observer.send_payload(&payload, full_url.path(), Some(id));
+
+            #[cfg(test)]
+            if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
+                warn!("Fault injection: delete_payload");
+                return;
+            }
+
+            if let Err(e) = Self::delete_payload(&conn, id) {
+                error!(
+                    "Event observer: failed to delete pending payload from database";
+                    "error" => ?e
+                );
+            }
+        }
     }
 }
 
@@ -1779,14 +1856,27 @@ mod test {
     use std::thread;
     use std::time::Instant;
 
+    use clarity::boot_util::boot_code_id;
     use clarity::vm::costs::ExecutionCost;
+    use clarity::vm::events::SmartContractEventData;
+    use clarity::vm::types::StacksAddressExtensions;
     use serial_test::serial;
+    use stacks::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
     use stacks::burnchains::{PoxConstants, Txid};
+    use stacks::chainstate::burn::operations::PreStxOp;
     use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
     use stacks::chainstate::stacks::events::StacksBlockEventData;
-    use stacks::chainstate::stacks::StacksBlock;
-    use stacks::types::chainstate::BlockHeaderHash;
+    use stacks::chainstate::stacks::{
+        SinglesigHashMode, SinglesigSpendingCondition, StacksBlock, TenureChangeCause,
+        TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
+        TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSpendingCondition,
+        TransactionVersion,
+    };
+    use stacks::types::chainstate::{
+        BlockHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+    };
+    use stacks::util::hash::Hash160;
     use stacks::util::secp256k1::MessageSignature;
     use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
@@ -1981,10 +2071,9 @@ mod test {
     fn test_init_db() {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test_init_db.sqlite");
-        let db_path_str = db_path.to_str().unwrap();
 
         // Call init_db
-        let conn_result = EventObserver::init_db(db_path_str);
+        let conn_result = EventDispatcher::init_db(&db_path);
         assert!(conn_result.is_ok(), "Failed to initialize the database");
 
         // Check that the database file exists
@@ -2005,9 +2094,8 @@ mod test {
     fn test_insert_and_get_pending_payloads() {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test_payloads.sqlite");
-        let db_path_str = db_path.to_str().unwrap();
 
-        let conn = EventObserver::init_db(db_path_str).expect("Failed to initialize the database");
+        let conn = EventDispatcher::init_db(&db_path).expect("Failed to initialize the database");
 
         let url = "http://example.com/api";
         let payload = json!({"key": "value"});
@@ -2019,7 +2107,7 @@ mod test {
 
         // Get pending payloads
         let pending_payloads =
-            EventObserver::get_pending_payloads(&conn).expect("Failed to get pending payloads");
+            EventDispatcher::get_pending_payloads(&conn).expect("Failed to get pending payloads");
         assert_eq!(pending_payloads.len(), 1, "Expected one pending payload");
 
         let (_id, retrieved_url, retrieved_payload, timeout_ms) = &pending_payloads[0];
@@ -2036,9 +2124,8 @@ mod test {
     fn test_delete_payload() {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test_delete_payload.sqlite");
-        let db_path_str = db_path.to_str().unwrap();
 
-        let conn = EventObserver::init_db(db_path_str).expect("Failed to initialize the database");
+        let conn = EventDispatcher::init_db(&db_path).expect("Failed to initialize the database");
 
         let url = "http://example.com/api";
         let payload = json!({"key": "value"});
@@ -2050,7 +2137,7 @@ mod test {
 
         // Get pending payloads
         let pending_payloads =
-            EventObserver::get_pending_payloads(&conn).expect("Failed to get pending payloads");
+            EventDispatcher::get_pending_payloads(&conn).expect("Failed to get pending payloads");
         assert_eq!(pending_payloads.len(), 1, "Expected one pending payload");
 
         let (id, _, _, _) = pending_payloads[0];
@@ -2061,7 +2148,7 @@ mod test {
 
         // Verify that the pending payloads list is empty
         let pending_payloads =
-            EventObserver::get_pending_payloads(&conn).expect("Failed to get pending payloads");
+            EventDispatcher::get_pending_payloads(&conn).expect("Failed to get pending payloads");
         assert_eq!(pending_payloads.len(), 0, "Expected no pending payloads");
     }
 
@@ -2071,16 +2158,26 @@ mod test {
         use mockito::Matcher;
 
         let dir = tempdir().unwrap();
-        let db_path = dir.path().join("test_process_payloads.sqlite");
-        let db_path_str = db_path.to_str().unwrap();
+        let db_path = dir.path().join("event_observers.sqlite");
+        let mut server = mockito::Server::new();
+        let endpoint = server.host_with_port();
+        info!("endpoint: {}", endpoint);
+        let timeout = Duration::from_secs(5);
 
-        let conn = EventObserver::init_db(db_path_str).expect("Failed to initialize the database");
+        let mut dispatcher = EventDispatcher::new(Some(dir.path().to_path_buf()));
+
+        dispatcher.register_observer(&EventObserverConfig {
+            endpoint: endpoint.clone(),
+            events_keys: vec![EventKeyType::AnyEvent],
+            timeout_ms: timeout.as_millis() as u64,
+            disable_retries: false,
+        });
+
+        let conn = EventDispatcher::init_db(&db_path).expect("Failed to initialize the database");
 
         let payload = json!({"key": "value"});
         let timeout = Duration::from_secs(5);
 
-        // Create a mock server
-        let mut server = mockito::Server::new();
         let _m = server
             .mock("POST", "/api")
             .match_header("content-type", Matcher::Regex("application/json.*".into()))
@@ -2097,11 +2194,11 @@ mod test {
             .expect("Failed to insert payload");
 
         // Process pending payloads
-        EventObserver::process_pending_payloads(&conn);
+        dispatcher.process_pending_payloads();
 
         // Verify that the pending payloads list is empty
         let pending_payloads =
-            EventObserver::get_pending_payloads(&conn).expect("Failed to get pending payloads");
+            EventDispatcher::get_pending_payloads(&conn).expect("Failed to get pending payloads");
         assert_eq!(pending_payloads.len(), 0, "Expected no pending payloads");
 
         // Verify that the mock was called
@@ -2109,24 +2206,78 @@ mod test {
     }
 
     #[test]
-    fn test_new_event_observer_with_db() {
+    fn pending_payloads_are_skipped_if_url_does_not_match() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("event_observers.sqlite");
+
+        let mut server = mockito::Server::new();
+        let endpoint = server.host_with_port();
+        let timeout = Duration::from_secs(5);
+        let mut dispatcher = EventDispatcher::new(Some(dir.path().to_path_buf()));
+
+        dispatcher.register_observer(&EventObserverConfig {
+            endpoint: endpoint.clone(),
+            events_keys: vec![EventKeyType::AnyEvent],
+            timeout_ms: timeout.as_millis() as u64,
+            disable_retries: false,
+        });
+
+        let conn = EventDispatcher::init_db(&db_path).expect("Failed to initialize the database");
+
+        let payload = json!({"key": "value"});
+        let timeout = Duration::from_secs(5);
+
+        let mock = server
+            .mock("POST", "/api")
+            .match_header(
+                "content-type",
+                mockito::Matcher::Regex("application/json.*".into()),
+            )
+            .match_body(mockito::Matcher::Json(payload.clone()))
+            .with_status(200)
+            .expect(0) // Expect 0 calls to this endpoint
+            .create();
+
+        // Use a different URL than the observer's endpoint
+        let url = "http://different-domain.com/api";
+
+        EventObserver::insert_payload(&conn, url, &payload, timeout)
+            .expect("Failed to insert payload");
+
+        dispatcher.process_pending_payloads();
+
+        let pending_payloads =
+            EventDispatcher::get_pending_payloads(&conn).expect("Failed to get pending payloads");
+        // Verify that the pending payload is no longer in the database,
+        // because this observer is no longer registered.
+        assert_eq!(
+            pending_payloads.len(),
+            0,
+            "Expected payload to be removed from database since URL didn't match"
+        );
+
+        mock.assert();
+    }
+
+    #[test]
+    fn test_new_event_dispatcher_with_db() {
         let dir = tempdir().unwrap();
         let working_dir = dir.path().to_path_buf();
 
-        let endpoint = "http://example.com".to_string();
-        let timeout = Duration::from_secs(5);
+        let dispatcher = EventDispatcher::new(Some(working_dir.clone()));
 
-        let observer =
-            EventObserver::new(Some(working_dir.clone()), endpoint.clone(), timeout, false);
+        let expected_db_path = working_dir.join("event_observers.sqlite");
+        assert_eq!(dispatcher.db_path, Some(expected_db_path.clone()));
 
-        // Verify fields
-        assert_eq!(observer.endpoint, endpoint);
-        assert_eq!(observer.timeout, timeout);
+        assert!(
+            !expected_db_path.exists(),
+            "Database file was created too soon"
+        );
+
+        EventDispatcher::init_db(&expected_db_path).expect("Failed to initialize the database");
 
         // Verify that the database was initialized
-        let mut db_path = working_dir;
-        db_path.push("event_observers.sqlite");
-        assert!(db_path.exists(), "Database file was not created");
+        assert!(expected_db_path.exists(), "Database file was not created");
     }
 
     #[test]
@@ -2151,6 +2302,10 @@ mod test {
         let working_dir = dir.path().to_path_buf();
         let payload = json!({"key": "value"});
 
+        let dispatcher = EventDispatcher::new(Some(working_dir.clone()));
+        let db_path = dispatcher.clone().db_path.clone().unwrap();
+        EventDispatcher::init_db(&db_path).expect("Failed to initialize the database");
+
         // Create a mock server
         let mut server = mockito::Server::new();
         let _m = server
@@ -2163,12 +2318,12 @@ mod test {
         let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
         let timeout = Duration::from_secs(5);
 
-        let observer = EventObserver::new(Some(working_dir), endpoint, timeout, false);
+        let observer = EventObserver::new(Some(db_path.clone()), endpoint, timeout, false);
 
         TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
         // Call send_payload
-        observer.send_payload(&payload, "/test");
+        observer.send_payload(&payload, "/test", None);
 
         // Verify that the payload was sent and database is empty
         _m.assert();
@@ -2178,7 +2333,7 @@ mod test {
         let db_path_str = db_path.to_str().unwrap();
         let conn = Connection::open(db_path_str).expect("Failed to open database");
         let pending_payloads =
-            EventObserver::get_pending_payloads(&conn).expect("Failed to get pending payloads");
+            EventDispatcher::get_pending_payloads(&conn).expect("Failed to get pending payloads");
         assert_eq!(pending_payloads.len(), 0, "Expected no pending payloads");
     }
 
@@ -2203,7 +2358,7 @@ mod test {
         let observer = EventObserver::new(None, endpoint, timeout, false);
 
         // Call send_payload
-        observer.send_payload(&payload, "/test");
+        observer.send_payload(&payload, "/test", None);
 
         // Verify that the payload was sent
         _m.assert();
@@ -2240,7 +2395,7 @@ mod test {
 
         let payload = json!({"key": "value"});
 
-        observer.send_payload(&payload, "/test");
+        observer.send_payload(&payload, "/test", None);
 
         // Wait for the server to process the request
         rx.recv_timeout(Duration::from_secs(5))
@@ -2293,7 +2448,7 @@ mod test {
 
         let payload = json!({"key": "value"});
 
-        observer.send_payload(&payload, "/test");
+        observer.send_payload(&payload, "/test", None);
 
         // Wait for the server to process the request
         rx.recv_timeout(Duration::from_secs(5))
@@ -2344,7 +2499,7 @@ mod test {
         let start_time = Instant::now();
 
         // Call the function being tested
-        observer.send_payload(&payload, "/test");
+        observer.send_payload(&payload, "/test", None);
 
         // Record the time after the function returns
         let elapsed_time = start_time.elapsed();
@@ -2388,13 +2543,13 @@ mod test {
                 attempt += 1;
                 match attempt {
                     1 => {
-                        debug!("Mock server received request attempt 1");
+                        info!("Mock server received request attempt 1");
                         // Do not reply, forcing the sender to timeout and retry,
                         // but don't drop the request or it will receive a 500 error,
                         _request_holder = Some(request);
                     }
                     2 => {
-                        debug!("Mock server received request attempt 2");
+                        info!("Mock server received request attempt 2");
 
                         // Verify the payload
                         let mut payload = String::new();
@@ -2407,7 +2562,7 @@ mod test {
                         request.respond(response).unwrap();
                     }
                     3 => {
-                        debug!("Mock server received request attempt 3");
+                        info!("Mock server received request attempt 3");
 
                         // Verify the payload
                         let mut payload = String::new();
@@ -2429,12 +2584,16 @@ mod test {
             }
         });
 
-        let observer = EventObserver::new(
-            Some(working_dir),
-            format!("127.0.0.1:{port}"),
-            timeout,
-            false,
-        );
+        let mut dispatcher = EventDispatcher::new(Some(working_dir.clone()));
+
+        let observer = dispatcher.register_observer(&EventObserverConfig {
+            endpoint: format!("127.0.0.1:{port}"),
+            timeout_ms: timeout.as_millis() as u64,
+            events_keys: vec![EventKeyType::AnyEvent],
+            disable_retries: false,
+        });
+
+        EventDispatcher::init_db(&dispatcher.clone().db_path.unwrap()).unwrap();
 
         let payload = json!({"key": "value"});
         let payload2 = json!({"key": "value2"});
@@ -2446,15 +2605,17 @@ mod test {
         info!("Sending payload 1");
 
         // Send the payload
-        observer.send_payload(&payload, "/test");
+        observer.send_payload(&payload, "/test", None);
 
         // Re-enable retrying
         TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
+        dispatcher.process_pending_payloads();
+
         info!("Sending payload 2");
 
         // Send another payload
-        observer.send_payload(&payload2, "/test");
+        observer.send_payload(&payload2, "/test", None);
 
         // Wait for the server to process the requests
         rx.recv_timeout(Duration::from_secs(5))
@@ -2475,7 +2636,7 @@ mod test {
         let observer = EventObserver::new(None, endpoint, timeout, true);
 
         // in non "disable_retries" mode this will run forever
-        observer.send_payload(&payload, "/test");
+        observer.send_payload(&payload, "/test", None);
 
         // Verify that the payload was sent
         _m.assert();
@@ -2491,7 +2652,7 @@ mod test {
         let observer = EventObserver::new(None, endpoint, timeout, true);
 
         // in non "disable_retries" mode this will run forever
-        observer.send_payload(&payload, "/test");
+        observer.send_payload(&payload, "/test", None);
     }
 
     #[test]
@@ -2501,14 +2662,14 @@ mod test {
         let dir = tempdir().unwrap();
         let working_dir = dir.path().to_path_buf();
 
-        let mut event_dispatcher = EventDispatcher::new();
+        let mut event_dispatcher = EventDispatcher::new(Some(working_dir.clone()));
         let config = EventObserverConfig {
             endpoint: String::from("255.255.255.255"),
             events_keys: vec![EventKeyType::MinedBlocks],
             timeout_ms: 1000,
             disable_retries: true,
         };
-        event_dispatcher.register_observer(&config, working_dir);
+        event_dispatcher.register_observer(&config);
 
         let nakamoto_block = NakamotoBlock {
             header: NakamotoBlockHeader::empty(),
@@ -2525,5 +2686,173 @@ mod test {
         );
 
         assert_eq!(event_dispatcher.registered_observers.len(), 1);
+    }
+
+    #[test]
+    /// This test checks that tx payloads properly convert the stacks transaction receipt regardless of the presence of the vm_error
+    fn make_new_block_txs_payload_vm_error() {
+        let privkey = StacksPrivateKey::random();
+        let pubkey = StacksPublicKey::from_private(&privkey);
+        let addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![pubkey],
+        )
+        .unwrap();
+
+        let tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: 0x80000000,
+            auth: TransactionAuth::from_p2pkh(&privkey).unwrap(),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::TokenTransfer(
+                addr.to_account_principal(),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        };
+
+        let mut receipt = StacksTransactionReceipt {
+            transaction: TransactionOrigin::Burn(BlockstackOperationType::PreStx(PreStxOp {
+                output: StacksAddress::new(0, Hash160([1; 20])).unwrap(),
+                txid: tx.txid(),
+                vtxindex: 0,
+                block_height: 1,
+                burn_header_hash: BurnchainHeaderHash([5u8; 32]),
+            })),
+            events: vec![],
+            post_condition_aborted: true,
+            result: Value::okay_true(),
+            contract_analysis: None,
+            execution_cost: ExecutionCost {
+                write_length: 0,
+                write_count: 0,
+                read_length: 0,
+                read_count: 0,
+                runtime: 0,
+            },
+            microblock_header: None,
+            vm_error: None,
+            stx_burned: 0u128,
+            tx_index: 0,
+        };
+
+        let payload_no_error = EventObserver::make_new_block_txs_payload(&receipt, 0);
+        assert_eq!(payload_no_error.vm_error, receipt.vm_error);
+
+        receipt.vm_error = Some("Inconceivable!".into());
+
+        let payload_with_error = EventObserver::make_new_block_txs_payload(&receipt, 0);
+        assert_eq!(payload_with_error.vm_error, receipt.vm_error);
+    }
+
+    fn make_tenure_change_payload() -> TenureChangePayload {
+        TenureChangePayload {
+            tenure_consensus_hash: ConsensusHash([0; 20]),
+            prev_tenure_consensus_hash: ConsensusHash([0; 20]),
+            burn_view_consensus_hash: ConsensusHash([0; 20]),
+            previous_tenure_end: StacksBlockId([0; 32]),
+            previous_tenure_blocks: 1,
+            cause: TenureChangeCause::Extended,
+            pubkey_hash: Hash160([0; 20]),
+        }
+    }
+
+    fn make_tenure_change_tx(payload: TenureChangePayload) -> StacksTransaction {
+        StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: 1,
+            auth: TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(
+                SinglesigSpendingCondition {
+                    hash_mode: SinglesigHashMode::P2PKH,
+                    signer: Hash160([0; 20]),
+                    nonce: 0,
+                    tx_fee: 0,
+                    key_encoding: TransactionPublicKeyEncoding::Compressed,
+                    signature: MessageSignature([0; 65]),
+                },
+            )),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::TenureChange(payload),
+        }
+    }
+
+    #[test]
+    fn backwards_compatibility_transaction_event_payload() {
+        let tx = make_tenure_change_tx(make_tenure_change_payload());
+        let receipt = StacksTransactionReceipt {
+            transaction: TransactionOrigin::Burn(BlockstackOperationType::PreStx(PreStxOp {
+                output: StacksAddress::new(0, Hash160([1; 20])).unwrap(),
+                txid: tx.txid(),
+                vtxindex: 0,
+                block_height: 1,
+                burn_header_hash: BurnchainHeaderHash([5u8; 32]),
+            })),
+            events: vec![StacksTransactionEvent::SmartContractEvent(
+                SmartContractEventData {
+                    key: (boot_code_id("some-contract", false), "some string".into()),
+                    value: Value::Bool(false),
+                },
+            )],
+            post_condition_aborted: false,
+            result: Value::okay_true(),
+            stx_burned: 100,
+            contract_analysis: None,
+            execution_cost: ExecutionCost {
+                write_length: 1,
+                write_count: 2,
+                read_length: 3,
+                read_count: 4,
+                runtime: 5,
+            },
+            microblock_header: None,
+            tx_index: 1,
+            vm_error: None,
+        };
+        let payload = EventObserver::make_new_block_txs_payload(&receipt, 0);
+        let new_serialized_data = serde_json::to_string_pretty(&payload).expect("Failed");
+        let old_serialized_data = r#"
+        {
+            "burnchain_op": {
+                "pre_stx": {
+                    "burn_block_height": 1,
+                    "burn_header_hash": "0505050505050505050505050505050505050505050505050505050505050505",
+                    "burn_txid": "ace70e63009a2c2d22c0f948b146d8a28df13a2900f3b5f3cc78b56459ffef05",
+                    "output": {
+                        "address": "S0G2081040G2081040G2081040G2081054GYN98",
+                        "address_hash_bytes": "0x0101010101010101010101010101010101010101",
+                        "address_version": 0
+                    },
+                    "vtxindex": 0
+                }
+            },
+            "contract_abi": null,
+            "execution_cost": {
+                "read_count": 4,
+                "read_length": 3,
+                "runtime": 5,
+                "write_count": 2,
+                "write_length": 1
+            },
+            "microblock_hash": null,
+            "microblock_parent_hash": null,
+            "microblock_sequence": null,
+            "raw_result": "0x0703",
+            "raw_tx": "0x00",
+            "status": "success",
+            "tx_index": 0,
+            "txid": "0xace70e63009a2c2d22c0f948b146d8a28df13a2900f3b5f3cc78b56459ffef05"
+        }
+        "#;
+        let new_value: TransactionEventPayload = serde_json::from_str(&new_serialized_data)
+            .expect("Failed to deserialize new data as TransactionEventPayload");
+        let old_value: TransactionEventPayload = serde_json::from_str(&old_serialized_data)
+            .expect("Failed to deserialize old data as TransactionEventPayload");
+        assert_eq!(new_value, old_value);
     }
 }

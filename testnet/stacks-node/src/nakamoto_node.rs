@@ -43,10 +43,14 @@ use crate::run_loop::nakamoto::{Globals, RunLoop};
 use crate::run_loop::RegisteredKey;
 
 pub mod miner;
+pub mod miner_db;
 pub mod peer;
 pub mod relayer;
 pub mod signer_coordinator;
 pub mod stackerdb_listener;
+
+#[cfg(test)]
+mod tests;
 
 use self::peer::PeerThread;
 use self::relayer::{RelayerDirective, RelayerThread};
@@ -143,6 +147,8 @@ pub enum Error {
     /// NetError wrapper
     #[error("NetError: {0}")]
     NetError(#[from] NetError),
+    #[error("Timed out waiting for signatures")]
+    SignatureTimeout,
 }
 
 impl StacksNode {

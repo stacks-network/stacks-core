@@ -335,7 +335,7 @@ impl NakamotoSigners {
                         )
                     })
                 },
-                |_, _| false,
+                |_, _| None,
             )
             .expect("FATAL: failed to update signer stackerdb");
 
@@ -414,7 +414,7 @@ impl NakamotoSigners {
             let cycle_number = value.expect_u128()?;
             // if the cycle_number is less than `cycle_of_prepare_phase`, we need to update
             //  the .signers state.
-            Ok(cycle_number < cycle_of_prepare_phase.into())
+            Ok(cycle_number < u128::from(cycle_of_prepare_phase))
         });
 
         if !needs_update? {
