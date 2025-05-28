@@ -344,6 +344,14 @@ impl SignerTrait<SignerMessage> for Signer {
             .map(|results| u64::try_from(results.len()).unwrap())
             .unwrap_or(0)
     }
+
+    fn get_canonical_tip(&self) -> Option<BlockInfo> {
+        self.signer_db
+            .get_canonical_tip()
+            .inspect_err(|e| error!("{self}: Failed to check for canonical tip: {e:?}"))
+            .ok()
+            .flatten()
+    }
 }
 
 impl Signer {

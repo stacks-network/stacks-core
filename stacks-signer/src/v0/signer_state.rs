@@ -757,7 +757,7 @@ impl LocalStateMachine {
 
             match signerdb.get_burn_block_by_ch(tenure_id) {
                 Ok(block) => {
-                    potential_matches.push((block.block_height, miner_state.clone()));
+                    potential_matches.push((block.block_height, miner_state));
                 }
                 Err(e) => {
                     warn!("Error retrieving burn block for consensus_hash {tenure_id} from signerdb: {e}");
@@ -767,7 +767,7 @@ impl LocalStateMachine {
 
         potential_matches.sort_by_key(|(block_height, _)| *block_height);
 
-        let new_miner = potential_matches.last().map(|(_, miner)| miner.clone());
+        let new_miner = potential_matches.last().map(|(_, miner)| (*miner).clone());
         if new_miner.is_none() {
             crate::monitoring::actions::increment_signer_agreement_state_conflict(
                 crate::monitoring::SignerAgreementStateConflict::MinerView,

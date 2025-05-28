@@ -7338,6 +7338,36 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     // Clear the stackerdb chunks
     info!("Forcing miner to ignore block responses for block N+1");
     TEST_IGNORE_SIGNERS.set(true);
+
+    info!("------------------------- Wait for All Signers to Update their Canonical Tip to Block N -------------------------");
+    let current_rc = signer_test.get_current_reward_cycle();
+    let expected_tip = block_n.header.signer_signature_hash();
+    wait_for(30, || {
+        let states = signer_test.get_all_states();
+        let canonical_tips = states
+            .iter()
+            .filter(|state| {
+                state
+                    .signer_canonical_tips
+                    .iter()
+                    .find_map(|(rc, block_info_opt)| {
+                        if current_rc % 2 == *rc {
+                            block_info_opt.as_ref()
+                        } else {
+                            None
+                        }
+                    })
+                    .map(|block_info| {
+                        block_info.block.header.signer_signature_hash() == expected_tip
+                    })
+                    .unwrap_or(false)
+            })
+            .count();
+
+        Ok(canonical_tips == num_signers)
+    })
+    .expect("Timed out waiting for all signers to update their global state to Block N");
+
     info!("Delaying signer block N+1 broadcasting to the miner");
     TEST_PAUSE_BLOCK_BROADCAST.set(true);
     test_observer::clear();
