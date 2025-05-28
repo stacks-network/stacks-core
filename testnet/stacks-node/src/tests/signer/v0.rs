@@ -3201,14 +3201,29 @@ fn tx_replay_forking_test() {
     info!("---- Mining post-fork block to clear tx replay set ----");
 
     // Now, make a new stacks block, which should clear the tx replay set
-    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
-    let (signer_states, _) = signer_test.get_burn_updated_states();
-    for state in signer_states {
-        assert!(
-            state.get_tx_replay_set().is_none(),
-            "Signer state is in tx replay state, when it shouldn't be"
-        );
-    }
+    let tip_height_before = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
+    next_block_and(
+        &signer_test.running_nodes.btc_regtest_controller,
+        30,
+        || {
+            Ok(
+                get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height
+                    > tip_height_before,
+            )
+        },
+    )
+    .expect("Failed to mine the tenure change block");
+
+    wait_for(30, || {
+        let (signer_states, _) = signer_test.get_burn_updated_states();
+        if signer_states.is_empty() {
+            return Ok(false);
+        }
+        Ok(signer_states
+            .iter()
+            .all(|state| state.get_tx_replay_set().is_none()))
+    })
+    .expect("Failed to confirm signer state has been flushed");
 
     // Now, we'll trigger another fork, with more txs, across tenures
 
@@ -3325,30 +3340,32 @@ fn tx_replay_forking_test() {
         .unwrap();
     }
 
+    info!("---- Waiting for Tx Replay Set ----");
     let expected_tx_replay_txids = vec![transfer_txid, contract_deploy_txid, contract_call_txid];
-
-    let (signer_states, _) = signer_test.get_burn_updated_states();
-    for state in signer_states {
-        match state {
+    wait_for(30, || {
+        let (signer_states, _) = signer_test.get_burn_updated_states();
+        if signer_states.is_empty() {
+            return Ok(false);
+        }
+        Ok(signer_states.iter().all(|state| match state {
             LocalStateMachine::Initialized(signer_state_machine) => {
-                let Some(tx_replay_set) = signer_state_machine.tx_replay_set else {
-                    panic!(
-                        "Signer state machine is in tx replay state, but tx replay set is not set"
-                    );
+                let Some(tx_replay_set) = &signer_state_machine.tx_replay_set else {
+                    return false;
                 };
-                info!("---- Tx replay set: {:?} ----", tx_replay_set);
-                assert_eq!(tx_replay_set.len(), expected_tx_replay_txids.len());
+                info!("---- Tx replay set: {tx_replay_set:?} ----");
+                if tx_replay_set.len() != expected_tx_replay_txids.len() {
+                    return false;
+                }
                 let state_replay_txids = tx_replay_set
                     .iter()
                     .map(|tx| tx.txid().to_hex())
                     .collect::<Vec<_>>();
-                assert_eq!(state_replay_txids, expected_tx_replay_txids);
+                state_replay_txids == expected_tx_replay_txids
             }
-            _ => {
-                panic!("Signer state is not in the initialized state");
-            }
-        }
-    }
+            _ => false,
+        }))
+    })
+    .expect("Failed to confirm tx replay state");
 
     signer_test.shutdown();
 }
