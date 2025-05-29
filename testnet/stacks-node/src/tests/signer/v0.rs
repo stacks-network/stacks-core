@@ -9380,6 +9380,7 @@ fn global_acceptance_depends_on_block_announcement() {
     let all_signers = signer_test.signer_test_pks();
     let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
+    let miner_pkh = Hash160::from_node_public_key(&miner_pk);
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
     let short_timeout = 30;
     signer_test.boot_to_epoch_3();
@@ -9456,27 +9457,65 @@ fn global_acceptance_depends_on_block_announcement() {
     )
     .expect("Timed out waiting for block acceptance of N+1 by a majority of signers");
 
-    info!(
-        "------------------------- Attempt to Mine Nakamoto Block N+1' -------------------------"
-    );
+    info!("------------------------- Start Next Tenure -------------------------");
 
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(Vec::new());
     TEST_IGNORE_SIGNERS.set(false);
     test_observer::clear();
 
-    signer_test
-        .running_nodes
-        .btc_regtest_controller
-        .build_next_block(1);
+    next_block_and(
+        &signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            Ok(
+                get_chain_info(&signer_test.running_nodes.conf).burn_block_height
+                    > info_before.burn_block_height,
+            )
+        },
+    )
+    .unwrap();
 
-    let sister_block = wait_for_block_proposal(30, info_before.stacks_tip_height + 1, &miner_pk)
-        .expect("Timed out waiting for block N+1' to be proposed");
+    let info = get_chain_info(&signer_test.running_nodes.conf);
+    info!(
+        "------------------------- Wait for State to Update -------------------------";
+        "burn_block_height" => info.burn_block_height,
+        "consenus_hash" => %info.pox_consensus,
+        "parent_tenure_last_block_height" => info.stacks_tip_height,
+    );
+    wait_for_state_machine_update(
+        30,
+        &info.pox_consensus,
+        info.burn_block_height,
+        Some((miner_pkh, info_before.stacks_tip_height)),
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Timed out waiting for the signers to update their state");
 
     TEST_SKIP_BLOCK_ANNOUNCEMENT.set(false);
     TEST_SKIP_BLOCK_BROADCAST.set(false);
 
-    wait_for_block_pushed(30, sister_block.header.signer_signature_hash())
-        .expect("Timed out waiting for block N+1' to be mined");
+    info!("------------------------- Waiting for block N+1' -------------------------");
+    // Cannot use wait_for_block_pushed_by_miner_key as we could have more than one block proposal for the same height from the miner
+    let mut sister_block = None;
+    wait_for(30, || {
+        let chunks = test_observer::get_stackerdb_chunks();
+        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
+            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+            else {
+                continue;
+            };
+            if let SignerMessage::BlockPushed(pushed_block) = message {
+                if pushed_block.header.chain_length == info_before.stacks_tip_height + 1 {
+                    sister_block = Some(pushed_block);
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    })
+    .expect("Failed to get pushed sister block");
+    let sister_block = sister_block.unwrap();
     assert_ne!(
         sister_block.header.signer_signature_hash(),
         block_n_1.header.signer_signature_hash()
@@ -9501,6 +9540,7 @@ fn global_acceptance_depends_on_block_announcement() {
         sister_block.header.chain_length,
         block_n_1.header.chain_length
     );
+    assert_eq!(sister_block.header.parent_block_id, block_n.block_id());
     assert_ne!(sister_block, block_n_1);
 }
 

@@ -349,7 +349,7 @@ impl SortitionsView {
             info!("Miner block proposal consensus hash does not match the current miner's tenure id. Considering invalid.";
                 "block_height" => block.header.chain_length,
                 "signer_signature_hash" => %block.header.signer_signature_hash(),
-                "block_cosensus_hash" => %block.header.consensus_hash,
+                "block_consensus_hash" => %block.header.consensus_hash,
                 "active_miner_tenure_id" => %tenure_id,
                 "active_miner_parent_tenure_id" => %parent_tenure_id,
             );

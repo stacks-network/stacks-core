@@ -643,6 +643,13 @@ impl Signer {
             config: self.proposal_config.clone(),
         };
 
+        debug!(
+            "{self}: Evaluating proposal against global state";
+            "signer_state" => ?sortitions_view.signer_state,
+            "signer_signature_hash" => %signer_signature_hash,
+            "block_id" => %block_id,
+        );
+
         // Check if proposal can be rejected now if not valid against the global state
         match sortitions_view.check_proposal(
             stacks_client,
