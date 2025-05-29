@@ -279,8 +279,8 @@ fn test_emit_nested_print_nok() {
                 (err u1)))
         (define-public (emit-event-ok)
             (begin
-                (emit-event-nok)
-                (print \"foo\")
+                (is-ok (ok (emit-event-nok)))
+                (is-ok (ok (print \"foo\")))
                 (ok u1)))";
 
     let (value, events) = helper_execute(contract, "emit-event-ok");

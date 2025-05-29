@@ -59,8 +59,8 @@ pub const TEST_BURN_STATE_DB_AST_PRECHECK: UnitTestBurnStateDB = UnitTestBurnSta
 const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance: uint })
          (define-read-only (my-get-token-balance (account principal))
             (default-to u0 (get balance (map-get? tokens (tuple (account account))))))
-         (define-read-only (explode (account principal))
-             (map-delete tokens (tuple (account account))))
+         ;;(define-read-only (explode (account principal))
+         ;;    (map-delete tokens (tuple (account account))))
          (define-private (token-credit! (account principal) (amount uint))
             (if (<= amount u0)
                 (err \"must be positive\")
@@ -84,9 +84,9 @@ const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance
            (if (>= block-height block-to-release)
                (faucet)
                (err \"must be in the future\")))
-         (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u10000)
-                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u200)
-                (token-credit! .tokens u4))";
+         (begin (unwrap-panic (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u10000))
+                (unwrap-panic (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u200))
+                (unwrap-panic (token-credit! .tokens u4)))";
 
 /// Since setup_block is not called, we need to manually increment the tenure
 /// height each time a new block is made.
