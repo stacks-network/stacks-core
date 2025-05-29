@@ -215,12 +215,13 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
     fn initialize_1(owned_env: &mut OwnedEnvironment) {
         let c_a = QualifiedContractIdentifier::local("contract-a").unwrap();
 
-        let contract = "(define-map datum { id: bool } { value: int })
-
-             (define-public (flip)
-               (let ((current (default-to (get value (map-get?! datum {id: true})) 0)))
-                 (map-set datum {id: true} (if (is-eq 1 current) 0 1))
-                 (ok current)))";
+        let contract = r#"
+            (define-map datum { id: bool } { value: int })
+            (define-public (flip)
+              (let (
+                (current (default-to (unwrap-panic (get value (map-get? datum {id: true}))) (some 0))))
+                (map-set datum {id: true} (if (is-eq 1 current) {value: 0} {value: 1}))
+                (ok current)))"#;
 
         eprintln!("Initializing contract...");
         owned_env

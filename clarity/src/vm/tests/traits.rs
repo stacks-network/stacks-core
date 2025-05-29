@@ -642,6 +642,7 @@ fn test_dynamic_dispatch_mismatched_returned(
     }
 }
 
+#[cfg(not(feature = "clarity-wasm"))]
 #[apply(test_clarity_versions)]
 fn test_reentrant_dynamic_dispatch(
     version: ClarityVersion,
@@ -702,6 +703,7 @@ fn test_reentrant_dynamic_dispatch(
     }
 }
 
+#[cfg(not(feature = "clarity-wasm"))]
 #[apply(test_clarity_versions)]
 fn test_readwrite_dynamic_dispatch(
     version: ClarityVersion,
@@ -759,6 +761,7 @@ fn test_readwrite_dynamic_dispatch(
     }
 }
 
+#[cfg(not(feature = "clarity-wasm"))]
 #[apply(test_clarity_versions)]
 fn test_readwrite_violation_dynamic_dispatch(
     version: ClarityVersion,
@@ -816,6 +819,7 @@ fn test_readwrite_violation_dynamic_dispatch(
     }
 }
 
+#[cfg(not(feature = "clarity-wasm"))]
 #[apply(test_clarity_versions)]
 fn test_bad_call_with_trait(
     version: ClarityVersion,

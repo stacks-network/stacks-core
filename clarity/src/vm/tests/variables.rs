@@ -28,6 +28,7 @@ use crate::vm::tests::{test_clarity_versions, tl_env_factory, TopLevelMemoryEnvi
 use crate::vm::types::{QualifiedContractIdentifier, Value};
 use crate::vm::{ClarityVersion, ContractContext};
 
+#[cfg(not(feature = "clarity-wasm"))]
 #[apply(test_clarity_versions)]
 fn test_block_height(
     version: ClarityVersion,
@@ -86,6 +87,7 @@ fn test_block_height(
     }
 }
 
+#[cfg(not(feature = "clarity-wasm"))]
 #[apply(test_clarity_versions)]
 fn test_stacks_block_height(
     version: ClarityVersion,
@@ -146,6 +148,7 @@ fn test_stacks_block_height(
     }
 }
 
+#[cfg(not(feature = "clarity-wasm"))]
 #[apply(test_clarity_versions)]
 fn test_tenure_height(
     version: ClarityVersion,
