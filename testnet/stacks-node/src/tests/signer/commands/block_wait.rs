@@ -5,7 +5,7 @@ use libsigner::v0::messages::RejectReason;
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 use proptest::prop_oneof;
-use stacks::chainstate::stacks::{TenureChangeCause, TransactionPayload};
+use stacks::chainstate::stacks::{TenureChangeCause, TenureChangePayload, TransactionPayload};
 
 use super::context::{SignerTestContext, SignerTestState};
 use crate::tests::neon_integrations::get_chain_info;
@@ -290,7 +290,7 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlockProposa
         // Handle different expectations after the proposal
         match &self.expectation {
             BlockExpectation::JustProposal => {
-                info!("Block proposal received, no further expectations");
+                panic!("To be implemented: BlockExpectation::JustProposal");
             }
             BlockExpectation::ExpectRejection(reason) => {
                 info!("Now waiting for block rejection with reason {:?}", reason);
@@ -306,8 +306,7 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlockProposa
                 info!("Block was rejected with the expected reason: {:?}", reason);
             }
             BlockExpectation::ExpectAcceptance => {
-                info!("Now waiting for block acceptance");
-                // TODO: Implement waiting for block acceptance/confirmation
+                panic!("To be implemented: BlockExpectation::ExpectAcceptance");
             }
         }
     }
@@ -372,7 +371,10 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectTenureChange {
         let is_tenure_change_block_found = block.txs.len() == 2
             && matches!(
                 block.txs[0].payload,
-                TransactionPayload::TenureChange(ref payload) if payload.cause == TenureChangeCause::BlockFound
+                TransactionPayload::TenureChange(TenureChangePayload {
+                    cause: TenureChangeCause::BlockFound,
+                    ..
+                })
             )
             && matches!(block.txs[1].payload, TransactionPayload::Coinbase(..));
 
