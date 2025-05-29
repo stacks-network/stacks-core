@@ -11,9 +11,7 @@ mod sortition;
 mod stacks_mining;
 mod transfer;
 
-pub use bitcoin_mining::{
-    ChainGenerateBtcBlocks, MinerMineBtcBlocks,
-};
+pub use bitcoin_mining::{ChainGenerateBtcBlocks, MinerMineBtcBlocks};
 pub use block_commit::MinerSubmitBlockCommit;
 pub use block_verify::ChainVerifyMinerBlockCount;
 pub use block_wait::{ChainExpectNakaBlock, ChainExpectNakaBlockProposal, ChainExpectTenureChange};

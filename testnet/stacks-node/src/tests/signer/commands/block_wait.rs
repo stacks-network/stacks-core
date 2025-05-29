@@ -362,8 +362,8 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectTenureChange {
             expected_height, self.miner_index
         );
 
-        let block = wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk)
-            .expect(&format!(
+        let block =
+            wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk).expect(&format!(
                 "Failed to get tenure change block for miner {} at height {}",
                 self.miner_index, expected_height
             ));
@@ -391,7 +391,10 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectTenureChange {
     }
 
     fn label(&self) -> String {
-        format!("WAIT_FOR_TENURE_CHANGE_BLOCK_FROM_MINER_{}", self.miner_index)
+        format!(
+            "WAIT_FOR_TENURE_CHANGE_BLOCK_FROM_MINER_{}",
+            self.miner_index
+        )
     }
 
     fn build(

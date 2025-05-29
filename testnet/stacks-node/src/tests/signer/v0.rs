@@ -10963,11 +10963,9 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         (ChainMinerCommitOp::disable_for(test_context.clone(), MINER2)),
         ChainBootToEpoch3,
         (ChainMinerCommitOp::disable_for(test_context.clone(), MINER1)),
-
         (MinerMineBtcBlocks::one(test_context.clone())), // Sets block height in the state
         (ChainExpectTenureChange::new(test_context.clone(), MINER1)),
         (ChainExpectNakaBlock::from_state_height(test_context.clone(), MINER1)), // Uses block height from the state
-
         (ChainExpectSortitionWinner::new(test_context.clone(), MINER1)),
         (MinerSubmitBlockCommit::new(test_context.clone(), MINER2)),
         (ChainStacksMining::pause()),
