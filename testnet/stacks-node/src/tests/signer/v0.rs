@@ -276,14 +276,13 @@ impl SignerTest<SpawnedSigner> {
         // recognize that they are registered signers in the subsequent burn block event
         let reward_cycle = self.get_current_reward_cycle() + 1;
         wait_for(120, || {
-            Ok(self
-                .stacks_client
-                .get_reward_set_signers(reward_cycle)
-                .expect("Failed to check if reward set is calculated")
-                .map(|reward_set| {
-                    debug!("Signer set: {reward_set:?}");
-                })
-                .is_some())
+            let Ok(Some(reward_set)) = self.stacks_client.get_reward_set_signers(reward_cycle)
+            else {
+                return Ok(false);
+            };
+
+            debug!("Signer set: {reward_set:?}");
+            Ok(true)
         })
         .expect("Timed out waiting for reward set calculation");
         info!("Signer set calculated");
@@ -15587,7 +15586,7 @@ fn bitcoin_reorg_extended_tenure() {
     //  so that we can ensure all the signers approve the proposal
     //  before it gets accepted by stacks-nodes
     TEST_P2P_BROADCAST_STALL.set(true);
-    stacks_signer::v0::tests::TEST_SKIP_BLOCK_BROADCAST.set(true);
+    TEST_SKIP_BLOCK_BROADCAST.set(true);
 
     // the signer signature hash is the same as the block header hash.
     // we use the latest_signer_sighash to make sure we're getting block responses for the
@@ -15633,7 +15632,7 @@ fn bitcoin_reorg_extended_tenure() {
         .all(|resp| resp.as_block_accepted().is_some()));
 
     TEST_P2P_BROADCAST_STALL.set(false);
-    stacks_signer::v0::tests::TEST_SKIP_BLOCK_BROADCAST.set(false);
+    TEST_SKIP_BLOCK_BROADCAST.set(false);
 
     miners
         .signer_test
