@@ -687,17 +687,16 @@ impl LocalStateMachine {
             match new_miner {
                 StateMachineUpdateMinerState::ActiveMiner {
                     current_miner_pkh, ..
-                } => match sortition_state {
-                    Some(sortition_state) => {
+                } => {
+                    if let Some(sortition_state) = sortition_state {
                         // if there is a mismatch between the new_miner ad the current sortition view, mark the current miner as invalid
                         if current_miner_pkh != sortition_state.cur_sortition.miner_pkh {
                             sortition_state.cur_sortition.miner_status =
                                 SortitionMinerStatus::InvalidatedBeforeFirstBlock
                         }
                     }
-                    None => (),
-                },
-                StateMachineUpdateMinerState::NoValidMiner => {}
+                }
+                StateMachineUpdateMinerState::NoValidMiner => (),
             }
         }
     }
