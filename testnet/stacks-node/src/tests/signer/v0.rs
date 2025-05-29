@@ -10624,6 +10624,8 @@ fn reorg_attempts_count_towards_miner_validity() {
     TEST_MINE_STALL.set(true);
     TEST_VALIDATE_STALL.set(false);
 
+    info!("------------------------- Advance Tip to Block N  -------------------------");
+
     wait_for(30, || {
         let chain_info = get_chain_info(&signer_test.running_nodes.conf);
         Ok(chain_info.stacks_tip_height > chain_before.stacks_tip_height)
@@ -10635,6 +10637,15 @@ fn reorg_attempts_count_towards_miner_validity() {
         chain_after.stacks_tip_height,
         block_proposal_n.header.chain_length
     );
+    wait_for_state_machine_update(
+        30,
+        &chain_after.pox_consensus,
+        chain_after.burn_block_height,
+        None,
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Timed out waiting for the signers to update their state");
 
     info!("------------------------- Wait for Block N' Rejection -------------------------");
     wait_for_block_global_rejection(
