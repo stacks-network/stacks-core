@@ -12637,6 +12637,8 @@ fn non_blocking_minority_configured_to_favour_incoming_miner() {
         .expect("Failed to start Tenure B");
     btc_blocks_mined += 1;
 
+    let peer_info = miners.get_peer_info();
+
     // assure we have a successful sortition that miner 2 won
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
@@ -12646,6 +12648,16 @@ fn non_blocking_minority_configured_to_favour_incoming_miner() {
     // Make sure that miner 1 and a majority of signers thinks miner 2 is invalid.
     std::thread::sleep(tenure_extend_wait_timeout.add(Duration::from_secs(1)));
 
+    let all_signers = miners.signer_test.signer_test_pks();
+    wait_for_state_machine_update(
+        30,
+        &peer_info.pox_consensus,
+        peer_info.burn_block_height,
+        Some((miner_pkh_1, starting_peer_height)),
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Timed out waiting for signers to update their miner viewpoint");
     // Allow miner 2 to attempt to start their tenure.
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
 
