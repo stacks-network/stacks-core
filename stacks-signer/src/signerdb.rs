@@ -98,7 +98,7 @@ impl FromRow<BurnBlockInfo> for BurnBlockInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
 /// Store extra version-specific info in `BlockInfo`
 pub enum ExtraBlockInfo {
     #[default]
@@ -167,7 +167,7 @@ impl TryFrom<&str> for BlockState {
 }
 
 /// Additional Info about a proposed block
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BlockInfo {
     /// The block we are considering
     pub block: NakamotoBlock,

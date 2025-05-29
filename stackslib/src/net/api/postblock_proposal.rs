@@ -262,12 +262,12 @@ impl NakamotoBlockProposal {
     /// - its parent must be as high as the highest block in the given tenure.
     fn check_block_builds_on_highest_block_in_tenure(
         chainstate: &StacksChainState,
+        sortdb: &SortitionDB,
         tenure_id: &ConsensusHash,
         parent_block_id: &StacksBlockId,
     ) -> Result<(), BlockValidateRejectReason> {
-        let Some(highest_header) = NakamotoChainState::get_highest_known_block_header_in_tenure(
-            chainstate.db(),
-            tenure_id,
+        let Some(highest_header) = NakamotoChainState::find_highest_known_block_header_in_tenure(
+            chainstate, sortdb, tenure_id,
         )
         .map_err(|e| BlockValidateRejectReason {
             reason_code: ValidateRejectCode::ChainstateError,
@@ -347,6 +347,7 @@ impl NakamotoBlockProposal {
     /// Implemented as a static function to facilitate testing
     pub(crate) fn check_block_has_valid_parent(
         chainstate: &StacksChainState,
+        sortdb: &SortitionDB,
         block: &NakamotoBlock,
     ) -> Result<(), BlockValidateRejectReason> {
         let is_tenure_start =
@@ -362,6 +363,7 @@ impl NakamotoBlockProposal {
             // atop an existing block in its tenure.
             Self::check_block_builds_on_highest_block_in_tenure(
                 chainstate,
+                sortdb,
                 &block.header.consensus_hash,
                 &block.header.parent_block_id,
             )?;
@@ -379,6 +381,7 @@ impl NakamotoBlockProposal {
 
             Self::check_block_builds_on_highest_block_in_tenure(
                 chainstate,
+                sortdb,
                 &parent_header.consensus_hash,
                 &block.header.parent_block_id,
             )?;
@@ -479,7 +482,7 @@ impl NakamotoBlockProposal {
 
         // (For the signer)
         // Verify that this block's parent is the highest such block we can build off of
-        Self::check_block_has_valid_parent(chainstate, &self.block)?;
+        Self::check_block_has_valid_parent(chainstate, sortdb, &self.block)?;
 
         // get the burnchain tokens spent for this block. There must be a record of this (i.e.
         // there must be a block-commit for this), or otherwise this block doesn't correspond to
