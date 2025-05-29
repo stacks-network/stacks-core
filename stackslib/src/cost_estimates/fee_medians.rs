@@ -204,7 +204,11 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
             });
 
             // Compute the estimate and update.
-            let block_estimate = fee_rate_estimate_from_sorted_weighted_fees(&working_fee_rates);
+            let Some(block_estimate) =
+                fee_rate_estimate_from_sorted_weighted_fees(&working_fee_rates)
+            else {
+                return Err(EstimatorError::NoEstimateAvailable);
+            };
             self.update_estimate(block_estimate);
         }
 
@@ -224,7 +228,7 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
 /// `sorted_fee_rates` must be non-empty.
 pub fn fee_rate_estimate_from_sorted_weighted_fees(
     sorted_fee_rates: &[FeeRateAndWeight],
-) -> FeeRateEstimate {
+) -> Option<FeeRateEstimate> {
     assert!(!sorted_fee_rates.is_empty());
 
     let mut total_weight = 0f64;
@@ -248,29 +252,29 @@ pub fn fee_rate_estimate_from_sorted_weighted_fees(
     let mut fees_index = 0; // index into `sorted_fee_rates`
     let mut values_at_target_percentiles = Vec::new();
     for target_percentile in target_percentiles {
-        while fees_index < percentiles.len() && percentiles[fees_index] < target_percentile {
+        while fees_index < percentiles.len() && percentiles.get(fees_index)? < &target_percentile {
             fees_index += 1;
         }
         let v = if fees_index == 0 {
-            sorted_fee_rates[0].fee_rate
+            sorted_fee_rates.get(0)?.fee_rate
         } else if fees_index == percentiles.len() {
-            sorted_fee_rates.last().unwrap().fee_rate
+            sorted_fee_rates.last()?.fee_rate
         } else {
             // Notation mimics https://en.wikipedia.org/wiki/Percentile#Weighted_percentile
-            let vk = sorted_fee_rates[fees_index - 1].fee_rate;
-            let vk1 = sorted_fee_rates[fees_index].fee_rate;
-            let pk = percentiles[fees_index - 1];
-            let pk1 = percentiles[fees_index];
+            let vk = sorted_fee_rates.get(fees_index - 1)?.fee_rate;
+            let vk1 = sorted_fee_rates.get(fees_index)?.fee_rate;
+            let pk = percentiles.get(fees_index - 1)?;
+            let pk1 = percentiles.get(fees_index)?;
             vk + (target_percentile - pk) / (pk1 - pk) * (vk1 - vk)
         };
         values_at_target_percentiles.push(v);
     }
 
-    FeeRateEstimate {
-        high: values_at_target_percentiles[2],
-        middle: values_at_target_percentiles[1],
-        low: values_at_target_percentiles[0],
-    }
+    Some(FeeRateEstimate {
+        high: *values_at_target_percentiles.get(2)?,
+        middle: *values_at_target_percentiles.get(1)?,
+        low: *values_at_target_percentiles.get(0)?,
+    })
 }
 
 /// If the weights in `working_rates` do not add up to `full_block_weight`, add a new entry **in

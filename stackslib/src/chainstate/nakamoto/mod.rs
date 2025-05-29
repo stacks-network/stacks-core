@@ -1076,10 +1076,7 @@ impl NakamotoBlock {
     /// Return Some(tenure-change-payload) if it's a tenure change
     /// Return None if not
     pub fn try_get_tenure_change_payload(&self) -> Option<&TenureChangePayload> {
-        if self.txs.is_empty() {
-            return None;
-        }
-        if let TransactionPayload::TenureChange(ref tc) = &self.txs[0].payload {
+        if let TransactionPayload::TenureChange(ref tc) = &self.txs.get(0)?.payload {
             Some(tc)
         } else {
             None
@@ -1242,7 +1239,10 @@ impl NakamotoBlock {
             return Err(());
         }
 
-        if coinbase_positions.len() == 1 && tenure_change_positions.is_empty() {
+        let coinbase_position = coinbase_positions.first().copied();
+        let tenure_change_position = tenure_change_positions.first().copied();
+
+        if coinbase_position.is_some() && tenure_change_position.is_none() {
             // coinbase unaccompanied by a tenure change
             warn!("Invalid block -- have coinbase without tenure change";
                 "consensus_hash" => %self.header.consensus_hash,
@@ -1252,10 +1252,10 @@ impl NakamotoBlock {
             return Err(());
         }
 
-        if coinbase_positions.is_empty() && tenure_change_positions.len() == 1 {
+        if let (None, Some(tenure_change_position)) = (coinbase_position, tenure_change_position) {
             // this is possibly a block with a tenure-extend transaction.
             // It must be the first tx
-            if tenure_change_positions[0] != 0 {
+            if tenure_change_position != 0 {
                 // wrong position
                 warn!(
                     "Invalid block -- tenure change positions = {:?}, expected [0]",
@@ -1268,7 +1268,9 @@ impl NakamotoBlock {
             }
 
             // must be a non-sortition-triggered tenure change
-            let TransactionPayload::TenureChange(tc_payload) = &self.txs[0].payload else {
+            let Some(TransactionPayload::TenureChange(tc_payload)) =
+                self.txs.get(0).map(|x| &x.payload)
+            else {
                 // this transaction is not a tenure change
                 // (should be unreachable)
                 warn!("Invalid block -- first transaction is not a tenure change";
@@ -1296,7 +1298,7 @@ impl NakamotoBlock {
         // have both a coinbase and a tenure-change
         let coinbase_idx = 1;
         let tc_idx = 0;
-        if coinbase_positions[0] != coinbase_idx && tenure_change_positions[0] != tc_idx {
+        if coinbase_position != Some(coinbase_idx) && tenure_change_position != Some(tc_idx) {
             // invalid -- expect exactly one sortition-induced tenure change and exactly one coinbase expected,
             // and the tenure change must be the first transaction and the coinbase must be the second transaction
             warn!("Invalid block -- coinbase and/or tenure change txs are in the wrong position -- ({:?}, {:?}) != [{}], [{}]", &coinbase_positions, &tenure_change_positions, coinbase_idx, tc_idx;
@@ -1337,7 +1339,8 @@ impl NakamotoBlock {
         }
 
         // must be a Nakamoto coinbase
-        let TransactionPayload::Coinbase(_, _, vrf_proof_opt) = &self.txs[coinbase_idx].payload
+        let Some(TransactionPayload::Coinbase(_, _, vrf_proof_opt)) =
+            self.txs.get(coinbase_idx).map(|x| &x.payload)
         else {
             // this transaction is not a coinbase (but this should be unreachable)
             warn!(
@@ -5031,9 +5034,11 @@ impl NakamotoChainState {
         // they will always have the same txid. In this case we use the block height in the memo. This also
         // happens to give some indication of the purpose of this phantom tx, for anyone looking.
         let memo = TokenTransferMemo({
-            let str = format!("Block {} token unlocks", stacks_block_height);
+            let memo_bytes = format!("Block {stacks_block_height} token unlocks").into_bytes();
             let mut buf = [0u8; 34];
-            buf[..str.len().min(34)].copy_from_slice(&str.as_bytes()[..]);
+            let memo_len = memo_bytes.len().min(34);
+            buf.get_mut(..memo_len)?
+                .copy_from_slice(memo_bytes.get(..memo_len)?);
             buf
         });
         let boot_code_address = boot_code_addr(config.mainnet);

@@ -692,8 +692,8 @@ impl Config {
             BitcoinNetworkType::Mainnet => {
                 Err("Cannot configure epochs in mainnet mode".to_string())
             }
-            BitcoinNetworkType::Testnet => Ok(STACKS_EPOCHS_TESTNET.to_vec()),
-            BitcoinNetworkType::Regtest => Ok(STACKS_EPOCHS_REGTEST.to_vec()),
+            BitcoinNetworkType::Testnet => Ok(STACKS_EPOCHS_TESTNET.clone().to_vec()),
+            BitcoinNetworkType::Regtest => Ok(STACKS_EPOCHS_REGTEST.clone().to_vec()),
         }?;
         let mut matched_epochs = vec![];
         for configured_epoch in conf_epochs.iter() {

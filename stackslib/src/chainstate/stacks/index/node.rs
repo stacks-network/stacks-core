@@ -196,11 +196,11 @@ pub const TRIEPTR_SIZE: usize = 10; // full size of a TriePtr
 
 pub fn ptrs_fmt(ptrs: &[TriePtr]) -> String {
     let mut strs = vec![];
-    for i in 0..ptrs.len() {
-        if ptrs[i].id != TrieNodeID::Empty as u8 {
+    for ptr in ptrs.iter() {
+        if ptr.id != TrieNodeID::Empty as u8 {
             strs.push(format!(
                 "id{}chr{:02x}ptr{}bblk{}",
-                ptrs[i].id, ptrs[i].chr, ptrs[i].ptr, ptrs[i].back_block
+                ptr.id, ptr.chr, ptr.ptr, ptr.back_block
             ))
         }
     }
@@ -292,6 +292,7 @@ impl TriePtr {
     }
 
     #[inline]
+    #[allow(clippy::indexing_slicing)]
     pub fn from_bytes(bytes: &[u8]) -> TriePtr {
         assert!(bytes.len() >= TRIEPTR_SIZE);
         let id = bytes[0];
@@ -339,8 +340,8 @@ impl<T: MarfTrieId> TrieCursor<T> {
     /// what point in the path are we at now?
     /// Will be None only if we haven't taken a step yet.
     pub fn chr(&self) -> Option<u8> {
-        if self.index > 0 && self.index <= self.path.len() {
-            Some(self.path.as_bytes()[self.index - 1])
+        if self.index > 0 {
+            self.path.as_bytes().get(self.index - 1).copied()
         } else {
             None
         }
@@ -365,16 +366,13 @@ impl<T: MarfTrieId> TrieCursor<T> {
     pub fn ptr(&self) -> TriePtr {
         // should always be true by construction
         assert!(!self.node_ptrs.is_empty());
-        self.node_ptrs[self.node_ptrs.len() - 1].clone()
+        self.node_ptrs.last().unwrap().clone()
     }
 
     /// last node visited.
     /// Will only be None if we haven't taken a step yet.
     pub fn node(&self) -> Option<TrieNodeType> {
-        match self.nodes.len() {
-            0 => None,
-            _ => Some(self.nodes[self.nodes.len() - 1].clone()),
-        }
+        self.nodes.last().cloned()
     }
 
     /// Are we at the [E]nd [O]f a [N]ode's [P]ath?
@@ -422,10 +420,14 @@ impl<T: MarfTrieId> TrieCursor<T> {
         let path_bytes = self.path.as_bytes();
 
         // consume as much of the compressed path as we can
-        for i in 0..node_path.len() {
-            if node_path[i] != path_bytes[self.index] {
+        for (i, path_set) in node_path.iter().enumerate() {
+            let Some(path_head) = path_bytes.get(self.index) else {
+                trace!("cursor: out of path");
+                return Ok(None);
+            };
+            if path_set != path_head {
                 // diverged
-                trace!("cursor: diverged({} != {}): i = {}, self.index = {}, self.node_path_index = {}", to_hex(node_path), to_hex(path_bytes), i, self.index, self.node_path_index);
+                trace!("cursor: diverged({} != {}): i = {i}, self.index = {}, self.node_path_index = {}", to_hex(node_path), to_hex(path_bytes), self.index, self.node_path_index);
                 self.last_error = Some(CursorError::PathDiverged);
                 return Err(CursorError::PathDiverged);
             }
@@ -436,9 +438,12 @@ impl<T: MarfTrieId> TrieCursor<T> {
         // walked to end of the node's compressed path.
         // Find the pointer to the next node.
         if self.index < self.path.len() {
-            let chr = path_bytes[self.index];
+            let Some(chr) = path_bytes.get(self.index) else {
+                trace!("cursor: out of path");
+                return Ok(None);
+            };
             self.index += 1;
-            let mut ptr_opt = node.walk(chr);
+            let mut ptr_opt = node.walk(*chr);
 
             let do_walk = match ptr_opt {
                 Some(ptr) => {
@@ -718,6 +723,7 @@ impl TrieNode48 {
     }
 
     /// Promote a node16 to a node48
+    #[allow(clippy::indexing_slicing)]
     pub fn from_node16(node16: &TrieNode16) -> TrieNode48 {
         let mut ptrs = [TriePtr::default(); 48];
         let mut indexes = [-1i8; 256];
@@ -765,11 +771,12 @@ impl TrieNode256 {
         }
     }
 
+    #[allow(clippy::indexing_slicing)]
     pub fn from_node4(node4: &TrieNode4) -> TrieNode256 {
         let mut ptrs = [TriePtr::default(); 256];
-        for i in 0..4 {
-            let c = node4.ptrs[i].chr();
-            ptrs[c as usize] = node4.ptrs[i].clone();
+        for node4_ptr in node4.ptrs.iter() {
+            let c = node4_ptr.chr();
+            ptrs[c as usize] = node4_ptr.clone();
         }
         TrieNode256 {
             path: node4.path.clone(),
@@ -778,11 +785,12 @@ impl TrieNode256 {
     }
 
     /// Promote a node48 to a node256
+    #[allow(clippy::indexing_slicing)]
     pub fn from_node48(node48: &TrieNode48) -> TrieNode256 {
         let mut ptrs = [TriePtr::default(); 256];
-        for i in 0..48 {
-            let c = node48.ptrs[i].chr();
-            ptrs[c as usize] = node48.ptrs[i].clone();
+        for node48_ptr in node48.ptrs.iter() {
+            let c = node48_ptr.chr();
+            ptrs[c as usize] = node48_ptr.clone();
         }
         TrieNode256 {
             path: node48.path.clone(),
@@ -803,6 +811,7 @@ impl TrieNode for TrieNode4 {
         }
     }
 
+    #[allow(clippy::indexing_slicing)]
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         for i in 0..4 {
             if self.ptrs[i].id() != TrieNodeID::Empty as u8 && self.ptrs[i].chr() == chr {
@@ -823,6 +832,7 @@ impl TrieNode for TrieNode4 {
         })
     }
 
+    #[allow(clippy::indexing_slicing)]
     fn insert(&mut self, ptr: &TriePtr) -> bool {
         if self.replace(ptr) {
             return true;
@@ -837,6 +847,7 @@ impl TrieNode for TrieNode4 {
         return false;
     }
 
+    #[allow(clippy::indexing_slicing)]
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         for i in 0..4 {
             if self.ptrs[i].id() != TrieNodeID::Empty as u8 && self.ptrs[i].chr() == ptr.chr() {
@@ -872,6 +883,7 @@ impl TrieNode for TrieNode16 {
         }
     }
 
+    #[allow(clippy::indexing_slicing)]
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         for i in 0..16 {
             if self.ptrs[i].id != TrieNodeID::Empty as u8 && self.ptrs[i].chr == chr {
@@ -893,6 +905,7 @@ impl TrieNode for TrieNode16 {
         })
     }
 
+    #[allow(clippy::indexing_slicing)]
     fn insert(&mut self, ptr: &TriePtr) -> bool {
         if self.replace(ptr) {
             return true;
@@ -907,6 +920,7 @@ impl TrieNode for TrieNode16 {
         return false;
     }
 
+    #[allow(clippy::indexing_slicing)]
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         for i in 0..16 {
             if self.ptrs[i].id() != TrieNodeID::Empty as u8 && self.ptrs[i].chr() == ptr.chr() {
@@ -943,6 +957,7 @@ impl TrieNode for TrieNode48 {
         }
     }
 
+    #[allow(clippy::indexing_slicing)]
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         let idx = self.indexes[chr as usize];
         if idx >= 0 && idx < 48 && self.ptrs[idx as usize].id() != TrieNodeID::Empty as u8 {
@@ -966,6 +981,7 @@ impl TrieNode for TrieNode48 {
         get_ptrs_byte_len(&self.ptrs) + 256 + get_path_byte_len(&self.path)
     }
 
+    #[allow(clippy::indexing_slicing)]
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode48, Error> {
         let mut ptrs_slice = [TriePtr::default(); 48];
         ptrs_from_bytes(TrieNodeID::Node48 as u8, r, &mut ptrs_slice)?;
@@ -1028,6 +1044,7 @@ impl TrieNode for TrieNode48 {
         })
     }
 
+    #[allow(clippy::indexing_slicing)]
     fn insert(&mut self, ptr: &TriePtr) -> bool {
         if self.replace(ptr) {
             return true;
@@ -1044,6 +1061,7 @@ impl TrieNode for TrieNode48 {
         return false;
     }
 
+    #[allow(clippy::indexing_slicing)]
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         let i = self.indexes[ptr.chr() as usize];
         if i >= 0 {
@@ -1079,6 +1097,7 @@ impl TrieNode for TrieNode256 {
         }
     }
 
+    #[allow(clippy::indexing_slicing)]
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         if self.ptrs[chr as usize].id() != TrieNodeID::Empty as u8 {
             return Some(self.ptrs[chr as usize].clone());
@@ -1098,6 +1117,7 @@ impl TrieNode for TrieNode256 {
         })
     }
 
+    #[allow(clippy::indexing_slicing)]
     fn insert(&mut self, ptr: &TriePtr) -> bool {
         if self.replace(ptr) {
             return true;
@@ -1107,6 +1127,7 @@ impl TrieNode for TrieNode256 {
         return true;
     }
 
+    #[allow(clippy::indexing_slicing)]
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         let c = ptr.chr() as usize;
         if self.ptrs[c].id() != TrieNodeID::Empty as u8 && self.ptrs[c].chr() == ptr.chr() {

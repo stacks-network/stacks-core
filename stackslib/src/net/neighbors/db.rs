@@ -266,8 +266,10 @@ pub trait NeighborWalkDB {
         } else {
             0
         };
-
-        Ok(next_neighbors[random_neighbor_idx].clone())
+        next_neighbors
+            .get(random_neighbor_idx)
+            .ok_or_else(|| net_error::NoSuchNeighbor)
+            .cloned()
     }
 }
 
@@ -296,7 +298,7 @@ impl PeerDBNeighborWalk {
 
         let mut rng = thread_rng();
         slots.shuffle(&mut rng);
-        Ok(Some(slots[0]))
+        Ok(slots.first().copied())
     }
 }
 

@@ -289,7 +289,12 @@ impl Trie {
         let ptr = storage.last_ptr()?;
         let chr = cursor.chr().unwrap();
 
-        value.path = cursor.path.as_bytes()[cursor.index..].to_vec();
+        value.path = cursor
+            .path
+            .as_bytes()
+            .get(cursor.index..)
+            .ok_or_else(|| Error::CorruptionError("Cursor path shorter than cursor index".into()))?
+            .to_vec();
 
         let leaf_hash = get_leaf_hash(value);
         let leaf_ptr = TriePtr::new(TrieNodeID::Leaf as u8, chr, ptr);
@@ -332,15 +337,27 @@ impl Trie {
         // * the node4 will have their shared prefix
         let cur_leaf_ptr = cursor.ptr();
 
-        let node4_path = cur_leaf_data.path[0..(cursor.ntell())].to_vec();
+        let node4_path = cur_leaf_data
+            .path
+            .get(..cursor.ntell())
+            .ok_or_else(|| Error::CorruptionError("Node4 leaf path too short".into()))?
+            .to_vec();
         let node4_chr = cur_leaf_ptr.chr();
 
-        let cur_leaf_chr = cur_leaf_data.path[cursor.ntell()];
-        let cur_leaf_path = cur_leaf_data.path[(if cursor.ntell() >= cur_leaf_data.path.len() {
+        let cur_leaf_chr = *cur_leaf_data
+            .path
+            .get(cursor.ntell())
+            .ok_or_else(|| Error::CorruptionError("Current leaf path too short".into()))?;
+        let cur_leaf_path_start = if cursor.ntell() >= cur_leaf_data.path.len() {
             cursor.ntell()
         } else {
             cursor.ntell() + 1
-        })..]
+        };
+
+        let cur_leaf_path = cur_leaf_data
+            .path
+            .get(cur_leaf_path_start..)
+            .ok_or_else(|| Error::CorruptionError("Current leaf path too short".into()))?
             .to_vec();
 
         // update current leaf (path changed) and save it
@@ -420,14 +437,10 @@ impl Trie {
     }
 
     fn node_has_space(chr: u8, children: &[TriePtr]) -> bool {
-        let mut i = (children.len() - 1) as i64;
-        while i >= 0 {
-            if children[i as usize].id() == (TrieNodeID::Empty as u8)
-                || children[i as usize].chr() == chr
-            {
+        for child in children.iter().rev() {
+            if child.id() == (TrieNodeID::Empty as u8) || child.chr() == chr {
                 return true;
             }
-            i -= 1;
         }
         return false;
     }
@@ -595,11 +608,19 @@ impl Trie {
         assert!(cursor.chr().is_some());
         assert!(!node.is_leaf());
 
-        let node_path = node.path_bytes().clone();
-        let shared_path_prefix = node_path[0..cursor.ntell()].to_vec();
+        let node_path = node.path_bytes();
+        let shared_path_prefix = node_path
+            .get(0..cursor.ntell())
+            .ok_or_else(|| Error::CorruptionError("Node path too short".into()))?
+            .to_vec();
         let leaf_path = cursor.path[cursor.tell() + 1..].to_vec();
-        let new_cur_node_path = node_path[cursor.ntell() + 1..].to_vec();
-        let new_cur_node_chr = node_path[cursor.ntell()]; // chr for node-X post-update
+        let new_cur_node_path = node_path
+            .get(cursor.ntell() + 1..)
+            .ok_or_else(|| Error::CorruptionError("Node path too short".into()))?
+            .to_vec();
+        let new_cur_node_chr = *node_path
+            .get(cursor.ntell()) // chr for node-X post-update
+            .ok_or_else(|| Error::CorruptionError("Node path too short".into()))?;
 
         // store leaf
         leaf.path = leaf_path;
@@ -834,6 +855,7 @@ impl Trie {
     ) -> Result<TrieHash, Error> {
         let hashes = Trie::get_trie_root_ancestor_hashes_bytes(storage, children_root_hash)?;
         if hashes.len() == 1 {
+            #[allow(clippy::indexing_slicing)]
             Ok(hashes[0])
         } else {
             Ok(TrieHash::from_data_array(hashes.as_slice()))
@@ -888,7 +910,7 @@ impl Trie {
                 let _ = Trie::get_trie_root_ancestor_hashes_bytes(storage, &node_hash)
                     .map(|_hs| {
                         storage.clear_cached_ancestor_hashes_bytes();
-                        trace!("update_root_hash: Updated {:?} with {:?} from {} to {} + {:?} = {} (fixed root)", &node, &child_ptr, &_cur_hash, &node_hash, &_hs[1..].to_vec(), &h);
+                        trace!("update_root_hash: Updated {:?} with {:?} from {} to {} + {:?} = {} (fixed root)", &node, &child_ptr, &_cur_hash, &node_hash, &_hs.get(1..), &h);
                     });
             }
 
@@ -951,7 +973,7 @@ impl Trie {
                             let _ = Trie::get_trie_root_ancestor_hashes_bytes(storage, &content_hash)
                                         .map(|_hs| {
                                             storage.clear_cached_ancestor_hashes_bytes();
-                                            trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?}", &node, &child_ptr, &_cur_hash, &content_hash, &_hs[1..].to_vec(), &h);
+                                            trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?}", &node, &child_ptr, &_cur_hash, &content_hash, &_hs.get(1..), &h);
                                         });
                         }
 

@@ -24,6 +24,7 @@ use stacks_common::deps_common::httparse;
 use stacks_common::types::net::PeerHost;
 use url::form_urlencoded;
 
+use super::response::read_to_crlf2;
 use crate::net::http::common::{
     HttpReservedHeader, HTTP_PREAMBLE_MAX_ENCODED_SIZE, HTTP_PREAMBLE_MAX_NUM_HEADERS,
 };
@@ -218,28 +219,6 @@ impl HttpRequestPreamble {
     pub fn send<W: Write>(&self, fd: &mut W) -> Result<(), Error> {
         self.consensus_serialize(fd).map_err(|e| e.into())
     }
-}
-
-/// Read from a stream until we see '\r\n\r\n', with the purpose of reading a HTTP preamble.
-/// It's gonna be important here that R does some bufferring, since this reads byte by byte.
-/// EOF if we read 0 bytes.
-fn read_to_crlf2<R: Read>(fd: &mut R) -> Result<Vec<u8>, CodecError> {
-    let mut ret = Vec::with_capacity(HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize);
-    while ret.len() < HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize {
-        let mut b = [0u8];
-        fd.read_exact(&mut b).map_err(CodecError::ReadError)?;
-        ret.push(b[0]);
-
-        if ret.len() > 4 {
-            let last_4 = &ret[(ret.len() - 4)..ret.len()];
-
-            // '\r\n\r\n' is [0x0d, 0x0a, 0x0d, 0x0a]
-            if last_4 == &[0x0d, 0x0a, 0x0d, 0x0a] {
-                break;
-            }
-        }
-    }
-    Ok(ret)
 }
 
 impl StacksMessageCodec for HttpRequestPreamble {

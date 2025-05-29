@@ -157,19 +157,12 @@ impl SortitionHash {
     }
 
     /// Convert a SortitionHash into a (little-endian) uint256
+    #[allow(clippy::indexing_slicing)]
     pub fn to_uint256(&self) -> Uint256 {
         let mut tmp = [0u64; 4];
         for i in 0..4 {
-            let b = (self.0[8 * i] as u64)
-                + ((self.0[8 * i + 1] as u64) << 8)
-                + ((self.0[8 * i + 2] as u64) << 16)
-                + ((self.0[8 * i + 3] as u64) << 24)
-                + ((self.0[8 * i + 4] as u64) << 32)
-                + ((self.0[8 * i + 5] as u64) << 40)
-                + ((self.0[8 * i + 6] as u64) << 48)
-                + ((self.0[8 * i + 7] as u64) << 56);
-
-            tmp[i] = b;
+            let b: &[u8; 8] = &self.0[8 * i..8 * (i + 1)].try_into().unwrap();
+            tmp[i] = u64::from_le_bytes(*b);
         }
         Uint256(tmp)
     }

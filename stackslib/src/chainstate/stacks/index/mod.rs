@@ -121,14 +121,14 @@ macro_rules! impl_clarity_marf_trie_id {
             fn from(m: MARFValue) -> Self {
                 let h = m.0;
                 let mut d = [0u8; 32];
-                for i in 0..32 {
-                    d[i] = h[i];
-                }
-                for i in 32..h.len() {
-                    if h[i] != 0 {
-                        panic!(
-                            "Failed to convert MARF value into BHH: data stored after 32nd byte"
-                        );
+                d.copy_from_slice(h.get(..32).expect("Failed to convert MARF value: MARFValue did not have 32 bytes"));
+                if let Some(remainder) = h.get(32..) {
+                    for h_i in remainder {
+                        if *h_i != 0 {
+                            panic!(
+                                "Failed to convert MARF value into BHH: data stored after 32nd byte"
+                            );
+                        }
                     }
                 }
                 Self(d)
@@ -166,7 +166,9 @@ impl From<u32> for MARFValue {
         if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
             panic!("Cannot convert a u32 into a MARF Value.");
         }
-        d[..h.len()].copy_from_slice(&h[..]);
+        d.get_mut(..h.len())
+            .expect("Cannot convert a u32 into a MARF Value")
+            .copy_from_slice(&h);
         MARFValue(d)
     }
 }
@@ -178,7 +180,9 @@ impl<T: MarfTrieId> From<T> for MARFValue {
         if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
             panic!("Cannot convert a BHH into a MARF Value.");
         }
-        d[..h.len()].copy_from_slice(&h[..]);
+        d.get_mut(..h.len())
+            .expect("Cannot convert a BHH into a MARF Value")
+            .copy_from_slice(&h);
         MARFValue(d)
     }
 }
@@ -188,10 +192,13 @@ impl From<MARFValue> for u32 {
         let h = m.0;
         let mut d = [0u8; 4];
 
-        d[..4].copy_from_slice(&h[..4]);
-        for i in 4..h.len() {
-            if h[i] != 0 {
-                panic!("Failed to convert MARF value into u32: data stored after 4th byte");
+        d.copy_from_slice(h.get(..4).expect("FATAL: MARFValue does not have 4 bytes"));
+
+        if let Some(remainder) = h.get(4..) {
+            for h_i in remainder {
+                if *h_i != 0 {
+                    panic!("Failed to convert MARF value into u32: data stored after 4th byte");
+                }
             }
         }
         u32::from_le_bytes(d)

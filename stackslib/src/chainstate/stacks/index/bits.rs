@@ -130,22 +130,30 @@ pub fn ptrs_from_bytes<R: Read>(
     })?;
 
     // verify the id is correct
-    let nid = bytes[0];
-    if clear_backptr(nid) != clear_backptr(node_id) {
+    let nid = bytes
+        .first()
+        .ok_or_else(|| Error::CorruptionError("Failed to read 1 byte from bytes array".into()))?;
+    if clear_backptr(*nid) != clear_backptr(node_id) {
         trace!("Bad idbuf: {:x} != {:x}", nid, node_id);
         return Err(Error::CorruptionError(
             "Failed to read expected node ID".to_string(),
         ));
     }
 
-    let ptr_bytes = &bytes[1..];
+    let ptr_bytes = bytes
+        .get(1..)
+        .ok_or_else(|| Error::CorruptionError("Failed to read >1 bytes from bytes array".into()))?;
 
-    let mut i = 0;
-    while i < num_ptrs {
-        ptrs_buf[i] = TriePtr::from_bytes(&ptr_bytes[i * TRIEPTR_SIZE..(i + 1) * TRIEPTR_SIZE]);
-        i += 1;
+    for i in 0..num_ptrs {
+        let ptr_slot = ptrs_buf
+            .get_mut(i)
+            .ok_or_else(|| Error::CorruptionError("ptrs_buff smaller than num_ptrs".into()))?;
+        let next_ptr_bytes = ptr_bytes
+            .get(i * TRIEPTR_SIZE..(i + 1) * TRIEPTR_SIZE)
+            .ok_or_else(|| Error::CorruptionError("ptr_bytes malformed".into()))?;
+        *ptr_slot = TriePtr::from_bytes(next_ptr_bytes);
     }
-    Ok(nid)
+    Ok(*nid)
 }
 
 /// Calculate the hash of a TrieNode, given its childrens' hashes.
@@ -262,8 +270,8 @@ pub fn read_root_hash<T: MarfTrieId>(s: &mut TrieStorageConnection<T>) -> Result
 /// count the number of allocated children in a list of a node's children pointers.
 pub fn count_children(children: &[TriePtr]) -> usize {
     let mut cnt = 0;
-    for i in 0..children.len() {
-        if children[i].id() != TrieNodeID::Empty as u8 {
+    for child in children.iter() {
+        if child.id() != TrieNodeID::Empty as u8 {
             cnt += 1;
         }
     }
