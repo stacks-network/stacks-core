@@ -105,34 +105,37 @@ impl RPCRequestHandler for RPCNakamotoTenureTipRequestHandler {
             .take()
             .ok_or(NetError::SendError("`consensus_hash` not set".into()))?;
 
-        let tenure_tip_resp = node.with_node_state(|_network, _sortdb, chainstate, _mempool, _rpc_args| {
-            let header_info = match NakamotoChainState::get_highest_known_block_header_in_tenure(chainstate.db(), &consensus_hash) {
-                Ok(Some(header)) => header,
-                Ok(None) => {
-                    let msg = format!(
-                        "No blocks in tenure {}",
-                        &consensus_hash
-                    );
-                    debug!("{}", &msg);
-                    return Err(StacksHttpResponse::new_error(
-                        &preamble,
-                        &HttpNotFound::new(msg),
-                    ));
-                }
-                Err(e) => {
-                    let msg = format!(
-                        "Failed to query tenure blocks by consensus '{}': {:?}",
-                        consensus_hash, &e
-                    );
-                    error!("{}", &msg);
-                    return Err(StacksHttpResponse::new_error(
-                        &preamble,
-                        &HttpServerError::new(msg),
-                    ));
-                }
-            };
-            Ok(header_info.anchored_header)
-        });
+        let tenure_tip_resp =
+            node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
+                let header_info =
+                    match NakamotoChainState::find_highest_known_block_header_in_tenure(
+                        &chainstate,
+                        sortdb,
+                        &consensus_hash,
+                    ) {
+                        Ok(Some(header)) => header,
+                        Ok(None) => {
+                            let msg = format!("No blocks in tenure {}", &consensus_hash);
+                            debug!("{}", &msg);
+                            return Err(StacksHttpResponse::new_error(
+                                &preamble,
+                                &HttpNotFound::new(msg),
+                            ));
+                        }
+                        Err(e) => {
+                            let msg = format!(
+                                "Failed to query tenure blocks by consensus '{}': {:?}",
+                                consensus_hash, &e
+                            );
+                            error!("{}", &msg);
+                            return Err(StacksHttpResponse::new_error(
+                                &preamble,
+                                &HttpServerError::new(msg),
+                            ));
+                        }
+                    };
+                Ok(header_info.anchored_header)
+            });
 
         let tenure_tip = match tenure_tip_resp {
             Ok(tenure_tip) => tenure_tip,
