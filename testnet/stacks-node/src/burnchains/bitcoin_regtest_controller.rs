@@ -112,12 +112,6 @@ pub struct OngoingBlockCommit {
     txids: Vec<Txid>,
 }
 
-impl OngoingBlockCommit {
-    fn sum_utxos(&self) -> u64 {
-        self.utxos.total_available()
-    }
-}
-
 #[derive(Clone)]
 struct LeaderBlockCommitFees {
     sunset_fee: u64,
