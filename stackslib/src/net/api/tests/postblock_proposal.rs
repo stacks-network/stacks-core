@@ -442,6 +442,7 @@ fn test_try_make_response() {
             size,
             validation_time_ms,
             replay_tx_hash,
+            replay_tx_exhausted,
         }) => {
             assert_eq!(
                 signer_signature_hash,
@@ -451,6 +452,7 @@ fn test_try_make_response() {
             assert_eq!(size, 180);
             assert!(validation_time_ms > 0 && validation_time_ms < 60000);
             assert!(replay_tx_hash.is_none());
+            assert!(!replay_tx_exhausted);
         }
         _ => panic!("expected ok"),
     }
@@ -745,6 +747,7 @@ fn replay_validation_test_transaction_unmineable_match_2() {
             let replay_hash = hasher.finish();
 
             assert_eq!(block_validate_ok.replay_tx_hash, Some(replay_hash));
+            assert!(block_validate_ok.replay_tx_exhausted);
         }
         Err(rejection) => {
             panic!("Expected validation to be OK, but got {:?}", rejection);
@@ -1032,7 +1035,12 @@ fn replay_validation_test_budget_exhausted() {
 
     match result {
         Ok(block_validate_ok) => {
-            assert_eq!(block_validate_ok.replay_tx_hash, None);
+            let mut hasher = DefaultHasher::new();
+            replay_set.hash(&mut hasher);
+            let replay_hash = hasher.finish();
+
+            assert_eq!(block_validate_ok.replay_tx_hash, Some(replay_hash));
+            assert!(!block_validate_ok.replay_tx_exhausted);
         }
         Err(rejection) => {
             panic!(

@@ -176,9 +176,11 @@ pub struct BlockValidateOk {
     pub size: u64,
     pub validation_time_ms: u64,
     /// If a block was validated by a transaction replay set,
-    /// and the block exhausted the set of transactions,
     /// then this return Some with the hash of the replay set.
     pub replay_tx_hash: Option<u64>,
+    /// If a block was validated by a transaction replay set,
+    /// then this is true if this block exhausted the set of transactions.
+    pub replay_tx_exhausted: bool,
 }
 
 /// This enum is used for serializing the response to block
@@ -582,10 +584,7 @@ impl NakamotoBlockProposal {
                 loop {
                     if matches!(
                         tx.payload,
-                        TransactionPayload::TenureChange(TenureChangePayload {
-                            cause: TenureChangeCause::Extended,
-                            ..
-                        })
+                        TransactionPayload::TenureChange(..) | TransactionPayload::Coinbase(..)
                     ) {
                         // Allow this to happen, tenure extend checks happen elsewhere.
                         break;
@@ -759,16 +758,15 @@ impl NakamotoBlockProposal {
             })
         );
 
+        let replay_tx_hash = Self::tx_replay_hash(&self.replay_txs);
+
         Ok(BlockValidateOk {
             signer_signature_hash: block.header.signer_signature_hash(),
             cost,
             size,
             validation_time_ms,
-            replay_tx_hash: if replay_tx_exhausted {
-                Self::tx_replay_hash(&self.replay_txs)
-            } else {
-                None
-            },
+            replay_tx_hash,
+            replay_tx_exhausted,
         })
     }
 

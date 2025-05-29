@@ -20,7 +20,6 @@ use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
-use blockstack_lib::chainstate::stacks::TransactionPayload;
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
     TOO_MANY_REQUESTS_STATUS,
@@ -1043,7 +1042,11 @@ impl Signer {
                 "replay_tx_hash" => replay_tx_hash
             );
             self.signer_db
-                .insert_block_validated_by_replay_tx(&signer_signature_hash, replay_tx_hash)
+                .insert_block_validated_by_replay_tx(
+                    &signer_signature_hash,
+                    replay_tx_hash,
+                    block_validate_ok.replay_tx_exhausted,
+                )
                 .unwrap_or_else(|e| {
                     warn!("{self}: Failed to insert block validated by replay tx: {e:?}")
                 });
@@ -1614,21 +1617,15 @@ impl Signer {
                 debug!("{self}: Cannot confirm that we have processed parent, but we've waited proposal_wait_for_parent_time, will submit proposal");
             }
         }
-        let is_block_found = block.txs.iter().all(|tx| {
-            matches!(
-                tx.payload,
-                TransactionPayload::Coinbase(..) | TransactionPayload::TenureChange(..)
-            )
-        });
         match stacks_client.submit_block_for_validation(
             block.clone(),
-            if is_block_found || !self.validate_with_replay_tx {
-                None
-            } else {
+            if self.validate_with_replay_tx {
                 self.global_state_evaluator
                     .get_global_tx_replay_set()
                     .unwrap_or_default()
                     .into_optional()
+            } else {
+                None
             },
         ) {
             Ok(_) => {

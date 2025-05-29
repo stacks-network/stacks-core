@@ -20,9 +20,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
-use blockstack_lib::chainstate::stacks::{
-    StacksTransaction, TenureChangeCause, TenureChangePayload, TransactionPayload,
-};
+use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use clarity::types::chainstate::StacksAddress;
 #[cfg(any(test, feature = "testing"))]
@@ -48,7 +46,7 @@ use crate::chainstate::{
     ProposalEvalConfig, SignerChainstateError, SortitionState, SortitionsView,
 };
 use crate::client::{ClientError, CurrentAndLastSortition, StackerDB, StacksClient};
-use crate::signerdb::SignerDb;
+use crate::signerdb::{BlockValidatedByReplaySet, SignerDb};
 
 /// This is the latest supported protocol version for this signer binary
 pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 1;
@@ -389,32 +387,24 @@ impl LocalStateMachine {
             &prior_state_machine.tx_replay_set.into_optional(),
         ) {
             match db.get_was_block_validated_by_replay_tx(signer_signature_hash, replay_set_hash) {
-                Ok(true) => {
-                    // This block was validated by our current state machine's replay set,
-                    // and the block exhausted the replay set. Therefore, clear the tx replay set.
-                    info!("Signer State: Incoming Stacks block exhausted the replay set, clearing the tx replay set";
-                        "signer_signature_hash" => %signer_signature_hash,
-                    );
-                    prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
-                }
-                Ok(false) => {
-                    info!("Signer state: got a new block during replay that wasn't validated by our replay set.";
-                        "txs" => ?txs,
-                    );
-                    // If any of the transactions aren't TenureChange/Coinbase, we should
-                    // capitulate and clear the tx replay set.
-                    if txs.iter().any(|tx| {
-                        !matches!(
-                            tx.payload,
-                            TransactionPayload::TenureChange(TenureChangePayload {
-                                cause: TenureChangeCause::BlockFound,
-                                ..
-                            }) | TransactionPayload::Coinbase(..)
-                        )
-                    }) {
-                        info!("Signer state: clearing the tx replay set due to unrecognized transactions");
+                Ok(Some(BlockValidatedByReplaySet {
+                    replay_tx_exhausted,
+                    ..
+                })) => {
+                    if replay_tx_exhausted {
+                        // This block was validated by our current state machine's replay set,
+                        // and the block exhausted the replay set. Therefore, clear the tx replay set.
+                        info!("Signer State: Incoming Stacks block exhausted the replay set, clearing the tx replay set";
+                            "signer_signature_hash" => %signer_signature_hash,
+                        );
                         prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
                     }
+                }
+                Ok(None) => {
+                    info!("Signer state: got a new block during replay that wasn't validated by our replay set. Clearing the local replay set.";
+                        "txs" => ?txs,
+                    );
+                    prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
                 }
                 Err(e) => {
                     warn!("Failed to check if block was validated by replay tx";
