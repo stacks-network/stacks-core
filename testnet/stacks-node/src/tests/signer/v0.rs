@@ -1259,14 +1259,36 @@ fn wait_for_block_pushed(
     block.ok_or_else(|| "Failed to find block pushed".to_string())
 }
 
-/// Waits for a block with the provided expected height to be proposed and pushed by the miner with the provided public key.
+/// Waits for a block with the provided expected height to be pushed by the miner with the provided public key.
 pub fn wait_for_block_pushed_by_miner_key(
     timeout_secs: u64,
     expected_height: u64,
-    miner_key: &StacksPublicKey,
+    expected_miner: &StacksPublicKey,
 ) -> Result<NakamotoBlock, String> {
-    let block_proposed = wait_for_block_proposal(timeout_secs, expected_height, miner_key)?;
-    wait_for_block_pushed(timeout_secs, block_proposed.header.signer_signature_hash())
+    let mut block = None;
+    wait_for(timeout_secs, || {
+        let chunks = test_observer::get_stackerdb_chunks();
+        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
+            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+            else {
+                continue;
+            };
+            if let SignerMessage::BlockPushed(pushed_block) = message {
+                let block_stacks_height = pushed_block.header.chain_length;
+                if block_stacks_height != expected_height {
+                    continue;
+                }
+
+                let miner_pk = pushed_block.header.recover_miner_pk().unwrap();
+                if &miner_pk == expected_miner {
+                    block = Some(pushed_block);
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    })?;
+    block.ok_or_else(|| "Failed to find block pushed".to_string())
 }
 
 /// Waits for >30% of num_signers block rejection to be observed in the test_observer stackerdb chunks for a block
@@ -9497,25 +9519,9 @@ fn global_acceptance_depends_on_block_announcement() {
 
     info!("------------------------- Waiting for block N+1' -------------------------");
     // Cannot use wait_for_block_pushed_by_miner_key as we could have more than one block proposal for the same height from the miner
-    let mut sister_block = None;
-    wait_for(30, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
-            if let SignerMessage::BlockPushed(pushed_block) = message {
-                if pushed_block.header.chain_length == info_before.stacks_tip_height + 1 {
-                    sister_block = Some(pushed_block);
-                    return Ok(true);
-                }
-            }
-        }
-        Ok(false)
-    })
-    .expect("Failed to get pushed sister block");
-    let sister_block = sister_block.unwrap();
+    let sister_block =
+        wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
+            .expect("Failed to get pushed sister block");
     assert_ne!(
         sister_block.header.signer_signature_hash(),
         block_n_1.header.signer_signature_hash()
