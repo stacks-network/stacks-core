@@ -123,13 +123,18 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
             return Err(EstimatorError::NoEstimateAvailable);
         }
 
-        fn median(len: usize, l: Vec<f64>) -> f64 {
-            if len % 2 == 1 {
-                l[len / 2]
+        fn median(l: Vec<f64>) -> Result<f64, EstimatorError> {
+            let med_index = l.len() / 2;
+            let med_value = l
+                .get(med_index)
+                .ok_or_else(|| EstimatorError::NoEstimateAvailable)?;
+            if l.len() % 2 == 1 {
+                Ok(*med_value)
             } else {
-                // note, measures_len / 2 - 1 >= 0, because
-                //  len % 2 == 0 and emptiness is checked above
-                (l[len / 2] + l[len / 2 - 1]) / 2f64
+                let med_prior_value = l
+                    .get(med_index - 1)
+                    .ok_or_else(|| EstimatorError::NoEstimateAvailable)?;
+                Ok((med_prior_value + med_value) / 2f64)
             }
         }
 
@@ -140,9 +145,9 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
         lows.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
 
         Ok(FeeRateEstimate {
-            high: median(highs.len(), highs),
-            middle: median(mids.len(), mids),
-            low: median(lows.len(), lows),
+            high: median(highs)?,
+            middle: median(mids)?,
+            low: median(lows)?,
         })
     }
 
@@ -248,11 +253,14 @@ pub fn fee_rate_estimate_from_sorted_weighted_fees(
     }
     assert_eq!(percentiles.len(), sorted_fee_rates.len());
 
-    let target_percentiles = vec![0.05, 0.5, 0.95];
+    let target_percentiles = [0.05, 0.5, 0.95];
     let mut fees_index = 0; // index into `sorted_fee_rates`
-    let mut values_at_target_percentiles = Vec::new();
+    let mut values_at_target_percentiles = Vec::with_capacity(target_percentiles.len());
     for target_percentile in target_percentiles {
-        while fees_index < percentiles.len() && percentiles.get(fees_index)? < &target_percentile {
+        while let Some(percentile) = percentiles.get(fees_index) {
+            if *percentile >= target_percentile {
+                break;
+            }
             fees_index += 1;
         }
         let v = if fees_index == 0 {

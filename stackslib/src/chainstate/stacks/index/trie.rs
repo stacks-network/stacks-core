@@ -438,7 +438,7 @@ impl Trie {
 
     fn node_has_space(chr: u8, children: &[TriePtr]) -> bool {
         for child in children.iter().rev() {
-            if child.id() == (TrieNodeID::Empty as u8) || child.chr() == chr {
+            if child.is_empty() || child.chr() == chr {
                 return true;
             }
         }

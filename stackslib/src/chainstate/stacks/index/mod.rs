@@ -121,14 +121,12 @@ macro_rules! impl_clarity_marf_trie_id {
             fn from(m: MARFValue) -> Self {
                 let h = m.0;
                 let mut d = [0u8; 32];
-                d.copy_from_slice(h.get(..32).expect("Failed to convert MARF value: MARFValue did not have 32 bytes"));
-                if let Some(remainder) = h.get(32..) {
-                    for h_i in remainder {
-                        if *h_i != 0 {
-                            panic!(
-                                "Failed to convert MARF value into BHH: data stored after 32nd byte"
-                            );
-                        }
+                d.copy_from_slice(&h[..32]);
+                for x in &h[32..] {
+                    if *x != 0 {
+                        panic!(
+                            "Failed to convert MARF value into BHH: data stored after 32nd byte"
+                        );
                     }
                 }
                 Self(d)
@@ -192,13 +190,11 @@ impl From<MARFValue> for u32 {
         let h = m.0;
         let mut d = [0u8; 4];
 
-        d.copy_from_slice(h.get(..4).expect("FATAL: MARFValue does not have 4 bytes"));
+        d.copy_from_slice(&h[..4]);
 
-        if let Some(remainder) = h.get(4..) {
-            for h_i in remainder {
-                if *h_i != 0 {
-                    panic!("Failed to convert MARF value into u32: data stored after 4th byte");
-                }
+        for h_i in &h[4..] {
+            if *h_i != 0 {
+                panic!("Failed to convert MARF value into u32: data stored after 4th byte");
             }
         }
         u32::from_le_bytes(d)
@@ -220,11 +216,9 @@ impl MARFValue {
 
     /// Construct from a String that encodes a value inserted into the underlying data store
     pub fn from_value(s: &str) -> MARFValue {
-        let mut tmp = [0u8; 32];
-
         let mut hasher = TrieHasher::new();
         hasher.update(s.as_bytes());
-        tmp.copy_from_slice(hasher.finalize().as_slice());
+        let tmp = hasher.finalize().into();
 
         MARFValue::from_value_hash_bytes(&tmp)
     }

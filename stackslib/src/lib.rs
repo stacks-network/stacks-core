@@ -59,16 +59,16 @@ pub extern crate libstackerdb;
 pub mod chainstate;
 
 pub mod burnchains;
+/// Allow panics in CLI commands
 #[allow(clippy::indexing_slicing)]
 pub mod clarity_cli;
 /// A high level library for interacting with the Clarity vm
 pub mod clarity_vm;
+/// Allow panics in CLI commands
 #[allow(clippy::indexing_slicing)]
 pub mod cli;
-#[allow(clippy::indexing_slicing)]
 pub mod config;
 pub mod core;
-#[allow(clippy::indexing_slicing)]
 pub mod cost_estimates;
 pub mod deps;
 pub mod monitoring;

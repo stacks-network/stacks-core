@@ -704,7 +704,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             // count get_nodetype load time for write_children_hashes_same_block benchmark, but
             // only if that code path will be exercised.
             for ptr in node.ptrs().iter() {
-                if !is_backptr(ptr.id()) && ptr.id() != TrieNodeID::Empty as u8 {
+                if !is_backptr(ptr.id()) && !ptr.is_empty() {
                     if let Some(start_node_time) = start_node_time.take() {
                         // count the time taken to load the root node in this case,
                         // but only do so once.
@@ -719,7 +719,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             // calculate the hashes of this node's children, and store them if they're in the
             // same trie.
             for ptr in node.ptrs().iter() {
-                if ptr.id() == TrieNodeID::Empty as u8 {
+                if ptr.is_empty() {
                     // hash of empty string
                     let start_time = storage_tx.bench.write_children_hashes_empty_start();
 
@@ -820,7 +820,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             // queue each child
             if !node.is_leaf() {
                 for ptr in node.ptrs().iter() {
-                    if ptr.id != TrieNodeID::Empty as u8 && !is_backptr(ptr.id) {
+                    if !ptr.is_empty() && !is_backptr(ptr.id) {
                         frontier.push_back(ptr.ptr());
                     }
                 }
@@ -843,7 +843,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             if !next_node.is_leaf() {
                 let ptrs = next_node.ptrs_mut();
                 for ptr in ptrs.iter_mut() {
-                    if ptr.id != TrieNodeID::Empty as u8 && !is_backptr(ptr.id) {
+                    if !ptr.is_empty() && !is_backptr(ptr.id) {
                         ptr.ptr = *offsets.get(i).ok_or_else(|| {
                             Error::CorruptionError("Miscalculated dump_consume offsets".into())
                         })?;

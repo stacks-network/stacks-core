@@ -580,7 +580,7 @@ where
 // borrowed from Andrew Poelstra's rust-bitcoin library
 /// Convert a hexadecimal-encoded string to its corresponding bytes
 pub fn hex_bytes(s: &str) -> Result<Vec<u8>, HexError> {
-    let mut v = vec![];
+    let mut v = Vec::with_capacity(s.len() / 2);
     let mut iter = s.chars().pair();
     // Do the parsing
     iter.by_ref()

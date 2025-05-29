@@ -143,14 +143,12 @@ pub fn ptrs_from_bytes<R: Read>(
     let ptr_bytes = bytes
         .get(1..)
         .ok_or_else(|| Error::CorruptionError("Failed to read >1 bytes from bytes array".into()))?;
-
-    for i in 0..num_ptrs {
-        let ptr_slot = ptrs_buf
-            .get_mut(i)
-            .ok_or_else(|| Error::CorruptionError("ptrs_buff smaller than num_ptrs".into()))?;
-        let next_ptr_bytes = ptr_bytes
-            .get(i * TRIEPTR_SIZE..(i + 1) * TRIEPTR_SIZE)
-            .ok_or_else(|| Error::CorruptionError("ptr_bytes malformed".into()))?;
+    // iterate over the read-in bytes in chunks of TRIEPTR_SIZE and store them
+    //   to `ptrs_buf`
+    let reading_ptrs = ptr_bytes
+        .chunks_exact(TRIEPTR_SIZE)
+        .zip(ptrs_buf.iter_mut());
+    for (next_ptr_bytes, ptr_slot) in reading_ptrs {
         *ptr_slot = TriePtr::from_bytes(next_ptr_bytes);
     }
     Ok(*nid)
@@ -171,9 +169,7 @@ pub fn get_node_hash<M, T: ConsensusSerializable<M> + std::fmt::Debug>(
         hasher.update(child_hash.as_ref());
     }
 
-    let mut res = [0u8; 32];
-    res.copy_from_slice(hasher.finalize().as_slice());
-
+    let res = hasher.finalize().into();
     let ret = TrieHash(res);
 
     trace!(
@@ -191,9 +187,7 @@ pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
     node.write_bytes(&mut hasher)
         .expect("IO Failure pushing to hasher.");
 
-    let mut res = [0u8; 32];
-    res.copy_from_slice(hasher.finalize().as_slice());
-
+    let res = hasher.finalize().into();
     let ret = TrieHash(res);
 
     trace!("get_leaf_hash: hash {:?} = {:?} + []", &ret, node);
