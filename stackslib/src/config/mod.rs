@@ -2646,7 +2646,7 @@ pub struct MinerConfig {
     /// - `"NextNonceWithHighestFeeRate"`: Selects the highest-fee transaction among those
     ///   matching the next expected nonce for sender/sponsor accounts.
     ///
-    /// Default: `"GlobalFeeRate"`
+    /// Default: `"NextNonceWithHighestFeeRate"`
     pub mempool_walk_strategy: MemPoolWalkStrategy,
     /// Probability (percentage, 0-100) of prioritizing a transaction without a known fee rate
     /// during candidate selection.
