@@ -3363,7 +3363,7 @@ fn tx_replay_forking_test() {
 /// - Verify the miner correctly constructs a block containing the
 ///   tx replay set
 /// - Verify the signers approve subsequent blocks
-fn tx_replay_e2e_test() {
+fn tx_replay_reject_invalid_proposals_during_replay() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
