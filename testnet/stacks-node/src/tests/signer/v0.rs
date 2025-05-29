@@ -12480,10 +12480,8 @@ fn prev_miner_will_not_attempt_to_extend_if_incoming_miner_produces_a_block() {
 
     info!("------------------------- Get Miner 2's N+1 block -------------------------");
 
-    let miner_2_block_n_1 = wait_for_block_proposal(60, stacks_height_before + 1, &miner_pk_2)
-        .expect("Timed out waiting for N+1 block proposal from miner 2");
     let miner_2_block_n_1 =
-        wait_for_block_pushed(30, miner_2_block_n_1.header.signer_signature_hash())
+        wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_2)
             .expect("Timed out waiting for N+1 block to be approved");
 
     let peer_info = miners.get_peer_info();
