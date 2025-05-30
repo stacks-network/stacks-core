@@ -13175,21 +13175,18 @@ fn global_state_overrides_first_proposal_burn_block_timing_secs() {
     // Wait for both chains to be in sync
     miners.wait_for_chains(30);
 
-    info!("------------------------- Miner 1 Wins the Next Tenure, Mines N+1' -------------------------");
+    TEST_MINE_STALL.set(true);
+    info!("------------------------- Miner 1 Wins the Next Tenure -------------------------");
     test_observer::clear();
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 30)
         .expect("Failed to mine BTC block");
-
-    let block_n_1_prime = wait_for_block_proposal(30, block_n_height + 1, &miner_pk_1)
-        .expect("Failed to get block proposal N+1'");
-    // Stall the miner from proposing again until we're ready
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
     // Due to reorging signers capitulating to the majority rejection of the reorg...all signers will update their state to reject
     miners
         .signer_test
         .check_signer_states_reorg(&[], &all_signers);
     let info = get_chain_info(&conf_1);
+
     info!("------------------------- Wait till Reorging Signers Capitulate to Nonreorging Signers -------------------------");
     wait_for_state_machine_update(
         30 + capitulate_timeout.as_secs(),
@@ -13200,6 +13197,14 @@ fn global_state_overrides_first_proposal_burn_block_timing_secs() {
         SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
     .expect("Failed to capitulate");
+
+    TEST_MINE_STALL.set(false);
+
+    info!("------------------------- Wait for Miner 1 to Propose N+1' -------------------------");
+    let block_n_1_prime = wait_for_block_proposal(30, block_n_height + 1, &miner_pk_1)
+        .expect("Failed to get block proposal N+1'");
+    // Stall the miner from proposing again until we're ready
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
 
     info!("------------------------- Confirm All Signers Reject N+1' -------------------------");
     let signer_signature_hash = block_n_1_prime.header.signer_signature_hash();
