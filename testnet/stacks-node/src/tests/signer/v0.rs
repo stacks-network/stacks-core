@@ -99,7 +99,7 @@ use crate::nakamoto_node::miner::{
     TEST_P2P_BROADCAST_STALL,
 };
 use crate::nakamoto_node::stackerdb_listener::TEST_IGNORE_SIGNERS;
-use crate::neon::Counters;
+use crate::neon::{Counters, RunLoopCounter};
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
     boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, next_block_and_controller,
@@ -669,6 +669,14 @@ impl MultipleMinerTest {
             2 => self.rl2_counters.clone(),
             _ => panic!("Invalid miner index {}: must be 1 or 2", miner_index),
         }
+    }
+
+    pub fn get_primary_proposals_submitted(&self) -> RunLoopCounter {
+        self.signer_test
+            .running_nodes
+            .counters
+            .naka_proposed_blocks
+            .clone()
     }
 
     /// Boot node 1 to epoch 3.0 and wait for node 2 to catch up.
