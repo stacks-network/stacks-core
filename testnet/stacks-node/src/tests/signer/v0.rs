@@ -671,6 +671,14 @@ impl MultipleMinerTest {
         }
     }
 
+    pub fn get_primary_proposals_submitted(&self) -> RunLoopCounter {
+        self.signer_test
+            .running_nodes
+            .counters
+            .naka_proposed_blocks
+            .clone()
+    }
+
     /// Boot node 1 to epoch 3.0 and wait for node 2 to catch up.
     pub fn boot_to_epoch_3(&mut self) {
         info!(
@@ -15255,7 +15263,7 @@ fn miner_stackerdb_version_rollover() {
     let mut stackerdb =
         StackerDBSession::new(&conf_2.node.rpc_bind, boot_code_id(MINERS_NAME, false));
 
-    let proposals_before = miners.get_counters_for_miner(1).naka_proposed_blocks.load(Ordering::SeqCst);
+    let proposals_before = miners.get_primary_proposals_submitted().get();
 
     *proxy_1.drop_control.lock().unwrap() = true;
     *proxy_2.drop_control.lock().unwrap() = true;
@@ -15263,7 +15271,7 @@ fn miner_stackerdb_version_rollover() {
     let (_, _sent_nonce) = miners.send_transfer_tx();
 
     wait_for(30, || {
-        let proposals = miners.get_counters_for_miner(1).naka_proposed_blocks.load(Ordering::SeqCst);
+        let proposals = miners.get_primary_proposals_submitted().get();
         Ok(proposals > proposals_before)
     })
     .unwrap();
