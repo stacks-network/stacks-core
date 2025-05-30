@@ -419,12 +419,7 @@ impl Signer {
                             self.handle_block_response(stacks_client, block_response)
                         }
                         SignerMessage::StateMachineUpdate(update) => self
-                            .handle_state_machine_update(
-                                signer_public_key,
-                                update,
-                                received_time,
-                                sortition_state,
-                            ),
+                            .handle_state_machine_update(signer_public_key, update, received_time),
                         _ => {}
                     }
                 }
@@ -757,7 +752,6 @@ impl Signer {
         signer_public_key: &Secp256k1PublicKey,
         update: &StateMachineUpdate,
         received_time: &SystemTime,
-        sortition_state: &mut Option<SortitionsView>,
     ) {
         info!("{self}: Received a new state machine update from signer {signer_public_key:?}: {update:?}");
 
@@ -782,7 +776,6 @@ impl Signer {
             self.stacks_address,
             version,
             self.reward_cycle,
-            sortition_state,
         );
     }
 
