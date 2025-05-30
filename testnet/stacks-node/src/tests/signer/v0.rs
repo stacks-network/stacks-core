@@ -8909,6 +8909,7 @@ fn tenure_extend_after_failed_miner() {
     // Make sure miner 1 doesn't submit any further block commits for the next tenure BEFORE mining the bitcoin block
     rl1_skip_commit_op.set(true);
 
+    let starting_peer_height = get_chain_info(&conf_1).stacks_tip_height;
     info!("------------------------- Miner 1 Wins Normal Tenure A -------------------------");
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
@@ -8941,7 +8942,16 @@ fn tenure_extend_after_failed_miner() {
     sleep_ms(block_proposal_timeout.as_millis() as u64 * 2);
 
     info!("------------------------- Miner 1 Extends Tenure A -------------------------");
-
+    let info_before = get_chain_info(&conf_1);
+    wait_for_state_machine_update(
+        30,
+        &info_before.pox_consensus,
+        info_before.burn_block_height,
+        Some((miner_pkh_1, starting_peer_height)),
+        &miners.signer_test.signer_test_pks(),
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Failed to update signer state");
     // Re-enable block mining, for both miners.
     // Since miner B has been offline, it won't be able to mine.
     TEST_MINE_STALL.set(false);
