@@ -937,7 +937,12 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                         );
                         self.inbox.push_back(message);
                         consumed_message = true;
-                    };
+                    } else {
+                        if bytes_consumed == 0 {
+                            warn!("0 bytes consumed, but no message parsed");
+                            return Err(net_error::ConnectionBroken);
+                        }
+                    }
 
                     bytes_consumed
                 } else {
