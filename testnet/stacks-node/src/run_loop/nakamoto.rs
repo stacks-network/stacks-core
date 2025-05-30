@@ -306,11 +306,13 @@ impl RunLoop {
         let coordinator_indexer =
             make_bitcoin_indexer(&self.config, Some(self.should_keep_running.clone()));
 
+        let rpc_port = moved_config
+            .node
+            .rpc_bind_addr()
+            .unwrap_or_else(|| panic!("Failed to parse socket: {}", &moved_config.node.rpc_bind))
+            .port();
         let coordinator_thread_handle = thread::Builder::new()
-            .name(format!(
-                "chains-coordinator-{}",
-                &moved_config.node.rpc_bind
-            ))
+            .name(format!("chains-coordinator:{rpc_port}"))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
                 debug!(
