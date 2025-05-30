@@ -123,6 +123,8 @@ pub struct Signer {
     recently_processed: RecentlyProcessedBlocks<100>,
     /// The signer's global state evaluator
     pub global_state_evaluator: GlobalStateEvaluator,
+    /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
+    pub capitulate_tenure_timeout: Duration,
 }
 
 impl std::fmt::Display for SignerMode {
@@ -238,6 +240,7 @@ impl SignerTrait<SignerMessage> for Signer {
             local_state_machine: signer_state,
             recently_processed: RecentlyProcessedBlocks::new(),
             global_state_evaluator,
+            capitulate_tenure_timeout: signer_config.capitulate_tenure_timeout,
         }
     }
 
@@ -776,6 +779,7 @@ impl Signer {
             self.stacks_address,
             version,
             self.reward_cycle,
+            self.capitulate_tenure_timeout,
         );
     }
 

@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use std::{env, thread};
 
 use clarity::vm::ast::ASTRules;
@@ -223,7 +223,7 @@ impl TestSigningChannel {
         let sign_channels = signer.as_mut()?;
         let recv = sign_channels.recv.take().unwrap();
         drop(signer); // drop signer so we don't hold the lock while receiving.
-        let signatures = recv.recv_timeout(Duration::from_secs(30)).unwrap();
+        let signatures = recv.recv_timeout(Duration::from_secs(60)).unwrap();
         let overwritten = TEST_SIGNING
             .lock()
             .unwrap()
@@ -6637,6 +6637,7 @@ fn signer_chainstate() {
                 current_miner: miner_state,
                 active_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
                 tx_replay_set: None,
+                creation_time: SystemTime::now(),
             };
 
             SortitionsView {
