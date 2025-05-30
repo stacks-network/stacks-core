@@ -41,6 +41,7 @@ use stacks::chainstate::stacks::{
     TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionPayload,
     TransactionVersion,
 };
+use stacks::core::mempool::MemPoolWalkStrategy;
 use stacks::net::api::poststackerdbchunk::StackerDBErrorCodes;
 use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
@@ -618,7 +619,13 @@ impl BlockMinerThread {
                     "Miner did not find any transactions to mine, sleeping for {:?}",
                     self.config.miner.empty_mempool_sleep_time
                 );
-                self.reset_nonce_cache = false;
+                // For NextNonceWithHighestFeeRate strategy, keep reset_nonce_cache = true
+                // to ensure considered_txs table is cleared for each block attempt
+                if self.config.miner.mempool_walk_strategy
+                    != MemPoolWalkStrategy::NextNonceWithHighestFeeRate
+                {
+                    self.reset_nonce_cache = false;
+                }
 
                 // Pause the miner to wait for transactions to arrive
                 let now = Instant::now();
@@ -733,7 +740,13 @@ impl BlockMinerThread {
             );
 
             // We successfully mined, so the mempool caches are valid.
-            self.reset_nonce_cache = false;
+            // For NextNonceWithHighestFeeRate strategy, keep reset_nonce_cache = true
+            // to ensure considered_txs table is cleared for each block attempt
+            if self.config.miner.mempool_walk_strategy
+                != MemPoolWalkStrategy::NextNonceWithHighestFeeRate
+            {
+                self.reset_nonce_cache = false;
+            }
         }
 
         // update mined-block counters and mined-tenure counters
