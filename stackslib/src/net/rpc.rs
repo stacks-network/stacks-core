@@ -548,6 +548,11 @@ impl ConversationHttp {
                         |conv_http, req| conv_http.handle_request(req, node),
                     )?;
 
+                    let msg_opt_log = if let Some(ref msg) = msg_opt {
+                        msg.get_message_description()
+                    } else {
+                        "None".into()
+                    };
                     info!("Handled StacksHTTPRequest";
                           "verb" => %verb,
                           "path" => %request_path,
@@ -555,7 +560,7 @@ impl ConversationHttp {
                           "latency_ms" => latency,
                           "conn_id" => self.conn_id,
                           "peer_addr" => &self.peer_addr,
-                          "p2p_msg" => ?msg_opt);
+                          "p2p_msg" => msg_opt_log);
 
                     if let Some(msg) = msg_opt {
                         ret.push(msg);
