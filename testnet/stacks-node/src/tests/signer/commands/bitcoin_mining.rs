@@ -62,7 +62,6 @@ impl Command<SignerTestState, SignerTestContext> for MinerMineBtcBlocks {
         prop_oneof![
             Just(CommandWrapper::new(MinerMineBtcBlocks::one(ctx.clone()))),
             (2u64..5u64).prop_map({
-                let ctx = ctx.clone();
                 move |num_blocks| {
                     CommandWrapper::new(MinerMineBtcBlocks::multiple(ctx.clone(), num_blocks))
                 }
@@ -128,7 +127,6 @@ impl Command<SignerTestState, SignerTestContext> for ChainGenerateBtcBlocks {
                 ctx.clone()
             ))),
             (2u64..=5u64).prop_map({
-                let ctx = ctx.clone();
                 move |num_blocks| {
                     CommandWrapper::new(ChainGenerateBtcBlocks::multiple(ctx.clone(), num_blocks))
                 }
