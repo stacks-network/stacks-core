@@ -12,14 +12,18 @@ on:
       workflow-ttl:
         description: "How many days to keep a successful workflow (default: 30)"
         required: false
-        default: "30"
+        default: "60"
       failed-workflow-ttl:
         description: "How many days to keep failed workflows (default: 15)"
         required: false
-        default: "15"
+        default: "60"
   schedule:
     ## Run every day at 00:00:00
     - cron: "0 0 * * *"
+
+permissions:
+  actions: write    # to delete workflow runs and caches
+  contents: read    # to access repo contents 
 
 ## env vars are transferred to composite action steps
 env:
@@ -41,7 +45,7 @@ jobs:
         id: cleanup
         uses: stacks-network/actions/cleanup/workflows@main
         with:
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           cache-ttl: ${{ inputs.cache-ttl || env.CACHE_TTL}}
           workflow-ttl: ${{ inputs.workflow-ttl || env.WORKFLOW_TTL}}
           failed-workflow-ttl: ${{ inputs.failed-workflow-ttl || env.FAILED_WORKFLOW_TTL }}

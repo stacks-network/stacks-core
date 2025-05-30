@@ -107,6 +107,7 @@ impl StacksTransactionReceipt {
         result: Value,
         burned: u128,
         cost: ExecutionCost,
+        vm_error: Option<String>,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -118,7 +119,7 @@ impl StacksTransactionReceipt {
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
-            vm_error: None,
+            vm_error,
         }
     }
 
@@ -128,6 +129,7 @@ impl StacksTransactionReceipt {
         result: Value,
         burned: u128,
         cost: ExecutionCost,
+        reason: String,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -139,7 +141,7 @@ impl StacksTransactionReceipt {
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
-            vm_error: None,
+            vm_error: Some(reason),
         }
     }
 
@@ -170,6 +172,7 @@ impl StacksTransactionReceipt {
         burned: u128,
         analysis: ContractAnalysis,
         cost: ExecutionCost,
+        reason: String,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -181,7 +184,7 @@ impl StacksTransactionReceipt {
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
-            vm_error: None,
+            vm_error: Some(reason),
         }
     }
 
@@ -277,7 +280,7 @@ impl StacksTransactionReceipt {
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
-            vm_error: Some(format!("{}", &error)),
+            vm_error: Some(error.to_string()),
         }
     }
 
@@ -296,7 +299,7 @@ impl StacksTransactionReceipt {
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
-            vm_error: Some(format!("{}", &error)),
+            vm_error: Some(error.to_string()),
         }
     }
 
@@ -367,7 +370,17 @@ pub enum ClarityRuntimeTxError {
         error: clarity_error,
         err_type: &'static str,
     },
-    AbortedByCallback(Option<Value>, AssetMap, Vec<StacksTransactionEvent>),
+    AbortedByCallback {
+        /// What the output value of the transaction would have been.
+        /// This will be a Some for contract-calls, and None for contract initialization txs.
+        output: Option<Value>,
+        /// The asset map which was evaluated by the abort callback
+        assets_modified: AssetMap,
+        /// The events from the transaction processing
+        tx_events: Vec<StacksTransactionEvent>,
+        /// A human-readable explanation for aborting the transaction
+        reason: String,
+    },
     CostError(ExecutionCost, ExecutionCost),
     AnalysisError(CheckErrors),
     Rejectable(clarity_error),
@@ -397,9 +410,17 @@ pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxErr
                 ClarityRuntimeTxError::AnalysisError(check_error)
             }
         }
-        clarity_error::AbortedByCallback(val, assets, events) => {
-            ClarityRuntimeTxError::AbortedByCallback(val, assets, events)
-        }
+        clarity_error::AbortedByCallback {
+            output,
+            assets_modified,
+            tx_events,
+            reason,
+        } => ClarityRuntimeTxError::AbortedByCallback {
+            output,
+            assets_modified,
+            tx_events,
+            reason,
+        },
         clarity_error::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
         unhandled_error => ClarityRuntimeTxError::Rejectable(unhandled_error),
     }
@@ -572,15 +593,16 @@ impl StacksChainState {
     }
 
     /// Apply a post-conditions check.
-    /// Return true if they all pass.
-    /// Return false if at least one fails.
+    /// Return `Ok(None)` if the check passes.
+    /// Return `Ok(Some(reason))` if the check fails.
+    /// Return `Err` if the check cannot be performed.
     fn check_transaction_postconditions(
         post_conditions: &[TransactionPostCondition],
         post_condition_mode: &TransactionPostConditionMode,
         origin_account: &StacksAccount,
         asset_map: &AssetMap,
         txid: Txid,
-    ) -> Result<bool, InterpreterError> {
+    ) -> Result<Option<String>, InterpreterError> {
         let mut checked_fungible_assets: HashMap<PrincipalData, HashSet<AssetIdentifier>> =
             HashMap::new();
         let mut checked_nonfungible_assets: HashMap<
@@ -606,11 +628,11 @@ impl StacksChainState {
                         .expect("FATAL: sent waaaaay too much STX");
 
                     if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
-                        info!(
-                            "Post-condition check failure on STX owned by {}: {:?} {:?} {}",
-                            account_principal, amount_sent_condition, condition_code, amount_sent; "txid" => %txid
+                        let reason = format!(
+                            "Post-condition check failure on STX owned by {account_principal}: {amount_sent_condition:?} {condition_code:?} {amount_sent}",
                         );
-                        return Ok(false);
+                        info!("{reason}"; "txid" => %txid);
+                        return Ok(Some(reason));
                     }
 
                     if let Some(ref mut asset_ids) =
@@ -652,8 +674,9 @@ impl StacksChainState {
                         .get_fungible_tokens(&account_principal, &asset_id)
                         .unwrap_or(0);
                     if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
-                        info!("Post-condition check failure on fungible asset {} owned by {}: {} {:?} {}", &asset_id, account_principal, amount_sent_condition, condition_code, amount_sent; "txid" => %txid);
-                        return Ok(false);
+                        let reason = format!("Post-condition check failure on fungible asset {asset_id} owned by {account_principal}: {amount_sent_condition} {condition_code:?} {amount_sent}");
+                        info!("{reason}"; "txid" => %txid);
+                        return Ok(Some(reason));
                     }
 
                     if let Some(ref mut asset_ids) =
@@ -686,8 +709,11 @@ impl StacksChainState {
                         .get_nonfungible_tokens(&account_principal, &asset_id)
                         .unwrap_or(&empty_assets);
                     if !condition_code.check(asset_value, assets_sent) {
-                        info!("Post-condition check failure on non-fungible asset {} owned by {}: {:?} {:?}", &asset_id, account_principal, &asset_value, condition_code; "txid" => %txid);
-                        return Ok(false);
+                        let reason = format!(
+                            "Post-condition check failure on non-fungible asset {asset_id} owned by {account_principal}: {asset_value:?} {condition_code:?} {assets_sent:?}"
+                        );
+                        info!("{reason}"; "txid" => %txid);
+                        return Ok(Some(reason));
                     }
 
                     if let Some(ref mut asset_id_map) =
@@ -727,19 +753,28 @@ impl StacksChainState {
                                     // each value must be covered
                                     for v in values {
                                         if !nfts.contains(&v.clone().try_into()?) {
-                                            info!("Post-condition check failure: Non-fungible asset {} value {:?} was moved by {} but not checked", &asset_identifier, &v, &principal; "txid" => %txid);
-                                            return Ok(false);
+                                            let reason = format!(
+                                                "Post-condition check failure: Non-fungible asset {asset_identifier} value {v:?} was moved by {principal} but not checked"
+                                            );
+                                            info!("{reason}"; "txid" => %txid);
+                                            return Ok(Some(reason));
                                         }
                                     }
                                 } else {
                                     // no values covered
-                                    info!("Post-condition check failure: No checks for non-fungible asset type {} moved by {}", &asset_identifier, &principal; "txid" => %txid);
-                                    return Ok(false);
+                                    let reason = format!(
+                                        "Post-condition check failure: Non-fungible asset {asset_identifier} was moved by {principal} but not checked"
+                                    );
+                                    info!("{reason}"; "txid" => %txid);
+                                    return Ok(Some(reason));
                                 }
                             } else {
                                 // no NFT for this principal
-                                info!("Post-condition check failure: No checks for any non-fungible assets, but moved {} by {}", &asset_identifier, &principal; "txid" => %txid);
-                                return Ok(false);
+                                let reason = format!(
+                                    "Post-condition check failure: No checks for non-fungible asset {asset_identifier} moved by {principal}"
+                                );
+                                info!("{reason}"; "txid" => %txid);
+                                return Ok(Some(reason));
                             }
                         }
                         _ => {
@@ -748,19 +783,25 @@ impl StacksChainState {
                                 checked_fungible_assets.get(&principal)
                             {
                                 if !checked_ft_asset_ids.contains(&asset_identifier) {
-                                    info!("Post-condition check failure: checks did not cover transfer of {} by {}", &asset_identifier, &principal; "txid" => %txid);
-                                    return Ok(false);
+                                    let reason = format!(
+                                        "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
+                                    );
+                                    info!("{reason}"; "txid" => %txid);
+                                    return Ok(Some(reason));
                                 }
                             } else {
-                                info!("Post-condition check failure: No checks for fungible token type {} moved by {}", &asset_identifier, &principal; "txid" => %txid);
-                                return Ok(false);
+                                let reason = format!(
+                                    "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
+                                );
+                                info!("{reason}"; "txid" => %txid);
+                                return Ok(Some(reason));
                             }
                         }
                     }
                 }
             }
         }
-        return Ok(true);
+        return Ok(None);
     }
 
     /// Given two microblock headers, were they signed by the same key?
@@ -1036,7 +1077,7 @@ impl StacksChainState {
                     &contract_call.function_name,
                     &contract_call.function_args,
                     |asset_map, _| {
-                        !StacksChainState::check_transaction_postconditions(
+                        StacksChainState::check_transaction_postconditions(
                             &tx.post_conditions,
                             &tx.post_condition_mode,
                             origin_account,
@@ -1053,7 +1094,7 @@ impl StacksChainState {
                     .sub(&cost_before)
                     .expect("BUG: total block cost decreased");
 
-                let (result, asset_map, events) = match contract_call_resp {
+                let (result, asset_map, events, vm_error) = match contract_call_resp {
                     Ok((return_value, asset_map, events)) => {
                         info!("Contract-call successfully processed";
                               "txid" => %tx.txid(),
@@ -1064,7 +1105,7 @@ impl StacksChainState {
                               "function_args" => %VecDisplay(&contract_call.function_args),
                               "return_value" => %return_value,
                               "cost" => ?total_cost);
-                        (return_value, asset_map, events)
+                        (return_value, asset_map, events, None)
                     }
                     Err(e) => match handle_clarity_runtime_error(e) {
                         ClarityRuntimeTxError::Acceptable { error, err_type } => {
@@ -1076,9 +1117,19 @@ impl StacksChainState {
                                       "function_name" => %contract_call.function_name,
                                       "function_args" => %VecDisplay(&contract_call.function_args),
                                       "error" => ?error);
-                            (Value::err_none(), AssetMap::new(), vec![])
+                            (
+                                Value::err_none(),
+                                AssetMap::new(),
+                                vec![],
+                                Some(error.to_string()),
+                            )
                         }
-                        ClarityRuntimeTxError::AbortedByCallback(value, assets, events) => {
+                        ClarityRuntimeTxError::AbortedByCallback {
+                            output,
+                            assets_modified,
+                            tx_events,
+                            reason,
+                        } => {
                             info!("Contract-call aborted by post-condition";
                                       "txid" => %tx.txid(),
                                       "origin" => %origin_account.principal,
@@ -1088,10 +1139,12 @@ impl StacksChainState {
                                       "function_args" => %VecDisplay(&contract_call.function_args));
                             let receipt = StacksTransactionReceipt::from_condition_aborted_contract_call(
                                     tx.clone(),
-                                    events,
-                                    value.expect("BUG: Post condition contract call must provide would-have-been-returned value"),
-                                    assets.get_stx_burned_total()?,
-                                    total_cost);
+                                    tx_events,
+                                    output.expect("BUG: Post condition contract call must provide would-have-been-returned value"),
+                                    assets_modified.get_stx_burned_total()?,
+                                    total_cost,
+                                    reason,
+                                );
                             return Ok(receipt);
                         }
                         ClarityRuntimeTxError::CostError(cost_after, budget) => {
@@ -1153,6 +1206,7 @@ impl StacksChainState {
                     result,
                     asset_map.get_stx_burned_total()?,
                     total_cost,
+                    vm_error,
                 );
                 Ok(receipt)
             }
@@ -1273,7 +1327,7 @@ impl StacksChainState {
                     &contract_code_str,
                     sponsor,
                     |asset_map, _| {
-                        !StacksChainState::check_transaction_postconditions(
+                        StacksChainState::check_transaction_postconditions(
                             &tx.post_conditions,
                             &tx.post_condition_mode,
                             origin_account,
@@ -1322,14 +1376,20 @@ impl StacksChainState {
                             };
                             return Ok(receipt);
                         }
-                        ClarityRuntimeTxError::AbortedByCallback(_, assets, events) => {
+                        ClarityRuntimeTxError::AbortedByCallback {
+                            assets_modified,
+                            tx_events,
+                            reason,
+                            ..
+                        } => {
                             let receipt =
                                 StacksTransactionReceipt::from_condition_aborted_smart_contract(
                                     tx.clone(),
-                                    events,
-                                    assets.get_stx_burned_total()?,
+                                    tx_events,
+                                    assets_modified.get_stx_burned_total()?,
                                     contract_analysis,
                                     total_cost,
+                                    reason,
                                 );
                             return Ok(receipt);
                         }
@@ -6862,7 +6922,8 @@ pub mod test {
             )
             .unwrap();
             assert_eq!(
-                result, expected_result,
+                result.is_none(),
+                expected_result,
                 "test failed:\nasset map: {ft_transfer_2:?}\nscenario: {test:?}"
             );
         }
@@ -7207,7 +7268,8 @@ pub mod test {
             )
             .unwrap();
             assert_eq!(
-                result, expected_result,
+                result.is_none(),
+                expected_result,
                 "test failed:\nasset map: {nft_transfer_2:?}\nscenario: {test:?}"
             );
         }
@@ -8019,7 +8081,8 @@ pub mod test {
                 )
                 .unwrap();
                 assert_eq!(
-                    result, expected_result,
+                    result.is_none(),
+                    expected_result,
                     "test failed:\nasset map: {asset_map:?}\nscenario: {test:?}"
                 );
             }

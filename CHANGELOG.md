@@ -5,18 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
+## [3.1.0.0.11]
+
+- Hotfix for p2p stack misbehavior in mempool syncing conditions
+
+## [3.1.0.0.10]
+
+### Added
+- Persisted tracking of StackerDB slot versions for mining. This improves miner p2p performance.
+
+## [3.1.0.0.9]
 
 ### Added
 
+- Added field `vm_error` to EventObserver transaction outputs
 - Added new `ValidateRejectCode` values to the `/v3/block_proposal` endpoint
 - Added `StateMachineUpdateContent::V1` to support a vector of `StacksTransaction` expected to be replayed in subsequent Stacks blocks
+- Include a reason string in the transaction receipt when a transaction is rolled back due to a post-condition. This should help users in understanding what went wrong.
+- Updated `StackerDBListener` to monitor signer state machine updates and store signer global state information, enabling miners to perform transaction replays.
+- Added a testnet `replay_transactions` flag to the miner configuration to feature-gate transaction replay. When enabled, the miner will construct a replay block if a threshold of signers signals that a transaction set requires replay.
 
 ### Changed
 
 - Reduce the default `block_rejection_timeout_steps` configuration so that miners will retry faster when blocks fail to reach 70% approved or 30% rejected.
 - Added index for `next_ready_nakamoto_block()` which improves block processing performance.
 - Added a new field, `parent_burn_block_hash`, to the payload that is included in the `/new_burn_block` event observer payload.
+
+### Fixed
+
+- Fix regression in mock-mining, allowing the mock miner to continue mining blocks throughout a tenure instead of failing after mining the tenure change block.
 
 ## [3.1.0.0.8]
 

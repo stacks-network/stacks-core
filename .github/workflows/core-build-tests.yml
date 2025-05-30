@@ -4,11 +4,15 @@ name: Core build tests
 #   - PRs are (re)opened against develop branch
 on:
   workflow_call:
-
+    
 jobs:
   check-consts:
     name: Check the constants from stacks-inspect
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - name: Checkout the latest code
         id: git_checkout
@@ -21,13 +25,35 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@11df97af8e8102fd60b60a77dfbf58d40cd843b8 # v1.10.1
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
-      - name: Build the binaries
-        id: build
+
+      ## run cargo check steps
+      - name: Cargo Check
+        id: cargo_check
         run: |
-          cargo build --bin stacks-inspect
+          cargo check
+
+      - name: Cargo Check (monitoring_prom)
+        id: cargo_check_prom
+        run: |
+          cargo check --features monitoring_prom
+
+      - name: Cargo Check (clarity)
+        id: cargo_check_clarity
+        run: |
+          cargo check -p clarity --no-default-features
+
+      - name: Cargo Check (stacks-common)
+        id: cargo_check_stacks-common
+        run: |
+          cargo check -p stacks-common --no-default-features
+
       - name: Dump constants JSON
         id: consts-dump
-        run: cargo run --bin stacks-inspect -- dump-consts | tee out.json
-      - name: Set expected constants JSON
+        run: |
+          cargo run --bin stacks-inspect -- dump-consts | tee out.json
+
+      ## output any diff to the github job summary
+      - name: Compare expected constants JSON
         id: expects-json
-        run: diff out.json ./sample/expected_consts.json
+        run: |
+          diff out.json ./sample/expected_consts.json >> $GITHUB_STEP_SUMMARY

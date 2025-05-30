@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -611,6 +611,12 @@ macro_rules! impl_byte_array_newtype {
         impl std::convert::From<[u8; $len]> for $thing {
             fn from(o: [u8; $len]) -> Self {
                 Self(o)
+            }
+        }
+
+        impl $crate::util::HexDeser for $thing {
+            fn try_from_hex(hex_str: &str) -> Result<Self, $crate::util::HexError> {
+                $thing::from_hex(hex_str)
             }
         }
     };

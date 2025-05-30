@@ -116,6 +116,7 @@ fn make_dummy_cc_tx(fee: u64) -> StacksTransactionReceipt {
         Value::okay(Value::Bool(true)).unwrap(),
         0,
         ExecutionCost::ZERO,
+        None,
     )
 }
 
