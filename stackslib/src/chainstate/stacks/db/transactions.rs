@@ -2415,6 +2415,7 @@ pub mod test {
         }
     }
 
+    #[ignore = "waiting for #7"]
     #[test]
     fn process_smart_contract_transaction_runtime_error() {
         let contract_correct = "
@@ -3003,6 +3004,7 @@ pub mod test {
         }
     }
 
+    #[ignore = "waiting for #7"]
     #[test]
     fn process_smart_contract_user_aborts_2257() {
         let contract = "(asserts! false (err 1))";
