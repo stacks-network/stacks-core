@@ -1688,12 +1688,35 @@ fn miner_gather_signatures() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
-    let timeout = Duration::from_secs(30);
+    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_pk = StacksPublicKey::from_private(&miner_sk);
+    let miner_pkh = Hash160::from_node_public_key(&miner_pk);
 
     signer_test.boot_to_epoch_3();
 
     info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
-    signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers, true);
+    TEST_MINE_STALL.set(true);
+    let info_before = get_chain_info(&signer_test.running_nodes.conf);
+    next_block_and(
+        &signer_test.running_nodes.btc_regtest_controller,
+        30,
+        || {
+            let info = get_chain_info(&signer_test.running_nodes.conf);
+            Ok(info.burn_block_height > info_before.burn_block_height)
+        },
+    )
+    .expect("Failed to process bitcoin block");
+    let info_after = get_chain_info(&signer_test.running_nodes.conf);
+    wait_for_state_machine_update(
+        30,
+        &info_after.pox_consensus,
+        info_after.burn_block_height,
+        Some((miner_pkh, info_before.stacks_tip_height)),
+        &signer_test.signer_test_pks(),
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Failed to update state machine");
+    TEST_MINE_STALL.set(false);
     signer_test.check_signer_states_normal();
 
     // Test prometheus metrics response
