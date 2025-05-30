@@ -1441,11 +1441,22 @@ impl MemPoolDB {
 
     #[cfg_attr(test, mutants::skip)]
     pub fn reset_mempool_caches(&mut self) -> Result<(), db_error> {
-        debug!("reset nonce cache");
-        // Delete all rows from the nonces table
-        self.db.execute("DELETE FROM nonces", NO_PARAMS)?;
-        // Also delete all rows from the considered_txs table
+        self.reset_nonce_cache()?;
+        self.reset_considered_txs_cache()?;
+        Ok(())
+    }
+
+    #[cfg_attr(test, mutants::skip)]
+    pub fn reset_considered_txs_cache(&mut self) -> Result<(), db_error> {
+        debug!("reset considered txs cache");
         self.db.execute("DELETE FROM considered_txs", NO_PARAMS)?;
+        Ok(())
+    }
+
+    #[cfg_attr(test, mutants::skip)]
+    pub fn reset_nonce_cache(&mut self) -> Result<(), db_error> {
+        debug!("reset nonce cache");
+        self.db.execute("DELETE FROM nonces", NO_PARAMS)?;
         Ok(())
     }
 
