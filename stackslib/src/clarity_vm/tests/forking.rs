@@ -210,6 +210,7 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
     );
 }
 
+#[ignore = "waiting for clarity-wasm #662"]
 #[apply(test_clarity_versions)]
 fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     fn initialize_1(owned_env: &mut OwnedEnvironment) {

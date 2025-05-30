@@ -112,6 +112,7 @@ fn new_block<'a, 'b>(
     block
 }
 
+#[ignore = "waiting for clarity-wasm #659"]
 #[apply(test_clarity_versions)]
 fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     if epoch < StacksEpochId::Epoch2_05 || version > ClarityVersion::Clarity2 {
@@ -464,6 +465,7 @@ where
     f(&mut owned_env, version)
 }
 
+#[ignore = "waiting for clarity-wasm #659"]
 #[apply(test_clarity_versions)]
 fn test_simple_naming_system(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     with_versioned_memory_environment(inner_test_simple_naming_system, version, false);

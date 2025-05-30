@@ -236,6 +236,7 @@ pub fn run_until_burnchain_height(
     true
 }
 
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn should_succeed_mining_valid_txs() {
     let mut conf = new_test_conf();

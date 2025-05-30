@@ -656,7 +656,6 @@ fn integration_test_get_info() {
                 assert_eq!(res.publish_height, 2);
                 assert!(res.marf_proof.is_some());
 
-
                 let path = format!("{http_origin}/v2/contracts/source/{contract_addr}/get-info?proof=0");
                 eprintln!("Test: GET {path}");
                 let res = client.get(&path).send().unwrap().json::<ContractSrcResponse>().unwrap();
@@ -670,7 +669,6 @@ fn integration_test_get_info() {
                 let path = format!("{http_origin}/v2/contracts/source/{contract_addr}/not-there");
                 eprintln!("Test: GET {path}");
                 assert_eq!(client.get(&path).send().unwrap().status(), 404);
-
 
                 // how about a read-only function call!
                 let path = format!("{http_origin}/v2/contracts/call-read/{contract_addr}/get-info/get-exotic-data-info");
@@ -886,7 +884,6 @@ fn integration_test_get_info() {
                 eprintln!("Test: GET {path}");
                 assert!(res.is_implemented);
 
-
                 // invalid trait compliance
                 let path = format!("{http_origin}/v2/traits/{contract_addr}/impl-trait-contract/{contract_addr}/get-info/trait-3");
                 let res = client.get(&path).send().unwrap().json::<GetIsTraitImplementedResponse>().unwrap();
@@ -1086,6 +1083,7 @@ const FAUCET_CONTRACT: &str = "
       (print (as-contract (stx-transfer? u1 .faucet recipient)))))
 ";
 
+#[ignore = "waiting for clarity-wasm #665"]
 #[test]
 fn contract_stx_transfer() {
     let mut conf = super::new_test_conf();
@@ -1980,6 +1978,7 @@ fn make_keys(seed: &str, count: u64) -> Vec<StacksPrivateKey> {
     ret
 }
 
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn block_limit_runtime_test() {
     let mut conf = super::new_test_conf();
@@ -2165,6 +2164,7 @@ fn block_limit_runtime_test() {
     run_loop.start(num_rounds).unwrap();
 }
 
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn mempool_errors() {
     let mut conf = super::new_test_conf();

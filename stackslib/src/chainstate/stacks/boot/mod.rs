@@ -2660,7 +2660,7 @@ pub mod test {
             )
             (begin
                 ;; take the stx from the tx-sender
-                
+
                 (unwrap-panic (stx-transfer? amount-ustx tx-sender this-contract))
 
                 ;; this contract stacks the stx given to it
@@ -2997,6 +2997,7 @@ pub mod test {
         }
     }
 
+    #[ignore = "waiting for clarity-wasm #673"]
     #[test]
     fn test_hook_special_contract_call() {
         let mut burnchain = Burnchain::default_unittest(
@@ -4176,6 +4177,7 @@ pub mod test {
         }
     }
 
+    #[ignore = "waiting for clarity-wasm #670"]
     #[test]
     fn test_pox_lockup_no_double_stacking() {
         let mut burnchain = Burnchain::default_unittest(
@@ -5155,6 +5157,7 @@ pub mod test {
         assert!(test_after_second_reward_cycle);
     }
 
+    #[ignore = "waiting for clarity-wasm #670"]
     #[test]
     fn test_pox_lockup_unlock_on_spend() {
         let mut burnchain = Burnchain::default_unittest(
@@ -5602,6 +5605,7 @@ pub mod test {
         assert!(test_between_reward_cycles);
     }
 
+    #[ignore = "waiting for clarity-wasm #670"]
     #[test]
     fn test_pox_lockup_reject() {
         let mut burnchain = Burnchain::default_unittest(

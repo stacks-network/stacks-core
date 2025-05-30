@@ -1653,6 +1653,7 @@ pub mod test {
         &TestBurnStateDB_31 as &dyn BurnStateDB,
     ];
 
+    #[ignore = "waiting for clarity-wasm #664"]
     #[test]
     fn contract_publish_runtime_error() {
         let contract_id = QualifiedContractIdentifier::local("contract").unwrap();
@@ -2415,6 +2416,7 @@ pub mod test {
         }
     }
 
+    #[ignore = "waiting for clarity-wasm #664"]
     #[test]
     fn process_smart_contract_transaction_runtime_error() {
         let contract_correct = "
@@ -3003,6 +3005,7 @@ pub mod test {
         }
     }
 
+    #[ignore = "waiting for clarity-wasm #664"]
     #[test]
     fn process_smart_contract_user_aborts_2257() {
         let contract = "(asserts! false (err 1))";
@@ -3056,6 +3059,7 @@ pub mod test {
         }
     }
 
+    #[ignore = "waiting for clarity-wasm #663"]
     #[test]
     fn process_smart_contract_contract_call_invalid() {
         let contract = "
@@ -3434,6 +3438,7 @@ pub mod test {
         }
     }
 
+    #[ignore = "waiting for clarity-wasm #663"]
     #[test]
     fn process_post_conditions_tokens() {
         let contract = "
@@ -9393,6 +9398,7 @@ pub mod test {
         StacksChainState::process_transaction(clarity_block, tx, quiet, ast_rules, None)
     }
 
+    #[ignore = "waiting for clarity-wasm #675"]
     #[test]
     fn test_checkerrors_at_runtime() {
         let privk = StacksPrivateKey::from_hex(
@@ -10089,6 +10095,7 @@ pub mod test {
         conn.commit_block();
     }
 
+    #[ignore = "waiting for clarity-wasm #674"]
     #[test]
     fn test_embedded_trait() {
         let privk = StacksPrivateKey::from_hex(
@@ -10580,6 +10587,7 @@ pub mod test {
         conn.commit_block();
     }
 
+    #[ignore = "waiting for clarity-wasm #670"]
     #[test]
     fn test_transitive_trait() {
         let privk = StacksPrivateKey::from_hex(

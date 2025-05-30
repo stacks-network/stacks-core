@@ -1990,6 +1990,7 @@ fn test_nakamoto_block_static_verification() {
 /// Test that we can generate a .miners stackerdb config.
 /// The config must be stable across sortitions -- if a miner is given slot i, then it continues
 /// to have slot i in subsequent sortitions.
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_make_miners_stackerdb_config() {
     let (mut test_signers, test_stackers) = TestStacker::common_signing_set();

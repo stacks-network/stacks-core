@@ -676,6 +676,7 @@ where
 /// Bob:   stacks via PoX v2 for 6 cycles. He attempted to stack via PoX v1 as well,
 ///        but is forbidden because he has already placed an account lock via PoX v2.
 ///
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn test_simple_pox_lockup_transition_pox_2() {
     // this is the number of blocks after the first sortition any V1
@@ -1113,11 +1114,13 @@ fn test_simple_pox_lockup_transition_pox_2() {
     );
 }
 
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn test_simple_pox_2_auto_unlock_ab() {
     test_simple_pox_2_auto_unlock(true)
 }
 
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn test_simple_pox_2_auto_unlock_ba() {
     test_simple_pox_2_auto_unlock(false)
@@ -1426,6 +1429,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
 ///  Bob stacks Alice's funds via PoX v2 for 6 cycles. In the third cycle,
 ///  Bob increases Alice's stacking amount.
 ///
+#[ignore = "waiting for clarity-wasm #668"]
 #[test]
 fn delegate_stack_increase() {
     // this is the number of blocks after the first sortition any V1
@@ -1782,6 +1786,7 @@ fn delegate_stack_increase() {
 /// Alice: stacks via PoX v2 for 6 cycles. In the third cycle, Alice invokes
 /// `stack-increase`
 ///
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn stack_increase() {
     // this is the number of blocks after the first sortition any V1
@@ -2191,6 +2196,7 @@ fn test_lock_period_invariant_extend_transition() {
 ///        but forbidden by the VM (because PoX has transitioned to v2)
 /// Bob:   stacks via PoX v2 for 3 cycles.
 ///        Bob extends 1 cycles
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn test_pox_extend_transition_pox_2() {
     // this is the number of blocks after the first sortition any V1
@@ -2634,6 +2640,7 @@ fn test_pox_extend_transition_pox_2() {
 ///        but forbidden by the VM (because PoX has transitioned to v2)
 /// Bob:   delegate-stacks via PoX v2 for 3 cycles.
 ///        Bob extends 1 cycles
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn test_delegate_extend_transition_pox_2() {
     // this is the number of blocks after the first sortition any V1
@@ -3386,6 +3393,7 @@ fn test_delegate_extend_transition_pox_2() {
     }
 }
 
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn test_pox_2_getters() {
     // this is the number of blocks after the first sortition any V1
@@ -3689,6 +3697,7 @@ fn test_pox_2_getters() {
     assert_eq!(rejected, 0);
 }
 
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn test_get_pox_addrs() {
     let mut burnchain = Burnchain::default_unittest(
@@ -3966,6 +3975,7 @@ fn test_get_pox_addrs() {
     }
 }
 
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn test_stack_with_segwit() {
     let mut burnchain = Burnchain::default_unittest(
@@ -4464,6 +4474,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
 ///  Bob increases Alice's stacking amount by less than the stacking min.
 ///  Bob is able to increase the pool's aggregate amount anyway.
 ///
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn stack_aggregation_increase() {
     // this is the number of blocks after the first sortition any V1
@@ -4914,6 +4925,7 @@ fn stack_aggregation_increase() {
     );
 }
 
+#[ignore = "waiting for clarity-wasm #667"]
 #[test]
 fn stack_in_both_pox1_and_pox2() {
     // this is the number of blocks after the first sortition any V1

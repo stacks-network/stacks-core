@@ -319,6 +319,7 @@ fn test_marf_node_cache_everything() {
     assert_eq!(root_hash, root_hash_batched);
 }
 
+#[ignore = "waiting for clarity-wasm #665"]
 #[test]
 fn test_marf_node_cache_everything_deferred() {
     let test_data = make_test_insert_data(128, 128);

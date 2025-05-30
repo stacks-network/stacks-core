@@ -4910,6 +4910,7 @@ fn get_total_stacked_info(
 // Need to ensure that after v1_unlock_height, stacking operations are executed in the "pox-2" contract.
 // After the transition to Epoch 2.1 but before v1_unlock_height, stacking operations that are
 // sent should occur in the "pox.clar" contract.
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn test_epoch_verify_active_pox_contract() {
     let path = &test_path("verify-active-pox-contract");

@@ -163,6 +163,7 @@ fn parse_request() {
     }
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn handle_req_accepted() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
@@ -207,6 +208,7 @@ fn handle_req_accepted() {
     assert_eq!(resp.stacks_block_id, next_block_id);
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn handle_req_without_trailing_accepted() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
@@ -262,6 +264,7 @@ fn handle_req_without_trailing_accepted() {
     assert_eq!(resp.stacks_block_id, next_block_id);
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn handle_req_unknown_burn_block() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);

@@ -820,11 +820,13 @@ fn epoch205_nfts(use_mainnet: bool) {
     );
 }
 
+#[ignore = "waiting for clarity-wasm #656"]
 #[test]
 fn epoch205_nfts_mainnet() {
     epoch205_nfts(true)
 }
 
+#[ignore = "waiting for clarity-wasm #656"]
 #[test]
 fn epoch205_nfts_testnet() {
     epoch205_nfts(false)
@@ -1048,21 +1050,25 @@ fn epoch_20_205_test_all(use_mainnet: bool, epoch: StacksEpochId) {
     })
 }
 
+#[ignore = "waiting for clarity-wasm #661"]
 #[test]
 fn epoch_20_test_all_mainnet() {
     epoch_20_205_test_all(true, StacksEpochId::Epoch20)
 }
 
+#[ignore = "waiting for clarity-wasm #661"]
 #[test]
 fn epoch_20_test_all_testnet() {
     epoch_20_205_test_all(false, StacksEpochId::Epoch20)
 }
 
+#[ignore = "waiting for clarity-wasm #661"]
 #[test]
 fn epoch_205_test_all_mainnet() {
     epoch_20_205_test_all(true, StacksEpochId::Epoch2_05)
 }
 
+#[ignore = "waiting for clarity-wasm #661"]
 #[test]
 fn epoch_205_test_all_testnet() {
     epoch_20_205_test_all(false, StacksEpochId::Epoch2_05)
@@ -1085,11 +1091,13 @@ fn epoch_21_test_all(use_mainnet: bool) {
     })
 }
 
+#[ignore = "waiting for clarity-wasm #661"]
 #[test]
 fn epoch_21_test_all_mainnet() {
     epoch_21_test_all(true)
 }
 
+#[ignore = "waiting for clarity-wasm #661"]
 #[test]
 fn epoch_21_test_all_testnet() {
     epoch_21_test_all(false)

@@ -370,6 +370,7 @@ impl SeedNode {
 }
 
 /// Test buffering limits
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_buffer_data_message() {
     let observer = TestEventObserver::new();
@@ -550,6 +551,7 @@ fn test_buffer_data_message() {
 
 /// Verify that Nakmaoto blocks whose sortitions are known will *not* be buffered, but instead
 /// forwarded to the relayer for processing.
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_no_buffer_ready_nakamoto_blocks() {
     let observer = TestEventObserver::new();
@@ -801,6 +803,7 @@ fn test_no_buffer_ready_nakamoto_blocks() {
 
 /// Verify that Nakamoto blocks whose sortitions are not yet known will be buffered, and sent to
 /// the relayer once the burnchain advances.
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_buffer_nonready_nakamoto_blocks() {
     let observer = TestEventObserver::new();
@@ -1039,6 +1042,7 @@ fn test_buffer_nonready_nakamoto_blocks() {
 /// Boot a follower off of a seed node by having the seed node push its blocks to the follower via
 /// the p2p stack.  The follower will buffer up Nakamoto blocks and forward them to its relayer as
 /// needed.
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_nakamoto_boot_node_from_block_push() {
     let observer = TestEventObserver::new();

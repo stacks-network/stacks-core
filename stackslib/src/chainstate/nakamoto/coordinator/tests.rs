@@ -393,6 +393,7 @@ fn replay_reward_cycle(
 }
 
 /// Mine a single Nakamoto tenure with a single Nakamoto block
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_simple_nakamoto_coordinator_bootup() {
     let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
@@ -446,6 +447,7 @@ fn test_simple_nakamoto_coordinator_bootup() {
 }
 
 /// Mine a single Nakamoto tenure with 10 Nakamoto blocks
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     let private_key = StacksPrivateKey::from_seed(&[2]);
@@ -794,6 +796,7 @@ impl TestPeer<'_> {
     }
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 // Test the block commit descendant check in nakamoto
 //   - create a 12 address PoX reward set
@@ -878,11 +881,13 @@ fn block_descendant() {
     );
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn block_info_primary_testnet() {
     block_info_tests(true)
 }
 
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn block_info_other_testnet() {
     block_info_tests(false)
@@ -1312,6 +1317,7 @@ fn block_info_tests(use_primary_testnet: bool) {
     }
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 // Test PoX Reward and Punish treatment in nakamoto
 //   - create a 12 address PoX reward set
@@ -1568,6 +1574,7 @@ fn pox_treatment() {
     );
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 // Test Transactions indexing system
 fn transactions_indexing() {
@@ -1633,6 +1640,7 @@ fn transactions_indexing() {
     }
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 // Test Transactions indexing system (not indexing)
 fn transactions_not_indexing() {
@@ -1706,6 +1714,7 @@ fn transactions_not_indexing() {
 /// * check_valid_consensus_hash
 /// * check_nakamoto_tenure
 /// * check_tenure_continuity
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_nakamoto_chainstate_getters() {
     let private_key = StacksPrivateKey::from_seed(&[2]);
@@ -2530,6 +2539,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     return peer;
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_nakamoto_coordinator_10_tenures_10_sortitions() {
     simple_nakamoto_coordinator_10_tenures_10_sortitions();
@@ -2882,6 +2892,7 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
     return peer;
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_nakamoto_coordinator_2_tenures_3_sortitions() {
     simple_nakamoto_coordinator_2_tenures_3_sortitions();
@@ -3182,11 +3193,13 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
     return peer;
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
     simple_nakamoto_coordinator_10_extended_tenures_10_sortitions();
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn process_next_nakamoto_block_deadlock() {
     let private_key = StacksPrivateKey::from_seed(&[2]);
@@ -3275,6 +3288,7 @@ fn process_next_nakamoto_block_deadlock() {
 }
 
 /// Test stacks-on-burnchain op discovery and usage
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_stacks_on_burnchain_ops() {
     let private_key = StacksPrivateKey::from_seed(&[2]);

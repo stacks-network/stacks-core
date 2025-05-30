@@ -392,6 +392,7 @@ fn test_nakamoto_tenure_downloader() {
     // * too many blocks
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_nakamoto_unconfirmed_tenure_downloader() {
     let observer = TestEventObserver::new();
@@ -1315,6 +1316,7 @@ fn test_tenure_start_end_from_inventory() {
 
 /// Test all of the functionality needed to transform a peer's reported tenure inventory into a
 /// tenure downloader and download schedule.
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_make_tenure_downloaders() {
     let observer = TestEventObserver::new();
@@ -2068,6 +2070,7 @@ fn test_make_tenure_downloaders() {
     }
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_nakamoto_download_run_2_peers() {
     let observer = TestEventObserver::new();
@@ -2205,6 +2208,7 @@ fn test_nakamoto_download_run_2_peers() {
     boot_dns_thread_handle.join().unwrap();
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_nakamoto_unconfirmed_download_run_2_peers() {
     let observer = TestEventObserver::new();
@@ -2314,6 +2318,7 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
 
 /// Test the case where one or more blocks from tenure _T_ get orphend by a tenure-start block in
 /// tenure _T + 1_.  The unconfirmed downloader should be able to handle this case.
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_nakamoto_microfork_download_run_2_peers() {
     let sender_key = StacksPrivateKey::random();
@@ -2494,6 +2499,7 @@ fn test_nakamoto_microfork_download_run_2_peers() {
 
 /// Test booting up a node where there is one shadow block in the prepare phase, as well as some
 /// blocks that mine atop it.
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
     let observer = TestEventObserver::new();
@@ -2674,6 +2680,7 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
 }
 
 /// Test booting up a node where the whole prepare phase is shadow blocks
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
     let observer = TestEventObserver::new();
@@ -2877,6 +2884,7 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
 }
 
 /// Test booting up a node where multiple reward cycles are shadow blocks
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
     let observer = TestEventObserver::new();

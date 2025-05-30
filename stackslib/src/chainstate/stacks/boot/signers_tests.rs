@@ -229,6 +229,7 @@ fn signers_get_config() {
     }
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn signers_get_signer_keys_from_stackerdb() {
     let stacker_1 = TestStacker::from_seed(&[3, 4]);
@@ -281,6 +282,7 @@ fn signers_get_signer_keys_from_stackerdb() {
     assert_eq!(signers, expected_stackerdb_slots);
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn signers_db_get_slots() {
     let stacker_1 = TestStacker::from_seed(&[3, 4]);

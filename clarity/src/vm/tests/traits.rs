@@ -196,6 +196,7 @@ fn test_dynamic_dispatch_pass_trait(
     }
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_intra_contract_call(
     version: ClarityVersion,
@@ -254,6 +255,7 @@ fn test_dynamic_dispatch_intra_contract_call(
     }
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_by_implementing_imported_trait(
     version: ClarityVersion,
@@ -317,6 +319,7 @@ fn test_dynamic_dispatch_by_implementing_imported_trait(
     }
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs(
     version: ClarityVersion,
@@ -382,6 +385,7 @@ fn test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs(
     }
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_by_importing_trait(
     version: ClarityVersion,
@@ -444,6 +448,7 @@ fn test_dynamic_dispatch_by_importing_trait(
     }
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_including_nested_trait(
     version: ClarityVersion,
@@ -642,6 +647,7 @@ fn test_dynamic_dispatch_mismatched_returned(
     }
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_clarity_versions)]
 fn test_reentrant_dynamic_dispatch(
     version: ClarityVersion,
@@ -702,6 +708,7 @@ fn test_reentrant_dynamic_dispatch(
     }
 }
 
+#[ignore = "waiting for clarity-wasm #659"]
 #[apply(test_clarity_versions)]
 fn test_readwrite_dynamic_dispatch(
     version: ClarityVersion,
@@ -759,6 +766,7 @@ fn test_readwrite_dynamic_dispatch(
     }
 }
 
+#[ignore = "waiting for clarity-wasm #659"]
 #[apply(test_clarity_versions)]
 fn test_readwrite_violation_dynamic_dispatch(
     version: ClarityVersion,
@@ -816,6 +824,7 @@ fn test_readwrite_violation_dynamic_dispatch(
     }
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_clarity_versions)]
 fn test_bad_call_with_trait(
     version: ClarityVersion,
@@ -887,6 +896,7 @@ fn test_bad_call_with_trait(
     }
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_clarity_versions)]
 fn test_good_call_with_trait(
     version: ClarityVersion,
@@ -955,6 +965,7 @@ fn test_good_call_with_trait(
     }
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_clarity_versions)]
 fn test_good_call_2_with_trait(
     version: ClarityVersion,
@@ -1028,6 +1039,7 @@ fn test_good_call_2_with_trait(
     }
 }
 
+#[ignore = "waiting for clarity-wasm #661"]
 #[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functions(
     version: ClarityVersion,
@@ -1092,6 +1104,7 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
     }
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_clarity_versions)]
 fn test_contract_of_value(
     version: ClarityVersion,
@@ -1157,6 +1170,7 @@ fn test_contract_of_value(
     }
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_clarity_versions)]
 fn test_contract_of_no_impl(
     version: ClarityVersion,

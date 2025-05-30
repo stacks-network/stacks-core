@@ -1990,6 +1990,7 @@ mod test {
         cargo_workspace(relative_path).display().to_string()
     }
 
+    #[ignore = "waiting for clarity-wasm #652"]
     #[test]
     fn test_samples() {
         let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());

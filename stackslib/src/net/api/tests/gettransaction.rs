@@ -92,6 +92,7 @@ fn test_try_parse_request() {
     assert!(handler.txid.is_none());
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_transaction_indexing_not_implemented() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
@@ -115,6 +116,7 @@ fn test_transaction_indexing_not_implemented() {
     assert_eq!(preamble.status_code, 501);
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);

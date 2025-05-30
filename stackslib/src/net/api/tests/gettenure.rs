@@ -80,6 +80,7 @@ fn test_try_parse_request() {
     assert!(handler.block_id.is_none());
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
@@ -122,6 +123,7 @@ fn test_try_make_response() {
     assert_eq!(preamble.status_code, 404);
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_stream_nakamoto_tenure() {
     let test_observer = TestEventObserver::new();

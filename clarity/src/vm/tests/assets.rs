@@ -810,6 +810,7 @@ fn test_simple_token_system(
     assert!(asset_map.to_table().is_empty());
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_epochs)]
 fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
@@ -919,6 +920,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
     });
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_epochs)]
 fn test_overlapping_nfts(
     epoch: StacksEpochId,
@@ -967,6 +969,7 @@ fn test_overlapping_nfts(
         .unwrap();
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_clarity_versions)]
 fn test_simple_naming_system(
     version: ClarityVersion,

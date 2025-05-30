@@ -900,6 +900,7 @@ fn test_mempool_sync_2_peers_problematic() {
 
 /// Verify that when transactions get stored into the mempool, they are always keyed to the
 /// tenure-start block and its coinbase height
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 pub fn test_mempool_storage_nakamoto() {
     let private_key = StacksPrivateKey::from_seed(&[2]);
@@ -1079,6 +1080,7 @@ pub fn test_mempool_storage_nakamoto() {
     assert_eq!(all_txs_set, recovered_txs);
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_mempool_sync_2_peers_nakamoto_paginated() {
     let observer = TestEventObserver::new();

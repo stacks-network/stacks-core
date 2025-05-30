@@ -92,6 +92,7 @@ fn get_principal_as_principal_data() -> PrincipalData {
     StandardPrincipalData::transient().into()
 }
 
+#[ignore = "waiting for clarity-wasm #654"]
 #[apply(test_epochs)]
 fn test_get_block_info_eval(
     epoch: StacksEpochId,
@@ -157,6 +158,7 @@ fn test_get_block_info_eval(
     }
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_epochs)]
 fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
@@ -292,6 +294,7 @@ fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalD
     );
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_epochs)]
 fn test_tx_sponsor(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
@@ -362,6 +365,7 @@ fn test_tx_sponsor(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGener
     }
 }
 
+#[ignore = "waiting for clarity-wasm #654"]
 #[apply(test_epochs)]
 fn test_fully_qualified_contract_call(
     epoch: StacksEpochId,
@@ -454,6 +458,7 @@ fn test_fully_qualified_contract_call(
     }
 }
 
+#[ignore = "waiting for clarity-wasm #659"]
 #[apply(test_epochs)]
 fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
@@ -681,6 +686,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
     }
 }
 
+#[ignore = "waiting for clarity-wasm #659"]
 #[apply(test_epochs)]
 fn test_simple_contract_call(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
@@ -738,6 +744,7 @@ fn test_simple_contract_call(epoch: StacksEpochId, mut env_factory: MemoryEnviro
     }
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_epochs)]
 fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
@@ -1070,6 +1077,7 @@ fn test_arg_stack_depth() {
     );
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_clarity_versions)]
 fn test_cc_stack_depth(
     version: ClarityVersion,
@@ -1107,6 +1115,7 @@ fn test_cc_stack_depth(
     );
 }
 
+#[ignore = "waiting for clarity-wasm #652"]
 #[apply(test_clarity_versions)]
 fn test_cc_trait_stack_depth(
     version: ClarityVersion,

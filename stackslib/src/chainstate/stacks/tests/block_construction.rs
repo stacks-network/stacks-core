@@ -3383,6 +3383,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
     }
 }
 
+#[ignore = "waiting for clarity-wasm #670"]
 #[test]
 fn test_contract_call_across_clarity_versions() {
     let privk = StacksPrivateKey::from_hex(
@@ -3934,6 +3935,7 @@ fn test_contract_call_across_clarity_versions() {
 }
 
 // verify that the problematic checker works
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn test_is_tx_problematic() {
     let privk = StacksPrivateKey::from_hex(

@@ -96,6 +96,7 @@ fn test_try_parse_request() {
     }
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);

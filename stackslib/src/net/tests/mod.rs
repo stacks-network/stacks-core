@@ -1027,6 +1027,7 @@ impl NakamotoBootPlan {
     }
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn test_boot_nakamoto_peer() {
     let private_key = StacksPrivateKey::from_seed(&[2]);

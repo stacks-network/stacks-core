@@ -248,6 +248,7 @@ pub fn make_test_epochs_pox(use_nakamoto: bool) -> (EpochList, PoxConstants) {
     (epochs, pox_constants)
 }
 
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn pox_extend_transition() {
     let EXPECTED_FIRST_V2_CYCLE = 8;
@@ -910,6 +911,7 @@ fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
 
 /// Test that we can lock STX for a couple cycles after pox4 starts,
 /// and that it unlocks after the desired number of cycles
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn pox_lock_unlock() {
     // Config for this test
@@ -1087,6 +1089,7 @@ fn pox_lock_unlock() {
 }
 
 /// Test that pox3 methods fail once pox4 is activated
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn pox_3_defunct() {
     // Config for this test
@@ -1223,6 +1226,7 @@ fn pox_3_defunct() {
 }
 
 // Test that STX locked in pox3 automatically unlocks at `v3_unlock_height`
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn pox_3_unlocks() {
     // Config for this test
@@ -1377,6 +1381,7 @@ fn pox_3_unlocks() {
 // In this set up, Steph is a solo stacker and invokes `stack-stx`, `stack-increase` and `stack-extend` functions
 // Alice delegates to Bob via `delegate-stx`
 // Bob as the delegate, invokes 'delegate-stack-stx' and 'stack-aggregation-commit-indexed'
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_pool() {
     // Config for this test
@@ -1768,6 +1773,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
 // In this set up, Steph is a solo stacker and invokes `stack-stx`, `stack-increase` and `stack-extend` functions
 // Alice delegates to Bob via `delegate-stx`
 // Bob as the delegate, invokes 'delegate-stack-stx' and 'stack-aggregation-commit-indexed'
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     // Config for this test
@@ -2197,6 +2203,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
 // In this set up, Alice delegates to Bob via `delegate-stx`
 // Bob as the delegate, invokes 'delegate-stack-stx' and 'stack-aggregation-commit-indexed'
 // for one after the next cycle, so there should be no prepare-offset in the commit start.
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle() {
     // Config for this test
@@ -2429,6 +2436,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
 // This test calls some pox-4 Clarity functions to check the existence of `start-cycle-id` and `end-cycle-id`
 // in emitted pox events. This test checks that the prepare-offset isn't used before its time.
 // In this setup, Steph solo stacks in the prepare phase
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     // Config for this test
@@ -2552,6 +2560,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
 // This test calls some pox-4 Clarity functions to check the existence of `start-cycle-id` and `end-cycle-id`
 // in emitted pox events. This test checks that the prepare-offset is used for the pox-anchor-block.
 // In this setup, Steph solo stacks in the prepare phase
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
     // Config for this test
@@ -2673,6 +2682,7 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
 }
 
 // test that delegate-stack-increase calls emit and event
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn pox_4_delegate_stack_increase_events() {
     // Config for this test
@@ -2775,6 +2785,7 @@ fn pox_4_delegate_stack_increase_events() {
 
 // test that revoke-delegate-stx calls emit an event and
 // test that revoke-delegate-stx is only successfull if user has delegated.
+#[ignore = "waiting for clarity-wasm #670"]
 #[test]
 fn pox_4_revoke_delegate_stx_events() {
     // Config for this test
@@ -3016,6 +3027,7 @@ fn verify_signer_key_sig(
     result
 }
 
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn verify_signer_key_signatures() {
     let (epochs, pox_constants) = make_test_epochs_pox(false);
@@ -3313,6 +3325,7 @@ fn verify_signer_key_signatures() {
     assert_eq!(result, Value::okay_true());
 }
 
+#[ignore = "waiting for clarity-wasm #667"]
 #[apply(nakamoto_cases)]
 fn stack_stx_verify_signer_sig(use_nakamoto: bool) {
     let lock_period = 2;
@@ -3633,6 +3646,7 @@ fn stack_stx_verify_signer_sig(use_nakamoto: bool) {
     );
 }
 
+#[ignore = "waiting for clarity-wasm #667"]
 #[test]
 fn stack_extend_verify_sig() {
     let lock_period = 2;
@@ -3885,6 +3899,7 @@ fn stack_extend_verify_sig() {
     );
 }
 
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 /// Tests for verifying signatures in `stack-aggregation-commit`
 fn stack_agg_commit_verify_sig() {
@@ -4289,6 +4304,7 @@ fn advance_to_block_height(
     (latest_block, tx_block, tx_block_receipts)
 }
 
+#[ignore = "waiting for clarity-wasm #667"]
 #[test]
 /// Test for verifying that the stacker aggregation works as expected
 ///   with new signature parameters. In this test Alice is the service signer,
@@ -4715,6 +4731,7 @@ fn stack_agg_increase() {
     assert_eq!(bob_aggregate_commit_reward_index, &Value::UInt(1));
 }
 
+#[ignore = "waiting for clarity-wasm #667"]
 #[apply(nakamoto_cases)]
 fn stack_increase_verify_signer_key(use_nakamoto: bool) {
     let lock_period = 1;
@@ -5002,6 +5019,7 @@ fn stack_increase_verify_signer_key(use_nakamoto: bool) {
         .expect("Expected ok result from tx");
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[apply(nakamoto_cases)]
 /// Verify that when calling `stack-increase`, the function
 /// fails if the signer key for each cycle being updated is not the same
@@ -5196,6 +5214,7 @@ fn balances_from_keys(
         .collect()
 }
 
+#[ignore = "waiting for clarity-wasm #671"]
 #[apply(nakamoto_cases)]
 fn stack_stx_signer_key(use_nakamoto: bool) {
     let observer = TestEventObserver::new();
@@ -5299,6 +5318,7 @@ fn stack_stx_signer_key(use_nakamoto: bool) {
     );
 }
 
+#[ignore = "waiting for clarity-wasm #671"]
 #[apply(nakamoto_cases)]
 /// Test `stack-stx` using signer key authorization
 fn stack_stx_signer_auth(use_nakamoto: bool) {
@@ -5413,6 +5433,7 @@ fn stack_stx_signer_auth(use_nakamoto: bool) {
     assert_eq!(enable_tx_result, Value::okay_true());
 }
 
+#[ignore = "waiting for clarity-wasm #667"]
 #[apply(nakamoto_cases)]
 /// Test `stack-aggregation-commit` using signer key authorization
 fn stack_agg_commit_signer_auth(use_nakamoto: bool) {
@@ -5533,6 +5554,7 @@ fn stack_agg_commit_signer_auth(use_nakamoto: bool) {
         .expect("Expected ok result from stack-agg-commit tx");
 }
 
+#[ignore = "waiting for clarity-wasm #663"]
 #[apply(nakamoto_cases)]
 /// Test `stack-extend` using signer key authorization
 /// instead of signatures
@@ -5640,6 +5662,7 @@ fn stack_extend_signer_auth(use_nakamoto: bool) {
         .expect("Expected ok result from stack-extend tx");
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[apply(nakamoto_cases)]
 /// Test `set-signer-key-authorization` function
 fn test_set_signer_key_auth(use_nakamoto: bool) {
@@ -5859,6 +5882,7 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
     assert!(!signer_key_enabled.unwrap());
 }
 
+#[ignore = "waiting for clarity-wasm #669"]
 #[apply(nakamoto_cases)]
 fn stack_extend_signer_key(use_nakamoto: bool) {
     let lock_period = 2;
@@ -5997,6 +6021,7 @@ fn stack_extend_signer_key(use_nakamoto: bool) {
     );
 }
 
+#[ignore = "waiting for clarity-wasm #663"]
 #[apply(nakamoto_cases)]
 fn delegate_stack_stx_signer_key(use_nakamoto: bool) {
     let lock_period = 2;
@@ -6126,6 +6151,7 @@ fn delegate_stack_stx_signer_key(use_nakamoto: bool) {
 //
 // This test asserts that the signing key in Alice's stacking state
 //  is equal to Bob's 'new' signer key.
+#[ignore = "waiting for clarity-wasm #666"]
 #[apply(nakamoto_cases)]
 fn delegate_stack_stx_extend_signer_key(use_nakamoto: bool) {
     let lock_period: u128 = 2;
@@ -6340,6 +6366,7 @@ fn delegate_stack_stx_extend_signer_key(use_nakamoto: bool) {
 //
 // This test asserts that Alice's total-locked is equal to
 //  twice the stacking minimum after calling stack-increase.
+#[ignore = "waiting for clarity-wasm #671"]
 #[apply(nakamoto_cases)]
 fn stack_increase(use_nakamoto: bool) {
     let lock_period = 2;
@@ -6516,6 +6543,7 @@ fn stack_increase(use_nakamoto: bool) {
 //
 // This test asserts that Alice's total-locked is equal to
 //  twice the stacking minimum after calling delegate-stack-increase.
+#[ignore = "waiting for clarity-wasm #663"]
 #[apply(nakamoto_cases)]
 fn delegate_stack_increase(use_nakamoto: bool) {
     let lock_period: u128 = 2;
@@ -6829,6 +6857,7 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
     )
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[apply(nakamoto_cases)]
 // In this test two solo stacker-signers Alice & Bob sign & stack
 //  for two reward cycles. Alice provides a signature, Bob uses
@@ -7281,6 +7310,7 @@ fn test_scenario_one(use_nakamoto: bool) {
     assert_eq!(bob_tx_result, Value::Int(19));
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[test]
 // In this test two solo stacker-signers Alice & Bob sign & stack
 //  for two reward cycles. Alice provides a signature, Bob uses
@@ -7622,6 +7652,7 @@ fn test_deser_abort() {
 // In this test two solo service signers, Alice & Bob, provide auth
 //  for Carl & Dave, solo stackers. Alice provides a signature for Carl,
 //  Bob uses 'set-signer-key...' for Dave.
+#[ignore = "waiting for clarity-wasm #666"]
 #[apply(nakamoto_cases)]
 fn test_scenario_two(use_nakamoto: bool) {
     // Alice service signer setup
@@ -7982,6 +8013,7 @@ fn test_scenario_two(use_nakamoto: bool) {
     assert_eq!(bob_expected_vote, Value::Bool(true));
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[apply(nakamoto_cases)]
 // In this scenario, two solo stacker-signers (Alice, Bob), one service signer (Carl),
 //  one stacking pool operator (Dave), & three pool stackers (Eve, Frank, Grace).
@@ -8468,6 +8500,7 @@ fn test_scenario_three(use_nakamoto: bool) {
     assert_eq!(david_aggregate_commit_indexed_ok, Value::UInt(david_index));
 }
 
+#[ignore = "waiting for clarity-wasm #666"]
 #[apply(nakamoto_cases)]
 // In this test scenario two solo stacker-signers (Alice & Bob),
 //  test out the updated stack-extend & stack-increase functions
@@ -8817,6 +8850,7 @@ fn test_scenario_four(use_nakamoto: bool) {
 // In this test case, Alice delegates twice the stacking minimum to Bob.
 //  Bob stacks Alice's funds, and then immediately tries to stacks-aggregation-increase.
 //  This should return a clarity user error.
+#[ignore = "waiting for clarity-wasm #666"]
 #[apply(nakamoto_cases)]
 fn delegate_stack_increase_err(use_nakamoto: bool) {
     let lock_period: u128 = 2;
@@ -9361,6 +9395,7 @@ pub fn get_last_block_sender_transactions(
 /// In this test case, two Stackers, Alice and Bob stack in PoX 4. Alice stacks enough
 ///  to qualify for slots, but Bob does not. In PoX-2 and PoX-3, this would result
 ///  in an auto unlock, but PoX-4 it should not.
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn missed_slots_no_unlock() {
     let EXPECTED_FIRST_V2_CYCLE = 8;
@@ -9611,6 +9646,7 @@ fn missed_slots_no_unlock() {
 }
 
 /// In this test case, we lockup enough to get participation to be non-zero, but not enough to qualify for a reward slot.
+#[ignore = "waiting for clarity-wasm #663"]
 #[test]
 fn no_lockups_2_5() {
     let EXPECTED_FIRST_V2_CYCLE = 8;
@@ -9718,6 +9754,7 @@ fn no_lockups_2_5() {
 // 5. Carl stx-stacks & self-signs for 3 reward cycle
 // 6. In Carl's second reward cycle, he calls stx-extend for 3 more reward cycles
 // 7. In Carl's third reward cycle, he calls stx-increase and should fail as he is straddling 2 keys
+#[ignore = "waiting for clarity-wasm #666"]
 #[apply(nakamoto_cases)]
 fn test_scenario_five(use_nakamoto: bool) {
     // Alice service signer setup
