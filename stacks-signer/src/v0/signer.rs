@@ -784,6 +784,7 @@ impl Signer {
             self.stacks_address,
             version,
             self.reward_cycle,
+            self.capitulate_tenure_timeout,
         );
     }
 

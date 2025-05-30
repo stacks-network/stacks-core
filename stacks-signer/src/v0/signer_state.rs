@@ -16,6 +16,7 @@
 use std::collections::HashMap;
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
+use std::time::{Duration, SystemTime};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
@@ -98,6 +99,15 @@ impl LocalStateMachine {
         Ok(instance)
     }
 
+    /// Return the creation time of the internal signer state machine
+    pub fn get_creation_time(&self) -> Option<SystemTime> {
+        match self {
+            LocalStateMachine::Initialized(update)
+            | LocalStateMachine::Pending { prior: update, .. } => Some(update.creation_time),
+            LocalStateMachine::Uninitialized => None,
+        }
+    }
+
     /// Convert the local state machine into update message with the specificed supported protocol version
     pub fn try_into_update_message_with_version(
         &self,
@@ -158,6 +168,7 @@ impl LocalStateMachine {
             current_miner: MinerState::NoValidMiner,
             active_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
             tx_replay_set: ReplayTransactionSet::none(),
+            creation_time: SystemTime::now(),
         }
     }
 
@@ -534,6 +545,7 @@ impl LocalStateMachine {
             current_miner: miner_state,
             active_signer_protocol_version: prior_state_machine.active_signer_protocol_version,
             tx_replay_set,
+            creation_time: SystemTime::now(),
         });
 
         if prior_state != *self {
@@ -553,6 +565,7 @@ impl LocalStateMachine {
         local_address: StacksAddress,
         local_supported_signer_protocol_version: u64,
         reward_cycle: u64,
+        capitulate_tenure_timeout: Duration,
     ) {
         // Before we ever access eval...we should make sure to include our own local state machine update message in the evaluation
         let Ok(mut local_update) =
@@ -605,6 +618,7 @@ impl LocalStateMachine {
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
                 tx_replay_set,
+                creation_time: SystemTime::now(),
             });
             // Because we updated our active signer protocol version, update local_update so its included in the subsequent evaluations
             let Ok(update) =
@@ -613,6 +627,15 @@ impl LocalStateMachine {
                 return;
             };
             local_update = update;
+        }
+        if let Some(creation_time) = self.get_creation_time() {
+            let elapsed = creation_time
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or(Duration::from_secs(0));
+            if elapsed <= capitulate_tenure_timeout {
+                // We haven't waited enough time to capitulate our miner view
+                return;
+            }
         }
 
         // Check if we should also capitulate our miner viewpoint
@@ -665,6 +688,7 @@ impl LocalStateMachine {
                 current_miner: (&new_miner).into(),
                 active_signer_protocol_version,
                 tx_replay_set,
+                creation_time: SystemTime::now(),
             });
         }
     }
