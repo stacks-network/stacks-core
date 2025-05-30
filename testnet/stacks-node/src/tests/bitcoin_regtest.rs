@@ -29,7 +29,7 @@ type BitcoinResult<T> = Result<T, BitcoinCoreError>;
 
 pub struct BitcoinCoreController {
     bitcoind_process: Option<Child>,
-    config: Config,
+    pub config: Config,
 }
 
 impl BitcoinCoreController {
@@ -63,6 +63,8 @@ impl BitcoinCoreController {
             .arg("-nodebug")
             .arg("-nodebuglogfile")
             .arg("-rest")
+            .arg("-persistmempool=1")
+            .arg("-dbcache=100")
             .arg("-txindex=1")
             .arg("-server=1")
             .arg("-listenonion=0")

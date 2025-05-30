@@ -3255,6 +3255,7 @@ dependencies = [
  "stacks-common",
  "stacks-signer",
  "stackslib",
+ "stdext",
  "stx-genesis",
  "tempfile",
  "thiserror",

@@ -16,6 +16,7 @@ mod commands;
 mod v0;
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -43,9 +44,9 @@ use stacks::net::api::postblock_proposal::{
 };
 use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPublicKey};
 use stacks::types::PrivateKey;
-use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::MerkleHashFunc;
 use stacks::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
+use stacks::util::{get_epoch_time_secs, sleep_ms};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::StacksEpochId;
@@ -60,7 +61,10 @@ use stacks_signer::{Signer, SpawnedSigner};
 use super::nakamoto_integrations::{
     check_nakamoto_empty_block_heuristics, next_block_and, wait_for,
 };
-use super::neon_integrations::{get_account, get_sortition_info_ch, submit_tx_fallible, Account};
+use super::neon_integrations::{
+    copy_dir_all, get_account, get_sortition_info_ch, submit_tx_fallible, Account,
+};
+use crate::burnchains::bitcoin_regtest_controller::BitcoinRPCRequest;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
@@ -102,6 +106,8 @@ pub struct SignerTest<S> {
     pub stacks_client: StacksClient,
     /// The number of cycles to stack for
     pub num_stacking_cycles: u64,
+    /// The path to the snapshot directory
+    pub snapshot_path: Option<PathBuf>,
 }
 
 impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<SpawnedSigner<S, T>> {
@@ -119,10 +125,33 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     pub fn new_with_config_modifications<F: FnMut(&mut SignerConfig), G: FnMut(&mut NeonConfig)>(
         num_signers: usize,
         initial_balances: Vec<(StacksAddress, u64)>,
+        signer_config_modifier: F,
+        node_config_modifier: G,
+        btc_miner_pubkeys: Option<Vec<Secp256k1PublicKey>>,
+        signer_stacks_private_keys: Option<Vec<StacksPrivateKey>>,
+    ) -> Self {
+        Self::new_with_config_modifications_and_snapshot(
+            num_signers,
+            initial_balances,
+            signer_config_modifier,
+            node_config_modifier,
+            btc_miner_pubkeys,
+            signer_stacks_private_keys,
+            None,
+        )
+    }
+
+    pub fn new_with_config_modifications_and_snapshot<
+        F: FnMut(&mut SignerConfig),
+        G: FnMut(&mut NeonConfig),
+    >(
+        num_signers: usize,
+        initial_balances: Vec<(StacksAddress, u64)>,
         mut signer_config_modifier: F,
         mut node_config_modifier: G,
         btc_miner_pubkeys: Option<Vec<Secp256k1PublicKey>>,
         signer_stacks_private_keys: Option<Vec<StacksPrivateKey>>,
+        snapshot_name: Option<&str>,
     ) -> Self {
         // Generate Signer Data
         let signer_stacks_private_keys = signer_stacks_private_keys
@@ -135,11 +164,16 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             })
             .unwrap_or_else(|| {
                 (0..num_signers)
-                    .map(|_| StacksPrivateKey::random())
+                    .map(|i| {
+                        StacksPrivateKey::from_seed(
+                            format!("signer_{i}_{}", snapshot_name.unwrap_or("")).as_bytes(),
+                        )
+                    })
                     .collect()
             });
 
-        let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+        let (mut naka_conf, _miner_account) =
+            naka_neon_integration_conf(snapshot_name.map(|n| n.as_bytes()));
 
         node_config_modifier(&mut naka_conf);
 
@@ -198,12 +232,43 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 vec![pk]
             });
 
+        let mut snapshot_exists = false;
+
+        let snapshot_path = snapshot_name.map(|name| {
+            let working_dir = naka_conf.get_working_dir();
+
+            let snapshot_path: PathBuf = format!("/tmp/stacks-node-tests/snapshots/{name}/")
+                .try_into()
+                .unwrap();
+
+            info!("Snapshot path: {}", snapshot_path.clone().display());
+
+            snapshot_exists = std::fs::metadata(snapshot_path.clone()).is_ok();
+
+            if snapshot_exists {
+                info!(
+                    "Snapshot directory already exists, copying to working dir";
+                    "snapshot_path" => %snapshot_path.display(),
+                    "working_dir" => %working_dir.display()
+                );
+                let err_msg = format!(
+                    "Failed to copy snapshot dir to working dir: {} -> {}",
+                    snapshot_path.display(),
+                    working_dir.display()
+                );
+                copy_dir_all(snapshot_path.clone(), working_dir).expect(&err_msg);
+            }
+
+            snapshot_path
+        });
+
         let node = setup_stx_btc_node(
             naka_conf,
             &signer_stacks_private_keys,
             &signer_configs,
             btc_miner_pubkeys.as_slice(),
             node_config_modifier,
+            snapshot_exists,
         );
         let config = signer_configs.first().unwrap();
         let stacks_client = StacksClient::from(config);
@@ -215,7 +280,64 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             stacks_client,
             num_stacking_cycles: 12_u64,
             signer_configs,
+            snapshot_path,
         }
+    }
+
+    pub fn snapshot_exists(&self) -> bool {
+        self.snapshot_path
+            .as_ref()
+            .map(|p| std::fs::metadata(p).is_ok())
+            .unwrap_or(false)
+    }
+
+    /// Whether the snapshot needs to be created.
+    ///
+    /// Returns `false` if not configured to snapshot.
+    pub fn needs_snapshot(&self) -> bool {
+        let Some(snapshot_path) = self.snapshot_path.as_ref() else {
+            return false;
+        };
+
+        !std::fs::metadata(snapshot_path).is_ok()
+    }
+
+    /// Make a snapshot of the current working directory.
+    ///
+    /// This will stop the bitcoind node and copy the working directory to the snapshot path.
+    pub fn make_snapshot(&self) {
+        let snapshot_path = self.snapshot_path.as_ref().unwrap();
+
+        let working_dir = self.running_nodes.conf.get_working_dir();
+
+        let snapshot_dir_exists = self.snapshot_exists();
+
+        if snapshot_dir_exists {
+            info!("Snapshot directory already exists, skipping snapshot";
+                "snapshot_path" => %snapshot_path.display(),
+                "working_dir" => %working_dir.display()
+            );
+            return;
+        }
+
+        info!(
+            "Making snapshot";
+            "snapshot_path" => %snapshot_path.display(),
+            "working_dir" => %working_dir.display()
+        );
+
+        Self::stop_bitcoind(&self.running_nodes.conf);
+
+        sleep_ms(5000);
+
+        let err_msg = format!(
+            "Failed to copy working dir to snapshot path: {} -> {}",
+            working_dir.display(),
+            snapshot_path.display()
+        );
+
+        // Copy the working dir to the snapshot path
+        copy_dir_all(working_dir, snapshot_path).expect(&err_msg);
     }
 
     /// Send a status request to each spawned signer
@@ -1145,9 +1267,28 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .run_loop_stopper
             .store(false, Ordering::SeqCst);
         self.running_nodes.run_loop_thread.join().unwrap();
+
+        Self::stop_bitcoind(&self.running_nodes.conf);
+
         for signer in self.spawned_signers {
             assert!(signer.stop().is_none());
         }
+    }
+
+    fn stop_bitcoind(config: &NeonConfig) {
+        info!("Stopping bitcoind...");
+        let _ = BitcoinRPCRequest::send(
+            config,
+            BitcoinRPCRequest {
+                method: "stop".to_string(),
+                params: vec![],
+                id: "stacks".to_string(),
+                jsonrpc: "2.0".to_string(),
+            },
+        )
+        .inspect_err(|e| {
+            error!("Failed to stop bitcoind: {e:?}");
+        });
     }
 
     /// Get the latest block response from the given slot
@@ -1282,6 +1423,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     signer_configs: &[SignerConfig],
     btc_miner_pubkeys: &[Secp256k1PublicKey],
     mut node_config_modifier: G,
+    snapshot_exists: bool,
 ) -> RunningNodes {
     // Spawn the endpoints for observing signers
     for signer_config in signer_configs {
@@ -1361,10 +1503,11 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     .expect("Failed to get epoch 2.5 start height");
     let bootstrap_block = epoch_2_5_start - 6;
 
-    info!("Bootstraping to block {bootstrap_block}...");
-    btc_regtest_controller.bootstrap_chain_to_pks(bootstrap_block, btc_miner_pubkeys);
-
-    info!("Chain bootstrapped...");
+    if !snapshot_exists {
+        info!("Bootstraping to block {bootstrap_block}...");
+        btc_regtest_controller.bootstrap_chain_to_pks(bootstrap_block, btc_miner_pubkeys);
+        info!("Chain bootstrapped...");
+    }
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -1378,17 +1521,19 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     info!("Wait for runloop...");
     wait_for_runloop(&blocks_processed);
 
-    // First block wakes up the run loop.
-    info!("Mine first block...");
-    next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
+    if !snapshot_exists {
+        // First block wakes up the run loop.
+        info!("Mine first block...");
+        next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
 
-    // Second block will hold our VRF registration.
-    info!("Mine second block...");
-    next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
+        // Second block will hold our VRF registration.
+        info!("Mine second block...");
+        next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
 
-    // Third block will be the first mined Stacks block.
-    info!("Mine third block...");
-    next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
+        // Third block will be the first mined Stacks block.
+        info!("Mine third block...");
+        next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
+    }
 
     RunningNodes {
         btcd_controller,
