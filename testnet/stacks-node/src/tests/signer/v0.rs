@@ -13051,6 +13051,7 @@ fn global_state_overrides_first_proposal_burn_block_timing_secs() {
     let num_signers = 5;
     let num_txs = 3;
 
+    let capitulate_timeout = Duration::from_secs(10);
     let mut miners = MultipleMinerTest::new_with_config_modifications(
         num_signers,
         num_txs,
@@ -13058,6 +13059,7 @@ fn global_state_overrides_first_proposal_burn_block_timing_secs() {
             // Lets make sure we never time out since we need to stall some things to force our scenario
             signer_config.block_proposal_validation_timeout = Duration::from_secs(1800);
             signer_config.tenure_last_block_proposal_timeout = Duration::from_secs(1800);
+            signer_config.capitulate_tenure_timeout = capitulate_timeout;
             if signer_config.endpoint.port() % 2 == 0 {
                 // Even signers will allow a reorg for a long time
                 signer_config.first_proposal_burn_block_timing = Duration::from_secs(1800);
@@ -13155,6 +13157,7 @@ fn global_state_overrides_first_proposal_burn_block_timing_secs() {
         .expect("Failed to mine BTC block");
     verify_sortition_winner(&sortdb, &miner_pkh_2);
     miners.signer_test.check_signer_states_normal();
+    let old_height = get_chain_info(&conf_1).stacks_tip_height;
 
     info!("------------------------- Miner 1 Submits a Block Commit -------------------------");
     miners.submit_commit_miner_1(&sortdb);
@@ -13186,8 +13189,19 @@ fn global_state_overrides_first_proposal_burn_block_timing_secs() {
     miners
         .signer_test
         .check_signer_states_reorg(&[], &all_signers);
+    let info = get_chain_info(&conf_1);
+    info!("------------------------- Wait till Reorging Signers Capitulate to Nonreorging Signers -------------------------");
+    wait_for_state_machine_update(
+        30 + capitulate_timeout.as_secs(),
+        &info.pox_consensus,
+        info.burn_block_height,
+        Some((miner_pkh_2, old_height)),
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Failed to capitulate");
 
-    info!("------------------------- Should have 5 Rejections Since Checking against Global State -------------------------");
+    info!("------------------------- Confirm All Signers Reject N+1' -------------------------");
     let signer_signature_hash = block_n_1_prime.header.signer_signature_hash();
     let rejections =
         wait_for_block_rejections_from_signers(30, &signer_signature_hash, &all_signers)
@@ -13198,7 +13212,8 @@ fn global_state_overrides_first_proposal_burn_block_timing_secs() {
                 rejection.response_data.reject_reason,
                 RejectReason::ConsensusHashMismatch(_)
             ),
-            "Reject reason is not ConsensusHashMismatch"
+            "Reject reason is not ConsensusHashMismatch: {}",
+            rejection.response_data.reject_reason,
         );
     }
     miners.shutdown();
@@ -15647,45 +15662,45 @@ fn bitcoin_reorg_extended_tenure() {
     // the signer signature hash is the same as the block header hash.
     // we use the latest_signer_sighash to make sure we're getting block responses for the
     //  block we expect to be mined after the next contract call is submitted.
-    let latest_signer_sighash = Sha512Trunc256Sum(get_chain_info(&conf_1).stacks_tip.0);
-
+    test_observer::clear();
+    let chain_info = get_chain_info(&conf_1);
+    let latest_signer_sighash = Sha512Trunc256Sum(chain_info.stacks_tip.0);
     miners
         .signer_test
         .submit_contract_call(&miners.sender_sk, "burn-height-local", "run-update", &[])
         .unwrap();
 
-    let rc = miners.signer_test.get_current_reward_cycle();
-    let slot_ids = miners.signer_test.get_signer_indices(rc);
-    let mut block_responses: Vec<_> = vec![];
     wait_for(60, || {
-        block_responses = slot_ids
-            .iter()
-            .filter_map(|slot_id| {
-                let latest_br = miners.signer_test.get_latest_block_response(slot_id.0);
-                if latest_br.get_signer_signature_hash() != latest_signer_sighash {
-                    Some(latest_br)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let Some(sighash) = block_responses
-            .first()
-            .map(BlockResponse::get_signer_signature_hash)
-        else {
-            return Ok(false);
-        };
-        let all_same_block = block_responses
-            .iter()
-            .all(|x| x.get_signer_signature_hash() == sighash);
-        let all_responded = block_responses.len() == num_signers;
-        Ok(all_same_block && all_responded)
+        let mut signatures = HashMap::new();
+        let chunks = test_observer::get_stackerdb_chunks();
+        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
+            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+            else {
+                continue;
+            };
+            let SignerMessage::BlockResponse(BlockResponse::Accepted(BlockAccepted {
+                signer_signature_hash,
+                signature,
+                ..
+            })) = message
+            else {
+                continue;
+            };
+            if signer_signature_hash == latest_signer_sighash {
+                continue;
+            }
+
+            let entry = signatures
+                .entry(signer_signature_hash)
+                .or_insert(HashSet::new());
+            (*entry).insert(signature);
+            if entry.len() == num_signers {
+                return Ok(true);
+            };
+        }
+        Ok(false)
     })
     .unwrap();
-
-    assert!(block_responses
-        .iter()
-        .all(|resp| resp.as_block_accepted().is_some()));
 
     TEST_P2P_BROADCAST_STALL.set(false);
     TEST_SKIP_BLOCK_BROADCAST.set(false);
