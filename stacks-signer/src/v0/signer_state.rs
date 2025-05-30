@@ -219,6 +219,11 @@ impl LocalStateMachine {
             return Ok(());
         };
 
+        if last_sortition.consensus_hash == *tenure_id {
+            warn!("Current miner timed out due to inactivity, but no valid prior miner available. Allowing current miner to continue");
+            return Ok(());
+        }
+
         if !last_sortition.is_tenure_valid(db, client, proposal_config)? {
             warn!("Current miner timed out due to inactivity, but prior miner is not valid. Allowing current miner to continue");
             return Ok(());
