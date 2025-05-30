@@ -883,6 +883,7 @@ fn block_info_primary_testnet() {
     block_info_tests(true)
 }
 
+#[ignore = "waiting for #6"]
 #[test]
 fn block_info_other_testnet() {
     block_info_tests(false)

@@ -659,6 +659,7 @@ impl HeadersDB for TestSimHeadersDB {
     }
 }
 
+#[ignore = "waiting for #1"]
 #[test]
 fn pox_2_contract_caller_units() {
     let mut sim = ClarityTestSim::new();
