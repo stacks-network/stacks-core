@@ -94,7 +94,7 @@ use crate::event_dispatcher::{
     EventObserver, MinedNakamotoBlockEvent, TEST_SKIP_BLOCK_ANNOUNCEMENT,
 };
 use crate::nakamoto_node::miner::{
-    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_MINE_STALL,
+    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_MINE_SKIP, TEST_MINE_STALL,
     TEST_P2P_BROADCAST_STALL,
 };
 use crate::nakamoto_node::stackerdb_listener::TEST_IGNORE_SIGNERS;
@@ -263,6 +263,7 @@ impl SignerTest<SpawnedSigner> {
 
     /// Run the test until the epoch 3 boundary
     pub fn boot_to_epoch_3(&self) {
+        TEST_MINE_SKIP.set(true);
         boot_to_epoch_3_reward_set(
             &self.running_nodes.conf,
             &self.running_nodes.counters.blocks_processed,
@@ -301,13 +302,26 @@ impl SignerTest<SpawnedSigner> {
             Ok(get_chain_info_opt(&self.running_nodes.conf).is_some())
         })
         .expect("Timed out waiting for network to restart after 3.0 boundary reached");
-
         // Wait until we see the first block of epoch 3.0.
         // Note, we don't use `nakamoto_blocks_mined` counter, because there
         // could be other miners mining blocks.
-        let height_before = get_chain_info(&self.running_nodes.conf).stacks_tip_height;
+        info!("Waiting for first Epoch 3.0 tenure to start");
+        let info = get_chain_info(&self.running_nodes.conf);
+        next_block_and(&self.running_nodes.btc_regtest_controller, 30, || {
+            Ok(get_chain_info(&self.running_nodes.conf).burn_block_height > info.burn_block_height)
+        })
+        .unwrap();
+        let info = get_chain_info(&self.running_nodes.conf);
+        wait_for_state_machine_update_by_miner_tenure_id(
+            30,
+            &info.pox_consensus,
+            &self.signer_test_pks(),
+            SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        )
+        .expect("Failed to update signer states");
+        TEST_MINE_SKIP.set(false);
+        let height_before = info.stacks_tip_height;
         info!("Waiting for first Nakamoto block: {}", height_before + 1);
-        self.mine_nakamoto_block(Duration::from_secs(30), false);
         wait_for(30, || {
             Ok(get_chain_info(&self.running_nodes.conf).stacks_tip_height > height_before)
         })
@@ -1541,6 +1555,59 @@ pub fn wait_for_state_machine_update(
     })
 }
 
+/// Waits for all of the provided signers to send an update with the specificed active miner tenure id.
+pub fn wait_for_state_machine_update_by_miner_tenure_id(
+    timeout_secs: u64,
+    expected_tenure_id: &ConsensusHash,
+    signer_keys: &[StacksPublicKey],
+    version: u64,
+) -> Result<(), String> {
+    let addresses: Vec<_> = signer_keys
+        .iter()
+        .map(|key| StacksAddress::p2pkh(false, &key))
+        .collect();
+
+    wait_for(timeout_secs, || {
+        let mut found_updates = HashSet::new();
+        let stackerdb_events = test_observer::get_stackerdb_chunks();
+        for chunk in stackerdb_events
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+        {
+            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                .expect("Failed to deserialize SignerMessage");
+            let SignerMessage::StateMachineUpdate(update) = message else {
+                continue;
+            };
+            let Some(address) = addresses.iter().find(|addr| chunk.verify(addr).unwrap()) else {
+                continue;
+            };
+            match (version, &update.content) {
+                (
+                    0,
+                    StateMachineUpdateContent::V0 {
+                        current_miner: StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. },
+                        ..
+                    },
+                )
+                | (
+                    1,
+                    StateMachineUpdateContent::V1 {
+                        current_miner: StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. },
+                        ..
+                    },
+                ) => {
+                    if tenure_id == expected_tenure_id {
+                        found_updates.insert(address);
+                    }
+                }
+                (_, _) => {}
+            };
+        }
+        Ok(found_updates.len() == signer_keys.len())
+    })
+}
+
 #[tag(bitcoind)]
 #[test]
 #[ignore]
@@ -1695,7 +1762,7 @@ fn miner_gather_signatures() {
     signer_test.boot_to_epoch_3();
 
     info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
-    TEST_MINE_STALL.set(true);
+    TEST_MINE_SKIP.set(true);
     let info_before = get_chain_info(&signer_test.running_nodes.conf);
     next_block_and(
         &signer_test.running_nodes.btc_regtest_controller,
@@ -1716,7 +1783,7 @@ fn miner_gather_signatures() {
         SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
     .expect("Failed to update state machine");
-    TEST_MINE_STALL.set(false);
+    TEST_MINE_SKIP.set(false);
     signer_test.check_signer_states_normal();
 
     // Test prometheus metrics response
@@ -1726,8 +1793,10 @@ fn miner_gather_signatures() {
             let metrics_response = signer_test.get_signer_metrics();
 
             // Because 5 signers are running in the same process, the prometheus metrics
-            // are incremented once for every signer. This is why we expect the metric to be
-            // `10`, even though there are only two blocks proposed.
+            // are incremented once for every signer.When booting to Epoch 3.0, the old
+            // miner will attempt to propose a block before its burnchain tip has updated
+            // causing an additional block proposal that gets rejected due to consensus hash
+            // mismatch, hence why we expect 15 rather than just 10 proposals.
             let expected_result_1 =
                 format!("stacks_signer_block_proposals_received {}", num_signers * 2);
             let expected_result_2 = format!(
@@ -13175,21 +13244,18 @@ fn global_state_overrides_first_proposal_burn_block_timing_secs() {
     // Wait for both chains to be in sync
     miners.wait_for_chains(30);
 
-    info!("------------------------- Miner 1 Wins the Next Tenure, Mines N+1' -------------------------");
+    TEST_MINE_STALL.set(true);
+    info!("------------------------- Miner 1 Wins the Next Tenure -------------------------");
     test_observer::clear();
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 30)
         .expect("Failed to mine BTC block");
-
-    let block_n_1_prime = wait_for_block_proposal(30, block_n_height + 1, &miner_pk_1)
-        .expect("Failed to get block proposal N+1'");
-    // Stall the miner from proposing again until we're ready
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
     // Due to reorging signers capitulating to the majority rejection of the reorg...all signers will update their state to reject
     miners
         .signer_test
         .check_signer_states_reorg(&[], &all_signers);
     let info = get_chain_info(&conf_1);
+
     info!("------------------------- Wait till Reorging Signers Capitulate to Nonreorging Signers -------------------------");
     wait_for_state_machine_update(
         30 + capitulate_timeout.as_secs(),
@@ -13200,6 +13266,14 @@ fn global_state_overrides_first_proposal_burn_block_timing_secs() {
         SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
     .expect("Failed to capitulate");
+
+    TEST_MINE_STALL.set(false);
+
+    info!("------------------------- Wait for Miner 1 to Propose N+1' -------------------------");
+    let block_n_1_prime = wait_for_block_proposal(30, block_n_height + 1, &miner_pk_1)
+        .expect("Failed to get block proposal N+1'");
+    // Stall the miner from proposing again until we're ready
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
 
     info!("------------------------- Confirm All Signers Reject N+1' -------------------------");
     let signer_signature_hash = block_n_1_prime.header.signer_signature_hash();
