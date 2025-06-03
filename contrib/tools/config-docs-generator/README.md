@@ -13,7 +13,7 @@ The easiest way to generate configuration documentation:
 docker build -t config-docs-generator .
 
 # Generate documentation
-docker run --rm -v "$(pwd):/project_root" --user "$(id -u):$(id -g)" config-docs-generator
+docker run --rm -v "$(pwd)/../../../:/project_root" config-docs-generator
 ```
 
 This approach:
@@ -117,7 +117,7 @@ fn struct_to_section_name(struct_name: &str) -> String {
 
 ```bash
 # Using Docker (recommended)
-docker run --rm -v "$(pwd):/project_root" --user "$(id -u):$(id -g)" config-docs-generator
+docker run --rm -v "$(pwd)/../../../:/project_root" config-docs-generator
 
 # OR using local setup
 ./contrib/tools/config-docs-generator/generate-config-docs.sh
