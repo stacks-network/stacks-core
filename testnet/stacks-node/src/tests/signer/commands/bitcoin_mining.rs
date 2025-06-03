@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use madhouse::{Command, CommandWrapper};
-use proptest::prelude::Strategy;
+use proptest::strategy::{Just, Strategy};
+use proptest::prop_oneof;
 use tracing::info;
 
 use super::context::{SignerTestContext, SignerTestState};
@@ -58,7 +59,6 @@ impl Command<SignerTestState, SignerTestContext> for MinerMineBtcBlocks {
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        use proptest::prelude::*;
         prop_oneof![
             Just(CommandWrapper::new(MinerMineBtcBlocks::one(ctx.clone()))),
             (2u64..5u64).prop_map({
@@ -121,7 +121,6 @@ impl Command<SignerTestState, SignerTestContext> for ChainGenerateBtcBlocks {
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        use proptest::prelude::*;
         prop_oneof![
             Just(CommandWrapper::new(ChainGenerateBtcBlocks::one(
                 ctx.clone()
