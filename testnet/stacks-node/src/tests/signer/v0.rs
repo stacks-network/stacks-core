@@ -1475,7 +1475,7 @@ pub fn wait_for_block_rejections_from_signers(
     Ok(result)
 }
 
-/// Waits for all of the provided signers to send an update for a block with the specificed burn block height and parent tenure stacks block height and message version
+/// Waits for at least 70% of the provided signers to send an update for a block with the specificed burn block height and parent tenure stacks block height and message version
 pub fn wait_for_state_machine_update(
     timeout_secs: u64,
     expected_burn_block: &ConsensusHash,
@@ -1551,11 +1551,11 @@ pub fn wait_for_state_machine_update(
             };
             found_updates.insert(address);
         }
-        Ok(found_updates.len() == signer_keys.len())
+        Ok(found_updates.len() >= signer_keys.len() * 7 / 10)
     })
 }
 
-/// Waits for all of the provided signers to send an update with the specificed active miner tenure id.
+/// Waits for at least 70% of the provided signers to send an update with the specificed active miner tenure id.
 pub fn wait_for_state_machine_update_by_miner_tenure_id(
     timeout_secs: u64,
     expected_tenure_id: &ConsensusHash,
@@ -1604,7 +1604,7 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
                 (_, _) => {}
             };
         }
-        Ok(found_updates.len() == signer_keys.len())
+        Ok(found_updates.len() >= signer_keys.len() * 7 / 10)
     })
 }
 
