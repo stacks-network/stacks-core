@@ -1343,7 +1343,7 @@ impl<'a, 'b> Environment<'a, 'b> {
     ) -> Result<()> {
         use super::database::MemoryBackingStore;
 
-        let clarity_version = self.contract_context.clarity_version.clone();
+        let clarity_version = self.contract_context.clarity_version;
 
         let mut contract_ast = ast::build_ast_with_rules(
             &contract_identifier,
@@ -1357,7 +1357,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         let mut store = MemoryBackingStore::new();
         let contract_analysis = analysis::run_analysis(
             &contract_identifier,
-            &mut contract_ast.expressions,
+            &contract_ast.expressions,
             &mut store.as_analysis_db(),
             false,
             LimitedCostTracker::Free,
@@ -1365,7 +1365,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             clarity_version,
             true,
         )
-        .unwrap();
+        .map_err(|(check_error, _)| check_error.err)?;
 
         self.initialize_contract_from_ast(
             contract_identifier,
