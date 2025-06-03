@@ -18,7 +18,9 @@ use std::time::{Duration, SystemTime};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
-use clarity::types::chainstate::StacksAddress;
+use clarity::types::chainstate::{StacksAddress, StacksPrivateKey};
+use clarity::types::PrivateKey;
+use clarity::util::hash::MerkleHashFunc;
 use libsigner::v0::messages::{
     MessageSlotID, SignerMessage, StateMachineUpdate as StateMachineUpdateMessage,
     StateMachineUpdateContent, StateMachineUpdateMinerState,
@@ -139,7 +141,7 @@ impl LocalStateMachine {
                 )))
             }
         };
-        StateMachineUpdateMessage::new(
+        StateMachineUpdateMessage::new_unsigned(
             state_machine.active_signer_protocol_version,
             local_supported_signer_protocol_version,
             content,
@@ -162,16 +164,25 @@ impl LocalStateMachine {
         &self,
         stackerdb: &mut StackerDB<MessageSlotID>,
         version: u64,
+        private_key: &StacksPrivateKey,
     ) {
         let update: Result<StateMachineUpdateMessage, _> =
             self.try_into_update_message_with_version(version);
         match update {
-            Ok(update) => {
-                debug!("Sending signer update message to stackerdb: {update:?}");
-                if let Err(e) = stackerdb.send_message_with_retry::<SignerMessage>(update.into()) {
-                    warn!("Failed to send signer update to stacker-db: {e:?}",);
+            Ok(mut update) => match private_key.sign(update.signature_hash().bits()) {
+                Ok(signature) => {
+                    update.signature = signature;
+                    debug!("Sending signer update message to stackerdb: {update:?}");
+                    if let Err(e) =
+                        stackerdb.send_message_with_retry::<SignerMessage>(update.into())
+                    {
+                        warn!("Failed to send signer update to stacker-db: {e:?}",);
+                    }
                 }
-            }
+                Err(e) => {
+                    warn!("Failed to sign signer state update message: {e:?}")
+                }
+            },
             Err(e) => {
                 warn!("Failed to convert local signer state to a signer message: {e:?}");
             }

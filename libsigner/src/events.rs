@@ -195,8 +195,8 @@ pub enum SignerEvent<T: SignerEventTrait> {
     SignerMessages {
         /// The signer set to which the message belongs (either 0 or 1)
         signer_set: u32,
-        /// Each message of type `T` is paired with the `StacksPublicKey` of the slot from which it was retreived
-        messages: Vec<(StacksPublicKey, T)>,
+        /// Each message of type `T`
+        messages: Vec<T>,
         /// the time at which this event was received by the signer's event processor
         received_time: SystemTime,
     },
@@ -545,15 +545,10 @@ impl<T: SignerEventTrait> TryFrom<StackerDBChunksEvent> for SignerEvent<T> {
                 return Err(EventError::UnrecognizedStackerDBContract(event.contract_id));
             };
             // signer-XXX-YYY boot contract
-            let messages: Vec<(StacksPublicKey, T)> = event
+            let messages = event
                 .modified_slots
                 .iter()
-                .filter_map(|chunk| {
-                    Some((
-                        chunk.recover_pk().ok()?,
-                        read_next::<T, _>(&mut &chunk.data[..]).ok()?,
-                    ))
-                })
+                .filter_map(|chunk| read_next::<T, _>(&mut &chunk.data[..]).ok())
                 .collect();
             SignerEvent::SignerMessages {
                 signer_set,

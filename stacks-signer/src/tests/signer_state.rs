@@ -73,7 +73,7 @@ fn check_capitulate_miner_view() {
         parent_tenure_last_block_height,
     };
     // Make sure the old update still has the newer burn block height
-    let old_update = StateMachineUpdateMessage::new(
+    let old_update = StateMachineUpdateMessage::new_unsigned(
         active_signer_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V0 {
@@ -120,7 +120,7 @@ fn check_capitulate_miner_view() {
         parent_tenure_last_block,
         parent_tenure_last_block_height,
     };
-    let new_update = StateMachineUpdateMessage::new(
+    let new_update = StateMachineUpdateMessage::new_unsigned(
         active_signer_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V0 {

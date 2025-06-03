@@ -32,7 +32,7 @@ fn generate_global_state_evaluator(num_addresses: u32) -> GlobalStateEvaluator {
     let active_protocol_version = 0;
     let local_supported_signer_protocol_version = 1;
 
-    let update = StateMachineUpdateMessage::new(
+    let update = StateMachineUpdateMessage::new_unsigned(
         active_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V0 {
@@ -105,7 +105,7 @@ fn determine_latest_supported_signer_protocol_versions() {
     // Let's update 3 signers (60 percent) to support seperate but greater protocol versions
     for (i, address) in addresses.into_iter().skip(1).take(3).enumerate() {
         let new_version = local_update.local_supported_signer_protocol_version + i as u64 + 1;
-        let new_update = StateMachineUpdateMessage::new(
+        let new_update = StateMachineUpdateMessage::new_unsigned(
             active_signer_protocol_version,
             new_version,
             StateMachineUpdateContent::V0 {
@@ -127,7 +127,7 @@ fn determine_latest_supported_signer_protocol_versions() {
 
     // Let's tip the scales over to version number 2 by updating the local signer's version...
     // i.e. > 70% will have version 2 or higher in their map
-    let local_update = StateMachineUpdateMessage::new(
+    let local_update = StateMachineUpdateMessage::new_unsigned(
         active_signer_protocol_version,
         3,
         StateMachineUpdateContent::V0 {
@@ -180,7 +180,7 @@ fn determine_global_burn_views() {
     );
 
     // Let's update 3 signers (60 percent) to support a new burn block view
-    let new_update = StateMachineUpdateMessage::new(
+    let new_update = StateMachineUpdateMessage::new_unsigned(
         active_signer_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V0 {
@@ -252,7 +252,7 @@ fn determine_global_states() {
         parent_tenure_last_block_height: 1,
     };
 
-    let new_update = StateMachineUpdateMessage::new(
+    let new_update = StateMachineUpdateMessage::new_unsigned(
         active_signer_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V0 {
