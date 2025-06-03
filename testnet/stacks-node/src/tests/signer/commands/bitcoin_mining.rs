@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use madhouse::{Command, CommandWrapper};
-use proptest::strategy::{Just, Strategy};
 use proptest::prop_oneof;
+use proptest::strategy::{Just, Strategy};
 use tracing::info;
 
 use super::context::{SignerTestContext, SignerTestState};
