@@ -54,6 +54,10 @@ fn test_block_height(
             CheckErrors::UndefinedVariable("block-height".to_string()),
             err.err
         );
+        // Return early if the ClarityVersion is Clarity3, as `block-height`
+        // is not available in Clarity3. Initializing the contract will throw
+        // UndefinedVariable error and fail the test for expected behaviour.
+        return;
     } else {
         assert!(analysis.is_ok());
     }
@@ -112,6 +116,11 @@ fn test_stacks_block_height(
             CheckErrors::UndefinedVariable("stacks-block-height".to_string()),
             err.err
         );
+        // Return early if the ClarityVersion is not Clarity3, as
+        // `stacks-block-height` is available only in Clarity3. Initializing
+        // the contract will throw UndefinedVariable error and fail the test
+        // for expected behaviour.
+        return;
     } else {
         assert!(analysis.is_ok());
     }
@@ -172,6 +181,11 @@ fn test_tenure_height(
             CheckErrors::UndefinedVariable("tenure-height".to_string()),
             err.err
         );
+        // Return early if the ClarityVersion is not Clarity3, as
+        // `tenure-height` is available only in Clarity3. Initializing the
+        // contract will throw UndefinedVariable error and fail the test for
+        // expected behaviour.
+        return;
     } else {
         assert!(analysis.is_ok());
     }
