@@ -595,9 +595,7 @@ fn strip_type_suffix(value: &str) -> String {
     ];
 
     for suffix in &suffixes {
-        if value.ends_with(suffix) {
-            let without_suffix = &value[..value.len() - suffix.len()];
-
+        if let Some(without_suffix) = value.strip_suffix(suffix) {
             // Only strip if the remaining part looks like a numeric literal
             // (contains only digits, underscores, dots, minus signs, or quotes for string literals)
             if !without_suffix.is_empty()
@@ -1217,10 +1215,12 @@ mod tests {
 
         let result = extract_config_docs_from_rustdoc(&invalid_rustdoc, &None);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Missing 'index' field"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Missing 'index' field")
+        );
     }
 
     #[test]
@@ -1318,11 +1318,13 @@ and includes various formatting.
         assert!(notes[1].contains("Only relevant"));
         assert!(notes[2].contains("Units: milliseconds"));
 
-        assert!(result
-            .0
-            .deprecated
-            .unwrap()
-            .contains("Use `new_field` instead"));
+        assert!(
+            result
+                .0
+                .deprecated
+                .unwrap()
+                .contains("Use `new_field` instead")
+        );
 
         let toml_example = result.0.toml_example.unwrap();
         assert!(toml_example.contains("# This is a comment"));
