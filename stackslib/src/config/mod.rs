@@ -2251,7 +2251,10 @@ pub struct NodeConfig {
     /// @notes: |
     ///   - Values are strings representing qualified contract identifiers.
     /// @toml_example: |
-    ///   stacker_dbs = ["SP000000000000000000002Q6VF78.pox-3", "SP2C2YFP12AJZB4M4KUPSTMZQR0SNHNPH204SCQJM.stx-oracle-v1"]
+    ///   stacker_dbs = [
+    ///     "SP000000000000000000002Q6VF78.pox-3",
+    ///     "SP2C2YFP12AJZB4M4KUPSTMZQR0SNHNPH204SCQJM.stx-oracle-v1"
+    ///   ]
     pub stacker_dbs: Vec<QualifiedContractIdentifier>,
     /// Enables the transaction index, which maps transaction IDs to the blocks containing them.
     /// Setting this to `true` allows the use of RPC endpoints that look up transactions by ID
