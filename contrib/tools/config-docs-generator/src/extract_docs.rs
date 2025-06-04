@@ -22,10 +22,6 @@ use clap::{Arg, Command as ClapCommand};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
-// Static regex for finding annotation end patterns
-static ANNOTATION_END_REGEX: Lazy<regex::Regex> =
-    Lazy::new(|| regex::Regex::new(r"\n\s*@[a-zA-Z_]+:").unwrap());
-
 // Static regex for finding constant references in documentation
 static CONSTANT_REFERENCE_REGEX: Lazy<regex::Regex> =
     Lazy::new(|| regex::Regex::new(r"\[`([A-Z_][A-Z0-9_]*)`\]").unwrap());
@@ -38,6 +34,8 @@ pub struct FieldDoc {
     pub notes: Option<Vec<String>>,
     pub deprecated: Option<String>,
     pub toml_example: Option<String>,
+    pub required: Option<bool>,
+    pub units: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -351,6 +349,8 @@ fn parse_field_documentation(
     let mut notes = None;
     let mut deprecated = None;
     let mut toml_example = None;
+    let mut required = None;
+    let mut units = None;
     let mut referenced_constants = std::collections::HashSet::new();
 
     // Split on --- separator if present
@@ -433,6 +433,29 @@ fn parse_field_documentation(
             referenced_constants.extend(find_constant_references(&example_text));
             toml_example = Some(example_text);
         }
+
+        // Parse @required: annotations
+        if let Some(required_text) = extract_annotation(metadata_section, "required") {
+            // Parse boolean value, handling common representations
+            let required_bool = match required_text.trim().to_lowercase().as_str() {
+                "" => false, // Empty string defaults to false
+                "true" | "yes" | "1" => true,
+                "false" | "no" | "0" => false,
+                _ => {
+                    // Default to false for invalid values, but could log a warning in the future
+                    eprintln!("Warning: Invalid @required value '{}' for field '{}', defaulting to false", required_text, field_name);
+                    false
+                }
+            };
+            required = Some(required_bool);
+        }
+
+        // Parse @units: annotations
+        if let Some(units_text) = extract_annotation(metadata_section, "units") {
+            // Collect constant references from units text
+            referenced_constants.extend(find_constant_references(&units_text));
+            units = Some(units_text);
+        }
     }
 
     let field_doc = FieldDoc {
@@ -442,51 +465,309 @@ fn parse_field_documentation(
         notes,
         deprecated,
         toml_example,
+        required,
+        units,
     };
 
     Ok((field_doc, referenced_constants))
 }
 
+/// Parse a YAML-style literal block scalar (|) from comment lines
+/// Preserves newlines and internal indentation relative to the block base indentation
+fn parse_literal_block_scalar(lines: &[&str], _base_indent: usize) -> String {
+    if lines.is_empty() {
+        return String::new();
+    }
+
+    // Find the first non-empty content line to determine block indentation
+    let content_lines: Vec<&str> = lines.iter()
+        .skip_while(|line| line.trim().is_empty())
+        .copied()
+        .collect();
+
+    if content_lines.is_empty() {
+        return String::new();
+    }
+
+    // Determine block indentation from the first content line
+    let block_indent = content_lines[0].len() - content_lines[0].trim_start().len();
+
+    // Process all lines, preserving relative indentation within the block
+    let mut result_lines = Vec::new();
+    for line in lines {
+        if line.trim().is_empty() {
+            // Preserve empty lines
+            result_lines.push(String::new());
+        } else {
+            let line_indent = line.len() - line.trim_start().len();
+            if line_indent >= block_indent {
+                // Remove only the common block indentation, preserving relative indentation
+                let content = &line[block_indent.min(line.len())..];
+                result_lines.push(content.to_string());
+            } else {
+                // Line is less indented than block base - should not happen in well-formed blocks
+                result_lines.push(line.trim_start().to_string());
+            }
+        }
+    }
+
+    // Remove trailing empty lines (clip chomping style)
+    while let Some(last) = result_lines.last() {
+        if last.is_empty() {
+            result_lines.pop();
+        } else {
+            break;
+        }
+    }
+
+    result_lines.join("\n")
+}
+
+/// Parse a YAML-style folded block scalar (>)
+/// Folds lines into paragraphs, preserving more-indented lines as literal blocks
+fn parse_folded_block_scalar(lines: &[&str], _base_indent: usize) -> String {
+    if lines.is_empty() {
+        return String::new();
+    }
+
+    // Find the first non-empty content line to determine block indentation
+    let content_lines: Vec<&str> = lines.iter()
+        .skip_while(|line| line.trim().is_empty())
+        .copied()
+        .collect();
+
+    if content_lines.is_empty() {
+        return String::new();
+    }
+
+    // Determine block indentation from the first content line
+    let block_indent = content_lines[0].len() - content_lines[0].trim_start().len();
+
+    let mut result = String::new();
+    let mut current_paragraph = Vec::new();
+    let mut in_literal_block = false;
+
+    for line in lines {
+        if line.trim().is_empty() {
+            if in_literal_block {
+                // Empty line in literal block - preserve it
+                result.push('\n');
+            } else if !current_paragraph.is_empty() {
+                // End current paragraph
+                result.push_str(&current_paragraph.join(" "));
+                result.push_str("\n\n");
+                current_paragraph.clear();
+            }
+            continue;
+        }
+
+        let line_indent = line.len() - line.trim_start().len();
+        let content = if line_indent >= block_indent {
+            &line[block_indent.min(line.len())..]
+        } else {
+            line.trim_start()
+        };
+
+        let relative_indent = line_indent.saturating_sub(block_indent);
+
+        if relative_indent > 0 {
+            // More indented line - start or continue literal block
+            if !in_literal_block {
+                // Finish current paragraph before starting literal block
+                if !current_paragraph.is_empty() {
+                    result.push_str(&current_paragraph.join(" "));
+                    result.push('\n');
+                    current_paragraph.clear();
+                }
+                in_literal_block = true;
+            }
+            // Add literal line with preserved indentation
+            result.push_str(content);
+            result.push('\n');
+        } else {
+            // Normal indentation - folded content
+            if in_literal_block {
+                // Exit literal block
+                in_literal_block = false;
+                if !result.is_empty() && !result.ends_with('\n') {
+                    result.push('\n');
+                }
+            }
+            // Add to current paragraph
+            current_paragraph.push(content);
+        }
+    }
+
+    // Finish any remaining paragraph
+    if !current_paragraph.is_empty() {
+        result.push_str(&current_paragraph.join(" "));
+    }
+
+    // Apply "clip" chomping style (consistent with literal parser)
+    // Remove trailing empty lines but preserve a single trailing newline if content exists
+    let trimmed = result.trim_end_matches('\n');
+    if !trimmed.is_empty() && result.ends_with('\n') {
+        format!("{}\n", trimmed)
+    } else {
+        trimmed.to_string()
+    }
+}
+
 fn extract_annotation(metadata_section: &str, annotation_name: &str) -> Option<String> {
     let annotation_pattern = format!("@{}:", annotation_name);
 
-    if let Some(start_pos) = metadata_section.find(&annotation_pattern) {
-        let after_annotation = &metadata_section[start_pos + annotation_pattern.len()..];
+    if let Some(_start_pos) = metadata_section.find(&annotation_pattern) {
+        // Split the metadata section into lines for processing
+        let all_lines: Vec<&str> = metadata_section.lines().collect();
 
-        // Find the end of this annotation by looking for the next @annotation: pattern
-        // Look for pattern like "@word:" to identify the start of the next annotation
-        let end_pos = ANNOTATION_END_REGEX
-            .find(after_annotation)
-            .map(|m| m.start())
-            .unwrap_or(after_annotation.len());
+        // Find which line contains our annotation
+        let mut annotation_line_idx = None;
+        for (idx, line) in all_lines.iter().enumerate() {
+            if line.contains(&annotation_pattern) {
+                annotation_line_idx = Some(idx);
+                break;
+            }
+        }
 
-        let annotation_content = after_annotation[..end_pos].trim();
+        let annotation_line_idx = annotation_line_idx?;
+        let annotation_line = all_lines[annotation_line_idx];
 
-        if !annotation_content.is_empty() {
-            // For toml_example, preserve the content more carefully
-            if annotation_name == "toml_example" {
-                // Remove the initial | marker if present and preserve formatting
-                let cleaned = if let Some(stripped) = annotation_content.strip_prefix('|') {
-                    stripped.trim_start_matches('\n').to_string()
-                } else {
-                    annotation_content.to_string()
-                };
+        // Find the position of the annotation pattern within this line
+        let pattern_pos = annotation_line.find(&annotation_pattern)?;
+        let after_colon = &annotation_line[pattern_pos + annotation_pattern.len()..];
 
-                if !cleaned.trim().is_empty() {
-                    return Some(cleaned);
-                }
+        // Check for multiline indicators immediately after the colon
+        let trimmed_after_colon = after_colon.trim_start();
+
+        if trimmed_after_colon.starts_with('|') {
+            // Literal block scalar mode (|)
+            // Content starts from the next line, ignoring any text after | on the same line
+            let block_lines = collect_annotation_block_lines(&all_lines, annotation_line_idx + 1, annotation_line);
+
+            // Convert to owned strings for the parser
+            let owned_lines: Vec<String> = block_lines.iter().map(|s| s.to_string()).collect();
+
+            // Convert back to string slices for the parser
+            let string_refs: Vec<&str> = owned_lines.iter().map(|s| s.as_str()).collect();
+            let base_indent = annotation_line.len() - annotation_line.trim_start().len();
+            let result = parse_literal_block_scalar(&string_refs, base_indent);
+            if result.trim().is_empty() {
+                return None;
             } else {
-                // For other annotations, clean up backticks and other formatting
-                let cleaned = annotation_content.trim().to_string();
+                return Some(result);
+            }
+        } else if trimmed_after_colon.starts_with('>') {
+            // Folded block scalar mode (>)
+            // Content starts from the next line, ignoring any text after > on the same line
+            let block_lines = collect_annotation_block_lines(&all_lines, annotation_line_idx + 1, annotation_line);
 
-                if !cleaned.is_empty() {
-                    return Some(cleaned);
+            // Convert to owned strings for the parser
+            let owned_lines: Vec<String> = block_lines.iter().map(|s| s.to_string()).collect();
+
+            // Convert back to string slices for the parser
+            let string_refs: Vec<&str> = owned_lines.iter().map(|s| s.as_str()).collect();
+            let base_indent = annotation_line.len() - annotation_line.trim_start().len();
+            let result = parse_folded_block_scalar(&string_refs, base_indent);
+            if result.trim().is_empty() {
+                return None;
+            } else {
+                return Some(result);
+            }
+        } else {
+            // Default literal-like multiline mode
+            // Content can start on the same line or the next line
+            let mut content_lines = Vec::new();
+
+            // Check if there's content on the same line after the colon
+            if !trimmed_after_colon.is_empty() {
+                content_lines.push(trimmed_after_colon);
+            }
+
+            // Collect subsequent lines that belong to this annotation
+            let block_lines = collect_annotation_block_lines(&all_lines, annotation_line_idx + 1, annotation_line);
+
+            // For default mode, preserve relative indentation within the block
+            if !block_lines.is_empty() {
+                // Find the base indentation from the first non-empty content line
+                let mut base_indent = None;
+                for line in &block_lines {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() {
+                        base_indent = Some(line.len() - line.trim_start().len());
+                        break;
+                    }
                 }
+
+                // Process lines preserving relative indentation
+                for line in block_lines {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() {
+                        if let Some(base) = base_indent {
+                            let line_indent = line.len() - line.trim_start().len();
+                            if line_indent >= base {
+                                // Remove only the common base indentation, preserving relative indentation
+                                let content = &line[base.min(line.len())..];
+                                content_lines.push(content);
+                            } else {
+                                // Line is less indented than base - use trimmed content
+                                content_lines.push(trimmed);
+                            }
+                        } else {
+                            content_lines.push(trimmed);
+                        }
+                    }
+                }
+            }
+
+            if content_lines.is_empty() {
+                return None;
+            }
+
+            // Join lines preserving the structure - this maintains internal newlines and relative indentation
+            let result = content_lines.join("\n");
+
+            // Apply standard trimming and return if not empty
+            let cleaned = result.trim();
+            if !cleaned.is_empty() {
+                return Some(cleaned.to_string());
             }
         }
     }
 
     None
+}
+
+/// Collect lines that belong to an annotation block, stopping at the next annotation or end
+fn collect_annotation_block_lines<'a>(
+    all_lines: &[&'a str],
+    start_idx: usize,
+    annotation_line: &str
+) -> Vec<&'a str> {
+    let mut block_lines = Vec::new();
+    let annotation_indent = annotation_line.len() - annotation_line.trim_start().len();
+
+    for &line in all_lines.iter().skip(start_idx) {
+        let trimmed = line.trim();
+
+        // Stop if we hit another annotation at the same or lesser indentation level
+        if trimmed.starts_with('@') && trimmed.contains(':') {
+            let line_indent = line.len() - line.trim_start().len();
+            if line_indent <= annotation_indent {
+                break;
+            }
+        }
+
+        // Stop if we hit a line that's clearly not part of the comment block
+        // (very different indentation or structure)
+        let line_indent = line.len() - line.trim_start().len();
+        if !trimmed.is_empty() && line_indent < annotation_indent {
+            break;
+        }
+
+        block_lines.push(line);
+    }
+
+    block_lines
 }
 
 fn resolve_constant_reference(
@@ -675,7 +956,7 @@ mod tests {
         );
         assert_eq!(
             result.0.toml_example,
-            Some("  key = \"value\"\n  other = 123".to_string())
+            Some("key = \"value\"\nother = 123".to_string())
         );
     }
 
@@ -1812,5 +2093,372 @@ and includes various formatting.
         assert_eq!(strip_type_suffix(""), "");
         assert_eq!(strip_type_suffix("u32"), "u32"); // Just the type name, not a suffixed value
         assert_eq!(strip_type_suffix("value_u32_test"), "value_u32_test"); // Contains but doesn't end with type
+    }
+
+    #[test]
+    fn test_parse_field_documentation_with_required_and_units() {
+        let doc_text = r#"Field with required and units annotations.
+---
+@default: `5000`
+@required: true
+@units: milliseconds
+@notes:
+  - This field has all new features."#;
+
+        let result = parse_field_documentation(doc_text, "test_field").unwrap();
+
+        assert_eq!(result.0.name, "test_field");
+        assert_eq!(result.0.description, "Field with required and units annotations.");
+        assert_eq!(result.0.default_value, Some("`5000`".to_string()));
+        assert_eq!(result.0.required, Some(true));
+        assert_eq!(result.0.units, Some("milliseconds".to_string()));
+        assert_eq!(
+            result.0.notes,
+            Some(vec!["This field has all new features.".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_parse_field_documentation_required_variants() {
+        // Test "true" variant
+        let doc_text1 = r#"Required field.
+---
+@required: true"#;
+        let result1 = parse_field_documentation(doc_text1, "field1").unwrap();
+        assert_eq!(result1.0.required, Some(true));
+
+        // Test "false" variant
+        let doc_text2 = r#"Optional field.
+---
+@required: false"#;
+        let result2 = parse_field_documentation(doc_text2, "field2").unwrap();
+        assert_eq!(result2.0.required, Some(false));
+
+        // Test "yes" variant
+        let doc_text3 = r#"Required field.
+---
+@required: yes"#;
+        let result3 = parse_field_documentation(doc_text3, "field3").unwrap();
+        assert_eq!(result3.0.required, Some(true));
+
+        // Test "no" variant
+        let doc_text4 = r#"Optional field.
+---
+@required: no"#;
+        let result4 = parse_field_documentation(doc_text4, "field4").unwrap();
+        assert_eq!(result4.0.required, Some(false));
+
+        // Test invalid variant (should default to false with warning)
+        let doc_text5 = r#"Invalid required field.
+---
+@required: maybe"#;
+        let result5 = parse_field_documentation(doc_text5, "field5").unwrap();
+        assert_eq!(result5.0.required, Some(false));
+    }
+
+    #[test]
+    fn test_extract_annotation_literal_block_mode() {
+        let metadata = r#"@notes: |
+  This is a literal block
+    with preserved indentation
+  and multiple lines."#;
+
+        let result = extract_annotation(metadata, "notes");
+        assert!(result.is_some());
+        let notes = result.unwrap();
+        assert!(notes.contains("This is a literal block"));
+        assert!(notes.contains("  with preserved indentation"));
+        assert!(notes.contains("and multiple lines"));
+        // Should preserve newlines
+        assert!(notes.contains('\n'));
+    }
+
+    #[test]
+    fn test_extract_annotation_folded_block_mode() {
+        let metadata = r#"@default: >
+  This is a folded block
+  that should join lines
+  together.
+
+  But preserve paragraph breaks."#;
+
+        let result = extract_annotation(metadata, "default");
+        assert!(result.is_some());
+        let default = result.unwrap();
+        // Folded blocks should join lines with spaces
+        assert!(default.contains("This is a folded block that should join lines together."));
+        // But preserve paragraph breaks
+        assert!(default.contains("But preserve paragraph breaks."));
+    }
+
+    #[test]
+    fn test_extract_annotation_default_multiline_mode() {
+        let metadata = r#"@notes:
+  - First bullet point
+  - Second bullet point with
+    continuation on next line
+  - Third bullet point"#;
+
+        let result = extract_annotation(metadata, "notes");
+        assert!(result.is_some());
+        let notes = result.unwrap();
+        assert!(notes.contains("First bullet point"));
+        assert!(notes.contains("Second bullet point with"));
+        assert!(notes.contains("continuation on next line"));
+        assert!(notes.contains("Third bullet point"));
+    }
+
+    #[test]
+    fn test_extract_annotation_literal_block_with_same_line_content() {
+        let metadata = r#"@toml_example: | This content is on the same line
+  And this content is on the next line
+  With proper indentation preserved"#;
+
+        let result = extract_annotation(metadata, "toml_example");
+        assert!(result.is_some());
+        let toml = result.unwrap();
+        // Should only include content from subsequent lines, ignoring same-line content
+        assert!(!toml.contains("This content is on the same line"));
+        assert!(toml.contains("And this content is on the next line"));
+        assert!(toml.contains("With proper indentation preserved"));
+    }
+
+    #[test]
+    fn test_units_with_constant_references() {
+        let doc_text = r#"Field with units containing constant references.
+---
+@units: [`DEFAULT_TIMEOUT_MS`] milliseconds"#;
+
+        let result = parse_field_documentation(doc_text, "test_field").unwrap();
+        let (field_doc, referenced_constants) = result;
+
+        assert_eq!(field_doc.units, Some("[`DEFAULT_TIMEOUT_MS`] milliseconds".to_string()));
+        // Check that constants were collected from units
+        assert!(referenced_constants.contains("DEFAULT_TIMEOUT_MS"));
+    }
+
+    #[test]
+    fn test_extract_annotation_default_mode_preserves_relative_indent() {
+        let metadata = r#"@notes:
+  - Main item 1
+    - Sub item 1a
+      - Sub-sub item 1a1
+    - Sub item 1b
+  - Main item 2"#;
+
+        let result = extract_annotation(metadata, "notes");
+        assert!(result.is_some());
+        let notes = result.unwrap();
+
+        // Should preserve relative indentation within the block
+        assert!(notes.contains("- Main item 1"));
+        assert!(notes.contains("  - Sub item 1a")); // 2 spaces more indented
+        assert!(notes.contains("    - Sub-sub item 1a1")); // 4 spaces more indented
+        assert!(notes.contains("  - Sub item 1b")); // Back to 2 spaces
+        assert!(notes.contains("- Main item 2")); // Back to base level
+    }
+
+    #[test]
+    fn test_extract_annotation_default_mode_mixed_indentation() {
+        let metadata = r#"@default:
+  First line with base indentation
+    Second line more indented
+  Third line back to base
+      Fourth line very indented"#;
+
+        let result = extract_annotation(metadata, "default");
+        assert!(result.is_some());
+        let default_val = result.unwrap();
+
+        // Should preserve relative spacing
+        let lines: Vec<&str> = default_val.lines().collect();
+        assert_eq!(lines[0], "First line with base indentation");
+        assert_eq!(lines[1], "  Second line more indented"); // 2 extra spaces
+        assert_eq!(lines[2], "Third line back to base");
+        assert_eq!(lines[3], "    Fourth line very indented"); // 4 extra spaces
+    }
+
+    #[test]
+    fn test_extract_annotation_toml_example_consistency() {
+        // Test that @toml_example now uses standard parsing (no special handling)
+        let metadata = r#"@toml_example: |
+  key = "value"
+    indented_key = "nested"
+  other = 123"#;
+
+        let result = extract_annotation(metadata, "toml_example");
+        assert!(result.is_some());
+        let toml = result.unwrap();
+
+        // Should use standard literal block parsing
+        assert!(toml.contains("key = \"value\""));
+        assert!(toml.contains("  indented_key = \"nested\"")); // Preserved relative indent
+        assert!(toml.contains("other = 123"));
+    }
+
+    #[test]
+    fn test_parse_folded_block_scalar_clip_chomping() {
+        // Test that folded blocks use "clip" chomping (consistent with literal)
+        let lines = vec![
+            "    First paragraph line",
+            "    continues here.",
+            "",
+            "    Second paragraph",
+            "    also continues.",
+            "",
+            "", // Extra empty lines at end
+        ];
+
+        let result = parse_folded_block_scalar(&lines, 0);
+
+        // Should fold lines within paragraphs but preserve paragraph breaks
+        assert!(result.contains("First paragraph line continues here."));
+        assert!(result.contains("Second paragraph also continues."));
+
+        // Should use clip chomping - preserve single trailing newline if content ends with one
+        // But since we're folding, the exact behavior depends on implementation
+        assert!(!result.ends_with("\n\n")); // Should not have multiple trailing newlines
+    }
+
+    #[test]
+    #[ignore = "Test for old behavior - same-line content mode has been removed"]
+    fn test_extract_annotation_literal_and_folded_same_line_content() {
+        // Test same-line content handling for both | and >
+        let metadata_literal = r#"@notes: | Same line content
+  Next line content
+  Another line"#;
+
+        let metadata_folded = r#"@default: > Same line content
+  Next line content
+  Another line"#;
+
+        let literal_result = extract_annotation(metadata_literal, "notes").unwrap();
+        let folded_result = extract_annotation(metadata_folded, "default").unwrap();
+
+        // Both should include same-line content
+        assert!(literal_result.contains("Same line content"));
+        assert!(folded_result.contains("Same line content"));
+
+        // Literal mode should preserve all content and line structure exactly
+        assert!(literal_result.contains("Next line content"));
+        assert!(literal_result.contains("Another line"));
+
+        let literal_lines: Vec<&str> = literal_result.lines().collect();
+        assert_eq!(literal_lines.len(), 3);
+        assert_eq!(literal_lines[0], "Same line content");
+        assert_eq!(literal_lines[1], "Next line content");
+        assert_eq!(literal_lines[2], "Another line");
+
+        // Folded mode with same-line content has current implementation limitation:
+        // it only captures the same-line content and ignores subsequent block lines.
+        // This is an acceptable edge case behavior.
+        assert_eq!(folded_result, "Same line content");
+
+        // Verify it doesn't contain the subsequent lines (current limitation)
+        assert!(!folded_result.contains("Next line content"));
+        assert!(!folded_result.contains("Another line"));
+    }
+
+    #[test]
+    fn test_extract_annotation_edge_cases_empty_and_whitespace() {
+        // Test annotations with only whitespace or empty content
+        let metadata1 = "@default: |";
+        let metadata2 = "@notes:\n    \n    \n"; // Only whitespace lines
+        let metadata3 = "@deprecated: >\n"; // Folded with no content
+
+        assert_eq!(extract_annotation(metadata1, "default"), None);
+        assert_eq!(extract_annotation(metadata2, "notes"), None);
+        assert_eq!(extract_annotation(metadata3, "deprecated"), None);
+    }
+
+    #[test]
+    fn test_required_field_validation_comprehensive() {
+        // Test all supported boolean representations for @required
+        let test_cases = vec![
+            ("true", Some(true)),
+            ("True", Some(true)),
+            ("TRUE", Some(true)),
+            ("yes", Some(true)),
+            ("Yes", Some(true)),
+            ("YES", Some(true)),
+            ("1", Some(true)),
+            ("false", Some(false)),
+            ("False", Some(false)),
+            ("FALSE", Some(false)),
+            ("no", Some(false)),
+            ("No", Some(false)),
+            ("NO", Some(false)),
+            ("0", Some(false)),
+            ("maybe", Some(false)), // Invalid defaults to false
+            ("invalid", Some(false)),
+        ];
+
+        for (input, expected) in test_cases {
+            let doc_text = format!("Test field.\n---\n@required: {}", input);
+            let result = parse_field_documentation(&doc_text, "test_field").unwrap();
+            assert_eq!(result.0.required, expected, "Failed for input: '{}'", input);
+        }
+
+        // Test empty @required annotation (should return None, not Some(false))
+        let doc_text_empty = "Test field.\n---\n@required:";
+        let result_empty = parse_field_documentation(doc_text_empty, "test_field").unwrap();
+        assert_eq!(result_empty.0.required, None, "Empty @required should not be parsed");
+    }
+
+    #[test]
+    fn test_units_with_multiline_content() {
+        // Test units annotation with multiline content
+        let doc_text = r#"Field with multiline units.
+---
+@units: |
+  seconds (range: 1-3600)
+  Default: [`DEFAULT_TIMEOUT`] seconds
+@required: true"#;
+
+        let result = parse_field_documentation(doc_text, "test_field").unwrap();
+        let (field_doc, referenced_constants) = result;
+
+        assert!(field_doc.units.is_some());
+        let units = field_doc.units.unwrap();
+        assert!(units.contains("seconds (range: 1-3600)"));
+        assert!(units.contains("Default: [`DEFAULT_TIMEOUT`] seconds"));
+        assert_eq!(field_doc.required, Some(true));
+        assert!(referenced_constants.contains("DEFAULT_TIMEOUT"));
+    }
+
+    #[test]
+    fn test_extract_annotation_literal_and_folded_ignore_same_line_content() {
+        // Test that same-line content is ignored for both | and >
+        let metadata_literal = r#"@notes: | Ignored same line content
+  Next line content
+  Another line"#;
+
+        let metadata_folded = r#"@default: > Ignored same line content
+  Next line content
+  Another line"#;
+
+        let literal_result = extract_annotation(metadata_literal, "notes").unwrap();
+        let folded_result = extract_annotation(metadata_folded, "default").unwrap();
+
+        // Same-line content should be ignored
+        assert!(!literal_result.contains("Ignored same line content"));
+        assert!(!folded_result.contains("Ignored same line content"));
+
+        // Literal mode should preserve all content from subsequent lines
+        assert!(literal_result.contains("Next line content"));
+        assert!(literal_result.contains("Another line"));
+
+        let literal_lines: Vec<&str> = literal_result.lines().collect();
+        assert_eq!(literal_lines.len(), 2);
+        assert_eq!(literal_lines[0], "Next line content");
+        assert_eq!(literal_lines[1], "Another line");
+
+        // Folded mode should fold the subsequent lines
+        assert!(folded_result.contains("Next line content"));
+        assert!(folded_result.contains("Another line"));
+
+        // In folded mode, lines at same indentation get joined with spaces
+        let expected_folded = "Next line content Another line";
+        assert_eq!(folded_result.trim(), expected_folded);
     }
 }
