@@ -19,8 +19,8 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::{Duration, Instant};
+use std::{env, thread};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
@@ -108,6 +108,16 @@ pub struct SignerTest<S> {
     pub num_stacking_cycles: u64,
     /// The path to the snapshot directory
     pub snapshot_path: Option<PathBuf>,
+}
+
+struct SnapshotSetupInfo {
+    snapshot_path: PathBuf,
+    snapshot_exists: bool,
+}
+
+enum SetupSnapshotResult {
+    WithSnapshot(SnapshotSetupInfo),
+    NoSnapshot,
 }
 
 impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<SpawnedSigner<S, T>> {
@@ -232,35 +242,42 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 vec![pk]
             });
 
-        let mut snapshot_exists = false;
+        let snapshot_setup_result = Self::setup_snapshot(snapshot_name, &naka_conf);
 
-        let snapshot_path = snapshot_name.map(|name| {
-            let working_dir = naka_conf.get_working_dir();
+        // let mut snapshot_exists = false;
 
-            let snapshot_path: PathBuf = format!("/tmp/stacks-node-tests/snapshots/{name}/")
-                .try_into()
-                .unwrap();
+        // let snapshot_path = snapshot_name.map(|name| {
+        //     let working_dir = naka_conf.get_working_dir();
 
-            info!("Snapshot path: {}", snapshot_path.clone().display());
+        //     let snapshot_path: PathBuf = format!("/tmp/stacks-node-tests/snapshots/{name}/")
+        //         .try_into()
+        //         .unwrap();
 
-            snapshot_exists = std::fs::metadata(snapshot_path.clone()).is_ok();
+        //     info!("Snapshot path: {}", snapshot_path.clone().display());
 
-            if snapshot_exists {
-                info!(
-                    "Snapshot directory already exists, copying to working dir";
-                    "snapshot_path" => %snapshot_path.display(),
-                    "working_dir" => %working_dir.display()
-                );
-                let err_msg = format!(
-                    "Failed to copy snapshot dir to working dir: {} -> {}",
-                    snapshot_path.display(),
-                    working_dir.display()
-                );
-                copy_dir_all(snapshot_path.clone(), working_dir).expect(&err_msg);
-            }
+        //     snapshot_exists = std::fs::metadata(snapshot_path.clone()).is_ok();
 
-            snapshot_path
-        });
+        //     if snapshot_exists {
+        //         info!(
+        //             "Snapshot directory already exists, copying to working dir";
+        //             "snapshot_path" => %snapshot_path.display(),
+        //             "working_dir" => %working_dir.display()
+        //         );
+        //         let err_msg = format!(
+        //             "Failed to copy snapshot dir to working dir: {} -> {}",
+        //             snapshot_path.display(),
+        //             working_dir.display()
+        //         );
+        //         copy_dir_all(snapshot_path.clone(), working_dir).expect(&err_msg);
+        //     }
+
+        //     snapshot_path
+        // });
+
+        let snapshot_exists = match &snapshot_setup_result {
+            SetupSnapshotResult::WithSnapshot(info) => info.snapshot_exists,
+            SetupSnapshotResult::NoSnapshot => false,
+        };
 
         let node = setup_stx_btc_node(
             naka_conf,
@@ -280,7 +297,10 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             stacks_client,
             num_stacking_cycles: 12_u64,
             signer_configs,
-            snapshot_path,
+            snapshot_path: match &snapshot_setup_result {
+                SetupSnapshotResult::WithSnapshot(info) => Some(info.snapshot_path.clone()),
+                SetupSnapshotResult::NoSnapshot => None,
+            },
         }
     }
 
@@ -300,6 +320,48 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         };
 
         !std::fs::metadata(snapshot_path).is_ok()
+    }
+
+    /// Setup a snapshot by copying the snapshot directory to the working directory.
+    ///
+    /// If the env variable `STACKS_TEST_SNAPSHOT` is not set, this will return `NoSnapshot`.
+    fn setup_snapshot(snapshot_name: Option<&str>, conf: &NeonConfig) -> SetupSnapshotResult {
+        let Some(snapshot_name) = snapshot_name else {
+            return SetupSnapshotResult::NoSnapshot;
+        };
+
+        if env::var("STACKS_TEST_SNAPSHOT") != Ok("1".into()) {
+            return SetupSnapshotResult::NoSnapshot;
+        }
+
+        let working_dir = conf.get_working_dir();
+
+        let snapshot_path: PathBuf = format!("/tmp/stacks-node-tests/snapshots/{snapshot_name}/")
+            .try_into()
+            .unwrap();
+
+        info!("Snapshot path: {}", snapshot_path.clone().display());
+
+        let snapshot_exists = std::fs::metadata(snapshot_path.clone()).is_ok();
+
+        if snapshot_exists {
+            info!(
+                "Snapshot directory already exists, copying to working dir";
+                "snapshot_path" => %snapshot_path.display(),
+                "working_dir" => %working_dir.display()
+            );
+            let err_msg = format!(
+                "Failed to copy snapshot dir to working dir: {} -> {}",
+                snapshot_path.display(),
+                working_dir.display()
+            );
+            copy_dir_all(snapshot_path.clone(), working_dir).expect(&err_msg);
+        }
+
+        SetupSnapshotResult::WithSnapshot(SnapshotSetupInfo {
+            snapshot_path,
+            snapshot_exists,
+        })
     }
 
     /// Make a snapshot of the current working directory.

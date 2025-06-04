@@ -324,8 +324,16 @@ impl SignerTest<SpawnedSigner> {
     /// This will also shutdown the test early, requiring a restart
     /// of the test.
     ///
+    /// If the test is not configured to use snapshots, it will boot to epoch 3.0
+    /// and continue.
+    ///
     /// Returns `true` if the snapshot was created.
     pub fn bootstrap_snapshot(&self) -> bool {
+        if self.snapshot_path.is_none() {
+            self.boot_to_epoch_3();
+            return false;
+        }
+
         if self.needs_snapshot() {
             self.boot_to_epoch_3();
             self.make_snapshot();
