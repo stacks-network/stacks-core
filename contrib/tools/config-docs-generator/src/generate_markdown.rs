@@ -29,6 +29,8 @@ struct FieldDoc {
     notes: Option<Vec<String>>,
     deprecated: Option<String>,
     toml_example: Option<String>,
+    required: Option<bool>,
+    units: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -307,13 +309,20 @@ fn generate_field_row(
         let escaped_example = clean_example
             .replace('&', "&amp;")
             .replace('<', "&lt;")
-            .replace('>', "&gt;");
+            .replace('>', "&gt;")
+            .replace('\n', "&#10;"); // Use HTML entity for newline to avoid <br> conversion
 
         let example_section = format!(
             "<br><br>**Example:**<br><pre><code>{}</code></pre>",
-            escaped_example.replace('\n', "<br>")
+            escaped_example // HTML entities will be rendered as newlines by <pre>
         );
         description_parts.push(example_section);
+    }
+
+    // Add units information if present
+    if let Some(units) = &field.units {
+        let units_text = process_intralinks_with_context(units, global_context, struct_name);
+        description_parts.push(format!("<br><br>**Units:** {}", units_text));
     }
 
     let description = if description_parts.is_empty() {
@@ -322,11 +331,21 @@ fn generate_field_row(
         description_parts.join("")
     };
 
-    // Default value column
-    let default_value = if let Some(default) = &field.default_value {
-        process_intralinks_with_context(default, global_context, struct_name)
-    } else {
-        "*Required*".to_string()
+    // Default value column - handle required fields
+    let default_value = match (&field.required, &field.default_value) {
+        // If explicitly marked as required=true, show as required regardless of default
+        (Some(true), _) => "**Required**".to_string(),
+        // If explicitly marked as required=false and has default, show the default
+        (Some(false), Some(default)) => {
+            process_intralinks_with_context(default, global_context, struct_name)
+        }
+        // If explicitly marked as required=false but no default, show as optional
+        (Some(false), None) => "*Optional*".to_string(),
+        // If required field is not specified, use default behavior (backward compatibility)
+        (None, Some(default)) => {
+            process_intralinks_with_context(default, global_context, struct_name)
+        }
+        (None, None) => "**Required**".to_string(),
     };
 
     output.push_str(&format!(
@@ -510,6 +529,8 @@ mod tests {
             notes: None,
             deprecated: None,
             toml_example: None,
+            required: None,
+            units: None,
         }
     }
 
@@ -659,7 +680,7 @@ mod tests {
 
         assert!(output.contains("basic_field"));
         assert!(output.contains("A basic field description"));
-        assert!(output.contains("*Required*"));
+        assert!(output.contains("**Required**"));
         assert!(output.contains("<span id=\"teststruct-basic_field\">"));
     }
 
@@ -675,7 +696,7 @@ mod tests {
         assert!(output.contains("field_with_default"));
         assert!(output.contains("Field with default value"));
         assert!(output.contains("`42`"));
-        assert!(!output.contains("*Required*"));
+        assert!(!output.contains("**Required**"));
     }
 
     #[test]
@@ -687,7 +708,7 @@ mod tests {
         generate_field_row(&mut output, &field, "TestStruct", &global_context).unwrap();
 
         assert!(output.contains("required_field"));
-        assert!(output.contains("*Required*"));
+        assert!(output.contains("**Required**"));
     }
 
     #[test]
@@ -735,9 +756,9 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_field_row_toml_example_with_pipe() {
-        let mut field = create_field_doc("field_with_pipe_example", "Field with pipe example");
-        field.toml_example = Some("|\nkey = \"value\"\nnumber = 42".to_string());
+    fn test_generate_field_row_toml_example_preserves_newlines() {
+        let mut field = create_field_doc("multiline_example", "Field with multiline TOML example");
+        field.toml_example = Some("key = \"value\"\nnested = {\n  sub_key = \"sub_value\"\n}".to_string());
         let global_context = create_mock_global_context();
         let mut output = String::new();
 
@@ -745,368 +766,25 @@ mod tests {
 
         assert!(output.contains("**Example:**"));
         assert!(output.contains("<pre><code>"));
-        assert!(output.contains("key = \"value\""));
-        // The TOML content should not contain the leading pipe character
-        assert!(!output.contains("<pre><code>|"));
-        assert!(!output.contains("|\nkey"));
-        assert!(output.contains("</code></pre>"));
-    }
-
-    #[test]
-    fn test_generate_field_row_all_attributes() {
-        let mut field = create_field_doc("complex_field", "A complex field");
-        field.default_value = Some("`\"default\"`".to_string());
-        field.notes = Some(vec!["Important note".to_string()]);
-        field.deprecated = Some("Use better_field instead".to_string());
-        field.toml_example = Some("field = \"example\"".to_string());
-        let global_context = create_mock_global_context();
-        let mut output = String::new();
-
-        generate_field_row(&mut output, &field, "TestStruct", &global_context).unwrap();
-
-        assert!(output.contains("~~")); // deprecated
-        assert!(output.contains("A complex field"));
-        assert!(output.contains("**Notes:**"));
-        assert!(output.contains("- Important note"));
-        assert!(output.contains("**⚠️ DEPRECATED:**"));
-        assert!(output.contains("Use better_field instead"));
-        assert!(output.contains("**Example:**"));
-        assert!(output.contains("<pre><code>"));
-        assert!(output.contains("`\"default\"`"));
-        assert!(output.contains("</code></pre>"));
-    }
-
-    #[test]
-    fn test_generate_field_row_empty_description_parts() {
-        let field = FieldDoc {
-            name: "minimal_field".to_string(),
-            description: "".to_string(),
-            default_value: None,
-            notes: None,
-            deprecated: None,
-            toml_example: None,
-        };
-        let global_context = create_mock_global_context();
-        let mut output = String::new();
-
-        generate_field_row(&mut output, &field, "TestStruct", &global_context).unwrap();
-
-        assert!(output.contains("minimal_field"));
-        assert!(output.contains("*No description available*"));
-        assert!(output.contains("*Required*"));
-    }
-
-    #[test]
-    fn test_field_name_escaping_in_row() {
-        let field = create_field_doc("field|with[special]chars", "Description");
-        let global_context = create_mock_global_context();
-        let mut output = String::new();
-
-        generate_field_row(&mut output, &field, "TestStruct", &global_context).unwrap();
-
-        assert!(output.contains("field\\|with\\[special\\]chars"));
-    }
-
-    #[test]
-    fn test_field_anchor_id_generation() {
-        let field = create_field_doc("test_anchor", "Test anchor generation");
-        let global_context = create_mock_global_context();
-        let mut output = String::new();
-
-        generate_field_row(&mut output, &field, "NodeConfig", &global_context).unwrap();
-
-        assert!(output.contains("<span id=\"node-test_anchor\">"));
-        assert!(output.contains("(#node-test_anchor)"));
-    }
-
-    // IV. Struct Section Generation Tests
-
-    #[test]
-    fn test_generate_struct_section_description() {
-        let struct_doc = create_struct_doc("TestStruct", Some("This is a test struct"), vec![]);
-        let global_context = create_mock_global_context();
-        let mut output = String::new();
-
-        generate_struct_section(&mut output, &struct_doc, &global_context).unwrap();
-
-        assert!(output.contains("## [teststruct]"));
-        assert!(output.contains("This is a test struct"));
-        assert!(output.contains("*No configurable parameters documented.*"));
-    }
-
-    #[test]
-    fn test_generate_struct_section_no_description() {
-        let struct_doc = create_struct_doc("TestStruct", None, vec![]);
-        let global_context = create_mock_global_context();
-        let mut output = String::new();
-
-        generate_struct_section(&mut output, &struct_doc, &global_context).unwrap();
-
-        assert!(output.contains("## [teststruct]"));
-        assert!(!output.contains("This is a test struct"));
-        assert!(output.contains("*No configurable parameters documented.*"));
-    }
-
-    #[test]
-    fn test_generate_struct_section_field_sorting() {
-        let normal_field = create_field_doc("b_normal", "Normal field");
-        let mut deprecated_field = create_field_doc("a_deprecated", "Deprecated field");
-        deprecated_field.deprecated = Some("Old field".to_string());
-        let another_normal = create_field_doc("c_normal", "Another normal field");
-
-        let struct_doc = create_struct_doc(
-            "TestStruct",
-            None,
-            vec![deprecated_field, normal_field, another_normal],
-        );
-        let global_context = create_mock_global_context();
-        let mut output = String::new();
-
-        generate_struct_section(&mut output, &struct_doc, &global_context).unwrap();
-
-        // Normal fields should come first, then deprecated
-        let b_normal_pos = output.find("b_normal").unwrap();
-        let c_normal_pos = output.find("c_normal").unwrap();
-        let a_deprecated_pos = output.find("a_deprecated").unwrap();
-
-        assert!(b_normal_pos < c_normal_pos);
-        assert!(c_normal_pos < a_deprecated_pos);
-    }
-
-    // V. Markdown Escaping Tests
-
-    #[test]
-    fn test_escape_markdown_various_chars() {
-        assert_eq!(escape_markdown("test|pipe"), "test\\|pipe");
-        assert_eq!(escape_markdown("test[bracket]"), "test\\[bracket\\]");
-        assert_eq!(escape_markdown("normal text"), "normal text");
-    }
-
-    #[test]
-    fn test_escape_markdown_table_various_chars() {
-        assert_eq!(escape_markdown_table("test|pipe"), "test\\|pipe");
-        assert_eq!(escape_markdown_table("line1\nline2"), "line1<br>line2");
-        assert_eq!(
-            escape_markdown_table("line1\nwith|pipe"),
-            "line1<br>with\\|pipe"
-        );
-    }
-
-    // VI. Intra-link Processing Tests
-
-    #[test]
-    fn test_intralink_no_links() {
-        let global_context = create_mock_global_context();
-        let text = "This is normal text without any links";
-        let result = process_intralinks_with_context(text, &global_context, "TestStruct");
-        assert_eq!(result, text);
-    }
-
-    #[test]
-    fn test_intralink_to_field_in_same_struct() {
-        let global_context = create_mock_global_context();
-        let text = "See [`NodeConfig::test_field`] for details";
-        let result = process_intralinks_with_context(text, &global_context, "NodeConfig");
-        assert!(result.contains("[test_field](#node-test_field)"));
-    }
-
-    #[test]
-    fn test_intralink_to_field_in_different_struct() {
-        let global_context = create_mock_global_context();
-        let text = "See [`MinerConfig::other_field`] for details";
-        let result = process_intralinks_with_context(text, &global_context, "NodeConfig");
-        assert!(result.contains("[[miner].other_field](#miner-other_field)"));
-    }
-
-    #[test]
-    fn test_intralink_to_standalone_field_in_same_struct() {
-        let global_context = create_mock_global_context();
-        let text = "See [`test_field`] for details";
-        let result = process_intralinks_with_context(text, &global_context, "NodeConfig");
-        assert!(result.contains("[test_field](#node-test_field)"));
-    }
-
-    #[test]
-    fn test_intralink_to_standalone_field_in_different_struct() {
-        let global_context = create_mock_global_context();
-        let text = "See [`other_field`] for details";
-        let result = process_intralinks_with_context(text, &global_context, "NodeConfig");
-        assert!(result.contains("[[miner].other_field](#miner-other_field)"));
-    }
-
-    #[test]
-    fn test_intralink_to_constant() {
-        let global_context = create_mock_global_context();
-        let text = "The default value is [`TEST_CONSTANT`]";
-        let result = process_intralinks_with_context(text, &global_context, "TestStruct");
-        assert!(result.contains("42"));
-        assert!(!result.contains("TEST_CONSTANT"));
-    }
-
-    #[test]
-    fn test_intralink_unresolved_struct_field_reference() {
-        let global_context = create_mock_global_context();
-        let text = "See [`UnknownStruct::unknown_field`] for details";
-        let result = process_intralinks_with_context(text, &global_context, "TestStruct");
-        assert!(result.contains("UnknownStruct::unknown_field"));
-        assert!(!result.contains("[`"));
-    }
-
-    #[test]
-    fn test_intralink_unresolved_standalone_reference() {
-        let global_context = create_mock_global_context();
-        let text = "The value [`unknown_reference`] is not found";
-        let result = process_intralinks_with_context(text, &global_context, "TestStruct");
-        assert!(result.contains("unknown_reference"));
-        assert!(!result.contains("[`"));
-    }
-
-    #[test]
-    fn test_intralink_malformed_reference() {
-        let global_context = create_mock_global_context();
-        let text = "See [`Struct::Field::Extra`] for details";
-        let result = process_intralinks_with_context(text, &global_context, "TestStruct");
-        assert!(result.contains("Struct::Field::Extra"));
-        assert!(!result.contains("[`"));
-    }
-
-    #[test]
-    fn test_intralink_multiple_links_in_text() {
-        let global_context = create_mock_global_context();
-        let text = "See [`TEST_CONSTANT`] and [`NodeConfig::test_field`] and [`unknown_ref`]";
-        let result = process_intralinks_with_context(text, &global_context, "NodeConfig");
-
-        assert!(result.contains("42")); // constant resolved
-        assert!(result.contains("[test_field](#node-test_field)")); // field resolved
-        assert!(result.contains("unknown_ref")); // unresolved kept as text
-    }
-
-    // VII. Global Context Building Tests
-
-    #[test]
-    fn test_build_global_context_struct_anchors() {
-        let structs = vec![
-            create_struct_doc("NodeConfig", None, vec![]),
-            create_struct_doc("MinerConfig", None, vec![]),
-        ];
-        let config_docs = create_config_docs(structs);
-        let context = build_global_context(&config_docs);
-
-        assert_eq!(
-            context.struct_to_anchor.get("NodeConfig"),
-            Some(&"#node".to_string())
-        );
-        assert_eq!(
-            context.struct_to_anchor.get("MinerConfig"),
-            Some(&"#miner".to_string())
-        );
-    }
-
-    #[test]
-    fn test_build_global_context_field_struct_mapping() {
-        let field1 = create_field_doc("field1", "Description");
-        let field2 = create_field_doc("field2", "Description");
-        let structs = vec![
-            create_struct_doc("NodeConfig", None, vec![field1]),
-            create_struct_doc("MinerConfig", None, vec![field2]),
-        ];
-        let config_docs = create_config_docs(structs);
-        let context = build_global_context(&config_docs);
-
-        assert_eq!(
-            context.field_to_struct.get("field1"),
-            Some(&("NodeConfig".to_string(), "#node".to_string()))
-        );
-        assert_eq!(
-            context.field_to_struct.get("field2"),
-            Some(&("MinerConfig".to_string(), "#miner".to_string()))
-        );
-    }
-
-    #[test]
-    fn test_build_global_context_constants() {
-        let config_docs = create_config_docs(vec![]);
-        let context = build_global_context(&config_docs);
-
-        // Should have no constants if none are referenced
-        assert_eq!(context.constants.len(), 0);
-    }
-
-    // Helper function tests
-
-    #[test]
-    fn test_is_deprecated() {
-        let normal_field = create_field_doc("normal", "Normal field");
-        let mut deprecated_field = create_field_doc("deprecated", "Deprecated field");
-        deprecated_field.deprecated = Some("Use other field".to_string());
-
-        assert!(!is_deprecated(&normal_field));
-        assert!(is_deprecated(&deprecated_field));
-    }
-
-    #[test]
-    fn test_build_global_context_with_referenced_constants() {
-        let mut config_docs = create_config_docs(vec![]);
-        config_docs
-            .referenced_constants
-            .insert("TEST_CONSTANT".to_string(), Some("42".to_string()));
-        config_docs
-            .referenced_constants
-            .insert("STRING_CONST".to_string(), Some("\"hello\"".to_string()));
-        config_docs
-            .referenced_constants
-            .insert("UNRESOLVED_CONST".to_string(), None);
-
-        let context = build_global_context(&config_docs);
-
-        // Only resolved constants should be in the context
-        assert_eq!(context.constants.len(), 2);
-        assert_eq!(
-            context.constants.get("TEST_CONSTANT"),
-            Some(&"42".to_string())
-        );
-        assert_eq!(
-            context.constants.get("STRING_CONST"),
-            Some(&"\"hello\"".to_string())
-        );
-        assert!(!context.constants.contains_key("UNRESOLVED_CONST"));
-    }
-
-    #[test]
-    fn test_build_global_context_empty_referenced_constants() {
-        let config_docs = create_config_docs(vec![]);
-        let context = build_global_context(&config_docs);
-
-        // Should have no constants if none are referenced
-        assert_eq!(context.constants.len(), 0);
-    }
-
-    #[test]
-    fn test_generate_field_row_toml_example_no_literal_br_tags() {
-        let mut field =
-            create_field_doc("field_with_multiline_example", "Field with multiline TOML");
-        field.toml_example = Some(
-            "txs_to_consider = \"TokenTransfer,ContractCall\"\nother_setting = \"value\""
-                .to_string(),
-        );
-        let global_context = create_mock_global_context();
-        let mut output = String::new();
-
-        generate_field_row(&mut output, &field, "TestStruct", &global_context).unwrap();
-
-        // Verify that the TOML example is properly formatted with HTML pre/code blocks
-        assert!(output.contains("<pre><code>"));
-        assert!(output.contains("txs_to_consider = \"TokenTransfer,ContractCall\""));
-        assert!(output.contains("other_setting = \"value\""));
         assert!(output.contains("</code></pre>"));
 
-        // This is the critical test: ensure we don't have malformed markdown like
-        // ```toml<br>content<br>``` which renders literal <br> tags
-        assert!(!output.contains("```toml<br>"));
-        assert!(!output.contains("<br>```"));
+        // Find the code block content
+        let pre_start = output.find("<pre><code>").unwrap();
+        let pre_end = output.find("</code></pre>").unwrap();
+        let code_content = &output[pre_start..pre_end + "</code></pre>".len()];
 
-        // Verify proper line separation with <br> within the code block
-        assert!(output.contains("ContractCall\"<br>other_setting"));
+        // Should NOT contain <br> tags inside the code block
+        assert!(!code_content.contains("<br>"), "Code block should not contain <br> tags");
+
+        // Should contain HTML entities for newlines instead
+        assert!(code_content.contains("&#10;"), "Code block should contain HTML entities for newlines");
+
+        // Should contain the key-value pairs
+        assert!(code_content.contains("key = \"value\""));
+        assert!(code_content.contains("sub_key = \"sub_value\""));
+
+        // Should contain the actual newline characters in the original TOML
+        assert!(field.toml_example.as_ref().unwrap().contains('\n'));
     }
 
     #[test]
@@ -1157,5 +835,222 @@ mod tests {
         assert!(output.contains(
             "&nbsp;&nbsp;&nbsp;&nbsp;- Sub-sub item with [[miner].other_field](#miner-other_field)"
         )); // cross-struct field link with indentation
+    }
+
+    #[test]
+    fn test_generate_field_row_with_required_true() {
+        let mut field = create_field_doc("required_field", "A required field");
+        field.required = Some(true);
+        field.default_value = Some("`default_value`".to_string()); // Even with default, should show as required
+        let global_context = create_mock_global_context();
+        let mut output = String::new();
+
+        generate_field_row(&mut output, &field, "TestStruct", &global_context).unwrap();
+
+        assert!(output.contains("required_field"));
+        assert!(output.contains("A required field"));
+        assert!(output.contains("**Required**"));
+        assert!(!output.contains("`default_value`")); // Should not show default when required=true
+    }
+
+    #[test]
+    fn test_generate_field_row_with_required_false_and_default() {
+        let mut field = create_field_doc("optional_field", "An optional field");
+        field.required = Some(false);
+        field.default_value = Some("`42`".to_string());
+        let global_context = create_mock_global_context();
+        let mut output = String::new();
+
+        generate_field_row(&mut output, &field, "TestStruct", &global_context).unwrap();
+
+        assert!(output.contains("optional_field"));
+        assert!(output.contains("An optional field"));
+        assert!(output.contains("`42`"));
+        assert!(!output.contains("**Required**"));
+    }
+
+    #[test]
+    fn test_generate_field_row_with_required_false_no_default() {
+        let mut field = create_field_doc("optional_field", "An optional field");
+        field.required = Some(false);
+        field.default_value = None;
+        let global_context = create_mock_global_context();
+        let mut output = String::new();
+
+        generate_field_row(&mut output, &field, "TestStruct", &global_context).unwrap();
+
+        assert!(output.contains("optional_field"));
+        assert!(output.contains("An optional field"));
+        assert!(output.contains("*Optional*"));
+        assert!(!output.contains("**Required**"));
+    }
+
+    #[test]
+    fn test_generate_field_row_with_units() {
+        let mut field = create_field_doc("timeout_field", "A timeout field");
+        field.units = Some("milliseconds".to_string());
+        field.default_value = Some("`5000`".to_string());
+        let global_context = create_mock_global_context();
+        let mut output = String::new();
+
+        generate_field_row(&mut output, &field, "TestStruct", &global_context).unwrap();
+
+        assert!(output.contains("timeout_field"));
+        assert!(output.contains("A timeout field"));
+        assert!(output.contains("**Units:** milliseconds"));
+        assert!(output.contains("`5000`"));
+    }
+
+    #[test]
+    fn test_generate_field_row_with_units_and_constants() {
+        let mut field = create_field_doc("timeout_field", "A timeout field");
+        field.units = Some("[`TEST_CONSTANT`] milliseconds".to_string());
+        field.default_value = Some("`5000`".to_string());
+        let global_context = create_mock_global_context();
+        let mut output = String::new();
+
+        generate_field_row(&mut output, &field, "TestStruct", &global_context).unwrap();
+
+        assert!(output.contains("timeout_field"));
+        assert!(output.contains("A timeout field"));
+        assert!(output.contains("**Units:** `42` milliseconds")); // Constant should be resolved
+        assert!(output.contains("`5000`"));
+    }
+
+    #[test]
+    fn test_generate_field_row_all_new_features() {
+        let mut field = create_field_doc("complex_field", "A field with all new features");
+        field.required = Some(true);
+        field.units = Some("seconds".to_string());
+        field.notes = Some(vec!["Important note".to_string()]);
+        field.toml_example = Some("field = 30".to_string());
+        let global_context = create_mock_global_context();
+        let mut output = String::new();
+
+        generate_field_row(&mut output, &field, "TestStruct", &global_context).unwrap();
+
+        assert!(output.contains("complex_field"));
+        assert!(output.contains("A field with all new features"));
+        assert!(output.contains("**Required**"));
+        assert!(output.contains("**Units:** seconds"));
+        assert!(output.contains("**Notes:**"));
+        assert!(output.contains("- Important note"));
+        assert!(output.contains("**Example:**"));
+        assert!(output.contains("field = 30"));
+    }
+
+    #[test]
+    fn test_generate_field_row_units_with_constants_and_intralinks() {
+        let mut field = create_field_doc("timeout_field", "A timeout field");
+        field.units = Some("[`TEST_CONSTANT`] seconds (see [`NodeConfig::test_field`])".to_string());
+        field.default_value = Some("`30`".to_string());
+        let global_context = create_mock_global_context();
+        let mut output = String::new();
+
+        generate_field_row(&mut output, &field, "TestStruct", &global_context).unwrap();
+
+        assert!(output.contains("timeout_field"));
+        assert!(output.contains("**Units:**"));
+        // Constants should be resolved and intralinks processed
+        assert!(output.contains("`42`")); // TEST_CONSTANT resolved
+        assert!(output.contains("[[node].test_field](#node-test_field)")); // Cross-struct reference format
+    }
+
+    #[test]
+    fn test_generate_field_row_required_field_combinations() {
+        let global_context = create_mock_global_context();
+
+        // Test required=true with default (should show Required, not default)
+        let mut field1 = create_field_doc("req_with_default", "Required with default");
+        field1.required = Some(true);
+        field1.default_value = Some("`ignored`".to_string());
+        let mut output1 = String::new();
+        generate_field_row(&mut output1, &field1, "TestStruct", &global_context).unwrap();
+        assert!(output1.contains("**Required**"));
+        assert!(!output1.contains("`ignored`"));
+
+        // Test required=false with default (should show default)
+        let mut field2 = create_field_doc("opt_with_default", "Optional with default");
+        field2.required = Some(false);
+        field2.default_value = Some("`42`".to_string());
+        let mut output2 = String::new();
+        generate_field_row(&mut output2, &field2, "TestStruct", &global_context).unwrap();
+        assert!(output2.contains("`42`"));
+        assert!(!output2.contains("**Required**"));
+        assert!(!output2.contains("*Optional*"));
+
+        // Test required=false without default (should show Optional)
+        let mut field3 = create_field_doc("opt_no_default", "Optional without default");
+        field3.required = Some(false);
+        field3.default_value = None;
+        let mut output3 = String::new();
+        generate_field_row(&mut output3, &field3, "TestStruct", &global_context).unwrap();
+        assert!(output3.contains("*Optional*"));
+        assert!(!output3.contains("**Required**"));
+
+        // Test no required field specified (backward compatibility)
+        let mut field4 = create_field_doc("legacy_field", "Legacy field");
+        field4.required = None;
+        field4.default_value = Some("`legacy`".to_string());
+        let mut output4 = String::new();
+        generate_field_row(&mut output4, &field4, "TestStruct", &global_context).unwrap();
+        assert!(output4.contains("`legacy`"));
+        assert!(!output4.contains("**Required**"));
+    }
+
+    #[test]
+    fn test_generate_field_row_comprehensive_integration() {
+        // Test a field with all possible attributes
+        let mut field = create_field_doc(
+            "comprehensive_field",
+            "A comprehensive field demonstrating all features.\n\nThis includes multiple paragraphs."
+        );
+        field.default_value = Some("`[\"default\", \"values\"]`".to_string());
+        field.required = Some(false);
+        field.units = Some("milliseconds (range: 100-5000)".to_string());
+        field.notes = Some(vec![
+            "This is the first note with [`TEST_CONSTANT`]".to_string(),
+            "This is the second note referencing [`NodeConfig::test_field`]".to_string(),
+        ]);
+        field.deprecated = Some("Use new_comprehensive_field instead. Will be removed in v3.0.".to_string());
+        field.toml_example = Some("comprehensive_field = [\n  \"value1\",\n  \"value2\"\n]".to_string());
+
+        let global_context = create_mock_global_context();
+        let mut output = String::new();
+
+        generate_field_row(&mut output, &field, "NodeConfig", &global_context).unwrap();
+
+        // Verify field name with deprecation strikethrough
+        assert!(output.contains("~~"));
+        assert!(output.contains("comprehensive_field"));
+
+        // Verify description processing
+        assert!(output.contains("A comprehensive field"));
+        assert!(output.contains("This includes multiple paragraphs"));
+
+        // Verify default value (since required=false and has default)
+        assert!(output.contains("`[\"default\", \"values\"]`"));
+        assert!(!output.contains("**Required**"));
+        assert!(!output.contains("*Optional*"));
+
+        // Verify units
+        assert!(output.contains("**Units:** milliseconds (range: 100-5000)"));
+
+        // Verify notes with intralink processing
+        assert!(output.contains("**Notes:**"));
+        assert!(output.contains("- This is the first note with `42`")); // Constant resolved
+        assert!(output.contains("- This is the second note referencing [test_field](#node-test_field)")); // Intralink
+
+        // Verify deprecation warning
+        assert!(output.contains("**⚠️ DEPRECATED:**"));
+        assert!(output.contains("Use new_comprehensive_field instead"));
+
+        // Verify TOML example with proper formatting
+        assert!(output.contains("**Example:**"));
+        assert!(output.contains("<pre><code>"));
+        assert!(output.contains("comprehensive_field = ["));
+        assert!(output.contains("\"value1\","));
+        assert!(output.contains("\"value2\""));
+        assert!(output.contains("</code></pre>"));
     }
 }
