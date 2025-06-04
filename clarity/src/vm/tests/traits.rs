@@ -721,12 +721,18 @@ fn test_readwrite_dynamic_dispatch(
 
     {
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-            ASTRules::PrecheckSize,
-        )
-        .unwrap();
+        let err_result = env
+            .initialize_contract(
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+                ASTRules::PrecheckSize,
+            )
+            .unwrap_err();
+        match err_result {
+            Error::Unchecked(CheckErrors::WriteAttemptedInReadOnly) => {}
+            _ => panic!("{:?}", err_result),
+        }
+
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
@@ -778,12 +784,18 @@ fn test_readwrite_violation_dynamic_dispatch(
 
     {
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-            ASTRules::PrecheckSize,
-        )
-        .unwrap();
+        let err = env
+            .initialize_contract(
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+                ASTRules::PrecheckSize,
+            )
+            .unwrap_err();
+        match err {
+            Error::Unchecked(CheckErrors::WriteAttemptedInReadOnly) => {}
+            _ => panic!("{:?}", err),
+        }
+
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
