@@ -33,7 +33,7 @@ use libsigner::v0::messages::{
     MessageSlotID, RejectReason, SignerMessage as SignerMessageV0, StateMachineUpdate,
     StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
-use libsigner::v0::signer_state::{MinerState, SignerStateMachine};
+use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
 use libsigner::{SignerSession, StackerDBSession};
 use rand::{thread_rng, Rng};
 use rusqlite::{Connection, OptionalExtension};
@@ -6582,6 +6582,16 @@ fn signer_chainstate() {
     // hold the first and last blocks of the first tenure. we'll use this to submit reorging proposals
     let mut first_tenure_blocks: Option<Vec<NakamotoBlock>> = None;
 
+    let mut address_weights = HashMap::new();
+    signers.signer_keys.iter().for_each(|key| {
+        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(key));
+        address_weights.insert(address, 10);
+    });
+    let local_address = StacksAddress::p2pkh(
+        false,
+        &StacksPublicKey::from_private(signers.signer_keys.first().unwrap()),
+    );
+    let global_eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
     let get_sortitions_view_from_tip =
         |sortdb: &SortitionDB,
          signer_client: &StacksClient,
@@ -6602,7 +6612,13 @@ fn signer_chainstate() {
                 .unwrap();
 
             let is_current_valid = cur_sortition
-                .is_tenure_valid(&signer_db, &signer_client, &proposal_conf)
+                .is_tenure_valid(
+                    &signer_db,
+                    &signer_client,
+                    &proposal_conf,
+                    &global_eval,
+                    &local_address,
+                )
                 .unwrap();
 
             let miner_state = if is_current_valid {
@@ -6615,7 +6631,13 @@ fn signer_chainstate() {
                 .unwrap()
             } else {
                 let is_last_valid = last_sortition
-                    .is_tenure_valid(&signer_db, &signer_client, &proposal_conf)
+                    .is_tenure_valid(
+                        &signer_db,
+                        &signer_client,
+                        &proposal_conf,
+                        &global_eval,
+                        &local_address,
+                    )
                     .unwrap();
 
                 if is_last_valid {

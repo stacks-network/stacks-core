@@ -19,8 +19,9 @@ use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::TenureChangePayload;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
 use blockstack_lib::util_lib::db::Error as DBError;
+use clarity::types::chainstate::StacksAddress;
 use libsigner::v0::messages::RejectReason;
-use libsigner::v0::signer_state::{MinerState, SignerStateMachine};
+use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
 use stacks_common::types::chainstate::{BurnchainHeaderHash, ConsensusHash, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
@@ -82,13 +83,17 @@ impl SortitionState {
         sortition: &ConsensusHash,
         timeout: Duration,
         signer_db: &SignerDb,
+        eval: &GlobalStateEvaluator,
+        local_address: &StacksAddress,
     ) -> Result<bool, SignerChainstateError> {
         // if we've already signed a block in this tenure, the miner can't have timed out.
         let has_block = signer_db.has_signed_block_in_tenure(sortition)?;
         if has_block {
             return Ok(false);
         }
-        let Some(received_ts) = signer_db.get_burn_block_receive_time_ch(sortition)? else {
+        let Some(received_ts) =
+            signer_db.get_burn_block_received_time_from_signers(eval, sortition, local_address)?
+        else {
             return Ok(false);
         };
         let received_time = UNIX_EPOCH + Duration::from_secs(received_ts);
@@ -120,6 +125,8 @@ impl SortitionState {
         signer_db: &SignerDb,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
+        eval: &GlobalStateEvaluator,
+        local_address: &StacksAddress,
     ) -> Result<bool, SignerChainstateError> {
         let chose_good_parent = self.check_parent_tenure_choice(
             signer_db,
@@ -133,6 +140,8 @@ impl SortitionState {
             &self.consensus_hash,
             proposal_config.block_proposal_timeout,
             signer_db,
+            eval,
+            local_address,
         )
         .map(|timed_out| !timed_out)
     }

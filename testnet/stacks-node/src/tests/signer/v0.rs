@@ -4984,6 +4984,10 @@ fn idle_tenure_extend_active_mining() {
                 TEST_MINE_STALL.set(false);
             });
 
+            wait_for(30, || {
+                Ok(signer_test.get_latest_block_response(slot_id) != last_response)
+            })
+            .expect("Failed to find a new block response");
             let latest_response = signer_test.get_latest_block_response(slot_id);
             let naka_blocks = test_observer::get_mined_nakamoto_blocks();
             info!(
