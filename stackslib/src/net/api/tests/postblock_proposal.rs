@@ -18,32 +18,37 @@ use std::collections::VecDeque;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Condvar, Mutex};
 
+use clarity::codec::StacksMessageCodec;
 use clarity::consts::CHAIN_ID_TESTNET;
-use clarity::types::chainstate::StacksPrivateKey;
+use clarity::types::chainstate::{BlockHeaderHash, StacksBlockId, StacksPrivateKey};
 use clarity::vm::ast::ASTRules;
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StandardPrincipalData;
-use mempool::{MemPoolDB, MemPoolEventDispatcher, ProposalCallbackReceiver};
 use postblock_proposal::{NakamotoBlockProposal, ValidateRejectCode};
 use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::StacksEpochId;
 
 use super::TestRPC;
+use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction};
 use crate::chainstate::stacks::test::make_codec_test_nakamoto_block;
+use crate::chainstate::stacks::{StacksMicroblock, StacksTransaction};
+use crate::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher, ProposalCallbackReceiver};
 use crate::core::test_util::{
     make_big_read_count_contract, make_contract_call, make_contract_publish,
     make_stacks_transfer_tx, to_addr,
 };
-use crate::core::BLOCK_LIMIT_MAINNET_21;
+use crate::core::{MemPoolDB, BLOCK_LIMIT_MAINNET_21};
 use crate::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, TEST_REPLAY_TRANSACTIONS,
 };
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
+use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
 use crate::net::relay::Relayer;
 use crate::net::test::{TestEventObserver, TestPeer};
@@ -178,7 +183,7 @@ impl ProposalCallbackReceiver for Arc<Mutex<ProposalObserver>> {
 }
 
 impl MemPoolEventDispatcher for ProposalTestObserver {
-    fn get_proposal_callback_receiver(&self) -> Option<Box<dyn mempool::ProposalCallbackReceiver>> {
+    fn get_proposal_callback_receiver(&self) -> Option<Box<dyn ProposalCallbackReceiver>> {
         Some(Box::new(Arc::clone(&self.proposal_observer)))
     }
 
@@ -186,7 +191,7 @@ impl MemPoolEventDispatcher for ProposalTestObserver {
         &self,
         txids: Vec<Txid>,
         new_txid: Option<Txid>,
-        reason: mempool::MemPoolDropReason,
+        reason: MemPoolDropReason,
     ) {
     }
 

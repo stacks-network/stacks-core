@@ -15,29 +15,19 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
 
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
-use clarity::vm::{ClarityName, ContractName, Value};
+use clarity::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::net::PeerHost;
 use stacks_common::types::Address;
-use stacks_common::util::hash::{to_hex, Sha256Sum};
+use stacks_common::util::hash::to_hex;
 
-use super::test_rpc;
 use crate::chainstate::stacks::TransactionPayload;
-use crate::core::BLOCK_LIMIT_MAINNET_21;
-use crate::cost_estimates::metrics::UnitMetric;
-use crate::cost_estimates::tests::fee_rate_fuzzer::ConstantFeeEstimator;
-use crate::cost_estimates::UnitEstimator;
 use crate::net::api::tests::TestRPC;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
-use crate::net::httpcore::{
-    HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
-};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
 use crate::net::test::RPCHandlerArgsType;
-use crate::net::{ProtocolFamily, RPCHandlerArgs, TipRequest};
+use crate::net::ProtocolFamily;
 
 #[test]
 fn test_try_parse_request() {

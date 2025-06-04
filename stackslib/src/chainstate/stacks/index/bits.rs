@@ -15,23 +15,17 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 /// This file contains low-level methods for reading and manipulating Trie node data.
-use std::fmt;
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
-use std::{error, io};
 
 use sha2::{Digest, Sha512_256 as TrieHasher};
-use stacks_common::types::chainstate::{
-    TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
-};
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-use stacks_common::util::macros::is_trace;
 
 use crate::chainstate::stacks::index::node::{
     clear_backptr, ConsensusSerializable, TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48,
     TrieNodeID, TrieNodeType, TriePtr, TRIEPTR_SIZE,
 };
-use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
+use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::{BlockMap, Error, MarfTrieId, TrieLeaf};
 
 /// Get the size of a Trie path (note that a Trie path is 32 bytes long, and can definitely _not_

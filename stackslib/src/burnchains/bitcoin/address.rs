@@ -15,14 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use stacks_common::address::b58 as base58;
-use stacks_common::address::c32::c32_address;
 use stacks_common::deps_common::bech32;
 use stacks_common::deps_common::bech32::{u5, FromBase32, ToBase32};
 use stacks_common::deps_common::bitcoin::blockdata::opcodes::All as BtcOp;
 use stacks_common::deps_common::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
-use stacks_common::util::log;
+#[cfg(test)]
+use stacks_common::util::hash::hex_bytes;
+use stacks_common::util::hash::Hash160;
 
 use crate::burnchains::bitcoin::{BitcoinNetworkType, Error as btc_error};
 use crate::burnchains::Address;
@@ -686,7 +686,6 @@ impl Address for BitcoinAddress {
 mod tests {
     use stacks_common::types::Address;
     use stacks_common::util::hash::{hex_bytes, Hash160};
-    use stacks_common::util::log;
 
     use super::{
         BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,

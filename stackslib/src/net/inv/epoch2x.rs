@@ -15,37 +15,24 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::io::{Read, Write};
-use std::net::SocketAddr;
+use std::collections::{HashMap, HashSet};
 
 use p2p::DropSource;
 use rand;
 use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng};
-use stacks_common::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
+use rand::thread_rng;
+use stacks_common::types::chainstate::{BlockHeaderHash, PoxId};
+use stacks_common::util::get_epoch_time_secs;
 
 use crate::burnchains::{Burnchain, BurnchainView};
-use crate::chainstate::burn::db::sortdb::{
-    BlockHeaderCache, SortitionDB, SortitionDBConn, SortitionHandleConn,
-};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHashExtensions};
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::net::asn::ASEntry4;
 use crate::net::chat::ConversationP2P;
-use crate::net::codec::*;
-use crate::net::connection::{ConnectionOptions, ConnectionP2P, ReplyHandleP2P};
-use crate::net::db::{PeerDB, *};
-use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use crate::net::connection::ReplyHandleP2P;
+use crate::net::db::PeerDB;
 use crate::net::p2p::{DropReason, PeerNetwork, PeerNetworkWorkState};
-use crate::net::{
-    Error as net_error, GetBlocksInv, Neighbor, NeighborKey, PeerAddress, StacksMessage, StacksP2P,
-    *,
-};
-use crate::util_lib::db::{DBConn, Error as db_error};
+use crate::net::{Error as net_error, GetBlocksInv, NeighborKey, *};
 
 /// This module is responsible for synchronizing block inventories with other peers
 #[cfg(not(test))]

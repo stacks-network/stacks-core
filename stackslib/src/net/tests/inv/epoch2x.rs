@@ -24,7 +24,6 @@ use crate::burnchains::tests::BURNCHAIN_TEST_BLOCK_TIME;
 use crate::burnchains::{Burnchain, BurnchainBlockHeader, BurnchainView, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionHandleConn;
 use crate::chainstate::coordinator::tests::get_burnchain;
-use crate::chainstate::stacks::*;
 use crate::net::chat::ConversationP2P;
 use crate::net::inv::inv2x::*;
 use crate::net::test::*;

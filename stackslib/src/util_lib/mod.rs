@@ -8,11 +8,9 @@ pub mod strings;
 #[cfg(test)]
 pub mod test {
     use std::sync::mpsc::sync_channel;
-    use std::{panic, process, thread};
+    use std::{panic, thread};
 
     use stacks_common::util::{get_epoch_time_secs, sleep_ms};
-
-    use super::*;
 
     pub fn with_timeout<F>(timeout_secs: u64, test_func: F)
     where

@@ -28,7 +28,6 @@ use std::io::Write;
 use std::str::FromStr;
 use std::{fmt, io};
 
-use regex::{Captures, Regex};
 use serde_json;
 use stacks_common::codec::Error as CodecError;
 

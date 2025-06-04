@@ -17,25 +17,17 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::collections::{HashMap, HashSet};
-use std::fs;
+use std::collections::HashMap;
 
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::database::{BurnStateDB, HeadersDB, NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use clarity::vm::database::{BurnStateDB, HeadersDB};
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
 
-use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::stacks::db::accounts::*;
-use crate::chainstate::stacks::db::blocks::*;
 use crate::chainstate::stacks::db::*;
-use crate::chainstate::stacks::events::*;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::{Error, *};
-use crate::clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
+use crate::clarity_vm::clarity::ClarityInstance;
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::core::*;
-use crate::net::Error as net_error;
-use crate::util_lib::db::Error as db_error;
 
 pub type UnconfirmedTxMap = HashMap<Txid, (StacksTransaction, BlockHeaderHash, u16)>;
 
@@ -640,24 +632,12 @@ impl StacksChainState {
 
 #[cfg(test)]
 mod test {
-    use std::fs;
-
     use clarity::vm::types::StacksAddressExtensions;
 
     use super::*;
-    use crate::burnchains::PublicKey;
-    use crate::chainstate::burn::db::sortdb::*;
-    use crate::chainstate::burn::db::*;
-    use crate::chainstate::stacks::db::test::*;
-    use crate::chainstate::stacks::db::*;
-    use crate::chainstate::stacks::index::marf::*;
-    use crate::chainstate::stacks::index::node::*;
-    use crate::chainstate::stacks::index::*;
     use crate::chainstate::stacks::miner::*;
     use crate::chainstate::stacks::tests::make_coinbase;
-    use crate::chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *};
-    use crate::core::mempool::*;
-    use crate::core::*;
+    use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use crate::net::relay::*;
     use crate::net::test::*;
 
