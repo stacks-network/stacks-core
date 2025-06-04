@@ -105,15 +105,6 @@ impl SortitionState {
         let Ok(elapsed) = std::time::SystemTime::now().duration_since(last_activity) else {
             return Ok(false);
         };
-
-        if elapsed > timeout {
-            info!(
-                "Tenure miner was inactive too long and timed out";
-                "tenure_ch" => %sortition,
-                "elapsed_inactive" => elapsed.as_secs(),
-                "config_block_proposal_timeout" => timeout.as_secs()
-            );
-        }
         Ok(elapsed > timeout)
     }
 

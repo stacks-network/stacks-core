@@ -1677,9 +1677,7 @@ fn should_reevaluate_block(block_info: &BlockInfo) -> bool {
             | RejectReason::NotLatestSortitionWinner
             | RejectReason::InvalidParentBlock
             | RejectReason::DuplicateBlockFound
-            // TODO: The active miner view might have updated since the block was first proposed? Should this be reconsidered?
-            | RejectReason::InvalidMiner
-              => {
+            | RejectReason::InvalidMiner => {
                 // No need to re-validate these types of rejections.
                 false
             }
