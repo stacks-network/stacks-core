@@ -123,6 +123,8 @@ pub struct Signer {
     recently_processed: RecentlyProcessedBlocks<100>,
     /// The signer's global state evaluator
     pub global_state_evaluator: GlobalStateEvaluator,
+    /// Whether to validate blocks with replay transactions
+    pub validate_with_replay_tx: bool,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_tenure_timeout: Duration,
 }
@@ -248,6 +250,7 @@ impl SignerTrait<SignerMessage> for Signer {
             local_state_machine: signer_state,
             recently_processed: RecentlyProcessedBlocks::new(),
             global_state_evaluator,
+            validate_with_replay_tx: signer_config.validate_with_replay_tx,
             capitulate_tenure_timeout: signer_config.capitulate_tenure_timeout,
         }
     }
@@ -545,6 +548,7 @@ impl Signer {
                 block_id,
                 consensus_hash,
                 signer_sighash,
+                transactions,
             } => {
                 let Some(signer_sighash) = signer_sighash else {
                     debug!("{self}: received a new block event for a pre-nakamoto block, no processing necessary");
@@ -556,10 +560,11 @@ impl Signer {
                     "block_id" => %block_id,
                     "signer_signature_hash" => %signer_sighash,
                     "consensus_hash" => %consensus_hash,
-                    "block_height" => block_height
+                    "block_height" => block_height,
+                    "total_txs" => transactions.len()
                 );
                 self.local_state_machine
-                    .stacks_block_arrival(consensus_hash, *block_height, block_id)
+                    .stacks_block_arrival(consensus_hash, *block_height, block_id, signer_sighash, &self.signer_db, transactions)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest stacks block arrival"; "err" => ?e));
 
                 if let Ok(Some(mut block_info)) = self
@@ -1054,6 +1059,21 @@ impl Signer {
             .unwrap_or(false)
         {
             self.submitted_block_proposal = None;
+        }
+        if let Some(replay_tx_hash) = block_validate_ok.replay_tx_hash {
+            info!("Inserting block validated by replay tx";
+                "signer_signature_hash" => %signer_signature_hash,
+                "replay_tx_hash" => replay_tx_hash
+            );
+            self.signer_db
+                .insert_block_validated_by_replay_tx(
+                    &signer_signature_hash,
+                    replay_tx_hash,
+                    block_validate_ok.replay_tx_exhausted,
+                )
+                .unwrap_or_else(|e| {
+                    warn!("{self}: Failed to insert block validated by replay tx: {e:?}")
+                });
         }
         // For mutability reasons, we need to take the block_info out of the map and add it back after processing
         let Some(mut block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) else {
@@ -1582,7 +1602,17 @@ impl Signer {
                 debug!("{self}: Cannot confirm that we have processed parent, but we've waited proposal_wait_for_parent_time, will submit proposal");
             }
         }
-        match stacks_client.submit_block_for_validation(block.clone()) {
+        match stacks_client.submit_block_for_validation(
+            block.clone(),
+            if self.validate_with_replay_tx {
+                self.global_state_evaluator
+                    .get_global_tx_replay_set()
+                    .unwrap_or_default()
+                    .clone_as_optional()
+            } else {
+                None
+            },
+        ) {
             Ok(_) => {
                 self.submitted_block_proposal = Some((signer_signature_hash, Instant::now()));
             }

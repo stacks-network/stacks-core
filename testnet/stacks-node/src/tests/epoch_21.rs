@@ -1665,10 +1665,7 @@ fn transition_removes_pox_sunset() {
     let mut pox_out_opt = None;
     for (i, block) in burn_blocks.into_iter().enumerate() {
         let recipients: Vec<(String, u64)> = block
-            .get("reward_recipients")
-            .unwrap()
-            .as_array()
-            .unwrap()
+            .reward_recipients
             .iter()
             .map(|value| {
                 let recipient: String = value

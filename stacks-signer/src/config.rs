@@ -185,6 +185,8 @@ pub struct SignerConfig {
     /// Time to wait before submitting a block proposal to the stacks-node if we cannot
     ///  determine that the stacks-node has processed the parent
     pub proposal_wait_for_parent_time: Duration,
+    /// Whether or not to validate blocks with replay transactions
+    pub validate_with_replay_tx: bool,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_tenure_timeout: Duration,
 }
@@ -240,6 +242,8 @@ pub struct GlobalConfig {
     pub capitulate_tenure_timeout: Duration,
     /// Is this signer binary going to be running in dry-run mode?
     pub dry_run: bool,
+    /// Whether or not to validate blocks with replay transactions
+    pub validate_with_replay_tx: bool,
 }
 
 /// Internal struct for loading up the config file
@@ -291,6 +295,8 @@ struct RawConfigFile {
     pub capitulate_tenure_timeout: Option<u64>,
     /// Is this signer binary going to be running in dry-run mode?
     pub dry_run: Option<bool>,
+    /// Whether or not to validate blocks with replay transactions
+    pub validate_with_replay_tx: Option<bool>,
 }
 
 impl RawConfigFile {
@@ -412,6 +418,10 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(DEFAULT_PROPOSAL_WAIT_TIME_FOR_PARENT_SECS),
         );
 
+        // TODO: remove this before going to mainnet
+        // https://github.com/stacks-network/stacks-core/issues/6087
+        let validate_with_replay_tx = raw_data.validate_with_replay_tx.unwrap_or(false);
+
         let capitulate_tenure_timeout = Duration::from_secs(
             raw_data
                 .capitulate_tenure_timeout
@@ -439,6 +449,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             dry_run,
             tenure_idle_timeout_buffer,
             proposal_wait_for_parent_time,
+            validate_with_replay_tx,
             capitulate_tenure_timeout,
         })
     }
@@ -481,6 +492,7 @@ Network: {network}
 Chain ID: 0x{chain_id}
 Database path: {db_path}
 Metrics endpoint: {metrics_endpoint}
+Dry run: {dry_run}
 "#,
             node_host = self.node_host,
             endpoint = self.endpoint,
@@ -491,6 +503,7 @@ Metrics endpoint: {metrics_endpoint}
             network = self.network,
             db_path = self.db_path.to_str().unwrap_or_default(),
             metrics_endpoint = metrics_endpoint,
+            dry_run = self.dry_run,
         )
     }
 
@@ -661,10 +674,10 @@ Network: testnet
 Chain ID: 0x80000000
 Database path: :memory:
 Metrics endpoint: 0.0.0.0:9090
-Chain ID: 2147483648
+Dry run: false
 "#;
 
-        let expected_str_v6 = r#"
+        let expected_str_v6: &'static str = r#"
 Stacks node host: 127.0.0.1:20443
 Signer endpoint: [::1]:30000
 Stacks address: ST3FPN8KBZ3YPBP0ZJGAAHTVFMQDTJCR5QPS7VTNJ
@@ -673,6 +686,7 @@ Network: testnet
 Chain ID: 0x80000000
 Database path: :memory:
 Metrics endpoint: 0.0.0.0:9090
+Dry run: false
 "#;
 
         assert!(
@@ -703,7 +717,7 @@ db_path = ":memory:"
         );
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
         assert_eq!(config.stacks_address.to_string(), expected_addr);
-
+        assert!(!config.validate_with_replay_tx);
         // 65 bytes (with compression flag)
         let sk_hex = "2de4e77aab89c0c2570bb8bb90824f5cf2a5204a975905fee450ff9dad0fcf2801";
 
@@ -715,11 +729,13 @@ endpoint = "localhost:30000"
 network = "mainnet"
 auth_password = "abcd"
 db_path = ":memory:"
+validate_with_replay_tx = true
             "#
         );
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
         assert_eq!(config.stacks_address.to_string(), expected_addr);
         assert_eq!(config.to_chain_id(), CHAIN_ID_MAINNET);
+        assert!(config.validate_with_replay_tx);
     }
 
     #[test]

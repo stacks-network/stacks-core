@@ -25,7 +25,7 @@ use crate::v0::messages::{
     StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,
     StateMachineUpdateMinerState,
 };
-use crate::v0::signer_state::{GlobalStateEvaluator, SignerStateMachine};
+use crate::v0::signer_state::{GlobalStateEvaluator, ReplayTransactionSet, SignerStateMachine};
 
 fn generate_global_state_evaluator(num_addresses: u32) -> GlobalStateEvaluator {
     let address_weights = generate_random_address_with_equal_weights(num_addresses);
@@ -238,7 +238,7 @@ fn determine_global_states() {
         burn_block_height,
         current_miner: (&current_miner).into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
-        tx_replay_set: None,
+        tx_replay_set: ReplayTransactionSet::none(),
         creation_time: SystemTime::now(),
     };
 
@@ -278,7 +278,7 @@ fn determine_global_states() {
         burn_block_height,
         current_miner: (&new_miner).into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
-        tx_replay_set: None,
+        tx_replay_set: ReplayTransactionSet::none(),
         creation_time: SystemTime::now(),
     };
 

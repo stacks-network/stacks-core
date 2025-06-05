@@ -33,7 +33,9 @@ use libsigner::v0::messages::{
     StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,
     StateMachineUpdateMinerState,
 };
-use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
+use libsigner::v0::signer_state::{
+    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
+};
 
 use crate::chainstate::{ProposalEvalConfig, SortitionState};
 use crate::client::tests::MockServerClient;
@@ -172,7 +174,7 @@ fn check_capitulate_miner_view() {
         burn_block,
         burn_block_height,
         current_miner: (&new_miner).into(),
-        tx_replay_set: None,
+        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
         creation_time: SystemTime::now(),
     };
@@ -358,7 +360,7 @@ fn check_miner_inactivity_timeout() {
         burn_block_height: 1,
         current_miner: inactive_miner,
         active_signer_protocol_version: 0,
-        tx_replay_set: None,
+        tx_replay_set: ReplayTransactionSet::none(),
         creation_time: SystemTime::now(),
     };
     local_state_machine = LocalStateMachine::Initialized(signer_state.clone());
