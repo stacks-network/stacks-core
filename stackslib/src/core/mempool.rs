@@ -1722,6 +1722,9 @@ impl MemPoolDB {
                                                 !start_with_no_estimate,
                                             ),
                                             None => {
+                                                monitoring::increment_miner_stop_reason(
+                                                    monitoring::MinerStopReason::NoTransactions,
+                                                );
                                                 break MempoolIterationStopReason::NoMoreCandidates;
                                             }
                                         }
@@ -1738,6 +1741,9 @@ impl MemPoolDB {
                                 (tx, update_estimate)
                             }
                             None => {
+                                monitoring::increment_miner_stop_reason(
+                                    monitoring::MinerStopReason::NoTransactions,
+                                );
                                 break MempoolIterationStopReason::NoMoreCandidates;
                             }
                         }
