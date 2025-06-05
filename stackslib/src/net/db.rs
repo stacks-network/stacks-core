@@ -103,29 +103,17 @@ pub struct LocalPeer {
 
 impl fmt::Display for LocalPeer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "local.{:x}://(bind={:?})(pub={:?})",
-            self.network_id,
-            &self.addrbytes.to_socketaddr(self.port),
-            &self
-                .public_ip_address
-                .map(|(ref addrbytes, ref port)| addrbytes.to_socketaddr(*port))
-        )
+        write!(f, "local::{}", self.port)?;
+        match &self.public_ip_address {
+            None => Ok(()),
+            Some((addr, port)) => write!(f, "::pub={}", addr.to_socketaddr(*port)),
+        }
     }
 }
 
 impl fmt::Debug for LocalPeer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "local.{:x}://(bind={:?})(pub={:?})",
-            self.network_id,
-            &self.addrbytes.to_socketaddr(self.port),
-            &self
-                .public_ip_address
-                .map(|(ref addrbytes, ref port)| addrbytes.to_socketaddr(*port))
-        )
+        write!(f, "{self}")
     }
 }
 

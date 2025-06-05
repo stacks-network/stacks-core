@@ -43,7 +43,7 @@ use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::{debug, info, warn};
 
 use crate::chainstate::{
-    ProposalEvalConfig, SignerChainstateError, SortitionState, SortitionsView,
+    ProposalEvalConfig, SignerChainstateError, SortitionMinerStatus, SortitionState, SortitionsView,
 };
 use crate::client::{ClientError, CurrentAndLastSortition, StackerDB, StacksClient};
 use crate::signerdb::{BlockValidatedByReplaySet, SignerDb};
@@ -623,6 +623,7 @@ impl LocalStateMachine {
         local_address: StacksAddress,
         local_supported_signer_protocol_version: u64,
         reward_cycle: u64,
+        sortition_state: &mut Option<SortitionsView>,
     ) {
         // Before we ever access eval...we should make sure to include our own local state machine update message in the evaluation
         let Ok(mut local_update) =
@@ -736,6 +737,21 @@ impl LocalStateMachine {
                 active_signer_protocol_version,
                 tx_replay_set,
             });
+
+            match new_miner {
+                StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh, ..
+                } => {
+                    if let Some(sortition_state) = sortition_state {
+                        // if there is a mismatch between the new_miner ad the current sortition view, mark the current miner as invalid
+                        if current_miner_pkh != sortition_state.cur_sortition.miner_pkh {
+                            sortition_state.cur_sortition.miner_status =
+                                SortitionMinerStatus::InvalidatedBeforeFirstBlock
+                        }
+                    }
+                }
+                StateMachineUpdateMinerState::NoValidMiner => (),
+            }
         }
     }
 
