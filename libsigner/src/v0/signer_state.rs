@@ -132,7 +132,12 @@ impl GlobalStateEvaluator {
                         burn_block_height,
                         current_miner,
                         ..
-                    } => (burn_block, burn_block_height, current_miner, None),
+                    } => (
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                        ReplayTransactionSet::none(),
+                    ),
                     StateMachineUpdateContent::V1 {
                         burn_block,
                         burn_block_height,
@@ -142,7 +147,7 @@ impl GlobalStateEvaluator {
                         burn_block,
                         burn_block_height,
                         current_miner,
-                        Some(replay_transactions.clone()),
+                        ReplayTransactionSet::new(replay_transactions.clone()),
                     ),
                 };
             let state_machine = SignerStateMachine {
@@ -177,6 +182,77 @@ impl GlobalStateEvaluator {
     pub fn reached_agreement(&self, vote_weight: u32) -> bool {
         vote_weight >= self.total_weight * 7 / 10
     }
+
+    /// Get the global transaction replay set. Returns `None` if there
+    /// is no global state.
+    pub fn get_global_tx_replay_set(&mut self) -> Option<ReplayTransactionSet> {
+        let global_state = self.determine_global_state()?;
+        Some(global_state.tx_replay_set)
+    }
+}
+
+/// A "wrapper" struct around Vec<StacksTransaction> that behaves like
+/// `None` when the vector is empty.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
+pub struct ReplayTransactionSet(Vec<StacksTransaction>);
+
+impl ReplayTransactionSet {
+    /// Create a new `ReplayTransactionSet`
+    pub fn new(tx_replay_set: Vec<StacksTransaction>) -> Self {
+        Self(tx_replay_set)
+    }
+
+    /// Check if the `ReplayTransactionSet` is empty
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Map into an optional, returning `None` if the set is empty
+    pub fn clone_as_optional(&self) -> Option<Vec<StacksTransaction>> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.0.clone())
+        }
+    }
+
+    /// Unwrap the `ReplayTransactionSet` or return a default vector if it is empty
+    pub fn unwrap_or_default(self) -> Vec<StacksTransaction> {
+        if self.is_empty() {
+            vec![]
+        } else {
+            self.0
+        }
+    }
+
+    /// Map the transactions in the set to a new type, only
+    /// if the set is not empty
+    pub fn map<U, F>(self, f: F) -> Option<U>
+    where
+        F: Fn(Vec<StacksTransaction>) -> U,
+    {
+        if self.is_empty() {
+            None
+        } else {
+            Some(f(self.0))
+        }
+    }
+
+    /// Create a new `ReplayTransactionSet` with no transactions
+    pub fn none() -> Self {
+        Self(vec![])
+    }
+
+    /// Check if the `ReplayTransactionSet` isn't empty
+    pub fn is_some(&self) -> bool {
+        !self.is_empty()
+    }
+}
+
+impl Default for ReplayTransactionSet {
+    fn default() -> Self {
+        Self::none()
+    }
 }
 
 /// A signer state machine view. This struct can
@@ -193,7 +269,7 @@ pub struct SignerStateMachine {
     /// The active signing protocol version
     pub active_signer_protocol_version: u64,
     /// Transaction replay set
-    pub tx_replay_set: Option<Vec<StacksTransaction>>,
+    pub tx_replay_set: ReplayTransactionSet,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]

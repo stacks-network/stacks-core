@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::VecDeque;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{Read, Write};
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
@@ -54,7 +55,8 @@ use crate::chainstate::stacks::miner::{
     TransactionSkipped,
 };
 use crate::chainstate::stacks::{
-    Error as ChainError, StacksBlock, StacksBlockHeader, StacksTransaction, TransactionPayload,
+    Error as ChainError, StacksBlock, StacksBlockHeader, StacksTransaction, TenureChangeCause,
+    TenureChangePayload, TransactionPayload,
 };
 use crate::clarity_vm::clarity::Error as ClarityError;
 use crate::core::mempool::{MemPoolDB, ProposalCallbackReceiver};
@@ -173,6 +175,12 @@ pub struct BlockValidateOk {
     pub cost: ExecutionCost,
     pub size: u64,
     pub validation_time_ms: u64,
+    /// If a block was validated by a transaction replay set,
+    /// then this returns `Some` with the hash of the replay set.
+    pub replay_tx_hash: Option<u64>,
+    /// If a block was validated by a transaction replay set,
+    /// then this is true if this block exhausted the set of transactions.
+    pub replay_tx_exhausted: bool,
 }
 
 /// This enum is used for serializing the response to block
@@ -568,6 +576,8 @@ impl NakamotoBlockProposal {
         let mut replay_txs_maybe: Option<VecDeque<StacksTransaction>> =
             self.replay_txs.clone().map(|txs| txs.into());
 
+        let mut replay_tx_exhausted = false;
+
         for (i, tx) in self.block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
 
@@ -575,14 +585,25 @@ impl NakamotoBlockProposal {
             // mineable transaction from this list.
             if let Some(ref mut replay_txs) = replay_txs_maybe {
                 loop {
+                    if matches!(
+                        tx.payload,
+                        TransactionPayload::TenureChange(..) | TransactionPayload::Coinbase(..)
+                    ) {
+                        // Allow this to happen, tenure extend checks happen elsewhere.
+                        break;
+                    }
                     let Some(replay_tx) = replay_txs.pop_front() else {
                         // During transaction replay, we expect that the block only
                         // contains transactions from the replay set. Thus, if we're here,
                         // the block contains a transaction that is not in the replay set,
                         // and we should reject the block.
+                        warn!("Rejected block proposal. Block contains transactions beyond the replay set.";
+                            "txid" => %tx.txid(),
+                            "tx_index" => i,
+                        );
                         return Err(BlockValidateRejectReason {
                             reason_code: ValidateRejectCode::InvalidTransactionReplay,
-                            reason: "Transaction is not in the replay set".into(),
+                            reason: "Block contains transactions beyond the replay set".into(),
                         });
                     };
                     if replay_tx.txid() == tx.txid() {
@@ -638,12 +659,20 @@ impl NakamotoBlockProposal {
                         }
                         TransactionResult::Success(_) => {
                             // Tx should have been included
+                            warn!("Rejected block proposal. Block doesn't contain replay transaction that should have been included.";
+                                "block_txid" => %tx.txid(),
+                                "block_tx_index" => i,
+                                "replay_txid" => %replay_tx.txid(),
+                            );
                             return Err(BlockValidateRejectReason {
                                 reason_code: ValidateRejectCode::InvalidTransactionReplay,
                                 reason: "Transaction is not in the replay set".into(),
                             });
                         }
                     };
+                }
+                if replay_txs.is_empty() {
+                    replay_tx_exhausted = true;
                 }
             }
 
@@ -732,11 +761,23 @@ impl NakamotoBlockProposal {
             })
         );
 
+        let replay_tx_hash = Self::tx_replay_hash(&self.replay_txs);
+
         Ok(BlockValidateOk {
             signer_signature_hash: block.header.signer_signature_hash(),
             cost,
             size,
             validation_time_ms,
+            replay_tx_hash,
+            replay_tx_exhausted,
+        })
+    }
+
+    pub fn tx_replay_hash(replay_txs: &Option<Vec<StacksTransaction>>) -> Option<u64> {
+        replay_txs.as_ref().map(|txs| {
+            let mut hasher = DefaultHasher::new();
+            txs.hash(&mut hasher);
+            hasher.finish()
         })
     }
 }
