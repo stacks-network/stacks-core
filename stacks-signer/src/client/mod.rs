@@ -28,7 +28,7 @@ use libstackerdb::Error as StackerDBError;
 pub use stackerdb::*;
 pub use stacks_client::*;
 use stacks_common::codec::Error as CodecError;
-use stacks_common::debug;
+use stacks_common::{debug, warn};
 
 /// Backoff timer initial interval in milliseconds
 const BACKOFF_INITIAL_INTERVAL: u64 = 128;
@@ -103,7 +103,7 @@ pub enum ClientError {
 pub fn retry_with_exponential_backoff<F, E, T>(request_fn: F) -> Result<T, ClientError>
 where
     F: FnMut() -> Result<T, backoff::Error<E>>,
-    E: std::fmt::Debug,
+    E: std::fmt::Debug + Into<ClientError>,
 {
     let notify = |err, dur| {
         debug!(
@@ -117,7 +117,16 @@ where
         .with_max_elapsed_time(Some(Duration::from_secs(BACKOFF_MAX_ELAPSED)))
         .build();
 
-    backoff::retry_notify(backoff_timer, request_fn, notify).map_err(|_| ClientError::RetryTimeout)
+    backoff::retry_notify(backoff_timer, request_fn, notify).map_err(|e| match e {
+        backoff::Error::Permanent(err) => {
+            warn!("Non-retry error during request: {err:?}");
+            err.into()
+        }
+        backoff::Error::Transient { err, .. } => {
+            warn!("Exceeded max retries during request: {err:?}");
+            err.into()
+        }
+    })
 }
 
 #[cfg(test)]

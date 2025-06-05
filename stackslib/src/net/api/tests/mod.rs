@@ -31,6 +31,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::pipe::Pipe;
+use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex};
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::Txid;
@@ -44,7 +45,6 @@ use crate::chainstate::stacks::{
     TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionVersion,
 };
 use crate::core::MemPoolDB;
-use crate::net::api::{prefix_hex, prefix_opt_hex};
 use crate::net::db::PeerDB;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::relay::Relayer;

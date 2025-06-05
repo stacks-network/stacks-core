@@ -1159,17 +1159,15 @@ impl BlockMinerThread {
             })?;
 
         let stacks_tip_block_id = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
-        let tenure_tip_opt = NakamotoChainState::get_highest_known_block_header_in_tenure(
-            &mut chain_state.index_conn(),
-            &self.burn_election_block.consensus_hash,
-        )
-        .map_err(|e| {
-            error!(
+        let tenure_tip_opt = self
+            .find_highest_known_block_in_my_tenure(&burn_db, &chain_state)
+            .map_err(|e| {
+                error!(
                 "Could not query header info for tenure tip {} off of {stacks_tip_block_id}: {e:?}",
                 &self.burn_election_block.consensus_hash
             );
-            NakamotoNodeError::ParentNotFound
-        })?;
+                NakamotoNodeError::ParentNotFound
+            })?;
 
         // The nakamoto miner must always build off of a chain tip that is the highest of:
         // 1. The highest block in the miner's current tenure
@@ -1247,7 +1245,7 @@ impl BlockMinerThread {
             .keychain
             .origin_address(self.config.is_mainnet())
             .unwrap();
-        match ParentStacksBlockInfo::lookup(
+        ParentStacksBlockInfo::lookup(
             chain_state,
             burn_db,
             &self.burn_block,
@@ -1255,14 +1253,12 @@ impl BlockMinerThread {
             &self.parent_tenure_id,
             stacks_tip_header,
             &self.reason,
-        ) {
-            Ok(parent_info) => Ok(parent_info),
-            Err(NakamotoNodeError::BurnchainTipChanged) => {
+        )
+        .inspect_err(|e| {
+            if matches!(e, NakamotoNodeError::BurnchainTipChanged) {
                 self.globals.counters.bump_missed_tenures();
-                Err(NakamotoNodeError::BurnchainTipChanged)
             }
-            Err(e) => Err(e),
-        }
+        })
     }
 
     /// Generate the VRF proof for the block we're going to build.
@@ -1458,11 +1454,23 @@ impl BlockMinerThread {
             vec![]
         };
         // build the block itself
+        let mining_burn_handle = burn_db
+            .index_handle_at_ch(&self.burn_block.consensus_hash)
+            .map_err(|_| NakamotoNodeError::UnexpectedChainState)?;
+        if let Some(parent_burn_view) = &parent_block_info.stacks_parent_header.burn_view {
+            if !mining_burn_handle.processed_block(parent_burn_view)? {
+                error!(
+                    "Cannot mine block: calculated parent has burn view which is incompatible with the canonical burn fork";
+                    "parent_burn_view" => %parent_burn_view,
+                    "my_burn_view" => %self.burn_block.consensus_hash,
+                );
+                return Err(NakamotoNodeError::BurnchainTipChanged);
+            }
+        }
+
         let mut block_metadata = NakamotoBlockBuilder::build_nakamoto_block(
             &chain_state,
-            &burn_db
-                .index_handle_at_ch(&self.burn_block.consensus_hash)
-                .map_err(|_| NakamotoNodeError::UnexpectedChainState)?,
+            &mining_burn_handle,
             &mut mem_pool,
             &parent_block_info.stacks_parent_header,
             &self.burn_election_block.consensus_hash,
@@ -1528,6 +1536,19 @@ impl BlockMinerThread {
         // Stacks blocks with heights higher than the canonical tip are processed.
         self.check_burn_tip_changed(&burn_db)?;
         Ok(block_metadata.block)
+    }
+
+    fn find_highest_known_block_in_my_tenure(
+        &self,
+        burn_db: &SortitionDB,
+        chainstate: &StacksChainState,
+    ) -> Result<Option<StacksHeaderInfo>, NakamotoNodeError> {
+        NakamotoChainState::find_highest_known_block_header_in_tenure(
+            chainstate,
+            burn_db,
+            &self.burn_election_block.consensus_hash,
+        )
+        .map_err(NakamotoNodeError::from)
     }
 
     #[cfg_attr(test, mutants::skip)]

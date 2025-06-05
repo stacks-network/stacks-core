@@ -34,7 +34,7 @@ use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, info, warn};
 
 use crate::chainstate::{
-    ProposalEvalConfig, SignerChainstateError, SortitionState, SortitionsView,
+    ProposalEvalConfig, SignerChainstateError, SortitionMinerStatus, SortitionState, SortitionsView,
 };
 use crate::client::{ClientError, CurrentAndLastSortition, StackerDB, StacksClient};
 use crate::signerdb::SignerDb;
@@ -579,6 +579,7 @@ impl LocalStateMachine {
         local_address: StacksAddress,
         local_supported_signer_protocol_version: u64,
         reward_cycle: u64,
+        sortition_state: &mut Option<SortitionsView>,
     ) {
         // Before we ever access eval...we should make sure to include our own local state machine update message in the evaluation
         let Ok(mut local_update) =
@@ -682,6 +683,21 @@ impl LocalStateMachine {
                 active_signer_protocol_version,
                 tx_replay_set,
             });
+
+            match new_miner {
+                StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh, ..
+                } => {
+                    if let Some(sortition_state) = sortition_state {
+                        // if there is a mismatch between the new_miner ad the current sortition view, mark the current miner as invalid
+                        if current_miner_pkh != sortition_state.cur_sortition.miner_pkh {
+                            sortition_state.cur_sortition.miner_status =
+                                SortitionMinerStatus::InvalidatedBeforeFirstBlock
+                        }
+                    }
+                }
+                StateMachineUpdateMinerState::NoValidMiner => (),
+            }
         }
     }
 
@@ -695,24 +711,33 @@ impl LocalStateMachine {
         local_address: StacksAddress,
         local_update: &StateMachineUpdateMessage,
     ) -> Option<StateMachineUpdateMinerState> {
+        // First always make sure we consider our own viewpoint
+        eval.insert_update(local_address, local_update.clone());
+
+        // Determine the current burn block from the local update
         let current_burn_block = match local_update.content {
             StateMachineUpdateContent::V0 { burn_block, .. }
             | StateMachineUpdateContent::V1 { burn_block, .. } => burn_block,
         };
-        eval.insert_update(local_address, local_update.clone());
+
+        // Determine the global burn view
         let (global_burn_view, _) = eval.determine_global_burn_view()?;
         if current_burn_block != global_burn_view {
+            // We don't have the majority's burn block yet...will have to wait
             crate::monitoring::actions::increment_signer_agreement_state_conflict(
                 crate::monitoring::SignerAgreementStateConflict::BurnBlockDelay,
             );
             return None;
         }
-        let mut current_miners = HashMap::new();
+
+        let mut miners = HashMap::new();
+        let mut potential_matches = Vec::new();
+
         for (address, update) in &eval.address_updates {
             let Some(weight) = eval.address_weights.get(address) else {
                 continue;
             };
-            let (burn_block, current_miner) = match &update.content {
+            let (burn_block, miner_state) = match &update.content {
                 StateMachineUpdateContent::V0 {
                     burn_block,
                     current_miner,
@@ -724,31 +749,48 @@ impl LocalStateMachine {
                     ..
                 } => (burn_block, current_miner),
             };
-
             if *burn_block != global_burn_view {
                 continue;
             }
-
-            let StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. } = current_miner else {
+            let StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. } = miner_state else {
+                // Only consider potential active miners
                 continue;
             };
 
-            let entry = current_miners.entry(current_miner).or_insert_with(|| 0);
+            let entry = miners.entry(miner_state).or_insert(0);
             *entry += weight;
+            if *entry <= eval.total_weight * 3 / 10 {
+                // We don't even see a blocking minority threshold. Ignore.
+                continue;
+            }
 
-            if *entry >= eval.total_weight * 3 / 10 {
-                let nmb_blocks = signerdb
-                    .get_globally_accepted_block_count_in_tenure(tenure_id)
-                    .unwrap_or(0);
-                if nmb_blocks > 0 || eval.reached_agreement(*entry) {
-                    return Some(current_miner.clone());
+            let nmb_blocks = signerdb
+                .get_globally_accepted_block_count_in_tenure(tenure_id)
+                .unwrap_or(0);
+            if nmb_blocks == 0 && !eval.reached_agreement(*entry) {
+                continue;
+            }
+
+            match signerdb.get_burn_block_by_ch(tenure_id) {
+                Ok(block) => {
+                    potential_matches.push((block.block_height, miner_state));
+                }
+                Err(e) => {
+                    warn!("Error retrieving burn block for consensus_hash {tenure_id} from signerdb: {e}");
                 }
             }
         }
-        crate::monitoring::actions::increment_signer_agreement_state_conflict(
-            crate::monitoring::SignerAgreementStateConflict::MinerView,
-        );
-        None
+
+        potential_matches.sort_by_key(|(block_height, _)| *block_height);
+
+        let new_miner = potential_matches.last().map(|(_, miner)| (*miner).clone());
+        if new_miner.is_none() {
+            crate::monitoring::actions::increment_signer_agreement_state_conflict(
+                crate::monitoring::SignerAgreementStateConflict::MinerView,
+            );
+        }
+
+        new_miner
     }
 
     #[allow(unused_variables)]
@@ -849,6 +891,21 @@ impl LocalStateMachine {
         }
         let fork_info =
             client.get_tenure_forking_info(&first_forked_tenure, &last_forked_tenure)?;
+
+        // Check if fork occurred within current reward cycle. Reject tx replay otherwise.
+        let reward_cycle_info = client.get_current_reward_cycle_info()?;
+        let current_reward_cycle = reward_cycle_info.reward_cycle;
+        let is_fork_in_current_reward_cycle = fork_info.iter().all(|fork_info| {
+            let block_height = fork_info.burn_block_height;
+            let block_rc = reward_cycle_info.get_reward_cycle(block_height);
+            block_rc == current_reward_cycle
+        });
+        if !is_fork_in_current_reward_cycle {
+            info!("Detected bitcoin fork occurred in previous reward cycle. Tx replay won't be executed");
+            return Ok(None);
+        }
+
+        // Collect transactions to be replayed across the forked blocks
         let mut forked_blocks = fork_info
             .iter()
             .flat_map(|fork_info| fork_info.nakamoto_blocks.iter().flatten())

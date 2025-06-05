@@ -56,6 +56,7 @@ use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
     NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2,
     NAKAMOTO_CHAINSTATE_SCHEMA_3, NAKAMOTO_CHAINSTATE_SCHEMA_4, NAKAMOTO_CHAINSTATE_SCHEMA_5,
+    NAKAMOTO_CHAINSTATE_SCHEMA_6,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -294,15 +295,15 @@ impl DBConfig {
         });
         match epoch_id {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 9,
-            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 9,
-            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 9,
-            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 9,
-            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 9,
-            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 9,
-            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 9,
-            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 9,
-            StacksEpochId::Epoch31 => version_u32 >= 3 && version_u32 <= 9,
+            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 10,
+            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 10,
+            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 10,
+            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 10,
+            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 10,
+            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 10,
+            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 10,
+            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 10,
+            StacksEpochId::Epoch31 => version_u32 >= 3 && version_u32 <= 10,
         }
     }
 }
@@ -654,7 +655,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &str = "9";
+pub const CHAINSTATE_VERSION: &str = "10";
 
 const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -1119,6 +1120,14 @@ impl StacksChainState {
                         "Migrating chainstate schema from version 8 to 9: add index for staging_blocks"
                     );
                     for cmd in CHAINSTATE_SCHEMA_4.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "9" => {
+                    info!(
+                        "Migrating chainstate schema from version 9 to 10: add index for nakamoto_block_headers"
+                    );
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_6.iter() {
                         tx.execute_batch(cmd)?;
                     }
                 }

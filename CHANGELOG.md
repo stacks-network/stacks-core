@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [3.1.0.0.12]
+
+### Added
+
+- Document missing config structs
+- Document MinerConfig parameters
+- Document BurnchainConfig parameters
+- Document NodeConfig parameters
+
+### Changed
+
+- `get_fresh_random_neighbors` to include allowed neigbors
+- Logging improvements and cleanup
+- Move serde serializers to stacks_common
+- Depend on clarity backing store interface
+- Updated `./docs/event-dispacher.md`
+
+### Fixed
+
+- Handle Bitcoin reorgs during Stacks tenure extend
+
 ## [3.1.0.0.11]
 
 - Hotfix for p2p stack misbehavior in mempool syncing conditions

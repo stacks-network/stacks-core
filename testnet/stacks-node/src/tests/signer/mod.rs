@@ -60,7 +60,7 @@ use stacks_signer::{Signer, SpawnedSigner};
 use super::nakamoto_integrations::{
     check_nakamoto_empty_block_heuristics, next_block_and, wait_for,
 };
-use super::neon_integrations::{get_account, get_sortition_info_ch, submit_tx_fallible};
+use super::neon_integrations::{get_account, get_sortition_info_ch, submit_tx_fallible, Account};
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
@@ -474,6 +474,11 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             contract_code,
         );
         submit_tx_fallible(&http_origin, &contract_tx).map(|resp| (resp, sender_nonce))
+    }
+
+    pub fn get_account<F: std::fmt::Display>(&self, account: &F) -> Account {
+        let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
+        get_account(&http_origin, account)
     }
 
     /// Submit a contract call and return (txid, sender_nonce)

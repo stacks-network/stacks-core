@@ -19,7 +19,6 @@ on:
       - opened
       - reopened
       - synchronize
-      - ready_for_review
 
 defaults:
   run:

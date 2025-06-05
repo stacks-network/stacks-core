@@ -250,22 +250,31 @@ impl StacksNode {
 
         StacksNode::set_monitoring_miner_address(&keychain, &relayer_thread);
 
+        let relayer_thread_name = format!("relayer:{}", local_peer.port);
         let relayer_thread_handle = thread::Builder::new()
-            .name(format!("relayer-{}", &local_peer.data_url))
+            .name(relayer_thread_name)
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
                 relayer_thread.main(relay_recv);
             })
             .expect("FATAL: failed to start relayer thread");
 
+        let p2p_port = config
+            .node
+            .p2p_bind_addr()
+            .unwrap_or_else(|| panic!("Failed to parse socket: {}", &config.node.p2p_bind))
+            .port();
+        let rpc_port = config
+            .node
+            .rpc_bind_addr()
+            .unwrap_or_else(|| panic!("Failed to parse socket: {}", &config.node.rpc_bind))
+            .port();
+
         let p2p_event_dispatcher = runloop.get_event_dispatcher();
         let p2p_thread = PeerThread::new(runloop, p2p_net);
         let p2p_thread_handle = thread::Builder::new()
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
-            .name(format!(
-                "p2p-({},{})",
-                &config.node.p2p_bind, &config.node.rpc_bind
-            ))
+            .name(format!("p2p:({p2p_port},{rpc_port})"))
             .spawn(move || {
                 p2p_thread.main(p2p_event_dispatcher);
             })

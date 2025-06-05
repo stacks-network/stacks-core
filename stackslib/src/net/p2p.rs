@@ -5260,7 +5260,7 @@ impl PeerNetwork {
             &stacks_epoch.block_limit,
             &stacks_epoch.epoch_id,
         ) {
-            info!("Transaction rejected from mempool, {}", &e.into_json(&txid));
+            debug!("Transaction rejected from mempool, {}", &e.into_json(&txid));
             return false;
         }
 

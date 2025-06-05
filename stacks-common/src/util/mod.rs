@@ -27,6 +27,7 @@ pub mod pair;
 pub mod pipe;
 pub mod retry;
 pub mod secp256k1;
+pub mod serde_serializers;
 pub mod uint;
 pub mod vrf;
 
@@ -109,6 +110,10 @@ impl error::Error for HexError {
             HexError::BadCharacter(_) => "bad hex character",
         }
     }
+}
+
+pub trait HexDeser: Sized {
+    fn try_from_hex(hex: &str) -> Result<Self, HexError>;
 }
 
 /// Write any `serde_json` object directly to a file

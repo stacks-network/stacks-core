@@ -1688,6 +1688,7 @@ impl RelayerThread {
             last_committed.burn_tip.block_height,
             tip_height,
             last_committed.block_commit.burn_fee,
+            &last_committed.tenure_consensus_hash,
         );
         self.last_committed = Some(last_committed);
 
