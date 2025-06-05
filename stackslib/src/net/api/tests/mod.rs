@@ -71,6 +71,7 @@ mod getcontractabi;
 mod getcontractsrc;
 mod getdatavar;
 mod getheaders;
+mod gethealth;
 mod getinfo;
 mod getistraitimplemented;
 mod getmapentry;

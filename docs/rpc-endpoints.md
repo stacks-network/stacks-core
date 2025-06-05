@@ -129,7 +129,7 @@ non-canonical headers will be returned instead.
 ### GET /v2/accounts/[Principal]
 
 Get the account data for the provided principal.
-The principal string is either a Stacks address or a Contract identifier (e.g., 
+The principal string is either a Stacks address or a Contract identifier (e.g.,
 `SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info`
 
 Returns JSON data in the form:
@@ -157,7 +157,7 @@ JSON object _without_ the `balance_proof` or `nonce_proof` fields.
 
 Attempt to vetch a data var from a contract. The contract is identified with [Stacks Address] and
  [Contract Name] in the URL path. The variable is identified with [Var Name].
- 
+
 Returns JSON data in the form:
 
 ```json
@@ -202,7 +202,7 @@ Returns JSON data in the form:
 Where data is the metadata formatted as a JSON string.
 
 ### GET /v2/constant_val/[Stacks Address]/[Contract Name]/[Constant Name]
-Attempt to fetch a constant from a contract. The contract is identified with [Stacks Address] and 
+Attempt to fetch a constant from a contract. The contract is identified with [Stacks Address] and
  [Contract Name] in the URL path. The constant is identified with [Constant Name].
 
 Returns JSON data in the form:
@@ -219,7 +219,7 @@ Where data is the hex serialization of the constant value.
 
 Attempt to fetch data from a contract data map. The contract is identified with [Stacks Address] and
  [Contract Name] in the URL path. The map is identified with [Map Name].
- 
+
 The _key_ to lookup in the map is supplied via the POST body. This should be supplied as the hex string
 serialization of the key (which should be a Clarity value). Note, this is a _JSON_ string atom.
 
@@ -539,8 +539,8 @@ data.
 
 This will return 404 if the block does not exist.
 
-This endpoint also accepts a querystring parameter `?tip=` which when supplied 
-will return the block relative to the specified tip allowing the querying of 
+This endpoint also accepts a querystring parameter `?tip=` which when supplied
+will return the block relative to the specified tip allowing the querying of
 sibling blocks (same height, different tip) too.
 
 ### GET /v3/tenures/[Block ID]
@@ -595,3 +595,13 @@ This feature requires enabling of transaction indexing by setting the `txindex` 
 
 This will return 404 if the transaction does not exist and 501 (Not Implemented) if
 transaction indexing is not enabled.
+
+
+### GET /v3/health
+
+Determine node's synchronization health, comparing the node's current Stacks tip height
+with the maximum Stacks tip height observed among its connected peers.
+If there are no valid initial peers or data for the node to determine this information, this endpoint returns an error. The endpoint returns the node's current Stacks tip height, the maximum Stacks tip height observed among its connected peers, and the difference between these two heights.
+A user can utilize the `difference_from_max_peer` to establish their own criteria for determining if a node is out of sync.
+
+See OpenAPI [spec](./rpc/openapi.yaml) for details.

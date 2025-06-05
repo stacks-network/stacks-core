@@ -186,6 +186,7 @@ pub trait NeighborWalkDB {
             network.peerdb_conn(),
             network.get_local_peer().network_id,
             cur_epoch.network_epoch,
+            network.peer_version,
             min_age,
             num_neighbors as u32,
             block_height,

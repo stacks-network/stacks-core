@@ -32,6 +32,7 @@ pub mod getcontractabi;
 pub mod getcontractsrc;
 pub mod getdatavar;
 pub mod getheaders;
+pub mod gethealth;
 pub mod getinfo;
 pub mod getistraitimplemented;
 pub mod getmapentry;
@@ -118,6 +119,7 @@ impl StacksHttp {
         );
         self.register_rpc_endpoint(gettransaction::RPCGetTransactionRequestHandler::new());
         self.register_rpc_endpoint(getsigner::GetSignerRequestHandler::default());
+        self.register_rpc_endpoint(gethealth::RPCGetHealthRequestHandler::new());
         self.register_rpc_endpoint(
             liststackerdbreplicas::RPCListStackerDBReplicasRequestHandler::new(),
         );

@@ -38,7 +38,7 @@ use {rusqlite, url};
 
 use self::dns::*;
 use crate::burnchains::affirmation::AffirmationMap;
-use crate::burnchains::{Error as burnchain_error, Txid};
+use crate::burnchains::{Burnchain, Error as burnchain_error, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
@@ -2208,6 +2208,27 @@ pub trait Requestable: std::fmt::Display {
     fn make_request_type(&self, peer_host: PeerHost) -> StacksHttpRequest;
 }
 
+// TODO: DRY up from PoxSyncWatchdog
+pub fn infer_initial_burnchain_block_download(
+    burnchain: &Burnchain,
+    last_processed_height: u64,
+    burnchain_height: u64,
+) -> bool {
+    let ibd = last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
+    if ibd {
+        debug!(
+            "PoX watchdog: {} + {} < {}, so initial block download",
+            last_processed_height, burnchain.stable_confirmations, burnchain_height
+        );
+    } else {
+        debug!(
+            "PoX watchdog: {} + {} >= {}, so steady-state",
+            last_processed_height, burnchain.stable_confirmations, burnchain_height
+        );
+    }
+    ibd
+}
+
 #[cfg(test)]
 pub mod test {
     use std::collections::HashMap;
@@ -3298,28 +3319,6 @@ pub mod test {
             tx.commit().unwrap();
         }
 
-        // TODO: DRY up from PoxSyncWatchdog
-        pub fn infer_initial_burnchain_block_download(
-            burnchain: &Burnchain,
-            last_processed_height: u64,
-            burnchain_height: u64,
-        ) -> bool {
-            let ibd =
-                last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
-            if ibd {
-                debug!(
-                    "PoX watchdog: {} + {} < {}, so initial block download",
-                    last_processed_height, burnchain.stable_confirmations, burnchain_height
-                );
-            } else {
-                debug!(
-                    "PoX watchdog: {} + {} >= {}, so steady-state",
-                    last_processed_height, burnchain.stable_confirmations, burnchain_height
-                );
-            }
-            ibd
-        }
-
         pub fn step(&mut self) -> Result<NetworkResult, net_error> {
             let sortdb = self.sortdb.take().unwrap();
             let stacks_node = self.stacks_node.take().unwrap();
@@ -3333,7 +3332,7 @@ pub mod test {
             .unwrap()
             .map(|hdr| hdr.anchored_header.height())
             .unwrap_or(0);
-            let ibd = TestPeer::infer_initial_burnchain_block_download(
+            let ibd = infer_initial_burnchain_block_download(
                 &self.config.burnchain,
                 stacks_tip_height,
                 burn_tip_height,
@@ -3464,7 +3463,7 @@ pub mod test {
             .unwrap()
             .map(|hdr| hdr.anchored_header.height())
             .unwrap_or(0);
-            let ibd = TestPeer::infer_initial_burnchain_block_download(
+            let ibd = infer_initial_burnchain_block_download(
                 &self.config.burnchain,
                 stacks_tip_height,
                 burn_tip_height,

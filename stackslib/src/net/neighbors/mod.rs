@@ -18,6 +18,8 @@ use rand::prelude::*;
 use rand::thread_rng;
 use stacks_common::util::get_epoch_time_secs;
 
+#[cfg(test)]
+use crate::net::db::PeerDB;
 use crate::net::p2p::PeerNetwork;
 use crate::net::{Error as net_error, *};
 
@@ -359,8 +361,6 @@ impl PeerNetwork {
 
     #[cfg(test)]
     fn print_walk_diagnostics(&mut self) {
-        use crate::net::db::PeerDB;
-
         let (mut inbound, mut outbound) = self.dump_peer_table();
 
         inbound.sort();

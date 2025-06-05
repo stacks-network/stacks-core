@@ -1419,6 +1419,7 @@ impl ConversationP2P {
             peer_dbconn,
             self.network_id,
             epoch.network_epoch,
+            self.peer_version,
             get_epoch_time_secs().saturating_sub(self.connection.options.max_neighbor_age),
             MAX_NEIGHBORS_DATA_LEN,
             chain_view.burn_block_height,
