@@ -86,7 +86,7 @@ fn write_chainstate_archive(
         .skip(2)
         .take_while(|line| !line.eq(&section_footer))
     {
-        encoder.write_all(&[line.as_bytes(), &[b'\n']].concat())?;
+        encoder.write_all(&[line.as_bytes(), b"\n"].concat())?;
     }
 
     let mut out_file = encoder.finish().into_result().unwrap();
