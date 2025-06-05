@@ -279,8 +279,11 @@ impl SignerTrait<SignerMessage> for Signer {
 
         if prior_state != self.local_state_machine {
             let version = self.get_signer_protocol_version();
-            self.local_state_machine
-                .send_signer_update_message(&mut self.stackerdb, version);
+            self.local_state_machine.send_signer_update_message(
+                &mut self.stackerdb,
+                version,
+                &self.private_key,
+            );
             prior_state = self.local_state_machine.clone();
         }
 
@@ -326,8 +329,11 @@ impl SignerTrait<SignerMessage> for Signer {
 
         if prior_state != self.local_state_machine {
             let version = self.get_signer_protocol_version();
-            self.local_state_machine
-                .send_signer_update_message(&mut self.stackerdb, version);
+            self.local_state_machine.send_signer_update_message(
+                &mut self.stackerdb,
+                version,
+                &self.private_key,
+            );
         }
     }
 
@@ -427,13 +433,14 @@ impl Signer {
                     messages.len()
                 );
                 // try and gather signatures
-                for (signer_public_key, message) in messages {
+                for message in messages {
                     match message {
                         SignerMessage::BlockResponse(block_response) => {
                             self.handle_block_response(stacks_client, block_response)
                         }
-                        SignerMessage::StateMachineUpdate(update) => self
-                            .handle_state_machine_update(signer_public_key, update, received_time),
+                        SignerMessage::StateMachineUpdate(update) => {
+                            self.handle_state_machine_update(update, received_time)
+                        }
                         _ => {}
                     }
                 }
@@ -765,13 +772,18 @@ impl Signer {
     /// Handle signer state update message
     fn handle_state_machine_update(
         &mut self,
-        signer_public_key: &Secp256k1PublicKey,
         update: &StateMachineUpdate,
         received_time: &SystemTime,
     ) {
-        info!("{self}: Received a new state machine update from signer {signer_public_key:?}: {update:?}");
+        let Some(signer_public_key) = update.recover_signer_pk() else {
+            warn!("{self}: Received a new state machine update with an irrecoverable signature. Ignoring.";
+                "update" => ?update
+            );
+            return;
+        };
 
-        let address = StacksAddress::p2pkh(self.mainnet, signer_public_key);
+        let address = StacksAddress::p2pkh(self.mainnet, &signer_public_key);
+        info!("{self}: Received a new state machine update from signer {address:?}: {update:?}");
         // Store the state machine update so we can reload it if we crash
         if let Err(e) = self.signer_db.insert_state_machine_update(
             self.reward_cycle,

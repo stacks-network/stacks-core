@@ -2757,7 +2757,7 @@ pub mod tests {
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let reward_cycle_1 = 1;
         let address_1 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
-        let update_1 = StateMachineUpdate::new(
+        let update_1 = StateMachineUpdate::new_unsigned(
             0,
             3,
             StateMachineUpdateContent::V0 {
@@ -2775,7 +2775,7 @@ pub mod tests {
         .unwrap();
 
         let address_2 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
-        let update_2 = StateMachineUpdate::new(
+        let update_2 = StateMachineUpdate::new_unsigned(
             0,
             4,
             StateMachineUpdateContent::V0 {
@@ -2787,7 +2787,7 @@ pub mod tests {
         .unwrap();
 
         let address_3 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
-        let update_3 = StateMachineUpdate::new(
+        let update_3 = StateMachineUpdate::new_unsigned(
             0,
             2,
             StateMachineUpdateContent::V0 {
@@ -2848,7 +2848,7 @@ pub mod tests {
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let reward_cycle_1 = 1;
         let address_1 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
-        let update_1 = StateMachineUpdate::new(
+        let update_1 = StateMachineUpdate::new_unsigned(
             0,
             3,
             StateMachineUpdateContent::V0 {
@@ -2867,7 +2867,7 @@ pub mod tests {
         let time_1 = SystemTime::UNIX_EPOCH;
 
         let address_2 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
-        let update_2 = StateMachineUpdate::new(
+        let update_2 = StateMachineUpdate::new_unsigned(
             0,
             4,
             StateMachineUpdateContent::V0 {
@@ -2880,7 +2880,7 @@ pub mod tests {
         let time_2 = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
 
         let address_3 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
-        let update_3 = StateMachineUpdate::new(
+        let update_3 = StateMachineUpdate::new_unsigned(
             0,
             2,
             StateMachineUpdateContent::V0 {
@@ -3087,7 +3087,7 @@ pub mod tests {
             let received_ts = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
             let burn_block = ConsensusHash([i; 20]);
             let burn_height = i;
-            let update = StateMachineUpdate::new(
+            let update = StateMachineUpdate::new_unsigned(
                 1,
                 1,
                 StateMachineUpdateContent::V1 {

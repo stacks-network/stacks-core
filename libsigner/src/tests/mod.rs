@@ -102,7 +102,7 @@ impl<T: SignerEventTrait> SignerRunLoop<Vec<SignerEvent<T>>, T> for SimpleRunLoo
 #[test]
 fn test_simple_signer() {
     let contract_id = NakamotoSigners::make_signers_db_contract_id(0, 0, false);
-    let ev = SignerEventReceiver::new(false);
+    let ev: SignerEventReceiver<SignerMessage> = SignerEventReceiver::new(false);
     let (res_send, _res_recv) = channel();
     let max_events = 5;
     let mut signer = Signer::new(SimpleRunLoop::new(max_events), ev, res_send);
@@ -181,15 +181,10 @@ fn test_simple_signer() {
     let sent_events: Vec<SignerEvent<SignerMessage>> = chunks
         .iter()
         .map(|event| {
-            let messages: Vec<(StacksPublicKey, SignerMessage)> = event
+            let messages = event
                 .modified_slots
                 .iter()
-                .filter_map(|chunk| {
-                    Some((
-                        chunk.recover_pk().ok()?,
-                        read_next::<SignerMessage, _>(&mut &chunk.data[..]).ok()?,
-                    ))
-                })
+                .filter_map(|chunk| read_next::<SignerMessage, _>(&mut &chunk.data[..]).ok())
                 .collect();
             SignerEvent::SignerMessages {
                 signer_set: 0,

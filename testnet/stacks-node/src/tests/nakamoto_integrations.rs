@@ -88,7 +88,8 @@ use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
 use stacks::types::chainstate::{ConsensusHash, StacksBlockId};
-use stacks::util::hash::hex_bytes;
+use stacks::types::PrivateKey;
+use stacks::util::hash::{hex_bytes, MerkleHashFunc};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
@@ -12664,7 +12665,7 @@ fn miner_constructs_replay_block() {
         "Sending signer state machine update with {} txs...",
         replay_transactions.len()
     );
-    let update = StateMachineUpdate::new(
+    let mut update = StateMachineUpdate::new_unsigned(
         1,
         1,
         StateMachineUpdateContent::V1 {
@@ -12675,6 +12676,7 @@ fn miner_constructs_replay_block() {
         },
     )
     .expect("Failed to create update content");
+    update.signature = signer_sk.sign(update.signature_hash().bits()).unwrap();
 
     let block_height = btc_regtest_controller.get_headers_height();
     let reward_cycle = btc_regtest_controller
