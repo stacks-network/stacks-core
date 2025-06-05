@@ -329,6 +329,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             reorg_attempts_activity_timeout: self.config.reorg_attempts_activity_timeout,
             proposal_wait_for_parent_time: self.config.proposal_wait_for_parent_time,
             validate_with_replay_tx: self.config.validate_with_replay_tx,
+            capitulate_tenure_timeout: self.config.capitulate_tenure_timeout,
         }))
     }
 

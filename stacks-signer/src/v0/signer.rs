@@ -125,6 +125,8 @@ pub struct Signer {
     pub global_state_evaluator: GlobalStateEvaluator,
     /// Whether to validate blocks with replay transactions
     pub validate_with_replay_tx: bool,
+    /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
+    pub capitulate_tenure_timeout: Duration,
 }
 
 impl std::fmt::Display for SignerMode {
@@ -241,6 +243,7 @@ impl SignerTrait<SignerMessage> for Signer {
             recently_processed: RecentlyProcessedBlocks::new(),
             global_state_evaluator,
             validate_with_replay_tx: signer_config.validate_with_replay_tx,
+            capitulate_tenure_timeout: signer_config.capitulate_tenure_timeout,
         }
     }
 

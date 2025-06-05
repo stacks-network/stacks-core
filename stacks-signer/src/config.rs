@@ -49,6 +49,9 @@ const DEFAULT_TENURE_IDLE_TIMEOUT_BUFFER_SECS: u64 = 2;
 ///  cannot determine that our stacks-node has processed the parent
 ///  block
 const DEFAULT_PROPOSAL_WAIT_TIME_FOR_PARENT_SECS: u64 = 15;
+/// Default time (in secs) to wait between updating our local state
+/// machine view point and capitulating to other signers tenure view
+const DEFAULT_CAPITULATE_TENURE_SECS: u64 = 20;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -184,6 +187,8 @@ pub struct SignerConfig {
     pub proposal_wait_for_parent_time: Duration,
     /// Whether or not to validate blocks with replay transactions
     pub validate_with_replay_tx: bool,
+    /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
+    pub capitulate_tenure_timeout: Duration,
 }
 
 /// The parsed configuration for the signer
@@ -233,6 +238,8 @@ pub struct GlobalConfig {
     /// Time to wait before submitting a block proposal to the stacks-node if we cannot
     ///  determine that the stacks-node has processed the parent
     pub proposal_wait_for_parent_time: Duration,
+    /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
+    pub capitulate_tenure_timeout: Duration,
     /// Is this signer binary going to be running in dry-run mode?
     pub dry_run: bool,
     /// Whether or not to validate blocks with replay transactions
@@ -284,6 +291,8 @@ struct RawConfigFile {
     pub reorg_attempts_activity_timeout_ms: Option<u64>,
     /// Time to wait (in millisecs) before submitting a block proposal to the stacks-node
     pub proposal_wait_for_parent_time_secs: Option<u64>,
+    /// Time to wait (in secs) between updating our local state machine view point and capitulating to other signers miner view
+    pub capitulate_tenure_timeout: Option<u64>,
     /// Is this signer binary going to be running in dry-run mode?
     pub dry_run: Option<bool>,
     /// Whether or not to validate blocks with replay transactions
@@ -413,6 +422,12 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
         // https://github.com/stacks-network/stacks-core/issues/6087
         let validate_with_replay_tx = raw_data.validate_with_replay_tx.unwrap_or(false);
 
+        let capitulate_tenure_timeout = Duration::from_secs(
+            raw_data
+                .capitulate_tenure_timeout
+                .unwrap_or(DEFAULT_CAPITULATE_TENURE_SECS),
+        );
+
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
@@ -435,6 +450,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             tenure_idle_timeout_buffer,
             proposal_wait_for_parent_time,
             validate_with_replay_tx,
+            capitulate_tenure_timeout,
         })
     }
 }
