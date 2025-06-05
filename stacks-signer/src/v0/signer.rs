@@ -204,11 +204,6 @@ impl SignerTrait<SignerMessage> for Signer {
             SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
         let proposal_config = ProposalEvalConfig::from(&signer_config);
 
-        let signer_state = LocalStateMachine::new(&signer_db, stacks_client, &proposal_config)
-            .unwrap_or_else(|e| {
-                warn!("Failed to initialize local state machine for signer: {e:?}");
-                LocalStateMachine::Uninitialized
-            });
         let stacks_address = StacksAddress::p2pkh(
             signer_config.mainnet,
             &StacksPublicKey::from_private(&signer_config.stacks_private_key),
@@ -224,6 +219,19 @@ impl SignerTrait<SignerMessage> for Signer {
             updates,
             signer_config.signer_entries.signer_addr_to_weight.clone(),
         );
+
+        let signer_state = LocalStateMachine::new(
+            &signer_db,
+            stacks_client,
+            &proposal_config,
+            &global_state_evaluator,
+            &stacks_address,
+        )
+        .unwrap_or_else(|e| {
+            warn!("Failed to initialize local state machine for signer: {e:?}");
+            LocalStateMachine::Uninitialized
+        });
+
         Self {
             private_key: signer_config.stacks_private_key,
             stacks_address,
@@ -265,7 +273,7 @@ impl SignerTrait<SignerMessage> for Signer {
 
         let mut prior_state = self.local_state_machine.clone();
         if self.reward_cycle <= current_reward_cycle {
-            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client, &self.proposal_config)
+            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client, &self.proposal_config, &self.global_state_evaluator, &self.stacks_address)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
         }
 
@@ -525,7 +533,7 @@ impl Signer {
                     .bitcoin_block_arrival(&self.signer_db, stacks_client, &self.proposal_config, Some(NewBurnBlock {
                         burn_block_height: *burn_height,
                         consensus_hash: *consensus_hash,
-                    }))
+                    }), &self.global_state_evaluator, &self.stacks_address)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
             }
             SignerEvent::NewBlock {
@@ -1687,9 +1695,7 @@ fn should_reevaluate_block(block_info: &BlockInfo) -> bool {
             | RejectReason::NotLatestSortitionWinner
             | RejectReason::InvalidParentBlock
             | RejectReason::DuplicateBlockFound
-            // TODO: The active miner view might have updated since the block was first proposed? Should this be reconsidered?
-            | RejectReason::InvalidMiner
-              => {
+            | RejectReason::InvalidMiner => {
                 // No need to re-validate these types of rejections.
                 false
             }

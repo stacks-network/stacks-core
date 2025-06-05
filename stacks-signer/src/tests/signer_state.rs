@@ -333,10 +333,24 @@ fn check_miner_inactivity_timeout() {
         parent_tenure_last_block_height: 0,
     };
 
+    let mut address_weights = HashMap::new();
+    let address = StacksAddress::p2pkh(
+        false,
+        &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+    );
+    address_weights.insert(address, 10_u32);
+
+    let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
     // This local state machine should not change as an uninitialized local state cannot be modified
     let mut local_state_machine = LocalStateMachine::Uninitialized;
     local_state_machine
-        .check_miner_inactivity(&signer_db, &stacks_client, &proposal_config)
+        .check_miner_inactivity(
+            &signer_db,
+            &stacks_client,
+            &proposal_config,
+            &eval,
+            &address,
+        )
         .unwrap();
     assert_eq!(local_state_machine, LocalStateMachine::Uninitialized);
 
@@ -351,7 +365,13 @@ fn check_miner_inactivity_timeout() {
     };
     local_state_machine = LocalStateMachine::Initialized(signer_state.clone());
     local_state_machine
-        .check_miner_inactivity(&signer_db, &stacks_client, &proposal_config)
+        .check_miner_inactivity(
+            &signer_db,
+            &stacks_client,
+            &proposal_config,
+            &eval,
+            &address,
+        )
         .unwrap();
     assert_eq!(
         local_state_machine,
@@ -368,7 +388,13 @@ fn check_miner_inactivity_timeout() {
         update: update.clone(),
     };
     local_state_machine
-        .check_miner_inactivity(&signer_db, &stacks_client, &proposal_config)
+        .check_miner_inactivity(
+            &signer_db,
+            &stacks_client,
+            &proposal_config,
+            &eval,
+            &address,
+        )
         .unwrap();
     assert_eq!(
         local_state_machine,
@@ -382,7 +408,13 @@ fn check_miner_inactivity_timeout() {
     signer_state.current_miner = active_miner;
     local_state_machine = LocalStateMachine::Initialized(signer_state.clone());
     local_state_machine
-        .check_miner_inactivity(&signer_db, &stacks_client, &proposal_config)
+        .check_miner_inactivity(
+            &signer_db,
+            &stacks_client,
+            &proposal_config,
+            &eval,
+            &address,
+        )
         .unwrap();
     assert_eq!(
         local_state_machine,
@@ -437,7 +469,7 @@ fn check_miner_inactivity_timeout() {
     } = MockServerClient::new();
     let h = std::thread::spawn(move || {
         local_state_machine
-            .check_miner_inactivity(&signer_db, &client, &proposal_config)
+            .check_miner_inactivity(&signer_db, &client, &proposal_config, &eval, &address)
             .unwrap();
         // The new miner will have the reassigned miner
         signer_state.current_miner = reassigned_miner;

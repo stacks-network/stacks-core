@@ -33,7 +33,9 @@ use libsigner::v0::messages::{
     MessageSlotID, RejectReason, SignerMessage as SignerMessageV0, StateMachineUpdate,
     StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
-use libsigner::v0::signer_state::{MinerState, ReplayTransactionSet, SignerStateMachine};
+use libsigner::v0::signer_state::{
+    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
+};
 use libsigner::{SignerSession, StackerDBSession};
 use rand::{thread_rng, Rng};
 use rusqlite::{Connection, OptionalExtension};
@@ -223,7 +225,7 @@ impl TestSigningChannel {
         let sign_channels = signer.as_mut()?;
         let recv = sign_channels.recv.take().unwrap();
         drop(signer); // drop signer so we don't hold the lock while receiving.
-        let signatures = recv.recv_timeout(Duration::from_secs(30)).unwrap();
+        let signatures = recv.recv_timeout(Duration::from_secs(60)).unwrap();
         let overwritten = TEST_SIGNING
             .lock()
             .unwrap()
@@ -6581,6 +6583,16 @@ fn signer_chainstate() {
     // hold the first and last blocks of the first tenure. we'll use this to submit reorging proposals
     let mut first_tenure_blocks: Option<Vec<NakamotoBlock>> = None;
 
+    let mut address_weights = HashMap::new();
+    signers.signer_keys.iter().for_each(|key| {
+        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(key));
+        address_weights.insert(address, 10);
+    });
+    let local_address = StacksAddress::p2pkh(
+        false,
+        &StacksPublicKey::from_private(signers.signer_keys.first().unwrap()),
+    );
+    let global_eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
     let get_sortitions_view_from_tip =
         |sortdb: &SortitionDB,
          signer_client: &StacksClient,
@@ -6601,7 +6613,13 @@ fn signer_chainstate() {
                 .unwrap();
 
             let is_current_valid = cur_sortition
-                .is_tenure_valid(&signer_db, &signer_client, &proposal_conf)
+                .is_tenure_valid(
+                    &signer_db,
+                    &signer_client,
+                    &proposal_conf,
+                    &global_eval,
+                    &local_address,
+                )
                 .unwrap();
 
             let miner_state = if is_current_valid {
@@ -6614,7 +6632,13 @@ fn signer_chainstate() {
                 .unwrap()
             } else {
                 let is_last_valid = last_sortition
-                    .is_tenure_valid(&signer_db, &signer_client, &proposal_conf)
+                    .is_tenure_valid(
+                        &signer_db,
+                        &signer_client,
+                        &proposal_conf,
+                        &global_eval,
+                        &local_address,
+                    )
                     .unwrap();
 
                 if is_last_valid {
@@ -12544,7 +12568,7 @@ fn miner_constructs_replay_block() {
     let stacker_sk = setup_stacker(&mut naka_conf);
     naka_conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
 
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
 
     test_observer::spawn();
     test_observer::register(

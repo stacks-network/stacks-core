@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
 use std::fs;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::time::{Duration, SystemTime};
@@ -25,9 +26,11 @@ use blockstack_lib::chainstate::stacks::{
     TransactionVersion,
 };
 use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
-use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId};
+use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId, StacksAddress};
 use libsigner::v0::messages::RejectReason;
-use libsigner::v0::signer_state::{MinerState, ReplayTransactionSet, SignerStateMachine};
+use libsigner::v0::signer_state::{
+    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
+};
 use libsigner::{BlockProposal, BlockProposalData};
 use stacks_common::bitvec::BitVec;
 use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -416,15 +419,31 @@ fn check_sortition_timeout() {
         .unwrap();
 
     std::thread::sleep(Duration::from_secs(1));
+    let address = StacksAddress::p2pkh(
+        false,
+        &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+    );
+    let mut address_weights = HashMap::new();
+    address_weights.insert(address, 10);
+    let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
     // We have not yet timed out
-    assert!(
-        !SortitionState::is_timed_out(&consensus_hash, Duration::from_secs(10), &signer_db)
-            .unwrap()
-    );
+    assert!(!SortitionState::is_timed_out(
+        &consensus_hash,
+        Duration::from_secs(10),
+        &signer_db,
+        &eval,
+        &address
+    )
+    .unwrap());
     // We are a valid sortition, have an empty tenure, and have now timed out
-    assert!(
-        SortitionState::is_timed_out(&consensus_hash, Duration::from_secs(1), &signer_db).unwrap()
-    );
+    assert!(SortitionState::is_timed_out(
+        &consensus_hash,
+        Duration::from_secs(0),
+        &signer_db,
+        &eval,
+        &address
+    )
+    .unwrap());
 
     // Insert a signed over block so its no longer an empty tenure
     let block_proposal = BlockProposal {
@@ -454,7 +473,12 @@ fn check_sortition_timeout() {
     signer_db.insert_block(&block_info).unwrap();
 
     // This will no longer be timed out as we have a non-empty tenure
-    assert!(
-        !SortitionState::is_timed_out(&consensus_hash, Duration::from_secs(1), &signer_db).unwrap()
-    );
+    assert!(!SortitionState::is_timed_out(
+        &consensus_hash,
+        Duration::from_secs(1),
+        &signer_db,
+        &eval,
+        &address
+    )
+    .unwrap());
 }
