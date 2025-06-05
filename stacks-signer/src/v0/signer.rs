@@ -1641,7 +1641,7 @@ impl Signer {
                 self.global_state_evaluator
                     .get_global_tx_replay_set()
                     .unwrap_or_default()
-                    .into_optional()
+                    .clone_as_optional()
             } else {
                 None
             },

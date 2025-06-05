@@ -384,7 +384,7 @@ impl LocalStateMachine {
         };
 
         if let Some(replay_set_hash) = NakamotoBlockProposal::tx_replay_hash(
-            &prior_state_machine.tx_replay_set.into_optional(),
+            &prior_state_machine.tx_replay_set.clone_as_optional(),
         ) {
             match db.get_was_block_validated_by_replay_tx(signer_signature_hash, replay_set_hash) {
                 Ok(Some(BlockValidatedByReplaySet {
@@ -674,7 +674,7 @@ impl LocalStateMachine {
                 burn_block_height: *burn_block_height,
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
-                tx_replay_set: tx_replay_set.clone(),
+                tx_replay_set,
             });
             // Because we updated our active signer protocol version, update local_update so its included in the subsequent evaluations
             let Ok(update) =
@@ -877,7 +877,7 @@ impl LocalStateMachine {
         let Self::Initialized(state) = self else {
             return None;
         };
-        state.tx_replay_set.into_optional()
+        state.tx_replay_set.clone_as_optional()
     }
 
     /// Handle a possible bitcoin fork. If a fork is detetected,

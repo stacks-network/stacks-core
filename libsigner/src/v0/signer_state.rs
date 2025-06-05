@@ -136,7 +136,7 @@ impl GlobalStateEvaluator {
                         burn_block,
                         burn_block_height,
                         current_miner,
-                        ReplayTransactionSet::new(vec![]),
+                        ReplayTransactionSet::none(),
                     ),
                     StateMachineUpdateContent::V1 {
                         burn_block,
@@ -207,16 +207,8 @@ impl ReplayTransactionSet {
         self.0.is_empty()
     }
 
-    /// Unwrap the `ReplayTransactionSet`. Panics if the set is empty.
-    pub fn unwrap(self) -> Vec<StacksTransaction> {
-        if self.is_empty() {
-            panic!("Called `unwrap` on an empty `ReplayTransactionSet`");
-        }
-        self.0
-    }
-
     /// Map into an optional, returning `None` if the set is empty
-    pub fn into_optional(&self) -> Option<Vec<StacksTransaction>> {
+    pub fn clone_as_optional(&self) -> Option<Vec<StacksTransaction>> {
         if self.is_empty() {
             None
         } else {
@@ -229,7 +221,7 @@ impl ReplayTransactionSet {
         if self.is_empty() {
             vec![]
         } else {
-            self.unwrap()
+            self.0
         }
     }
 
