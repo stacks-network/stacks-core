@@ -14,29 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::fs;
-
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
 use libstackerdb::SlotMetadata;
-use rand::prelude::*;
-use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng, RngCore};
-use stacks_common::address::{
-    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-};
+use rand::{thread_rng, Rng};
+use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+    BlockHeaderHash, ConsensusHash, StacksAddress, StacksPublicKey,
 };
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::p2p::PeerNetwork;
-use crate::net::relay::Relayer;
-use crate::net::stackerdb::db::SlotValidation;
-use crate::net::stackerdb::{StackerDBConfig, StackerDBs};
+use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestPeer, TestPeerConfig};
 use crate::net::{Error as net_error, NetworkResult, StackerDBChunkData};
 use crate::util_lib::test::with_timeout;

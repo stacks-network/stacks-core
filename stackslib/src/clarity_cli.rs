@@ -17,56 +17,51 @@
 use std::ffi::OsStr;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::str::FromStr;
-use std::{env, fs, io, process};
+use std::{fs, io};
 
 use clarity::vm::coverage::CoverageReporter;
 use lazy_static::lazy_static;
 use rand::Rng;
-use rusqlite::types::ToSql;
-use rusqlite::{Connection, OpenFlags, Row, Transaction};
+use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::address::c32::c32_address;
-use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, VRFSeed, *,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, VRFSeed,
 };
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
-use stacks_common::util::{get_epoch_time_ms, log};
 
-use crate::burnchains::{Address, PoxConstants, Txid};
+use crate::burnchains::{PoxConstants, Txid};
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_BNS, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
     BOOT_CODE_COSTS_3, BOOT_CODE_COST_VOTING_MAINNET, BOOT_CODE_COST_VOTING_TESTNET,
     BOOT_CODE_GENESIS, BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET, BOOT_CODE_POX_TESTNET,
     POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
 };
-use crate::chainstate::stacks::index::storage::TrieFileStorage;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId};
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity::vm::analysis::contract_interface_builder::build_contract_interface;
-use crate::clarity::vm::analysis::errors::{CheckError, CheckResult};
+use crate::clarity::vm::analysis::errors::CheckError;
 use crate::clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::clarity::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
 use crate::clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::clarity::vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
+    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
 };
 use crate::clarity::vm::errors::{Error, InterpreterResult, RuntimeErrorType};
-use crate::clarity::vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier};
+use crate::clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::clarity::vm::{
     analysis, ast, eval_all, ClarityVersion, ContractContext, ContractName, SymbolicExpression,
-    SymbolicExpressionType, Value,
+    Value,
 };
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::clarity_vm::database::MemoryBackingStore;
 use crate::core::{StacksEpochId, BLOCK_LIMIT_MAINNET_205, HELIUM_BLOCK_LIMIT_20};
 use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 use crate::util_lib::db::{sqlite_open, FromColumn};
-use crate::util_lib::strings::StacksString;
 
 lazy_static! {
     pub static ref STACKS_BOOT_CODE_MAINNET_2_1: [(&'static str, &'static str); 9] = [
@@ -102,7 +97,7 @@ macro_rules! panic_test {
 #[cfg(not(test))]
 macro_rules! panic_test {
     () => {
-        process::exit(1)
+        std::process::exit(1)
     };
 }
 

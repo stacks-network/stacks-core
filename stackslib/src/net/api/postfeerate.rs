@@ -14,39 +14,26 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::{Read, Write};
-
 use clarity::vm::costs::ExecutionCost;
 use regex::{Captures, Regex};
 use serde_json::json;
 use stacks_common::codec::{StacksMessageCodec, MAX_PAYLOAD_LEN};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, ConsensusHash, StacksBlockId, StacksPublicKey,
-};
 use stacks_common::types::net::PeerHost;
-use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::hash::{hex_bytes, Hash160, Sha256Sum};
-use stacks_common::util::retry::BoundReader;
+use stacks_common::util::hash::hex_bytes;
 
-use crate::burnchains::affirmation::AffirmationMap;
-use crate::burnchains::Txid;
-use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
-use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::TransactionPayload;
-use crate::core::mempool::MemPoolDB;
 use crate::core::StacksEpoch;
 use crate::cost_estimates::metrics::CostMetric;
-use crate::cost_estimates::{CostEstimator, FeeEstimator, FeeRateEstimate};
+use crate::cost_estimates::{FeeEstimator, FeeRateEstimate};
 use crate::net::http::{
-    parse_json, Error, HttpBadRequest, HttpContentType, HttpNotFound, HttpRequest,
-    HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
-    HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+    parse_json, Error, HttpBadRequest, HttpContentType, HttpRequest, HttpRequestContents,
+    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
+    HttpResponsePreamble,
 };
 use crate::net::httpcore::{
     HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
-use crate::net::p2p::PeerNetwork;
 use crate::net::{Error as NetError, StacksNodeState};
 
 #[derive(Serialize, Deserialize)]

@@ -20,46 +20,23 @@
 /// (even if they arrive out-of-order).  This module differs from the `block_construction` module in that this
 /// module focuses on building and testing chain histories; unlike `block_construction`, this module does not
 /// test anything about block construction from mempool state.
-use std::cell::RefCell;
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::{Path, PathBuf};
-use std::{fs, io};
+use std::collections::HashMap;
 
 use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::types::*;
 use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng};
+use rand::thread_rng;
 use stacks_common::address::*;
 use stacks_common::types::chainstate::SortitionId;
-use stacks_common::util::hash::MerkleTree;
-use stacks_common::util::sleep_ms;
-use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::tests::*;
-use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::*;
-use crate::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-};
-use crate::chainstate::burn::*;
-use crate::chainstate::coordinator::Error as CoordinatorError;
-use crate::chainstate::stacks::db::blocks::test::store_staging_block;
 use crate::chainstate::stacks::db::test::*;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::*;
-use crate::chainstate::stacks::{
-    Error as ChainstateError, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *,
-};
-use crate::core::*;
-use crate::cost_estimates::metrics::UnitMetric;
-use crate::cost_estimates::UnitEstimator;
-use crate::net::test::*;
-use crate::util_lib::boot::boot_code_addr;
-use crate::util_lib::db::Error as db_error;
+use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
 fn connect_burnchain_db(burnchain: &Burnchain) -> BurnchainDB {
     let burnchain_db =

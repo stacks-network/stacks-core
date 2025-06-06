@@ -14,23 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-use std::io::prelude::*;
-use std::path::{Path, PathBuf};
-use std::{fmt, fs, io};
-
 use clarity::vm::costs::ExecutionCost;
-use rusqlite::types::ToSql;
 use rusqlite::{OptionalExtension, Row};
 use stacks_common::types::chainstate::{StacksBlockId, StacksWorkScore};
 
 use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::{Error, *};
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::db::{
-    query_count, query_row, query_row_columns, query_row_panic, query_rows, u64_to_sql, DBConn,
+    query_row, query_row_columns, query_row_panic, query_rows, u64_to_sql, DBConn,
     Error as db_error, FromColumn, FromRow,
 };
 

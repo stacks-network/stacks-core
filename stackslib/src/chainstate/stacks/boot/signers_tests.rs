@@ -15,52 +15,29 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::tests::symbols_from_values;
-use clarity::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions, TupleData,
-};
-use clarity::vm::Value::Principal;
+use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
-use stacks_common::address::AddressHashMode;
-use stacks_common::consts;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
-use stacks_common::types::chainstate::{
-    BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
-};
-use stacks_common::types::PublicKey;
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use super::{RawRewardSetEntry, SIGNERS_PK_LEN};
-use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::coordinator::tests::{boot_nakamoto, make_token_transfer};
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::pox_2_tests::with_clarity_db_ro;
-use crate::chainstate::stacks::boot::pox_4_tests::{
-    assert_latest_was_burn, get_last_block_sender_transactions, make_test_epochs_pox,
-    prepare_pox4_test,
-};
-use crate::chainstate::stacks::boot::test::{
-    instantiate_pox_peer_with_epoch, key_to_stacks_addr, make_pox_4_lockup, with_sortdb,
-};
+use crate::chainstate::stacks::boot::pox_4_tests::prepare_pox4_test;
+use crate::chainstate::stacks::boot::test::{key_to_stacks_addr, with_sortdb};
 use crate::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME, SIGNERS_VOTING_NAME};
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::marf::MarfConnection;
-use crate::chainstate::stacks::{
-    StacksTransaction, StacksTransactionSigner, TenureChangeCause, TransactionAuth,
-    TransactionPayload, TransactionPostConditionMode, TransactionVersion,
-};
-use crate::clarity_vm::database::HeadersDBConn;
-use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
-use crate::net::stackerdb::{STACKERDB_CONFIG_FUNCTION, STACKERDB_INV_MAX};
+use crate::chainstate::stacks::TenureChangeCause;
+use crate::net::stackerdb::STACKERDB_CONFIG_FUNCTION;
 use crate::net::test::{TestEventObserver, TestPeer};
-use crate::util_lib::boot::{boot_code_addr, boot_code_id, boot_code_test_addr};
+use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 
 #[test]
 fn make_signer_units() {

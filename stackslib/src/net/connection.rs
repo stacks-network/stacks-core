@@ -15,27 +15,20 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, VecDeque};
+use std::io;
 use std::io::{Read, Write};
-use std::ops::{Deref, DerefMut};
-use std::sync::mpsc::{
-    sync_channel, Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError,
-};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError};
 use std::time::Duration;
-use std::{io, net};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{QualifiedContractIdentifier, BOUND_VALUE_SERIALIZATION_HEX};
-use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
+use stacks_common::codec::MAX_MESSAGE_LEN;
 use stacks_common::types::net::PeerAddress;
-use stacks_common::util::hash::to_hex;
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::pipe::*;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
-use stacks_common::util::{get_epoch_time_secs, log, sleep_ms};
 
-use crate::chainstate::burn::ConsensusHash;
-use crate::core::mempool::MAX_BLOOM_COUNTER_TXS;
 use crate::monitoring::{update_inbound_bandwidth, update_outbound_bandwidth};
-use crate::net::codec::*;
 use crate::net::download::BLOCK_DOWNLOAD_INTERVAL;
 use crate::net::inv::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
 use crate::net::neighbors::{
@@ -44,8 +37,7 @@ use crate::net::neighbors::{
     WALK_SEED_PROBABILITY, WALK_STATE_TIMEOUT,
 };
 use crate::net::{
-    Error as net_error, MessageSequence, NeighborAddress, Preamble, ProtocolFamily, RelayData,
-    StacksHttp, StacksP2P,
+    Error as net_error, MessageSequence, NeighborAddress, ProtocolFamily, StacksHttp, StacksP2P,
 };
 
 /// The default maximum age in seconds of a block that can be validated by the block proposal endpoint
@@ -937,11 +929,9 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                         );
                         self.inbox.push_back(message);
                         consumed_message = true;
-                    } else {
-                        if bytes_consumed == 0 {
-                            warn!("0 bytes consumed, but no message parsed");
-                            return Err(net_error::ConnectionBroken);
-                        }
+                    } else if bytes_consumed == 0 {
+                        warn!("0 bytes consumed, but no message parsed");
+                        return Err(net_error::ConnectionBroken);
                     }
 
                     bytes_consumed
@@ -1514,20 +1504,16 @@ pub type ReplyHandleHttp = NetworkReplyHandle<StacksHttp>;
 
 #[cfg(test)]
 mod test {
-    use std::io::prelude::*;
-    use std::io::{Read, Write};
+    use std::io::Write;
     use std::sync::{Arc, Mutex};
     use std::{io, thread};
 
     use rand;
     use rand::RngCore;
-    use stacks_common::util::pipe::*;
     use stacks_common::util::secp256k1::*;
     use stacks_common::util::*;
 
     use super::*;
-    use crate::chainstate::stacks::test::make_codec_test_block;
-    use crate::net::http::*;
     use crate::net::test::{make_tcp_sockets, NetCursor};
     use crate::net::*;
     use crate::util_lib::test::*;

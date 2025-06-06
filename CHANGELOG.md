@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## Unreleased
+
+### Added
+
+- Added a new RPC endpoint `/v3/health` to query the node's health status. The endpoint returns a 200 status code with relevant synchronization information (including the node's current Stacks tip height, the maximum Stacks tip height among its neighbors, and the difference between these two). A user can use the `difference_from_max_peer` value to decide what is a good threshold for them before considering the node out of sync. The endpoint returns a 500 status code if the query cannot retrieve viable data.
+
 ## [3.1.0.0.12]
 
 ### Added
@@ -33,6 +39,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## [3.1.0.0.10]
 
 ### Added
+
 - Persisted tracking of StackerDB slot versions for mining. This improves miner p2p performance.
 
 ## [3.1.0.0.9]

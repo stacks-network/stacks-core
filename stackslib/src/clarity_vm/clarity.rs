@@ -14,53 +14,42 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{error, fmt, thread};
+use std::thread;
 
-use clarity::vm::analysis::errors::{CheckError, CheckErrors};
-use clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
-use clarity::vm::ast::errors::{ParseError, ParseErrors};
-use clarity::vm::ast::{ASTRules, ContractAST};
+#[cfg(test)]
+use clarity::consts::CHAIN_ID_TESTNET;
+use clarity::vm::analysis::AnalysisDatabase;
+use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 pub use clarity::vm::clarity::{ClarityConnection, Error};
-use clarity::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
+use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, RollbackWrapper,
-    RollbackWrapperPersistedLog, STXBalance, SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    RollbackWrapperPersistedLog, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::representations::SymbolicExpression;
-use clarity::vm::types::{
-    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, TupleData,
-    TypeSignature, Value,
-};
-use clarity::vm::{analysis, ast, ClarityVersion, ContractName};
-use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, TrieHash,
-};
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::secp256k1::MessageSignature;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
+use clarity::vm::{ClarityVersion, ContractName};
+use stacks_common::consts::SIGNER_SLOTS_PER_USER;
+use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 
-use crate::burnchains::{Burnchain, PoxConstants};
+use crate::burnchains::PoxConstants;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3,
-    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
-    BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, COSTS_2_NAME, COSTS_3_NAME,
-    MINERS_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE,
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
+    COSTS_3_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE,
     POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME, SIGNERS_BODY, SIGNERS_DB_0_BODY,
     SIGNERS_DB_1_BODY, SIGNERS_NAME, SIGNERS_VOTING_BODY, SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
 use crate::chainstate::stacks::index::marf::MARF;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId};
 use crate::chainstate::stacks::{
-    Error as ChainstateError, SinglesigHashMode, SinglesigSpendingCondition,
-    StacksMicroblockHeader, StacksTransaction, TransactionAuth, TransactionPayload,
-    TransactionPublicKeyEncoding, TransactionSmartContract, TransactionSpendingCondition,
-    TransactionVersion,
+    Error as ChainstateError, StacksMicroblockHeader, StacksTransaction, TransactionPayload,
+    TransactionSmartContract, TransactionVersion,
 };
 use crate::clarity_vm::database::marf::{MarfedKV, ReadOnlyMarfStore, WritableMarfStore};
 use crate::core::{StacksEpoch, StacksEpochId, FIRST_STACKS_BLOCK_ID, GENESIS_EPOCH};
@@ -1962,10 +1951,11 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
+    use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId};
     use clarity::vm::analysis::errors::CheckErrors;
-    use clarity::vm::database::{ClarityBackingStore, STXBalance};
+    use clarity::vm::database::{ClarityBackingStore, STXBalance, SqliteConnection};
     use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
-    use clarity::vm::types::{StandardPrincipalData, Value};
+    use clarity::vm::types::{StandardPrincipalData, TupleData, Value};
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::ConsensusHash;
     use stacks_common::types::sqlite::NO_PARAMS;
@@ -1974,7 +1964,7 @@ mod tests {
     use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection as _};
     use crate::chainstate::stacks::index::ClarityMarfTrieId;
     use crate::clarity_vm::database::marf::MarfedKV;
-    use crate::core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
+    use crate::core::PEER_VERSION_EPOCH_2_0;
 
     #[test]
     pub fn create_md_index() {

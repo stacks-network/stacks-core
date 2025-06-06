@@ -57,8 +57,8 @@ use stacks_common::versions::STACKS_SIGNER_VERSION;
 
 pub use crate::error::{EventError, RPCError};
 pub use crate::events::{
-    BlockProposal, BlockProposalData, EventReceiver, EventStopSignaler, SignerEvent,
-    SignerEventReceiver, SignerEventTrait, SignerStopSignaler,
+    BlockProposal, BlockProposalData, BurnBlockEvent, EventReceiver, EventStopSignaler,
+    SignerEvent, SignerEventReceiver, SignerEventTrait, SignerStopSignaler,
 };
 pub use crate::runloop::{RunningSigner, Signer, SignerRunLoop};
 pub use crate::session::{SignerSession, StackerDBSession};
