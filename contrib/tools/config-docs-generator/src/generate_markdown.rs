@@ -443,21 +443,7 @@ fn struct_to_section_name(struct_name: &str, custom_mappings: &HashMap<String, S
     if let Some(section_name) = custom_mappings.get(struct_name) {
         return section_name.clone();
     }
-
-    // Convert struct name to section name (e.g., "NodeConfig" -> "[node]")
-    // NOTE: This function contains hardcoded mappings from Rust struct names to their
-    // desired TOML section names in the Markdown output. It must be updated if new
-    // top-level configuration structs are added or existing ones are renamed.
-    match struct_name {
-        "BurnchainConfig" => "[burnchain]".to_string(),
-        "NodeConfig" => "[node]".to_string(),
-        "MinerConfig" => "[miner]".to_string(),
-        "ConnectionOptionsFile" => "[connection_options]".to_string(),
-        "FeeEstimationConfigFile" => "[fee_estimation]".to_string(),
-        "EventObserverConfigFile" => "[[events_observer]]".to_string(),
-        "InitialBalanceFile" => "[[ustx_balance]]".to_string(),
-        _ => format!("[{}]", struct_name.to_lowercase()),
-    }
+    format!("[{}]", struct_name.to_lowercase())
 }
 
 fn struct_to_section_name_with_context(
@@ -646,6 +632,11 @@ mod tests {
         let mut struct_to_anchor = HashMap::new();
         let mut field_to_struct = HashMap::new();
         let mut constants = HashMap::new();
+        let mut custom_mappings = HashMap::new();
+
+        // Add custom mappings like the real ones
+        custom_mappings.insert("NodeConfig".to_string(), "[node]".to_string());
+        custom_mappings.insert("MinerConfig".to_string(), "[miner]".to_string());
 
         // Add some test structs and fields
         struct_to_anchor.insert("NodeConfig".to_string(), "#node".to_string());
@@ -667,7 +658,7 @@ mod tests {
             struct_to_anchor,
             field_to_struct,
             constants,
-            custom_mappings: HashMap::new(),
+            custom_mappings,
         }
     }
 
@@ -676,7 +667,8 @@ mod tests {
     #[test]
     fn test_generate_markdown_empty_config() {
         let config_docs = create_config_docs(vec![]);
-        let result = generate_markdown(&config_docs, None, &HashMap::new()).unwrap();
+        let template_path = "templates/reference_template.md";
+        let result = generate_markdown(&config_docs, template_path, &HashMap::new()).unwrap();
 
         assert!(result.contains("# Stacks Node Configuration Reference"));
         assert!(result.contains("## Table of Contents"));
@@ -688,7 +680,8 @@ mod tests {
     fn test_generate_markdown_with_one_struct_no_fields() {
         let struct_doc = create_struct_doc("TestStruct", Some("A test struct"), vec![]);
         let config_docs = create_config_docs(vec![struct_doc]);
-        let result = generate_markdown(&config_docs, None, &HashMap::new()).unwrap();
+        let template_path = "templates/reference_template.md";
+        let result = generate_markdown(&config_docs, template_path, &HashMap::new()).unwrap();
 
         assert!(result.contains("# Stacks Node Configuration Reference"));
         assert!(result.contains("- [[teststruct]](#teststruct)"));
@@ -702,7 +695,8 @@ mod tests {
         let field = create_field_doc("test_field", "A test field");
         let struct_doc = create_struct_doc("TestStruct", Some("A test struct"), vec![field]);
         let config_docs = create_config_docs(vec![struct_doc]);
-        let result = generate_markdown(&config_docs, None, &HashMap::new()).unwrap();
+        let template_path = "templates/reference_template.md";
+        let result = generate_markdown(&config_docs, template_path, &HashMap::new()).unwrap();
 
         assert!(result.contains("# Stacks Node Configuration Reference"));
         assert!(result.contains("- [[teststruct]](#teststruct)"));
@@ -717,7 +711,28 @@ mod tests {
 
     #[test]
     fn test_struct_to_section_name_known_structs() {
-        let mappings = HashMap::new();
+        let mut mappings = HashMap::new();
+        // Load the expected mappings based on section_name_mappings.json
+        mappings.insert("BurnchainConfig".to_string(), "[burnchain]".to_string());
+        mappings.insert("NodeConfig".to_string(), "[node]".to_string());
+        mappings.insert("MinerConfig".to_string(), "[miner]".to_string());
+        mappings.insert(
+            "ConnectionOptionsFile".to_string(),
+            "[connection_options]".to_string(),
+        );
+        mappings.insert(
+            "FeeEstimationConfigFile".to_string(),
+            "[fee_estimation]".to_string(),
+        );
+        mappings.insert(
+            "EventObserverConfigFile".to_string(),
+            "[[events_observer]]".to_string(),
+        );
+        mappings.insert(
+            "InitialBalanceFile".to_string(),
+            "[[ustx_balance]]".to_string(),
+        );
+
         assert_eq!(
             struct_to_section_name("BurnchainConfig", &mappings),
             "[burnchain]"
