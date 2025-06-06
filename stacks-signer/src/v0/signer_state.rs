@@ -954,9 +954,12 @@ impl LocalStateMachine {
 
             let updated_replay_set;
             let updated_scope_opt;
-            if let Some(replay_set) =
-                self.compute_forked_txs_set(db, client, expected_burn_block, past_tip)?
-            {
+            if let Some(replay_set) = self.compute_forked_txs_set_in_same_cycle(
+                db,
+                client,
+                expected_burn_block,
+                past_tip,
+            )? {
                 let scope = (expected_burn_block.clone(), past_tip.clone());
 
                 info!("Tx Replay: replay set updated with {} tx(s)", replay_set.len();
@@ -990,96 +993,71 @@ impl LocalStateMachine {
             }
         }
 
-        // Determine the tenures that were forked
-        let mut parent_burn_block_info =
-            db.get_burn_block_by_ch(&prior_state_machine.burn_block)?;
-
         let potential_replay_tip = NewBurnBlock {
-            burn_block_height: parent_burn_block_info.block_height,
-            consensus_hash: parent_burn_block_info.consensus_hash,
+            burn_block_height: prior_state_machine.burn_block_height,
+            consensus_hash: prior_state_machine.burn_block,
         };
 
-        let last_forked_tenure = prior_state_machine.burn_block;
-        let mut first_forked_tenure = prior_state_machine.burn_block;
-
-        let mut forked_tenures = vec![(
-            prior_state_machine.burn_block,
-            prior_state_machine.burn_block_height,
-        )];
-        while parent_burn_block_info.block_height > expected_burn_block.burn_block_height {
-            parent_burn_block_info =
-                db.get_burn_block_by_hash(&parent_burn_block_info.parent_burn_block_hash)?;
-            first_forked_tenure = parent_burn_block_info.consensus_hash;
-            forked_tenures.push((
-                parent_burn_block_info.consensus_hash,
-                parent_burn_block_info.block_height,
-            ));
+        match self.compute_forked_txs_set_in_same_cycle(
+            db,
+            client,
+            expected_burn_block,
+            &potential_replay_tip,
+        )? {
+            None => {
+                info!("Detected bitcoin fork occurred in previous reward cycle. Tx replay won't be executed");
+                Ok(None)
+            }
+            Some(replay_set) => {
+                let scope_opt = if !replay_set.is_empty() {
+                    let scope = (expected_burn_block.clone(), potential_replay_tip);
+                    info!("Tx Replay: replay set updated with {} tx(s)", replay_set.len();
+                    "tx_replay_set" => ?replay_set,
+                    "tx_replay_scope" => ?scope);
+                    Some(scope)
+                } else {
+                    info!("Tx Replay: no transactions to be replayed.");
+                    None
+                };
+                Ok(Some((replay_set, scope_opt)))
+            }
         }
-        let fork_info =
-            client.get_tenure_forking_info(&first_forked_tenure, &last_forked_tenure)?;
-
-        // Check if fork occurred within current reward cycle. Reject tx replay otherwise.
-        let reward_cycle_info = client.get_current_reward_cycle_info()?;
-        let current_reward_cycle = reward_cycle_info.reward_cycle;
-        let is_fork_in_current_reward_cycle = fork_info.iter().all(|fork_info| {
-            let block_height = fork_info.burn_block_height;
-            let block_rc = reward_cycle_info.get_reward_cycle(block_height);
-            block_rc == current_reward_cycle
-        });
-        if !is_fork_in_current_reward_cycle {
-            info!("Detected bitcoin fork occurred in previous reward cycle. Tx replay won't be executed");
-            return Ok(None);
-        }
-
-        // Collect transactions to be replayed across the forked blocks
-        let mut forked_blocks = fork_info
-            .iter()
-            .flat_map(|fork_info| fork_info.nakamoto_blocks.iter().flatten())
-            .collect::<Vec<_>>();
-        forked_blocks.sort_by_key(|block| block.header.chain_length);
-        let forked_txs = forked_blocks
-            .iter()
-            .flat_map(|block| block.txs.iter())
-            .filter(|tx|
-                // Don't include Coinbase, TenureChange, or PoisonMicroblock transactions
-                !matches!(
-                    tx.payload,
-                    TransactionPayload::TenureChange(..)
-                        | TransactionPayload::Coinbase(..)
-                        | TransactionPayload::PoisonMicroblock(..)
-                ))
-            .cloned()
-            .collect::<Vec<_>>();
-        let scope_opt = if !forked_txs.is_empty() {
-            let scope = (expected_burn_block.clone(), potential_replay_tip);
-            info!("Tx Replay: replay set updated with {} tx(s)", forked_txs.len();
-            "tx_replay_set" => ?forked_txs,
-            "tx_replay_scope" => ?scope);
-            Some(scope)
-        } else {
-            info!("Tx Replay: no transactions to be replayed.");
-            None
-        };
-        Ok(Some((forked_txs, scope_opt)))
     }
 
-    ///TODO: This method can be used to remove dublication in 'handle_possible_bitcoin_fork'
-    ///      Just waiting to avoid potential merge conflict with PR #6109
-    /// Retrieve all the transactions that are involved by the fork
-    /// from the start block (highest height) back to the end block (lowest height)
-    fn compute_forked_txs_set(
+    /// Retrieves the set of transactions that were part of a Bitcoin fork within the same reward cycle.
+    ///
+    /// This method identifies the range of Tenures affected by a fork, from the `tip` down to the `fork_origin`
+    ///
+    /// It then verifies whether the fork occurred entirely within the current reward cycle. If so,
+    /// collect the relevant transactions (skipping TenureChange, Coinbase, and Microblocks).
+    /// Otherwise, if fork involve a different reward cycle cancel the search.
+    ///
+    /// # Arguments
+    ///
+    /// * `db` - A reference to the SignerDb, used to fetch burn block information.
+    /// * `client` - A reference to a `StacksClient`, used to query chain state and fork information.
+    /// * `fork_origin` - The burn block that originated the fork.
+    /// * `tip` - The burn block tip in the fork sequence.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing either:
+    /// * `Ok(Some(Vec<StacksTransaction>))` — A list of transactions to be considered for replay, or
+    /// * `Ok(None)` — If the fork occurred outside the current reward cycle, or
+    /// * `Err(SignerChainstateError)` — If there was an error accessing chain state.
+    fn compute_forked_txs_set_in_same_cycle(
         &self,
         db: &SignerDb,
         client: &StacksClient,
-        end_block: &NewBurnBlock,
-        start_block: &NewBurnBlock,
+        fork_origin: &NewBurnBlock,
+        tip: &NewBurnBlock,
     ) -> Result<Option<Vec<StacksTransaction>>, SignerChainstateError> {
         // Determine the tenures that were forked
-        let mut parent_burn_block_info = db.get_burn_block_by_ch(&start_block.consensus_hash)?;
-        let last_forked_tenure = start_block.consensus_hash;
-        let mut first_forked_tenure = start_block.consensus_hash;
-        let mut forked_tenures = vec![(start_block.consensus_hash, start_block.burn_block_height)];
-        while parent_burn_block_info.block_height > end_block.burn_block_height {
+        let mut parent_burn_block_info = db.get_burn_block_by_ch(&tip.consensus_hash)?;
+        let last_forked_tenure = tip.consensus_hash;
+        let mut first_forked_tenure = tip.consensus_hash;
+        let mut forked_tenures = vec![(tip.consensus_hash, tip.burn_block_height)];
+        while parent_burn_block_info.block_height > fork_origin.burn_block_height {
             parent_burn_block_info =
                 db.get_burn_block_by_hash(&parent_burn_block_info.parent_burn_block_hash)?;
             first_forked_tenure = parent_burn_block_info.consensus_hash;
@@ -1102,7 +1080,6 @@ impl LocalStateMachine {
         });
 
         if !is_fork_in_current_reward_cycle {
-            info!("Detected bitcoin fork occurred in previous reward cycle. Tx replay won't be executed");
             return Ok(None);
         }
 
