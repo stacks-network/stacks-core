@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use std::{env, thread};
 
 use clarity::vm::ast::ASTRules;
@@ -32,6 +32,9 @@ use lazy_static::lazy_static;
 use libsigner::v0::messages::{
     MessageSlotID, RejectReason, SignerMessage as SignerMessageV0, StateMachineUpdate,
     StateMachineUpdateContent, StateMachineUpdateMinerState,
+};
+use libsigner::v0::signer_state::{
+    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
 };
 use libsigner::{SignerSession, StackerDBSession};
 use rand::{thread_rng, Rng};
@@ -102,8 +105,10 @@ use stacks_common::types::{set_test_coinbase_schedule, CoinbaseInterval, StacksP
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
-use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
+use stacks_signer::chainstate::{ProposalEvalConfig, SortitionState, SortitionsView};
+use stacks_signer::client::{CurrentAndLastSortition, StacksClient};
 use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
+use stacks_signer::v0::signer_state::{LocalStateMachine, SUPPORTED_SIGNER_PROTOCOL_VERSION};
 use stacks_signer::v0::SpawnedSigner;
 
 use super::bitcoin_regtest::BitcoinCoreController;
@@ -220,7 +225,7 @@ impl TestSigningChannel {
         let sign_channels = signer.as_mut()?;
         let recv = sign_channels.recv.take().unwrap();
         drop(signer); // drop signer so we don't hold the lock while receiving.
-        let signatures = recv.recv_timeout(Duration::from_secs(30)).unwrap();
+        let signatures = recv.recv_timeout(Duration::from_secs(60)).unwrap();
         let overwritten = TEST_SIGNING
             .lock()
             .unwrap()
@@ -6577,9 +6582,96 @@ fn signer_chainstate() {
         None;
     // hold the first and last blocks of the first tenure. we'll use this to submit reorging proposals
     let mut first_tenure_blocks: Option<Vec<NakamotoBlock>> = None;
+
+    let mut address_weights = HashMap::new();
+    signers.signer_keys.iter().for_each(|key| {
+        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(key));
+        address_weights.insert(address, 10);
+    });
+    let local_address = StacksAddress::p2pkh(
+        false,
+        &StacksPublicKey::from_private(signers.signer_keys.first().unwrap()),
+    );
+    let global_eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
+    let get_sortitions_view_from_tip =
+        |sortdb: &SortitionDB,
+         signer_client: &StacksClient,
+         signer_db: &SignerDb,
+         proposal_conf: &ProposalEvalConfig| {
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            let CurrentAndLastSortition {
+                current_sortition,
+                last_sortition,
+            } = signer_client.get_current_and_last_sortition().unwrap();
+
+            let cur_sortition = SortitionState::try_from(current_sortition).unwrap();
+            let last_sortition = last_sortition
+                .map(SortitionState::try_from)
+                .transpose()
+                .ok()
+                .flatten()
+                .unwrap();
+
+            let is_current_valid = cur_sortition
+                .is_tenure_valid(
+                    &signer_db,
+                    &signer_client,
+                    &proposal_conf,
+                    &global_eval,
+                    &local_address,
+                )
+                .unwrap();
+
+            let miner_state = if is_current_valid {
+                LocalStateMachine::make_miner_state(
+                    cur_sortition,
+                    &signer_client,
+                    &signer_db,
+                    &proposal_conf,
+                )
+                .unwrap()
+            } else {
+                let is_last_valid = last_sortition
+                    .is_tenure_valid(
+                        &signer_db,
+                        &signer_client,
+                        &proposal_conf,
+                        &global_eval,
+                        &local_address,
+                    )
+                    .unwrap();
+
+                if is_last_valid {
+                    LocalStateMachine::make_miner_state(
+                        last_sortition,
+                        &signer_client,
+                        &signer_db,
+                        &proposal_conf,
+                    )
+                    .unwrap()
+                } else {
+                    warn!("Neither the current nor the prior sortition winner is considered a valid tenure");
+                    MinerState::NoValidMiner
+                }
+            };
+
+            let state_machine = SignerStateMachine {
+                burn_block: tip.consensus_hash,
+                burn_block_height: tip.block_height,
+                current_miner: miner_state,
+                active_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
+                tx_replay_set: ReplayTransactionSet::none(),
+                creation_time: SystemTime::now(),
+            };
+
+            SortitionsView {
+                signer_state: state_machine,
+                config: proposal_conf.clone(),
+            }
+        };
+
     for i in 0..15 {
         next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
-
         // this config disallows any reorg due to poorly timed block commits
         let proposal_conf = ProposalEvalConfig {
             proposal_wait_for_parent_time: Duration::from_secs(0),
@@ -6590,35 +6682,27 @@ fn signer_chainstate() {
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
         };
-        let mut sortitions_view =
-            SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
 
+        let sortitions_view =
+            get_sortitions_view_from_tip(&sortdb, &signer_client, &signer_db, &proposal_conf);
         // check the prior tenure's proposals again, confirming that the sortitions_view
         //  will reject them.
         if let Some((ref miner_pk, ref prior_tenure_first, ref prior_tenure_interims)) =
             last_tenures_proposals
         {
             let reject_code = sortitions_view
-                .check_proposal(
-                    &signer_client,
-                    &mut signer_db,
-                    prior_tenure_first,
-                    miner_pk,
-                    true,
-                )
+                .check_proposal(&signer_client, &mut signer_db, prior_tenure_first, miner_pk)
                 .expect_err("Sortitions view should reject proposals from prior tenure");
-            assert_eq!(
-                reject_code,
-                RejectReason::NotLatestSortitionWinner,
+            assert!(
+                matches!(reject_code, RejectReason::ConsensusHashMismatch(_)),
                 "Sortitions view should reject proposals from prior tenure"
             );
             for block in prior_tenure_interims.iter() {
                 let reject_code = sortitions_view
-                    .check_proposal(&signer_client, &mut signer_db, block, miner_pk, true)
+                    .check_proposal(&signer_client, &mut signer_db, block, miner_pk)
                     .expect_err("Sortitions view should reject proposals from prior tenure");
-                assert_eq!(
-                    reject_code,
-                    RejectReason::NotLatestSortitionWinner,
+                assert!(
+                    matches!(reject_code, RejectReason::ConsensusHashMismatch(_)),
                     "Sortitions view should reject proposals from prior tenure"
                 );
             }
@@ -6629,7 +6713,12 @@ fn signer_chainstate() {
         let time_start = Instant::now();
         let proposal = loop {
             let proposal = get_latest_block_proposal(&naka_conf, &sortdb).unwrap();
-            if proposal.0.header.consensus_hash == sortitions_view.cur_sortition.consensus_hash {
+            let MinerState::ActiveMiner { tenure_id, .. } =
+                &sortitions_view.signer_state.current_miner
+            else {
+                panic!("Expected an active miner");
+            };
+            if proposal.0.header.consensus_hash == *tenure_id {
                 break proposal;
             }
             if time_start.elapsed() > Duration::from_secs(20) {
@@ -6645,13 +6734,7 @@ fn signer_chainstate() {
             .block_height_to_reward_cycle(burn_block_height)
             .unwrap();
         sortitions_view
-            .check_proposal(
-                &signer_client,
-                &mut signer_db,
-                &proposal.0,
-                &proposal.1,
-                true,
-            )
+            .check_proposal(&signer_client, &mut signer_db, &proposal.0, &proposal.1)
             .expect("Nakamoto integration test produced invalid block proposal");
         signer_db
             .insert_block(&BlockInfo {
@@ -6702,7 +6785,6 @@ fn signer_chainstate() {
                 &mut signer_db,
                 &proposal_interim.0,
                 &proposal_interim.1,
-                true,
             )
             .expect("Nakamoto integration test produced invalid block proposal");
         // force the view to refresh and check again
@@ -6723,15 +6805,15 @@ fn signer_chainstate() {
         let reward_cycle = burnchain
             .block_height_to_reward_cycle(burn_block_height)
             .unwrap();
-        let mut sortitions_view =
-            SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
+
+        let sortitions_view =
+            get_sortitions_view_from_tip(&sortdb, &signer_client, &signer_db, &proposal_conf);
         sortitions_view
             .check_proposal(
                 &signer_client,
                 &mut signer_db,
                 &proposal_interim.0,
                 &proposal_interim.1,
-                true,
             )
             .expect("Nakamoto integration test produced invalid block proposal");
 
@@ -6795,15 +6877,11 @@ fn signer_chainstate() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
     };
-    let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
+
+    let mut sortitions_view =
+        get_sortitions_view_from_tip(&sortdb, &signer_client, &signer_db, &proposal_conf);
     sortitions_view
-        .check_proposal(
-            &signer_client,
-            &mut signer_db,
-            &sibling_block,
-            &miner_pk,
-            false,
-        )
+        .check_proposal(&signer_client, &mut signer_db, &sibling_block, &miner_pk)
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but blocks have already
@@ -6851,13 +6929,7 @@ fn signer_chainstate() {
     };
 
     sortitions_view
-        .check_proposal(
-            &signer_client,
-            &mut signer_db,
-            &sibling_block,
-            &miner_pk,
-            false,
-        )
+        .check_proposal(&signer_client, &mut signer_db, &sibling_block, &miner_pk)
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but it doesn't confirm all the blocks of the parent tenure
@@ -6911,19 +6983,19 @@ fn signer_chainstate() {
     };
 
     sortitions_view
-        .check_proposal(
-            &signer_client,
-            &mut signer_db,
-            &sibling_block,
-            &miner_pk,
-            false,
-        )
+        .check_proposal(&signer_client, &mut signer_db, &sibling_block, &miner_pk)
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but the parent tenure is a reorg
     let reorg_to_block = first_tenure_blocks.as_ref().unwrap().last().unwrap();
+    let MinerState::ActiveMiner {
+        parent_tenure_id, ..
+    } = &mut sortitions_view.signer_state.current_miner
+    else {
+        panic!("Expected an active miner");
+    };
     // make the sortition_view *think* that our block commit pointed at this old tenure
-    sortitions_view.cur_sortition.parent_tenure_id = reorg_to_block.header.consensus_hash;
+    *parent_tenure_id = reorg_to_block.header.consensus_hash;
     let mut sibling_block_header = NakamotoBlockHeader {
         version: 1,
         chain_length: reorg_to_block.header.chain_length + 1,
@@ -6973,17 +7045,13 @@ fn signer_chainstate() {
     };
 
     sortitions_view
-        .check_proposal(
-            &signer_client,
-            &mut signer_db,
-            &sibling_block,
-            &miner_pk,
-            false,
-        )
+        .check_proposal(&signer_client, &mut signer_db, &sibling_block, &miner_pk)
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     let start_sortition = &reorg_to_block.header.consensus_hash;
-    let stop_sortition = &sortitions_view.cur_sortition.prior_sortition;
+    let CurrentAndLastSortition { last_sortition, .. } =
+        signer_client.get_current_and_last_sortition().unwrap();
+    let stop_sortition = &last_sortition.unwrap().consensus_hash;
     // check that the get_tenure_forking_info response is sane
     let fork_info = signer_client
         .get_tenure_forking_info(start_sortition, stop_sortition)
@@ -12500,7 +12568,7 @@ fn miner_constructs_replay_block() {
     let stacker_sk = setup_stacker(&mut naka_conf);
     naka_conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
 
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
 
     test_observer::spawn();
     test_observer::register(

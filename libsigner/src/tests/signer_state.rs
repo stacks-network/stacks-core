@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashMap;
+use std::time::SystemTime;
 
 use clarity::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
@@ -238,6 +239,7 @@ fn determine_global_states() {
         current_miner: (&current_miner).into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
         tx_replay_set: ReplayTransactionSet::none(),
+        creation_time: SystemTime::now(),
     };
 
     global_eval.insert_update(local_address, local_update);
@@ -277,6 +279,7 @@ fn determine_global_states() {
         current_miner: (&new_miner).into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
         tx_replay_set: ReplayTransactionSet::none(),
+        creation_time: SystemTime::now(),
     };
 
     global_eval.insert_update(local_address, new_update);
