@@ -686,6 +686,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "config-docs-generator"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "once_cell",
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
