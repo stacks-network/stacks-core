@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashMap;
+use std::time::SystemTime;
 
 use clarity::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
@@ -31,7 +32,7 @@ fn generate_global_state_evaluator(num_addresses: u32) -> GlobalStateEvaluator {
     let active_protocol_version = 0;
     let local_supported_signer_protocol_version = 1;
 
-    let update = StateMachineUpdateMessage::new(
+    let update = StateMachineUpdateMessage::new_unsigned(
         active_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V0 {
@@ -104,7 +105,7 @@ fn determine_latest_supported_signer_protocol_versions() {
     // Let's update 3 signers (60 percent) to support seperate but greater protocol versions
     for (i, address) in addresses.into_iter().skip(1).take(3).enumerate() {
         let new_version = local_update.local_supported_signer_protocol_version + i as u64 + 1;
-        let new_update = StateMachineUpdateMessage::new(
+        let new_update = StateMachineUpdateMessage::new_unsigned(
             active_signer_protocol_version,
             new_version,
             StateMachineUpdateContent::V0 {
@@ -126,7 +127,7 @@ fn determine_latest_supported_signer_protocol_versions() {
 
     // Let's tip the scales over to version number 2 by updating the local signer's version...
     // i.e. > 70% will have version 2 or higher in their map
-    let local_update = StateMachineUpdateMessage::new(
+    let local_update = StateMachineUpdateMessage::new_unsigned(
         active_signer_protocol_version,
         3,
         StateMachineUpdateContent::V0 {
@@ -179,7 +180,7 @@ fn determine_global_burn_views() {
     );
 
     // Let's update 3 signers (60 percent) to support a new burn block view
-    let new_update = StateMachineUpdateMessage::new(
+    let new_update = StateMachineUpdateMessage::new_unsigned(
         active_signer_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V0 {
@@ -238,6 +239,7 @@ fn determine_global_states() {
         current_miner: (&current_miner).into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
         tx_replay_set: ReplayTransactionSet::none(),
+        creation_time: SystemTime::now(),
     };
 
     global_eval.insert_update(local_address, local_update);
@@ -250,7 +252,7 @@ fn determine_global_states() {
         parent_tenure_last_block_height: 1,
     };
 
-    let new_update = StateMachineUpdateMessage::new(
+    let new_update = StateMachineUpdateMessage::new_unsigned(
         active_signer_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V0 {
@@ -277,6 +279,7 @@ fn determine_global_states() {
         current_miner: (&new_miner).into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
         tx_replay_set: ReplayTransactionSet::none(),
+        creation_time: SystemTime::now(),
     };
 
     global_eval.insert_update(local_address, new_update);

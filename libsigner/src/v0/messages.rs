@@ -49,7 +49,7 @@ use clarity::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksPrivateKey, StacksPublicKey,
 };
 use clarity::types::PrivateKey;
-use clarity::util::hash::Sha256Sum;
+use clarity::util::hash::{MerkleHashFunc, Sha256Sum};
 use clarity::util::retry::BoundReader;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::serialization::SerializationError;
@@ -555,6 +555,8 @@ pub struct StateMachineUpdate {
     pub local_supported_signer_protocol_version: u64,
     /// The actual content of the state machine update message (this is a versioned enum)
     pub content: StateMachineUpdateContent,
+    /// Recoverable ECDSA signature from the signer that produced the update
+    pub signature: MessageSignature,
     // Prevent manual construction of this struct
     no_manual_construct: PhantomData<()>,
 }
@@ -607,9 +609,9 @@ pub enum StateMachineUpdateMinerState {
 }
 
 impl StateMachineUpdate {
-    /// Construct a StateMachineUpdate message, checking to ensure that the
+    /// Construct an unsigned StateMachineUpdate message, checking to ensure that the
     /// supplied content is supported by the supplied protocol versions.
-    pub fn new(
+    pub fn new_unsigned(
         active_signer_protocol_version: u64,
         local_supported_signer_protocol_version: u64,
         content: StateMachineUpdateContent,
@@ -621,8 +623,35 @@ impl StateMachineUpdate {
             active_signer_protocol_version,
             local_supported_signer_protocol_version,
             content,
+            signature: MessageSignature::empty(),
             no_manual_construct: PhantomData,
         })
+    }
+
+    /// Recover the public key of the signer from the ECDSA signature
+    pub fn recover_signer_pk(&self) -> Option<StacksPublicKey> {
+        let signed_hash = self.signature_hash();
+        let recovered_pk =
+            StacksPublicKey::recover_to_pubkey(signed_hash.bits(), &self.signature).ok()?;
+
+        Some(recovered_pk)
+    }
+    /// Calculate the message digest for signers to sign.
+    /// This includes all fields _except_ the signature itself and the phantom data
+    pub fn signature_hash(&self) -> Sha512Trunc256Sum {
+        self.signature_hash_inner()
+            .expect("BUG: failed to calculate signature hash")
+    }
+
+    /// Inner calculation of the message digest for miners to sign.
+    /// This includes all fields _except_ the signature itself and the phantom data
+    fn signature_hash_inner(&self) -> Result<Sha512Trunc256Sum, CodecError> {
+        let mut hasher = Sha512_256::new();
+        let fd = &mut hasher;
+        write_next(fd, &self.active_signer_protocol_version)?;
+        self.content.serialize(fd)?;
+        write_next(fd, &self.local_supported_signer_protocol_version)?;
+        Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 }
 
@@ -763,7 +792,8 @@ impl StacksMessageCodec for StateMachineUpdate {
             )));
         }
         buff_len.consensus_serialize(fd)?;
-        fd.write_all(&buffer).map_err(CodecError::WriteError)
+        fd.write_all(&buffer).map_err(CodecError::WriteError)?;
+        self.signature.consensus_serialize(fd)
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
@@ -784,11 +814,14 @@ impl StacksMessageCodec for StateMachineUpdate {
             active_signer_protocol_version,
         )?;
 
-        Self::new(
+        let signature = read_next(fd)?;
+        let mut update = Self::new_unsigned(
             active_signer_protocol_version,
             local_supported_signer_protocol_version,
             content,
-        )
+        )?;
+        update.signature = signature;
+        Ok(update)
     }
 }
 
@@ -848,6 +881,7 @@ impl From<&RejectReason> for RejectReasonPrefix {
             RejectReason::InvalidParentBlock => RejectReasonPrefix::InvalidParentBlock,
             RejectReason::DuplicateBlockFound => RejectReasonPrefix::DuplicateBlockFound,
             RejectReason::InvalidTenureExtend => RejectReasonPrefix::InvalidTenureExtend,
+            RejectReason::ConsensusHashMismatch(_) => RejectReasonPrefix::ConsensusHashMismatch,
             RejectReason::Unknown(_) => RejectReasonPrefix::Unknown,
             RejectReason::NotRejected => RejectReasonPrefix::NotRejected,
         }
@@ -922,6 +956,8 @@ pub enum RejectReason {
     /// The block attempted a tenure extend but the burn view has not changed
     /// and not enough time has passed for a time-based tenure extend
     InvalidTenureExtend,
+    /// The block consensus hash does not match the active miner's tenure id
+    ConsensusHashMismatch((ConsensusHash, ConsensusHash)),
     /// The block was approved, no rejection details needed
     NotRejected,
     /// Handle unknown codes gracefully
@@ -963,6 +999,8 @@ pub enum RejectReasonPrefix {
     /// The block attempted a tenure extend but the burn view has not changed
     /// and not enough time has passed for a time-based tenure extend
     InvalidTenureExtend = 13,
+    /// The block consensus hash does not match the active miner's tenure id
+    ConsensusHashMismatch = 14,
     /// Unknown reject code, for forward compatibility
     Unknown = 254,
     /// The block was approved, no rejection details needed
@@ -987,6 +1025,7 @@ impl RejectReasonPrefix {
             Self::InvalidParentBlock => 11,
             Self::DuplicateBlockFound => 12,
             Self::InvalidTenureExtend => 13,
+            Self::ConsensusHashMismatch => 14,
             Self::Unknown => 254,
             Self::NotRejected => 255,
         }
@@ -1010,6 +1049,7 @@ impl From<u8> for RejectReasonPrefix {
             11 => Self::InvalidParentBlock,
             12 => Self::DuplicateBlockFound,
             13 => Self::InvalidTenureExtend,
+            14 => Self::ConsensusHashMismatch,
             255 => Self::NotRejected,
             // For forward compatibility, all other values are unknown
             _ => Self::Unknown,
@@ -1575,6 +1615,10 @@ impl StacksMessageCodec for RejectReason {
         // Do not do a single match here as we may add other variants in the future and don't want to miss adding it
         match self {
             RejectReason::ValidationFailed(code) => write_next(fd, &(*code as u8))?,
+            RejectReason::ConsensusHashMismatch((expected, actual)) => {
+                write_next(fd, expected)?;
+                write_next(fd, actual)?;
+            }
             RejectReason::ConnectivityIssues(_)
             | RejectReason::RejectedInPriorRound
             | RejectReason::NoSortitionView
@@ -1625,6 +1669,11 @@ impl StacksMessageCodec for RejectReason {
             RejectReasonPrefix::InvalidParentBlock => RejectReason::InvalidParentBlock,
             RejectReasonPrefix::DuplicateBlockFound => RejectReason::DuplicateBlockFound,
             RejectReasonPrefix::InvalidTenureExtend => RejectReason::InvalidTenureExtend,
+            RejectReasonPrefix::ConsensusHashMismatch => {
+                let expected = read_next::<ConsensusHash, _>(fd)?;
+                let actual = read_next::<ConsensusHash, _>(fd)?;
+                RejectReason::ConsensusHashMismatch((expected, actual))
+            }
             RejectReasonPrefix::Unknown => RejectReason::Unknown(type_prefix_byte),
             RejectReasonPrefix::NotRejected => RejectReason::NotRejected,
         };
@@ -1725,8 +1774,14 @@ impl std::fmt::Display for RejectReason {
                     "The block attempted a tenure extend but the burn view has not changed and not enough time has passed for a time-based tenure extend."
                 )
             }
+            RejectReason::ConsensusHashMismatch((expected, actual)) => {
+                write!(
+                    f,
+                    "The block's consensus hash ({expected}) does not match the active miner's tenure id ({actual})",
+                )
+            }
             RejectReason::Unknown(code) => {
-                write!(f, "Unknown reject code: {}", code)
+                write!(f, "Unknown reject code: {code}")
             }
             RejectReason::NotRejected => {
                 write!(f, "The block was approved, no rejection details needed.")
@@ -2259,7 +2314,7 @@ mod test {
 
     #[test]
     fn version_check_state_machine_update() {
-        let error = StateMachineUpdate::new(
+        let error = StateMachineUpdate::new_unsigned(
             1,
             3,
             StateMachineUpdateContent::V0 {
@@ -2280,7 +2335,7 @@ mod test {
 
     #[test]
     fn deserialize_state_machine_update_v0() {
-        let signer_message = StateMachineUpdate::new(
+        let signer_message = StateMachineUpdate::new_unsigned(
             0,
             3,
             StateMachineUpdateContent::V0 {
@@ -2313,6 +2368,7 @@ mod test {
             /* parent_tenure_id*/ &[0x22; 20],
             /* parent_tenure_last_block */ &[0x33; 32],
             /* parent_tenure_last_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 1],
+            /* signature */ &[0; 65],
         ];
 
         assert_eq!(bytes, raw_signer_message.concat());
@@ -2322,7 +2378,7 @@ mod test {
 
         assert_eq!(signer_message, signer_message_deserialized);
 
-        let signer_message = StateMachineUpdate::new(
+        let signer_message = StateMachineUpdate::new_unsigned(
             0,
             4,
             StateMachineUpdateContent::V0 {
@@ -2344,6 +2400,7 @@ mod test {
             /* burn_block*/ &[0x55; 20],
             /* burn_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 100],
             /* current_miner_variant */ &[0x00],
+            /* signature */ &[0; 65],
         ];
 
         assert_eq!(bytes, raw_signer_message.concat());
@@ -2356,7 +2413,7 @@ mod test {
 
     #[test]
     fn deserialize_state_machine_update_v1() {
-        let signer_message = StateMachineUpdate::new(
+        let signer_message = StateMachineUpdate::new_unsigned(
             1,
             3,
             StateMachineUpdateContent::V1 {
@@ -2391,6 +2448,7 @@ mod test {
             /* parent_tenure_last_block */ &[0x33; 32],
             /* parent_tenure_last_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 1],
             /* replay_transactions */ &[0, 0, 0, 0],
+            /* signature */ &[0; 65],
         ];
 
         assert_eq!(bytes, raw_signer_message.concat());
@@ -2400,7 +2458,7 @@ mod test {
 
         assert_eq!(signer_message, signer_message_deserialized);
 
-        let signer_message = StateMachineUpdate::new(
+        let signer_message = StateMachineUpdate::new_unsigned(
             1,
             4,
             StateMachineUpdateContent::V1 {
@@ -2424,6 +2482,7 @@ mod test {
             /* burn_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 100],
             /* current_miner_variant */ &[0x00],
             /* replay_transactions */ &[0, 0, 0, 0],
+            /* signature */ &[0; 65],
         ];
 
         assert_eq!(bytes, raw_signer_message.concat());

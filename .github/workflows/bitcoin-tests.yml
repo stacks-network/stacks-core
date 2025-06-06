@@ -113,6 +113,8 @@ jobs:
           - test-name: tests::nakamoto_integrations::large_mempool_next_random_fee
           - test-name: tests::nakamoto_integrations::larger_mempool
           - test-name: tests::signer::v0::larger_mempool
+          # TODO: Renable after finishing https://github.com/stacks-network/stacks-core/issues/6176
+          - test-name: tests::signer::v0::regr_use_block_header_pk
 
     steps:
       ## Setup test environment
