@@ -439,7 +439,12 @@ impl Signer {
                             sortition_state,
                         ),
                         SignerMessage::StateMachineUpdate(update) => self
-                            .handle_state_machine_update(signer_public_key, update, received_time),
+                            .handle_state_machine_update(
+                                signer_public_key,
+                                update,
+                                received_time,
+                                sortition_state,
+                            ),
                         _ => {}
                     }
                 }
@@ -773,6 +778,7 @@ impl Signer {
         signer_public_key: &Secp256k1PublicKey,
         update: &StateMachineUpdate,
         received_time: &SystemTime,
+        sortition_state: &mut Option<SortitionsView>,
     ) {
         let address = StacksAddress::p2pkh(self.mainnet, signer_public_key);
         // Store the state machine update so we can reload it if we crash
@@ -795,6 +801,7 @@ impl Signer {
             self.stacks_address,
             version,
             self.reward_cycle,
+            sortition_state,
         );
     }
 
@@ -1653,7 +1660,7 @@ impl Signer {
                 self.global_state_evaluator
                     .get_global_tx_replay_set()
                     .unwrap_or_default()
-                    .into_optional()
+                    .clone_as_optional()
             } else {
                 None
             },

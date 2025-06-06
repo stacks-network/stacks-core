@@ -170,6 +170,28 @@ pub struct ConfigFile {
     pub __path: Option<String>, // Only used for config file reloads
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
+    /// Represents an initial STX balance allocation for an address at genesis
+    /// for testing purposes.
+    ///
+    /// This struct is used to define pre-allocated STX balances that are credited to
+    /// specific addresses when the Stacks node first initializes its chainstate. These balances
+    /// are included in the genesis block and are immediately available for spending.
+    ///
+    /// **Configuration:**
+    /// Configured as a list `[[ustx_balance]]` in TOML.
+    ///
+    /// Example TOML entry:
+    /// ```toml
+    /// [[ustx_balance]]
+    /// address = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"
+    /// amount = 10000000000000000
+    /// ```
+    ///
+    /// This is intended strictly for testing purposes.
+    /// Attempting to specify initial balances if [`BurnchainConfig::mode`] is "mainnet" will
+    /// result in an invalid config error.
+    ///
+    /// Default: `None`
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
     /// Deprecated: use `ustx_balance` instead
     pub mstx_balance: Option<Vec<InitialBalanceFile>>,
@@ -2468,13 +2490,24 @@ impl Default for NodeConfig {
 impl NodeConfig {
     /// Get a SocketAddr for this node's RPC endpoint which uses the loopback address
     pub fn get_rpc_loopback(&self) -> Option<SocketAddr> {
-        let rpc_port = SocketAddr::from_str(&self.rpc_bind)
-            .map_err(|e| {
+        let rpc_port = self.rpc_bind_addr()?.port();
+        Some(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), rpc_port))
+    }
+
+    pub fn rpc_bind_addr(&self) -> Option<SocketAddr> {
+        SocketAddr::from_str(&self.rpc_bind)
+            .inspect_err(|e| {
                 error!("Could not parse node.rpc_bind configuration setting as SocketAddr: {e}");
             })
-            .ok()?
-            .port();
-        Some(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), rpc_port))
+            .ok()
+    }
+
+    pub fn p2p_bind_addr(&self) -> Option<SocketAddr> {
+        SocketAddr::from_str(&self.p2p_bind)
+            .inspect_err(|e| {
+                error!("Could not parse node.rpc_bind configuration setting as SocketAddr: {e}");
+            })
+            .ok()
     }
 
     pub fn add_signers_stackerdbs(&mut self, is_mainnet: bool) {
@@ -3784,12 +3817,97 @@ impl NodeConfigFile {
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct FeeEstimationConfigFile {
+    /// Specifies the name of the cost estimator to use.
+    /// This controls how the node estimates computational costs for transactions.
+    ///
+    /// Accepted values:
+    /// - `"NaivePessimistic"`: The only currently supported cost estimator. This estimator
+    ///   tracks the highest observed costs for each operation type and uses the average
+    ///   of the top 10 values as its estimate, providing a conservative approach to
+    ///   cost estimation.
+    ///
+    /// If not specified, or if [`FeeEstimationConfigFile::disabled`] is `true`,
+    /// the node will use the default cost estimator.
+    ///
+    /// Default: `"NaivePessimistic"`
     pub cost_estimator: Option<String>,
+    /// Specifies the name of the fee estimator to use.
+    /// This controls how the node calculates appropriate transaction fees based on costs.
+    ///
+    /// Accepted values:
+    /// - `"ScalarFeeRate"`: Simple multiplier-based fee estimation that uses percentiles
+    ///   (5th, 50th, and 95th) of observed fee rates from recent blocks.
+    /// - `"FuzzedWeightedMedianFeeRate"`: Fee estimation that adds controlled randomness
+    ///   to a weighted median rate calculator. This helps prevent fee optimization attacks
+    ///   by adding unpredictability to fee estimates while still maintaining accuracy.
+    ///
+    /// If not specified, or if [`FeeEstimationConfigFile::disabled`] is `true`,
+    /// the node will use the default fee estimator.
+    ///
+    /// Default: `"ScalarFeeRate"`
     pub fee_estimator: Option<String>,
+    /// Specifies the name of the cost metric to use.
+    /// This controls how the node measures and compares transaction costs.
+    ///
+    /// Accepted values:
+    /// - `"ProportionDotProduct"`: The only currently supported cost metric. This metric
+    ///   computes a weighted sum of cost dimensions (runtime, read/write counts, etc.)
+    ///   proportional to how much of the block limit they consume.
+    ///
+    /// If not specified, or if [`FeeEstimationConfigFile::disabled`] is `true`,
+    /// the node will use the default cost metric.
+    ///
+    /// Default: `"ProportionDotProduct"`
     pub cost_metric: Option<String>,
+    /// If `true`, all fee and cost estimation features are disabled.
+    /// The node will use unit estimators and metrics, which effectively
+    /// provide no actual estimation capabilities.
+    ///
+    /// When disabled, the node will:
+    /// 1. Not track historical transaction costs or fee rates
+    /// 2. Return simple unit values for costs for any transaction, regardless of its actual complexity
+    /// 3. Be unable to provide meaningful fee estimates for API requests (always returns an error)
+    /// 4. Consider only raw transaction fees (not fees per cost unit) when assembling blocks
+    ///
+    /// This setting takes precedence over individual estimator/metric configurations.
+    /// When `true`, the values for [`FeeEstimationConfigFile::cost_estimator`],
+    /// [`FeeEstimationConfigFile::fee_estimator`], and [`FeeEstimationConfigFile::cost_metric`]
+    /// are ignored and treated as `None`.
+    ///
+    /// Default: `false`
     pub disabled: Option<bool>,
+    /// If `true`, errors encountered during cost or fee estimation will be logged.
+    /// This can help diagnose issues with the fee estimation subsystem.
+    ///
+    /// Default: `false`
     pub log_error: Option<bool>,
+    /// Specifies the fraction of random noise to add if using the `FuzzedWeightedMedianFeeRate` fee estimator.
+    /// This value should be in the range [0, 1], representing a percentage of the base fee rate.
+    ///
+    /// For example, with a value of 0.1 (10%), fee rate estimates will have random noise added
+    /// within the range of ±10% of the original estimate. This randomization makes it difficult
+    /// for users to precisely optimize their fees while still providing reasonable estimates.
+    ///
+    /// This setting is only relevant when [`FeeEstimationConfigFile::fee_estimator`] is set to
+    /// `"FuzzedWeightedMedianFeeRate"`. It controls how much randomness is introduced in the
+    /// fee estimation process to prevent fee optimization attacks.
+    ///
+    /// Default: `0.1` (10%)
     pub fee_rate_fuzzer_fraction: Option<f64>,
+    /// Specifies the window size for the [`WeightedMedianFeeRateEstimator`].
+    /// This determines how many historical fee rate data points are considered
+    /// when calculating the median fee rate.
+    ///
+    /// The window size controls how quickly the fee estimator responds to changing
+    /// network conditions. A smaller window size (e.g., 5) makes the estimator more
+    /// responsive to recent fee rate changes but potentially more volatile. A larger
+    /// window size (e.g., 10) produces more stable estimates but may be slower to
+    /// adapt to rapid network changes.
+    ///
+    /// This setting is primarily relevant when [`FeeEstimationConfigFile::fee_estimator`] is set to
+    /// `"FuzzedWeightedMedianFeeRate"`, as it's used by the underlying [`WeightedMedianFeeRateEstimator`].
+    ///
+    /// Default: `5`
     pub fee_rate_window_size: Option<u64>,
 }
 
@@ -4047,9 +4165,118 @@ impl AtlasConfigFile {
 #[derive(Clone, Deserialize, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
 #[serde(deny_unknown_fields)]
 pub struct EventObserverConfigFile {
+    /// URL endpoint (hostname and port) where event notifications will be sent via HTTP POST requests.
+    ///
+    /// The node will automatically prepend `http://` to this endpoint and append the
+    /// specific event path (e.g., `/new_block`, `/new_mempool_tx`).
+    /// Therefore, this value should be specified as `hostname:port` (e.g., "localhost:3700").
+    ///
+    /// **Do NOT include the `http://` scheme in this configuration value.**
+    ///
+    /// This should point to a service capable of receiving and processing Stacks event data.
+    ///
+    /// Default: No default. This field is required.
     pub endpoint: String,
+    /// List of event types that this observer is configured to receive.
+    ///
+    /// For a more detailed documentation check the event-dispatcher docs in the `/docs` folder.
+    ///
+    /// Each string in the list specifies an event category or a specific event to subscribe to.
+    /// For an observer to receive any notifications, this list must contain at least one valid key.
+    /// Providing an invalid string that doesn't match any of the valid formats below will cause
+    /// the node to panic on startup when parsing the configuration.
+    ///
+    /// All observers, regardless of their `events_keys` configuration, implicitly receive
+    /// payloads on the `/attachments/new` endpoint.
+    ///
+    /// **Valid Event Keys:**
+    ///
+    /// - `"*"`: Subscribes to a broad set of common events.
+    ///   - **Events delivered to:**
+    ///     - `/new_block`: For blocks containing transactions that generate STX, FT, NFT, or smart contract events.
+    ///     - `/new_microblocks`: For all new microblock streams. **Note:** Only until epoch 2.5.
+    ///     - `/new_mempool_tx`: For new mempool transactions.
+    ///     - `/drop_mempool_tx`: For dropped mempool transactions.
+    ///     - `/new_burn_block`: For new burnchain blocks.
+    ///   - **Note:** This key does NOT by itself subscribe to `/stackerdb_chunks` or `/proposal_response`.
+    ///
+    /// - `"stx"`: Subscribes to STX token operation events (transfer, mint, burn, lock).
+    ///   - **Events delivered to:** `/new_block`, `/new_microblocks`.
+    ///   - **Payload details:** The "events" array in the delivered payloads will be filtered to include only STX-related events.
+    ///
+    /// - `"memtx"`: Subscribes to new and dropped mempool transaction events.
+    ///   - **Events delivered to:** `/new_mempool_tx`, `/drop_mempool_tx`.
+    ///
+    /// - `"burn_blocks"`: Subscribes to new burnchain block events.
+    ///   - **Events delivered to:** `/new_burn_block`.
+    ///
+    /// - `"microblocks"`: Subscribes to new microblock stream events.
+    ///   - **Events delivered to:** `/new_microblocks`.
+    ///   - **Payload details:**
+    ///     - The "transactions" field will contain all transactions from the microblocks.
+    ///     - The "events" field will contain STX, FT, NFT, or specific smart contract events
+    ///       *only if* this observer is also subscribed to those more specific event types
+    ///       (e.g., via `"stx"`, `"*"`, a specific contract event key, or a specific asset identifier key).
+    ///   - **Note:** Only until epoch 2.5.
+    ///
+    /// - `"stackerdb"`: Subscribes to StackerDB chunk update events.
+    ///   - **Events delivered to:** `/stackerdb_chunks`.
+    ///
+    /// - `"block_proposal"`: Subscribes to block proposal response events (for Nakamoto consensus).
+    ///   - **Events delivered to:** `/proposal_response`.
+    ///
+    /// - **Smart Contract Event**: Subscribes to a specific smart contract event.
+    ///   - **Format:** `"{contract_address}.{contract_name}::{event_name}"`
+    ///     (e.g., `ST0000000000000000000000000000000000000000.my-contract::my-custom-event`)
+    ///   - **Events delivered to:** `/new_block`, `/new_microblocks`.
+    ///   - **Payload details:** The "events" array in the delivered payloads will be filtered for this specific event.
+    ///
+    /// - **Asset Identifier for FT/NFT Events**: Subscribes to events (mint, burn, transfer) for a specific Fungible Token (FT) or Non-Fungible Token (NFT).
+    ///   - **Format:** `"{contract_address}.{contract_name}.{asset_name}"`
+    ///     (e.g., for an FT: `ST0000000000000000000000000000000000000000.my-ft-contract.my-fungible-token`)
+    ///   - **Events delivered to:** `/new_block`, `/new_microblocks`.
+    ///   - **Payload details:** The "events" array in the delivered payloads will be filtered for events related to the specified asset.
+    ///
+    /// **Configuration:**
+    ///
+    /// ```toml
+    /// # Example events_keys in TOML configuration:
+    /// events_keys = [
+    ///   "burn_blocks",
+    ///   "memtx",
+    ///   "ST0000000000000000000000000000000000000000.my-contract::my-custom-event",  # Smart contract event
+    ///   "ST0000000000000000000000000000000000000000.token-contract.my-ft"           # Fungible token asset event
+    /// ]
+    /// ```
+    ///
+    /// Default: No default. This field is required.
     pub events_keys: Vec<String>,
+    /// Maximum duration (in milliseconds) to wait for the observer endpoint to respond.
+    ///
+    /// When the node sends an event notification to this observer, it will wait at most this long
+    /// for a successful HTTP response (status code 200) before considering the request timed out.
+    /// If a timeout occurs and retries are enabled (see [`EventObserverConfig::disable_retries`]),
+    /// the request will be attempted again according to the retry strategy.
+    ///
+    /// Default: `1_000` ms (1 second).
     pub timeout_ms: Option<u64>,
+    /// Controls whether the node should retry sending event notifications if delivery fails or times out.
+    ///
+    /// - If `false` (default): The node will attempt to deliver event notifications persistently.
+    ///   If an attempt fails (due to network error, timeout, or a non-200 HTTP response), the event
+    ///   payload is saved and retried indefinitely. This ensures that all events will eventually be
+    ///   delivered. However, this can cause the node's block processing to stall if an observer is
+    ///   down, or indefinitely fails to process the event.
+    ///
+    /// - If `true`: The node will make only a single attempt to deliver each event notification.
+    ///   If this single attempt fails for any reason, the event is discarded, and no further retries
+    ///   will be made for that specific event.
+    ///
+    /// **Warning:** Setting this to `true` can lead to missed events if the observer endpoint is
+    /// temporarily unavailable or experiences issues. This setting should only be used for observers
+    /// where completeness of the event history is not critical.
+    ///
+    /// Default: `false` (retries are enabled).
     pub disable_retries: Option<bool>,
 }
 
@@ -4152,7 +4379,15 @@ pub struct InitialBalance {
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct InitialBalanceFile {
+    /// The Stacks address to receive the initial STX balance.
+    /// Must be a valid "non-mainnet" Stacks address (e.g., "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2").
+    ///
+    /// Default: No default. This field is required.
     pub address: String,
+    /// The amount of microSTX to allocate to the address at node startup.
+    /// 1 STX = 1_000_000 microSTX.
+    ///
+    /// Default: No default. This field is required.
     pub amount: u64,
 }
 

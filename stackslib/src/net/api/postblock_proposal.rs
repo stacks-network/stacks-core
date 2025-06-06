@@ -176,7 +176,7 @@ pub struct BlockValidateOk {
     pub size: u64,
     pub validation_time_ms: u64,
     /// If a block was validated by a transaction replay set,
-    /// then this return Some with the hash of the replay set.
+    /// then this returns `Some` with the hash of the replay set.
     pub replay_tx_hash: Option<u64>,
     /// If a block was validated by a transaction replay set,
     /// then this is true if this block exhausted the set of transactions.

@@ -43,7 +43,7 @@ use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::{debug, info, warn};
 
 use crate::chainstate::{
-    ProposalEvalConfig, SignerChainstateError, SortitionState, SortitionsView,
+    ProposalEvalConfig, SignerChainstateError, SortitionMinerStatus, SortitionState, SortitionsView,
 };
 use crate::client::{ClientError, CurrentAndLastSortition, StackerDB, StacksClient};
 use crate::signerdb::{BlockValidatedByReplaySet, SignerDb};
@@ -389,7 +389,7 @@ impl LocalStateMachine {
         };
 
         if let Some(replay_set_hash) = NakamotoBlockProposal::tx_replay_hash(
-            &prior_state_machine.tx_replay_set.into_optional(),
+            &prior_state_machine.tx_replay_set.clone_as_optional(),
         ) {
             match db.get_was_block_validated_by_replay_tx(signer_signature_hash, replay_set_hash) {
                 Ok(Some(BlockValidatedByReplaySet {
@@ -630,6 +630,7 @@ impl LocalStateMachine {
         local_address: StacksAddress,
         local_supported_signer_protocol_version: u64,
         reward_cycle: u64,
+        sortition_state: &mut Option<SortitionsView>,
     ) {
         // Before we ever access eval...we should make sure to include our own local state machine update message in the evaluation
         let Ok(mut local_update) =
@@ -681,7 +682,7 @@ impl LocalStateMachine {
                 burn_block_height: *burn_block_height,
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
-                tx_replay_set: tx_replay_set.clone(),
+                tx_replay_set,
             });
             // Because we updated our active signer protocol version, update local_update so its included in the subsequent evaluations
             let Ok(update) =
@@ -743,6 +744,21 @@ impl LocalStateMachine {
                 active_signer_protocol_version,
                 tx_replay_set,
             });
+
+            match new_miner {
+                StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh, ..
+                } => {
+                    if let Some(sortition_state) = sortition_state {
+                        // if there is a mismatch between the new_miner ad the current sortition view, mark the current miner as invalid
+                        if current_miner_pkh != sortition_state.cur_sortition.miner_pkh {
+                            sortition_state.cur_sortition.miner_status =
+                                SortitionMinerStatus::InvalidatedBeforeFirstBlock
+                        }
+                    }
+                }
+                StateMachineUpdateMinerState::NoValidMiner => (),
+            }
         }
     }
 
@@ -884,7 +900,7 @@ impl LocalStateMachine {
         let Self::Initialized(state) = self else {
             return None;
         };
-        state.tx_replay_set.into_optional()
+        state.tx_replay_set.clone_as_optional()
     }
 
     /// Handle a possible bitcoin fork. If a fork is detetected,
