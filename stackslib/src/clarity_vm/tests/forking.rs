@@ -218,8 +218,8 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
         let contract = "(define-map datum { id: bool } { value: int })
 
              (define-public (flip)
-               (let ((current (default-to (get value (map-get?! datum {id: true})) 0)))
-                 (map-set datum {id: true} (if (is-eq 1 current) 0 1))
+               (let ((current (default-to (unwrap-panic (get value (map-get? datum {id: true}))) (some 0))))
+                 (map-set datum {id: true} (if (is-eq 1 current) {value: 0} {value: 1}))
                  (ok current)))";
 
         eprintln!("Initializing contract...");
