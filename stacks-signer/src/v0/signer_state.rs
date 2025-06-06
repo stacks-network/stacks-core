@@ -1067,7 +1067,6 @@ impl LocalStateMachine {
         // Check if fork occurred within current reward cycle. Reject tx replay otherwise.
         let reward_cycle_info = client.get_current_reward_cycle_info()?;
 
-        //let target_reward_cycle = reward_cycle_info.reward_cycle;
         let target_reward_cycle = reward_cycle_info.get_reward_cycle(fork_tip.burn_block_height);
         let is_fork_in_current_reward_cycle = fork_info.iter().all(|fork_info| {
             let block_height = fork_info.burn_block_height;

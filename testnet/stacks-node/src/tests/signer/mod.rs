@@ -530,8 +530,12 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
          (define-public (run-update)
            (ok (var-set local-burn-block-ht burn-block-height)))
         ";
-        let (txid, sender_nonce) =
-            self.submit_contract_deploy(sender_sk, 1000, burn_height_contract, "burn-height-local")?;
+        let (txid, sender_nonce) = self.submit_contract_deploy(
+            sender_sk,
+            1000,
+            burn_height_contract,
+            "burn-height-local",
+        )?;
 
         self.wait_for_nonce_increase(&to_addr(&sender_sk), sender_nonce)?;
         Ok(txid)
