@@ -52,7 +52,7 @@ use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
-use crate::v0::signer_state::NewBurnBlock;
+use crate::v0::signer_state::{NewBurnBlock, TxReplayScopeOpt};
 use crate::Signer as SignerTrait;
 
 /// A global variable that can be used to make signers repeat their proposal
@@ -125,12 +125,8 @@ pub struct Signer {
     pub global_state_evaluator: GlobalStateEvaluator,
     /// Whether to validate blocks with replay transactions
     pub validate_with_replay_tx: bool,
-    /// TODO: To understand if keep this as a "local" state
-    ///       or if add this to the State Machine update
     /// Scope of Tx Replay in terms of Burn block boundaries
-    /// - .0 is the fork originating the tx replay,
-    /// - .1 is the canonical burnchain tip when Tx Replay begun
-    pub tx_replay_scope: Option<(NewBurnBlock, NewBurnBlock)>,
+    pub tx_replay_scope: TxReplayScopeOpt,
 }
 
 impl std::fmt::Display for SignerMode {
@@ -270,7 +266,7 @@ impl SignerTrait<SignerMessage> for Signer {
 
         let mut prior_state = self.local_state_machine.clone();
         if self.reward_cycle <= current_reward_cycle {
-            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client, 
+            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client,
                 &self.proposal_config,
                 &mut self.tx_replay_scope)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));

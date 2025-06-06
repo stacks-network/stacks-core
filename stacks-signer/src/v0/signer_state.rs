@@ -88,6 +88,11 @@ pub struct NewBurnBlock {
     pub consensus_hash: ConsensusHash,
 }
 
+/// Scope of Tx Replay in terms of Burn block boundaries
+/// - tuple.0 is the fork originating the tx replay,
+/// - tuple.1 is the canonical burnchain tip when Tx Replay begun
+pub type TxReplayScopeOpt = Option<(NewBurnBlock, NewBurnBlock)>;
+
 impl LocalStateMachine {
     /// Initialize a local state machine by querying the local stacks-node
     ///  and signerdb for the current sortition information
@@ -192,7 +197,7 @@ impl LocalStateMachine {
         db: &SignerDb,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
-        tx_replay_scope: &mut Option<(NewBurnBlock, NewBurnBlock)>,
+        tx_replay_scope: &mut TxReplayScopeOpt,
     ) -> Result<(), SignerChainstateError> {
         let LocalStateMachine::Pending { update, .. } = self else {
             return self.check_miner_inactivity(db, client, proposal_config);
@@ -502,7 +507,7 @@ impl LocalStateMachine {
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         mut expected_burn_block: Option<NewBurnBlock>,
-        tx_replay_scope: &mut Option<(NewBurnBlock, NewBurnBlock)>,
+        tx_replay_scope: &mut TxReplayScopeOpt,
     ) -> Result<(), SignerChainstateError> {
         // set self to uninitialized so that if this function errors,
         //  self is left as uninitialized.
@@ -913,11 +918,8 @@ impl LocalStateMachine {
         expected_burn_block: &NewBurnBlock,
         prior_state_machine: &SignerStateMachine,
         is_in_tx_replay_mode: bool,
-        tx_replay_scope: &Option<(NewBurnBlock, NewBurnBlock)>,
-    ) -> Result<
-        Option<(Vec<StacksTransaction>, Option<(NewBurnBlock, NewBurnBlock)>)>,
-        SignerChainstateError,
-    > {
+        tx_replay_scope: &TxReplayScopeOpt,
+    ) -> Result<Option<(Vec<StacksTransaction>, TxReplayScopeOpt)>, SignerChainstateError> {
         if expected_burn_block.burn_block_height > prior_state_machine.burn_block_height {
             // no bitcoin fork, because we're advancing the burn block height
             return Ok(None);
@@ -953,7 +955,7 @@ impl LocalStateMachine {
             let updated_replay_set;
             let updated_scope_opt;
             if let Some(replay_set) =
-                self.compute_forked_txs_set(db, client, expected_burn_block, &past_tip)?
+                self.compute_forked_txs_set(db, client, expected_burn_block, past_tip)?
             {
                 let scope = (expected_burn_block.clone(), past_tip.clone());
 
@@ -1048,17 +1050,16 @@ impl LocalStateMachine {
                 ))
             .cloned()
             .collect::<Vec<_>>();
-        let scope_opt;
-        if forked_txs.len() > 0 {
+        let scope_opt = if !forked_txs.is_empty() {
             let scope = (expected_burn_block.clone(), potential_replay_tip);
             info!("Tx Replay: replay set updated with {} tx(s)", forked_txs.len();
             "tx_replay_set" => ?forked_txs,
             "tx_replay_scope" => ?scope);
-            scope_opt = Some(scope);
+            Some(scope)
         } else {
             info!("Tx Replay: no transactions to be replayed.");
-            scope_opt = None;
-        }
+            None
+        };
         Ok(Some((forked_txs, scope_opt)))
     }
 

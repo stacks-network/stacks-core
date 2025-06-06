@@ -3732,7 +3732,7 @@ fn tx_replay_disagreement() {
 
 #[test]
 #[ignore]
-/// Demostrate Tx Replay reject a proposal with partial replayed transactions,
+/// Demonstrates Tx Replay reject a proposal with partial replayed transactions,
 /// when not due to a Tenure Extend
 ///
 /// The test flow is:
@@ -4149,7 +4149,7 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
 
 #[test]
 #[ignore]
-/// Demostrate Tx Replay state is kept by Signers after a fork
+/// Demonstrates Tx Replay state is kept by Signers after a fork
 /// occurred before the miner start replaying transactions
 ///
 /// The test flow is:
@@ -4487,7 +4487,7 @@ fn tx_replay_with_fork_after_empty_tenures_before_starting_replaying_txs() {
 
 #[test]
 #[ignore]
-/// Demostrate Tx Replay Set to be updated from a deepest fork
+/// Demonstrates Tx Replay Set to be updated from a deepest fork
 /// than the one that made Tx Replay to start
 ///
 /// The test flow is:
@@ -4660,7 +4660,7 @@ fn tx_replay_with_fork_causing_replay_set_to_be_updated() {
 
 #[test]
 #[ignore]
-/// Demostrate Tx Replay Set to be cleared from a deepest fork
+/// Demonstrates Tx Replay Set to be cleared from a deepest fork
 /// than the one that made Tx Replay to start, that led to
 /// previous reward cylce
 ///
@@ -4809,7 +4809,7 @@ fn tx_replay_with_fork_causing_replay_to_be_cleared_due_to_cycle() {
 
 #[test]
 #[ignore]
-/// Demostrate Tx Replay restart from scratch while it is in progress
+/// Demonstrates Tx Replay restart from scratch while it is in progress
 /// (partially replayed a subset of transaction) and a fork occurs.
 /// In this case, partial replay is allowed because of tenure extend,
 /// due to Tenure Budget exceeded.
@@ -5024,7 +5024,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
 
 #[test]
 #[ignore]
-/// Demostrate Tx Replay restart from scratch while it is in progress
+/// Demonstrates Tx Replay restart from scratch while it is in progress
 /// (partially replayed a subset of transaction), other transactions
 /// are submitted, and then a fork occurs.
 /// In this case, partial replay is allowed because of tenure extend,
