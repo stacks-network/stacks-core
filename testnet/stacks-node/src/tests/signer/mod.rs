@@ -468,7 +468,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         let contract_tx = make_contract_publish(
             &sender_sk,
             sender_nonce,
-            1000,
+            1000000,
             self.running_nodes.conf.burnchain.chain_id,
             contract_name,
             contract_code,

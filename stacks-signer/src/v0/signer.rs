@@ -125,6 +125,12 @@ pub struct Signer {
     pub global_state_evaluator: GlobalStateEvaluator,
     /// Whether to validate blocks with replay transactions
     pub validate_with_replay_tx: bool,
+    /// TODO: To understand if keep this as a "local" state
+    ///       or if add this to the State Machine update
+    /// Scope of Tx Replay in terms of Burn block boundaries
+    /// - .0 is the fork originating the tx replay,
+    /// - .1 is the canonical burnchain tip when Tx Replay begun
+    pub tx_replay_scope: Option<(NewBurnBlock, NewBurnBlock)>,
 }
 
 impl std::fmt::Display for SignerMode {
@@ -241,6 +247,7 @@ impl SignerTrait<SignerMessage> for Signer {
             recently_processed: RecentlyProcessedBlocks::new(),
             global_state_evaluator,
             validate_with_replay_tx: signer_config.validate_with_replay_tx,
+            tx_replay_scope: None,
         }
     }
 
@@ -263,7 +270,9 @@ impl SignerTrait<SignerMessage> for Signer {
 
         let mut prior_state = self.local_state_machine.clone();
         if self.reward_cycle <= current_reward_cycle {
-            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client, &self.proposal_config)
+            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client, 
+                &self.proposal_config,
+                &mut self.tx_replay_scope)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
         }
 
@@ -527,11 +536,14 @@ impl Signer {
                         );
                         panic!("{self} Failed to write burn block event to signerdb: {e}");
                     });
+
                 self.local_state_machine
                     .bitcoin_block_arrival(&self.signer_db, stacks_client, &self.proposal_config, Some(NewBurnBlock {
                         burn_block_height: *burn_height,
                         consensus_hash: *consensus_hash,
-                    }))
+                    }),
+                    &mut self.tx_replay_scope
+                )
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
                 *sortition_state = None;
             }
