@@ -3113,9 +3113,11 @@ fn tx_replay_forking_test() {
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
+    let deploy_fee = 1000000;
+    let call_fee = 1000;
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * 10)],
+        vec![(sender_addr, (send_amt + send_fee) * 10 + deploy_fee + call_fee)],
         |c| {
             c.validate_with_replay_tx = true;
         },
@@ -3246,14 +3248,14 @@ fn tx_replay_forking_test() {
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     let (contract_deploy_txid, deploy_nonce) = signer_test
-        .submit_contract_deploy(&sender_sk, contract_code, contract_name)
+        .submit_contract_deploy(&sender_sk, deploy_fee, contract_code, contract_name)
         .expect("Failed to submit contract deploy");
     signer_test
         .wait_for_nonce_increase(&sender_addr, deploy_nonce)
         .expect("Failed to wait for nonce increase");
 
     let (contract_call_txid, contract_call_nonce) = signer_test
-        .submit_contract_call(&sender_sk, contract_name, "call-fn", &[])
+        .submit_contract_call(&sender_sk, call_fee, contract_name, "call-fn", &[])
         .expect("Failed to submit contract call");
     signer_test
         .wait_for_nonce_increase(&sender_addr, contract_call_nonce)
@@ -4835,12 +4837,12 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
     let num_signers = 5;
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
-    let send_amt = 1000;
-    let send_fee = 1000000;
-    let num_txs = 3;
+    let deploy_fee = 1000000;
+    let call_fee = 1000;
+    let call_num = 2;
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * num_txs)],
+        vec![(sender_addr, deploy_fee + call_fee * call_num)],
         |c| {
             c.validate_with_replay_tx = true;
             c.tenure_idle_timeout = Duration::from_secs(10);
@@ -4872,7 +4874,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
     // First, just deploy the contract in its own tenure
     let contract_code = make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, 50);
     let (_deploy_txid, deploy_nonce) = signer_test
-        .submit_contract_deploy(&sender_sk, contract_code.as_str(), "big-contract")
+        .submit_contract_deploy(&sender_sk, deploy_fee, contract_code.as_str(), "big-contract")
         .unwrap();
     signer_test
         .wait_for_nonce_increase(&sender_addr, deploy_nonce)
@@ -4884,7 +4886,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
     // Then, sumbmit 2 Contract Calls that require Tenure Extension to be addressed.
     info!("---- Submit big tx1 to be mined ----");
     let (txid1, txid1_nonce) = signer_test
-        .submit_contract_call(&sender_sk, "big-contract", "big-tx", &vec![])
+        .submit_contract_call(&sender_sk, call_fee, "big-contract", "big-tx", &vec![])
         .unwrap();
     signer_test
         .wait_for_nonce_increase(&sender_addr, txid1_nonce)
@@ -4892,7 +4894,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
 
     info!("---- Submit big tx2 to be mined ----");
     let (txid2, txid2_nonce) = signer_test
-        .submit_contract_call(&sender_sk, "big-contract", "big-tx", &vec![])
+        .submit_contract_call(&sender_sk, call_fee, "big-contract", "big-tx", &vec![])
         .unwrap();
 
     // Tenure Extend happen because of tenure budget exceeded
@@ -5054,9 +5056,9 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     let num_signers = 5;
     let sender1_sk = Secp256k1PrivateKey::random();
     let sender1_addr = tests::to_addr(&sender1_sk);
-    let send1_amt = 1000;
-    let send1_fee = 1000000;
-    let send1_txs = 3;
+    let send1_deploy_fee = 1000000;
+    let send1_call_fee = 1000;
+    let send1_call_num = 2;
     let sender2_sk = Secp256k1PrivateKey::random();
     let sender2_addr = tests::to_addr(&sender2_sk);
     let send2_amt = 100;
@@ -5065,7 +5067,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![
-            (sender1_addr, (send1_amt + send1_fee) * send1_txs),
+            (sender1_addr, send1_deploy_fee + send1_call_fee * send1_call_num),
             (sender2_addr, (send2_amt + send2_fee) * send2_txs),
         ],
         |c| {
@@ -5098,7 +5100,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     // First, just deploy the contract in its own tenure
     let contract_code = make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, 50);
     let (_deploy_txid, deploy_nonce) = signer_test
-        .submit_contract_deploy(&sender1_sk, contract_code.as_str(), "big-contract")
+        .submit_contract_deploy(&sender1_sk, send1_deploy_fee, contract_code.as_str(), "big-contract")
         .unwrap();
     signer_test
         .wait_for_nonce_increase(&sender1_addr, deploy_nonce)
@@ -5110,7 +5112,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     // Then, sumbmit 2 Contract Calls that require Tenure Extension to be addressed.
     info!("---- Waiting for first big tx to be mined ----");
     let (txid1, txid1_nonce) = signer_test
-        .submit_contract_call(&sender1_sk, "big-contract", "big-tx", &vec![])
+        .submit_contract_call(&sender1_sk, send1_call_fee,"big-contract", "big-tx", &vec![])
         .unwrap();
 
     signer_test
@@ -5119,7 +5121,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
 
     info!("---- Waiting for second big tx to be mined ----");
     let (txid2, txid2_nonce) = signer_test
-        .submit_contract_call(&sender1_sk, "big-contract", "big-tx", &vec![])
+        .submit_contract_call(&sender1_sk, send1_call_fee, "big-contract", "big-tx", &vec![])
         .unwrap();
 
     // Tenure Extend happen because of tenure budget exceeded
@@ -17180,7 +17182,7 @@ fn bitcoin_reorg_extended_tenure() {
 
     miners
         .signer_test
-        .submit_contract_call(&miners.sender_sk, "burn-height-local", "run-update", &[])
+        .submit_contract_call(&miners.sender_sk, 1000,"burn-height-local", "run-update", &[])
         .unwrap();
 
     let rc = miners.signer_test.get_current_reward_cycle();
