@@ -1026,10 +1026,10 @@ impl LocalStateMachine {
 
     /// Retrieves the set of transactions that were part of a Bitcoin fork within the same reward cycle.
     ///
-    /// This method identifies the range of Tenures affected by a fork, from the `tip` down to the `fork_origin`
+    /// This method identifies the range of Tenures affected by a fork, from the `fork_tip` down to the `fork_origin`
     ///
-    /// It then verifies whether the fork occurred entirely within the current reward cycle. If so,
-    /// collect the relevant transactions (skipping TenureChange, Coinbase, and Microblocks).
+    /// It then verifies whether the fork occurred entirely within the reward cycle related to the `fork_tip`. If so,
+    /// collect the relevant transactions (skipping TenureChange, Coinbase, and PoisonMicroblock).
     /// Otherwise, if fork involve a different reward cycle cancel the search.
     ///
     /// # Arguments
@@ -1037,7 +1037,7 @@ impl LocalStateMachine {
     /// * `db` - A reference to the SignerDb, used to fetch burn block information.
     /// * `client` - A reference to a `StacksClient`, used to query chain state and fork information.
     /// * `fork_origin` - The burn block that originated the fork.
-    /// * `tip` - The burn block tip in the fork sequence.
+    /// * `fork_tip` - The burn block tip in the fork sequence.
     ///
     /// # Returns
     ///
@@ -1050,21 +1050,16 @@ impl LocalStateMachine {
         db: &SignerDb,
         client: &StacksClient,
         fork_origin: &NewBurnBlock,
-        tip: &NewBurnBlock,
+        fork_tip: &NewBurnBlock,
     ) -> Result<Option<Vec<StacksTransaction>>, SignerChainstateError> {
         // Determine the tenures that were forked
-        let mut parent_burn_block_info = db.get_burn_block_by_ch(&tip.consensus_hash)?;
-        let last_forked_tenure = tip.consensus_hash;
-        let mut first_forked_tenure = tip.consensus_hash;
-        let mut forked_tenures = vec![(tip.consensus_hash, tip.burn_block_height)];
+        let mut parent_burn_block_info = db.get_burn_block_by_ch(&fork_tip.consensus_hash)?;
+        let last_forked_tenure = fork_tip.consensus_hash;
+        let mut first_forked_tenure = fork_tip.consensus_hash;
         while parent_burn_block_info.block_height > fork_origin.burn_block_height {
             parent_burn_block_info =
                 db.get_burn_block_by_hash(&parent_burn_block_info.parent_burn_block_hash)?;
             first_forked_tenure = parent_burn_block_info.consensus_hash;
-            forked_tenures.push((
-                parent_burn_block_info.consensus_hash,
-                parent_burn_block_info.block_height,
-            ));
         }
         let fork_info =
             client.get_tenure_forking_info(&first_forked_tenure, &last_forked_tenure)?;
@@ -1072,11 +1067,12 @@ impl LocalStateMachine {
         // Check if fork occurred within current reward cycle. Reject tx replay otherwise.
         let reward_cycle_info = client.get_current_reward_cycle_info()?;
 
-        let current_reward_cycle = reward_cycle_info.reward_cycle;
+        //let target_reward_cycle = reward_cycle_info.reward_cycle;
+        let target_reward_cycle = reward_cycle_info.get_reward_cycle(fork_tip.burn_block_height);
         let is_fork_in_current_reward_cycle = fork_info.iter().all(|fork_info| {
             let block_height = fork_info.burn_block_height;
             let block_rc = reward_cycle_info.get_reward_cycle(block_height);
-            block_rc == current_reward_cycle
+            block_rc == target_reward_cycle
         });
 
         if !is_fork_in_current_reward_cycle {
