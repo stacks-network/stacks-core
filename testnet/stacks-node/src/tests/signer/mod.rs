@@ -16,10 +16,11 @@ mod commands;
 mod v0;
 
 use std::collections::HashSet;
+use std::fs::File;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use std::{env, thread};
 
 use clarity::boot_util::boot_code_id;
@@ -30,6 +31,7 @@ use libsigner::v0::messages::{
 };
 use libsigner::v0::signer_state::MinerState;
 use libsigner::{BlockProposal, SignerEntries, SignerEventTrait};
+use serde::{Deserialize, Serialize};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::NakamotoBlock;
@@ -44,9 +46,9 @@ use stacks::net::api::postblock_proposal::{
 };
 use stacks::types::chainstate::{StacksAddress, StacksBlockId, StacksPublicKey};
 use stacks::types::PrivateKey;
+use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::MerkleHashFunc;
 use stacks::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
-use stacks::util::{get_epoch_time_secs, sleep_ms};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::StacksEpochId;
@@ -64,7 +66,6 @@ use super::nakamoto_integrations::{
 use super::neon_integrations::{
     copy_dir_all, get_account, get_sortition_info_ch, submit_tx_fallible, Account,
 };
-use crate::burnchains::bitcoin_regtest_controller::BitcoinRPCRequest;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
@@ -118,6 +119,11 @@ struct SnapshotSetupInfo {
 enum SetupSnapshotResult {
     WithSnapshot(SnapshotSetupInfo),
     NoSnapshot,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct SnapshotMetadata {
+    created_at: SystemTime,
 }
 
 impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<SpawnedSigner<S, T>> {
@@ -244,36 +250,6 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
         let snapshot_setup_result = Self::setup_snapshot(snapshot_name, &naka_conf);
 
-        // let mut snapshot_exists = false;
-
-        // let snapshot_path = snapshot_name.map(|name| {
-        //     let working_dir = naka_conf.get_working_dir();
-
-        //     let snapshot_path: PathBuf = format!("/tmp/stacks-node-tests/snapshots/{name}/")
-        //         .try_into()
-        //         .unwrap();
-
-        //     info!("Snapshot path: {}", snapshot_path.clone().display());
-
-        //     snapshot_exists = std::fs::metadata(snapshot_path.clone()).is_ok();
-
-        //     if snapshot_exists {
-        //         info!(
-        //             "Snapshot directory already exists, copying to working dir";
-        //             "snapshot_path" => %snapshot_path.display(),
-        //             "working_dir" => %working_dir.display()
-        //         );
-        //         let err_msg = format!(
-        //             "Failed to copy snapshot dir to working dir: {} -> {}",
-        //             snapshot_path.display(),
-        //             working_dir.display()
-        //         );
-        //         copy_dir_all(snapshot_path.clone(), working_dir).expect(&err_msg);
-        //     }
-
-        //     snapshot_path
-        // });
-
         let snapshot_exists = match &snapshot_setup_result {
             SetupSnapshotResult::WithSnapshot(info) => info.snapshot_exists,
             SetupSnapshotResult::NoSnapshot => false,
@@ -302,13 +278,6 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 SetupSnapshotResult::NoSnapshot => None,
             },
         }
-    }
-
-    pub fn snapshot_exists(&self) -> bool {
-        self.snapshot_path
-            .as_ref()
-            .map(|p| std::fs::metadata(p).is_ok())
-            .unwrap_or(false)
     }
 
     /// Whether the snapshot needs to be created.
@@ -345,6 +314,36 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         let snapshot_exists = std::fs::metadata(snapshot_path.clone()).is_ok();
 
         if snapshot_exists {
+            let metadata_path = snapshot_path.join("metadata.json");
+            if !metadata_path.clone().exists() {
+                warn!("Snapshot metadata file does not exist, not restoring snapshot");
+                return SetupSnapshotResult::NoSnapshot;
+            }
+            let Ok(metadata) = serde_json::from_reader::<_, SnapshotMetadata>(
+                File::open(metadata_path.clone()).unwrap(),
+            ) else {
+                warn!(
+                    "Invalid snapshot metadata file: {}",
+                    metadata_path.display()
+                );
+                return SetupSnapshotResult::NoSnapshot;
+            };
+
+            let now = SystemTime::now();
+            let created_at = metadata.created_at;
+            let duration = now.duration_since(created_at).unwrap();
+            // Regtest doesn't like if the last block is > 2 hours old, so
+            // don't use this snapshot.
+            if duration > Duration::from_secs(3600 * 1) {
+                // Bitcoin regtest node is too old, act like no snapshot exists
+                warn!("Bitcoin regtest node is too old, not restoring snapshot");
+                std::fs::remove_dir_all(snapshot_path.clone()).unwrap();
+                return SetupSnapshotResult::WithSnapshot(SnapshotSetupInfo {
+                    snapshot_path: snapshot_path.clone(),
+                    snapshot_exists: false,
+                });
+            }
+
             info!(
                 "Snapshot directory already exists, copying to working dir";
                 "snapshot_path" => %snapshot_path.display(),
@@ -367,12 +366,12 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     /// Make a snapshot of the current working directory.
     ///
     /// This will stop the bitcoind node and copy the working directory to the snapshot path.
-    pub fn make_snapshot(&self) {
-        let snapshot_path = self.snapshot_path.as_ref().unwrap();
+    pub fn make_snapshot(working_dir: &PathBuf, snapshot_path: &Option<PathBuf>) {
+        let Some(snapshot_path) = snapshot_path else {
+            return;
+        };
 
-        let working_dir = self.running_nodes.conf.get_working_dir();
-
-        let snapshot_dir_exists = self.snapshot_exists();
+        let snapshot_dir_exists = std::fs::metadata(snapshot_path).is_ok();
 
         if snapshot_dir_exists {
             info!("Snapshot directory already exists, skipping snapshot";
@@ -388,18 +387,20 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             "working_dir" => %working_dir.display()
         );
 
-        Self::stop_bitcoind(&self.running_nodes.conf);
-
-        sleep_ms(5000);
-
         let err_msg = format!(
             "Failed to copy working dir to snapshot path: {} -> {}",
             working_dir.display(),
             snapshot_path.display()
         );
 
-        // Copy the working dir to the snapshot path
         copy_dir_all(working_dir, snapshot_path).expect(&err_msg);
+
+        let metadata_path = snapshot_path.join("metadata.json");
+        let metadata = SnapshotMetadata {
+            created_at: SystemTime::now(),
+        };
+        let metadata_file = File::create(metadata_path).unwrap();
+        serde_json::to_writer_pretty(metadata_file, &metadata).unwrap();
     }
 
     /// Send a status request to each spawned signer
@@ -1316,7 +1317,15 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         String::new()
     }
 
+    pub fn shutdown_and_snapshot(self) {
+        self.shutdown_and_make_snapshot(true);
+    }
+
     pub fn shutdown(self) {
+        self.shutdown_and_make_snapshot(false);
+    }
+
+    fn shutdown_and_make_snapshot(mut self, needs_snapshot: bool) {
         check_nakamoto_empty_block_heuristics();
 
         self.running_nodes
@@ -1325,32 +1334,23 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .expect("Mutex poisoned")
             .stop_chains_coordinator();
 
+        self.running_nodes.btcd_controller.stop_bitcoind().unwrap();
+
         self.running_nodes
             .run_loop_stopper
             .store(false, Ordering::SeqCst);
         self.running_nodes.run_loop_thread.join().unwrap();
 
-        Self::stop_bitcoind(&self.running_nodes.conf);
+        if needs_snapshot {
+            Self::make_snapshot(
+                &self.running_nodes.conf.get_working_dir(),
+                &self.snapshot_path,
+            );
+        }
 
         for signer in self.spawned_signers {
             assert!(signer.stop().is_none());
         }
-    }
-
-    fn stop_bitcoind(config: &NeonConfig) {
-        info!("Stopping bitcoind...");
-        let _ = BitcoinRPCRequest::send(
-            config,
-            BitcoinRPCRequest {
-                method: "stop".to_string(),
-                params: vec![],
-                id: "stacks".to_string(),
-                jsonrpc: "2.0".to_string(),
-            },
-        )
-        .inspect_err(|e| {
-            error!("Failed to stop bitcoind: {e:?}");
-        });
     }
 
     /// Get the latest block response from the given slot

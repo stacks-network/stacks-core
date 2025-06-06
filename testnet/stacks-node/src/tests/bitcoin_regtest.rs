@@ -103,26 +103,23 @@ impl BitcoinCoreController {
     }
 
     pub fn stop_bitcoind(&mut self) -> Result<(), BitcoinCoreError> {
-        if self.bitcoind_process.take().is_some() {
-            let payload = BitcoinRPCRequest {
-                method: "stop".to_string(),
-                params: vec![],
-                id: "stacks".to_string(),
-                jsonrpc: "2.0".to_string(),
-            };
-
-            let res = BitcoinRPCRequest::send(&self.config, payload)
+        if let Some(mut bitcoind_process) = self.bitcoind_process.take() {
+            let res = BitcoinRPCRequest::stop_bitcoind(&self.config)
                 .map_err(|e| BitcoinCoreError::StopFailed(format!("{e:?}")))?;
 
             if let Some(err) = res.get("error") {
                 if !err.is_null() {
                     return Err(BitcoinCoreError::StopFailed(format!("{err}")));
                 }
+            } else if let Some(_result) = res.get("result") {
+                // Expected, continue
             } else {
                 return Err(BitcoinCoreError::StopFailed(format!(
                     "Invalid response: {res:?}"
                 )));
             }
+
+            bitcoind_process.wait().unwrap();
         }
         Ok(())
     }

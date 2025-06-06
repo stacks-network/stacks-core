@@ -336,7 +336,6 @@ impl SignerTest<SpawnedSigner> {
 
         if self.needs_snapshot() {
             self.boot_to_epoch_3();
-            self.make_snapshot();
             warn!("Snapshot created. Shutdown and try again.");
             return true;
         }
@@ -4507,7 +4506,7 @@ fn snapshot_test() {
     let _http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
     if signer_test.bootstrap_snapshot() {
-        signer_test.shutdown();
+        signer_test.shutdown_and_snapshot();
         return;
     }
 
