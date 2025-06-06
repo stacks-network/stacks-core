@@ -13,29 +13,9 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-use clarity::types::chainstate::VRFSeed;
-use clarity::vm::costs::ExecutionCost;
-use stacks_common::codec::read_next;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId,
-};
-use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
-use stacks_common::util::HexError;
-
-use crate::burnchains::Txid;
-use crate::chainstate::nakamoto::NakamotoBlock;
-use crate::chainstate::stacks::{StacksMicroblock, StacksTransaction};
-use crate::core::mempool;
-use crate::cost_estimates::FeeRateEstimate;
-use crate::net::atlas::GetAttachmentResponse;
-use crate::net::http::{
-    Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
-    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
-};
-use crate::net::httpcore::{StacksHttp, StacksHttpRequest, StacksHttpResponse};
+use crate::net::http::Error;
+use crate::net::httpcore::StacksHttp;
 use crate::net::Error as NetError;
-use crate::stacks_common::codec::StacksMessageCodec;
 
 pub mod callreadonly;
 pub mod get_tenures_fork_info;

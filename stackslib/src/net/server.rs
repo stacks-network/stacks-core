@@ -14,25 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, VecDeque};
-use std::io::{Error as io_error, ErrorKind, Read, Write};
-use std::sync::mpsc::{sync_channel, Receiver, RecvError, SendError, SyncSender, TryRecvError};
+use std::collections::HashMap;
 
 use mio::net as mio_net;
 use stacks_common::types::net::{PeerAddress, PeerHost};
-use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 
-use crate::burnchains::{Burnchain, BurnchainView};
-use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::core::mempool::*;
-use crate::net::atlas::AtlasDB;
 use crate::net::connection::*;
-use crate::net::db::*;
 use crate::net::http::*;
 use crate::net::httpcore::*;
-use crate::net::p2p::{PeerMap, PeerNetwork};
+use crate::net::p2p::PeerNetwork;
 use crate::net::poll::*;
 use crate::net::rpc::*;
 use crate::net::{Error as net_error, *};
@@ -668,30 +659,20 @@ impl HttpPeer {
 mod test {
     use std::cell::RefCell;
     use std::net::{SocketAddr, TcpStream};
-    use std::sync::mpsc::{sync_channel, Receiver, RecvError, SendError, SyncSender, TryRecvError};
+    use std::sync::mpsc::sync_channel;
     use std::thread;
 
-    use clarity::vm::contracts::Contract;
-    use clarity::vm::representations::{ClarityName, ContractName};
-    use clarity::vm::types::*;
+    use clarity::types::StacksEpochId;
     use stacks_common::codec::MAX_MESSAGE_LEN;
-    use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
-    use stacks_common::util::pipe::*;
-    use stacks_common::util::{get_epoch_time_secs, sleep_ms};
+    use stacks_common::util::sleep_ms;
 
     use super::*;
-    use crate::burnchains::{Burnchain, BurnchainView, *};
     use crate::chainstate::burn::ConsensusHash;
     use crate::chainstate::stacks::db::blocks::test::*;
     use crate::chainstate::stacks::db::StacksChainState;
     use crate::chainstate::stacks::test::*;
-    use crate::chainstate::stacks::{Error as chain_error, StacksBlockHeader, *, *};
-    use crate::net::codec::*;
-    use crate::net::http::*;
-    use crate::net::httpcore::*;
-    use crate::net::rpc::*;
+    use crate::chainstate::stacks::{StacksBlockHeader, *};
     use crate::net::test::*;
-    use crate::net::*;
 
     fn test_http_server<F, C>(
         test_name: &str,
@@ -1226,8 +1207,6 @@ mod test {
 
     #[test]
     fn test_http_no_connecting_event_id_leak() {
-        use std::net::TcpListener;
-
         let mut conn_opts = ConnectionOptions::default();
         conn_opts.timeout = 10;
         conn_opts.connect_timeout = 10;

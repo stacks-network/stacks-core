@@ -17,31 +17,27 @@
 use std::collections::{HashMap, HashSet};
 use std::{fmt, fs};
 
-use clarity::vm::types::{
-    QualifiedContractIdentifier, StacksAddressExtensions, StandardPrincipalData,
-};
+use clarity::vm::types::QualifiedContractIdentifier;
 use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng, RngCore};
+use rand::{thread_rng, RngCore};
 use rusqlite::types::ToSql;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
-use stacks_common::types::net::{PeerAddress, PeerHost};
+use stacks_common::types::net::PeerAddress;
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util;
-use stacks_common::util::hash::{
-    bin_bytes, hex_bytes, to_bin, to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum,
-};
-use stacks_common::util::macros::is_big_endian;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::{bin_bytes, hex_bytes, to_bin, to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_common::util::{get_epoch_time_secs, log};
 
-use crate::burnchains::{PrivateKey, PublicKey};
+use crate::burnchains::PrivateKey;
 use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
+#[cfg(any(test, feature = "testing"))]
 use crate::core::NETWORK_P2P_PORT;
 use crate::net::asn::ASEntry4;
 use crate::net::{Neighbor, NeighborAddress, NeighborKey, ServiceFlags};
 use crate::util_lib::db::{
-    query_count, query_row, query_rows, sqlite_open, tx_begin_immediate, tx_busy_handler,
-    u64_to_sql, DBConn, Error as db_error, FromColumn, FromRow,
+    query_count, query_row, query_rows, sqlite_open, tx_begin_immediate, u64_to_sql, DBConn,
+    Error as db_error, FromColumn, FromRow,
 };
 use crate::util_lib::strings::UrlString;
 
@@ -1940,19 +1936,16 @@ impl PeerDB {
 
 #[cfg(any(test, feature = "testing"))]
 mod test {
-    use std::collections::HashSet;
-
-    use clarity::vm::types::{StacksAddressExtensions, StandardPrincipalData};
-    use stacks_common::types::chainstate::StacksAddress;
-    use stacks_common::types::net::{PeerAddress, PeerHost};
-    use stacks_common::util::hash::Hash160;
+    #[allow(unused)]
+    use clarity::vm::types::StandardPrincipalData;
+    use stacks_common::types::net::PeerAddress;
 
     use super::*;
+    #[allow(unused)]
     use crate::core::{
         NETWORK_ID_MAINNET, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1,
         PEER_VERSION_TESTNET_MAJOR,
     };
-    use crate::net::{Neighbor, NeighborKey};
 
     impl PeerDB {
         /// test the `public` flag

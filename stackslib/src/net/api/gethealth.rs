@@ -14,39 +14,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::borrow::BorrowMut;
-use std::io::{Read, Write};
-
 use regex::{Captures, Regex};
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, ConsensusHash, StacksBlockId, StacksPublicKey,
-};
 use stacks_common::types::net::PeerHost;
-use stacks_common::types::{StacksEpochId, StacksPublicKeyBuffer};
-use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum};
+use stacks_common::types::StacksEpochId;
 
-use crate::burnchains::affirmation::AffirmationMap;
-use crate::burnchains::Txid;
-use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::StacksTransaction;
-use crate::core::mempool::MemPoolDB;
 use crate::net::db::PeerDB;
 use crate::net::http::{
-    parse_json, Error, HttpNotFound, HttpNotImplemented, HttpRequest, HttpRequestContents,
-    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
-    HttpResponsePreamble, HttpServerError,
+    parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
+    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{
-    request, HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler,
-    StacksHttpRequest, StacksHttpResponse,
-};
-use crate::net::p2p::PeerNetwork;
+use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{
     infer_initial_burnchain_block_download, Error as NetError, NeighborAddress, StacksNodeState,
-    TipRequest,
 };
 
 /// The response for the GET /v3/health endpoint

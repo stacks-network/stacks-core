@@ -15,22 +15,12 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::io;
-use std::io::{Read, Write};
+use std::io::Write;
 
-use rand::{thread_rng, Rng};
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::util::chunked_encoding::{
     HttpChunkedTransferWriter, HttpChunkedTransferWriterState,
 };
 use stacks_common::util::pipe::PipeWrite;
-
-use crate::burnchains::Txid;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::{
-    Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock,
-};
-use crate::core::mempool::{MemPoolDB, MemPoolSyncData};
-use crate::util_lib::db::Error as DBError;
 
 pub trait HttpChunkGenerator: Send {
     fn generate_next_chunk(&mut self) -> Result<Vec<u8>, String>;

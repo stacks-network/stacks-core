@@ -18,20 +18,20 @@
 #![allow(unused_assignments)]
 
 use std::fs;
-use std::io::Cursor;
 
+use clarity::types::chainstate::{BlockHeaderHash, TrieHash};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::to_hex;
 
-use super::*;
-use crate::chainstate::stacks::index::bits::*;
-use crate::chainstate::stacks::index::marf::*;
-use crate::chainstate::stacks::index::node::*;
-use crate::chainstate::stacks::index::proofs::*;
-use crate::chainstate::stacks::index::storage::*;
-use crate::chainstate::stacks::index::test::*;
-use crate::chainstate::stacks::index::trie::*;
+use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
+use crate::chainstate::stacks::index::node::{TrieNodeID, TrieNodeType, TriePtr};
+use crate::chainstate::stacks::index::storage::{
+    TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
+};
+use crate::chainstate::stacks::index::test::{
+    make_node4_path, make_node_path, merkle_test_marf, merkle_test_marf_key_value,
+};
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, Error, MARFValue, TrieLeaf};
 
 #[test]

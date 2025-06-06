@@ -15,22 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
-use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash::Hash160;
-use stacks_common::util::log;
 use stacks_common::util::uint::{BitArray, Uint256, Uint512};
-use stacks_common::util::vrf::VRFPublicKey;
 
-use crate::burnchains::{
-    Address, Burnchain, BurnchainRecipient, BurnchainSigner, BurnchainTransaction, PublicKey, Txid,
-};
+use crate::burnchains::Txid;
 use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
-use crate::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-};
-use crate::chainstate::stacks::StacksPublicKey;
+use crate::chainstate::burn::operations::LeaderBlockCommitOp;
 use crate::monitoring;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -426,30 +418,21 @@ impl BurnSamplePoint {
 
 #[cfg(test)]
 mod tests {
-    use std::marker::PhantomData;
-
     use stacks_common::address::AddressHashMode;
     use stacks_common::types::chainstate::{
-        BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, VRFSeed,
+        BlockHeaderHash, BurnchainHeaderHash, SortitionId, VRFSeed,
     };
-    use stacks_common::util::hash::{hex_bytes, Hash160};
-    use stacks_common::util::log;
-    use stacks_common::util::uint::{BitArray, Uint256, Uint512};
+    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::util::uint::{BitArray, Uint256};
     use stacks_common::util::vrf::*;
 
     use super::BurnSamplePoint;
-    use crate::burnchains::bitcoin::address::BitcoinAddress;
-    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
-    use crate::burnchains::bitcoin::BitcoinNetworkType;
-    use crate::burnchains::{Address, Burnchain, BurnchainSigner, PublicKey, Txid};
+    use crate::burnchains::{BurnchainSigner, Txid};
     use crate::chainstate::burn::operations::leader_block_commit::{
         MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
     };
-    use crate::chainstate::burn::operations::{
-        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-    };
+    use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
     use crate::chainstate::burn::ConsensusHash;
-    use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::MINING_COMMITMENT_WINDOW;
 
