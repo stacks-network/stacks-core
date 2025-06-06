@@ -558,7 +558,7 @@ impl LocalStateMachine {
                 };
                 return Err(ClientError::InvalidResponse(err_msg).into());
             }
-            if let Some(new_replay_set) = self.handle_possible_bitcoin_fork(
+            if let Some((new_replay_set, new_replay_scope)) = self.handle_possible_bitcoin_fork(
                 db,
                 client,
                 &expected_burn_block,
@@ -567,6 +567,7 @@ impl LocalStateMachine {
                 tx_replay_scope,
             )? {
                 tx_replay_set = ReplayTransactionSet::new(new_replay_set);
+                *tx_replay_scope = new_replay_scope;
             }
         }
 
@@ -912,8 +913,11 @@ impl LocalStateMachine {
         expected_burn_block: &NewBurnBlock,
         prior_state_machine: &SignerStateMachine,
         is_in_tx_replay_mode: bool,
-        tx_replay_scope: &mut Option<(NewBurnBlock, NewBurnBlock)>,
-    ) -> Result<Option<Vec<StacksTransaction>>, SignerChainstateError> {
+        tx_replay_scope: &Option<(NewBurnBlock, NewBurnBlock)>,
+    ) -> Result<
+        Option<(Vec<StacksTransaction>, Option<(NewBurnBlock, NewBurnBlock)>)>,
+        SignerChainstateError,
+    > {
         if expected_burn_block.burn_block_height > prior_state_machine.burn_block_height {
             // no bitcoin fork, because we're advancing the burn block height
             return Ok(None);
@@ -930,11 +934,14 @@ impl LocalStateMachine {
                 "prior_state_machine.burn_block" => %prior_state_machine.burn_block,
             );
 
-            //TODO: Remove unwrap once decided the final tx_replay_scope structure format
-            //      and if to handle them as part of State machine update
-            let curr_scope = tx_replay_scope.clone().unwrap();
+            let (fork_origin, past_tip) = match tx_replay_scope {
+                Some(scope) => scope,
+                None => {
+                    warn!("Tx Replay: BUG! Scope cannot be None while in replay mode!");
+                    return Err(SignerChainstateError::LocalStateMachineNotReady);
+                }
+            };
 
-            let (fork_origin, past_tip) = &curr_scope;
             let is_deepest_fork =
                 expected_burn_block.burn_block_height < fork_origin.burn_block_height;
             if !is_deepest_fork {
@@ -944,22 +951,23 @@ impl LocalStateMachine {
             }
 
             let updated_replay_set;
+            let updated_scope_opt;
             if let Some(replay_set) =
                 self.compute_forked_txs_set(db, client, expected_burn_block, &past_tip)?
             {
-                let updated_scope = (expected_burn_block.clone(), past_tip.clone());
+                let scope = (expected_burn_block.clone(), past_tip.clone());
 
                 info!("Tx Replay: replay set updated with {} tx(s)", replay_set.len();
                     "tx_replay_set" => ?replay_set,
-                    "tx_replay_scope" => ?updated_scope);
+                    "tx_replay_scope" => ?scope);
                 updated_replay_set = replay_set;
-                *tx_replay_scope = Some(updated_scope);
+                updated_scope_opt = Some(scope);
             } else {
                 info!("Tx Replay: replay set will be cleared, because the fork involves the previous reward cycle.");
                 updated_replay_set = vec![];
-                *tx_replay_scope = None;
+                updated_scope_opt = None;
             }
-            return Ok(Some(updated_replay_set));
+            return Ok(Some((updated_replay_set, updated_scope_opt)));
         }
 
         info!("Signer State: fork detected";
@@ -1040,17 +1048,18 @@ impl LocalStateMachine {
                 ))
             .cloned()
             .collect::<Vec<_>>();
+        let scope_opt;
         if forked_txs.len() > 0 {
-            let updated_scope = (expected_burn_block.clone(), potential_replay_tip);
+            let scope = (expected_burn_block.clone(), potential_replay_tip);
             info!("Tx Replay: replay set updated with {} tx(s)", forked_txs.len();
             "tx_replay_set" => ?forked_txs,
-            "tx_replay_scope" => ?updated_scope);
-            *tx_replay_scope = Some(updated_scope);
+            "tx_replay_scope" => ?scope);
+            scope_opt = Some(scope);
         } else {
             info!("Tx Replay: no transactions to be replayed.");
-            *tx_replay_scope = None;
+            scope_opt = None;
         }
-        Ok(Some(forked_txs))
+        Ok(Some((forked_txs, scope_opt)))
     }
 
     ///TODO: This method can be used to remove dublication in 'handle_possible_bitcoin_fork'
