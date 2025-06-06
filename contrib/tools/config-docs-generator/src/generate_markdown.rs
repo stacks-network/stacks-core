@@ -54,6 +54,8 @@ struct GlobalContext {
     field_to_struct: HashMap<String, (String, String)>,
     // Map from constant name to value (if we can extract them)
     constants: HashMap<String, String>,
+    // Custom section name mappings
+    custom_mappings: HashMap<String, String>,
 }
 
 // Static regex for finding intra-documentation links - compiled once at startup
@@ -77,10 +79,28 @@ fn main() -> Result<()> {
                 .help("Output Markdown file")
                 .required(true),
         )
+        .arg(
+            Arg::new("template")
+                .long("template")
+                .value_name("FILE")
+                .help(
+                    "Optional markdown template file (defaults to templates/reference_template.md)",
+                )
+                .required(true),
+        )
+        .arg(
+            Arg::new("mappings")
+                .long("section-name-mappings")
+                .value_name("FILE")
+                .help("Optional JSON file for struct name to TOML section name mappings")
+                .required(true),
+        )
         .get_matches();
 
     let input_path = matches.get_one::<String>("input").unwrap();
     let output_path = matches.get_one::<String>("output").unwrap();
+    let template_path = matches.get_one::<String>("template").unwrap();
+    let mappings_path = matches.get_one::<String>("mappings").unwrap();
 
     let input_content = fs::read_to_string(input_path)
         .with_context(|| format!("Failed to read input JSON file: {}", input_path))?;
@@ -88,7 +108,9 @@ fn main() -> Result<()> {
     let config_docs: ConfigDocs =
         serde_json::from_str(&input_content).with_context(|| "Failed to parse input JSON")?;
 
-    let markdown = generate_markdown(&config_docs)?;
+    let custom_mappings = load_section_name_mappings(mappings_path)?;
+
+    let markdown = generate_markdown(&config_docs, template_path, &custom_mappings)?;
 
     fs::write(output_path, markdown)
         .with_context(|| format!("Failed to write output file: {}", output_path))?;
@@ -100,48 +122,96 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn generate_markdown(config_docs: &ConfigDocs) -> Result<String> {
-    let mut output = String::new();
+fn load_section_name_mappings(mappings_file: &str) -> Result<HashMap<String, String>> {
+    let content = fs::read_to_string(mappings_file).with_context(|| {
+        format!(
+            "Failed to read section name mappings file: {}",
+            mappings_file
+        )
+    })?;
+
+    let mappings: HashMap<String, String> = serde_json::from_str(&content).with_context(|| {
+        format!(
+            "Failed to parse section name mappings JSON: {}",
+            mappings_file
+        )
+    })?;
+
+    Ok(mappings)
+}
+
+fn load_template(template_path: &str) -> Result<String> {
+    fs::read_to_string(template_path)
+        .with_context(|| format!("Failed to read template file: {}", template_path))
+}
+
+fn render_template(template: &str, variables: HashMap<String, String>) -> String {
+    let mut result = template.to_string();
+
+    for (key, value) in variables {
+        let placeholder = format!("{{{{{}}}}}", key);
+        result = result.replace(&placeholder, &value);
+    }
+
+    result
+}
+
+fn generate_markdown(
+    config_docs: &ConfigDocs,
+    template_path: &str,
+    custom_mappings: &HashMap<String, String>,
+) -> Result<String> {
+    // Load template
+    let template = load_template(template_path)?;
 
     // Build global context for cross-references
-    let global_context = build_global_context(config_docs);
+    let global_context = build_global_context(config_docs, custom_mappings);
 
-    // Header
-    output.push_str("# Stacks Node Configuration Reference\n\n");
-    output.push_str("This document provides a comprehensive reference for all configuration options available in the Stacks node TOML configuration file.\n\n");
-    output.push_str(
-        "The configuration is automatically generated from the Rust source code documentation.\n\n",
-    );
-
-    // Table of contents
-    output.push_str("## Table of Contents\n\n");
+    // Build table of contents
+    let mut toc_content = String::new();
     for struct_doc in &config_docs.structs {
-        let section_name = struct_to_section_name(&struct_doc.name);
-        output.push_str(&format!(
+        let section_name = struct_to_section_name(&struct_doc.name, custom_mappings);
+        toc_content.push_str(&format!(
             "- [{}]({})\n",
             section_name,
             section_anchor(&section_name)
         ));
     }
-    output.push('\n');
 
     // Generate sections for each struct
+    let mut struct_sections = String::new();
     for struct_doc in &config_docs.structs {
-        generate_struct_section(&mut output, struct_doc, &global_context)?;
-        output.push('\n');
+        generate_struct_section(
+            &mut struct_sections,
+            struct_doc,
+            &global_context,
+            custom_mappings,
+        )?;
+        struct_sections.push('\n');
     }
+
+    // Prepare template variables
+    let mut template_vars = HashMap::new();
+    template_vars.insert("toc_content".to_string(), toc_content);
+    template_vars.insert("struct_sections".to_string(), struct_sections);
+
+    // Render template with variables
+    let output = render_template(&template, template_vars);
 
     Ok(output)
 }
 
-fn build_global_context(config_docs: &ConfigDocs) -> GlobalContext {
+fn build_global_context(
+    config_docs: &ConfigDocs,
+    custom_mappings: &HashMap<String, String>,
+) -> GlobalContext {
     let mut struct_to_anchor = HashMap::new();
     let mut field_to_struct = HashMap::new();
     let mut resolved_constants_map = HashMap::new();
 
     // Build mappings
     for struct_doc in &config_docs.structs {
-        let section_name = struct_to_section_name(&struct_doc.name);
+        let section_name = struct_to_section_name(&struct_doc.name, custom_mappings);
         let anchor = section_anchor(&section_name);
         struct_to_anchor.insert(struct_doc.name.clone(), anchor.clone());
 
@@ -164,6 +234,7 @@ fn build_global_context(config_docs: &ConfigDocs) -> GlobalContext {
         struct_to_anchor,
         field_to_struct,
         constants: resolved_constants_map,
+        custom_mappings: custom_mappings.clone(),
     }
 }
 
@@ -171,8 +242,9 @@ fn generate_struct_section(
     output: &mut String,
     struct_doc: &StructDoc,
     global_context: &GlobalContext,
+    custom_mappings: &HashMap<String, String>,
 ) -> Result<()> {
-    let section_name = struct_to_section_name(&struct_doc.name);
+    let section_name = struct_to_section_name(&struct_doc.name, custom_mappings);
     output.push_str(&format!("## {}\n\n", section_name));
 
     // Add struct description if available
@@ -222,7 +294,7 @@ fn generate_field_row(
     global_context: &GlobalContext,
 ) -> Result<()> {
     // Create proper anchor ID
-    let section_name = struct_to_section_name(struct_name);
+    let section_name = struct_to_section_name_with_context(struct_name, global_context);
     let anchor_id = format!(
         "{}-{}",
         section_name.trim_start_matches('[').trim_end_matches(']'),
@@ -366,7 +438,12 @@ fn is_deprecated(field: &FieldDoc) -> bool {
     field.deprecated.is_some()
 }
 
-fn struct_to_section_name(struct_name: &str) -> String {
+fn struct_to_section_name(struct_name: &str, custom_mappings: &HashMap<String, String>) -> String {
+    // Check custom mappings first
+    if let Some(section_name) = custom_mappings.get(struct_name) {
+        return section_name.clone();
+    }
+
     // Convert struct name to section name (e.g., "NodeConfig" -> "[node]")
     // NOTE: This function contains hardcoded mappings from Rust struct names to their
     // desired TOML section names in the Markdown output. It must be updated if new
@@ -377,10 +454,17 @@ fn struct_to_section_name(struct_name: &str) -> String {
         "MinerConfig" => "[miner]".to_string(),
         "ConnectionOptionsFile" => "[connection_options]".to_string(),
         "FeeEstimationConfigFile" => "[fee_estimation]".to_string(),
-        "EventObserverConfigFile" => "[event_observer]".to_string(),
-        "InitialBalanceFile" => "[initial_balances]".to_string(),
+        "EventObserverConfigFile" => "[[events_observer]]".to_string(),
+        "InitialBalanceFile" => "[[ustx_balance]]".to_string(),
         _ => format!("[{}]", struct_name.to_lowercase()),
     }
+}
+
+fn struct_to_section_name_with_context(
+    struct_name: &str,
+    global_context: &GlobalContext,
+) -> String {
+    struct_to_section_name(struct_name, &global_context.custom_mappings)
 }
 
 fn escape_markdown(text: &str) -> String {
@@ -432,7 +516,8 @@ fn process_reference(
                 .contains_key(ref_struct_name)
             {
                 // Create proper anchor ID
-                let section_name = struct_to_section_name(ref_struct_name);
+                let section_name =
+                    struct_to_section_name_with_context(ref_struct_name, global_context);
                 let anchor_id = format!(
                     "{}-{}",
                     section_name.trim_start_matches('[').trim_end_matches(']'),
@@ -458,7 +543,8 @@ fn process_reference(
 
         // Check if it's a standalone field name (without struct prefix)
         if let Some((field_struct_name, _anchor)) = global_context.field_to_struct.get(reference) {
-            let section_name = struct_to_section_name(field_struct_name);
+            let section_name =
+                struct_to_section_name_with_context(field_struct_name, global_context);
             let anchor_id = format!(
                 "{}-{}",
                 section_name.trim_start_matches('[').trim_end_matches(']'),
@@ -581,6 +667,7 @@ mod tests {
             struct_to_anchor,
             field_to_struct,
             constants,
+            custom_mappings: HashMap::new(),
         }
     }
 
@@ -589,7 +676,7 @@ mod tests {
     #[test]
     fn test_generate_markdown_empty_config() {
         let config_docs = create_config_docs(vec![]);
-        let result = generate_markdown(&config_docs).unwrap();
+        let result = generate_markdown(&config_docs, None, &HashMap::new()).unwrap();
 
         assert!(result.contains("# Stacks Node Configuration Reference"));
         assert!(result.contains("## Table of Contents"));
@@ -601,7 +688,7 @@ mod tests {
     fn test_generate_markdown_with_one_struct_no_fields() {
         let struct_doc = create_struct_doc("TestStruct", Some("A test struct"), vec![]);
         let config_docs = create_config_docs(vec![struct_doc]);
-        let result = generate_markdown(&config_docs).unwrap();
+        let result = generate_markdown(&config_docs, None, &HashMap::new()).unwrap();
 
         assert!(result.contains("# Stacks Node Configuration Reference"));
         assert!(result.contains("- [[teststruct]](#teststruct)"));
@@ -615,7 +702,7 @@ mod tests {
         let field = create_field_doc("test_field", "A test field");
         let struct_doc = create_struct_doc("TestStruct", Some("A test struct"), vec![field]);
         let config_docs = create_config_docs(vec![struct_doc]);
-        let result = generate_markdown(&config_docs).unwrap();
+        let result = generate_markdown(&config_docs, None, &HashMap::new()).unwrap();
 
         assert!(result.contains("# Stacks Node Configuration Reference"));
         assert!(result.contains("- [[teststruct]](#teststruct)"));
@@ -630,31 +717,42 @@ mod tests {
 
     #[test]
     fn test_struct_to_section_name_known_structs() {
-        assert_eq!(struct_to_section_name("BurnchainConfig"), "[burnchain]");
-        assert_eq!(struct_to_section_name("NodeConfig"), "[node]");
-        assert_eq!(struct_to_section_name("MinerConfig"), "[miner]");
+        let mappings = HashMap::new();
         assert_eq!(
-            struct_to_section_name("ConnectionOptionsFile"),
+            struct_to_section_name("BurnchainConfig", &mappings),
+            "[burnchain]"
+        );
+        assert_eq!(struct_to_section_name("NodeConfig", &mappings), "[node]");
+        assert_eq!(struct_to_section_name("MinerConfig", &mappings), "[miner]");
+        assert_eq!(
+            struct_to_section_name("ConnectionOptionsFile", &mappings),
             "[connection_options]"
         );
         assert_eq!(
-            struct_to_section_name("FeeEstimationConfigFile"),
+            struct_to_section_name("FeeEstimationConfigFile", &mappings),
             "[fee_estimation]"
         );
         assert_eq!(
-            struct_to_section_name("EventObserverConfigFile"),
-            "[event_observer]"
+            struct_to_section_name("EventObserverConfigFile", &mappings),
+            "[[events_observer]]"
         );
         assert_eq!(
-            struct_to_section_name("InitialBalanceFile"),
-            "[initial_balances]"
+            struct_to_section_name("InitialBalanceFile", &mappings),
+            "[[ustx_balance]]"
         );
     }
 
     #[test]
     fn test_struct_to_section_name_unknown_struct() {
-        assert_eq!(struct_to_section_name("MyCustomConfig"), "[mycustomconfig]");
-        assert_eq!(struct_to_section_name("UnknownStruct"), "[unknownstruct]");
+        let mappings = HashMap::new();
+        assert_eq!(
+            struct_to_section_name("MyCustomConfig", &mappings),
+            "[mycustomconfig]"
+        );
+        assert_eq!(
+            struct_to_section_name("UnknownStruct", &mappings),
+            "[unknownstruct]"
+        );
     }
 
     #[test]
@@ -758,7 +856,8 @@ mod tests {
     #[test]
     fn test_generate_field_row_toml_example_preserves_newlines() {
         let mut field = create_field_doc("multiline_example", "Field with multiline TOML example");
-        field.toml_example = Some("key = \"value\"\nnested = {\n  sub_key = \"sub_value\"\n}".to_string());
+        field.toml_example =
+            Some("key = \"value\"\nnested = {\n  sub_key = \"sub_value\"\n}".to_string());
         let global_context = create_mock_global_context();
         let mut output = String::new();
 
@@ -774,10 +873,16 @@ mod tests {
         let code_content = &output[pre_start..pre_end + "</code></pre>".len()];
 
         // Should NOT contain <br> tags inside the code block
-        assert!(!code_content.contains("<br>"), "Code block should not contain <br> tags");
+        assert!(
+            !code_content.contains("<br>"),
+            "Code block should not contain <br> tags"
+        );
 
         // Should contain HTML entities for newlines instead
-        assert!(code_content.contains("&#10;"), "Code block should contain HTML entities for newlines");
+        assert!(
+            code_content.contains("&#10;"),
+            "Code block should contain HTML entities for newlines"
+        );
 
         // Should contain the key-value pairs
         assert!(code_content.contains("key = \"value\""));
@@ -942,7 +1047,8 @@ mod tests {
     #[test]
     fn test_generate_field_row_units_with_constants_and_intralinks() {
         let mut field = create_field_doc("timeout_field", "A timeout field");
-        field.units = Some("[`TEST_CONSTANT`] seconds (see [`NodeConfig::test_field`])".to_string());
+        field.units =
+            Some("[`TEST_CONSTANT`] seconds (see [`NodeConfig::test_field`])".to_string());
         field.default_value = Some("`30`".to_string());
         let global_context = create_mock_global_context();
         let mut output = String::new();
@@ -1003,7 +1109,7 @@ mod tests {
         // Test a field with all possible attributes
         let mut field = create_field_doc(
             "comprehensive_field",
-            "A comprehensive field demonstrating all features.\n\nThis includes multiple paragraphs."
+            "A comprehensive field demonstrating all features.\n\nThis includes multiple paragraphs.",
         );
         field.default_value = Some("`[\"default\", \"values\"]`".to_string());
         field.required = Some(false);
@@ -1012,8 +1118,10 @@ mod tests {
             "This is the first note with [`TEST_CONSTANT`]".to_string(),
             "This is the second note referencing [`NodeConfig::test_field`]".to_string(),
         ]);
-        field.deprecated = Some("Use new_comprehensive_field instead. Will be removed in v3.0.".to_string());
-        field.toml_example = Some("comprehensive_field = [\n  \"value1\",\n  \"value2\"\n]".to_string());
+        field.deprecated =
+            Some("Use new_comprehensive_field instead. Will be removed in v3.0.".to_string());
+        field.toml_example =
+            Some("comprehensive_field = [\n  \"value1\",\n  \"value2\"\n]".to_string());
 
         let global_context = create_mock_global_context();
         let mut output = String::new();
@@ -1039,7 +1147,9 @@ mod tests {
         // Verify notes with intralink processing
         assert!(output.contains("**Notes:**"));
         assert!(output.contains("- This is the first note with `42`")); // Constant resolved
-        assert!(output.contains("- This is the second note referencing [test_field](#node-test_field)")); // Intralink
+        assert!(
+            output.contains("- This is the second note referencing [test_field](#node-test_field)")
+        ); // Intralink
 
         // Verify deprecation warning
         assert!(output.contains("**⚠️ DEPRECATED:**"));

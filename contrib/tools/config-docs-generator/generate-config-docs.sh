@@ -11,20 +11,22 @@ NC='\033[0m' # No Color
 # Configuration - Allow environment variable overrides
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$SCRIPT_DIR/../../../" && pwd)}"
-BUILD_ROOT="${BUILD_ROOT:-$PROJECT_ROOT}"
 OUTPUT_DIR="$PROJECT_ROOT/docs/generated"
-TEMP_DIR="$PROJECT_ROOT/target/doc-generation"
-CONFIG_SOURCE_FILE="$PROJECT_ROOT/stackslib/src/config/mod.rs"
+CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PROJECT_ROOT/target}"
+TEMP_DIR="${TEMP_DIR:-$CARGO_TARGET_DIR/doc-generation}"
 
-# Paths to binaries - allow override via environment
-EXTRACT_DOCS_BIN="${EXTRACT_DOCS_BIN:-$BUILD_ROOT/target/release/extract-docs}"
-GENERATE_MARKDOWN_BIN="${GENERATE_MARKDOWN_BIN:-$BUILD_ROOT/target/release/generate-markdown}"
+# Binary paths - allow override via environment
+EXTRACT_DOCS_BIN="${EXTRACT_DOCS_BIN:-$CARGO_TARGET_DIR/release/extract-docs}"
+GENERATE_MARKDOWN_BIN="${GENERATE_MARKDOWN_BIN:-$CARGO_TARGET_DIR/release/generate-markdown}"
+
+# Template and mappings paths - allow override via environment
+TEMPLATE_PATH="${TEMPLATE_PATH:-$SCRIPT_DIR/templates/reference_template.md}"
+SECTION_MAPPINGS_PATH="${SECTION_MAPPINGS_PATH:-$SCRIPT_DIR/section_name_mappings.json}"
 
 # Check if binaries are pre-built (skip build step)
 SKIP_BUILD="${SKIP_BUILD:-false}"
-if [[ -f "$EXTRACT_DOCS_BIN" && -f "$GENERATE_MARKDOWN_BIN" ]]; then
-    SKIP_BUILD=true
-fi
+
+export CARGO_TARGET_DIR
 
 log_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -55,16 +57,8 @@ main() {
 
     cd "$PROJECT_ROOT"
 
-    # Verify source file exists
-    if [[ ! -f "$CONFIG_SOURCE_FILE" ]]; then
-        log_error "Config source file not found: $CONFIG_SOURCE_FILE"
-        exit 1
-    fi
-
-    # Step 1: Build the documentation generation tools (skip if pre-built)
-    if [[ "$SKIP_BUILD" == "true" ]]; then
-        log_info "Using pre-built documentation generation tools..."
-    else
+    # Step 1: Build the documentation generation tools
+    if [[ "$SKIP_BUILD" != "true" ]]; then
         log_info "Building documentation generation tools..."
         cargo build --package config-docs-generator --release
     fi
@@ -84,9 +78,9 @@ main() {
     # Step 3: Generate Markdown
     log_info "Generating Markdown documentation..."
     MARKDOWN_OUTPUT="$OUTPUT_DIR/configuration-reference.md"
-    "$GENERATE_MARKDOWN_BIN" \
-        --input "$EXTRACTED_JSON" \
-        --output "$MARKDOWN_OUTPUT"
+
+    # Call the command
+    "$GENERATE_MARKDOWN_BIN" --input "$EXTRACTED_JSON" --output "$MARKDOWN_OUTPUT" --template "$TEMPLATE_PATH" --section-name-mappings "$SECTION_MAPPINGS_PATH"
 
     log_info "Documentation generation complete!"
     log_info "Generated files:"
@@ -145,6 +139,7 @@ while [[ $# -gt 0 ]]; do
             exit 1
             ;;
     esac
+    shift
 done
 
 main "$@"

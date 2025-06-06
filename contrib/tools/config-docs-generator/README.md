@@ -9,6 +9,9 @@ This tool automatically generates markdown documentation from Rust configuration
 The easiest way to generate configuration documentation:
 
 ```bash
+# Navigate to the config-docs-generator directory
+cd contrib/tools/config-docs-generator
+
 # Build the Docker image (one-time setup)
 docker build -t config-docs-generator .
 
@@ -28,8 +31,11 @@ If you prefer to run without Docker:
 # Install nightly toolchain if needed
 rustup toolchain install nightly
 
+# Navigate to the config-docs-generator directory
+cd contrib/tools/config-docs-generator
+
 # Generate documentation
-./contrib/tools/config-docs-generator/generate-config-docs.sh
+./generate-config-docs.sh
 ```
 
 ## What It Does
@@ -40,8 +46,8 @@ The tool processes these configuration structs from the Stacks codebase:
 - `MinerConfig` → `[miner]` section
 - `ConnectionOptionsFile` → `[connection_options]` section
 - `FeeEstimationConfigFile` → `[fee_estimation]` section
-- `EventObserverConfigFile` → `[event_observer]` section
-- `InitialBalanceFile` → `[initial_balances]` section
+- `EventObserverConfigFile` → `[[events_observer]]` section
+- `InitialBalanceFile` → `[[ustx_balance]]` section
 
 For each configuration field, it extracts:
 - Field documentation from `///` comments
@@ -335,31 +341,20 @@ pub struct YourNewConfig {
 - **@deprecated**: Deprecation message
 - **@toml_example**: Example TOML configuration
 
-### 3. Add Section Mapping (Optional)
+### 3. Generate
 
-If you want a custom TOML section name, edit `src/generate_markdown.rs`:
-
-```rust
-fn struct_to_section_name(struct_name: &str) -> String {
-    match struct_name {
-        "YourNewConfig" => "[your_custom_section]".to_string(),
-        // ... existing mappings
-        _ => format!("[{}]", struct_name.to_lowercase()),
-    }
-}
-```
-
-### 4. Generate and Verify
+Override TOML section names using JSON configuration:
 
 ```bash
-# Using Docker (recommended)
-docker run --rm -v "$(pwd)/../../../:/project_root" config-docs-generator
+# Using Docker with custom mappings and template
+cd contrib/tools/config-docs-generator
+docker run --rm -v "$(pwd)/../../../:/project_root" \
+  -e SECTION_MAPPINGS_PATH="/build/contrib/tools/config-docs-generator/custom_mappings.json" \
+  -e TEMPLATE_PATH="/build/contrib/tools/config-docs-generator/templates/custom_template.md" \
+  config-docs-generator
 
 # OR using local setup
-./contrib/tools/config-docs-generator/generate-config-docs.sh
-
-# Check that your struct appears
-grep -A 5 "your_custom_section" docs/generated/configuration-reference.md
+./generate-config-docs.sh --section-name-mappings custom_mappings.json --template custom_template.md
 ```
 
 ## How It Works

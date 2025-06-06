@@ -75,7 +75,7 @@ fn main() -> Result<()> {
                 .long("structs")
                 .value_name("NAMES")
                 .help("Comma-separated list of struct names to extract")
-                .required(false),
+                .required(true),
         )
         .get_matches();
 
@@ -109,6 +109,11 @@ fn generate_rustdoc_json(package: &str) -> Result<serde_json::Value> {
     // constants referenced in doc comments are added to the project
     let additional_crates = ["stacks-common"];
 
+    // Respect CARGO_TARGET_DIR environment variable for rustdoc output
+    let rustdoc_target_dir = std::env::var("CARGO_TARGET_DIR")
+        .unwrap_or_else(|_| "target".to_string())
+        + "/rustdoc-json";
+
     // WARNING: This tool relies on nightly rustdoc JSON output (-Z unstable-options --output-format json)
     // The JSON format is subject to change with new Rust nightly versions and could break this tool.
     // Use cargo rustdoc with nightly to generate JSON for the main package
@@ -120,7 +125,7 @@ fn generate_rustdoc_json(package: &str) -> Result<serde_json::Value> {
             "-p",
             package,
             "--target-dir",
-            "target/rustdoc-json",
+            &rustdoc_target_dir,
             "--",
             "-Z",
             "unstable-options",
@@ -150,7 +155,7 @@ fn generate_rustdoc_json(package: &str) -> Result<serde_json::Value> {
                 "-p",
                 additional_crate,
                 "--target-dir",
-                "target/rustdoc-json",
+                &rustdoc_target_dir,
                 "--",
                 "-Z",
                 "unstable-options",
@@ -180,7 +185,7 @@ fn generate_rustdoc_json(package: &str) -> Result<serde_json::Value> {
     };
 
     // Read the generated JSON file - rustdoc generates it based on library name
-    let json_file_path = format!("target/rustdoc-json/doc/{}.json", lib_name);
+    let json_file_path = format!("{}/doc/{}.json", rustdoc_target_dir, lib_name);
     let json_content = std::fs::read_to_string(json_file_path)
         .context("Failed to read generated rustdoc JSON file")?;
 
@@ -443,7 +448,10 @@ fn parse_field_documentation(
                 "false" | "no" | "0" => false,
                 _ => {
                     // Default to false for invalid values, but could log a warning in the future
-                    eprintln!("Warning: Invalid @required value '{}' for field '{}', defaulting to false", required_text, field_name);
+                    eprintln!(
+                        "Warning: Invalid @required value '{}' for field '{}', defaulting to false",
+                        required_text, field_name
+                    );
                     false
                 }
             };
@@ -480,7 +488,8 @@ fn parse_literal_block_scalar(lines: &[&str], _base_indent: usize) -> String {
     }
 
     // Find the first non-empty content line to determine block indentation
-    let content_lines: Vec<&str> = lines.iter()
+    let content_lines: Vec<&str> = lines
+        .iter()
         .skip_while(|line| line.trim().is_empty())
         .copied()
         .collect();
@@ -531,7 +540,8 @@ fn parse_folded_block_scalar(lines: &[&str], _base_indent: usize) -> String {
     }
 
     // Find the first non-empty content line to determine block indentation
-    let content_lines: Vec<&str> = lines.iter()
+    let content_lines: Vec<&str> = lines
+        .iter()
         .skip_while(|line| line.trim().is_empty())
         .copied()
         .collect();
@@ -642,7 +652,11 @@ fn extract_annotation(metadata_section: &str, annotation_name: &str) -> Option<S
         if trimmed_after_colon.starts_with('|') {
             // Literal block scalar mode (|)
             // Content starts from the next line, ignoring any text after | on the same line
-            let block_lines = collect_annotation_block_lines(&all_lines, annotation_line_idx + 1, annotation_line);
+            let block_lines = collect_annotation_block_lines(
+                &all_lines,
+                annotation_line_idx + 1,
+                annotation_line,
+            );
 
             // Convert to owned strings for the parser
             let owned_lines: Vec<String> = block_lines.iter().map(|s| s.to_string()).collect();
@@ -659,7 +673,11 @@ fn extract_annotation(metadata_section: &str, annotation_name: &str) -> Option<S
         } else if trimmed_after_colon.starts_with('>') {
             // Folded block scalar mode (>)
             // Content starts from the next line, ignoring any text after > on the same line
-            let block_lines = collect_annotation_block_lines(&all_lines, annotation_line_idx + 1, annotation_line);
+            let block_lines = collect_annotation_block_lines(
+                &all_lines,
+                annotation_line_idx + 1,
+                annotation_line,
+            );
 
             // Convert to owned strings for the parser
             let owned_lines: Vec<String> = block_lines.iter().map(|s| s.to_string()).collect();
@@ -684,7 +702,11 @@ fn extract_annotation(metadata_section: &str, annotation_name: &str) -> Option<S
             }
 
             // Collect subsequent lines that belong to this annotation
-            let block_lines = collect_annotation_block_lines(&all_lines, annotation_line_idx + 1, annotation_line);
+            let block_lines = collect_annotation_block_lines(
+                &all_lines,
+                annotation_line_idx + 1,
+                annotation_line,
+            );
 
             // For default mode, preserve relative indentation within the block
             if !block_lines.is_empty() {
@@ -741,7 +763,7 @@ fn extract_annotation(metadata_section: &str, annotation_name: &str) -> Option<S
 fn collect_annotation_block_lines<'a>(
     all_lines: &[&'a str],
     start_idx: usize,
-    annotation_line: &str
+    annotation_line: &str,
 ) -> Vec<&'a str> {
     let mut block_lines = Vec::new();
     let annotation_indent = annotation_line.len() - annotation_line.trim_start().len();
@@ -2108,7 +2130,10 @@ and includes various formatting.
         let result = parse_field_documentation(doc_text, "test_field").unwrap();
 
         assert_eq!(result.0.name, "test_field");
-        assert_eq!(result.0.description, "Field with required and units annotations.");
+        assert_eq!(
+            result.0.description,
+            "Field with required and units annotations."
+        );
         assert_eq!(result.0.default_value, Some("`5000`".to_string()));
         assert_eq!(result.0.required, Some(true));
         assert_eq!(result.0.units, Some("milliseconds".to_string()));
@@ -2232,7 +2257,10 @@ and includes various formatting.
         let result = parse_field_documentation(doc_text, "test_field").unwrap();
         let (field_doc, referenced_constants) = result;
 
-        assert_eq!(field_doc.units, Some("[`DEFAULT_TIMEOUT_MS`] milliseconds".to_string()));
+        assert_eq!(
+            field_doc.units,
+            Some("[`DEFAULT_TIMEOUT_MS`] milliseconds".to_string())
+        );
         // Check that constants were collected from units
         assert!(referenced_constants.contains("DEFAULT_TIMEOUT_MS"));
     }
@@ -2402,7 +2430,10 @@ and includes various formatting.
         // Test empty @required annotation (should return None, not Some(false))
         let doc_text_empty = "Test field.\n---\n@required:";
         let result_empty = parse_field_documentation(doc_text_empty, "test_field").unwrap();
-        assert_eq!(result_empty.0.required, None, "Empty @required should not be parsed");
+        assert_eq!(
+            result_empty.0.required, None,
+            "Empty @required should not be parsed"
+        );
     }
 
     #[test]
