@@ -44,7 +44,7 @@ impl Command<SignerTestState, SignerTestContext> for ChainMinerCommitOp {
         let should_apply = current_state != self.skip;
         let operation = if self.skip { "disabl" } else { "enabl" };
         info!(
-            "Checking: {}ing commit operations for miner {}. Result: {:?}",
+            "Checking: {}ing commit operations for miner {}. Result: {}",
             operation, self.miner_index, should_apply
         );
         should_apply

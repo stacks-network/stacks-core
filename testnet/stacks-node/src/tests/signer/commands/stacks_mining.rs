@@ -35,7 +35,7 @@ impl Command<SignerTestState, SignerTestContext> for ChainStacksMining {
         } else {
             "Resuming Stacks mining"
         };
-        info!("Checking: {}. Result: {:?}", operation_desc, should_apply);
+        info!("Checking: {}. Result: {}", operation_desc, should_apply);
         should_apply
     }
 

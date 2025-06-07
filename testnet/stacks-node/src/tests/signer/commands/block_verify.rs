@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use madhouse::{Command, CommandWrapper};
-use proptest::prelude::{Just, Strategy};
+use proptest::prelude::Strategy;
 
 use super::context::{SignerTestContext, SignerTestState};
 
@@ -66,7 +66,7 @@ impl ChainVerifyMinerBlockCount {
 impl Command<SignerTestState, SignerTestContext> for ChainVerifyMinerBlockCount {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
-            "Checking: Verifying miner {} block count. Result: {:?}",
+            "Checking: Verifying miner {} block count. Result: {}",
             self.miner_index, true
         );
         true
@@ -120,15 +120,15 @@ impl Command<SignerTestState, SignerTestContext> for ChainVerifyMinerBlockCount 
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        (1usize..=2usize, 1usize..=5usize).prop_flat_map(
+        (1usize..=2usize, 1usize..=5usize).prop_map(
             move |(miner_index, expected_block_count)| {
-                Just(CommandWrapper::new(
+                CommandWrapper::new(
                     ChainVerifyMinerBlockCount::after_boot_to_epoch3(
                         ctx.clone(),
                         miner_index,
                         expected_block_count,
                     ),
-                ))
+                )
             },
         )
     }

@@ -20,7 +20,7 @@ impl ChainShutdownMiners {
 
 impl Command<SignerTestState, SignerTestContext> for ChainShutdownMiners {
     fn check(&self, _state: &SignerTestState) -> bool {
-        info!("Checking: Shutting down miners. Result: {:?}", true);
+        info!("Checking: Shutting down miners. Result: {}", true);
         true
     }
 

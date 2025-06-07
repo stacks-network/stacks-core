@@ -23,7 +23,7 @@ impl ChainExpectSortitionWinner {
 impl Command<SignerTestState, SignerTestContext> for ChainExpectSortitionWinner {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
-            "Checking: Verifying miner {} won sortition. Result: {:?}",
+            "Checking: Verifying miner {} won sortition. Result: {}",
             self.miner_index, true
         );
         true
@@ -73,7 +73,7 @@ impl ChainVerifyLastSortitionWinnerReorged {
 impl Command<SignerTestState, SignerTestContext> for ChainVerifyLastSortitionWinnerReorged {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
-            "Checking: Verifying last sortition winner reorged. Result: {:?}",
+            "Checking: Verifying last sortition winner reorged. Result: {}",
             true
         );
         true

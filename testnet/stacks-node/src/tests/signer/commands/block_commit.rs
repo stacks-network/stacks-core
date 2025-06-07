@@ -26,7 +26,7 @@ impl Command<SignerTestState, SignerTestContext> for MinerSubmitBlockCommit {
             .get();
 
         info!(
-            "Checking: Submitting block commit miner {}. Result: {:?}",
+            "Checking: Submitting block commit miner {}. Result: {}",
             self.miner_index, is_miner_paused
         );
 
@@ -67,7 +67,6 @@ impl Command<SignerTestState, SignerTestContext> for MinerSubmitBlockCommit {
                 .get_counters_for_miner(self.miner_index)
                 .naka_skip_commit_op
                 .get()
-                == true,
         );
     }
 
@@ -78,11 +77,8 @@ impl Command<SignerTestState, SignerTestContext> for MinerSubmitBlockCommit {
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        (1usize..=2usize).prop_flat_map(move |miner_index| {
-            Just(CommandWrapper::new(MinerSubmitBlockCommit::new(
-                ctx.clone(),
-                miner_index,
-            )))
-        })
+        (1usize..=2usize).prop_map(move |miner_index| {
+            CommandWrapper::new(MinerSubmitBlockCommit::new(ctx.clone(), miner_index))
+       })
     }
 }

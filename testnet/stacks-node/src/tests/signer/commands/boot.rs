@@ -22,7 +22,7 @@ impl ChainBootToEpoch3 {
 impl Command<SignerTestState, SignerTestContext> for ChainBootToEpoch3 {
     fn check(&self, state: &SignerTestState) -> bool {
         info!(
-            "Checking: Booting miners to Nakamoto. Result: {:?}",
+            "Checking: Booting miners to Nakamoto. Result: {}",
             !state.is_booted_to_nakamoto
         );
         // This command should only run if the state indicates it hasn't booted to Nakamoto yet.

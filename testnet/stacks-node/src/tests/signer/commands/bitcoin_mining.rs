@@ -11,12 +11,12 @@ use super::context::{SignerTestContext, SignerTestState};
 /// This command simulates the process of mining a new Bitcoin block in the Stacks blockchain
 /// testing framework. Unlike the tenure change variant, this command simply advances the
 /// Bitcoin chain by one block without explicitly triggering a tenure change transaction.
-pub struct MinerMineBtcBlocks {
+pub struct MinerMineBitcoinBlocks {
     ctx: Arc<SignerTestContext>,
     num_blocks: u64,
 }
 
-impl MinerMineBtcBlocks {
+impl MinerMineBitcoinBlocks {
     fn new(ctx: Arc<SignerTestContext>, num_blocks: u64) -> Self {
         Self { ctx, num_blocks }
     }
@@ -30,16 +30,16 @@ impl MinerMineBtcBlocks {
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for MinerMineBtcBlocks {
+impl Command<SignerTestState, SignerTestContext> for MinerMineBitcoinBlocks {
     fn check(&self, _state: &SignerTestState) -> bool {
-        info!("Checking: Mining tenure. Result: {:?}", true);
+        info!("Checking: Mining tenure. Result: {}", true);
         true
     }
 
     fn apply(&self, state: &mut SignerTestState) {
         info!("Applying: Mining {} Bitcoin block(s)", self.num_blocks);
 
-        state.last_block_height = Some(self.ctx.get_peer_stacks_tip_height());
+        state.last_stacks_block_height = Some(self.ctx.get_peer_stacks_tip_height());
 
         // We can use miner 1 sortition db - it's the same for both miners
         let sortdb = self.ctx.get_sortition_db(1);
@@ -60,10 +60,10 @@ impl Command<SignerTestState, SignerTestContext> for MinerMineBtcBlocks {
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         prop_oneof![
-            Just(CommandWrapper::new(MinerMineBtcBlocks::one(ctx.clone()))),
+            Just(CommandWrapper::new(MinerMineBitcoinBlocks::one(ctx.clone()))),
             (2u64..5u64).prop_map({
                 move |num_blocks| {
-                    CommandWrapper::new(MinerMineBtcBlocks::multiple(ctx.clone(), num_blocks))
+                    CommandWrapper::new(MinerMineBitcoinBlocks::multiple(ctx.clone(), num_blocks))
                 }
             })
         ]
@@ -75,12 +75,12 @@ impl Command<SignerTestState, SignerTestContext> for MinerMineBtcBlocks {
 /// controller to generate between 1-5 blocks without waiting for confirmations or
 /// monitoring their effect on the Stacks chain. It represents a low-level operation
 /// to advance the Bitcoin chain state.
-pub struct ChainGenerateBtcBlocks {
+pub struct ChainGenerateBitcoinBlocks {
     ctx: Arc<SignerTestContext>,
     num_blocks: u64,
 }
 
-impl ChainGenerateBtcBlocks {
+impl ChainGenerateBitcoinBlocks {
     fn new(ctx: Arc<SignerTestContext>, num_blocks: u64) -> Self {
         Self { ctx, num_blocks }
     }
@@ -94,10 +94,10 @@ impl ChainGenerateBtcBlocks {
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for ChainGenerateBtcBlocks {
+impl Command<SignerTestState, SignerTestContext> for ChainGenerateBitcoinBlocks {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
-            "Checking: Build next {} Bitcoin block(s). Result: {:?}",
+            "Checking: Build next {} Bitcoin block(s). Result: {}",
             self.num_blocks, true
         );
         true
@@ -122,12 +122,12 @@ impl Command<SignerTestState, SignerTestContext> for ChainGenerateBtcBlocks {
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         prop_oneof![
-            Just(CommandWrapper::new(ChainGenerateBtcBlocks::one(
+            Just(CommandWrapper::new(ChainGenerateBitcoinBlocks::one(
                 ctx.clone()
             ))),
             (2u64..=5u64).prop_map({
                 move |num_blocks| {
-                    CommandWrapper::new(ChainGenerateBtcBlocks::multiple(ctx.clone(), num_blocks))
+                    CommandWrapper::new(ChainGenerateBitcoinBlocks::multiple(ctx.clone(), num_blocks))
                 }
             })
         ]
