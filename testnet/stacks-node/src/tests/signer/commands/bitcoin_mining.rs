@@ -59,14 +59,11 @@ impl Command<SignerTestState, SignerTestContext> for MinerMineBitcoinBlocks {
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        prop_oneof![
-            Just(CommandWrapper::new(MinerMineBitcoinBlocks::one(ctx.clone()))),
-            (2u64..5u64).prop_map({
-                move |num_blocks| {
-                    CommandWrapper::new(MinerMineBitcoinBlocks::multiple(ctx.clone(), num_blocks))
-                }
-            })
-        ]
+        (1u64..5u64).prop_map({
+            move |num_blocks| {
+                CommandWrapper::new(MinerMineBitcoinBlocks::multiple(ctx.clone(), num_blocks))
+            }
+        })
     }
 }
 
@@ -121,15 +118,10 @@ impl Command<SignerTestState, SignerTestContext> for ChainGenerateBitcoinBlocks 
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        prop_oneof![
-            Just(CommandWrapper::new(ChainGenerateBitcoinBlocks::one(
-                ctx.clone()
-            ))),
-            (2u64..=5u64).prop_map({
-                move |num_blocks| {
-                    CommandWrapper::new(ChainGenerateBitcoinBlocks::multiple(ctx.clone(), num_blocks))
-                }
-            })
-        ]
+        (1u64..=5u64).prop_map({
+            move |num_blocks| {
+                CommandWrapper::new(ChainGenerateBitcoinBlocks::multiple(ctx.clone(), num_blocks))
+            }
+        })
     }
 }
