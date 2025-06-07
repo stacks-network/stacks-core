@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use madhouse::{Command, CommandWrapper};
-use proptest::prop_oneof;
-use proptest::strategy::{Just, Strategy};
+use proptest::strategy::Strategy;
 use tracing::info;
 
 use super::context::{SignerTestContext, SignerTestState};
@@ -120,7 +119,10 @@ impl Command<SignerTestState, SignerTestContext> for ChainGenerateBitcoinBlocks 
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1u64..=5u64).prop_map({
             move |num_blocks| {
-                CommandWrapper::new(ChainGenerateBitcoinBlocks::multiple(ctx.clone(), num_blocks))
+                CommandWrapper::new(ChainGenerateBitcoinBlocks::multiple(
+                    ctx.clone(),
+                    num_blocks,
+                ))
             }
         })
     }

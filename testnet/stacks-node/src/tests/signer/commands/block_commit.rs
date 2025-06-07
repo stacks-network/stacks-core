@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use madhouse::{Command, CommandWrapper};
-use proptest::prelude::{Just, Strategy};
+use proptest::prelude::Strategy;
 
 use super::context::{SignerTestContext, SignerTestState};
 
@@ -62,12 +62,11 @@ impl Command<SignerTestState, SignerTestContext> for MinerSubmitBlockCommit {
             ),
         }
 
-        assert!(
-            self.ctx
-                .get_counters_for_miner(self.miner_index)
-                .naka_skip_commit_op
-                .get()
-        );
+        assert!(self
+            .ctx
+            .get_counters_for_miner(self.miner_index)
+            .naka_skip_commit_op
+            .get());
     }
 
     fn label(&self) -> String {
@@ -79,6 +78,6 @@ impl Command<SignerTestState, SignerTestContext> for MinerSubmitBlockCommit {
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1usize..=2usize).prop_map(move |miner_index| {
             CommandWrapper::new(MinerSubmitBlockCommit::new(ctx.clone(), miner_index))
-       })
+        })
     }
 }

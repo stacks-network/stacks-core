@@ -1,5 +1,4 @@
 use std::fmt::Debug;
-use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 

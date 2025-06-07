@@ -120,16 +120,12 @@ impl Command<SignerTestState, SignerTestContext> for ChainVerifyMinerBlockCount 
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        (1usize..=2usize, 1usize..=5usize).prop_map(
-            move |(miner_index, expected_block_count)| {
-                CommandWrapper::new(
-                    ChainVerifyMinerBlockCount::after_boot_to_epoch3(
-                        ctx.clone(),
-                        miner_index,
-                        expected_block_count,
-                    ),
-                )
-            },
-        )
+        (1usize..=2usize, 1usize..=5usize).prop_map(move |(miner_index, expected_block_count)| {
+            CommandWrapper::new(ChainVerifyMinerBlockCount::after_boot_to_epoch3(
+                ctx.clone(),
+                miner_index,
+                expected_block_count,
+            ))
+        })
     }
 }
