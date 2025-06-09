@@ -122,6 +122,9 @@ impl GlobalStateEvaluator {
         let active_signer_protocol_version =
             self.determine_latest_supported_signer_protocol_version()?;
         let mut state_views = HashMap::new();
+        let mut tx_replay_sets = HashMap::new();
+        let mut found_state_view = None;
+        let mut found_replay_set = None;
         for (address, update) in &self.address_updates {
             let Some(weight) = self.address_weights.get(address) else {
                 continue;
@@ -156,18 +159,36 @@ impl GlobalStateEvaluator {
                 burn_block_height: *burn_block_height,
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
-                tx_replay_set,
+                tx_replay_set: ReplayTransactionSet::none(),
                 creation_time: SystemTime::now(),
             };
             let entry = state_views
                 .entry(state_machine.clone())
                 .or_insert_with(|| 0);
             *entry += weight;
+
             if self.reached_agreement(*entry) {
-                return Some(state_machine);
+                found_state_view = Some(state_machine);
+            }
+
+            let replay_entry = tx_replay_sets
+                .entry(tx_replay_set.clone())
+                .or_insert_with(|| 0);
+            *replay_entry += weight;
+
+            if self.reached_agreement(*replay_entry) {
+                found_replay_set = Some(tx_replay_set);
+            }
+            if found_replay_set.is_some() && found_state_view.is_some() {
+                break;
             }
         }
-        None
+        if let Some(tx_replay_set) = found_replay_set {
+            if let Some(state_view) = found_state_view.as_mut() {
+                state_view.tx_replay_set = tx_replay_set;
+            }
+        }
+        found_state_view
     }
 
     /// Will insert the update for the given address and weight only if the GlobalStateMachineEvaluator already is aware of this address
@@ -279,11 +300,11 @@ pub struct SignerStateMachine {
 impl PartialEq for SignerStateMachine {
     fn eq(&self, other: &Self) -> bool {
         // creation_time is intentionally ignored
+        // tx_replay_set is intentionally ignored
         self.burn_block == other.burn_block
             && self.burn_block_height == other.burn_block_height
             && self.current_miner == other.current_miner
             && self.active_signer_protocol_version == other.active_signer_protocol_version
-            && self.tx_replay_set == other.tx_replay_set
     }
 }
 
@@ -292,11 +313,11 @@ impl Eq for SignerStateMachine {}
 impl Hash for SignerStateMachine {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // creation_time is intentionally ignored
+        // tx_replay_set is intentionally ignored
         self.burn_block.hash(state);
         self.burn_block_height.hash(state);
         self.current_miner.hash(state);
         self.active_signer_protocol_version.hash(state);
-        self.tx_replay_set.hash(state);
     }
 }
 
