@@ -6558,8 +6558,9 @@ fn signer_chainstate() {
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, &counters);
 
+    let local_private_key = signers.signer_keys[0];
     let signer_client = stacks_signer::client::StacksClient::new(
-        StacksPrivateKey::from_seed(&[0, 1, 2, 3]),
+        local_private_key,
         naka_conf.node.rpc_bind.clone(),
         naka_conf
             .connection_options
@@ -6578,8 +6579,7 @@ fn signer_chainstate() {
     // Mine some nakamoto tenures
     //  track the last tenure's first block and subsequent blocks so we can
     //  check that they get rejected by the sortitions_view
-    let mut last_tenures_proposals: Option<(StacksPublicKey, NakamotoBlock, Vec<NakamotoBlock>)> =
-        None;
+    let mut last_tenures_proposals: Option<(NakamotoBlock, Vec<NakamotoBlock>)> = None;
     // hold the first and last blocks of the first tenure. we'll use this to submit reorging proposals
     let mut first_tenure_blocks: Option<Vec<NakamotoBlock>> = None;
 
@@ -6588,10 +6588,6 @@ fn signer_chainstate() {
         let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(key));
         address_weights.insert(address, 10);
     });
-    let local_address = StacksAddress::p2pkh(
-        false,
-        &StacksPublicKey::from_private(signers.signer_keys.first().unwrap()),
-    );
     let global_eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
     let get_sortitions_view_from_tip =
         |sortdb: &SortitionDB,
@@ -6613,13 +6609,7 @@ fn signer_chainstate() {
                 .unwrap();
 
             let is_current_valid = cur_sortition
-                .is_tenure_valid(
-                    &signer_db,
-                    &signer_client,
-                    &proposal_conf,
-                    &global_eval,
-                    &local_address,
-                )
+                .is_tenure_valid(&signer_db, &signer_client, &proposal_conf, &global_eval)
                 .unwrap();
 
             let miner_state = if is_current_valid {
@@ -6632,13 +6622,7 @@ fn signer_chainstate() {
                 .unwrap()
             } else {
                 let is_last_valid = last_sortition
-                    .is_tenure_valid(
-                        &signer_db,
-                        &signer_client,
-                        &proposal_conf,
-                        &global_eval,
-                        &local_address,
-                    )
+                    .is_tenure_valid(&signer_db, &signer_client, &proposal_conf, &global_eval)
                     .unwrap();
 
                 if is_last_valid {
@@ -6687,9 +6671,7 @@ fn signer_chainstate() {
             get_sortitions_view_from_tip(&sortdb, &signer_client, &signer_db, &proposal_conf);
         // check the prior tenure's proposals again, confirming that the sortitions_view
         //  will reject them.
-        if let Some((ref miner_pk, ref prior_tenure_first, ref prior_tenure_interims)) =
-            last_tenures_proposals
-        {
+        if let Some((ref prior_tenure_first, ref prior_tenure_interims)) = last_tenures_proposals {
             let reject_code = sortitions_view
                 .check_proposal(&signer_client, &mut signer_db, prior_tenure_first)
                 .expect_err("Sortitions view should reject proposals from prior tenure");
@@ -6828,7 +6810,7 @@ fn signer_chainstate() {
         if first_tenure_blocks.is_none() {
             first_tenure_blocks = Some(vec![proposal.0.clone(), proposal_interim.0.clone()]);
         }
-        last_tenures_proposals = Some((proposal.1, proposal.0, vec![proposal_interim.0]));
+        last_tenures_proposals = Some((proposal.0, vec![proposal_interim.0]));
     }
 
     // now we'll check some specific cases of invalid proposals
