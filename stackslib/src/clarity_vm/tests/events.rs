@@ -275,17 +275,17 @@ fn test_emit_stx_burn_nok() {
 fn test_emit_nested_print_nok() {
     // The original code had two problems:
     // 1. emit-event-ok called emit-event-nok without handling the (err u1)
-    //    response, causing "UncheckedIntermediaryResponses" error during 
+    //    response, causing "UncheckedIntermediaryResponses" error during
     //    contract initialization.
-    // 2. The test incorrectly expected (ok u1) and 1 event, but when a public 
-    //    function returns an error, the entire transaction rolls back and no 
+    // 2. The test incorrectly expected (ok u1) and 1 event, but when a public
+    //    function returns an error, the entire transaction rolls back and no
     //    events are emitted.
     //
     // Fixed by:
     // - Adding try! to properly handle the error response from emit-event-nok.
-    // - Adding an if statement to make both code paths valid for contract 
+    // - Adding an if statement to make both code paths valid for contract
     //    initialization.
-    // - Updating test expectations to match actual behavior: (err u1) and 0 
+    // - Updating test expectations to match actual behavior: (err u1) and 0
     //    events.
     //
     // This test demonstrates that when a public function returns an error,
@@ -312,7 +312,7 @@ fn test_emit_nested_print_nok() {
     // try! propagates the error from emit-event-nok, so emit-event-ok returns (err u1).
     assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
     // No events are emitted because when a public function returns an error,
-    // Clarity rolls back the entire transaction, discarding all side effects 
+    // Clarity rolls back the entire transaction, discarding all side effects
     // including print statements.
     assert_eq!(events.len(), 0);
 }
