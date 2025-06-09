@@ -2041,13 +2041,16 @@ pub struct NodeConfig {
     /// The publicly accessible URL that this node advertises to peers during the P2P handshake
     /// as its HTTP RPC endpoint. Other nodes or services might use this URL to query the node's API.
     /// ---
-    /// @default: `http://{rpc_bind}` (e.g., "http://0.0.0.0:20443" if [`NodeConfig::rpc_bind`] is default).
+    /// @default: Derived by adding "http://" prefix to [`NodeConfig::rpc_bind`] value.
+    /// @notes: |
+    ///   - Example: For rpc_bind="0.0.0.0:20443", data_url becomes "http://0.0.0.0:20443".
     pub data_url: String,
     /// The publicly accessible IPv4 address and port that this node advertises to peers for P2P connections.
     /// This might differ from [`NodeConfig::p2p_bind`] if the node is behind NAT or a proxy.
     /// ---
-    /// @default: Derived from [`NodeConfig::rpc_bind`] (e.g., "0.0.0.0:20443" if [`NodeConfig::rpc_bind`] is default).
+    /// @default: Derived directly from [`NodeConfig::rpc_bind`] value.
     /// @notes: |
+    ///   - Example: For rpc_bind="0.0.0.0:20443", p2p_address becomes "0.0.0.0:20443".
     ///   - The default value derivation might be unexpected, potentially using the
     ///     [`NodeConfig::rpc_bind`] address; explicit configuration is recommended if needed.
     pub p2p_address: String,
