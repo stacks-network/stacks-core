@@ -8,10 +8,24 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## [Unreleased]
 
 ### Added
-- Introduced `capitulate_tenure_timeout`: the duration (in seconds) for the signer to wait between updating the local state machine viewpoint and capitulating to other signers' miner views.
+- Introduced `capitulate_tenure_timeout_secs`: the duration (in seconds) for the signer to wait between updating the local state machine viewpoint and capitulating to other signers' miner views.
 
 ### Changed
 - Updated signer block proposal evaluation to utilize the global signer state, enhancing consistency and reliability in consensus decisions.
+
+## [3.1.0.0.12.0]
+
+### Changed
+
+- Refactor / cleanup signerDB migrations code
+- Signers should not infinitely loop when pushing a block to stacks-node
+- Logging improvements and cleanup
+
+### Fixed
+
+- Fix `capitulate_miner_view` so stacks-node won't swap between multiple miners
+- Mark current miner as invalid on capitulation
+- Fix flaky `miner_recovers_when_broadcast_block_delay_across_tenures_occurs` test
 
 ## [3.1.0.0.10.0]
 

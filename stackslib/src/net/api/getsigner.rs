@@ -14,34 +14,18 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use clarity::util::secp256k1::Secp256k1PublicKey;
 use regex::{Captures, Regex};
-use serde_json::json;
-use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::Sha256Sum;
 
-use crate::burnchains::Burnchain;
-use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::coordinator::OnChainRewardSetProvider;
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::boot::{
-    PoxVersions, RewardSet, POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME,
-};
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::Error as ChainError;
-use crate::core::mempool::MemPoolDB;
 use crate::net::http::{
-    parse_json, Error, HttpBadRequest, HttpNotFound, HttpRequest, HttpRequestContents,
-    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
-    HttpResponsePreamble, HttpServerError,
+    parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
+    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
-    HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp,
-    StacksHttpRequest, StacksHttpResponse,
+    HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttpRequest,
+    StacksHttpResponse,
 };
-use crate::net::p2p::PeerNetwork;
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
-use crate::util_lib::boot::boot_code_id;
-use crate::util_lib::db::Error as DBError;
 
 #[derive(Clone, Default)]
 pub struct GetSignerRequestHandler {

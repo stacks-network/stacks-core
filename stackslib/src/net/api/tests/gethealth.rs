@@ -207,8 +207,6 @@ fn test_get_health_node_ahead_of_peers() {
 #[test]
 fn test_get_health_500_no_initial_neighbors() {
     // Test error handling when no initial neighbors are found
-    use crate::net::db::PeerDB;
-
     let test_observer = TestEventObserver::new();
     let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
     rpc_test.peer_2.refresh_burnchain_view();

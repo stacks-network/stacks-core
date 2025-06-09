@@ -14,8 +14,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::representations::CONTRACT_PRINCIPAL_REGEX_STRING;
-use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::net::PeerHost;
@@ -26,8 +24,8 @@ use crate::net::http::{
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
-    request, HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler,
-    StacksHttpRequest, StacksHttpResponse,
+    HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttpRequest,
+    StacksHttpResponse,
 };
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 

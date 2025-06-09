@@ -20,46 +20,30 @@ use std::collections::BTreeMap;
 use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::{Error as ClarityError, TransactionConnection};
-use clarity::vm::contexts::ContractContext;
-use clarity::vm::costs::cost_functions::ClarityCostFunction;
-use clarity::vm::costs::{ClarityCostFunctionReference, CostStateSummary, LimitedCostTracker};
-use clarity::vm::database::{
-    ClarityDatabase, DataVariableMetadata, NULL_BURN_STATE_DB, NULL_HEADER_DB,
-};
-use clarity::vm::errors::{Error as VmError, InterpreterError, InterpreterResult};
+use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use clarity::vm::errors::Error as VmError;
 use clarity::vm::events::StacksTransactionEvent;
-use clarity::vm::representations::{ClarityName, ContractName};
-use clarity::vm::types::TypeSignature::UIntType;
+use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
-    TypeSignature, Value,
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData, Value,
 };
 use clarity::vm::{ClarityVersion, Environment, SymbolicExpression};
 use lazy_static::lazy_static;
 use serde::Deserialize;
-use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, StacksAddress, StacksBlockId, StacksPublicKey,
-};
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
+use stacks_common::util::hash::{hex_bytes, to_hex};
 
-use crate::burnchains::bitcoin::address::BitcoinAddress;
-use crate::burnchains::{Address, Burnchain, PoxConstants};
+use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::{StacksChainState, StacksDBConn};
-use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::Error;
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
 use crate::clarity_vm::database::HeadersDBConn;
-use crate::core::{
-    StacksEpochId, BITCOIN_REGTEST_FIRST_BLOCK_HASH, CHAIN_ID_MAINNET, POX_MAXIMAL_SCALING,
-    POX_THRESHOLD_STEPS_USTX,
-};
+use crate::core::{StacksEpochId, CHAIN_ID_MAINNET, POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
 use crate::util_lib::boot;
-use crate::util_lib::strings::VecDisplay;
 
 const BOOT_CODE_POX_BODY: &str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &str = std::include_str!("pox-testnet.clar");
@@ -1379,39 +1363,24 @@ pub mod signers_tests;
 
 #[cfg(test)]
 pub mod test {
-    use std::collections::{HashMap, HashSet};
-    use std::fs;
+    use std::collections::HashSet;
 
-    use clarity::boot_util::boot_code_addr;
     use clarity::vm::contracts::Contract;
-    use clarity::vm::tests::symbols_from_values;
     use clarity::vm::types::*;
-    use stacks_common::util::hash::to_hex;
     use stacks_common::util::secp256k1::Secp256k1PublicKey;
-    use stacks_common::util::*;
 
     use self::signers_tests::readonly_call;
     use super::*;
-    use crate::burnchains::{Address, PublicKey};
-    use crate::chainstate::burn::db::sortdb::*;
-    use crate::chainstate::burn::db::*;
+    use crate::burnchains::Address;
     use crate::chainstate::burn::operations::BlockstackOperationType;
-    use crate::chainstate::burn::*;
-    use crate::chainstate::stacks::db::test::*;
     use crate::chainstate::stacks::db::*;
-    use crate::chainstate::stacks::miner::*;
     use crate::chainstate::stacks::tests::*;
-    use crate::chainstate::stacks::{
-        Error as chainstate_error, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *,
-    };
+    use crate::chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *};
     use crate::core::{StacksEpochId, *};
     use crate::net::test::*;
     use crate::util_lib::boot::{boot_code_id, boot_code_test_addr};
     use crate::util_lib::signed_structured_data::pox4::{
         make_pox_4_signer_key_signature, Pox4SignatureTopic,
-    };
-    use crate::util_lib::signed_structured_data::{
-        make_structured_data_domain, sign_structured_data,
     };
 
     pub const TESTNET_STACKING_THRESHOLD_25: u128 = 8000;

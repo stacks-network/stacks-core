@@ -21,10 +21,9 @@ use stacks_common::types::chainstate::{BurnchainHeaderHash, ConsensusHash};
 use stacks_common::types::net::PeerHost;
 
 use crate::net::api::get_tenures_fork_info::GetTenuresForkInfo;
-use crate::net::api::getsortition::{GetSortitionHandler, QuerySpecifier};
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::{HttpRequestPreamble, HttpVersion};
-use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpPreamble};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttp};
 use crate::net::Error as NetError;
 
 fn make_preamble<T: Display, R: Display>(start: &T, stop: &R) -> HttpRequestPreamble {

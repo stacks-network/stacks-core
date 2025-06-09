@@ -14,21 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::fs;
 use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::SyncSender;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use std::{cmp, fs};
 
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::database::BurnStateDB;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::Value;
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId,
 };
 use stacks_common::util::get_epoch_time_secs;
 
@@ -36,21 +30,15 @@ pub use self::comm::CoordinatorCommunication;
 use super::stacks::boot::{RewardSet, RewardSetData};
 use super::stacks::db::blocks::DummyEventDispatcher;
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
-use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
-use crate::burnchains::db::{
-    BlockCommitMetadata, BurnchainBlockData, BurnchainDB, BurnchainDBTransaction,
-    BurnchainHeaderReader,
-};
+use crate::burnchains::db::{BurnchainBlockData, BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::{
-    Address, Burnchain, BurnchainBlockHeader, Error as BurnchainError, PoxConstants, Txid,
+    Burnchain, BurnchainBlockHeader, Error as BurnchainError, PoxConstants, Txid,
 };
 use crate::chainstate::burn::db::sortdb::{
     SortitionDB, SortitionDBConn, SortitionDBTx, SortitionHandleTx,
 };
-use crate::chainstate::burn::operations::leader_block_commit::{
-    RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
-};
-use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
+use crate::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
+use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::comm::{
     ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
@@ -58,23 +46,22 @@ use crate::chainstate::coordinator::comm::{
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_3_NAME, POX_4_NAME};
 use crate::chainstate::stacks::db::accounts::MinerReward;
+#[cfg(test)]
+use crate::chainstate::stacks::db::ChainStateBootData;
 use crate::chainstate::stacks::db::{
-    ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState, StacksEpochReceipt,
-    StacksHeaderInfo,
+    MinerRewardInfo, StacksChainState, StacksEpochReceipt, StacksHeaderInfo,
 };
 use crate::chainstate::stacks::events::{
     StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
-use crate::chainstate::stacks::index::{Error as IndexError, MarfTrieId};
+use crate::chainstate::stacks::index::Error as IndexError;
 use crate::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
-use crate::chainstate::stacks::{
-    Error as ChainstateError, StacksBlock, StacksBlockHeader, TransactionPayload,
-};
+use crate::chainstate::stacks::{Error as ChainstateError, StacksBlockHeader, TransactionPayload};
 use crate::core::{
     StacksEpoch, StacksEpochId, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
 };
-use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
+use crate::cost_estimates::{CostEstimator, FeeEstimator};
 use crate::monitoring::{
     increment_contract_calls_processed, increment_stx_blocks_processed_counter,
 };

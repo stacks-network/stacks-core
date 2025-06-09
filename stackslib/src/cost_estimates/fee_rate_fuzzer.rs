@@ -1,7 +1,6 @@
 use clarity::vm::costs::ExecutionCost;
 use rand::distributions::{Distribution, Uniform};
-use rand::rngs::StdRng;
-use rand::{thread_rng, RngCore, SeedableRng};
+use rand::{thread_rng, RngCore};
 
 use super::{EstimatorError, FeeEstimator, FeeRateEstimate};
 use crate::chainstate::stacks::db::StacksEpochReceipt;

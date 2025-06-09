@@ -15,30 +15,17 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 /// This module defines the methods for reading and inserting into a Trie
-use std::fmt;
-use std::io::{Cursor, Read, Seek, SeekFrom, Write};
-use std::marker::PhantomData;
-use std::{error, io};
-
 use sha2::Digest;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
-};
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use stacks_common::util::macros::is_trace;
 
-use crate::chainstate::stacks::index::bits::{
-    get_leaf_hash, get_node_hash, get_nodetype_hash_bytes,
-};
+use crate::chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash};
 use crate::chainstate::stacks::index::marf::MARF;
 use crate::chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, CursorError, TrieCursor, TrieNode, TrieNode16,
-    TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
+    clear_backptr, is_backptr, set_backptr, TrieCursor, TrieNode, TrieNode16, TrieNode256,
+    TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
 };
-use crate::chainstate::stacks::index::storage::{
-    TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
-};
+use crate::chainstate::stacks::index::storage::{TrieHashCalculationMode, TrieStorageConnection};
 use crate::chainstate::stacks::index::{Error, MarfTrieId, TrieHasher, TrieLeaf};
 
 /// We don't actually instantiate a Trie, but we still need to pass a type parameter for the
