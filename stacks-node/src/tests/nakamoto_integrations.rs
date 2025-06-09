@@ -35,7 +35,7 @@ use libsigner::v0::messages::{
     MessageSlotID, RejectReason, SignerMessage as SignerMessageV0, StateMachineUpdate,
     StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
-use libsigner::{SignerSession, StackerDBSession};
+use libsigner::{SignerSession, StackerDBSession, StacksBlockEvent};
 use rand::{thread_rng, Rng};
 use rusqlite::{Connection, OptionalExtension};
 use serial_test::serial;
@@ -12714,34 +12714,44 @@ fn miner_constructs_replay_block() {
     assert_eq!(tenure_change.cause, TenureChangeCause::BlockFound);
 
     info!("Verifying next block contains the expected replay txs...");
+    let block: StacksBlockEvent =
+        serde_json::from_value(blocks[blocks_before + 1].clone()).expect("Failed to parse block");
+    let tx = block.transactions.get(0).unwrap();
+    assert!(matches!(
+        tx.payload,
+        TransactionPayload::TenureChange(TenureChangePayload {
+            cause: TenureChangeCause::Extended,
+            ..
+        })
+    ));
     let block = &observed_blocks[observed_before + 1];
-    assert_eq!(block.tx_events.len(), 6);
-    if let TransactionEvent::Success(tx) = &block.tx_events[0] {
+    assert_eq!(block.tx_events.len(), 7);
+    if let TransactionEvent::Success(tx) = &block.tx_events[1] {
         assert_eq!(tx.txid, succeed_tx_1.txid());
     } else {
         panic!("Failed to mine the first tx");
     };
-    if let TransactionEvent::Success(tx) = &block.tx_events[1] {
+    if let TransactionEvent::Success(tx) = &block.tx_events[2] {
         assert_eq!(tx.txid, succeed_tx_2.txid());
     } else {
         panic!("Failed to mine the second tx");
     };
-    if let TransactionEvent::ProcessingError(tx) = &block.tx_events[2] {
+    if let TransactionEvent::ProcessingError(tx) = &block.tx_events[3] {
         assert_eq!(tx.txid, fail_tx_3.txid());
     } else {
         panic!("Failed to error on the third tx");
     };
-    if let TransactionEvent::ProcessingError(tx) = &block.tx_events[3] {
+    if let TransactionEvent::ProcessingError(tx) = &block.tx_events[4] {
         assert_eq!(tx.txid, fail_tx_4.txid());
     } else {
         panic!("Failed to error on the fourth tx");
     };
-    if let TransactionEvent::Success(tx) = &block.tx_events[4] {
+    if let TransactionEvent::Success(tx) = &block.tx_events[5] {
         assert_eq!(tx.txid, succeed_tx_5.txid());
     } else {
         panic!("Failed to mine the fifth tx");
     };
-    if let TransactionEvent::Success(tx) = &block.tx_events[5] {
+    if let TransactionEvent::Success(tx) = &block.tx_events[6] {
         assert_eq!(tx.txid, succeed_tx_6.txid());
     } else {
         panic!("Failed to mine the sixth tx");

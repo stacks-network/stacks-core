@@ -6404,6 +6404,156 @@ fn snapshot_test() {
 
 #[test]
 #[ignore]
+/// Trigger a Bitcoin fork that creates a replay set that
+/// contains more transactions than can fit into a tenure's budget.
+fn tx_replay_budget_exceeded_tenure_extend() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let sender_sk =
+        Secp256k1PrivateKey::from_seed(format!("sender_{}", function_name!()).as_bytes());
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 1000;
+    let send_fee = 1000000;
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new_with_config_modifications_and_snapshot(
+            num_signers,
+            vec![(sender_addr.clone(), (send_amt + send_fee) * 1000)],
+            |c| {
+                c.validate_with_replay_tx = true;
+                c.tenure_idle_timeout = Duration::from_secs(60);
+            },
+            |node_config| {
+                node_config.miner.block_commit_delay = Duration::from_secs(1);
+                node_config.miner.replay_transactions = true;
+                node_config.miner.activated_vrf_key_path =
+                    Some(format!("{}/vrf_key", node_config.node.working_dir));
+            },
+            None,
+            None,
+            Some(function_name!()),
+        );
+    let conf = &signer_test.running_nodes.conf;
+    let _http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let _stacks_miner_pk = StacksPublicKey::from_private(&conf.miner.mining_key.clone().unwrap());
+
+    let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
+
+    if signer_test.bootstrap_snapshot() {
+        signer_test.shutdown_and_snapshot();
+        return;
+    }
+
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+    let pre_fork_tenures = 1;
+
+    for i in 0..pre_fork_tenures {
+        info!("Mining pre-fork tenure {} of {pre_fork_tenures}", i + 1);
+        signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+    }
+
+    signer_test.check_signer_states_normal();
+
+    info!("---- Deploying big contract ----");
+
+    // First, just deploy the contract in its own tenure
+    let contract_code = make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, 50);
+
+    let (_deploy_txid, deploy_nonce) = signer_test
+        .submit_contract_deploy(&sender_sk, 1000000, contract_code.as_str(), "big-contract")
+        .unwrap();
+
+    signer_test
+        .wait_for_nonce_increase(&sender_addr, deploy_nonce)
+        .expect("Timed out waiting for nonce to increase");
+
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+
+    let tip = get_chain_info(conf);
+
+    let (txid1, txid1_nonce) = signer_test
+        .submit_contract_call(&sender_sk, send_fee, "big-contract", "big-tx", &vec![])
+        .unwrap();
+
+    info!("---- Waiting for first big tx to be mined ----");
+
+    signer_test
+        .wait_for_nonce_increase(&sender_addr, txid1_nonce)
+        .expect("Timed out waiting for nonce to increase");
+
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+
+    let (txid2, txid2_nonce) = signer_test
+        .submit_contract_call(&sender_sk, send_fee, "big-contract", "big-tx", &vec![])
+        .unwrap();
+
+    info!("---- Waiting for second big tx to be mined ----");
+
+    signer_test
+        .wait_for_nonce_increase(&sender_addr, txid2_nonce)
+        .expect("Timed out waiting for nonce to increase");
+
+    wait_for(30, || {
+        let new_tip = get_chain_info(&conf);
+        Ok(new_tip.stacks_tip_height > tip.stacks_tip_height)
+    })
+    .expect("Timed out waiting for transfer tx to be mined");
+
+    info!("------------------------- Triggering Bitcoin Fork -------------------------");
+
+    let burn_header_hash_to_fork = btc_controller.get_block_hash(tip.burn_block_height);
+    btc_controller.invalidate_block(&burn_header_hash_to_fork);
+    fault_injection_stall_miner();
+    btc_controller.build_next_block(3);
+
+    let mut last_log = Instant::now();
+    last_log -= Duration::from_secs(5);
+    signer_test.wait_for_replay_set_eq(30, vec![txid1, txid2.clone()]);
+
+    fault_injection_unstall_miner();
+
+    info!("---- Waiting for replay set to be cleared ----");
+
+    // Now, wait for the tx replay set to be cleared
+    signer_test
+        .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
+        .expect("Timed out waiting for tx replay set to be cleared");
+
+    let blocks = test_observer::get_blocks();
+    let mut found_block: Option<StacksBlockEvent> = None;
+    // To reduce flakiness, we're just looking for the block containing `txid2`,
+    // which may or may not be the last block.
+    let last_blocks = blocks.iter().rev().take(3).collect::<Vec<_>>();
+    for block in last_blocks {
+        let block: StacksBlockEvent =
+            serde_json::from_value(block.clone()).expect("Failed to parse block");
+        if block
+            .transactions
+            .iter()
+            .find(|tx| tx.txid().to_hex() == txid2)
+            .is_some()
+        {
+            found_block = Some(block);
+            break;
+        }
+    }
+    let block = found_block.expect("Failed to find block with txid2");
+    assert_eq!(block.transactions.len(), 2);
+    assert!(matches!(
+        block.transactions[0].payload,
+        TransactionPayload::TenureChange(TenureChangePayload {
+            cause: TenureChangeCause::Extended,
+            ..
+        })
+    ));
+
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
 /// This test verifies that a miner will produce a TenureExtend transaction after the miner's idle timeout
 /// even if they do not see the signers' tenure extend timestamp responses.
 fn tenure_extend_after_idle_miner() {
