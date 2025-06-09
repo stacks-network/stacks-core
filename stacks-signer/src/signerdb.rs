@@ -623,12 +623,19 @@ static ADD_PARENT_BURN_BLOCK_HASH_INDEX: &str = r#"
 CREATE INDEX IF NOT EXISTS burn_blocks_parent_burn_block_hash_idx on burn_blocks (parent_burn_block_hash);
 "#;
 
+/// Used by get_burn_block_received_time_from_signers
 static ADD_SIGNER_STATE_MACHINE_UPDATES_BURN_BLOCK_CONSENSUS_HASH_INDEX: &str = r#"
-CREATE INDEX IF NOT EXISTS idx_signer_state_machine_consensus_hash ON signer_state_machine_updates (burn_block_consensus_hash);
+CREATE INDEX IF NOT EXISTS idx_signer_state_machine_consensus_hash ON signer_state_machine_updates(burn_block_consensus_hash, received_time ASC);
 "#;
 
+/// Used by get_signer_state_machine_updates_latency
+static ADD_SIGNER_STATE_MACHINE_UPDATES_RECEIVED_TIME_INDEX: &str = r#"
+CREATE INDEX idx_reward_cycle_received_time ON signer_state_machine_updates(reward_cycle, received_time);
+"#;
+
+/// Used by get_signer_state_machine_updates
 static ADD_SIGNER_STATE_MACHINE_UPDATES_SIGNER_ADDR_REWARD_CYCLE_INDEX: &str = r#"
-CREATE INDEX idx_signer_addr_reward_cycle ON signer_state_machine_updates(signer_addr, reward_cycle);
+CREATE INDEX idx_signer_addr_reward_cycle ON signer_state_machine_updates(reward_cycle, signer_addr, received_time DESC);
 "#;
 
 static ADD_BLOCK_VALIDATED_BY_REPLAY_TXS_TABLE: &str = r#"
@@ -752,6 +759,7 @@ static SCHEMA_15: &[&str] = &[
 static SCHEMA_16: &[&str] = &[
     MIGRATE_SIGNER_STATE_MACHINE_UPDATES_TABLE_1_TO_2,
     ADD_SIGNER_STATE_MACHINE_UPDATES_BURN_BLOCK_CONSENSUS_HASH_INDEX,
+    ADD_SIGNER_STATE_MACHINE_UPDATES_RECEIVED_TIME_INDEX,
     ADD_SIGNER_STATE_MACHINE_UPDATES_SIGNER_ADDR_REWARD_CYCLE_INDEX,
     "INSERT INTO db_config (version) VALUES (16);",
 ];
@@ -1557,10 +1565,7 @@ impl SignerDb {
             "active_signer_protocol_version" => update.active_signer_protocol_version,
             "local_supported_signer_protocol_version" => update.local_supported_signer_protocol_version
         );
-        let burn_block_consensus_hash = match update.content {
-            StateMachineUpdateContent::V0 { burn_block, .. }
-            | StateMachineUpdateContent::V1 { burn_block, .. } => burn_block,
-        };
+        let burn_block_consensus_hash = update.content.burn_block();
         self.db.execute("INSERT OR REPLACE INTO signer_state_machine_updates (signer_addr, reward_cycle, burn_block_consensus_hash, state_update, received_time) VALUES (?1, ?2, ?3, ?4, ?5)", params![
             address.to_string(),
             u64_to_sql(reward_cycle)?,
@@ -3059,10 +3064,7 @@ pub mod tests {
                 let content = serde_json::from_str::<StateMachineUpdate>(&value)
                     .map_err(|e| SqliteError::UserFunctionError(e.into()))?
                     .content;
-                Ok(match content {
-                    StateMachineUpdateContent::V0 { burn_block, .. }
-                    | StateMachineUpdateContent::V1 { burn_block, .. } => burn_block,
-                })
+                Ok(*content.burn_block())
             },
         )
         .unwrap();
@@ -3074,12 +3076,7 @@ pub mod tests {
 
         let total_nmb_rows = 5;
         let addresses: Vec<_> = (0..=total_nmb_rows)
-            .map(|_| {
-                StacksAddress::p2pkh(
-                    false,
-                    &StacksPublicKey::from_private(&StacksPrivateKey::random()),
-                )
-            })
+            .map(|_| StacksAddress::p2pkh(false, &StacksPublicKey::new()))
             .collect();
         // Fill with data
         for i in 0..=total_nmb_rows {
@@ -3087,17 +3084,30 @@ pub mod tests {
             let received_ts = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
             let burn_block = ConsensusHash([i; 20]);
             let burn_height = i;
-            let update = StateMachineUpdate::new(
-                1,
-                1,
-                StateMachineUpdateContent::V1 {
-                    burn_block,
-                    burn_block_height: burn_height.into(),
-                    current_miner: StateMachineUpdateMinerState::NoValidMiner,
-                    replay_transactions: vec![],
-                },
-            )
-            .unwrap();
+            let update = if i % 2 == 0 {
+                StateMachineUpdate::new(
+                    1,
+                    1,
+                    StateMachineUpdateContent::V1 {
+                        burn_block,
+                        burn_block_height: burn_height.into(),
+                        current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                        replay_transactions: vec![],
+                    },
+                )
+                .unwrap()
+            } else {
+                StateMachineUpdate::new(
+                    0,
+                    0,
+                    StateMachineUpdateContent::V0 {
+                        burn_block,
+                        burn_block_height: burn_height.into(),
+                        current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                    },
+                )
+                .unwrap()
+            };
             let address = &addresses[i as usize];
             let update_str =
                 serde_json::to_string(&update).expect("Unable to serialize state machine update");

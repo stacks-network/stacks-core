@@ -691,6 +691,13 @@ impl StateMachineUpdateContent {
         }
     }
 
+    /// Get the tip burn block
+    pub fn burn_block(&self) -> &ConsensusHash {
+        match self {
+            Self::V0 { burn_block, .. } | Self::V1 { burn_block, .. } => burn_block,
+        }
+    }
+
     fn serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         match self {
             Self::V0 {
@@ -716,6 +723,7 @@ impl StateMachineUpdateContent {
         }
         Ok(())
     }
+
     fn deserialize<R: Read>(fd: &mut R, version: u64) -> Result<Self, CodecError> {
         match version {
             0 => {
@@ -849,6 +857,7 @@ impl From<&RejectReason> for RejectReasonPrefix {
             RejectReason::DuplicateBlockFound => RejectReasonPrefix::DuplicateBlockFound,
             RejectReason::InvalidTenureExtend => RejectReasonPrefix::InvalidTenureExtend,
             RejectReason::ConsensusHashMismatch(_) => RejectReasonPrefix::ConsensusHashMismatch,
+            RejectReason::IrrecoverablePubkeyHash => RejectReasonPrefix::IrrecoverablePubkeyHash,
             RejectReason::Unknown(_) => RejectReasonPrefix::Unknown,
             RejectReason::NotRejected => RejectReasonPrefix::NotRejected,
         }
@@ -925,6 +934,8 @@ pub enum RejectReason {
     InvalidTenureExtend,
     /// The block consensus hash does not match the active miner's tenure id
     ConsensusHashMismatch((ConsensusHash, ConsensusHash)),
+    /// The block has an irrecoverable pubkey hash
+    IrrecoverablePubkeyHash,
     /// The block was approved, no rejection details needed
     NotRejected,
     /// Handle unknown codes gracefully
@@ -968,6 +979,8 @@ pub enum RejectReasonPrefix {
     InvalidTenureExtend = 13,
     /// The block consensus hash does not match the active miner's tenure id
     ConsensusHashMismatch = 14,
+    /// The block has an irrecoverable pubkey hash
+    IrrecoverablePubkeyHash = 15,
     /// Unknown reject code, for forward compatibility
     Unknown = 254,
     /// The block was approved, no rejection details needed
@@ -993,6 +1006,7 @@ impl RejectReasonPrefix {
             Self::DuplicateBlockFound => 12,
             Self::InvalidTenureExtend => 13,
             Self::ConsensusHashMismatch => 14,
+            Self::IrrecoverablePubkeyHash => 15,
             Self::Unknown => 254,
             Self::NotRejected => 255,
         }
@@ -1017,6 +1031,7 @@ impl From<u8> for RejectReasonPrefix {
             12 => Self::DuplicateBlockFound,
             13 => Self::InvalidTenureExtend,
             14 => Self::ConsensusHashMismatch,
+            15 => Self::IrrecoverablePubkeyHash,
             255 => Self::NotRejected,
             // For forward compatibility, all other values are unknown
             _ => Self::Unknown,
@@ -1599,6 +1614,7 @@ impl StacksMessageCodec for RejectReason {
             | RejectReason::InvalidParentBlock
             | RejectReason::DuplicateBlockFound
             | RejectReason::InvalidTenureExtend
+            | RejectReason::IrrecoverablePubkeyHash
             | RejectReason::Unknown(_)
             | RejectReason::NotRejected => {
                 // No additional data to serialize / deserialize
@@ -1641,6 +1657,7 @@ impl StacksMessageCodec for RejectReason {
                 let actual = read_next::<ConsensusHash, _>(fd)?;
                 RejectReason::ConsensusHashMismatch((expected, actual))
             }
+            RejectReasonPrefix::IrrecoverablePubkeyHash => RejectReason::IrrecoverablePubkeyHash,
             RejectReasonPrefix::Unknown => RejectReason::Unknown(type_prefix_byte),
             RejectReasonPrefix::NotRejected => RejectReason::NotRejected,
         };
@@ -1745,6 +1762,12 @@ impl std::fmt::Display for RejectReason {
                 write!(
                     f,
                     "The block's consensus hash ({expected}) does not match the active miner's tenure id ({actual})",
+                )
+            }
+            RejectReason::IrrecoverablePubkeyHash => {
+                write!(
+                    f,
+                    "The block has an irreocverable associated miner public key hash."
                 )
             }
             RejectReason::Unknown(code) => {

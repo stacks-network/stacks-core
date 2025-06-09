@@ -27,6 +27,7 @@ use blockstack_lib::chainstate::stacks::{
 };
 use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId, StacksAddress};
+use clarity::types::PrivateKey;
 use libsigner::v0::messages::RejectReason;
 use libsigner::v0::signer_state::{
     GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
@@ -34,13 +35,13 @@ use libsigner::v0::signer_state::{
 use libsigner::{BlockProposal, BlockProposalData};
 use stacks_common::bitvec::BitVec;
 use stacks_common::consts::CHAIN_ID_TESTNET;
-use stacks_common::info;
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksBlockId, StacksPrivateKey, StacksPublicKey, TrieHash,
 };
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::{function_name, info};
 
 use crate::chainstate::{
     ProposalEvalConfig, SignerChainstateError, SortitionState, SortitionsView,
@@ -54,7 +55,7 @@ fn setup_test_environment(
 ) -> (
     StacksClient,
     SignerDb,
-    StacksPublicKey,
+    StacksPrivateKey,
     NakamotoBlock,
     SortitionState,
     SortitionState,
@@ -106,7 +107,7 @@ fn setup_test_environment(
     fs::create_dir_all(signer_db_dir).unwrap();
     let signer_db = SignerDb::new(signer_db_path).unwrap();
 
-    let block = NakamotoBlock {
+    let mut block = NakamotoBlock {
         header: NakamotoBlockHeader {
             version: 1,
             chain_length: 10,
@@ -122,6 +123,11 @@ fn setup_test_environment(
         },
         txs: vec![],
     };
+
+    block.header.miner_signature = block_sk
+        .sign(block.header.miner_signature_hash().as_bytes())
+        .unwrap();
+
     let signer_state = SignerStateMachine {
         burn_block: cur_sortition.consensus_hash,
         burn_block_height: 1,
@@ -145,7 +151,7 @@ fn setup_test_environment(
     (
         stacks_client,
         signer_db,
-        block_pk,
+        block_sk,
         block,
         cur_sortition,
         last_sortition,
@@ -158,22 +164,22 @@ fn check_proposal_units() {
     let (
         stacks_client,
         mut signer_db,
-        block_pk,
+        miner_sk,
         mut block,
         current_sortition,
         _,
         mut sortitions_view,
-    ) = setup_test_environment("check_proposal_units");
+    ) = setup_test_environment(function_name!());
     assert!(matches!(
         sortitions_view
-            .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk)
+            .check_proposal(&stacks_client, &mut signer_db, &block)
             .expect_err("Should fail to validate"),
         RejectReason::ConsensusHashMismatch(_)
     ));
     sortitions_view.signer_state.current_miner = MinerState::NoValidMiner;
     assert!(matches!(
         sortitions_view
-            .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk)
+            .check_proposal(&stacks_client, &mut signer_db, &block)
             .expect_err("Should fail to validate"),
         RejectReason::InvalidMiner
     ));
@@ -185,13 +191,16 @@ fn check_proposal_units() {
         parent_tenure_last_block_height: 1,
     };
     sortitions_view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk)
+        .check_proposal(&stacks_client, &mut signer_db, &block)
         .expect("Proposal should have validated");
 
     block.header.pox_treatment = BitVec::zeros(1).unwrap();
+    block.header.miner_signature = miner_sk
+        .sign(block.header.miner_signature_hash().as_bytes())
+        .unwrap();
     assert!(matches!(
         sortitions_view
-            .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk,)
+            .check_proposal(&stacks_client, &mut signer_db, &block)
             .expect_err("Should fail to validate"),
         RejectReason::InvalidBitvec
     ));
@@ -199,13 +208,17 @@ fn check_proposal_units() {
 
 #[test]
 fn check_proposal_miner_pkh_mismatch() {
-    let (stacks_client, mut signer_db, _, mut block, current_sortition, _, sortitions_view) =
-        setup_test_environment("check_proposal_units");
+    let (stacks_client, mut signer_db, miner_sk, mut block, current_sortition, _, sortitions_view) =
+        setup_test_environment(function_name!());
     block.header.consensus_hash = current_sortition.consensus_hash;
-    let different_block_pk = StacksPublicKey::from_private(&StacksPrivateKey::from_seed(&[2, 3]));
+    let different_block_privk = StacksPrivateKey::from_seed(&[2, 3]);
+    assert_ne!(different_block_privk, miner_sk);
+    block.header.miner_signature = different_block_privk
+        .sign(block.header.miner_signature_hash().as_bytes())
+        .unwrap();
     assert!(matches!(
         sortitions_view
-            .check_proposal(&stacks_client, &mut signer_db, &block, &different_block_pk,)
+            .check_proposal(&stacks_client, &mut signer_db, &block)
             .expect_err("Should fail to validate"),
         RejectReason::PubkeyHashMismatch
     ));
@@ -219,7 +232,7 @@ fn reorg_timing_testing(
     let (
         _stacks_client,
         mut signer_db,
-        block_pk,
+        block_sk,
         mut block,
         mut cur_sortition,
         last_sortition,
@@ -229,6 +242,7 @@ fn reorg_timing_testing(
         Duration::from_secs(first_proposal_burn_block_timing_secs);
     cur_sortition.parent_tenure_id = last_sortition.parent_tenure_id;
     block.header.consensus_hash = cur_sortition.consensus_hash;
+    let block_pk = StacksPublicKey::from_private(&block_sk);
     cur_sortition.miner_pkh = Hash160::from_node_public_key(&block_pk);
     cur_sortition.miner_pubkey = Some(block_pk);
 
@@ -356,8 +370,8 @@ fn make_tenure_change_tx(payload: TenureChangePayload) -> StacksTransaction {
 
 #[test]
 fn check_proposal_tenure_extend() {
-    let (stacks_client, mut signer_db, block_pk, mut block, cur_sortition, _, sortitions_view) =
-        setup_test_environment("tenure_extend");
+    let (stacks_client, mut signer_db, block_sk, mut block, cur_sortition, _, sortitions_view) =
+        setup_test_environment(function_name!());
     block.header.consensus_hash = cur_sortition.consensus_hash;
     let mut extend_payload = make_tenure_change_payload();
     extend_payload.burn_view_consensus_hash = cur_sortition.consensus_hash;
@@ -366,7 +380,7 @@ fn check_proposal_tenure_extend() {
     let tx = make_tenure_change_tx(extend_payload);
     block.txs = vec![tx];
     sortitions_view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk)
+        .check_proposal(&stacks_client, &mut signer_db, &block)
         .expect_err("Proposal should not validate");
 
     let mut extend_payload = make_tenure_change_payload();
@@ -375,8 +389,11 @@ fn check_proposal_tenure_extend() {
     extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash;
     let tx = make_tenure_change_tx(extend_payload);
     block.txs = vec![tx];
+    block.header.miner_signature = block_sk
+        .sign(block.header.miner_signature_hash().as_bytes())
+        .unwrap();
     sortitions_view
-        .check_proposal(&stacks_client, &mut signer_db, &block, &block_pk)
+        .check_proposal(&stacks_client, &mut signer_db, &block)
         .expect("Proposal should validate");
 }
 
@@ -419,10 +436,7 @@ fn check_sortition_timeout() {
         .unwrap();
 
     std::thread::sleep(Duration::from_secs(1));
-    let address = StacksAddress::p2pkh(
-        false,
-        &StacksPublicKey::from_private(&StacksPrivateKey::random()),
-    );
+    let address = StacksAddress::p2pkh(false, &StacksPublicKey::new());
     let mut address_weights = HashMap::new();
     address_weights.insert(address, 10);
     let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);

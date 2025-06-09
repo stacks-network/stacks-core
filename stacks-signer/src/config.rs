@@ -292,7 +292,7 @@ struct RawConfigFile {
     /// Time to wait (in millisecs) before submitting a block proposal to the stacks-node
     pub proposal_wait_for_parent_time_secs: Option<u64>,
     /// Time to wait (in secs) between updating our local state machine view point and capitulating to other signers miner view
-    pub capitulate_tenure_timeout: Option<u64>,
+    pub capitulate_tenure_timeout_secs: Option<u64>,
     /// Is this signer binary going to be running in dry-run mode?
     pub dry_run: Option<bool>,
     /// Whether or not to validate blocks with replay transactions
@@ -424,7 +424,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
 
         let capitulate_tenure_timeout = Duration::from_secs(
             raw_data
-                .capitulate_tenure_timeout
+                .capitulate_tenure_timeout_secs
                 .unwrap_or(DEFAULT_CAPITULATE_TENURE_SECS),
         );
 
@@ -718,6 +718,10 @@ db_path = ":memory:"
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
         assert_eq!(config.stacks_address.to_string(), expected_addr);
         assert!(!config.validate_with_replay_tx);
+        assert_eq!(
+            config.capitulate_tenure_timeout,
+            Duration::from_secs(DEFAULT_CAPITULATE_TENURE_SECS)
+        );
         // 65 bytes (with compression flag)
         let sk_hex = "2de4e77aab89c0c2570bb8bb90824f5cf2a5204a975905fee450ff9dad0fcf2801";
 
@@ -730,12 +734,14 @@ network = "mainnet"
 auth_password = "abcd"
 db_path = ":memory:"
 validate_with_replay_tx = true
+capitulate_tenure_timeout_secs = 1000
             "#
         );
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
         assert_eq!(config.stacks_address.to_string(), expected_addr);
         assert_eq!(config.to_chain_id(), CHAIN_ID_MAINNET);
         assert!(config.validate_with_replay_tx);
+        assert_eq!(config.capitulate_tenure_timeout, Duration::from_secs(1000));
     }
 
     #[test]

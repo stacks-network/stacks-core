@@ -6691,7 +6691,7 @@ fn signer_chainstate() {
             last_tenures_proposals
         {
             let reject_code = sortitions_view
-                .check_proposal(&signer_client, &mut signer_db, prior_tenure_first, miner_pk)
+                .check_proposal(&signer_client, &mut signer_db, prior_tenure_first)
                 .expect_err("Sortitions view should reject proposals from prior tenure");
             assert!(
                 matches!(reject_code, RejectReason::ConsensusHashMismatch(_)),
@@ -6699,7 +6699,7 @@ fn signer_chainstate() {
             );
             for block in prior_tenure_interims.iter() {
                 let reject_code = sortitions_view
-                    .check_proposal(&signer_client, &mut signer_db, block, miner_pk)
+                    .check_proposal(&signer_client, &mut signer_db, block)
                     .expect_err("Sortitions view should reject proposals from prior tenure");
                 assert!(
                     matches!(reject_code, RejectReason::ConsensusHashMismatch(_)),
@@ -6734,7 +6734,7 @@ fn signer_chainstate() {
             .block_height_to_reward_cycle(burn_block_height)
             .unwrap();
         sortitions_view
-            .check_proposal(&signer_client, &mut signer_db, &proposal.0, &proposal.1)
+            .check_proposal(&signer_client, &mut signer_db, &proposal.0)
             .expect("Nakamoto integration test produced invalid block proposal");
         signer_db
             .insert_block(&BlockInfo {
@@ -6780,12 +6780,7 @@ fn signer_chainstate() {
         let proposal_interim = get_latest_block_proposal(&naka_conf, &sortdb).unwrap();
 
         sortitions_view
-            .check_proposal(
-                &signer_client,
-                &mut signer_db,
-                &proposal_interim.0,
-                &proposal_interim.1,
-            )
+            .check_proposal(&signer_client, &mut signer_db, &proposal_interim.0)
             .expect("Nakamoto integration test produced invalid block proposal");
         // force the view to refresh and check again
 
@@ -6809,12 +6804,7 @@ fn signer_chainstate() {
         let sortitions_view =
             get_sortitions_view_from_tip(&sortdb, &signer_client, &signer_db, &proposal_conf);
         sortitions_view
-            .check_proposal(
-                &signer_client,
-                &mut signer_db,
-                &proposal_interim.0,
-                &proposal_interim.1,
-            )
+            .check_proposal(&signer_client, &mut signer_db, &proposal_interim.0)
             .expect("Nakamoto integration test produced invalid block proposal");
 
         signer_db
@@ -6881,7 +6871,7 @@ fn signer_chainstate() {
     let mut sortitions_view =
         get_sortitions_view_from_tip(&sortdb, &signer_client, &signer_db, &proposal_conf);
     sortitions_view
-        .check_proposal(&signer_client, &mut signer_db, &sibling_block, &miner_pk)
+        .check_proposal(&signer_client, &mut signer_db, &sibling_block)
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but blocks have already
@@ -6929,7 +6919,7 @@ fn signer_chainstate() {
     };
 
     sortitions_view
-        .check_proposal(&signer_client, &mut signer_db, &sibling_block, &miner_pk)
+        .check_proposal(&signer_client, &mut signer_db, &sibling_block)
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but it doesn't confirm all the blocks of the parent tenure
@@ -6983,7 +6973,7 @@ fn signer_chainstate() {
     };
 
     sortitions_view
-        .check_proposal(&signer_client, &mut signer_db, &sibling_block, &miner_pk)
+        .check_proposal(&signer_client, &mut signer_db, &sibling_block)
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but the parent tenure is a reorg
@@ -7045,7 +7035,7 @@ fn signer_chainstate() {
     };
 
     sortitions_view
-        .check_proposal(&signer_client, &mut signer_db, &sibling_block, &miner_pk)
+        .check_proposal(&signer_client, &mut signer_db, &sibling_block)
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     let start_sortition = &reorg_to_block.header.consensus_hash;

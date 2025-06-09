@@ -93,10 +93,9 @@ impl LocalStateMachine {
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         eval: &GlobalStateEvaluator,
-        local_address: &StacksAddress,
     ) -> Result<Self, SignerChainstateError> {
         let mut instance = Self::Uninitialized;
-        instance.bitcoin_block_arrival(db, client, proposal_config, None, eval, local_address)?;
+        instance.bitcoin_block_arrival(db, client, proposal_config, None, eval)?;
 
         Ok(instance)
     }
@@ -202,10 +201,9 @@ impl LocalStateMachine {
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         eval: &GlobalStateEvaluator,
-        local_address: &StacksAddress,
     ) -> Result<(), SignerChainstateError> {
         let LocalStateMachine::Pending { update, .. } = self else {
-            return self.check_miner_inactivity(db, client, proposal_config, eval, local_address);
+            return self.check_miner_inactivity(db, client, proposal_config, eval);
         };
         match update.clone() {
             StateMachineUpdate::BurnBlock(expected_burn_height) => self.bitcoin_block_arrival(
@@ -214,7 +212,6 @@ impl LocalStateMachine {
                 proposal_config,
                 Some(expected_burn_height),
                 eval,
-                local_address,
             ),
         }
     }
@@ -227,7 +224,6 @@ impl LocalStateMachine {
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         eval: &GlobalStateEvaluator,
-        local_address: &StacksAddress,
     ) -> Result<(), SignerChainstateError> {
         let Self::Initialized(ref mut state_machine) = self else {
             // no inactivity if the state machine isn't initialized
@@ -244,7 +240,7 @@ impl LocalStateMachine {
             proposal_config.block_proposal_timeout,
             db,
             eval,
-            local_address,
+            client.get_signer_address(),
         )? {
             return Ok(());
         }
@@ -269,7 +265,7 @@ impl LocalStateMachine {
             return Ok(());
         }
 
-        if !last_sortition.is_tenure_valid(db, client, proposal_config, eval, local_address)? {
+        if !last_sortition.is_tenure_valid(db, client, proposal_config, eval)? {
             warn!("Current miner timed out due to inactivity, but prior miner is not valid. Allowing current miner to continue");
             return Ok(());
         }
@@ -457,7 +453,6 @@ impl LocalStateMachine {
         proposal_config: &ProposalEvalConfig,
         mut expected_burn_block: Option<NewBurnBlock>,
         eval: &GlobalStateEvaluator,
-        local_address: &StacksAddress,
     ) -> Result<(), SignerChainstateError> {
         // set self to uninitialized so that if this function errors,
         //  self is left as uninitialized.
@@ -530,8 +525,7 @@ impl LocalStateMachine {
         } = client.get_current_and_last_sortition()?;
 
         let cur_sortition = SortitionState::try_from(current_sortition)?;
-        let is_current_valid =
-            cur_sortition.is_tenure_valid(db, client, proposal_config, eval, local_address)?;
+        let is_current_valid = cur_sortition.is_tenure_valid(db, client, proposal_config, eval)?;
 
         let miner_state = if is_current_valid {
             Self::make_miner_state(cur_sortition, client, db, proposal_config)?
@@ -548,7 +542,7 @@ impl LocalStateMachine {
                     )
                 })?;
             let is_last_valid =
-                last_sortition.is_tenure_valid(db, client, proposal_config, eval, local_address)?;
+                last_sortition.is_tenure_valid(db, client, proposal_config, eval)?;
 
             if is_last_valid {
                 Self::make_miner_state(last_sortition, client, db, proposal_config)?
@@ -728,10 +722,7 @@ impl LocalStateMachine {
         eval.insert_update(local_address, local_update.clone());
 
         // Determine the current burn block from the local update
-        let current_burn_block = match local_update.content {
-            StateMachineUpdateContent::V0 { burn_block, .. }
-            | StateMachineUpdateContent::V1 { burn_block, .. } => burn_block,
-        };
+        let current_burn_block = *local_update.content.burn_block();
 
         // Determine the global burn view
         let (global_burn_view, _) = eval.determine_global_burn_view()?;

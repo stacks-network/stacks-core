@@ -611,7 +611,7 @@ mod tests {
     use blockstack_lib::chainstate::stacks::boot::NakamotoSignerEntry;
     use libsigner::SignerEntries;
     use rand::{thread_rng, Rng, RngCore};
-    use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
+    use stacks_common::types::chainstate::StacksPublicKey;
 
     use super::RewardCycleInfo;
 
@@ -621,8 +621,7 @@ mod tests {
         let weight = 10;
         let mut signer_entries = Vec::with_capacity(nmb_signers);
         for _ in 0..nmb_signers {
-            let key =
-                StacksPublicKey::from_private(&StacksPrivateKey::random()).to_bytes_compressed();
+            let key = StacksPublicKey::new().to_bytes_compressed();
             let mut signing_key = [0u8; 33];
             signing_key.copy_from_slice(&key);
             signer_entries.push(NakamotoSignerEntry {

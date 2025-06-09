@@ -117,7 +117,6 @@ impl SortitionState {
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         eval: &GlobalStateEvaluator,
-        local_address: &StacksAddress,
     ) -> Result<bool, SignerChainstateError> {
         let chose_good_parent = self.check_parent_tenure_choice(
             signer_db,
@@ -132,7 +131,7 @@ impl SortitionState {
             proposal_config.block_proposal_timeout,
             signer_db,
             eval,
-            local_address,
+            client.get_signer_address(),
         )
         .map(|timed_out| !timed_out)
     }
@@ -191,66 +190,62 @@ impl SortitionState {
                 return Ok(false);
             }
 
-            if tenure.first_block_mined.is_some() {
-                let Some(local_block_info) =
-                    signer_db.get_first_signed_block_in_tenure(&tenure.consensus_hash)?
-                else {
-                    warn!(
-                        "Miner is not building off of most recent tenure, but a tenure they attempted to reorg has already mined blocks, and there is no local knowledge for that tenure's block timing.";
-                        "parent_tenure" => %self.parent_tenure_id,
-                        "last_sortition" => %self.prior_sortition,
-                        "violating_tenure_id" => %tenure.consensus_hash,
-                        "violating_tenure_first_block_id" => ?tenure.first_block_mined,
-                    );
-                    return Ok(false);
-                };
-
-                let checked_proposal_timing = if let Some(sortition_state_received_time) =
-                    sortition_state_received_time
-                {
-                    // how long was there between when the proposal was received and the next sortition started?
-                    let proposal_to_sortition = if let Some(signed_at) =
-                        local_block_info.signed_self
-                    {
-                        sortition_state_received_time.saturating_sub(signed_at)
-                    } else {
-                        info!("We did not sign over the reorged tenure's first block, considering it as a late-arriving proposal");
-                        0
-                    };
-                    if Duration::from_secs(proposal_to_sortition)
-                        < *first_proposal_burn_block_timing
-                    {
-                        info!(
-                            "Miner is not building off of most recent tenure. A tenure they reorg has already mined blocks, but the block was poorly timed, allowing the reorg.";
-                            "parent_tenure" => %self.parent_tenure_id,
-                            "last_sortition" => %self.prior_sortition,
-                            "violating_tenure_id" => %tenure.consensus_hash,
-                            "violating_tenure_first_block_id" => ?tenure.first_block_mined,
-                            "violating_tenure_proposed_time" => local_block_info.proposed_time,
-                            "new_tenure_received_time" => sortition_state_received_time,
-                            "new_tenure_burn_timestamp" => self.burn_header_timestamp,
-                            "first_proposal_burn_block_timing_secs" => first_proposal_burn_block_timing.as_secs(),
-                            "proposal_to_sortition" => proposal_to_sortition,
-                        );
-                        continue;
-                    }
-                    true
-                } else {
-                    false
-                };
-
+            let Some(first_block_mined) = tenure.first_block_mined else {
+                continue;
+            };
+            let Some(local_block_info) =
+                signer_db.get_first_signed_block_in_tenure(&tenure.consensus_hash)?
+            else {
                 warn!(
-                    "Miner is not building off of most recent tenure, but a tenure they attempted to reorg has already mined blocks.";
+                    "Miner is not building off of most recent tenure, but a tenure they attempted to reorg has already mined blocks, and there is no local knowledge for that tenure's block timing.";
                     "parent_tenure" => %self.parent_tenure_id,
                     "last_sortition" => %self.prior_sortition,
                     "violating_tenure_id" => %tenure.consensus_hash,
-                    "violating_tenure_first_block_id" => ?tenure.first_block_mined,
-                    "checked_proposal_timing" => checked_proposal_timing,
+                    "violating_tenure_first_block_id" => %first_block_mined,
                 );
                 return Ok(false);
-            }
-        }
+            };
 
+            let checked_proposal_timing = if let Some(sortition_state_received_time) =
+                sortition_state_received_time
+            {
+                // how long was there between when the proposal was received and the next sortition started?
+                let proposal_to_sortition = if let Some(signed_at) = local_block_info.signed_self {
+                    sortition_state_received_time.saturating_sub(signed_at)
+                } else {
+                    info!("We did not sign over the reorged tenure's first block, considering it as a late-arriving proposal");
+                    0
+                };
+                if Duration::from_secs(proposal_to_sortition) < *first_proposal_burn_block_timing {
+                    info!(
+                        "Miner is not building off of most recent tenure. A tenure they reorg has already mined blocks, but the block was poorly timed, allowing the reorg.";
+                        "parent_tenure" => %self.parent_tenure_id,
+                        "last_sortition" => %self.prior_sortition,
+                        "violating_tenure_id" => %tenure.consensus_hash,
+                        "violating_tenure_first_block_id" => %first_block_mined,
+                        "violating_tenure_proposed_time" => local_block_info.proposed_time,
+                        "new_tenure_received_time" => sortition_state_received_time,
+                        "new_tenure_burn_timestamp" => self.burn_header_timestamp,
+                        "first_proposal_burn_block_timing_secs" => first_proposal_burn_block_timing.as_secs(),
+                        "proposal_to_sortition" => proposal_to_sortition,
+                    );
+                    continue;
+                }
+                true
+            } else {
+                false
+            };
+
+            warn!(
+                "Miner is not building off of most recent tenure, but a tenure they attempted to reorg has already mined blocks.";
+                "parent_tenure" => %self.parent_tenure_id,
+                "last_sortition" => %self.prior_sortition,
+                "violating_tenure_id" => %tenure.consensus_hash,
+                "violating_tenure_first_block_id" => %first_block_mined,
+                "checked_proposal_timing" => checked_proposal_timing,
+            );
+            return Ok(false);
+        }
         Ok(true)
     }
 }
@@ -329,7 +324,6 @@ impl SortitionsView {
         client: &StacksClient,
         signer_db: &mut SignerDb,
         block: &NakamotoBlock,
-        block_pk: &StacksPublicKey,
     ) -> Result<(), RejectReason> {
         let MinerState::ActiveMiner {
             current_miner_pkh,
@@ -358,14 +352,20 @@ impl SortitionsView {
                 tenure_id,
             )));
         }
-        let block_pkh = Hash160::from_data(&block_pk.to_bytes_compressed());
-        if current_miner_pkh != block_pkh {
+        let Some(miner_pk) = block.header.recover_miner_pk() else {
+            warn!("Failed to recover miner pubkey";
+                  "signer_signature_hash" => %block.header.signer_signature_hash(),
+                  "consensus_hash" => %block.header.consensus_hash);
+            return Err(RejectReason::IrrecoverablePubkeyHash);
+        };
+        let miner_pkh = Hash160::from_data(&miner_pk.to_bytes_compressed());
+        if current_miner_pkh != miner_pkh {
             warn!(
                 "Miner block proposal pubkey does not match the winning pubkey hash for its sortition. Considering invalid.";
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
                 "signer_signature_hash" => %block.header.signer_signature_hash(),
-                "proposed_block_pubkey" => &block_pk.to_hex(),
-                "proposed_block_pubkey_hash" => %block_pkh,
+                "proposed_block_pubkey" => &miner_pk.to_hex(),
+                "proposed_block_pubkey_hash" => %miner_pkh,
                 "active_miner_pubkey_hash" => %current_miner_pkh,
             );
             return Err(RejectReason::PubkeyHashMismatch);
