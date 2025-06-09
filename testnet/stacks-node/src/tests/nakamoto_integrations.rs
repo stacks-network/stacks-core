@@ -6815,7 +6815,7 @@ fn signer_chainstate() {
 
     // now we'll check some specific cases of invalid proposals
     // Case: the block doesn't confirm the prior blocks that have been signed.
-    let last_tenure = &last_tenures_proposals.as_ref().unwrap().1.clone();
+    let last_tenure = &last_tenures_proposals.as_ref().unwrap().0.clone();
     let last_tenure_header = &last_tenure.header;
     let miner_sk = naka_conf.miner.mining_key.unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
