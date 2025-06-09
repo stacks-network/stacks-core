@@ -299,6 +299,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             return SetupSnapshotResult::NoSnapshot;
         };
 
+        // sanitize the snapshot name
+        let snapshot_name = snapshot_name.replace("::", "_");
+
         if env::var("STACKS_TEST_SNAPSHOT") != Ok("1".into()) {
             return SetupSnapshotResult::NoSnapshot;
         }
