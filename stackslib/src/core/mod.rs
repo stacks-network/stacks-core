@@ -14,20 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[cfg(test)]
+use std::cmp::Ordering;
 use std::collections::HashSet;
 
 use clarity::vm::costs::ExecutionCost;
 use lazy_static::lazy_static;
 pub use stacks_common::consts::MICROSTACKS_PER_STACKS;
-use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 pub use stacks_common::types::StacksEpochId;
 use stacks_common::types::{EpochList as GenericEpochList, StacksEpoch as GenericStacksEpoch};
-use stacks_common::util::log;
 
 pub use self::mempool::MemPoolDB;
 use crate::burnchains::bitcoin::indexer::get_bitcoin_stacks_epochs;
 use crate::burnchains::bitcoin::BitcoinNetworkType;
-use crate::burnchains::{Burnchain, Error as burnchain_error};
 use crate::chainstate::burn::ConsensusHash;
 pub mod mempool;
 pub mod nonce_cache;
@@ -37,7 +37,6 @@ pub mod test_util;
 #[cfg(test)]
 pub mod tests;
 
-use std::cmp::Ordering;
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 pub type EpochList = GenericEpochList<ExecutionCost>;
 

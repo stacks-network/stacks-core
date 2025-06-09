@@ -17,22 +17,15 @@
 use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
-use clarity::vm::{ClarityName, ContractName};
-use serde_json;
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
-use stacks_common::types::net::PeerHost;
-use stacks_common::types::Address;
+use stacks_common::types::chainstate::StacksBlockId;
 
-use super::{test_rpc, TestRPC};
+use super::TestRPC;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
-    HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp,
-    StacksHttpRequest,
+    HttpPreambleExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
 };
-use crate::net::{Attachment, ProtocolFamily, TipRequest};
+use crate::net::{Attachment, ProtocolFamily};
 
 #[test]
 fn test_try_parse_request() {

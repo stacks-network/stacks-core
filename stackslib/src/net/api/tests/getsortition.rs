@@ -24,10 +24,9 @@ use crate::net::api::getsortition::{GetSortitionHandler, QuerySpecifier, Sortiti
 use crate::net::api::tests::test_rpc;
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::{
-    Error as HttpError, HttpRequestContents, HttpRequestPreamble, HttpResponse,
-    HttpResponsePayload, HttpVersion,
+    Error as HttpError, HttpRequestContents, HttpRequestPreamble, HttpResponsePayload, HttpVersion,
 };
-use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpPreamble, StacksHttpRequest};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
 use crate::net::Error as NetError;
 
 fn make_preamble(query: &str) -> HttpRequestPreamble {

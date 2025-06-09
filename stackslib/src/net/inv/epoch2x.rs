@@ -15,37 +15,24 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::io::{Read, Write};
-use std::net::SocketAddr;
+use std::collections::{HashMap, HashSet};
 
 use p2p::DropSource;
 use rand;
 use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng};
-use stacks_common::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
+use rand::thread_rng;
+use stacks_common::types::chainstate::{BlockHeaderHash, PoxId};
+use stacks_common::util::get_epoch_time_secs;
 
 use crate::burnchains::{Burnchain, BurnchainView};
-use crate::chainstate::burn::db::sortdb::{
-    BlockHeaderCache, SortitionDB, SortitionDBConn, SortitionHandleConn,
-};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHashExtensions};
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::net::asn::ASEntry4;
 use crate::net::chat::ConversationP2P;
-use crate::net::codec::*;
-use crate::net::connection::{ConnectionOptions, ConnectionP2P, ReplyHandleP2P};
-use crate::net::db::{PeerDB, *};
-use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use crate::net::connection::ReplyHandleP2P;
+use crate::net::db::PeerDB;
 use crate::net::p2p::{DropReason, PeerNetwork, PeerNetworkWorkState};
-use crate::net::{
-    Error as net_error, GetBlocksInv, Neighbor, NeighborKey, PeerAddress, StacksMessage, StacksP2P,
-    *,
-};
-use crate::util_lib::db::{DBConn, Error as db_error};
+use crate::net::{Error as net_error, GetBlocksInv, NeighborKey, *};
 
 /// This module is responsible for synchronizing block inventories with other peers
 #[cfg(not(test))]
@@ -1146,6 +1133,56 @@ impl InvState {
             }
         }
         list
+    }
+
+    /// Returns the highest Stacks tip height reported by the given neighbors.
+    ///
+    /// This function iterates through the provided neighbors, checks their block stats,
+    /// and determines the maximum block height. The status of the neighbor (Online or Diverged during IBD,
+    /// or Online when not in IBD) is considered.
+    ///
+    /// # Arguments
+    ///
+    /// * `neighbors` - A slice of `Neighbor` structs to check.
+    /// * `ibd` - A boolean indicating if the node is in Initial Block Download (IBD) mode.
+    ///
+    /// # Returns
+    ///
+    /// * `Some(u64)` if at least one neighbor has a tip height according to its status.
+    /// * `None` if no tip heights are found.
+    pub fn get_max_stacks_height_of_neighbors(
+        &self,
+        neighbors: &[Neighbor],
+        ibd: bool,
+    ) -> Option<u64> {
+        let mut max_height: u64 = 1;
+        let mut stats_obtained = false;
+        for neighbor in neighbors {
+            let nk = &neighbor.addr;
+            match self.block_stats.get(nk) {
+                Some(stats) => {
+                    // When a node is in IBD, it occasionally might think a remote peer has diverged from it (for
+                    // example, if it starts processing reward cycle N+1 before obtaining the anchor block for
+                    // reward cycle N).
+                    if (ibd
+                        && (stats.status == NodeStatus::Online
+                            || stats.status == NodeStatus::Diverged))
+                        || (!ibd && stats.status == NodeStatus::Online)
+                    {
+                        let height = stats.inv.get_block_height();
+                        max_height = max_height.max(height);
+                        stats_obtained = true;
+                    }
+                }
+                None => {}
+            }
+        }
+
+        if stats_obtained {
+            Some(max_height)
+        } else {
+            None
+        }
     }
 
     /// Get the list of dead
@@ -2773,7 +2810,7 @@ impl PeerNetwork {
     }
 
     /// Do an inventory state machine pass for epoch 2.x.
-    /// Returns the new work state  
+    /// Returns the new work state
     pub fn work_inv_sync_epoch2x(
         &mut self,
         sortdb: &SortitionDB,

@@ -16,26 +16,19 @@
 
 use std::io::{Read, Write};
 
+#[cfg(test)]
+use clarity::util::vrf::VRFPrivateKey;
+#[cfg(test)]
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, TrieHash,
-};
-use stacks_common::util::hash::{DoubleSha256, Hash160};
-use stacks_common::util::log;
-use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::vrf::VRFPublicKey;
 
-use crate::burnchains::{
-    Address, Burnchain, BurnchainBlockHeader, BurnchainTransaction, PublicKey, Txid,
-};
+use crate::burnchains::{Burnchain, BurnchainBlockHeader, BurnchainTransaction};
 use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
-use crate::chainstate::burn::operations::{
-    BlockstackOperationType, Error as op_error, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-};
+use crate::chainstate::burn::operations::{Error as op_error, LeaderKeyRegisterOp};
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
-use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
-use crate::net::Error as net_error;
-use crate::util_lib::db::{DBConn, DBTx};
 
 pub struct ParsedData {
     pub consensus_hash: ConsensusHash,
@@ -46,6 +39,8 @@ pub struct ParsedData {
 impl LeaderKeyRegisterOp {
     #[cfg(test)]
     pub fn new(public_key: &VRFPublicKey) -> LeaderKeyRegisterOp {
+        use crate::burnchains::Txid;
+
         LeaderKeyRegisterOp {
             public_key: public_key.clone(),
             memo: vec![],
@@ -235,24 +230,20 @@ impl LeaderKeyRegisterOp {
 
 #[cfg(test)]
 pub mod tests {
+    use clarity::types::chainstate::{BlockHeaderHash, TrieHash};
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
     use stacks_common::types::chainstate::SortitionId;
+    use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::{hex_bytes, to_hex};
-    use stacks_common::util::{get_epoch_time_secs, log};
 
     use super::*;
-    use crate::burnchains::bitcoin::address::BitcoinAddress;
     use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::bitcoin::BitcoinNetworkType;
     use crate::burnchains::*;
     use crate::chainstate::burn::db::sortdb::*;
-    use crate::chainstate::burn::operations::{
-        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-    };
+    use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderKeyRegisterOp};
     use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
-    use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::core::StacksEpochId;
 
     pub struct OpFixture {

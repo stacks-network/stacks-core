@@ -1001,6 +1001,21 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .collect()
     }
 
+    /// Wait for a certain condition to be met for each signer's state machine
+    pub fn wait_for_signer_state_check(
+        &self,
+        timeout: u64,
+        f: impl Fn(&LocalStateMachine) -> Result<bool, String>,
+    ) -> Result<(), String> {
+        wait_for(timeout, || {
+            let (signer_states, _) = self.get_burn_updated_states();
+            let all_pass = signer_states
+                .iter()
+                .all(|state| f(state).map_or(false, |ok| ok));
+            Ok(all_pass)
+        })
+    }
+
     /// Replace the test's configured signer st
     pub fn replace_signers(
         &mut self,

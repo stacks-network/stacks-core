@@ -17,30 +17,23 @@
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::ast::{self, ASTRules};
 use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
-use clarity::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
-use clarity::vm::contracts::Contract;
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::database::{ClarityDatabase, HeadersDB};
-use clarity::vm::errors::{CheckErrors, Error as InterpreterError, Error, RuntimeErrorType};
-use clarity::vm::representations::SymbolicExpression;
+use clarity::vm::contexts::OwnedEnvironment;
+use clarity::vm::database::HeadersDB;
+use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::test_util::*;
 use clarity::vm::tests::{test_clarity_versions, BurnStateDB};
-use clarity::vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
-    TypeSignature, Value,
-};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use clarity::vm::version::ClarityVersion;
 use clarity::vm::{ContractContext, MAX_CALL_STACK_DEPTH};
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
-use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
+use stacks_common::consts::CHAIN_ID_TESTNET;
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::hex_bytes;
 
-use crate::chainstate::stacks::boot::{BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3};
+use crate::chainstate::stacks::boot::{BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityInstance, Error as ClarityError};
 use crate::clarity_vm::database::marf::MarfedKV;

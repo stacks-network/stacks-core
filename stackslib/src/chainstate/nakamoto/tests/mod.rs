@@ -14,27 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::borrow::BorrowMut;
 use std::collections::HashMap;
-use std::fs;
 
-use clarity::types::chainstate::{PoxId, SortitionId, StacksBlockId};
+use clarity::types::chainstate::{SortitionId, StacksBlockId};
 use clarity::util::secp256k1::Secp256k1PrivateKey;
-use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::Value;
 use libstackerdb::StackerDBChunkData;
 use rand::distributions::Standard;
 use rand::{thread_rng, Rng, RngCore};
-use rusqlite::types::ToSql;
-use rusqlite::{params, Connection};
+use rusqlite::params;
 use stacks_common::address::AddressHashMode;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::consts::{
-    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
-};
+use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey,
     StacksPublicKey, StacksWorkScore, TrieHash, VRFSeed,
@@ -44,11 +38,8 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{hex_bytes, Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
-use stdext::prelude::Integer;
-use stx_genesis::GenesisData;
 
 use crate::burnchains::{BurnchainSigner, PoxConstants, Txid};
-use crate::chainstate::burn::db::sortdb::tests::make_fork_run;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use crate::chainstate::burn::operations::{
@@ -56,42 +47,34 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::{BlockSnapshot, OpsHash, SortitionHash};
 use crate::chainstate::coordinator::tests::{
-    get_burnchain, get_burnchain_db, get_chainstate, get_rw_sortdb, get_sortition_db, p2pkh_from,
-    pox_addr_from, setup_states_with_epochs,
+    get_burnchain, get_chainstate, setup_states_with_epochs,
 };
 use crate::chainstate::nakamoto::coordinator::tests::boot_nakamoto;
-use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::staging_blocks::{
     NakamotoBlockObtainMethod, NakamotoStagingBlocksConnRef,
 };
 use crate::chainstate::nakamoto::tenure::NakamotoTenureEvent;
-use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
-    query_row, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SortitionHandle,
-    FIRST_STACKS_BLOCK_ID,
+    query_row, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
 };
 use crate::chainstate::stacks::boot::{
     NakamotoSignerEntry, RewardSet, MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::{
-    ChainStateBootData, ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName,
-    ChainstateBNSNamespace, StacksAccount, StacksBlockHeaderTypes, StacksChainState,
-    StacksHeaderInfo,
+    StacksAccount, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
 use crate::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksTransaction,
-    StacksTransactionSigner, TenureChangeCause, TenureChangePayload, TokenTransferMemo,
-    TransactionAnchorMode, TransactionAuth, TransactionContractCall, TransactionPayload,
-    TransactionPostConditionMode, TransactionSmartContract, TransactionVersion,
+    TenureChangeCause, TenureChangePayload, TokenTransferMemo, TransactionAnchorMode,
+    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
+    TransactionSmartContract, TransactionVersion,
 };
-use crate::core;
 use crate::core::{StacksEpochExtension, STACKS_EPOCH_3_0_MARKER};
 use crate::net::codec::test::check_codec_and_corruption;
 use crate::net::stackerdb::MINER_SLOT_COUNT;
 use crate::util_lib::boot::boot_code_id;
-use crate::util_lib::db::Error as db_error;
 use crate::util_lib::strings::StacksString;
 
 impl NakamotoStagingBlocksConnRef<'_> {

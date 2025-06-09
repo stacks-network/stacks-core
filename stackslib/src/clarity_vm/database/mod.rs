@@ -1,4 +1,4 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 
 use clarity::types::chainstate::TrieHash;
 use clarity::util::hash::Sha512Trunc256Sum;
@@ -12,8 +12,7 @@ use clarity::vm::database::{
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use clarity::vm::errors::{InterpreterResult, RuntimeErrorType};
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
-use rusqlite::types::ToSql;
+use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
@@ -23,18 +22,14 @@ use stacks_common::types::Address;
 use stacks_common::util::vrf::VRFProof;
 
 use crate::chainstate::burn::db::sortdb::{
-    get_ancestor_sort_id, get_ancestor_sort_id_tx, SortitionDB, SortitionDBConn, SortitionHandle,
-    SortitionHandleConn, SortitionHandleTx,
+    get_ancestor_sort_id, SortitionDB, SortitionHandle, SortitionHandleConn, SortitionHandleTx,
 };
-use crate::chainstate::nakamoto::{keys as nakamoto_keys, NakamotoChainState, StacksDBIndexed};
+use crate::chainstate::nakamoto::{keys as nakamoto_keys, StacksDBIndexed};
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::accounts::MinerReward;
-use crate::chainstate::stacks::db::{
-    ChainstateTx, MinerPaymentSchedule, StacksChainState, StacksDBConn, StacksDBTx,
-    StacksHeaderInfo,
-};
+use crate::chainstate::stacks::db::{ChainstateTx, StacksChainState, StacksDBConn, StacksDBTx};
 use crate::chainstate::stacks::index::marf::{MarfConnection, MARF};
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId, TrieMerkleProof};
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::Error as ChainstateError;
 use crate::clarity_vm::special::handle_contract_call_special_cases;
 use crate::core::{StacksEpoch, StacksEpochId};

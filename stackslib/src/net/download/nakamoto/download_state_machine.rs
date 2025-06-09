@@ -16,57 +16,26 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::convert::TryFrom;
 use std::fmt;
-use std::hash::{Hash, Hasher};
-use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr};
-use std::time::{Duration, Instant};
 
-use rand::seq::SliceRandom;
-use rand::{thread_rng, RngCore};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, ConsensusHash, PoxId, SortitionId, StacksBlockId,
-};
-use stacks_common::types::net::{PeerAddress, PeerHost};
-use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
+use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common::util::get_epoch_time_ms;
 
-use crate::burnchains::{Burnchain, BurnchainView, PoxConstants};
-use crate::chainstate::burn::db::sortdb::{
-    BlockHeaderCache, SortitionDB, SortitionDBConn, SortitionHandleConn,
-};
+use crate::burnchains::{BurnchainView, PoxConstants};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::coordinator::RewardCycleInfo;
-use crate::chainstate::nakamoto::{
-    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConnRef,
-};
-use crate::chainstate::stacks::boot::RewardSet;
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::{
-    Error as chainstate_error, StacksBlockHeader, TenureChangePayload,
-};
-use crate::core::{
-    EMPTY_MICROBLOCK_PARENT_HASH, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
-};
-use crate::net::api::gettenureinfo::RPCGetTenureInfo;
 use crate::net::chat::ConversationP2P;
 use crate::net::connection::ConnectionOptions;
-use crate::net::db::{LocalPeer, PeerDB};
 use crate::net::download::nakamoto::{
     downloader_block_height_to_reward_cycle, AvailableTenures, NakamotoTenureDownloader,
     NakamotoTenureDownloaderSet, NakamotoUnconfirmedTenureDownloader, TenureStartEnd, WantedTenure,
 };
-use crate::net::http::HttpRequestContents;
-use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
-use crate::net::inv::epoch2x::InvState;
-use crate::net::inv::nakamoto::{NakamotoInvStateMachine, NakamotoTenureInv};
+use crate::net::inv::nakamoto::NakamotoTenureInv;
 use crate::net::neighbors::rpc::NeighborRPC;
-use crate::net::neighbors::NeighborComms;
 use crate::net::p2p::{CurrentRewardSet, DropReason, DropSource, PeerNetwork};
-use crate::net::server::HttpPeer;
-use crate::net::{Error as NetError, Neighbor, NeighborAddress, NeighborKey};
-use crate::util_lib::db::{DBConn, Error as DBError};
+use crate::net::{Error as NetError, NeighborAddress};
+use crate::util_lib::db::Error as DBError;
 
 /// How often to check for unconfirmed tenures
 const CHECK_UNCONFIRMED_TENURES_MS: u128 = 1_000;
@@ -114,7 +83,8 @@ pub struct NakamotoDownloadStateMachine {
     /// Unconfirmed tenure download schedule
     unconfirmed_tenure_download_schedule: VecDeque<NeighborAddress>,
     /// Ongoing unconfirmed tenure downloads, prioritized in who announces the latest block
-    unconfirmed_tenure_downloads: HashMap<NeighborAddress, NakamotoUnconfirmedTenureDownloader>,
+    pub(crate) unconfirmed_tenure_downloads:
+        HashMap<NeighborAddress, NakamotoUnconfirmedTenureDownloader>,
     /// Ongoing confirmed tenure downloads for when we know the start and end block hashes.
     tenure_downloads: NakamotoTenureDownloaderSet,
     /// comms to remote neighbors
@@ -687,6 +657,34 @@ impl NakamotoDownloadStateMachine {
         // order by fewest neighbors first
         schedule.sort_by(|a, b| a.0.cmp(&b.0));
         schedule.into_iter().map(|(_count, ch)| ch).collect()
+    }
+
+    /// Returns the highest Stacks tip height reported by the given neighbors.
+    ///
+    /// For each neighbor, this checks if there's an active unconfirmed download with a known
+    /// `tip_height`. If so, it's considered when finding the maximum.
+    ///
+    /// # Arguments
+    ///
+    /// * `neighbors` - A slice of `NeighborAddress` structs to check.
+    ///
+    /// # Returns
+    ///
+    /// * `Some(u64)` if at least one neighbor has a tip height.
+    /// * `None` if no tip heights are found.
+    pub(crate) fn get_max_stacks_height_of_neighbors(
+        &self,
+        neighbors: &[NeighborAddress],
+    ) -> Option<u64> {
+        neighbors
+            .iter()
+            .filter_map(|naddr| {
+                self.unconfirmed_tenure_downloads
+                    .get(naddr)
+                    .and_then(|downloader| downloader.tenure_tip.as_ref())
+                    .map(|tip| tip.tip_height)
+            })
+            .max()
     }
 
     /// How many neighbors can we contact still, given the map of tenures to neighbors which can

@@ -1,18 +1,14 @@
-use std::cmp;
-use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Display;
-use std::ops::{Add, Div, Mul, Rem, Sub};
-use std::path::Path;
+use std::ops::{Add, Mul};
 
 use clarity::vm::costs::ExecutionCost;
 use rusqlite::Error as SqliteError;
 use serde_json::json;
 
-use crate::burnchains::Txid;
 use crate::chainstate::stacks::db::StacksEpochReceipt;
 use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
-use crate::chainstate::stacks::{StacksBlock, TransactionPayload};
+use crate::chainstate::stacks::TransactionPayload;
 
 pub mod fee_medians;
 pub mod fee_rate_fuzzer;

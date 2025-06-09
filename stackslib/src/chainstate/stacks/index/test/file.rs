@@ -20,10 +20,7 @@ use rusqlite::{Connection, OpenFlags};
 
 use super::*;
 use crate::chainstate::stacks::index::cache::test::make_test_insert_data;
-use crate::chainstate::stacks::index::cache::*;
 use crate::chainstate::stacks::index::file::*;
-use crate::chainstate::stacks::index::marf::*;
-use crate::chainstate::stacks::index::storage::*;
 use crate::chainstate::stacks::index::*;
 use crate::util_lib::db::*;
 

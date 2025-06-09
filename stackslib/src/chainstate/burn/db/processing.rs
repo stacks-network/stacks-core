@@ -17,8 +17,7 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use stacks_common::address::AddressHashMode;
-use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId, TrieHash};
+use stacks_common::types::chainstate::PoxId;
 
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainStateTransition, Error as BurnchainError,
@@ -29,11 +28,7 @@ use crate::chainstate::burn::operations::{BlockstackOperationType, Error as OpEr
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::RewardCycleInfo;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::marf::MARF;
-use crate::chainstate::stacks::index::storage::TrieFileStorage;
-use crate::chainstate::stacks::index::{Error as MARFError, MARFValue, MarfTrieId};
 use crate::core::INITIAL_MINING_BONUS_WINDOW;
-use crate::util_lib::db::Error as DBError;
 
 impl SortitionHandleTx<'_> {
     /// Run a blockstack operation's "check()" method and return the result.
@@ -352,21 +347,17 @@ impl SortitionHandleTx<'_> {
 
 #[cfg(test)]
 mod tests {
-    use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
+    use stacks_common::types::chainstate::{BlockHeaderHash, VRFSeed};
     use stacks_common::util::hash::hex_bytes;
     use stacks_common::util::vrf::VRFPublicKey;
 
     use super::*;
-    use crate::burnchains::bitcoin::address::BitcoinAddress;
-    use crate::burnchains::bitcoin::BitcoinNetworkType;
     use crate::burnchains::*;
     use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot;
     use crate::chainstate::burn::db::sortdb::SortitionDB;
     use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
     use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
     use crate::chainstate::burn::*;
-    use crate::chainstate::stacks::address::StacksAddressExtensions;
-    use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::MICROSTACKS_PER_STACKS;
 
     #[test]

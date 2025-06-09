@@ -15,8 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use super::*;
-use crate::chainstate::stacks::index::marf::*;
-use crate::chainstate::stacks::index::test::*;
 use crate::chainstate::stacks::index::*;
 
 #[test]
