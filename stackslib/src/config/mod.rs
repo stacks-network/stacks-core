@@ -2210,15 +2210,18 @@ pub struct NodeConfig {
     pub require_affirmed_anchor_blocks: bool,
     /// Controls if the node must strictly wait for any PoX anchor block selected by the core consensus mechanism.
     /// - If `true`: Halts burnchain processing immediately whenever a selected anchor block is missing locally
-    ///   (`SelectedAndUnknown` status), regardless of affirmation status. This is always true in Nakamoto (Epoch 3.0+)
-    ///   and runs *before* affirmation checks.
+    ///   (`SelectedAndUnknown` status), regardless of affirmation status.
     /// - If `false` (primarily for testing): Skips this immediate halt, allowing processing to proceed to
     ///   affirmation map checks.
     /// Normal operation requires this to be `true`; setting to `false` will likely break consensus adherence.
     /// ---
     /// @default: `true`
     /// @notes: |
-    ///   - This parameter cannot be set via the configuration file; it must be modified programmatically.
+    ///   - This parameter cannot be set via the configuration file;
+    ///     it must be modified programmatically.
+    ///   - This is intended strictly for testing purposes.
+    ///   - The halt check runs *before* affirmation checks.
+    ///   - In Nakamoto (Epoch 3.0+), all prepare phase have anchor blocks.
     pub assume_present_anchor_blocks: bool,
     /// Fault injection setting for testing purposes. If set to `Some(p)`, where `p` is between 0 and 100,
     /// the node will have a `p` percent chance of intentionally *not* pushing a newly processed block
@@ -2940,7 +2943,7 @@ pub struct MinerConfig {
     /// @default: `false` (Should only default true if [`MinerConfig::mining_key`] is set).
     /// @deprecated: This setting is ignored in Epoch 3.0+.
     /// @notes: |
-    ///   - This is intended strictly for testing purposes for Epoch 2.5 conditions.
+    ///   - This is intended strictly for testing Epoch 2.5 conditions.
     pub pre_nakamoto_mock_signing: bool,
     /// The minimum time to wait between mining blocks in milliseconds. The value must be greater
     /// than or equal to 1000 ms because if a block is mined within the same second as its parent,
@@ -3070,7 +3073,8 @@ pub struct MinerConfig {
     /// ---
     /// @default: `{ 0: 180, 10: 90, 20: 45, 30: 0 }` (times in seconds)
     /// @notes: |
-    ///   - Keys are rejection weight percentages (0-100). Values are timeout durations.
+    ///   - Keys are rejection weight percentages (0-100).
+    ///   - Values are timeout durations.
     /// @toml_example: |
     ///   # Keys are rejection counts (as strings), values are timeouts in seconds.
     ///   [miner.block_rejection_timeout_steps]
@@ -3528,9 +3532,10 @@ pub struct ConnectionOptionsFile {
     /// ---
     /// @default: `None` (authentication disabled for relevant endpoints)
     /// @notes: |
-    ///   - **Requirement:** This field **must** be configured if the node needs to receive
-    ///     block proposals from a configured `stacks-signer` event_observer via the
-    ///     `/v3/block_proposal` endpoint. The value must match the token configured on the signer.
+    ///   - This field **must** be configured if the node needs to receive
+    ///     block proposals from a configured `stacks-signer` [[events_observer]]
+    ///     via the `/v3/block_proposal` endpoint.
+    ///   - The value must match the token configured on the signer.
     pub auth_token: Option<String>,
     /// Minimum interval (in seconds) between attempts to run the Epoch 2.x anti-entropy data push mechanism.
     ///
