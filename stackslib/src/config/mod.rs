@@ -1260,8 +1260,8 @@ pub struct BurnchainConfig {
     /// The network-specific identifier used in P2P communication and database initialization.
     /// ---
     /// @default: |
-    ///   - [`CHAIN_ID_MAINNET`] if [`BurnchainConfig::mode`] is `"mainnet"`
-    ///   - [`CHAIN_ID_TESTNET`] otherwise
+    ///   - if [`BurnchainConfig::mode`] is `"mainnet"`: [`CHAIN_ID_MAINNET`]
+    ///   - else: [`CHAIN_ID_TESTNET`]
     /// @notes:
     ///   - **Warning:** Do not modify this unless you really know what you're doing.
     ///   - This is intended strictly for testing purposes.
@@ -1270,8 +1270,8 @@ pub struct BurnchainConfig {
     /// This parameter cannot be set via the configuration file.
     /// ---
     /// @default: |
-    ///   - [`PEER_VERSION_MAINNET`] if [`BurnchainConfig::mode`] is `"mainnet"`
-    ///   - [`PEER_VERSION_TESTNET`] otherwise
+    ///   - if [`BurnchainConfig::mode`] is `"mainnet"`: [`PEER_VERSION_MAINNET`]
+    ///   - else: [`PEER_VERSION_TESTNET`]
     /// @notes:
     ///   - **Warning:** Do not modify this unless you really know what you're doing.
     pub peer_version: u32,
@@ -1348,8 +1348,8 @@ pub struct BurnchainConfig {
     /// Configured as a 2-character ASCII string (e.g., "X2" for mainnet).
     /// ---
     /// @default: |
-    ///   - `"T2"` if [`BurnchainConfig::mode`] is `"xenon"`
-    ///   - `"X2"` otherwise
+    ///   - if [`BurnchainConfig::mode`] is `"xenon"`: `"T2"`
+    ///   - else: `"X2"`
     pub magic_bytes: MagicBytes,
     /// The public key associated with the local mining address for the underlying Bitcoin regtest node.
     /// Provided as a hex string representing an uncompressed public key.
@@ -2204,9 +2204,7 @@ pub struct NodeConfig {
     /// - If `false`: Burnchain processing continues without waiting. Allows miners to operate optimistically
     ///   but may necessitate unwinding later if the affirmed block alters the chain state.
     /// ---
-    /// @default: |
-    ///   - `true` if [`NodeConfig::miner`] is `false`
-    ///   - `false` if [`NodeConfig::miner`] is `true`
+    /// @default: Derived from the inverse of [`NodeConfig::miner`] value.
     pub require_affirmed_anchor_blocks: bool,
     /// Controls if the node must strictly wait for any PoX anchor block selected by the core consensus mechanism.
     /// - If `true`: Halts burnchain processing immediately whenever a selected anchor block is missing locally
@@ -2250,10 +2248,10 @@ pub struct NodeConfig {
     /// e.g., "SP000000000000000000002Q6VF78.pox-3") that this node should actively replicate.
     /// ---
     /// @default: |
-    ///   - If [`NodeConfig::miner`] is `true` or [`NodeConfig::stacker`] is `true`, relevant system contracts
+    ///   - if [`NodeConfig::miner`] is `true` or [`NodeConfig::stacker`] is `true`: relevant system contracts
     ///     (like `.miners`, `.signers-*`) are automatically added in addition to any contracts
     ///     specified in the configuration file.
-    ///   - Otherwise, defaults to an empty list `[]` if not specified in the TOML.
+    ///   - else: defaults to an empty list `[]`.
     /// @notes:
     ///   - Values are strings representing qualified contract identifiers.
     /// @toml_example: |
@@ -2803,8 +2801,8 @@ pub struct MinerConfig {
     /// This key must be present at runtime for mining operations to succeed.
     /// ---
     /// @default: |
-    ///   - [`NodeConfig::seed`] if the `[miner]` section *is present* in the config file
-    ///   - `None` if the `[miner]` section *is not present*
+    ///   - if the `[miner]` section *is present* in the config file: [`NodeConfig::seed`]
+    ///   - else: `None`
     pub mining_key: Option<Secp256k1PrivateKey>,
     /// Amount of time while mining in nakamoto to wait in between mining interim blocks.
     /// ---
@@ -3449,8 +3447,8 @@ pub struct ConnectionOptionsFile {
     /// how much historical inventory information is requested in each sync attempt.
     /// ---
     /// @default: |
-    ///   - `3` if [`BurnchainConfig::mode`] is `"mainnet"`
-    ///   - [`INV_REWARD_CYCLES_TESTNET`] otherwise
+    ///   - if [`BurnchainConfig::mode`] is `"mainnet"`: `3`
+    ///   - else: [`INV_REWARD_CYCLES_TESTNET`]
     /// @units: PoX reward cycles
     pub inv_reward_cycles: Option<u64>,
     /// The Public IPv4 address and port (e.g. "203.0.113.42:20444") to advertise to other nodes.
@@ -3492,6 +3490,9 @@ pub struct ConnectionOptionsFile {
     /// ---
     /// @default: `None` (feature disabled)
     /// @notes:
+    ///   - If set to a positive value, the node will periodically disconnect all of its P2P peers at
+    ///     roughly this interval.
+    ///   - This simulates network churn or partitioning for testing node resilience.
     ///   - The code enforcing this behavior is conditionally compiled using `cfg!(test)` and is
     ///     only active during test runs.
     ///   - This setting has no effect in standard production builds.
