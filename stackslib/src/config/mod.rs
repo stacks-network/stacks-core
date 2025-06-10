@@ -1238,7 +1238,7 @@ pub struct BurnchainConfig {
     /// The underlying blockchain used for Proof-of-Transfer.
     /// ---
     /// @default: `"bitcoin"`
-    /// @notes: |
+    /// @notes:
     ///   - Currently, only `"bitcoin"` is supported.
     pub chain: String,
     /// The operational mode or network profile for the Stacks node.
@@ -1262,7 +1262,7 @@ pub struct BurnchainConfig {
     /// @default: |
     ///   - [`CHAIN_ID_MAINNET`] if [`BurnchainConfig::mode`] is `"mainnet"`
     ///   - [`CHAIN_ID_TESTNET`] otherwise
-    /// @notes: |
+    /// @notes:
     ///   - **Warning:** Do not modify this unless you really know what you're doing.
     ///   - This is intended strictly for testing purposes.
     pub chain_id: u32,
@@ -1272,7 +1272,7 @@ pub struct BurnchainConfig {
     /// @default: |
     ///   - [`PEER_VERSION_MAINNET`] if [`BurnchainConfig::mode`] is `"mainnet"`
     ///   - [`PEER_VERSION_TESTNET`] otherwise
-    /// @notes: |
+    /// @notes:
     ///   - **Warning:** Do not modify this unless you really know what you're doing.
     pub peer_version: u32,
     /// Specifies a mandatory wait period (in milliseconds) after receiving a burnchain tip
@@ -1282,7 +1282,7 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: `5_000`
     /// @units: milliseconds
-    /// @notes: |
+    /// @notes:
     ///   - This is intended strictly for testing purposes.
     pub commit_anchor_block_within: u64,
     /// The maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election.
@@ -1293,7 +1293,7 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: `20_000`
     /// @units: satoshis
-    /// @notes: |
+    /// @notes:
     ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub burn_fee_cap: u64,
     /// The hostname or IP address of the bitcoin node peer.
@@ -1319,14 +1319,14 @@ pub struct BurnchainConfig {
     /// Required if the bitcoin node requires RPC authentication.
     /// ---
     /// @default: `None`
-    /// @notes: |
+    /// @notes:
     ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub username: Option<String>,
     /// The password for authenticating with the bitcoin node's RPC interface.
     /// Required if the bitcoin node requires RPC authentication.
     /// ---
     /// @default: `None`
-    /// @notes: |
+    /// @notes:
     ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub password: Option<String>,
     /// Timeout duration, in seconds, for RPC calls made to the bitcoin node.
@@ -1362,7 +1362,7 @@ pub struct BurnchainConfig {
     /// when generating blocks on the regtest network.
     /// ---
     /// @default: `None`
-    /// @notes: |
+    /// @notes:
     ///   - Mandatory if [`BurnchainConfig::mode`] is "helium".
     ///   - This is intended strictly for testing purposes.
     pub local_mining_public_key: Option<String>,
@@ -1370,7 +1370,7 @@ pub struct BurnchainConfig {
     /// When bitcoin reaches this height, the node logs a message and initiates a graceful shutdown.
     /// ---
     /// @default: `None`
-    /// @notes: |
+    /// @notes:
     ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
     ///   - This is intended strictly for testing purposes.
     pub process_exit_at_block_height: Option<u64>,
@@ -1387,7 +1387,7 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: [`DEFAULT_SATS_PER_VB`]
     /// @units: sats/vByte
-    /// @notes: |
+    /// @notes:
     ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub satoshis_per_byte: u64,
     /// Maximum fee rate multiplier allowed when using Replace-By-Fee (RBF) for bitcoin transactions.
@@ -1397,7 +1397,7 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: [`DEFAULT_MAX_RBF_RATE`]
     /// @units: percent
-    /// @notes: |
+    /// @notes:
     ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub max_rbf: u64,
     /// Estimated size (in virtual bytes) of a leader key registration transaction on bitcoin.
@@ -1406,7 +1406,7 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: [`OP_TX_LEADER_KEY_ESTIM_SIZE`]
     /// @units: virtual bytes
-    /// @notes: |
+    /// @notes:
     ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub leader_key_tx_estimated_size: u64,
     /// Estimated size (in virtual bytes) of a block commit transaction on bitcoin.
@@ -1415,7 +1415,7 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: [`OP_TX_BLOCK_COMMIT_ESTIM_SIZE`]
     /// @units: virtual bytes
-    /// @notes: |
+    /// @notes:
     ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub block_commit_tx_estimated_size: u64,
     /// The incremental amount (in sats/vByte) to add to the previous transaction's
@@ -1423,14 +1423,14 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: [`DEFAULT_RBF_FEE_RATE_INCREMENT`]
     /// @units: sats/vByte
-    /// @notes: |
+    /// @notes:
     ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub rbf_fee_increment: u64,
     /// Overrides the default starting bitcoin block height for the node.
     /// Allows starting synchronization from a specific historical point in test environments.
     /// ---
     /// @default: `None` (uses the burnchain's default starting height for the mode)
-    /// @notes: |
+    /// @notes:
     ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
     ///   - This is intended strictly for testing purposes.
     ///   - Should be used together with [`BurnchainConfig::first_burn_block_timestamp`] and
@@ -1439,7 +1439,7 @@ pub struct BurnchainConfig {
     /// Overrides the default starting block timestamp of the burnchain.
     /// ---
     /// @default: `None` (uses the burnchain's default starting timestamp)
-    /// @notes: |
+    /// @notes:
     ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
     ///   - This is intended strictly for testing purposes.
     ///   - Should be used together with [`BurnchainConfig::first_burn_block_height`] and
@@ -1448,7 +1448,7 @@ pub struct BurnchainConfig {
     /// Overrides the default starting block hash of the burnchain.
     /// ---
     /// @default: `None` (uses the burnchain's default starting block hash)
-    /// @notes: |
+    /// @notes:
     ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
     ///   - This is intended strictly for testing purposes.
     ///   - Should be used together with [`BurnchainConfig::first_burn_block_height`] and
@@ -1471,7 +1471,7 @@ pub struct BurnchainConfig {
     /// - The number of defined epochs cannot exceed the maximum supported by the node software.
     /// ---
     /// @default: `None` (uses the standard epoch definitions for the selected [`BurnchainConfig::mode`])
-    /// @notes: |
+    /// @notes:
     ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
     ///   - This is intended strictly for testing purposes.
     ///   - Configured as a list `[[burnchain.epochs]]` in TOML, each with `epoch_name` (string)
@@ -1499,7 +1499,7 @@ pub struct BurnchainConfig {
     ///   - However, the height specified in `epochs` for Epoch 2.1 takes precedence.
     /// ---
     /// @default: `None`
-    /// @notes: |
+    /// @notes:
     ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
     ///   - This is intended strictly for testing purposes.
     pub pox_2_activation: Option<u32>,
@@ -1507,7 +1507,7 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: `None` (uses the standard reward cycle length for the mode)
     /// @units: bitcoin blocks
-    /// @notes: |
+    /// @notes:
     ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
     ///   - This is intended strictly for testing purposes.
     pub pox_reward_length: Option<u32>,
@@ -1515,7 +1515,7 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: `None` (uses the standard prepare phase length for the mode)
     /// @units: bitcoin blocks
-    /// @notes: |
+    /// @notes:
     ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
     ///   - This is intended strictly for testing purposes.
     pub pox_prepare_length: Option<u32>,
@@ -1527,7 +1527,7 @@ pub struct BurnchainConfig {
     /// @default: `None` (uses the standard sunset start height for the mode)
     /// @deprecated: The sunset phase was removed in Epoch 2.1. This parameter can still be used for
     ///   testing purposes for epochs before 2.1.
-    /// @notes: |
+    /// @notes:
     ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
     ///   - This is intended strictly for testing purposes.
     pub sunset_start: Option<u32>,
@@ -1538,7 +1538,7 @@ pub struct BurnchainConfig {
     /// @default: `None` (uses the standard sunset end height for the mode)
     /// @deprecated: The sunset phase was removed in Epoch 2.1. This parameter can still be used for
     ///   testing purposes for epochs before 2.1.
-    /// @notes: |
+    /// @notes:
     ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
     ///   - This is intended strictly for testing purposes.
     pub sunset_end: Option<u32>,
@@ -1550,7 +1550,7 @@ pub struct BurnchainConfig {
     /// separate wallets.
     /// ---
     /// @default: `""` (empty string, implying the default wallet or no specific wallet needed)
-    /// @notes: |
+    /// @notes:
     ///   - Primarily relevant for miners interacting with multi-wallet Bitcoin nodes.
     pub wallet_name: String,
     /// Override for the burnchain height activating stricter AST size checks pre-epoch 3.0 for testing purposes.
@@ -1571,7 +1571,7 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: Empty map
     /// @deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
-    /// @notes: |
+    /// @notes:
     ///   - Primarily used for testing or recovering from network issues.
     ///   - Configured as a list `[[burnchain.affirmation_overrides]]` in TOML, each with
     ///     `reward_cycle` (integer) and `affirmation` (string of 'p'/'n'/'a', length `reward_cycle - 1`).
@@ -1585,7 +1585,7 @@ pub struct BurnchainConfig {
     /// ---
     /// @default: `0` (no delay)
     /// @units: milliseconds
-    /// @notes: |
+    /// @notes:
     ///   - This is intended strictly for testing purposes.
     pub fault_injection_burnchain_block_delay: u64,
     /// The maximum number of unspent transaction outputs (UTXOs) to request from the bitcoin node.
@@ -1600,7 +1600,7 @@ pub struct BurnchainConfig {
     /// for a transaction, even if sufficient funds exist across more UTXOs not returned by the limited query.
     /// ---
     /// @default: `1024`
-    /// @notes: |
+    /// @notes:
     ///   - This value must be `<= 1024`.
     ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub max_unspent_utxos: Option<u64>,
@@ -2015,7 +2015,7 @@ pub struct NodeConfig {
     /// If [`MinerConfig::mining_key`] is not set, this seed may also be used for mining-related signing.
     /// ---
     /// @default: Randomly generated 32 bytes
-    /// @notes: |
+    /// @notes:
     ///   - Required if [`NodeConfig::miner`] is `true` and [`MinerConfig::mining_key`] is absent.
     pub seed: Vec<u8>,
     /// The file system absolute path to the node's working directory.
@@ -2024,7 +2024,7 @@ pub struct NodeConfig {
     /// This path can be overridden by setting the `STACKS_WORKING_DIR` environment variable.
     /// ---
     /// @default: `/tmp/stacks-node-{current_timestamp}`
-    /// @notes: |
+    /// @notes:
     ///   - For persistent mainnet or testnet nodes, this path must be explicitly configured to
     ///     a non-temporary location.
     pub working_dir: String,
@@ -2042,14 +2042,14 @@ pub struct NodeConfig {
     /// as its HTTP RPC endpoint. Other nodes or services might use this URL to query the node's API.
     /// ---
     /// @default: Derived by adding "http://" prefix to [`NodeConfig::rpc_bind`] value.
-    /// @notes: |
+    /// @notes:
     ///   - Example: For rpc_bind="0.0.0.0:20443", data_url becomes "http://0.0.0.0:20443".
     pub data_url: String,
     /// The publicly accessible IPv4 address and port that this node advertises to peers for P2P connections.
     /// This might differ from [`NodeConfig::p2p_bind`] if the node is behind NAT or a proxy.
     /// ---
     /// @default: Derived directly from [`NodeConfig::rpc_bind`] value.
-    /// @notes: |
+    /// @notes:
     ///   - Example: For rpc_bind="0.0.0.0:20443", p2p_address becomes "0.0.0.0:20443".
     ///   - The default value derivation might be unexpected, potentially using the
     ///     [`NodeConfig::rpc_bind`] address; explicit configuration is recommended if needed.
@@ -2094,7 +2094,7 @@ pub struct NodeConfig {
     /// real bitcoin consensus or P2P block production process.
     /// ---
     /// @default: `false`
-    /// @notes: |
+    /// @notes:
     ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub mock_mining: bool,
     /// If [`NodeConfig::mock_mining`] is enabled, this specifies an optional directory path where the
@@ -2113,7 +2113,7 @@ pub struct NodeConfig {
     /// ---
     /// @default: `30_000` (30 seconds)
     /// @deprecated: This setting is ignored in Epoch 2.5+.
-    /// @notes: |
+    /// @notes:
     ///   - Only applies when [`NodeConfig::mine_microblocks`] is true and before Epoch 2.5.
     /// @units: milliseconds
     pub microblock_frequency: u64,
@@ -2126,7 +2126,7 @@ pub struct NodeConfig {
     /// ---
     /// @default: `30_000` (30 seconds)
     /// @deprecated: This setting is ignored in Epoch 2.5+.
-    /// @notes: |
+    /// @notes:
     ///   - Only applies when [`NodeConfig::mine_microblocks`] is true and before Epoch 2.5.
     /// @units: milliseconds
     pub wait_time_for_microblocks: u64,
@@ -2185,7 +2185,7 @@ pub struct NodeConfig {
     /// This is intended strictly for testing purposes and is disallowed on mainnet.
     /// ---
     /// @default: `None` (uses standard network genesis)
-    /// @notes: |
+    /// @notes:
     ///   - This is intended strictly for testing purposes and is disallowed on mainnet.
     pub use_test_genesis_chainstate: Option<bool>,
     /// Controls if Stacks Epoch 2.1+ affirmation map logic should be applied even before Epoch 2.1.
@@ -2216,7 +2216,7 @@ pub struct NodeConfig {
     /// Normal operation requires this to be `true`; setting to `false` will likely break consensus adherence.
     /// ---
     /// @default: `true`
-    /// @notes: |
+    /// @notes:
     ///   - This parameter cannot be set via the configuration file;
     ///     it must be modified programmatically.
     ///   - This is intended strictly for testing purposes.
@@ -2228,7 +2228,7 @@ pub struct NodeConfig {
     /// to its peers.
     /// ---
     /// @default: `None` (no fault injection)
-    /// @notes: |
+    /// @notes:
     ///   - Values: 0-100 (percentage).
     pub fault_injection_block_push_fail_probability: Option<u8>,
     /// Fault injection setting for testing purposes. If `true`, the node's chainstate database
@@ -2236,7 +2236,7 @@ pub struct NodeConfig {
     /// simulating block hiding or data unavailability.
     /// ---
     /// @default: `false`
-    /// @notes: |
+    /// @notes:
     ///   - This parameter cannot be set via the configuration file; it must be modified programmatically.
     pub fault_injection_hide_blocks: bool,
     /// The polling interval, in seconds, for the background thread that monitors chain liveness.
@@ -2254,7 +2254,7 @@ pub struct NodeConfig {
     ///     (like `.miners`, `.signers-*`) are automatically added in addition to any contracts
     ///     specified in the configuration file.
     ///   - Otherwise, defaults to an empty list `[]` if not specified in the TOML.
-    /// @notes: |
+    /// @notes:
     ///   - Values are strings representing qualified contract identifiers.
     /// @toml_example: |
     ///   stacker_dbs = [
@@ -2744,7 +2744,7 @@ pub struct MinerConfig {
     /// ---
     /// @default: `25` (25% chance)
     /// @units: percent
-    /// @notes: |
+    /// @notes:
     ///   - Values: 0-100.
     pub probability_pick_no_estimate_tx: u8,
     /// Optional recipient for the coinbase block reward, overriding the default miner address.
@@ -2773,7 +2773,7 @@ pub struct MinerConfig {
     /// ---
     /// @default: `1048576` (1 MiB)
     /// @units: bytes
-    /// @notes: |
+    /// @notes:
     ///   - Must be configured to a value greater than 0.
     pub nonce_cache_size: usize,
     /// Max size (in *number* of items) of transaction candidates to hold in the in-memory
@@ -2789,7 +2789,7 @@ pub struct MinerConfig {
     /// ---
     /// @default: `1048576`
     /// @units: items
-    /// @notes: |
+    /// @notes:
     ///   - Each element [`crate::core::mempool::MemPoolTxInfoPartial`] is currently 112 bytes.
     pub candidate_retry_cache_size: usize,
     /// Amount of time (in seconds) to wait for unprocessed blocks before mining a new block.
@@ -2942,7 +2942,7 @@ pub struct MinerConfig {
     /// ---
     /// @default: `false` (Should only default true if [`MinerConfig::mining_key`] is set).
     /// @deprecated: This setting is ignored in Epoch 3.0+.
-    /// @notes: |
+    /// @notes:
     ///   - This is intended strictly for testing Epoch 2.5 conditions.
     pub pre_nakamoto_mock_signing: bool,
     /// The minimum time to wait between mining blocks in milliseconds. The value must be greater
@@ -3003,7 +3003,7 @@ pub struct MinerConfig {
     /// ---
     /// @default: [`DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE`]
     /// @units: percent
-    /// @notes: |
+    /// @notes:
     ///   - Values: 1-100.
     ///   - Setting to 100 effectively disables this per-block limit, allowing a block to use the
     ///     entire remaining tenure budget.
@@ -3051,7 +3051,7 @@ pub struct MinerConfig {
     /// ---
     /// @default: [`DEFAULT_TENURE_EXTEND_COST_THRESHOLD`]
     /// @units: percent
-    /// @notes: |
+    /// @notes:
     ///   - Values: 0-100.
     pub tenure_extend_cost_threshold: u64,
     /// Defines adaptive timeouts for waiting for signer responses, based on the accumulated weight of rejections.
@@ -3072,7 +3072,7 @@ pub struct MinerConfig {
     /// A key for 0 (zero rejections) must be defined, representing the initial timeout when no rejections have been received.
     /// ---
     /// @default: `{ 0: 180, 10: 90, 20: 45, 30: 0 }` (times in seconds)
-    /// @notes: |
+    /// @notes:
     ///   - Keys are rejection weight percentages (0-100).
     ///   - Values are timeout durations.
     /// @toml_example: |
@@ -3376,7 +3376,7 @@ pub struct ConnectionOptionsFile {
     /// Maximum total size (in bytes) of data allowed to be written during a read-only call.
     /// ---
     /// @default: `0`
-    /// @notes: |
+    /// @notes:
     ///   - This limit is effectively forced to 0 by the API handler, ensuring read-only behavior.
     ///   - Configuring a non-zero value has no effect on read-only call execution.
     /// @units: bytes
@@ -3390,7 +3390,7 @@ pub struct ConnectionOptionsFile {
     /// Maximum number of distinct write operations allowed during a read-only call.
     /// ---
     /// @default: `0`
-    /// @notes: |
+    /// @notes:
     ///   - This limit is effectively forced to 0 by the API handler, ensuring read-only behavior.
     ///   - Configuring a non-zero value has no effect on read-only call execution.
     pub read_only_call_limit_write_count: Option<u64>,
@@ -3414,7 +3414,7 @@ pub struct ConnectionOptionsFile {
     /// ---
     /// @default: `83_886_080` (80 MiB)
     /// @units: bytes
-    /// @notes: |
+    /// @notes:
     ///   - Calculated as 20 * [`clarity::vm::types::BOUND_VALUE_SERIALIZATION_HEX`].
     pub maximum_call_argument_size: Option<u32>,
     /// Minimum interval (in seconds) between consecutive block download scans in epoch 2.x.
@@ -3464,7 +3464,7 @@ pub struct ConnectionOptionsFile {
     /// Walks will only initiate from seed/bootstrap peers, outbound connections, or pingbacks.
     /// ---
     /// @default: `false`
-    /// @notes: |
+    /// @notes:
     ///   - Primarily intended for testing or specific network debugging scenarios.
     pub disable_inbound_walks: Option<bool>,
     /// If true, prevents the node from processing initial handshake messages from new inbound P2P connections.
@@ -3473,7 +3473,7 @@ pub struct ConnectionOptionsFile {
     /// Outbound connections initiated by this node are unaffected.
     /// ---
     /// @default: `false`
-    /// @notes: |
+    /// @notes:
     ///   - Primarily intended for testing purposes.
     pub disable_inbound_handshakes: Option<bool>,
     /// If true, completely disables the block download state machine.
@@ -3482,7 +3482,7 @@ pub struct ConnectionOptionsFile {
     /// legacy blocks) from peers.
     /// ---
     /// @default: `false`
-    /// @notes: |
+    /// @notes:
     ///   - Intended for testing or specialized node configurations.
     pub disable_block_download: Option<bool>,
     /// Fault injection setting for testing purposes. Interval (in seconds) for forced disconnection of all peers.
@@ -3491,7 +3491,7 @@ pub struct ConnectionOptionsFile {
     /// roughly this interval. This simulates network churn or partitioning for testing node resilience.
     /// ---
     /// @default: `None` (feature disabled)
-    /// @notes: |
+    /// @notes:
     ///   - The code enforcing this behavior is conditionally compiled using `cfg!(test)` and is
     ///     only active during test runs.
     ///   - This setting has no effect in standard production builds.
@@ -3531,7 +3531,7 @@ pub struct ConnectionOptionsFile {
     /// It is also used to authenticate requests to `/v2/blocks?broadcast=1`.
     /// ---
     /// @default: `None` (authentication disabled for relevant endpoints)
-    /// @notes: |
+    /// @notes:
     ///   - This field **must** be configured if the node needs to receive
     ///     block proposals from a configured `stacks-signer` [[events_observer]]
     ///     via the `/v3/block_proposal` endpoint.
@@ -3573,7 +3573,7 @@ pub struct ConnectionOptionsFile {
     ///     `{"ip": "...", "port": ..., "public_key_hash": "..."}`
     /// ---
     /// @default: `None` (no hints provided)
-    /// @notes: |
+    /// @notes:
     ///   - Use this option with caution, primarily for advanced testing or bootstrapping.
     /// @toml_example: |
     ///   stackerdb_hint_replicas = '''
@@ -3918,7 +3918,7 @@ pub struct FeeEstimationConfigFile {
     ///   cost estimation.
     /// ---
     /// @default: `"NaivePessimistic"`
-    /// @notes: |
+    /// @notes:
     ///   - If [`FeeEstimationConfigFile::disabled`] is `true`, the node will
     ///     use the default unit cost estimator.
     pub cost_estimator: Option<String>,
@@ -3933,7 +3933,7 @@ pub struct FeeEstimationConfigFile {
     ///   by adding unpredictability to fee estimates while still maintaining accuracy.
     /// ---
     /// @default: `"ScalarFeeRate"`
-    /// @notes: |
+    /// @notes:
     ///   - If [`FeeEstimationConfigFile::disabled`] is `true`, the node will
     ///     use the default unit fee estimator.
     pub fee_estimator: Option<String>,
@@ -3946,7 +3946,7 @@ pub struct FeeEstimationConfigFile {
     ///   proportional to how much of the block limit they consume.
     /// ---
     /// @default: `"ProportionDotProduct"`
-    /// @notes: |
+    /// @notes:
     ///   - If [`FeeEstimationConfigFile::disabled`] is `true`, the node will
     ///     use the default unit cost metric.
     pub cost_metric: Option<String>,
@@ -3963,7 +3963,7 @@ pub struct FeeEstimationConfigFile {
     /// This setting takes precedence over individual estimator/metric configurations.
     /// ---
     /// @default: `false`
-    /// @notes: |
+    /// @notes:
     ///   - When `true`, the values for [`FeeEstimationConfigFile::cost_estimator`],
     ///     [`FeeEstimationConfigFile::fee_estimator`], and [`FeeEstimationConfigFile::cost_metric`] are ignored.
     pub disabled: Option<bool>,
@@ -3980,7 +3980,7 @@ pub struct FeeEstimationConfigFile {
     /// for users to precisely optimize their fees while still providing reasonable estimates.
     /// ---
     /// @default: `0.1` (10%)
-    /// @notes: |
+    /// @notes:
     ///   - This setting is only relevant when [`FeeEstimationConfigFile::fee_estimator`] is set to
     ///     `"FuzzedWeightedMedianFeeRate"`.
     pub fee_rate_fuzzer_fraction: Option<f64>,
@@ -3995,7 +3995,7 @@ pub struct FeeEstimationConfigFile {
     /// adapt to rapid network changes.
     /// ---
     /// @default: `5`
-    /// @notes: |
+    /// @notes:
     ///   - This setting is primarily relevant when [`FeeEstimationConfigFile::fee_estimator`] is set to
     ///     `"FuzzedWeightedMedianFeeRate"`, as it's used by the underlying [`WeightedMedianFeeRateEstimator`].
     pub fee_rate_window_size: Option<u64>,
@@ -4265,7 +4265,7 @@ pub struct EventObserverConfigFile {
     /// ---
     /// @default: No default.
     /// @required: true
-    /// @notes: |
+    /// @notes:
     ///   - **Do NOT include the `http://` scheme in this configuration value.**
     /// @toml_example: |
     ///   endpoint = "localhost:3700"
@@ -4329,7 +4329,7 @@ pub struct EventObserverConfigFile {
     /// ---
     /// @default: No default.
     /// @required: true
-    /// @notes: |
+    /// @notes:
     ///   - For a more detailed documentation check the event-dispatcher docs in the `/docs` folder.
     /// @toml_example: |
     ///   events_keys = [
@@ -4362,7 +4362,7 @@ pub struct EventObserverConfigFile {
     ///   will be made for that specific event.
     /// ---
     /// @default: `false` (retries are enabled)
-    /// @notes: |
+    /// @notes:
     ///   - **Warning:** Setting this to `true` can lead to missed events if the observer endpoint is temporarily unavailable or experiences issues.
     pub disable_retries: Option<bool>,
 }
