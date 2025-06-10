@@ -30,7 +30,7 @@ use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId, StacksAddress
 use clarity::types::PrivateKey;
 use libsigner::v0::messages::RejectReason;
 use libsigner::v0::signer_state::{
-    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
+    CreationTime, GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
 };
 use libsigner::{BlockProposal, BlockProposalData};
 use stacks_common::bitvec::BitVec;
@@ -140,7 +140,7 @@ fn setup_test_environment(
         },
         active_signer_protocol_version: 0,
         tx_replay_set: ReplayTransactionSet::none(),
-        creation_time: SystemTime::now(),
+        creation_time: CreationTime::now(),
     };
 
     let sortitions_view = SortitionsView {

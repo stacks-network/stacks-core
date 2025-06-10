@@ -160,11 +160,10 @@ impl GlobalStateEvaluator {
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
                 tx_replay_set: ReplayTransactionSet::none(),
-                creation_time: SystemTime::now(),
+                creation_time: CreationTime::now(),
             };
-            let entry = state_views
-                .entry(state_machine.clone())
-                .or_insert_with(|| 0);
+            let key = SignerStateMachineKey(state_machine.clone());
+            let entry = state_views.entry(key).or_insert_with(|| 0);
             *entry += weight;
 
             if self.reached_agreement(*entry) {
@@ -281,7 +280,7 @@ impl Default for ReplayTransactionSet {
 /// A signer state machine view. This struct can
 ///  be used to encode the local signer's view or
 ///  the global view.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq)]
 pub struct SignerStateMachine {
     /// The tip burn block (i.e., the latest bitcoin block) seen by this signer
     pub burn_block: ConsensusHash,
@@ -294,30 +293,58 @@ pub struct SignerStateMachine {
     /// Transaction replay set
     pub tx_replay_set: ReplayTransactionSet,
     /// The time when this state machine was initialized
-    pub creation_time: SystemTime,
+    pub creation_time: CreationTime,
 }
 
-impl PartialEq for SignerStateMachine {
-    fn eq(&self, other: &Self) -> bool {
-        // creation_time is intentionally ignored
-        // tx_replay_set is intentionally ignored
-        self.burn_block == other.burn_block
-            && self.burn_block_height == other.burn_block_height
-            && self.current_miner == other.current_miner
-            && self.active_signer_protocol_version == other.active_signer_protocol_version
+/// A wrapped SystemTime to enforce equality regardless of the value
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreationTime(pub SystemTime);
+
+impl CreationTime {
+    /// Creates a Creation Time with SystemTime::now()
+    pub fn now() -> Self {
+        CreationTime(SystemTime::now())
     }
 }
 
-impl Eq for SignerStateMachine {}
+impl PartialEq for CreationTime {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
 
-impl Hash for SignerStateMachine {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        // creation_time is intentionally ignored
+impl Eq for CreationTime {}
+
+impl Hash for CreationTime {
+    fn hash<H: Hasher>(&self, _: &mut H) {}
+}
+
+#[derive(Debug)]
+/// A wrapped SignerStateMachine that implements a very specific hash that enables properly ignoring the
+/// tx_replay_set when evaluating the global signer state machine
+pub struct SignerStateMachineKey(SignerStateMachine);
+
+impl PartialEq for SignerStateMachineKey {
+    fn eq(&self, other: &Self) -> bool {
         // tx_replay_set is intentionally ignored
-        self.burn_block.hash(state);
-        self.burn_block_height.hash(state);
-        self.current_miner.hash(state);
-        self.active_signer_protocol_version.hash(state);
+        self.0.burn_block == other.0.burn_block
+            && self.0.burn_block_height == other.0.burn_block_height
+            && self.0.current_miner == other.0.current_miner
+            && self.0.active_signer_protocol_version == other.0.active_signer_protocol_version
+            && self.0.creation_time == other.0.creation_time // This doesn't actually do anything. But include for completeness sake.
+    }
+}
+
+impl Eq for SignerStateMachineKey {}
+
+impl Hash for SignerStateMachineKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // tx_replay_set is intentionally ignored
+        self.0.burn_block.hash(state);
+        self.0.burn_block_height.hash(state);
+        self.0.current_miner.hash(state);
+        self.0.active_signer_protocol_version.hash(state);
+        self.0.creation_time.hash(state); // This doesn't actually do anything. But include for completeness sake.
     }
 }
 

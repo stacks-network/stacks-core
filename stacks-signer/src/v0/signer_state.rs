@@ -30,7 +30,7 @@ use libsigner::v0::messages::{
     StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
 use libsigner::v0::signer_state::{
-    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
+    CreationTime, GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
 };
 use serde::{Deserialize, Serialize};
 use stacks_common::codec::Error as CodecError;
@@ -104,7 +104,7 @@ impl LocalStateMachine {
     pub fn get_creation_time(&self) -> Option<SystemTime> {
         match self {
             LocalStateMachine::Initialized(update)
-            | LocalStateMachine::Pending { prior: update, .. } => Some(update.creation_time),
+            | LocalStateMachine::Pending { prior: update, .. } => Some(update.creation_time.0),
             LocalStateMachine::Uninitialized => None,
         }
     }
@@ -169,7 +169,7 @@ impl LocalStateMachine {
             current_miner: MinerState::NoValidMiner,
             active_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
             tx_replay_set: ReplayTransactionSet::none(),
-            creation_time: SystemTime::now(),
+            creation_time: CreationTime::now(),
         }
     }
 
@@ -560,7 +560,7 @@ impl LocalStateMachine {
             current_miner: miner_state,
             active_signer_protocol_version: prior_state_machine.active_signer_protocol_version,
             tx_replay_set,
-            creation_time: SystemTime::now(),
+            creation_time: CreationTime::now(),
         });
 
         if prior_state != *self {
@@ -633,7 +633,7 @@ impl LocalStateMachine {
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
                 tx_replay_set,
-                creation_time: SystemTime::now(),
+                creation_time: CreationTime::now(),
             });
             // Because we updated our active signer protocol version, update local_update so its included in the subsequent evaluations
             let Ok(update) =
@@ -703,7 +703,7 @@ impl LocalStateMachine {
                 current_miner: (&new_miner).into(),
                 active_signer_protocol_version,
                 tx_replay_set,
-                creation_time: SystemTime::now(),
+                creation_time: CreationTime::now(),
             });
         }
     }

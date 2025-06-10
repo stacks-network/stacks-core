@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 use std::{env, thread};
 
 use clarity::vm::ast::ASTRules;
@@ -34,7 +34,7 @@ use libsigner::v0::messages::{
     StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
 use libsigner::v0::signer_state::{
-    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
+    CreationTime, GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
 };
 use libsigner::{SignerSession, StackerDBSession};
 use rand::{thread_rng, Rng};
@@ -6645,7 +6645,7 @@ fn signer_chainstate() {
                 current_miner: miner_state,
                 active_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
                 tx_replay_set: ReplayTransactionSet::none(),
-                creation_time: SystemTime::now(),
+                creation_time: CreationTime::now(),
             };
 
             SortitionsView {

@@ -3629,28 +3629,9 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
         "---- Wait for block pushed at stacks block height {} ----",
         stacks_height_before + 2
     );
-    let mut block = None;
-    wait_for(30, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
-            if let SignerMessage::BlockPushed(pushed_block) = message {
-                if pushed_block.header.signer_signature_hash()
-                    != rejected_block.header.signer_signature_hash()
-                    && pushed_block.header.chain_length == stacks_height_before + 2
-                {
-                    block = Some(pushed_block);
-                    return Ok(true);
-                }
-            }
-        }
-        Ok(false)
-    })
-    .expect("Timed out waiting for pushed block after fork");
-    let accepted_block = block.expect("No block found");
+    let accepted_block =
+        wait_for_block_pushed_by_miner_key(30, stacks_height_before + 2, &stacks_miner_pk)
+            .expect("Failed to mine block stacks_height_before + 2");
     info!(
         "---- Ensure signers accept block at height {:?} with a valid transaction replay ----",
         stacks_height_before + 2

@@ -29,7 +29,9 @@ use crate::v0::messages::{
     StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,
     StateMachineUpdateMinerState,
 };
-use crate::v0::signer_state::{GlobalStateEvaluator, ReplayTransactionSet, SignerStateMachine};
+use crate::v0::signer_state::{
+    CreationTime, GlobalStateEvaluator, ReplayTransactionSet, SignerStateMachine,
+};
 
 fn generate_global_state_evaluator(num_addresses: u32) -> GlobalStateEvaluator {
     let address_weights = generate_random_address_with_equal_weights(num_addresses);
@@ -243,7 +245,7 @@ fn determine_global_states() {
         current_miner: (&current_miner).into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
         tx_replay_set: ReplayTransactionSet::none(),
-        creation_time: SystemTime::now(),
+        creation_time: CreationTime::now(),
     };
 
     global_eval.insert_update(local_address, local_update);
@@ -283,7 +285,7 @@ fn determine_global_states() {
         current_miner: (&new_miner).into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
         tx_replay_set: ReplayTransactionSet::none(),
-        creation_time: SystemTime::now(),
+        creation_time: CreationTime::now(),
     };
 
     global_eval.insert_update(local_address, new_update);
@@ -324,7 +326,7 @@ fn determine_global_states_with_tx_replay_set() {
         current_miner: (&current_miner).into(),
         active_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
         tx_replay_set: ReplayTransactionSet::none(),
-        creation_time: SystemTime::now(),
+        creation_time: CreationTime::now(),
     };
 
     let burn_block = ConsensusHash([20u8; 20]);
@@ -362,7 +364,7 @@ fn determine_global_states_with_tx_replay_set() {
         current_miner: (&current_miner).into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
         tx_replay_set: ReplayTransactionSet::none(),
-        creation_time: SystemTime::now(),
+        creation_time: CreationTime::now(),
     };
 
     // Let's tip the scales over to the correct burn view
@@ -419,7 +421,7 @@ fn determine_global_states_with_tx_replay_set() {
         current_miner: (&current_miner).into(),
         active_signer_protocol_version,
         tx_replay_set: ReplayTransactionSet::new(vec![tx]),
-        creation_time: SystemTime::now(),
+        creation_time: CreationTime::now(),
     };
 
     assert_eq!(
