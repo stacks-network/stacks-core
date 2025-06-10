@@ -139,16 +139,15 @@ Provides TOML configuration examples.
 
 #### `@required: <boolean>`
 Indicates whether the field is mandatory.
-- **Value Type**: Boolean (flexible parsing)
-- **Default**: `false` if annotation is omitted
+- **Value Type**: Boolean
+- **Default**: If annotation is omitted, the field is considered *not required*.
 - **Supported Values**:
-  - `true`, `True`, `TRUE`, `yes`, `Yes`, `YES`, `1` → `true`
-  - `false`, `False`, `FALSE`, `no`, `No`, `NO`, `0` → `false`
+  - ``true`
+  - `false`
   - Invalid values default to `false`
 - **Examples**:
   ```rust
   /// @required: true
-  /// @required: yes
   /// @required: false
   ```
 

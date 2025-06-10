@@ -460,19 +460,15 @@ fn parse_field_documentation(
 
         // Parse @required: annotations
         if let Some(required_text) = extract_annotation(metadata_section, "required") {
-            // Parse boolean value, handling common representations
-            let required_bool = match required_text.trim().to_lowercase().as_str() {
+            let required_bool = match required_text.trim() {
                 "" => false, // Empty string defaults to false
-                "true" | "yes" | "1" => true,
-                "false" | "no" | "0" => false,
-                _ => {
-                    // Default to false for invalid values, but could log a warning in the future
+                text => text.parse::<bool>().unwrap_or_else(|_| {
                     eprintln!(
                         "Warning: Invalid @required value '{}' for field '{}', defaulting to false",
-                        required_text, field_name
+                        text, field_name
                     );
                     false
-                }
+                }),
             };
             required = Some(required_bool);
         }
@@ -2177,17 +2173,17 @@ and includes various formatting.
         let result2 = parse_field_documentation(doc_text2, "field2").unwrap();
         assert_eq!(result2.0.required, Some(false));
 
-        // Test "yes" variant
+        // Test "TRUE" variant
         let doc_text3 = r#"Required field.
 ---
-@required: yes"#;
+@required: TRUE"#; // Needs to be lowercase, will default to false, but will log a warning
         let result3 = parse_field_documentation(doc_text3, "field3").unwrap();
-        assert_eq!(result3.0.required, Some(true));
+        assert_eq!(result3.0.required, Some(false));
 
-        // Test "no" variant
+        // Test "FALSE" variant
         let doc_text4 = r#"Optional field.
 ---
-@required: no"#;
+@required: FALSE"#; // Needs to be lowercase, will default to false, but will log a warning
         let result4 = parse_field_documentation(doc_text4, "field4").unwrap();
         assert_eq!(result4.0.required, Some(false));
 
@@ -2383,19 +2379,11 @@ and includes various formatting.
         // Test all supported boolean representations for @required
         let test_cases = vec![
             ("true", Some(true)),
-            ("True", Some(true)),
-            ("TRUE", Some(true)),
-            ("yes", Some(true)),
-            ("Yes", Some(true)),
-            ("YES", Some(true)),
-            ("1", Some(true)),
+            ("True", Some(false)), // Need to be lowercase
+            ("TRUE", Some(false)), // Need to be lowercase
             ("false", Some(false)),
-            ("False", Some(false)),
-            ("FALSE", Some(false)),
-            ("no", Some(false)),
-            ("No", Some(false)),
-            ("NO", Some(false)),
-            ("0", Some(false)),
+            ("False", Some(false)), // Will default to false, but will log a warning
+            ("FALSE", Some(false)), // Will default to false, but will log a warning
             ("maybe", Some(false)), // Invalid defaults to false
             ("invalid", Some(false)),
         ];
