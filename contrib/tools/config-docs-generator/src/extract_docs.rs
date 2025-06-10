@@ -51,6 +51,46 @@ struct ConfigDocs {
     referenced_constants: HashMap<String, Option<String>>, // Name -> Resolved Value (or None)
 }
 
+// JSON navigation helper functions
+/// Navigate through nested JSON structure using an array of keys
+/// Returns None if any part of the path doesn't exist
+///
+/// Example: get_json_path(value, &["inner", "struct", "kind"])
+/// is equivalent to value.get("inner")?.get("struct")?.get("kind")
+fn get_json_path<'a>(value: &'a serde_json::Value, path: &[&str]) -> Option<&'a serde_json::Value> {
+    let mut current = value;
+
+    for &key in path {
+        current = current.get(key)?;
+    }
+
+    Some(current)
+}
+
+/// Navigate to an array at the given JSON path
+/// Returns None if the path doesn't exist or the value is not an array
+fn get_json_array<'a>(
+    value: &'a serde_json::Value,
+    path: &[&str],
+) -> Option<&'a Vec<serde_json::Value>> {
+    get_json_path(value, path)?.as_array()
+}
+
+/// Navigate to an object at the given JSON path
+/// Returns None if the path doesn't exist or the value is not an object
+fn get_json_object<'a>(
+    value: &'a serde_json::Value,
+    path: &[&str],
+) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+    get_json_path(value, path)?.as_object()
+}
+
+/// Navigate to a string at the given JSON path
+/// Returns None if the path doesn't exist or the value is not a string
+fn get_json_string<'a>(value: &'a serde_json::Value, path: &[&str]) -> Option<&'a str> {
+    get_json_path(value, path)?.as_str()
+}
+
 fn main() -> Result<()> {
     let matches = ClapCommand::new("extract-docs")
         .about("Extract documentation from Rust source code using rustdoc JSON")
@@ -200,33 +240,28 @@ fn extract_config_docs_from_rustdoc(
     let mut all_referenced_constants = std::collections::HashSet::new();
 
     // Access the main index containing all items from the rustdoc JSON output
-    let index = rustdoc_json
-        .get("index")
-        .and_then(|v| v.as_object())
+    let index = get_json_object(rustdoc_json, &["index"])
         .context("Missing 'index' field in rustdoc JSON")?;
 
     for (_item_id, item) in index {
         // Extract the item's name from rustdoc JSON structure
-        if let Some(name) = item.get("name").and_then(|v| v.as_str()) {
-            // Navigate to the item's type information
-            if let Some(inner) = item.get("inner") {
-                // Check if this item is a struct by looking for the "struct" field
-                if let Some(_struct_data) = inner.get("struct") {
-                    // Check if this struct is in our target list (if specified)
-                    if let Some(targets) = target_structs {
-                        if !targets.contains(&name.to_string()) {
-                            continue;
-                        }
+        if let Some(name) = get_json_string(item, &["name"]) {
+            // Check if this item is a struct by looking for the "struct" field
+            if get_json_object(item, &["inner", "struct"]).is_some() {
+                // Check if this struct is in our target list (if specified)
+                if let Some(targets) = target_structs {
+                    if !targets.contains(&name.to_string()) {
+                        continue;
                     }
-
-                    let (struct_doc_opt, referenced_constants) =
-                        extract_struct_from_rustdoc_index(index, name, item)?;
-
-                    if let Some(struct_doc) = struct_doc_opt {
-                        structs.push(struct_doc);
-                    }
-                    all_referenced_constants.extend(referenced_constants);
                 }
+
+                let (struct_doc_opt, referenced_constants) =
+                    extract_struct_from_rustdoc_index(index, name, item)?;
+
+                if let Some(struct_doc) = struct_doc_opt {
+                    structs.push(struct_doc);
+                }
+                all_referenced_constants.extend(referenced_constants);
             }
         }
     }
@@ -252,10 +287,7 @@ fn extract_struct_from_rustdoc_index(
     let mut all_referenced_constants = std::collections::HashSet::new();
 
     // Extract struct documentation
-    let description = struct_item
-        .get("docs")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let description = get_json_string(struct_item, &["docs"]).map(|s| s.to_string());
 
     // Collect constant references from struct description
     if let Some(desc) = &description {
@@ -289,56 +321,43 @@ fn extract_struct_fields(
 
     // Navigate through rustdoc JSON structure to access struct fields
     // Path: item.inner.struct.kind.plain.fields[]
-    if let Some(inner) = struct_item.get("inner") {
-        if let Some(struct_data) = inner.get("struct") {
-            if let Some(kind) = struct_data.get("kind") {
-                if let Some(plain) = kind.get("plain") {
-                    // Access the array of field IDs that reference other items in the index
-                    if let Some(field_ids) = plain.get("fields").and_then(|v| v.as_array()) {
-                        for field_id in field_ids {
-                            // Field IDs can be either integers or strings in rustdoc JSON, try both formats
-                            let field_item = if let Some(field_id_num) = field_id.as_u64() {
-                                // Numeric field ID - convert to string for index lookup
-                                index.get(&field_id_num.to_string())
-                            } else if let Some(field_id_str) = field_id.as_str() {
-                                // String field ID - use directly for index lookup
-                                index.get(field_id_str)
-                            } else {
-                                None
-                            };
+    if let Some(field_ids) =
+        get_json_array(struct_item, &["inner", "struct", "kind", "plain", "fields"])
+    {
+        for field_id in field_ids {
+            // Field IDs can be either integers or strings in rustdoc JSON, try both formats
+            let field_item = if let Some(field_id_num) = field_id.as_u64() {
+                // Numeric field ID - convert to string for index lookup
+                index.get(&field_id_num.to_string())
+            } else if let Some(field_id_str) = field_id.as_str() {
+                // String field ID - use directly for index lookup
+                index.get(field_id_str)
+            } else {
+                None
+            };
 
-                            if let Some(field_item) = field_item {
-                                // Extract the field's name from the rustdoc item
-                                let field_name = field_item
-                                    .get("name")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("unknown")
-                                    .to_string();
+            if let Some(field_item) = field_item {
+                // Extract the field's name from the rustdoc item
+                let field_name = get_json_string(field_item, &["name"])
+                    .unwrap_or("unknown")
+                    .to_string();
 
-                                // Extract the field's documentation text from rustdoc
-                                let field_docs = field_item
-                                    .get("docs")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string();
+                // Extract the field's documentation text from rustdoc
+                let field_docs = get_json_string(field_item, &["docs"])
+                    .unwrap_or("")
+                    .to_string();
 
-                                // Parse the structured documentation
-                                let (field_doc, referenced_constants) =
-                                    parse_field_documentation(&field_docs, &field_name)?;
+                // Parse the structured documentation
+                let (field_doc, referenced_constants) =
+                    parse_field_documentation(&field_docs, &field_name)?;
 
-                                // Only include fields that have documentation
-                                if !field_doc.description.is_empty()
-                                    || field_doc.default_value.is_some()
-                                {
-                                    fields.push(field_doc);
-                                }
-
-                                // Extend referenced constants
-                                all_referenced_constants.extend(referenced_constants);
-                            }
-                        }
-                    }
+                // Only include fields that have documentation
+                if !field_doc.description.is_empty() || field_doc.default_value.is_some() {
+                    fields.push(field_doc);
                 }
+
+                // Extend referenced constants
+                all_referenced_constants.extend(referenced_constants);
             }
         }
     }
@@ -808,7 +827,7 @@ fn resolve_constant_reference(
         let json_file_path = format!("target/rustdoc-json/doc/{}.json", lib_name);
         if let Ok(json_content) = std::fs::read_to_string(&json_file_path) {
             if let Ok(rustdoc_json) = serde_json::from_str::<serde_json::Value>(&json_content) {
-                if let Some(index) = rustdoc_json.get("index").and_then(|v| v.as_object()) {
+                if let Some(index) = get_json_object(&rustdoc_json, &["index"]) {
                     if let Some(value) = resolve_constant_in_index(name, index) {
                         return Some(value);
                     }
@@ -827,60 +846,59 @@ fn resolve_constant_in_index(
     // Look for a constant with the given name in the rustdoc index
     for (_item_id, item) in rustdoc_index {
         // Check if this item's name matches the constant we're looking for
-        if let Some(item_name) = item.get("name").and_then(|v| v.as_str()) {
+        if let Some(item_name) = get_json_string(item, &["name"]) {
             if item_name == name {
-                // Navigate to the item's type information in rustdoc JSON
-                if let Some(inner) = item.get("inner") {
-                    // Check if this item is a constant by looking for the "constant" field
-                    if let Some(constant_data) = inner.get("constant") {
-                        // Try newer rustdoc JSON structure first (with nested 'const' field)
-                        if let Some(const_inner) = constant_data.get("const") {
-                            // For literal constants, prefer expr which doesn't have type suffix
-                            if let Some(is_literal) =
-                                const_inner.get("is_literal").and_then(|v| v.as_bool())
+                // Check if this item is a constant by looking for the "constant" field
+                if let Some(constant_data) = get_json_object(item, &["inner", "constant"]) {
+                    // Try newer rustdoc JSON structure first (with nested 'const' field)
+                    let constant_data_value = serde_json::Value::Object(constant_data.clone());
+                    if get_json_object(&constant_data_value, &["const"]).is_some() {
+                        // For literal constants, prefer expr which doesn't have type suffix
+                        if get_json_path(&constant_data_value, &["const", "is_literal"])
+                            .and_then(|v| v.as_bool())
+                            == Some(true)
+                        {
+                            // Access the expression field for literal constant values
+                            if let Some(expr) =
+                                get_json_string(&constant_data_value, &["const", "expr"])
                             {
-                                if is_literal {
-                                    // Access the expression field for literal constant values
-                                    if let Some(expr) =
-                                        const_inner.get("expr").and_then(|v| v.as_str())
-                                    {
-                                        if expr != "_" {
-                                            return Some(expr.to_string());
-                                        }
-                                    }
-                                }
-                            }
-
-                            // For computed constants or when expr is "_", use value but strip type suffix
-                            if let Some(value) = const_inner.get("value").and_then(|v| v.as_str()) {
-                                return Some(strip_type_suffix(value));
-                            }
-
-                            // Fallback to expr if value is not available
-                            if let Some(expr) = const_inner.get("expr").and_then(|v| v.as_str()) {
                                 if expr != "_" {
                                     return Some(expr.to_string());
                                 }
                             }
                         }
 
-                        // Fall back to older rustdoc JSON structure for compatibility
-                        if let Some(value) = constant_data.get("value").and_then(|v| v.as_str()) {
+                        // For computed constants or when expr is "_", use value but strip type suffix
+                        if let Some(value) =
+                            get_json_string(&constant_data_value, &["const", "value"])
+                        {
                             return Some(strip_type_suffix(value));
                         }
-                        if let Some(expr) = constant_data.get("expr").and_then(|v| v.as_str()) {
+
+                        // Fallback to expr if value is not available
+                        if let Some(expr) =
+                            get_json_string(&constant_data_value, &["const", "expr"])
+                        {
                             if expr != "_" {
                                 return Some(expr.to_string());
                             }
                         }
+                    }
 
-                        // For some constants, the value might be in the type field if it's a simple literal
-                        if let Some(type_info) = constant_data.get("type") {
-                            if let Some(type_str) = type_info.as_str() {
-                                // Handle simple numeric or string literals embedded in type
-                                return Some(type_str.to_string());
-                            }
+                    // Fall back to older rustdoc JSON structure for compatibility
+                    if let Some(value) = get_json_string(&constant_data_value, &["value"]) {
+                        return Some(strip_type_suffix(value));
+                    }
+                    if let Some(expr) = get_json_string(&constant_data_value, &["expr"]) {
+                        if expr != "_" {
+                            return Some(expr.to_string());
                         }
+                    }
+
+                    // For some constants, the value might be in the type field if it's a simple literal
+                    if let Some(type_str) = get_json_string(&constant_data_value, &["type"]) {
+                        // Handle simple numeric or string literals embedded in type
+                        return Some(type_str.to_string());
                     }
                 }
             }
@@ -2491,5 +2509,54 @@ and includes various formatting.
         // In folded mode, lines at same indentation get joined with spaces
         let expected_folded = "Next line content Another line";
         assert_eq!(folded_result.trim(), expected_folded);
+    }
+
+    #[test]
+    fn test_json_navigation_helpers() {
+        let test_json = json!({
+            "level1": {
+                "level2": {
+                    "level3": "value",
+                    "array": ["item1", "item2"],
+                    "object": {
+                        "key": "value"
+                    }
+                },
+                "string_field": "test_string"
+            }
+        });
+
+        // Test get_json_path - valid paths
+        assert!(get_json_path(&test_json, &["level1"]).is_some());
+        assert!(get_json_path(&test_json, &["level1", "level2"]).is_some());
+        assert!(get_json_path(&test_json, &["level1", "level2", "level3"]).is_some());
+
+        // Test get_json_path - invalid paths
+        assert!(get_json_path(&test_json, &["nonexistent"]).is_none());
+        assert!(get_json_path(&test_json, &["level1", "nonexistent"]).is_none());
+        assert!(get_json_path(&test_json, &["level1", "level2", "level3", "too_deep"]).is_none());
+
+        // Test get_json_string
+        assert_eq!(
+            get_json_string(&test_json, &["level1", "level2", "level3"]),
+            Some("value")
+        );
+        assert_eq!(
+            get_json_string(&test_json, &["level1", "string_field"]),
+            Some("test_string")
+        );
+        assert!(get_json_string(&test_json, &["level1", "level2", "array"]).is_none()); // not a string
+
+        // Test get_json_array
+        let array_result = get_json_array(&test_json, &["level1", "level2", "array"]);
+        assert!(array_result.is_some());
+        assert_eq!(array_result.unwrap().len(), 2);
+        assert!(get_json_array(&test_json, &["level1", "string_field"]).is_none()); // not an array
+
+        // Test get_json_object
+        assert!(get_json_object(&test_json, &["level1"]).is_some());
+        assert!(get_json_object(&test_json, &["level1", "level2"]).is_some());
+        assert!(get_json_object(&test_json, &["level1", "level2", "object"]).is_some());
+        assert!(get_json_object(&test_json, &["level1", "string_field"]).is_none()); // not an object
     }
 }
