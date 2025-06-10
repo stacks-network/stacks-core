@@ -9172,10 +9172,29 @@ fn new_tenure_while_validating_previous_scenario() {
     // STEP 2: Miner B proposes a block in tenure B, while A's block is pending validation
 
     info!("----- Mining a new BTC block -----");
-    signer_test
-        .running_nodes
-        .btc_regtest_controller
-        .build_next_block(1);
+    TEST_MINE_SKIP.set(true);
+    next_block_and(
+        &signer_test.running_nodes.btc_regtest_controller,
+        30,
+        || {
+            Ok(
+                get_chain_info(&signer_test.running_nodes.conf).burn_block_height
+                    > info_before.burn_block_height,
+            )
+        },
+    )
+    .unwrap();
+
+    let info = signer_test.get_peer_info();
+    wait_for_state_machine_update_by_miner_tenure_id(
+        30,
+        &info.pox_consensus,
+        &signer_test.signer_test_pks(),
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Failed to update signer states");
+    info!("----- Attempting to Mine a Sister Block -----");
+    TEST_MINE_SKIP.set(false);
 
     let mut last_log = Instant::now();
     last_log -= Duration::from_secs(5);
@@ -9220,6 +9239,7 @@ fn new_tenure_while_validating_previous_scenario() {
 
     // STEP 3: Miner B is rejected, retries, and mines a block
 
+    info!("----- Mining BlockFound -----");
     // Now, wait for miner B to propose a new block
     let block_pushed =
         wait_for_block_pushed_by_miner_key(30, stacks_height_before_stall + 2, &miner_pk)
