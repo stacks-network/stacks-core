@@ -16,7 +16,6 @@ WORKDIR /project_root
 
 # Set environment variables for generate-config-docs.sh
 ENV PROJECT_ROOT=/project_root
-ENV CARGO_HOME=/project_root/.cargo
 ENV CARGO_TARGET_DIR=/tmp/stacks-config-docs/target
 ENV TEMP_DIR=/tmp/stacks-config-docs/doc-generation
 ENV EXTRACT_DOCS_BIN=/build/target/release/extract-docs
