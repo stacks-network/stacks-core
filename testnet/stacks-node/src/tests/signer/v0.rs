@@ -806,9 +806,11 @@ impl MultipleMinerTest {
                 && self.get_peer_info().burn_block_height >= burn_block_before + nmb_blocks)
         })?;
         let peer_after = self.get_peer_info();
-        wait_for_state_machine_update_by_miner_tenure_id(
-            30,
+        wait_for_state_machine_update(
+            timeout_secs,
             &peer_after.pox_consensus,
+            peer_after.burn_block_height,
+            None,
             &self.signer_test.signer_test_pks(),
             SUPPORTED_SIGNER_PROTOCOL_VERSION,
         )
