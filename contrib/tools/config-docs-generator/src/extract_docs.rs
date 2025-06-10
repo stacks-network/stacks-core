@@ -2367,45 +2367,6 @@ and includes various formatting.
     }
 
     #[test]
-    #[ignore = "Test for old behavior - same-line content mode has been removed"]
-    fn test_extract_annotation_literal_and_folded_same_line_content() {
-        // Test same-line content handling for both | and >
-        let metadata_literal = r#"@notes: | Same line content
-  Next line content
-  Another line"#;
-
-        let metadata_folded = r#"@default: > Same line content
-  Next line content
-  Another line"#;
-
-        let literal_result = extract_annotation(metadata_literal, "notes").unwrap();
-        let folded_result = extract_annotation(metadata_folded, "default").unwrap();
-
-        // Both should include same-line content
-        assert!(literal_result.contains("Same line content"));
-        assert!(folded_result.contains("Same line content"));
-
-        // Literal mode should preserve all content and line structure exactly
-        assert!(literal_result.contains("Next line content"));
-        assert!(literal_result.contains("Another line"));
-
-        let literal_lines: Vec<&str> = literal_result.lines().collect();
-        assert_eq!(literal_lines.len(), 3);
-        assert_eq!(literal_lines[0], "Same line content");
-        assert_eq!(literal_lines[1], "Next line content");
-        assert_eq!(literal_lines[2], "Another line");
-
-        // Folded mode with same-line content has current implementation limitation:
-        // it only captures the same-line content and ignores subsequent block lines.
-        // This is an acceptable edge case behavior.
-        assert_eq!(folded_result, "Same line content");
-
-        // Verify it doesn't contain the subsequent lines (current limitation)
-        assert!(!folded_result.contains("Next line content"));
-        assert!(!folded_result.contains("Another line"));
-    }
-
-    #[test]
     fn test_extract_annotation_edge_cases_empty_and_whitespace() {
         // Test annotations with only whitespace or empty content
         let metadata1 = "@default: |";
@@ -2558,5 +2519,286 @@ and includes various formatting.
         assert!(get_json_object(&test_json, &["level1", "level2"]).is_some());
         assert!(get_json_object(&test_json, &["level1", "level2", "object"]).is_some());
         assert!(get_json_object(&test_json, &["level1", "string_field"]).is_none()); // not an object
+    }
+
+    #[test]
+    fn test_resolve_constant_in_index_edge_cases() {
+        // Test with empty index
+        let empty_index = serde_json::Map::new();
+        let result = resolve_constant_in_index("ANY_CONSTANT", &empty_index);
+        assert_eq!(result, None);
+
+        // Test with index containing non-constant items
+        let mock_index = serde_json::json!({
+            "item_1": {
+                "name": "NotAConstant",
+                "inner": {
+                    "function": {}
+                }
+            }
+        });
+        let index = mock_index.as_object().unwrap();
+        let result = resolve_constant_in_index("NotAConstant", index);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_constant_in_index_malformed_constant() {
+        // Test constant without value or expr - falls back to type field
+        let mock_index = serde_json::json!({
+            "const_1": {
+                "name": "MALFORMED_CONSTANT",
+                "inner": {
+                    "constant": {
+                        "type": "u32"
+                        // Missing value and expr fields
+                    }
+                }
+            }
+        });
+        let index = mock_index.as_object().unwrap();
+        let result = resolve_constant_in_index("MALFORMED_CONSTANT", index);
+        assert_eq!(result, Some("u32".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_constant_in_index_underscore_expr() {
+        // Test constant with "_" expr and no value - falls back to type field
+        let mock_index = serde_json::json!({
+            "const_1": {
+                "name": "COMPUTED_CONSTANT",
+                "inner": {
+                    "constant": {
+                        "expr": "_",
+                        "type": "u32"
+                        // No value field
+                    }
+                }
+            }
+        });
+        let index = mock_index.as_object().unwrap();
+        let result = resolve_constant_in_index("COMPUTED_CONSTANT", index);
+        assert_eq!(result, Some("u32".to_string()));
+    }
+
+    #[test]
+    fn test_strip_type_suffix_edge_cases() {
+        // Test with invalid suffixes that shouldn't be stripped
+        assert_eq!(strip_type_suffix("123abc"), "123abc");
+        assert_eq!(
+            strip_type_suffix("value_with_u32_in_middle"),
+            "value_with_u32_in_middle"
+        );
+
+        // Test with partial type names
+        assert_eq!(strip_type_suffix("u"), "u");
+        assert_eq!(strip_type_suffix("u3"), "u3");
+
+        // Test with non-numeric values before type suffix
+        assert_eq!(strip_type_suffix("abcu32"), "abcu32");
+
+        // Test string literals with type suffixes inside
+        assert_eq!(strip_type_suffix("\"value_u32\""), "\"value_u32\"");
+    }
+
+    #[test]
+    fn test_get_json_navigation_edge_cases() {
+        let test_json = serde_json::json!({
+            "level1": {
+                "string": "value",
+                "number": 42,
+                "boolean": true,
+                "null_value": null
+            }
+        });
+
+        // Test getting wrong types
+        assert!(get_json_string(&test_json, &["level1", "number"]).is_none());
+        assert!(get_json_array(&test_json, &["level1", "string"]).is_none());
+        assert!(get_json_object(&test_json, &["level1", "boolean"]).is_none());
+
+        // Test deep paths that don't exist
+        assert!(get_json_path(&test_json, &["level1", "string", "deeper"]).is_none());
+        assert!(get_json_path(&test_json, &["nonexistent", "path"]).is_none());
+
+        // Test null values
+        assert!(get_json_string(&test_json, &["level1", "null_value"]).is_none());
+    }
+
+    #[test]
+    fn test_parse_field_documentation_edge_cases() {
+        // Test with only separator, no content
+        let doc_text = "Description\n---\n";
+        let result = parse_field_documentation(doc_text, "test_field").unwrap();
+        assert_eq!(result.0.description, "Description");
+        assert_eq!(result.0.default_value, None);
+
+        // Test with multiple separators
+        let doc_text = "Description\n---\n@default: value\n---\nIgnored section";
+        let result = parse_field_documentation(doc_text, "test_field").unwrap();
+        assert_eq!(result.0.description, "Description");
+        assert_eq!(result.0.default_value, Some("value".to_string()));
+
+        // Test with empty description
+        let doc_text = "\n---\n@default: value";
+        let result = parse_field_documentation(doc_text, "test_field").unwrap();
+        assert_eq!(result.0.description, "");
+        assert_eq!(result.0.default_value, Some("value".to_string()));
+    }
+
+    #[test]
+    fn test_extract_annotation_malformed_input() {
+        // Test with annotation without colon
+        let metadata = "@default no_colon_here\n@notes: valid";
+        assert_eq!(extract_annotation(metadata, "default"), None);
+        assert_eq!(
+            extract_annotation(metadata, "notes"),
+            Some("valid".to_string())
+        );
+
+        // Test with nested annotations - this will actually find "inside" because the function
+        // looks for the pattern anywhere in a line, not necessarily at the start
+        let metadata = "text with @default: inside\n@actual: real_value";
+        assert_eq!(
+            extract_annotation(metadata, "default"),
+            Some("inside".to_string())
+        );
+        assert_eq!(
+            extract_annotation(metadata, "actual"),
+            Some("real_value".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_literal_block_scalar_edge_cases() {
+        // Test with empty input
+        let result = parse_literal_block_scalar(&[], 0);
+        assert_eq!(result, "");
+
+        // Test with only empty lines
+        let lines = vec!["", "  ", "\t", ""];
+        let result = parse_literal_block_scalar(&lines, 0);
+        assert_eq!(result, "");
+
+        // Test with mixed indentation
+        let lines = vec!["  line1", "    line2", "line3", "      line4"];
+        let result = parse_literal_block_scalar(&lines, 0);
+        assert!(result.contains("line1"));
+        assert!(result.contains("  line2")); // Preserved relative indent
+        assert!(result.contains("line3"));
+        assert!(result.contains("    line4")); // Preserved relative indent
+    }
+
+    #[test]
+    fn test_parse_folded_block_scalar_edge_cases() {
+        // Test with empty input
+        let result = parse_folded_block_scalar(&[], 0);
+        assert_eq!(result, "");
+
+        // Test with only empty lines
+        let lines = vec!["", "  ", "\t"];
+        let result = parse_folded_block_scalar(&lines, 0);
+        assert_eq!(result, "");
+
+        // Test paragraph separation
+        let lines = vec![
+            "  First paragraph line",
+            "  continues here",
+            "",
+            "  Second paragraph",
+            "  also continues",
+        ];
+        let result = parse_folded_block_scalar(&lines, 0);
+        assert!(result.contains("First paragraph line continues here"));
+        assert!(result.contains("Second paragraph also continues"));
+        // Should have paragraph separation
+        assert!(result.matches('\n').count() >= 1);
+    }
+
+    #[test]
+    fn test_collect_annotation_block_lines_edge_cases() {
+        let lines = vec![
+            "@first: value1",
+            "  content line 1",
+            "  content line 2",
+            "@second: value2",
+            "  different content",
+        ];
+
+        // Test collecting until next annotation
+        let result = collect_annotation_block_lines(&lines, 1, "@first: value1");
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], "  content line 1");
+        assert_eq!(result[1], "  content line 2");
+
+        // Test collecting from end
+        let result = collect_annotation_block_lines(&lines, 4, "@second: value2");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], "  different content");
+    }
+
+    #[test]
+    fn test_find_constant_references_edge_cases() {
+        // Test with malformed brackets
+        let text = "[INCOMPLETE or [`VALID_CONSTANT`] and `not_constant`";
+        let constants = find_constant_references(text);
+        assert_eq!(constants.len(), 1);
+        assert!(constants.contains("VALID_CONSTANT"));
+
+        // Test with nested brackets - this won't match because [ in the middle breaks the pattern
+        let text = "[`OUTER_[INNER]_CONSTANT`]";
+        let constants = find_constant_references(text);
+        assert_eq!(constants.len(), 0);
+
+        // Test with empty brackets
+        let text = "[``] and [`VALID`]";
+        let constants = find_constant_references(text);
+        assert_eq!(constants.len(), 1);
+        assert!(constants.contains("VALID"));
+    }
+
+    #[test]
+    fn test_extract_struct_fields_complex_scenarios() {
+        // Test struct with no fields array
+        let mock_index = serde_json::json!({
+            "struct_1": {
+                "name": "EmptyStruct",
+                "inner": {
+                    "struct": {
+                        "kind": {
+                            "plain": {
+                                // No fields array
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let index = mock_index.as_object().unwrap();
+        let struct_item = &mock_index["struct_1"];
+        let (fields, _) = extract_struct_fields(index, struct_item).unwrap();
+        assert_eq!(fields.len(), 0);
+
+        // Test struct with empty fields array
+        let mock_index = serde_json::json!({
+            "struct_1": {
+                "name": "EmptyFieldsStruct",
+                "inner": {
+                    "struct": {
+                        "kind": {
+                            "plain": {
+                                "fields": []
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let index = mock_index.as_object().unwrap();
+        let struct_item = &mock_index["struct_1"];
+        let (fields, _) = extract_struct_fields(index, struct_item).unwrap();
+        assert_eq!(fields.len(), 0);
     }
 }

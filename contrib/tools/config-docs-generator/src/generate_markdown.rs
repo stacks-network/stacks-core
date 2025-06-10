@@ -1178,4 +1178,161 @@ mod tests {
         assert!(output.contains("\"value2\""));
         assert!(output.contains("</code></pre>"));
     }
+
+    #[test]
+    fn test_load_section_name_mappings_file_not_found() {
+        let result = load_section_name_mappings("nonexistent.json");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Failed to read"));
+    }
+
+    #[test]
+    fn test_load_section_name_mappings_invalid_json() {
+        use std::io::Write;
+
+        use tempfile::NamedTempFile;
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "invalid json content").unwrap();
+
+        let result = load_section_name_mappings(temp_file.path().to_str().unwrap());
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Failed to parse section name mappings JSON")
+        );
+    }
+
+    #[test]
+    fn test_load_template_file_not_found() {
+        let result = load_template("nonexistent_template.md");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Failed to read template file")
+        );
+    }
+
+    #[test]
+    fn test_render_template_complex_substitutions() {
+        let template = "Hello {{name}}! Your score is {{score}}. {{missing}} should stay as is.";
+        let mut variables = HashMap::new();
+        variables.insert("name".to_string(), "Alice".to_string());
+        variables.insert("score".to_string(), "100".to_string());
+
+        let result = render_template(template, variables);
+        assert_eq!(
+            result,
+            "Hello Alice! Your score is 100. {{missing}} should stay as is."
+        );
+    }
+
+    #[test]
+    fn test_render_template_empty_variables() {
+        let template = "Template with {{variable}} that won't be replaced";
+        let result = render_template(template, HashMap::new());
+        assert_eq!(result, "Template with {{variable}} that won't be replaced");
+    }
+
+    #[test]
+    fn test_render_template_multiple_same_variable() {
+        let template = "{{name}} said hello to {{name}} twice";
+        let mut variables = HashMap::new();
+        variables.insert("name".to_string(), "Bob".to_string());
+
+        let result = render_template(template, variables);
+        assert_eq!(result, "Bob said hello to Bob twice");
+    }
+
+    #[test]
+    fn test_generate_markdown_error_paths() {
+        // Test with invalid template path
+        let config_docs = create_config_docs(vec![]);
+        let custom_mappings = HashMap::new();
+
+        let result = generate_markdown(&config_docs, "nonexistent_template.md", &custom_mappings);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Failed to read template file")
+        );
+    }
+
+    #[test]
+    fn test_escape_markdown_edge_cases() {
+        assert_eq!(escape_markdown(""), "");
+        assert_eq!(escape_markdown("normal text"), "normal text");
+        assert_eq!(escape_markdown("[text]"), "\\[text\\]");
+        assert_eq!(escape_markdown("table|cell"), "table\\|cell");
+        assert_eq!(escape_markdown("[table|cell]"), "\\[table\\|cell\\]");
+    }
+
+    #[test]
+    fn test_escape_markdown_table_edge_cases() {
+        assert_eq!(escape_markdown_table(""), "");
+        assert_eq!(escape_markdown_table("normal text"), "normal text");
+        assert_eq!(escape_markdown_table("table|cell"), "table\\|cell");
+        assert_eq!(escape_markdown_table("line\nbreak"), "line<br>break");
+        assert_eq!(
+            escape_markdown_table("both|pipe\nand newline"),
+            "both\\|pipe<br>and newline"
+        );
+    }
+
+    #[test]
+    fn test_section_anchor_edge_cases() {
+        assert_eq!(section_anchor(""), "#");
+        assert_eq!(section_anchor("UPPERCASE"), "#uppercase");
+        assert_eq!(
+            section_anchor("[complex section name]"),
+            "#complex-section-name"
+        );
+        assert_eq!(section_anchor("Multiple   Spaces"), "#multiple---spaces");
+        assert_eq!(
+            section_anchor("[section_with_underscores]"),
+            "#section_with_underscores"
+        );
+    }
+
+    #[test]
+    fn test_process_reference_edge_cases() {
+        let global_context = create_mock_global_context();
+
+        // Test unknown reference
+        let result = process_reference("UNKNOWN_CONSTANT", &global_context, "TestStruct");
+        assert_eq!(result, "`UNKNOWN_CONSTANT`");
+
+        // Test malformed struct::field reference
+        let result = process_reference("OnlyStruct::", &global_context, "TestStruct");
+        assert_eq!(result, "`OnlyStruct::`");
+
+        // Test empty reference
+        let result = process_reference("", &global_context, "TestStruct");
+        assert_eq!(result, "``");
+    }
+
+    #[test]
+    fn test_struct_to_section_name_edge_cases() {
+        let mappings = HashMap::new();
+
+        // Test empty struct name
+        assert_eq!(struct_to_section_name("", &mappings), "[]");
+
+        // Test struct name with special characters
+        assert_eq!(
+            struct_to_section_name("Struct_With_Underscores", &mappings),
+            "[struct_with_underscores]"
+        );
+
+        // Test very long struct name
+        let long_name = "A".repeat(100);
+        let expected = format!("[{}]", "a".repeat(100));
+        assert_eq!(struct_to_section_name(&long_name, &mappings), expected);
+    }
 }
