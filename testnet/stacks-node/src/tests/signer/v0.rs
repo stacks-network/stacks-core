@@ -796,15 +796,22 @@ impl MultipleMinerTest {
         let burn_block_before = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
             .block_height;
-
         self.btc_regtest_controller_mut()
             .build_next_block(nmb_blocks);
         wait_for(timeout_secs, || {
             let burn_block = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                 .unwrap()
                 .block_height;
-            Ok(burn_block >= burn_block_before + nmb_blocks)
-        })
+            Ok(burn_block >= burn_block_before + nmb_blocks
+                && self.get_peer_info().burn_block_height >= burn_block_before + nmb_blocks)
+        })?;
+        let peer_after = self.get_peer_info();
+        wait_for_state_machine_update_by_miner_tenure_id(
+            30,
+            &peer_after.pox_consensus,
+            &self.signer_test.signer_test_pks(),
+            SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        )
     }
 
     /// Mine `nmb_blocks` blocks on the bitcoin regtest chain and wait for the sortition
@@ -819,7 +826,6 @@ impl MultipleMinerTest {
         let burn_block_before = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
             .block_height;
-
         self.btc_regtest_controller_mut()
             .build_next_block(nmb_blocks);
         wait_for(timeout_secs, || {
