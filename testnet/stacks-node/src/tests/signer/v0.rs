@@ -7938,11 +7938,9 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     .expect("Timed out waiting for block N+1' to be rejected");
 
     // Wait first for state machine to update before submitting the tx to mine so the prior miner doesn't manage to get a last block in
-    wait_for_state_machine_update(
+    wait_for_state_machine_update_by_miner_tenure_id(
         30,
         &info_after.pox_consensus,
-        info_after.burn_block_height,
-        None,
         &all_signers,
         SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
@@ -11200,10 +11198,13 @@ fn reorg_attempts_activity_timeout_exceeded() {
 
     let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
+    let miner_pkh = Hash160::from_node_public_key(&miner_pk);
+    let all_signers = signer_test.signer_test_pks();
+
     signer_test.boot_to_epoch_3();
 
     info!("------------------------- Test Mine Block N -------------------------");
-    let chain_before = get_chain_info(&signer_test.running_nodes.conf);
+    let chain_start = get_chain_info(&signer_test.running_nodes.conf);
     // Stall validation so signers will be unable to process the tenure change block for Tenure B.
     // And so the incoming miner proposes a block N' (the reorging block).
     TEST_VALIDATE_STALL.set(true);
@@ -11221,10 +11222,10 @@ fn reorg_attempts_activity_timeout_exceeded() {
     submit_tx(&http_origin, &transfer_tx);
 
     let block_proposal_n =
-        wait_for_block_proposal(30, chain_before.stacks_tip_height + 1, &miner_pk)
+        wait_for_block_proposal(30, chain_start.stacks_tip_height + 1, &miner_pk)
             .expect("Failed to get block proposal N");
     let chain_after = get_chain_info(&signer_test.running_nodes.conf);
-    assert_eq!(chain_after, chain_before);
+    assert_eq!(chain_after, chain_start);
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk]);
 
     info!("------------------------- Start Tenure B  -------------------------");
@@ -11252,22 +11253,35 @@ fn reorg_attempts_activity_timeout_exceeded() {
     .expect("Timed out waiting for stacks tip to advance to block N");
     let chain_after = get_chain_info(&signer_test.running_nodes.conf);
     TEST_VALIDATE_STALL.set(true);
-    // Allow incoming mine to propose block N'
+
+    let wait_time = reorg_attempts_activity_timeout.add(Duration::from_secs(1));
+    info!("------------------------- Waiting {} Seconds for Reorg Activity Timeout to be Exceeded-------------------------", wait_time.as_secs());
     // Make sure to wait the reorg_attempts_activity_timeout AFTER the block is globally signed over
     // as this is the point where signers start considering from.
-    std::thread::sleep(reorg_attempts_activity_timeout.add(Duration::from_secs(1)));
+    // Allow incoming mine to propose block N'
+    std::thread::sleep(wait_time);
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
     let block_proposal_n_prime =
         wait_for_block_proposal(30, chain_after.stacks_tip_height, &miner_pk)
             .expect("Failed to get block proposal N'");
     // Make sure that no subsequent proposal arrives before the block_proposal_timeout is exceeded
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk]);
-    TEST_VALIDATE_STALL.set(false);
     // We only need to wait the difference between the two timeouts now since we already slept for a min of reorg_attempts_activity_timeout + 1
-    std::thread::sleep(block_proposal_timeout.saturating_sub(reorg_attempts_activity_timeout));
+    let wait_time = block_proposal_timeout.saturating_sub(reorg_attempts_activity_timeout);
+    info!("------------------------- Waiting {} Seconds for Miner To be Marked Invalid -------------------------", wait_time.as_secs());
+    std::thread::sleep(wait_time);
+    wait_for_state_machine_update(
+        30,
+        &chain_after.pox_consensus,
+        chain_after.burn_block_height,
+        Some((miner_pkh, chain_start.stacks_tip_height)),
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Failed to revert back to prior miner's tenure");
     assert_ne!(block_proposal_n, block_proposal_n_prime);
     let chain_before = chain_after;
-
+    TEST_VALIDATE_STALL.set(false);
     info!("------------------------- Wait for Block N' Rejection -------------------------");
     wait_for_block_global_rejection(
         30,
