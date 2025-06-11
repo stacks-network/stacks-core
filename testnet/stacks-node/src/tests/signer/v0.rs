@@ -3720,6 +3720,7 @@ fn tx_replay_disagreement() {
     info!("Pausing miner 2's block commit submissions");
     skip_commit_op_rl2.set(true);
     miners.boot_to_epoch_3();
+    let all_signers = miners.signer_test.signer_test_pks();
     let btc_controller = &miners.signer_test.running_nodes.btc_regtest_controller;
 
     let pre_fork_tenures = 10;
@@ -3748,6 +3749,13 @@ fn tx_replay_disagreement() {
 
     info!("------------------------- Triggering Bitcoin Fork -------------------------");
     let tip = get_chain_info(&conf_1);
+    wait_for_state_machine_update_by_miner_tenure_id(
+        30,
+        &tip.pox_consensus,
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Failed to update signers state machines");
     // Make a transfer tx (this will get forked)
     let (txid, _) = miners.send_transfer_tx();
 
