@@ -15,40 +15,30 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::ops::{Deref, DerefMut, Range};
-use std::path::PathBuf;
 
 use clarity::util::secp256k1::Secp256k1PublicKey;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::database::{BurnStateDB, ClarityDatabase};
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::StacksTransactionEvent;
-use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
-use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
-use lazy_static::{__Deref, lazy_static};
-use rusqlite::blob::Blob;
+use clarity::vm::types::PrincipalData;
+use clarity::vm::{ClarityVersion, Value};
+use lazy_static::lazy_static;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput};
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
-use sha2::digest::typenum::Integer;
+use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
     read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
     MAX_PAYLOAD_LEN,
 };
-use stacks_common::consts::{
-    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
-};
+use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
     StacksPrivateKey, StacksPublicKey, TrieHash, VRFSeed,
 };
-use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::{PrivateKey, StacksEpochId};
-use stacks_common::util::hash::{
-    hex_bytes, to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum,
-};
+use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
@@ -56,32 +46,27 @@ use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 
 use self::signer_set::SignerCalculation;
 use super::burn::db::sortdb::{
-    get_ancestor_sort_id, get_ancestor_sort_id_tx, get_block_commit_by_txid, SortitionHandle,
-    SortitionHandleConn, SortitionHandleTx,
+    get_ancestor_sort_id, get_block_commit_by_txid, SortitionHandle, SortitionHandleConn,
 };
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp, VoteForAggregateKeyOp};
 use super::stacks::boot::{
-    NakamotoSignerEntry, PoxVersions, RawRewardSetEntry, RewardSet, RewardSetData,
-    BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, SIGNERS_MAX_LIST_SIZE,
-    SIGNERS_NAME, SIGNERS_PK_LEN,
+    RewardSet, RewardSetData, BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME,
 };
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::{
-    ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerPaymentTxFees, MinerRewardInfo,
-    StacksBlockHeaderTypes, StacksEpochReceipt, StacksHeaderInfo,
+    ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerRewardInfo, StacksBlockHeaderTypes,
+    StacksEpochReceipt, StacksHeaderInfo,
 };
-use super::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
+use super::stacks::events::StacksTransactionReceipt;
 use super::stacks::{
-    Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
-    TenureChangeError, TenureChangePayload, TokenTransferMemo, TransactionPayload,
-    TransactionVersion,
+    Error as ChainstateError, StacksBlock, StacksTransaction, TenureChangePayload,
+    TokenTransferMemo, TransactionPayload, TransactionVersion,
 };
-use crate::burnchains::{Burnchain, PoxConstants, Txid};
+use crate::burnchains::{PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
+use crate::chainstate::burn::operations::LeaderBlockCommitOp;
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
-use crate::chainstate::coordinator::{BlockEventDispatcher, Error, OnChainRewardSetProvider};
-use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
+use crate::chainstate::coordinator::{BlockEventDispatcher, OnChainRewardSetProvider};
 use crate::chainstate::nakamoto::keys as nakamoto_keys;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
@@ -89,32 +74,27 @@ use crate::chainstate::nakamoto::tenure::{
     NakamotoTenureEventId, NAKAMOTO_TENURES_SCHEMA_1, NAKAMOTO_TENURES_SCHEMA_2,
     NAKAMOTO_TENURES_SCHEMA_3,
 };
-use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::{POX_4_NAME, SIGNERS_UPDATE_STATE};
 use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use crate::chainstate::stacks::db::{
     DBConfig as ChainstateConfig, StacksChainState, StacksDBConn, StacksDBTx,
 };
-use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::{
     TenureChangeCause, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
-use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
-use crate::clarity_vm::clarity::{
-    ClarityInstance, ClarityTransactionConnection, Error as ClarityError, PreCommitClarityBlock,
-};
+use crate::clarity::vm::clarity::TransactionConnection;
+use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::core::{
     BOOT_BLOCK_HASH, BURNCHAIN_TX_SEARCH_WINDOW, NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD,
 };
+use crate::monitoring;
 use crate::net::stackerdb::{StackerDBConfig, MINER_SLOT_COUNT};
 use crate::net::Error as net_error;
-use crate::util_lib::boot::{self, boot_code_addr, boot_code_id, boot_code_tx_auth};
+use crate::util_lib::boot::{boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::{
-    query_int, query_row, query_row_columns, query_row_panic, query_rows, sqlite_open,
-    tx_begin_immediate, u64_to_sql, DBConn, Error as DBError, FromRow,
+    query_row, query_row_columns, query_row_panic, query_rows, u64_to_sql, Error as DBError,
+    FromRow,
 };
-use crate::{chainstate, monitoring};
 
 pub mod coordinator;
 pub mod keys;

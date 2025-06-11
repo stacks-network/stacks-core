@@ -14,33 +14,47 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
+#[cfg(any(test, feature = "testing"))]
+use std::sync::LazyLock;
 use std::time::{Duration, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
+use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use clarity::types::chainstate::StacksAddress;
+#[cfg(any(test, feature = "testing"))]
+use clarity::util::tests::TestFlag;
 use libsigner::v0::messages::{
     MessageSlotID, SignerMessage, StateMachineUpdate as StateMachineUpdateMessage,
     StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
-use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
+use libsigner::v0::signer_state::{
+    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
+};
 use serde::{Deserialize, Serialize};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::Error as CodecError;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::{debug, info, warn};
 
 use crate::chainstate::{
-    ProposalEvalConfig, SignerChainstateError, SortitionState, SortitionsView,
+    ProposalEvalConfig, SignerChainstateError, SortitionMinerStatus, SortitionState, SortitionsView,
 };
 use crate::client::{ClientError, CurrentAndLastSortition, StackerDB, StacksClient};
-use crate::signerdb::SignerDb;
+use crate::signerdb::{BlockValidatedByReplaySet, SignerDb};
 
 /// This is the latest supported protocol version for this signer binary
 pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 1;
+
+/// Vec of pubkeys that should ignore checking for a bitcoin fork
+#[cfg(any(test, feature = "testing"))]
+pub static TEST_IGNORE_BITCOIN_FORK_PUBKEYS: LazyLock<TestFlag<Vec<Secp256k1PublicKey>>> =
+    LazyLock::new(TestFlag::default);
 
 /// The local signer state machine
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -147,7 +161,7 @@ impl LocalStateMachine {
             burn_block_height: 0,
             current_miner: MinerState::NoValidMiner,
             active_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
-            tx_replay_set: None,
+            tx_replay_set: ReplayTransactionSet::none(),
         }
     }
 
@@ -341,6 +355,9 @@ impl LocalStateMachine {
         ch: &ConsensusHash,
         height: u64,
         block_id: &StacksBlockId,
+        signer_signature_hash: &Sha512Trunc256Sum,
+        db: &SignerDb,
+        txs: &Vec<StacksTransaction>,
     ) -> Result<(), SignerChainstateError> {
         // set self to uninitialized so that if this function errors,
         //  self is left as uninitialized.
@@ -366,10 +383,37 @@ impl LocalStateMachine {
             }
         };
 
-        // No matter what, if we're in tx replay mode, remove the tx replay set
-        // TODO: in later versions, we will only clear the tx replay
-        // set when replay is completed.
-        prior_state_machine.tx_replay_set = None;
+        if let Some(replay_set_hash) = NakamotoBlockProposal::tx_replay_hash(
+            &prior_state_machine.tx_replay_set.clone_as_optional(),
+        ) {
+            match db.get_was_block_validated_by_replay_tx(signer_signature_hash, replay_set_hash) {
+                Ok(Some(BlockValidatedByReplaySet {
+                    replay_tx_exhausted,
+                    ..
+                })) => {
+                    if replay_tx_exhausted {
+                        // This block was validated by our current state machine's replay set,
+                        // and the block exhausted the replay set. Therefore, clear the tx replay set.
+                        info!("Signer State: Incoming Stacks block exhausted the replay set, clearing the tx replay set";
+                            "signer_signature_hash" => %signer_signature_hash,
+                        );
+                        prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
+                    }
+                }
+                Ok(None) => {
+                    info!("Signer state: got a new block during replay that wasn't validated by our replay set. Clearing the local replay set.";
+                        "txs" => ?txs,
+                    );
+                    prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
+                }
+                Err(e) => {
+                    warn!("Failed to check if block was validated by replay tx";
+                        "err" => ?e,
+                        "signer_signature_hash" => %signer_signature_hash,
+                    );
+                }
+            }
+        }
 
         let MinerState::ActiveMiner {
             parent_tenure_id,
@@ -515,7 +559,7 @@ impl LocalStateMachine {
                 &prior_state_machine,
                 tx_replay_set.is_some(),
             )? {
-                tx_replay_set = Some(new_replay_set);
+                tx_replay_set = ReplayTransactionSet::new(new_replay_set);
             }
         }
 
@@ -579,6 +623,7 @@ impl LocalStateMachine {
         local_address: StacksAddress,
         local_supported_signer_protocol_version: u64,
         reward_cycle: u64,
+        sortition_state: &mut Option<SortitionsView>,
     ) {
         // Before we ever access eval...we should make sure to include our own local state machine update message in the evaluation
         let Ok(mut local_update) =
@@ -601,7 +646,12 @@ impl LocalStateMachine {
                     burn_block_height,
                     current_miner,
                     ..
-                } => (burn_block, burn_block_height, current_miner, None),
+                } => (
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    ReplayTransactionSet::none(),
+                ),
                 StateMachineUpdateContent::V1 {
                     burn_block,
                     burn_block_height,
@@ -611,7 +661,7 @@ impl LocalStateMachine {
                     burn_block,
                     burn_block_height,
                     current_miner,
-                    Some(replay_transactions),
+                    ReplayTransactionSet::new(replay_transactions.clone()),
                 ),
             };
 
@@ -625,7 +675,7 @@ impl LocalStateMachine {
                 burn_block_height: *burn_block_height,
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
-                tx_replay_set: tx_replay_set.cloned(),
+                tx_replay_set,
             });
             // Because we updated our active signer protocol version, update local_update so its included in the subsequent evaluations
             let Ok(update) =
@@ -650,7 +700,12 @@ impl LocalStateMachine {
                     burn_block_height,
                     current_miner,
                     ..
-                } => (burn_block, burn_block_height, current_miner, None),
+                } => (
+                    burn_block,
+                    burn_block_height,
+                    current_miner,
+                    ReplayTransactionSet::none(),
+                ),
                 StateMachineUpdateContent::V1 {
                     burn_block,
                     burn_block_height,
@@ -660,7 +715,7 @@ impl LocalStateMachine {
                     burn_block,
                     burn_block_height,
                     current_miner,
-                    Some(replay_transactions),
+                    ReplayTransactionSet::new(replay_transactions.clone()),
                 ),
             };
 
@@ -682,6 +737,21 @@ impl LocalStateMachine {
                 active_signer_protocol_version,
                 tx_replay_set,
             });
+
+            match new_miner {
+                StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh, ..
+                } => {
+                    if let Some(sortition_state) = sortition_state {
+                        // if there is a mismatch between the new_miner ad the current sortition view, mark the current miner as invalid
+                        if current_miner_pkh != sortition_state.cur_sortition.miner_pkh {
+                            sortition_state.cur_sortition.miner_status =
+                                SortitionMinerStatus::InvalidatedBeforeFirstBlock
+                        }
+                    }
+                }
+                StateMachineUpdateMinerState::NoValidMiner => (),
+            }
         }
     }
 
@@ -823,7 +893,7 @@ impl LocalStateMachine {
         let Self::Initialized(state) = self else {
             return None;
         };
-        state.tx_replay_set.clone()
+        state.tx_replay_set.clone_as_optional()
     }
 
     /// Handle a possible bitcoin fork. If a fork is detetected,
@@ -855,6 +925,17 @@ impl LocalStateMachine {
             "prior_state_machine.burn_block_height" => prior_state_machine.burn_block_height,
             "prior_state_machine.burn_block" => %prior_state_machine.burn_block,
         );
+        #[cfg(any(test, feature = "testing"))]
+        {
+            let ignore_bitcoin_fork = TEST_IGNORE_BITCOIN_FORK_PUBKEYS
+                .get()
+                .iter()
+                .any(|pubkey| &StacksAddress::p2pkh(false, pubkey) == client.get_signer_address());
+            if ignore_bitcoin_fork {
+                warn!("Ignoring bitcoin fork due to test flag");
+                return Ok(None);
+            }
+        }
         // Determine the tenures that were forked
         let mut parent_burn_block_info =
             db.get_burn_block_by_ch(&prior_state_machine.burn_block)?;

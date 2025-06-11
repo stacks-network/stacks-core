@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::{Read, Write};
-
 use clarity::vm::types::QualifiedContractIdentifier;
 use regex::{Captures, Regex};
 use stacks_common::types::net::{PeerAddress, PeerHost};
@@ -24,11 +22,11 @@ use stacks_common::util::hash::Hash160;
 
 use crate::net::db::PeerDB;
 use crate::net::http::{
-    parse_json, Error, HttpContentType, HttpRequest, HttpRequestContents, HttpRequestPreamble,
-    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpVersion,
+    parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
+    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
-    HttpPreambleExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest, StacksHttpResponse,
+    HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::{Error as NetError, NeighborKey, StacksNodeState, MAX_NEIGHBORS_DATA_LEN};
@@ -151,6 +149,7 @@ impl RPCNeighborsInfo {
             peerdb_conn,
             network_id,
             network_epoch,
+            network.peer_version,
             get_epoch_time_secs().saturating_sub(max_neighbor_age),
             MAX_NEIGHBORS_DATA_LEN,
             burnchain_view.burn_block_height,
@@ -300,6 +299,8 @@ impl StacksHttpResponse {
         neighbors: RPCNeighborsInfo,
         with_content_length: bool,
     ) -> StacksHttpResponse {
+        use crate::net::http::{HttpContentType, HttpVersion};
+
         let value =
             serde_json::to_value(neighbors).expect("FATAL: failed to encode infallible data");
         let length = serde_json::to_string(&value)

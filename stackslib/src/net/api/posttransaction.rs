@@ -14,36 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::{Read, Write};
-
-use clarity::vm::costs::ExecutionCost;
 use regex::{Captures, Regex};
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, ConsensusHash, StacksBlockId, StacksPublicKey,
-};
 use stacks_common::types::net::PeerHost;
-use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum};
-use stacks_common::util::retry::BoundReader;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 
-use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
-use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
-use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{StacksTransaction, TransactionPayload};
-use crate::core::mempool::MemPoolDB;
-use crate::cost_estimates::FeeRateEstimate;
 use crate::net::http::{
-    parse_json, Error, HttpBadRequest, HttpContentType, HttpNotFound, HttpRequest,
-    HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
-    HttpResponsePayload, HttpResponsePreamble, HttpServerError, HttpVersion,
+    parse_json, Error, HttpBadRequest, HttpContentType, HttpRequest, HttpRequestContents,
+    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
+    HttpResponsePreamble, HttpServerError,
 };
 use crate::net::httpcore::{
     HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
-use crate::net::p2p::PeerNetwork;
 use crate::net::relay::Relayer;
 use crate::net::{Attachment, Error as NetError, StacksMessageType, StacksNodeState};
 
@@ -340,6 +325,8 @@ impl StacksHttpRequest {
 impl StacksHttpResponse {
     #[cfg(test)]
     pub fn new_posttransaction(txid: Txid, with_content_length: bool) -> StacksHttpResponse {
+        use crate::net::http::HttpVersion;
+
         let value = serde_json::to_value(txid).expect("FATAL: failed to serialize infallible data");
         let length = serde_json::to_string(&value)
             .expect("FATAL: failed to serialize infallible data")

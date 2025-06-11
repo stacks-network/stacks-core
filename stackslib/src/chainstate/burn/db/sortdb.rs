@@ -14,80 +14,54 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cell::RefCell;
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
-use std::io::{ErrorKind, Write};
-use std::ops::{Deref, DerefMut};
-use std::str::FromStr;
+use std::collections::HashMap;
+use std::io::ErrorKind;
+use std::ops::Deref;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
-use std::{cmp, fmt, fs};
+use std::{cmp, fs};
 
 use clarity::util::lru_cache::LruCache;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::representations::{ClarityName, ContractName};
-use clarity::vm::types::{PrincipalData, Value};
-use rand;
-use rand::RngCore;
-use rusqlite::types::ToSql;
-use rusqlite::{
-    params, Connection, Error as sqlite_error, OpenFlags, OptionalExtension, Row, Transaction,
-    TransactionBehavior,
-};
-use sha2::{Digest, Sha512_256};
-use stacks_common::address::AddressHashMode;
+use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
     TrieHash, VRFSeed,
 };
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
+use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 use stacks_common::util::vrf::*;
-use stacks_common::util::{get_epoch_time_secs, log};
 
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
-use crate::burnchains::bitcoin::BitcoinNetworkType;
-use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
+use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::{
-    Address, Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainSigner,
-    BurnchainStateTransition, BurnchainStateTransitionOps, BurnchainTransaction, BurnchainView,
-    Error as BurnchainError, PoxConstants, PublicKey, Txid,
+    Burnchain, BurnchainBlockHeader, BurnchainStateTransition, BurnchainStateTransitionOps,
+    BurnchainView, Error as BurnchainError, PoxConstants, Txid,
 };
 use crate::chainstate::burn::operations::leader_block_commit::{
     MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT,
 };
 use crate::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
-    StackStxOp, TransferStxOp, VoteForAggregateKeyOp,
+    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, StackStxOp,
+    TransferStxOp, VoteForAggregateKeyOp,
 };
 use crate::chainstate::burn::{
-    BlockSnapshot, ConsensusHash, ConsensusHashExtensions, Opcodes, OpsHash, SortitionHash,
+    BlockSnapshot, ConsensusHash, ConsensusHashExtensions, OpsHash, SortitionHash,
 };
 use crate::chainstate::coordinator::{
     Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo, SortitionDBMigrator,
 };
-use crate::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
-use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
+use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
-use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
-use crate::chainstate::stacks::index::storage::TrieFileStorage;
-use crate::chainstate::stacks::index::{
-    ClarityMarfTrieId, Error as MARFError, MARFValue, MarfTrieId,
-};
-use crate::chainstate::stacks::{StacksPublicKey, *};
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::ChainstateDB;
-use crate::core::{
-    StacksEpoch, StacksEpochExtension, StacksEpochId, AST_RULES_PRECHECK_SIZE,
-    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_MAX,
-};
+use crate::core::{StacksEpoch, StacksEpochExtension, StacksEpochId, AST_RULES_PRECHECK_SIZE};
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::util_lib::db::{
-    db_mkdirs, get_ancestor_block_hash, opt_u64_to_sql, query_count, query_row, query_row_columns,
-    query_row_panic, query_rows, sql_pragma, table_exists, tx_begin_immediate, tx_busy_handler,
+    db_mkdirs, opt_u64_to_sql, query_row, query_row_panic, query_rows, sql_pragma, table_exists,
     u64_to_sql, DBConn, DBTx, Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 
@@ -6717,9 +6691,8 @@ impl ChainstateDB for SortitionDB {
 
 #[cfg(test)]
 pub mod tests {
-    use std::sync::mpsc::sync_channel;
-    use std::thread;
-
+    use clarity::vm::costs::ExecutionCost;
+    use rand::RngCore;
     use stacks_common::address::AddressHashMode;
     use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
     use stacks_common::types::sqlite::NO_PARAMS;
@@ -6728,10 +6701,6 @@ pub mod tests {
     use stacks_common::util::vrf::*;
 
     use super::*;
-    use crate::burnchains::affirmation::AffirmationMap;
-    use crate::burnchains::bitcoin::address::BitcoinAddress;
-    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
-    use crate::burnchains::bitcoin::BitcoinNetworkType;
     use crate::burnchains::tests::affirmation::{make_reward_cycle, make_simple_key_register};
     use crate::burnchains::*;
     use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;

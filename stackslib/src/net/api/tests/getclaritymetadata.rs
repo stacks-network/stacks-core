@@ -15,14 +15,11 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+use clarity::types::chainstate::StacksBlockId;
+use clarity::types::Address;
 use clarity::vm::database::{ClaritySerializable, DataMapMetadata, DataVariableMetadata};
-use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions, TypeSignature};
-use clarity::vm::{ClarityName, ContractName};
-use serde_json::json;
-use stacks_common::codec::StacksMessageCodec;
+use clarity::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::net::PeerHost;
-use stacks_common::types::Address;
 
 use super::test_rpc;
 use crate::net::api::*;
@@ -32,7 +29,7 @@ use crate::net::httpcore::{
     HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp,
     StacksHttpRequest,
 };
-use crate::net::{Error as NetError, ProtocolFamily, TipRequest};
+use crate::net::{ProtocolFamily, TipRequest};
 
 #[test]
 fn test_try_parse_request() {

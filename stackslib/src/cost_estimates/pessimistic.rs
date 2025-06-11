@@ -3,7 +3,7 @@ use std::path::Path;
 
 use clarity::types::sqlite::NO_PARAMS;
 use clarity::vm::costs::ExecutionCost;
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql};
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult};
 use rusqlite::{
     params, Connection, Error as SqliteError, OpenFlags, OptionalExtension,
     Transaction as SqliteTransaction,
@@ -14,9 +14,7 @@ use super::metrics::PROPORTION_RESOLUTION;
 use super::{CostEstimator, EstimatorError};
 use crate::chainstate::stacks::TransactionPayload;
 use crate::core::StacksEpochId;
-use crate::util_lib::db::{
-    sql_pragma, sqlite_open, table_exists, tx_begin_immediate_sqlite, u64_to_sql,
-};
+use crate::util_lib::db::{sqlite_open, table_exists, tx_begin_immediate_sqlite, u64_to_sql};
 
 /// This struct pessimistically estimates the `ExecutionCost` of transaction payloads.
 ///

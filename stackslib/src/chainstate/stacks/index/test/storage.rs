@@ -17,11 +17,7 @@
 use std::collections::VecDeque;
 use std::fs;
 
-use rand::{thread_rng, Rng};
-
 use super::*;
-use crate::chainstate::stacks::index::marf::*;
-use crate::chainstate::stacks::index::node::*;
 use crate::chainstate::stacks::index::*;
 
 fn ptrs_cmp(p1: &[TriePtr], p2: &[TriePtr]) -> bool {

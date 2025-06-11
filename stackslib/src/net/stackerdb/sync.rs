@@ -19,13 +19,10 @@ use std::mem;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use rand::prelude::SliceRandom;
-use rand::{thread_rng, Rng, RngCore};
-use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
+use rand::{thread_rng, Rng};
+use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::Hash160;
 
-use crate::net::chat::ConversationP2P;
-use crate::net::connection::ReplyHandleP2P;
 use crate::net::db::PeerDB;
 use crate::net::neighbors::comms::ToNeighborKey;
 use crate::net::neighbors::NeighborComms;
@@ -34,9 +31,8 @@ use crate::net::stackerdb::{
     StackerDBConfig, StackerDBSync, StackerDBSyncResult, StackerDBSyncState, StackerDBs,
 };
 use crate::net::{
-    Error as net_error, NackData, NackErrorCodes, Neighbor, NeighborAddress, NeighborKey,
-    StackerDBChunkData, StackerDBChunkInvData, StackerDBGetChunkData, StackerDBGetChunkInvData,
-    StackerDBPushChunkData, StacksMessageType,
+    Error as net_error, NackErrorCodes, NeighborAddress, StackerDBChunkData, StackerDBChunkInvData,
+    StackerDBGetChunkData, StackerDBGetChunkInvData, StackerDBPushChunkData, StacksMessageType,
 };
 
 const MAX_CHUNKS_IN_FLIGHT: usize = 6;

@@ -21,52 +21,39 @@
 /// concerned with building out and testing block histories from manually-constructed blocks,
 /// ignoring mempool-level concerns entirely.
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::{Path, PathBuf};
-use std::{fs, io};
+use std::collections::HashMap;
 
+use clarity::codec::StacksMessageCodec;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
-use clarity::vm::database::ClarityDatabase;
 use clarity::vm::test_util::TEST_BURN_STATE_DB;
 use clarity::vm::types::*;
 use mempool::MemPoolWalkStrategy;
-use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use rusqlite::params;
 use stacks_common::address::*;
-use stacks_common::types::chainstate::SortitionId;
 use stacks_common::util::hash::MerkleTree;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::vrf::VRFProof;
 use stacks_common::util::{get_epoch_time_ms, sleep_ms};
 
-use crate::burnchains::tests::*;
-use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::*;
-use crate::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-};
+use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::Error as CoordinatorError;
 use crate::chainstate::stacks::db::blocks::test::store_staging_block;
+use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::test::*;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::test::codec_all_transactions;
 use crate::chainstate::stacks::tests::*;
-use crate::chainstate::stacks::{
-    Error as ChainstateError, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *,
-};
+use crate::chainstate::stacks::{Error as ChainstateError, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use crate::core::mempool::MemPoolWalkSettings;
 use crate::core::tests::make_block;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, *};
 use crate::cost_estimates::metrics::UnitMetric;
 use crate::cost_estimates::UnitEstimator;
-use crate::net::test::*;
-use crate::util_lib::boot::boot_code_addr;
-use crate::util_lib::db::Error as db_error;
 
 #[test]
 fn test_build_anchored_blocks_empty() {

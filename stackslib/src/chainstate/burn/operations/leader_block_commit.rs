@@ -16,35 +16,28 @@
 
 use std::io::{Read, Write};
 
-use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, TrieHash, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, StacksBlockId, VRFSeed,
 };
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
-use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::{
-    Address, Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainSigner,
-    BurnchainTransaction, PoxConstants, PublicKey, Txid,
+    Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainSigner, BurnchainTransaction,
+    PoxConstants, Txid,
 };
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle, SortitionHandleTx};
+#[cfg(test)]
+use crate::chainstate::burn::operations::LeaderKeyRegisterOp;
 use crate::chainstate::burn::operations::{
-    parse_u16_from_be, parse_u32_from_be, BlockstackOperationType, Error as op_error,
-    LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    parse_u16_from_be, parse_u32_from_be, Error as op_error, LeaderBlockCommitOp,
 };
-use crate::chainstate::burn::{ConsensusHash, Opcodes, SortitionId};
+use crate::chainstate::burn::{Opcodes, SortitionId};
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::index::storage::TrieFileStorage;
-use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::core::{
-    StacksEpoch, StacksEpochId, STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER,
-    STACKS_EPOCH_2_2_MARKER, STACKS_EPOCH_2_3_MARKER, STACKS_EPOCH_2_4_MARKER,
-    STACKS_EPOCH_2_5_MARKER, STACKS_EPOCH_3_0_MARKER, STACKS_EPOCH_3_1_MARKER,
+    StacksEpochId, STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER, STACKS_EPOCH_2_2_MARKER,
+    STACKS_EPOCH_2_3_MARKER, STACKS_EPOCH_2_4_MARKER, STACKS_EPOCH_2_5_MARKER,
+    STACKS_EPOCH_3_0_MARKER, STACKS_EPOCH_3_1_MARKER,
 };
-use crate::net::Error as net_error;
 
 // return type from parse_data below
 #[derive(Debug)]
@@ -1159,7 +1152,8 @@ impl LeaderBlockCommitOp {
 #[cfg(test)]
 mod tests {
     use clarity::vm::costs::ExecutionCost;
-    use rand::{thread_rng, RngCore};
+    use rand::RngCore;
+    use rusqlite::Connection;
     use stacks_common::address::AddressHashMode;
     use stacks_common::deps_common::bitcoin::blockdata::transaction::{Transaction, TxOut};
     use stacks_common::deps_common::bitcoin::network::serialize::{deserialize, serialize_hex};
@@ -1171,17 +1165,11 @@ mod tests {
     use super::*;
     use crate::burnchains::bitcoin::address::*;
     use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::bitcoin::*;
     use crate::burnchains::*;
-    use crate::chainstate::burn::db::sortdb::tests::{
-        test_append_snapshot, test_append_snapshot_with_winner,
-    };
-    use crate::chainstate::burn::db::sortdb::*;
-    use crate::chainstate::burn::db::*;
+    use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot;
     use crate::chainstate::burn::operations::*;
     use crate::chainstate::burn::{ConsensusHash, *};
-    use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::{
         StacksEpoch, StacksEpochExtension, StacksEpochId, PEER_VERSION_EPOCH_1_0,

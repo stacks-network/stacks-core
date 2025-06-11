@@ -15,42 +15,28 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::io::prelude::*;
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
-use std::{fmt, fs, io};
 
-use clarity::vm::analysis::run_analysis;
 use clarity::vm::analysis::types::ContractAnalysis;
 use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
-use clarity::vm::contracts::Contract;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
-use clarity::vm::costs::{cost_functions, runtime_cost, CostTracker, ExecutionCost};
-use clarity::vm::database::{ClarityBackingStore, ClarityDatabase};
+use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
 use clarity::vm::errors::Error as InterpreterError;
-use clarity::vm::representations::{ClarityName, ContractName};
-use clarity::vm::types::serialization::SerializationError as ClaritySerializationError;
+use clarity::vm::representations::ClarityName;
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StacksAddressExtensions as ClarityStacksAddressExt, StandardPrincipalData, TupleData,
     TypeSignature, Value,
 };
-use stacks_common::util::hash::to_hex;
 
-use crate::chainstate::burn::db::sortdb::*;
-use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::*;
-use crate::chainstate::stacks::{Error, StacksMicroblockHeader, *};
+use crate::chainstate::stacks::{Error, StacksMicroblockHeader};
 use crate::clarity_vm::clarity::{
-    ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityTransactionConnection,
-    Error as clarity_error,
+    ClarityConnection, ClarityTransactionConnection, Error as clarity_error,
 };
-use crate::net::Error as net_error;
-use crate::util_lib::db::{query_count, query_rows, DBConn, Error as db_error};
-use crate::util_lib::strings::{StacksString, VecDisplay};
+use crate::util_lib::strings::VecDisplay;
 
 /// This is a safe-to-hash Clarity value
 #[derive(PartialEq, Eq)]
@@ -1635,8 +1621,7 @@ impl StacksChainState {
 
 #[cfg(test)]
 pub mod test {
-    use clarity::vm::clarity::TransactionConnection;
-    use clarity::vm::contracts::Contract;
+    use clarity::util::secp256k1::Secp256k1PrivateKey;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
@@ -1646,13 +1631,8 @@ pub mod test {
     use stacks_common::util::hash::*;
 
     use super::*;
-    use crate::burnchains::Address;
-    use crate::chainstate::stacks::boot::*;
     use crate::chainstate::stacks::db::test::*;
-    use crate::chainstate::stacks::index::storage::*;
-    use crate::chainstate::stacks::index::*;
     use crate::chainstate::stacks::{Error, *};
-    use crate::chainstate::*;
 
     pub const TestBurnStateDB_20: UnitTestBurnStateDB = UnitTestBurnStateDB {
         epoch_id: StacksEpochId::Epoch20,
@@ -1740,7 +1720,7 @@ pub mod test {
         );
 
         let mut tx_conn = next_block.start_transaction_processing();
-        let sk = secp256k1::Secp256k1PrivateKey::random();
+        let sk = Secp256k1PrivateKey::random();
 
         let tx = StacksTransaction {
             version: TransactionVersion::Testnet,
