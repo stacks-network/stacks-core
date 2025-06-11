@@ -17,41 +17,23 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::char::from_digit;
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
-use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
-use std::path::{Path, PathBuf};
-use std::{error, fmt, fs, io, os};
+use std::io::Write;
 
-use regex::Regex;
 use rusqlite::blob::Blob;
-use rusqlite::types::{FromSql, ToSql};
-use rusqlite::{
-    params, Connection, DatabaseName, Error as SqliteError, OptionalExtension, Transaction,
-};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
-};
+use rusqlite::{params, Connection, DatabaseName, OptionalExtension, Transaction};
+use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::util::log;
 
+#[cfg(test)]
+use crate::chainstate::stacks::index::bits::read_hash_bytes;
 use crate::chainstate::stacks::index::bits::{
-    get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes,
     read_node_hash_bytes as bits_read_node_hash_bytes, read_nodetype, read_nodetype_nohash,
-    write_nodetype_bytes,
 };
-use crate::chainstate::stacks::index::file::TrieFile;
-use crate::chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
-    TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
-};
-use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
-use crate::chainstate::stacks::index::{trie_sql, BlockMap, Error, MarfTrieId, TrieLeaf};
-use crate::util_lib::db::{
-    query_count, query_row, query_rows, sql_pragma, tx_begin_immediate, u64_to_sql,
-};
+use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
+#[cfg(test)]
+use crate::chainstate::stacks::index::storage::TrieStorageConnection;
+use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId};
+use crate::util_lib::db::{query_count, query_row, tx_begin_immediate, u64_to_sql};
 
 static SQL_MARF_DATA_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS marf_data (

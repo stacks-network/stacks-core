@@ -14,33 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::BTreeMap;
-
-use rusqlite::Connection;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, PoxId, SortitionId, StacksBlockId, TrieHash, VRFSeed,
 };
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::log;
-use stacks_common::util::uint::{BitArray, Uint256, Uint512};
+use stacks_common::util::uint::{BitArray, Uint256};
 
 use crate::burnchains::{
-    Address, Burnchain, BurnchainBlock, BurnchainBlockHeader, BurnchainSigner,
-    BurnchainStateTransition, PublicKey, Txid,
+    Burnchain, BurnchainBlockHeader, BurnchainSigner, BurnchainStateTransition, Txid,
 };
 use crate::chainstate::burn::atc::{AtcRational, ATC_LOOKUP};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::distribution::BurnSamplePoint;
-use crate::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-};
+use crate::chainstate::burn::operations::LeaderBlockCommitOp;
 use crate::chainstate::burn::{
     BlockSnapshot, BurnchainHeaderHash, ConsensusHash, ConsensusHashExtensions, OpsHash,
     SortitionHash,
 };
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId};
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::core::*;
 use crate::util_lib::db::Error as db_error;
 
@@ -769,15 +761,12 @@ mod test {
     use stacks_common::address::*;
     use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
     use stacks_common::util::get_epoch_time_secs;
-    use stacks_common::util::hash::hex_bytes;
-    use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey};
+    use stacks_common::util::vrf::VRFPrivateKey;
 
     use super::*;
-    use crate::burnchains::tests::*;
     use crate::burnchains::{BurnchainSigner, *};
     use crate::chainstate::burn::atc::AtcRational;
     use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot_with_winner;
-    use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
     use crate::chainstate::burn::operations::*;
     use crate::chainstate::stacks::*;

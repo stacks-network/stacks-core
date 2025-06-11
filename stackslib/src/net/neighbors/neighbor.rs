@@ -19,12 +19,10 @@ use std::cmp;
 use clarity::vm::types::QualifiedContractIdentifier;
 use rand::prelude::*;
 use rand::thread_rng;
-use stacks_common::types::chainstate::StacksPublicKey;
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
-use stacks_common::util::{get_epoch_time_secs, log};
 
-use crate::burnchains::{Address, PublicKey};
 use crate::net::db::PeerDB;
 use crate::net::{Error as net_error, Neighbor, NeighborAddress, NeighborKey};
 use crate::util_lib::db::{DBConn, DBTx};

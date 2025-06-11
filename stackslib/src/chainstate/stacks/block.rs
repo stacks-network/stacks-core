@@ -14,9 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
-use std::io;
-use std::io::prelude::*;
+use std::collections::HashMap;
 use std::io::{Read, Write};
 
 use sha2::{Digest, Sha512_256};
@@ -25,15 +23,14 @@ use stacks_common::codec::{
     MAX_MESSAGE_LEN,
 };
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksBlockId, StacksWorkScore, TrieHash, VRFSeed,
+    BlockHeaderHash, StacksBlockId, StacksWorkScore, TrieHash, VRFSeed,
 };
-use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::*;
 
-use crate::burnchains::{PrivateKey, PublicKey};
+use crate::burnchains::PrivateKey;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::{ConsensusHash, *};
 use crate::chainstate::stacks::db::StacksBlockHeaderTypes;
@@ -931,25 +928,17 @@ impl StacksMicroblock {
 
 #[cfg(test)]
 mod test {
-    use std::error::Error;
-
+    use clarity::types::PublicKey;
     use stacks_common::address::*;
     use stacks_common::types::chainstate::StacksAddress;
     use stacks_common::util::hash::*;
 
     use super::*;
-    use crate::burnchains::bitcoin::address::BitcoinAddress;
-    use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
-    use crate::burnchains::bitcoin::BitcoinNetworkType;
-    use crate::burnchains::{BurnchainBlockHeader, BurnchainSigner, Txid};
+    use crate::burnchains::{BurnchainSigner, Txid};
     use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
-    use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::test::{make_codec_test_block, *};
     use crate::chainstate::stacks::*;
     use crate::net::codec::test::*;
-    use crate::net::codec::*;
-    use crate::net::*;
 
     #[test]
     fn codec_stacks_block_ecvrf_proof() {

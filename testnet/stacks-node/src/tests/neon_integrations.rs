@@ -276,6 +276,7 @@ pub mod test_observer {
     use std::sync::Mutex;
     use std::thread;
 
+    use libsigner::BurnBlockEvent;
     use stacks::chainstate::stacks::boot::RewardSet;
     use stacks::chainstate::stacks::events::StackerDBChunksEvent;
     use stacks::chainstate::stacks::StacksTransaction;
@@ -298,7 +299,7 @@ pub mod test_observer {
     pub static MINED_NAKAMOTO_BLOCKS: Mutex<Vec<MinedNakamotoBlockEvent>> = Mutex::new(Vec::new());
     pub static NEW_MICROBLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
     pub static NEW_STACKERDB_CHUNKS: Mutex<Vec<StackerDBChunksEvent>> = Mutex::new(Vec::new());
-    pub static BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+    pub static BURN_BLOCKS: Mutex<Vec<BurnBlockEvent>> = Mutex::new(Vec::new());
     pub static MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
     pub static MEMTXS_DROPPED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
     pub static ATTACHMENTS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
@@ -319,8 +320,10 @@ pub mod test_observer {
     async fn handle_burn_block(
         burn_block: serde_json::Value,
     ) -> Result<impl warp::Reply, Infallible> {
-        let mut blocks = BURN_BLOCKS.lock().unwrap();
-        blocks.push(burn_block);
+        BURN_BLOCKS.lock().unwrap().push(
+            serde_json::from_value(burn_block)
+                .expect("Failed to deserialize JSON into BurnBlockEvent"),
+        );
         Ok(warp::http::StatusCode::OK)
     }
 
@@ -533,7 +536,7 @@ pub mod test_observer {
         NEW_MICROBLOCKS.lock().unwrap().clone()
     }
 
-    pub fn get_burn_blocks() -> Vec<serde_json::Value> {
+    pub fn get_burn_blocks() -> Vec<BurnBlockEvent> {
         BURN_BLOCKS.lock().unwrap().clone()
     }
 
@@ -1175,7 +1178,7 @@ fn bitcoind_integration_test() {
     let burn_blocks_observed = test_observer::get_burn_blocks();
     let burn_blocks_with_burns: Vec<_> = burn_blocks_observed
         .into_iter()
-        .filter(|block| block.get("burn_amount").unwrap().as_u64().unwrap() > 0)
+        .filter(|block| block.burn_amount > 0)
         .collect();
     assert!(
         !burn_blocks_with_burns.is_empty(),
@@ -5295,18 +5298,11 @@ fn pox_integration_test() {
     let mut recipient_slots: HashMap<String, u64> = HashMap::new();
 
     for block in burn_blocks.iter() {
-        let reward_slot_holders = block
-            .get("reward_slot_holders")
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|x| x.as_str().unwrap().to_string());
-        for holder in reward_slot_holders {
-            if let Some(current) = recipient_slots.get_mut(&holder) {
+        for holder in block.reward_slot_holders.iter() {
+            if let Some(current) = recipient_slots.get_mut(holder) {
                 *current += 1;
             } else {
-                recipient_slots.insert(holder, 1);
+                recipient_slots.insert(holder.clone(), 1);
             }
         }
     }
@@ -9225,7 +9221,7 @@ fn filter_txs_by_origin() {
 }
 
 // https://stackoverflow.com/questions/26958489/how-to-copy-a-folder-recursively-in-rust
-fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> {
+pub fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> {
     fs::create_dir_all(&dst)?;
     for entry in fs::read_dir(src)? {
         let entry = entry?;

@@ -26,11 +26,10 @@ use crate::burnchains::bitcoin::bits::parse_script;
 use crate::burnchains::bitcoin::{BitcoinTxInput, BitcoinTxInputStructured};
 use crate::burnchains::{BurnchainBlockHeader, BurnchainTransaction, Txid};
 use crate::chainstate::burn::operations::{
-    parse_u128_from_be, parse_u16_from_be, parse_u32_from_be, parse_u64_from_be,
-    BlockstackOperationType, Error as op_error, PreStxOp, VoteForAggregateKeyOp,
+    parse_u16_from_be, parse_u32_from_be, parse_u64_from_be, Error as op_error,
+    VoteForAggregateKeyOp,
 };
 use crate::chainstate::burn::Opcodes;
-use crate::chainstate::stacks::address::PoxAddress;
 
 struct ParsedData {
     signer_index: u16,
@@ -221,8 +220,6 @@ impl StacksMessageCodec for VoteForAggregateKeyOp {
 
 #[cfg(test)]
 mod tests {
-    use stacks_common::deps_common::bitcoin::blockdata::script::Builder;
-    use stacks_common::types;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
     use stacks_common::types::{Address, StacksPublicKeyBuffer};
     use stacks_common::util::hash::*;
@@ -238,7 +235,6 @@ mod tests {
     use crate::burnchains::{BurnchainTransaction, Txid};
     use crate::chainstate::burn::operations::{Error as op_error, VoteForAggregateKeyOp};
     use crate::chainstate::burn::Opcodes;
-    use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 
     #[test]
     fn test_parse_vote_tx_signer_key() {

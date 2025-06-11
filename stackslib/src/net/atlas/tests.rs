@@ -19,8 +19,8 @@ use std::{thread, time};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::params;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
-use stacks_common::types::net::{PeerAddress, PeerHost};
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::Hash160;
 
 use super::download::{
@@ -31,8 +31,6 @@ use super::{
     AtlasConfig, AtlasDB, Attachment, AttachmentInstance, AttachmentPage, GetAttachmentsInvResponse,
 };
 use crate::burnchains::Txid;
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::{HttpResponsePayload, HttpResponsePreamble, HttpVersion};
 use crate::net::httpcore::StacksHttpResponse;

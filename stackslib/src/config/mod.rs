@@ -16,7 +16,7 @@
 
 pub mod chain_data;
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -2490,13 +2490,24 @@ impl Default for NodeConfig {
 impl NodeConfig {
     /// Get a SocketAddr for this node's RPC endpoint which uses the loopback address
     pub fn get_rpc_loopback(&self) -> Option<SocketAddr> {
-        let rpc_port = SocketAddr::from_str(&self.rpc_bind)
-            .map_err(|e| {
+        let rpc_port = self.rpc_bind_addr()?.port();
+        Some(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), rpc_port))
+    }
+
+    pub fn rpc_bind_addr(&self) -> Option<SocketAddr> {
+        SocketAddr::from_str(&self.rpc_bind)
+            .inspect_err(|e| {
                 error!("Could not parse node.rpc_bind configuration setting as SocketAddr: {e}");
             })
-            .ok()?
-            .port();
-        Some(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), rpc_port))
+            .ok()
+    }
+
+    pub fn p2p_bind_addr(&self) -> Option<SocketAddr> {
+        SocketAddr::from_str(&self.p2p_bind)
+            .inspect_err(|e| {
+                error!("Could not parse node.rpc_bind configuration setting as SocketAddr: {e}");
+            })
+            .ok()
     }
 
     pub fn add_signers_stackerdbs(&mut self, is_mainnet: bool) {

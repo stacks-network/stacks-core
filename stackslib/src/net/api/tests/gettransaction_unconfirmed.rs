@@ -16,21 +16,13 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
-use clarity::vm::{ClarityName, ContractName, Value};
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::net::PeerHost;
-use stacks_common::types::Address;
-
 use super::TestRPC;
-use crate::core::BLOCK_LIMIT_MAINNET_21;
+use crate::burnchains::Txid;
 use crate::net::api::gettransaction_unconfirmed::UnconfirmedTransactionStatus;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
-use crate::net::httpcore::{
-    HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
-};
-use crate::net::{ProtocolFamily, TipRequest};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
+use crate::net::ProtocolFamily;
 
 #[test]
 fn test_try_parse_request() {

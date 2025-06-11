@@ -14,34 +14,30 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
-use std::{cmp, io};
 
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::database::HeadersDB;
-use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::test_util::TEST_BURN_STATE_DB;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
-use clarity::vm::{ClarityName, ContractName, Value};
+use clarity::vm::Value;
 use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::params;
-use stacks_common::address::AddressHashMode;
-use stacks_common::codec::{read_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksWorkScore, TrieHash,
-    VRFSeed,
 };
 use stacks_common::types::{MempoolCollectionBehavior, StacksEpochId};
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, *};
-use stacks_common::util::secp256k1::{MessageSignature, *};
+use stacks_common::util::hash::{Hash160, *};
+use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFProof;
-use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log, sleep_ms};
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 
 use super::mempool::MemPoolWalkStrategy;
 use super::MemPoolDB;
-use crate::burnchains::{Address, Txid};
+use crate::burnchains::Txid;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::test::{
@@ -49,17 +45,13 @@ use crate::chainstate::stacks::db::test::{
 };
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
-use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::miner::TransactionResult;
 use crate::chainstate::stacks::test::codec_all_transactions;
 use crate::chainstate::stacks::{
-    CoinbasePayload, Error as ChainstateError, SinglesigHashMode, SinglesigSpendingCondition,
-    StacksBlockHeader, StacksMicroblockHeader, StacksPrivateKey, StacksPublicKey,
-    StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
-    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
-    TransactionPublicKeyEncoding, TransactionSmartContract, TransactionSpendingCondition,
-    TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    Error as ChainstateError, SinglesigHashMode, SinglesigSpendingCondition, StacksBlockHeader,
+    StacksPrivateKey, StacksTransaction, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
+    TransactionPayload, TransactionPostConditionMode, TransactionPublicKeyEncoding,
+    TransactionSpendingCondition, TransactionVersion,
 };
 use crate::core::mempool::{
     db_get_all_nonces, MemPoolSyncData, MemPoolWalkSettings, MemPoolWalkTxTypes, TxTag,
@@ -67,11 +59,9 @@ use crate::core::mempool::{
 };
 use crate::core::test_util::{insert_tx_in_mempool, make_stacks_transfer_serialized, to_addr};
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-use crate::net::Error as NetError;
 use crate::util_lib::bloom::test::setup_bloom_counter;
 use crate::util_lib::bloom::*;
-use crate::util_lib::db::{tx_begin_immediate, DBConn, FromRow};
-use crate::util_lib::strings::StacksString;
+use crate::util_lib::db::tx_begin_immediate;
 
 const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";

@@ -14,12 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
-use std::{cmp, fmt, fs, io};
+use std::{fs, io};
 
-use rusqlite::types::ToSql;
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
+use rusqlite::{params, Connection, OpenFlags, Row, Transaction};
 use serde_json;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::sqlite::NO_PARAMS;
@@ -30,11 +29,11 @@ use crate::burnchains::{
 };
 use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId};
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::core::StacksEpochId;
 use crate::util_lib::db::{
-    opt_u64_to_sql, query_row, query_row_panic, query_rows, sql_pragma, sqlite_open,
-    tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn, Error as DBError, FromColumn, FromRow,
+    opt_u64_to_sql, query_row, query_row_panic, query_rows, sqlite_open, tx_begin_immediate,
+    u64_to_sql, DBConn, Error as DBError, FromColumn, FromRow,
 };
 
 pub struct BurnchainDB {

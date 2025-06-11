@@ -1175,7 +1175,6 @@ pub(crate) const ATC_LOOKUP: [AtcRational; 1024] = [
 
 #[cfg(test)]
 mod test {
-    use stacks_common::util::hash::to_hex;
     use stacks_common::util::uint::Uint256;
 
     use crate::chainstate::burn::atc::AtcRational;
