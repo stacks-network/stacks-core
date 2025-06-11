@@ -105,6 +105,13 @@ impl SortitionState {
         let Ok(elapsed) = std::time::SystemTime::now().duration_since(last_activity) else {
             return Ok(false);
         };
+        if elapsed > timeout {
+            info!("Sortition has timed out";
+                "sorition" => %sortition,
+                "timeout" => %timeout.as_secs(),
+                "elapsed" => %elapsed.as_secs()
+            )
+        }
         Ok(elapsed > timeout)
     }
 

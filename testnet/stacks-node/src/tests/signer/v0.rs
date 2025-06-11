@@ -11036,8 +11036,8 @@ fn reorg_attempts_count_towards_miner_validity() {
     test_observer::clear();
 
     info!("------------------------- Start Tenure B  -------------------------");
+    TEST_MINE_SKIP.set(true);
     let commits_before = commits_submitted.load(Ordering::SeqCst);
-    TEST_MINE_STALL.set(true);
     let chain_before = get_chain_info(&signer_test.running_nodes.conf);
 
     let start = std::time::Instant::now();
@@ -11053,16 +11053,14 @@ fn reorg_attempts_count_towards_miner_validity() {
     .unwrap();
 
     let chain_after = get_chain_info(&signer_test.running_nodes.conf);
-    wait_for_state_machine_update(
+    wait_for_state_machine_update_by_miner_tenure_id(
         30,
         &chain_after.pox_consensus,
-        chain_after.burn_block_height,
-        None,
         &all_signers,
         SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
-    .expect("Timed out waiting for the signers to update their state");
-    TEST_MINE_STALL.set(false);
+    .expect("Failed to update signer states to expected miner tenure id");
+    TEST_MINE_SKIP.set(false);
     let block_proposal_n_prime =
         wait_for_block_proposal(30, chain_before.stacks_tip_height + 1, &miner_pk)
             .expect("Failed to get block proposal N'");
@@ -11070,7 +11068,7 @@ fn reorg_attempts_count_towards_miner_validity() {
 
     assert_ne!(block_proposal_n, block_proposal_n_prime);
     let chain_before = get_chain_info(&signer_test.running_nodes.conf);
-    TEST_MINE_STALL.set(true);
+    TEST_MINE_SKIP.set(true);
     TEST_VALIDATE_STALL.set(false);
 
     info!("------------------------- Advance Tip to Block N  -------------------------");
@@ -11086,15 +11084,13 @@ fn reorg_attempts_count_towards_miner_validity() {
         chain_after.stacks_tip_height,
         block_proposal_n.header.chain_length
     );
-    wait_for_state_machine_update(
+    wait_for_state_machine_update_by_miner_tenure_id(
         30,
         &chain_after.pox_consensus,
-        chain_after.burn_block_height,
-        None,
         &all_signers,
         SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
-    .expect("Timed out waiting for the signers to update their state");
+    .expect("Failed to update signer state to expected miner tenure id");
 
     info!("------------------------- Wait for Block N' Rejection -------------------------");
     wait_for_block_global_rejection(
@@ -11112,7 +11108,7 @@ fn reorg_attempts_count_towards_miner_validity() {
         wait_for.as_secs()
     );
     std::thread::sleep(wait_for);
-    TEST_MINE_STALL.set(false);
+    TEST_MINE_SKIP.set(false);
 
     info!(
         "------------------------- Test Mine Block N+1 at height {} -------------------------",
