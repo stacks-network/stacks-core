@@ -1123,7 +1123,11 @@ impl Relayer {
             ) {
                 Ok(x) => x,
                 Err(e) => {
-                    warn!("Failed to process Nakamoto block {}: {:?}", &block_id, &e);
+                    warn!("Failed to process Nakamoto block: {e:?}";
+                        "block_id" => %block_id,
+                        "consensus_hash" => %block.header.consensus_hash,
+                        "stacks_block_hash" => %block.header.block_hash(),
+                    );
                     continue;
                 }
             };
@@ -2455,7 +2459,7 @@ impl Relayer {
                 // forward if not stale
                 if chunk.rc_consensus_hash != *rc_consensus_hash {
                     debug!("Drop stale uploaded StackerDB chunk";
-                           "stackerdb_contract_id" => &format!("{}", &chunk.contract_id),
+                           "stackerdb_contract_id" => %chunk.contract_id,
                            "slot_id" => chunk.chunk_data.slot_id,
                            "slot_version" => chunk.chunk_data.slot_version,
                            "chunk.rc_consensus_hash" => %chunk.rc_consensus_hash,
@@ -2463,11 +2467,11 @@ impl Relayer {
                     continue;
                 }
 
-                debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => &format!("{}", &chunk.contract_id), "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
+                debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => %chunk.contract_id, "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
 
                 let msg = StacksMessageType::StackerDBPushChunk(chunk);
                 if let Err(e) = self.p2p.broadcast_message(vec![], msg) {
-                    warn!("Failed to broadcast Nakamoto blocks: {:?}", &e);
+                    warn!("Failed to broadcast Nakamoto blocks: {e:?}");
                 }
             }
             for (contract_id, new_chunks) in all_events.into_iter() {
@@ -2512,7 +2516,7 @@ impl Relayer {
                                 // to distinguish it from other message types.
                                 debug!(
                                     "Dropping stale StackerDB chunk";
-                                    "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id),
+                                    "stackerdb_contract_id" => %sync_result.contract_id,
                                     "slot_id" => md.slot_id,
                                     "slot_version" => md.slot_version,
                                     "num_bytes" => chunk.data.len(),
@@ -2521,7 +2525,7 @@ impl Relayer {
                             } else {
                                 warn!(
                                     "Failed to store chunk for StackerDB";
-                                    "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id),
+                                    "stackerdb_contract_id" => %sync_result.contract_id,
                                     "slot_id" => md.slot_id,
                                     "slot_version" => md.slot_version,
                                     "num_bytes" => chunk.data.len(),
@@ -2530,7 +2534,7 @@ impl Relayer {
                             }
                             continue;
                         } else {
-                            debug!("Stored chunk"; "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id), "slot_id" => md.slot_id, "slot_version" => md.slot_version);
+                            debug!("Stored chunk"; "stackerdb_contract_id" => %sync_result.contract_id, "slot_id" => md.slot_id, "slot_version" => md.slot_version);
                         }
 
                         if let Some(event_list) = all_events.get_mut(&sync_result.contract_id) {
@@ -2544,13 +2548,13 @@ impl Relayer {
                             chunk_data: chunk,
                         });
                         if let Err(e) = self.p2p.broadcast_message(vec![], msg) {
-                            warn!("Failed to broadcast StackerDB chunk: {:?}", &e);
+                            warn!("Failed to broadcast StackerDB chunk: {e:?}");
                         }
                     }
                 }
                 tx.commit()?;
             } else {
-                info!("Got chunks for unconfigured StackerDB replica"; "stackerdb_contract_id" => &format!("{}", &sc));
+                debug!("Got chunks for unconfigured StackerDB replica"; "stackerdb_contract_id" => %sc);
             }
         }
 
@@ -2575,7 +2579,7 @@ impl Relayer {
         let sync_results = stackerdb_chunks
             .into_iter()
             .map(|chunk_data| {
-                debug!("Received pushed StackerDB chunk {:?}", &chunk_data);
+                debug!("Received pushed StackerDB chunk {chunk_data:?}");
                 let sync_result = StackerDBSyncResult::from_pushed_chunk(chunk_data);
                 sync_result
             })
