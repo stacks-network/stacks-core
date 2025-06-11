@@ -323,6 +323,31 @@ impl SignerTest<SpawnedSigner> {
         info!("Ready to mine Nakamoto blocks!");
     }
 
+    /// If this SignerTest is configured to use a snapshot, this
+    /// will check if the snapshot exists. If the snapshot doesn't
+    /// exist, it will boot to epoch 3.0 and save state to a snapshot.
+    ///
+    /// This will also shutdown the test early, requiring a restart
+    /// of the test.
+    ///
+    /// If the test is not configured to use snapshots, it will boot to epoch 3.0
+    /// and continue.
+    ///
+    /// Returns `true` if the snapshot was created.
+    pub fn bootstrap_snapshot(&self) -> bool {
+        if self.snapshot_path.is_none() {
+            self.boot_to_epoch_3();
+            return false;
+        }
+
+        if self.needs_snapshot() {
+            self.boot_to_epoch_3();
+            warn!("Snapshot created. Shutdown and try again.");
+            return true;
+        }
+        false
+    }
+
     // Only call after already past the epoch 3.0 boundary
     fn mine_and_verify_confirmed_naka_block(
         &self,
@@ -4736,6 +4761,68 @@ fn tenure_extend_with_other_transactions() {
         }),
         "Failed to find the transfer tx in the block"
     );
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+fn snapshot_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk =
+        Secp256k1PrivateKey::from_seed(format!("sender_{}", function_name!()).as_bytes());
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let _recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let idle_timeout = Duration::from_secs(30);
+    let miner_idle_timeout = idle_timeout + Duration::from_secs(10);
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new_with_config_modifications_and_snapshot(
+            num_signers,
+            vec![(sender_addr, (send_amt + send_fee) * 1000)],
+            |config| {
+                config.tenure_idle_timeout = idle_timeout;
+            },
+            |config| {
+                config.miner.tenure_timeout = miner_idle_timeout;
+                config.miner.tenure_extend_cost_threshold = 0;
+                config.miner.activated_vrf_key_path =
+                    Some(format!("{}/vrf_key", config.node.working_dir));
+            },
+            None,
+            None,
+            Some(function_name!()),
+        );
+    let _http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+
+    if signer_test.bootstrap_snapshot() {
+        signer_test.shutdown_and_snapshot();
+        return;
+    }
+
+    info!("---- Nakamoto booted, starting test ----");
+
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+
+    info!("---- Submit transfer tx ----");
+    let (_transfer_txid, transfer_nonce) = signer_test
+        .submit_transfer_tx(&sender_sk, send_fee, send_amt)
+        .expect("Failed to submit transfer tx");
+
+    signer_test
+        .wait_for_nonce_increase(&sender_addr, transfer_nonce)
+        .expect("Timed out waiting for nonce to increase");
+
     signer_test.shutdown();
 }
 
