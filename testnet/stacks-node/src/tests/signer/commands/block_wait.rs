@@ -328,22 +328,22 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlockProposa
 }
 
 /// Command to wait for a tenure change block from a specific miner.
-/// This command waits for a block that contains exactly 2 transactions:
+/// This command waits for a block that contains:
 /// 1. A TenureChange transaction with cause BlockFound
 /// 2. A Coinbase transaction
 /// This verifies that a proper tenure change has occurred.
-pub struct ChainExpectTenureChange {
+pub struct ChainExpectStacksTenureChange {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
 }
 
-impl ChainExpectTenureChange {
+impl ChainExpectStacksTenureChange {
     pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
         Self { ctx, miner_index }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for ChainExpectTenureChange {
+impl Command<SignerTestState, SignerTestContext> for ChainExpectStacksTenureChange {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
             "Checking: Waiting for tenure change block from miner {}",
@@ -403,7 +403,7 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectTenureChange {
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1usize..=2usize).prop_flat_map(move |miner_index| {
-            Just(CommandWrapper::new(ChainExpectTenureChange::new(
+            Just(CommandWrapper::new(ChainExpectStacksTenureChange::new(
                 ctx.clone(),
                 miner_index,
             )))

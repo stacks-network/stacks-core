@@ -7,7 +7,7 @@ use super::context::{SignerTestContext, SignerTestState};
 
 /// Command to verify that a specified miner has produced the expected number of blocks
 /// based on different height calculation strategies.
-pub struct ChainVerifyMinerBlockCount {
+pub struct ChainVerifyMinerNakaBlockCount {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
     expected_block_count: usize,
@@ -20,7 +20,7 @@ enum HeightStrategy {
     AfterSpecificHeight(u64),
 }
 
-impl ChainVerifyMinerBlockCount {
+impl ChainVerifyMinerNakaBlockCount {
     fn new(
         ctx: Arc<SignerTestContext>,
         miner_index: usize,
@@ -63,7 +63,7 @@ impl ChainVerifyMinerBlockCount {
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for ChainVerifyMinerBlockCount {
+impl Command<SignerTestState, SignerTestContext> for ChainVerifyMinerNakaBlockCount {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
             "Checking: Verifying miner {} block count. Result: {}",
@@ -121,7 +121,7 @@ impl Command<SignerTestState, SignerTestContext> for ChainVerifyMinerBlockCount 
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1usize..=2usize, 1usize..=5usize).prop_map(move |(miner_index, expected_block_count)| {
-            CommandWrapper::new(ChainVerifyMinerBlockCount::after_boot_to_epoch3(
+            CommandWrapper::new(ChainVerifyMinerNakaBlockCount::after_boot_to_epoch3(
                 ctx.clone(),
                 miner_index,
                 expected_block_count,

@@ -6,18 +6,18 @@ use proptest::prelude::Strategy;
 use super::context::{SignerTestContext, SignerTestState};
 
 /// Command to manually trigger a block commit submission for a specified miner
-pub struct MinerSubmitBlockCommit {
+pub struct MinerSubmitNakaBlockCommit {
     ctx: Arc<SignerTestContext>,
     miner_index: usize,
 }
 
-impl MinerSubmitBlockCommit {
+impl MinerSubmitNakaBlockCommit {
     pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
         Self { ctx, miner_index }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for MinerSubmitBlockCommit {
+impl Command<SignerTestState, SignerTestContext> for MinerSubmitNakaBlockCommit {
     fn check(&self, _state: &SignerTestState) -> bool {
         let is_miner_paused = self
             .ctx
@@ -77,7 +77,7 @@ impl Command<SignerTestState, SignerTestContext> for MinerSubmitBlockCommit {
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (1usize..=2usize).prop_map(move |miner_index| {
-            CommandWrapper::new(MinerSubmitBlockCommit::new(ctx.clone(), miner_index))
+            CommandWrapper::new(MinerSubmitNakaBlockCommit::new(ctx.clone(), miner_index))
         })
     }
 }

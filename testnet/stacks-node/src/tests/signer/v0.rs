@@ -11299,7 +11299,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs_scenario() {
         (ChainStacksMining::pause()),
         (MinerMineBitcoinBlocks::one(test_context.clone())),
         (ChainExpectSortitionWinner::new(test_context.clone(), MINER1)),
-        (MinerSubmitBlockCommit::new(test_context.clone(), MINER2)),
+        (MinerSubmitNakaBlockCommit::new(test_context.clone(), MINER2)),
         (ChainStacksMining::resume()),
         (ChainExpectNakaBlock::from_miner_height(test_context.clone(), MINER1)),
         (MinerMineBitcoinBlocks::one(test_context.clone())),
@@ -11487,25 +11487,25 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         ChainBootToEpoch3,
         (ChainMinerCommitOp::disable_for(test_context.clone(), MINER1)),
         (MinerMineBitcoinBlocks::one(test_context.clone())), // Sets block height in the state
-        (ChainExpectTenureChange::new(test_context.clone(), MINER1)),
+        (ChainExpectStacksTenureChange::new(test_context.clone(), MINER1)),
         (ChainExpectNakaBlock::from_state_height(test_context.clone(), MINER1)), // Uses block height from the state
         (ChainExpectSortitionWinner::new(test_context.clone(), MINER1)),
-        (MinerSubmitBlockCommit::new(test_context.clone(), MINER2)),
+        (MinerSubmitNakaBlockCommit::new(test_context.clone(), MINER2)),
         (ChainStacksMining::pause()),
         (MinerMineBitcoinBlocks::one(test_context.clone())),
-        (MinerSubmitBlockCommit::new(test_context.clone(), MINER1)),
+        (MinerSubmitNakaBlockCommit::new(test_context.clone(), MINER1)),
         (ChainStacksMining::resume()),
         (ChainExpectNakaBlock::from_miner_height(test_context.clone(), MINER2)),
         (ChainExpectSortitionWinner::new(test_context.clone(), MINER2)),
-        MinerSendAndMineTransferTx,
-        MinerSendAndMineTransferTx,
+        MinerSendAndMineStacksTransferTx,
+        MinerSendAndMineStacksTransferTx,
         (ChainGenerateBitcoinBlocks::one(test_context.clone())),
         (ChainExpectNakaBlockProposal::with_rejection(
             test_context.clone(),
             MINER1,
             RejectReason::ReorgNotAllowed
         )),
-        (ChainVerifyMinerBlockCount::after_boot_to_epoch3(test_context.clone(), MINER1, 1)), // FIXME: This takes the expected block count as a parameter - can we avoid that?
+        (ChainVerifyMinerNakaBlockCount::after_boot_to_epoch3(test_context.clone(), MINER1, 1)), // FIXME: This takes the expected block count as a parameter - can we avoid that?
         ChainShutdownMiners, // FIXME: miners.shutdown() says: Cannot shutdown miners: other references to Arc still exist
     ]
 }

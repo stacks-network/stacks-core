@@ -8,18 +8,18 @@ use crate::tests::neon_integrations::get_chain_info;
 
 // This command simulates sending a Stacks transfer transaction and then mining a block to confirm it.
 // It verifies that the Stacks chain height increases as expected after the mining operation.
-pub struct MinerSendAndMineTransferTx {
+pub struct MinerSendAndMineStacksTransferTx {
     ctx: Arc<SignerTestContext>,
     timeout_secs: u64,
 }
 
-impl MinerSendAndMineTransferTx {
+impl MinerSendAndMineStacksTransferTx {
     pub fn new(ctx: Arc<SignerTestContext>, timeout_secs: u64) -> Self {
         Self { ctx, timeout_secs }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for MinerSendAndMineTransferTx {
+impl Command<SignerTestState, SignerTestContext> for MinerSendAndMineStacksTransferTx {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
             "Checking: Send and mine transfer tx with timeout {} seconds",
@@ -62,7 +62,10 @@ impl Command<SignerTestState, SignerTestContext> for MinerSendAndMineTransferTx 
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
         (20u64..40u64).prop_map(move |timeout_secs| {
             // Originally, timeout was 30 seconds
-            CommandWrapper::new(MinerSendAndMineTransferTx::new(ctx.clone(), timeout_secs))
+            CommandWrapper::new(MinerSendAndMineStacksTransferTx::new(
+                ctx.clone(),
+                timeout_secs,
+            ))
         })
     }
 }
