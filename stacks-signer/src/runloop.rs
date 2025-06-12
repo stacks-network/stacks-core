@@ -25,12 +25,14 @@ use stacks_common::{debug, error, info, warn};
 use crate::chainstate::SortitionsView;
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig, SignerConfigMode};
+use crate::signerdb::BlockInfo;
 use crate::v0::signer_state::LocalStateMachine;
 #[cfg(any(test, feature = "testing"))]
 use crate::v0::tests::TEST_SKIP_SIGNER_CLEANUP;
 use crate::Signer as SignerTrait;
 
 #[derive(thiserror::Error, Debug)]
+#[allow(clippy::large_enum_variant)]
 /// Configuration error type
 pub enum ConfigurationError {
     /// Error occurred while fetching data from the stacks node
@@ -58,6 +60,9 @@ pub struct StateInfo {
     pub signer_state_machines: Vec<(u64, Option<LocalStateMachine>)>,
     /// The number of pending block proposals for this signer
     pub pending_proposals_count: u64,
+    /// The canonical tip block info according to the running signers
+    /// as a pair of (reward-cycle, block-info)
+    pub signer_canonical_tips: Vec<(u64, Option<BlockInfo>)>,
 }
 
 /// The signer result that can be sent across threads
@@ -323,6 +328,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             block_proposal_max_age_secs: self.config.block_proposal_max_age_secs,
             reorg_attempts_activity_timeout: self.config.reorg_attempts_activity_timeout,
             proposal_wait_for_parent_time: self.config.proposal_wait_for_parent_time,
+            validate_with_replay_tx: self.config.validate_with_replay_tx,
         }))
     }
 
@@ -543,6 +549,16 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                         }
                     })
                     .unwrap_or(0),
+                signer_canonical_tips: self
+                    .stacks_signers
+                    .iter()
+                    .map(|(reward_cycle, signer)| {
+                        let ConfiguredSigner::RegisteredSigner(ref signer) = signer else {
+                            return (*reward_cycle, None);
+                        };
+                        (*reward_cycle, signer.get_canonical_tip())
+                    })
+                    .collect(),
             };
             info!("Signer status check requested: {state_info:?}");
 

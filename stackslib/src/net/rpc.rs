@@ -14,71 +14,24 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::io::prelude::*;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::collections::VecDeque;
+use std::fmt;
+use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::time::Instant;
-use std::{fmt, io};
 
-use clarity::vm::analysis::errors::CheckErrors;
-use clarity::vm::ast::ASTRules;
-use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::database::clarity_store::{make_contract_hash_key, ContractCommitment};
-use clarity::vm::database::{
-    BurnStateDB, ClarityDatabase, ClaritySerializable, STXBalance, StoreType,
-};
-use clarity::vm::errors::Error::Unchecked;
-use clarity::vm::errors::{Error as ClarityRuntimeError, InterpreterError};
-use clarity::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier,
-};
-use clarity::vm::{ClarityName, ClarityVersion, ContractName, SymbolicExpression, Value};
-use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
-use rand::prelude::*;
-use rand::thread_rng;
-use rusqlite::DatabaseName;
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
-};
-use stacks_common::types::net::{PeerAddress, PeerHost};
-use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::chunked_encoding::*;
+use stacks_common::types::net::PeerHost;
 use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum};
-use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::{types, util};
 
-use crate::burnchains::affirmation::AffirmationMap;
-use crate::burnchains::{Burnchain, BurnchainView, *};
-use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::db::blocks::{CheckError, MINIMUM_TX_FEE_RATE_PER_BYTE};
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::{Error as chain_error, StacksBlockHeader, *};
-use crate::clarity_vm::clarity::{ClarityConnection, Error as clarity_error};
-use crate::clarity_vm::database::marf::MarfedKV;
-use crate::core::mempool::*;
-use crate::cost_estimates::metrics::CostMetric;
-use crate::cost_estimates::{CostEstimator, FeeEstimator};
-use crate::net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
+use crate::monitoring;
 use crate::net::connection::{ConnectionHttp, ConnectionOptions, ReplyHandleHttp};
-use crate::net::db::PeerDB;
-use crate::net::http::{HttpRequestContents, HttpResponseContents};
+use crate::net::http::HttpResponseContents;
 use crate::net::httpcore::{
     StacksHttp, StacksHttpMessage, StacksHttpRequest, StacksHttpResponse, HTTP_REQUEST_ID_RESERVED,
 };
-use crate::net::p2p::{PeerMap, PeerNetwork};
-use crate::net::relay::Relayer;
-use crate::net::stackerdb::{StackerDBTx, StackerDBs};
 use crate::net::{Error as net_error, StacksMessageType, StacksNodeState};
-use crate::util_lib::boot::boot_code_id;
-use crate::util_lib::db::{DBConn, Error as db_error};
 use crate::util_lib::strings::UrlString;
-use crate::{monitoring, version_string};
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
@@ -548,6 +501,11 @@ impl ConversationHttp {
                         |conv_http, req| conv_http.handle_request(req, node),
                     )?;
 
+                    let msg_opt_log = if let Some(ref msg) = msg_opt {
+                        msg.get_message_description()
+                    } else {
+                        "None".into()
+                    };
                     info!("Handled StacksHTTPRequest";
                           "verb" => %verb,
                           "path" => %request_path,
@@ -555,7 +513,7 @@ impl ConversationHttp {
                           "latency_ms" => latency,
                           "conn_id" => self.conn_id,
                           "peer_addr" => &self.peer_addr,
-                          "p2p_msg" => ?msg_opt);
+                          "p2p_msg" => msg_opt_log);
 
                     if let Some(msg) = msg_opt {
                         ret.push(msg);

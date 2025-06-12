@@ -2121,7 +2121,7 @@ impl BitcoinRegtestController {
     /// Produce `num_blocks` regtest bitcoin blocks, sending the bitcoin coinbase rewards
     ///  to the bitcoin single sig addresses corresponding to `pks` in a round robin fashion.
     #[cfg(test)]
-    pub fn bootstrap_chain_to_pks(&mut self, num_blocks: usize, pks: &[Secp256k1PublicKey]) {
+    pub fn bootstrap_chain_to_pks(&self, num_blocks: usize, pks: &[Secp256k1PublicKey]) {
         info!("Creating wallet if it does not exist");
         if let Err(e) = self.create_wallet_if_dne() {
             error!("Error when creating wallet: {e:?}");
@@ -2280,7 +2280,7 @@ impl BurnchainController for BitcoinRegtestController {
     }
 
     #[cfg(test)]
-    fn bootstrap_chain(&mut self, num_blocks: u64) {
+    fn bootstrap_chain(&self, num_blocks: u64) {
         let Some(ref local_mining_pubkey) = &self.config.burnchain.local_mining_public_key else {
             warn!("No local mining pubkey while bootstrapping bitcoin regtest, will not generate bitcoin blocks");
             return;
@@ -2820,6 +2820,17 @@ impl BitcoinRPCRequest {
 
         BitcoinRPCRequest::send(config, payload)?;
         Ok(())
+    }
+
+    pub fn stop_bitcoind(config: &Config) -> RPCResult<serde_json::Value> {
+        let payload = BitcoinRPCRequest {
+            method: "stop".to_string(),
+            params: vec![],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+
+        BitcoinRPCRequest::send(config, payload)
     }
 
     pub fn send(config: &Config, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {

@@ -14,18 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-
 use clarity::types::chainstate::TenureBlockId;
-use clarity::vm::database::clarity_store::*;
-use clarity::vm::database::*;
 use clarity::vm::types::*;
-use rusqlite::types::ToSql;
 use rusqlite::{params, Row};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 
-use crate::burnchains::Address;
-use crate::chainstate::stacks::db::blocks::*;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::{Error, *};
 use crate::clarity::vm::types::StacksAddressExtensions;
@@ -1088,10 +1081,7 @@ mod test {
 
     use super::*;
     use crate::burnchains::*;
-    use crate::chainstate::burn::*;
     use crate::chainstate::stacks::db::test::*;
-    use crate::chainstate::stacks::index::*;
-    use crate::chainstate::stacks::{Error, *};
     use crate::core::StacksEpochId;
 
     fn make_dummy_miner_payment_schedule(

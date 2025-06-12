@@ -14,32 +14,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::{fs, io};
+use std::io::{Read, Seek, SeekFrom};
 
 use regex::{Captures, Regex};
-use rusqlite::Connection;
-use serde::de::Error as de_Error;
 use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::to_hex;
-use {serde, serde_json};
 
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NakamotoStagingBlocksConn};
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoStagingBlocksConn};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::http::{
-    parse_bytes, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType, HttpNotFound,
-    HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
-    HttpResponsePayload, HttpResponsePreamble, HttpServerError, HttpVersion,
+    parse_bytes, Error, HttpChunkGenerator, HttpContentType, HttpNotFound, HttpRequest,
+    HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
+    HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{
-    HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
-    StacksHttpResponse,
-};
-use crate::net::{Error as NetError, StacksNodeState, TipRequest, MAX_HEADERS};
-use crate::util_lib::db::{DBConn, Error as DBError};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
+use crate::net::{Error as NetError, StacksNodeState};
 
 #[derive(Clone)]
 pub struct RPCNakamotoBlockRequestHandler {

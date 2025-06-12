@@ -119,7 +119,7 @@ fn read_deflated_zonefiles(
         zonefile_hash: pair[0].to_owned(),
         zonefile_content: pair[1].replace("\\n", "\n"),
     });
-    return Box::new(pair_iter);
+    Box::new(pair_iter)
 }
 
 fn iter_deflated_csv(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = Vec<String>>> {
@@ -130,7 +130,7 @@ fn iter_deflated_csv(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = Ve
         .lines()
         .map(|line| line.unwrap())
         .map(|line| line.split(',').map(String::from).collect());
-    return Box::new(line_iter);
+    Box::new(line_iter)
 }
 
 fn read_balances(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = GenesisAccountBalance>> {
@@ -138,7 +138,7 @@ fn read_balances(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = Genesi
         address: cols[0].to_string(),
         amount: cols[1].parse::<u64>().unwrap(),
     });
-    return Box::new(balances);
+    Box::new(balances)
 }
 
 fn read_lockups(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = GenesisAccountLockup>> {
@@ -147,7 +147,7 @@ fn read_lockups(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = Genesis
         amount: cols[1].parse::<u64>().unwrap(),
         block_height: cols[2].parse::<u64>().unwrap(),
     });
-    return Box::new(lockups);
+    Box::new(lockups)
 }
 
 fn read_namespaces(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = GenesisNamespace>> {
@@ -161,7 +161,7 @@ fn read_namespaces(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = Gene
         no_vowel_discount: cols[6].parse::<i64>().unwrap(),
         lifetime: cols[7].parse::<i64>().unwrap(),
     });
-    return Box::new(namespaces);
+    Box::new(namespaces)
 }
 
 fn read_names(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = GenesisName>> {
@@ -170,7 +170,7 @@ fn read_names(deflate_bytes: &'static [u8]) -> Box<dyn Iterator<Item = GenesisNa
         owner: cols[1].to_string(),
         zonefile_hash: cols[2].to_string(),
     });
-    return Box::new(names);
+    Box::new(names)
 }
 
 #[cfg(test)]

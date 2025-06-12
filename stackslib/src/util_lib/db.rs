@@ -14,16 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::backtrace::Backtrace;
 use std::io::Error as IOError;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
 use std::{error, fmt, fs, io};
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use rand::{thread_rng, Rng, RngCore};
-use rusqlite::types::{FromSql, ToSql};
+use rusqlite::types::ToSql;
 use rusqlite::{
     params, Connection, Error as sqlite_error, OpenFlags, OptionalExtension, Params, Row,
     Transaction, TransactionBehavior,
@@ -35,12 +32,9 @@ use stacks_common::types::Address;
 use stacks_common::util::db::update_lock_table;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_common::util::sleep_ms;
 
-use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
 use crate::chainstate::stacks::index::{Error as MARFError, MARFValue, MarfTrieId};
-use crate::core::{StacksEpoch, StacksEpochId};
 
 pub type DBConn = rusqlite::Connection;
 pub type DBTx<'a> = rusqlite::Transaction<'a>;
@@ -677,7 +671,7 @@ pub fn tx_begin_immediate_sqlite(conn: &mut Connection) -> Result<DBTx<'_>, sqli
 }
 
 #[cfg(feature = "profile-sqlite")]
-fn trace_profile(query: &str, duration: Duration) {
+fn trace_profile(query: &str, duration: std::time::Duration) {
     use serde_json::json;
     let obj = json!({"millis":duration.as_millis(), "query":query});
     debug!(

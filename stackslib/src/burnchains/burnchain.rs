@@ -16,40 +16,35 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{fs, thread};
 
-use stacks_common::address::{public_keys_to_address_hash, AddressHashMode};
+#[cfg(test)]
+use rand::{thread_rng, RngCore};
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
-use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, StacksAddress, TrieHash};
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::vrf::VRFPublicKey;
-use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log, sleep_ms};
+use stacks_common::util::{get_epoch_time_ms, sleep_ms};
 
 use super::EpochList;
 use crate::burnchains::affirmation::update_pox_affirmation_maps;
-use crate::burnchains::bitcoin::address::{
-    to_c32_version_byte, BitcoinAddress, LegacyBitcoinAddressType,
-};
-use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
-use crate::burnchains::bitcoin::{
-    BitcoinInputType, BitcoinNetworkType, BitcoinTxInput, BitcoinTxOutput,
-};
+use crate::burnchains::bitcoin::BitcoinTxOutput;
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
 };
 use crate::burnchains::{
-    Address, Burnchain, BurnchainBlock, BurnchainBlockHeader, BurnchainParameters,
-    BurnchainRecipient, BurnchainSigner, BurnchainStateTransition, BurnchainStateTransitionOps,
-    BurnchainTransaction, Error as burnchain_error, PoxConstants, PublicKey, Txid,
+    Burnchain, BurnchainBlock, BurnchainBlockHeader, BurnchainParameters, BurnchainRecipient,
+    BurnchainSigner, BurnchainStateTransition, BurnchainStateTransitionOps, BurnchainTransaction,
+    Error as burnchain_error, PoxConstants, Txid,
 };
-use crate::chainstate::burn::db::sortdb::{
-    SortitionDB, SortitionHandle, SortitionHandleConn, SortitionHandleTx,
-};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle, SortitionHandleTx};
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
 use crate::chainstate::burn::operations::{
@@ -58,17 +53,14 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
-use crate::chainstate::coordinator::SortitionDBMigrator;
-use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
-use crate::chainstate::stacks::boot::{POX_2_MAINNET_CODE, POX_2_TESTNET_CODE};
+use crate::chainstate::stacks::address::PoxAddress;
+#[cfg(any(test, feature = "testing"))]
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::{
-    StacksEpoch, StacksEpochId, NETWORK_ID_MAINNET, NETWORK_ID_TESTNET, PEER_VERSION_MAINNET,
-    PEER_VERSION_TESTNET, STACKS_2_0_LAST_BLOCK_TO_PROCESS,
+    StacksEpoch, StacksEpochId, NETWORK_ID_MAINNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
-use crate::deps;
 use crate::monitoring::update_burnchain_height;
-use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
+use crate::util_lib::db::Error as db_error;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -578,6 +570,15 @@ impl Burnchain {
             .nakamoto_first_block_of_cycle(self.first_block_height, reward_cycle)
     }
 
+    #[cfg(any(test, feature = "testing"))]
+    /// the last burn block that must be *signed* by the signer set of `reward_cycle`.
+    /// this is the modulo -1 block
+    pub fn nakamoto_last_block_of_cycle(&self, reward_cycle: u64) -> u64 {
+        self.nakamoto_first_block_of_cycle(reward_cycle)
+            + self.pox_constants.reward_cycle_length as u64
+            - 1
+    }
+
     /// What is the reward cycle for this block height?
     /// This considers the modulo 0 block to be in reward cycle `n`, even though
     ///  rewards for cycle `n` do not begin until modulo 1.
@@ -628,9 +629,6 @@ impl Burnchain {
         first_block_height: u64,
         first_block_hash: &BurnchainHeaderHash,
     ) -> Burnchain {
-        use rand::rngs::ThreadRng;
-        use rand::{thread_rng, RngCore};
-
         let mut rng = thread_rng();
         let mut byte_tail = [0u8; 16];
         rng.fill_bytes(&mut byte_tail);
@@ -1763,5 +1761,175 @@ impl Burnchain {
         }
         update_burnchain_height(block_header.block_height as i64);
         Ok(block_header)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use regex::Regex;
+
+    use super::*;
+    use crate::burnchains::*;
+
+    #[test]
+    fn test_creation_by_new_for_bitcoin_mainnet() {
+        let burn_chain = Burnchain::new("workdir/path", "bitcoin", "mainnet");
+        assert!(burn_chain.is_ok());
+
+        let burn_chain = burn_chain.unwrap();
+        let first_block_hash =
+            BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH).unwrap();
+        assert_eq!(PEER_VERSION_MAINNET, burn_chain.peer_version);
+        assert_eq!(BITCOIN_NETWORK_ID_MAINNET, burn_chain.network_id);
+        assert_eq!(BITCOIN_MAINNET_NAME, burn_chain.network_name);
+        assert_eq!("workdir/path", burn_chain.working_dir);
+        assert_eq!(24, burn_chain.consensus_hash_lifetime);
+        assert_eq!(7, burn_chain.stable_confirmations);
+        assert_eq!(
+            BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+            burn_chain.first_block_height
+        );
+        assert_eq!(first_block_hash, burn_chain.first_block_hash);
+        assert_eq!(
+            BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP,
+            burn_chain.first_block_timestamp
+        );
+        assert_eq!(PoxConstants::mainnet_default(), burn_chain.pox_constants);
+        assert_eq!(
+            BITCOIN_MAINNET_INITIAL_REWARD_START_BLOCK,
+            burn_chain.initial_reward_start_block
+        );
+    }
+
+    #[test]
+    fn test_creation_by_new_for_bitcoin_testnet() {
+        let burn_chain = Burnchain::new("workdir/path", "bitcoin", "testnet");
+        assert!(burn_chain.is_ok());
+
+        let burn_chain = burn_chain.unwrap();
+        let first_block_hash =
+            BurnchainHeaderHash::from_hex(BITCOIN_TESTNET_FIRST_BLOCK_HASH).unwrap();
+        assert_eq!(PEER_VERSION_TESTNET, burn_chain.peer_version);
+        assert_eq!(BITCOIN_NETWORK_ID_TESTNET, burn_chain.network_id);
+        assert_eq!(BITCOIN_TESTNET_NAME, burn_chain.network_name);
+        assert_eq!("workdir/path", burn_chain.working_dir);
+        assert_eq!(24, burn_chain.consensus_hash_lifetime);
+        assert_eq!(7, burn_chain.stable_confirmations);
+        assert_eq!(
+            BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
+            burn_chain.first_block_height
+        );
+        assert_eq!(first_block_hash, burn_chain.first_block_hash);
+        assert_eq!(
+            BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP,
+            burn_chain.first_block_timestamp
+        );
+        assert_eq!(PoxConstants::testnet_default(), burn_chain.pox_constants);
+        assert_eq!(1_990_000, burn_chain.initial_reward_start_block);
+    }
+
+    #[test]
+    fn test_creation_by_new_for_bitcoin_regtest() {
+        let burn_chain = Burnchain::new("workdir/path", "bitcoin", "regtest");
+        assert!(burn_chain.is_ok());
+
+        let burn_chain = burn_chain.unwrap();
+        let first_block_hash =
+            BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
+        assert_eq!(PEER_VERSION_TESTNET, burn_chain.peer_version);
+        assert_eq!(BITCOIN_NETWORK_ID_REGTEST, burn_chain.network_id);
+        assert_eq!(BITCOIN_REGTEST_NAME, burn_chain.network_name);
+        assert_eq!("workdir/path", burn_chain.working_dir);
+        assert_eq!(24, burn_chain.consensus_hash_lifetime);
+        assert_eq!(1, burn_chain.stable_confirmations);
+        assert_eq!(
+            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
+            burn_chain.first_block_height
+        );
+        assert_eq!(first_block_hash, burn_chain.first_block_hash);
+        assert_eq!(
+            BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
+            burn_chain.first_block_timestamp
+        );
+        assert_eq!(PoxConstants::regtest_default(), burn_chain.pox_constants);
+        assert_eq!(
+            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
+            burn_chain.initial_reward_start_block
+        );
+    }
+
+    #[test]
+    fn test_creation_by_new_failure() {
+        //case: wrong chain name
+        let burn_chain = Burnchain::new("workdir/path", "wrong_chain_name", "regtest");
+        assert!(burn_chain.is_err());
+        assert!(matches!(
+            burn_chain.unwrap_err(),
+            burnchain_error::UnsupportedBurnchain
+        ));
+
+        //case: wrong network name
+        let burn_chain = Burnchain::new("workdir/path", "bitcoin", "wrong_net_name");
+        assert!(burn_chain.is_err());
+        assert!(matches!(
+            burn_chain.unwrap_err(),
+            burnchain_error::UnsupportedBurnchain
+        ));
+
+        //case: wrong chain name + wrong network name
+        let burn_chain = Burnchain::new("workdir/path", "wrong_chain_name", "wrong_net_name");
+        assert!(burn_chain.is_err());
+        assert!(matches!(
+            burn_chain.unwrap_err(),
+            burnchain_error::UnsupportedBurnchain
+        ));
+    }
+
+    #[test]
+    fn test_creation_by_default_unittest() {
+        let first_block_height = 0;
+        let first_block_hash = BurnchainHeaderHash([0u8; 32]);
+        let burn_chain = Burnchain::default_unittest(first_block_height, &first_block_hash);
+
+        let workdir_re = Regex::new(r"^/tmp/stacks-node-tests/unit-tests-[0-9a-f]{32}$").unwrap();
+
+        assert_eq!(PEER_VERSION_MAINNET, burn_chain.peer_version);
+        assert_eq!(BITCOIN_NETWORK_ID_MAINNET, burn_chain.network_id);
+        assert_eq!(BITCOIN_MAINNET_NAME, burn_chain.network_name);
+        assert!(workdir_re.is_match(&burn_chain.working_dir));
+        assert_eq!(24, burn_chain.consensus_hash_lifetime);
+        assert_eq!(7, burn_chain.stable_confirmations);
+        assert_eq!(first_block_height, burn_chain.first_block_height);
+        assert_eq!(first_block_hash, burn_chain.first_block_hash);
+        assert_eq!(
+            BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP,
+            burn_chain.first_block_timestamp
+        );
+        assert_eq!(PoxConstants::mainnet_default(), burn_chain.pox_constants);
+        assert_eq!(first_block_height, burn_chain.initial_reward_start_block);
+    }
+
+    #[test]
+    fn test_nakamoto_reward_cycle_boundaries() {
+        let first_block_height = 0;
+        let first_block_hash = BurnchainHeaderHash([0u8; 32]);
+        let burn_chain = Burnchain::default_unittest(first_block_height, &first_block_hash);
+
+        //making obvious the reward cycle length used
+        assert_eq!(2100, burn_chain.pox_constants.reward_cycle_length);
+
+        //Reward Cycle: 0
+        let rc = 0;
+        let rc_first_block = burn_chain.nakamoto_first_block_of_cycle(rc);
+        let rc_last_block = burn_chain.nakamoto_last_block_of_cycle(rc);
+        assert_eq!(0, rc_first_block);
+        assert_eq!(2099, rc_last_block);
+
+        //Reward Cycle: 1
+        let rc = 1;
+        let rc_first_block = burn_chain.nakamoto_first_block_of_cycle(rc);
+        let rc_last_block = burn_chain.nakamoto_last_block_of_cycle(rc);
+        assert_eq!(2100, rc_first_block);
+        assert_eq!(4199, rc_last_block);
     }
 }

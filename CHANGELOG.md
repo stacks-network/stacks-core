@@ -5,7 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
+## Unreleased
+
+### Added
+
+- Added a new RPC endpoint `/v3/health` to query the node's health status. The endpoint returns a 200 status code with relevant synchronization information (including the node's current Stacks tip height, the maximum Stacks tip height among its neighbors, and the difference between these two). A user can use the `difference_from_max_peer` value to decide what is a good threshold for them before considering the node out of sync. The endpoint returns a 500 status code if the query cannot retrieve viable data.
+
+## [3.1.0.0.12]
+
+### Added
+
+- Document missing config structs
+- Document MinerConfig parameters
+- Document BurnchainConfig parameters
+- Document NodeConfig parameters
+
+### Changed
+
+- `get_fresh_random_neighbors` to include allowed neigbors
+- Logging improvements and cleanup
+- Move serde serializers to stacks_common
+- Depend on clarity backing store interface
+- Updated `./docs/event-dispacher.md`
+
+### Fixed
+
+- Handle Bitcoin reorgs during Stacks tenure extend
+
+## [3.1.0.0.11]
+
+- Hotfix for p2p stack misbehavior in mempool syncing conditions
+
+## [3.1.0.0.10]
+
+### Added
+
+- Persisted tracking of StackerDB slot versions for mining. This improves miner p2p performance.
+
+## [3.1.0.0.9]
 
 ### Added
 
@@ -13,6 +50,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Added new `ValidateRejectCode` values to the `/v3/block_proposal` endpoint
 - Added `StateMachineUpdateContent::V1` to support a vector of `StacksTransaction` expected to be replayed in subsequent Stacks blocks
 - Include a reason string in the transaction receipt when a transaction is rolled back due to a post-condition. This should help users in understanding what went wrong.
+- Updated `StackerDBListener` to monitor signer state machine updates and store signer global state information, enabling miners to perform transaction replays.
+- Added a testnet `replay_transactions` flag to the miner configuration to feature-gate transaction replay. When enabled, the miner will construct a replay block if a threshold of signers signals that a transaction set requires replay.
 
 ### Changed
 

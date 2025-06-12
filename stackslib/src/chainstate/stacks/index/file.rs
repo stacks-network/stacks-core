@@ -14,42 +14,26 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::char::from_digit;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 use std::fs::OpenOptions;
-use std::hash::{Hash, Hasher};
-use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
-use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
-use std::{cmp, env, error, fmt, fs, io, os};
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
+use std::path::Path;
+use std::{env, fs, io};
 
-use rusqlite::types::{FromSql, ToSql};
-use rusqlite::{
-    Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OpenFlags, OptionalExtension,
-    Transaction,
-};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
-};
-use stacks_common::types::sqlite::NO_PARAMS;
+#[cfg(test)]
+use clarity::types::sqlite::NO_PARAMS;
+use rusqlite::Connection;
+use stacks_common::types::chainstate::TrieHash;
 
 use crate::chainstate::stacks::index::bits::{
-    get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes, read_node_hash_bytes,
-    read_nodetype, read_nodetype_at_head, read_nodetype_at_head_nohash, read_root_hash,
-    write_nodetype_bytes,
+    read_hash_bytes, read_nodetype_at_head, read_nodetype_at_head_nohash,
 };
-use crate::chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
-    TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
-};
-use crate::chainstate::stacks::index::storage::{NodeHashReader, TrieStorageConnection};
-use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, Error, MarfTrieId, TrieLeaf};
-use crate::util_lib::db::{
-    sql_pragma, sql_vacuum, sqlite_open, tx_begin_immediate, tx_busy_handler, Error as db_error,
-    SQLITE_MMAP_SIZE,
-};
+use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
+use crate::chainstate::stacks::index::storage::NodeHashReader;
+#[cfg(test)]
+use crate::chainstate::stacks::index::storage::TrieStorageConnection;
+use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId};
+use crate::util_lib::db::sql_vacuum;
 
 /// Mapping between block IDs and trie offsets
 pub type TrieIdOffsets = HashMap<u32, u64>;

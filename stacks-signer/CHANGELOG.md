@@ -5,7 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
+## [3.1.0.0.12.0]
+
+### Changed
+
+- Refactor / cleanup signerDB migrations code
+- Signers should not infinitely loop when pushing a block to stacks-node
+- Logging improvements and cleanup
+
+### Fixed
+
+- Fix `capitulate_miner_view` so stacks-node won't swap between multiple miners
+- Mark current miner as invalid on capitulation
+- Fix flaky `miner_recovers_when_broadcast_block_delay_across_tenures_occurs` test
+
+## [3.1.0.0.10.0]
+
+### Added
+- Persisted tracking of StackerDB slot versions. This improves signer p2p performance.
+
+## [3.1.0.0.9.0]
 
 ### Changed
 

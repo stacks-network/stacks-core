@@ -58,67 +58,28 @@
 //! (derived-state) table called `nakamoto_tenure_events`.  Whenever a `TenureChange` transaction is
 //! processed, a new row will be added to this table.
 //!
-use std::collections::HashSet;
 use std::ops::DerefMut;
 
-use clarity::vm::ast::ASTRules;
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::database::BurnStateDB;
-use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::StacksAddressExtensions;
-use lazy_static::{__Deref, lazy_static};
-use rusqlite::types::{FromSql, FromSqlError, ToSql};
-use rusqlite::{params, Connection, OptionalExtension};
-use sha2::{Digest as Sha2Digest, Sha512_256};
-use stacks_common::codec::{
-    read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
-};
-use stacks_common::consts::{
-    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
-};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId, StacksPrivateKey,
-    StacksPublicKey, TrieHash, VRFSeed,
-};
-use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::types::{PrivateKey, StacksEpochId};
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
-use stacks_common::util::retry::BoundReader;
-use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
+use rusqlite::{params, Connection};
+use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, MINER_REWARD_MATURITY};
+use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId};
+use stacks_common::types::StacksEpochId;
 
-use crate::burnchains::{PoxConstants, Txid};
-use crate::chainstate::burn::db::sortdb::{
-    SortitionDB, SortitionHandle, SortitionHandleConn, SortitionHandleTx,
-};
-use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
-use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle, SortitionHandleConn};
+use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::{
     MaturedMinerPaymentSchedules, MaturedMinerRewards, NakamotoBlock, NakamotoBlockHeader,
     NakamotoChainState, StacksDBIndexed,
 };
-use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{
-    ChainstateTx, ClarityTx, DBConfig as ChainstateConfig, MinerPaymentSchedule,
-    MinerPaymentTxFees, MinerRewardInfo, StacksBlockHeaderTypes, StacksChainState, StacksDBTx,
-    StacksEpochReceipt, StacksHeaderInfo,
+    ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerPaymentTxFees, StacksChainState,
+    StacksDBTx, StacksHeaderInfo,
 };
-use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::{
-    Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
-    TenureChangeCause, TenureChangeError, TenureChangePayload, TransactionPayload,
-    MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
+    Error as ChainstateError, StacksTransaction, TenureChangeCause, TenureChangePayload,
 };
-use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
-use crate::clarity_vm::database::SortitionDBRef;
-use crate::core::BOOT_BLOCK_HASH;
-use crate::monitoring;
-use crate::net::Error as net_error;
-use crate::util_lib::db::{
-    query_int, query_row, query_row_panic, query_rows, u64_to_sql, DBConn, Error as DBError,
-    FromRow,
-};
+use crate::util_lib::db::{query_int, query_row, u64_to_sql, Error as DBError, FromRow};
 
 pub static NAKAMOTO_TENURES_SCHEMA_1: &str = r#"
     CREATE TABLE nakamoto_tenures (

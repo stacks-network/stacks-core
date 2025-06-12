@@ -231,33 +231,18 @@
 /// bootstrapping nodes.
 ///
 use std::cmp;
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::fmt::Write;
-use std::sync::mpsc::SyncSender;
-use std::time::Duration;
 
 use serde::de::Error as de_Error;
-use serde::ser::Error as ser_Error;
 use serde::{Deserialize, Serialize};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
-};
 
-use crate::burnchains::db::{
-    BurnchainBlockData, BurnchainDB, BurnchainDBTransaction, BurnchainHeaderReader,
-};
-use crate::burnchains::{Address, Burnchain, BurnchainBlockHeader, Error, PoxConstants, Txid};
-use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::operations::leader_block_commit::{
-    RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
-};
+use crate::burnchains::db::{BurnchainDB, BurnchainDBTransaction, BurnchainHeaderReader};
+use crate::burnchains::{Burnchain, Error, PoxConstants};
+use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
-use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::core::StacksEpochId;
-use crate::util_lib::boot::boot_code_id;
-use crate::util_lib::db::{DBConn, Error as DBError};
+use crate::util_lib::db::Error as DBError;
 
 /// Affirmation map entries.  By building on a PoX-mined block,
 /// a PoB-mined block (in a PoX reward cycle),

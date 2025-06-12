@@ -16,7 +16,6 @@
 
 use std::cmp;
 
-use rusqlite::ToSql;
 use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
