@@ -66,10 +66,14 @@ main() {
     # Step 2: Extract documentation from source code using rustdoc
     log_info "Extracting configuration documentation using rustdoc..."
     EXTRACTED_JSON="$TEMP_DIR/extracted-config-docs.json"
-    # List of specific Rust struct names to be documented
-    # NOTE: This variable must be manually updated if this list changes
-    # (e.g., new config structs are added or removed from the project)
-    TARGET_STRUCTS="BurnchainConfig,NodeConfig,MinerConfig,ConnectionOptionsFile,FeeEstimationConfigFile,EventObserverConfigFile,InitialBalanceFile"
+
+    # Determine the list of structs to document from section_name_mappings.json
+    # If the caller sets $TARGET_STRUCTS explicitly we honour that override.
+    if [[ -z "${TARGET_STRUCTS:-}" ]]; then
+        TARGET_STRUCTS="$(jq -r 'keys | join(",")' "$SECTION_MAPPINGS_PATH")"
+    fi
+    log_info "Structs to be documented: $TARGET_STRUCTS"
+
     "$EXTRACT_DOCS_BIN" \
         --package stackslib \
         --structs "$TARGET_STRUCTS" \
