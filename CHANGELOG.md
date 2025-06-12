@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## Unreleased
+# Unreleased
 
 ### Added
 
@@ -13,6 +13,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Improve prometheus metrics to gain more insights into the current state of the mempool
   - `stacks_node_miner_stop_reason_total`: Counts the number of times the miner stopped mining due to various reasons.
   - Always report the number of transactions mined in the last attempt, even if there were 0
+
+### Changed
+
+- Changed default mempool walk strategy to `NextNonceWithHighestFeeRate`
 
 ## [3.1.0.0.12]
 
