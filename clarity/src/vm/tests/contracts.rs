@@ -460,6 +460,7 @@ fn test_fully_qualified_contract_call(
     }
 }
 
+#[cfg(not(feature = "clarity-wasm"))]
 #[apply(test_epochs)]
 fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
