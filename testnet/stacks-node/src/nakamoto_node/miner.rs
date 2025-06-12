@@ -41,6 +41,7 @@ use stacks::chainstate::stacks::{
     TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionPayload,
     TransactionVersion,
 };
+use stacks::core::mempool::MemPoolWalkStrategy;
 use stacks::net::api::poststackerdbchunk::StackerDBErrorCodes;
 use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
@@ -229,8 +230,8 @@ pub struct BlockMinerThread {
     burn_tip_at_start: ConsensusHash,
     /// flag to indicate an abort driven from the relayer
     abort_flag: Arc<AtomicBool>,
-    /// Should the nonce cache be reset before mining the next block?
-    reset_nonce_cache: bool,
+    /// Should the nonce and considered transactions cache be reset before mining the next block?
+    reset_mempool_caches: bool,
     /// Storage for persisting non-confidential miner information
     miner_db: MinerDB,
 }
@@ -266,7 +267,7 @@ impl BlockMinerThread {
             abort_flag: Arc::new(AtomicBool::new(false)),
             tenure_cost: ExecutionCost::ZERO,
             tenure_budget: ExecutionCost::ZERO,
-            reset_nonce_cache: true,
+            reset_mempool_caches: true,
             miner_db: MinerDB::open_with_config(&rt.config)?,
         })
     }
@@ -545,13 +546,23 @@ impl BlockMinerThread {
             thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
             return Ok(());
         }
-
-        if self.reset_nonce_cache {
+        if self.reset_mempool_caches
+            || self.config.miner.mempool_walk_strategy
+                == MemPoolWalkStrategy::NextNonceWithHighestFeeRate
+        {
             let mut mem_pool = self
                 .config
                 .connect_mempool_db()
                 .expect("Database failure opening mempool");
-            mem_pool.reset_mempool_caches()?;
+
+            if self.reset_mempool_caches {
+                mem_pool.reset_mempool_caches()?;
+            } else {
+                // Even if the nonce cache is still valid, NextNonceWithHighestFeeRate strategy
+                // needs to reset this cache after each block. This prevents skipping transactions
+                // that were previously considered, but not included in previous blocks.
+                mem_pool.reset_considered_txs_cache()?;
+            }
         }
 
         let Some(new_block) = self.mine_block_and_handle_result(coordinator)? else {
@@ -636,7 +647,7 @@ impl BlockMinerThread {
                     "Miner did not find any transactions to mine, sleeping for {:?}",
                     self.config.miner.empty_mempool_sleep_time
                 );
-                self.reset_nonce_cache = false;
+                self.reset_mempool_caches = false;
 
                 // Pause the miner to wait for transactions to arrive
                 let now = Instant::now();
@@ -751,7 +762,7 @@ impl BlockMinerThread {
             );
 
             // We successfully mined, so the mempool caches are valid.
-            self.reset_nonce_cache = false;
+            self.reset_mempool_caches = false;
         }
 
         // update mined-block counters and mined-tenure counters
@@ -1464,7 +1475,7 @@ impl BlockMinerThread {
         // If we attempt to build a block, we should reset the nonce cache.
         // In the special case where no transactions are found, this flag will
         // be reset to false.
-        self.reset_nonce_cache = true;
+        self.reset_mempool_caches = true;
 
         let replay_transactions = if self.config.miner.replay_transactions {
             coordinator
