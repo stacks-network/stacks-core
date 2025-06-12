@@ -14,23 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
+use std::collections::HashSet;
+use std::hash::Hash;
 
-use clarity::vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
+use clarity::vm::types::{QualifiedContractIdentifier, SequenceData, Value};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::de::{Deserialize, Error as de_Error};
 use serde::ser::Serialize;
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, MerkleHashFunc};
 
 pub use self::db::AtlasDB;
 pub use self::download::AttachmentsDownloader;
 use crate::burnchains::Txid;
-use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::ConsensusHash;
 use crate::util_lib::boot::boot_code_id;
 
 /// Implements AtlasDB and associated API. Stores information about attachments and attachment

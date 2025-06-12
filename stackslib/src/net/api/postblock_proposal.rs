@@ -16,10 +16,9 @@
 
 use std::collections::VecDeque;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io::{Read, Write};
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
-use std::thread::{self, JoinHandle, Thread};
+use std::thread::{self, JoinHandle};
 #[cfg(any(test, feature = "testing"))]
 use std::time::Duration;
 use std::time::Instant;
@@ -28,54 +27,32 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use regex::{Captures, Regex};
 use serde::Deserialize;
-use stacks_common::codec::{
-    read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN,
-};
+use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN};
 use stacks_common::consts::CHAIN_ID_MAINNET;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId, StacksPublicKey,
-};
-use stacks_common::types::net::PeerHost;
-use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
-use stacks_common::util::retry::BoundReader;
+use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 #[cfg(any(test, feature = "testing"))]
 use stacks_common::util::tests::TestFlag;
-use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
-use crate::burnchains::affirmation::AffirmationMap;
-use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NAKAMOTO_BLOCK_VERSION};
-use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic, TransactionResult,
     TransactionSkipped,
 };
-use crate::chainstate::stacks::{
-    Error as ChainError, StacksBlock, StacksBlockHeader, StacksTransaction, TenureChangeCause,
-    TenureChangePayload, TransactionPayload,
-};
+use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
 use crate::clarity_vm::clarity::Error as ClarityError;
-use crate::core::mempool::{MemPoolDB, ProposalCallbackReceiver};
-use crate::cost_estimates::FeeRateEstimate;
+use crate::core::mempool::ProposalCallbackReceiver;
 use crate::net::http::{
-    http_reason, parse_json, Error, HttpBadRequest, HttpContentType, HttpNotFound, HttpRequest,
-    HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
-    HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+    http_reason, parse_json, Error, HttpContentType, HttpRequest, HttpRequestContents,
+    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
+    HttpResponsePreamble,
 };
-use crate::net::httpcore::{
-    request, HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler,
-    StacksHttpRequest, StacksHttpResponse,
-};
-use crate::net::p2p::PeerNetwork;
-use crate::net::relay::Relayer;
-use crate::net::{
-    Attachment, BlocksData, BlocksDatum, Error as NetError, StacksMessageType, StacksNodeState,
-};
-use crate::util_lib::db::Error as DBError;
+use crate::net::httpcore::{HttpPreambleExtensions, RPCRequestHandler};
+use crate::net::{Error as NetError, StacksNodeState};
 
 #[cfg(any(test, feature = "testing"))]
 pub static TEST_VALIDATE_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);

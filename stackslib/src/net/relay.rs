@@ -15,49 +15,37 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::{cmp, mem};
+use std::mem;
 
-use clarity::vm::ast::errors::{ParseError, ParseErrors};
+use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::ast::{ast_check_size, ASTRules};
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::errors::RuntimeErrorType;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityVersion;
 use rand::prelude::*;
 use rand::{thread_rng, Rng};
-use stacks_common::address::public_keys_to_address_hash;
 use stacks_common::codec::MAX_PAYLOAD_LEN;
-use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId};
-use stacks_common::types::{MempoolCollectionBehavior, StacksEpochId};
+use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
-use crate::burnchains::{Burnchain, BurnchainView};
-use crate::chainstate::burn::db::sortdb::{
-    SortitionDB, SortitionDBConn, SortitionHandle, SortitionHandleConn,
-};
+use crate::burnchains::Burnchain;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn};
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
-use crate::chainstate::coordinator::{
-    BlockEventDispatcher, Error as CoordinatorError, OnChainRewardSetProvider,
-};
+use crate::chainstate::coordinator::{Error as CoordinatorError, OnChainRewardSetProvider};
 use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
-use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
-use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{StacksBlockHeader, TransactionPayload};
-use crate::clarity_vm::clarity::Error as clarity_error;
 use crate::core::mempool::{MemPoolDB, *};
 use crate::monitoring::update_stacks_tip_height;
 use crate::net::chat::*;
 use crate::net::connection::*;
 use crate::net::db::*;
-use crate::net::httpcore::*;
 use crate::net::p2p::*;
-use crate::net::poll::*;
-use crate::net::rpc::*;
 use crate::net::stackerdb::{
     StackerDBConfig, StackerDBEventDispatcher, StackerDBSyncResult, StackerDBs,
 };

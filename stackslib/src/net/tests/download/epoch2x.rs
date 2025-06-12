@@ -14,18 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::execute;
 use clarity::vm::representations::*;
-use rand::Rng;
+use clarity::vm::{execute, Value};
+use rand::{thread_rng, Rng};
 use stacks_common::util::hash::*;
 use stacks_common::util::sleep_ms;
 use stacks_common::util::vrf::VRFProof;
 
-use super::*;
 use crate::burnchains::tests::TestMiner;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::*;
@@ -33,10 +29,7 @@ use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::*;
-use crate::net::codec::*;
 use crate::net::download::BlockDownloader;
-use crate::net::inv::inv2x::*;
-use crate::net::relay::*;
 use crate::net::test::*;
 use crate::net::*;
 use crate::stacks_common::types::PublicKey;

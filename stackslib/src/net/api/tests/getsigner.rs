@@ -16,20 +16,17 @@
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use clarity::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
+use clarity::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use rand::{thread_rng, RngCore};
-use stacks_common::types::chainstate::{BurnchainHeaderHash, ConsensusHash};
 use stacks_common::types::net::PeerHost;
 
-use crate::net::api::getsigner::{self, GetSignerRequestHandler};
-use crate::net::api::tests::{test_rpc, TestRPC};
+use crate::net::api::getsigner;
+use crate::net::api::tests::TestRPC;
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::{Error as HttpError, HttpRequestPreamble, HttpVersion};
-use crate::net::httpcore::{
-    RPCRequestHandler, StacksHttp, StacksHttpPreamble, StacksHttpRequest, TipRequest,
-};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest, TipRequest};
 use crate::net::test::TestEventObserver;
-use crate::net::{Error as NetError, ProtocolFamily};
+use crate::net::Error as NetError;
 
 fn make_preamble(query: &str) -> HttpRequestPreamble {
     HttpRequestPreamble {

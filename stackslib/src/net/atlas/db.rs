@@ -33,26 +33,21 @@
 //! to its download queue.
 //!
 
-use std::collections::HashSet;
 use std::fs;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::types::{FromSql, FromSqlError, ToSql, ToSqlOutput, ValueRef};
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
-use stacks_common::codec::StacksMessageCodec;
+use rusqlite::{params, Connection, OpenFlags, Row, Transaction};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util;
-use stacks_common::util::hash::{bin_bytes, hex_bytes, to_bin, to_hex, Hash160};
-use stacks_common::util::log;
-use stacks_common::util::macros::is_big_endian;
-use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks_common::util::hash::{to_hex, Hash160};
 
 use super::{AtlasConfig, Attachment, AttachmentInstance};
 use crate::burnchains::Txid;
 use crate::util_lib::db::{
-    query_count, query_int, query_row, query_rows, sqlite_open, tx_begin_immediate, u64_to_sql,
-    DBConn, Error as db_error, FromColumn, FromRow,
+    query_count, query_row, query_rows, sqlite_open, tx_begin_immediate, u64_to_sql,
+    Error as db_error, FromColumn, FromRow,
 };
 
 pub const ATLASDB_VERSION: &str = "2";

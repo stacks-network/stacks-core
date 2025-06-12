@@ -14,19 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::char::from_digit;
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::io::{Cursor, Read, Seek, SeekFrom, Write};
-use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
-use std::path::{Path, PathBuf};
-use std::{error, fmt, fs, io};
+use std::collections::HashMap;
+use std::fmt;
+use std::io::{Read, Write};
+use std::ops::Deref;
 
-use sha2::{Digest, Sha512_256 as TrieHasher};
 use stacks_common::codec::{read_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
-};
+use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::hash::to_hex;
 
 use crate::chainstate::stacks::index::bits::{
@@ -34,14 +28,14 @@ use crate::chainstate::stacks::index::bits::{
 };
 use crate::chainstate::stacks::index::marf::MARF;
 use crate::chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, ConsensusSerializable, CursorError, TrieCursor,
-    TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
+    is_backptr, ConsensusSerializable, CursorError, TrieCursor, TrieNode, TrieNodeID, TrieNodeType,
+    TriePtr,
 };
-use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
+use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{
     BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, ProofTrieNode, ProofTriePtr,
-    TrieLeaf, TrieMerkleProof, TrieMerkleProofType,
+    TrieMerkleProof, TrieMerkleProofType,
 };
 
 impl<T: MarfTrieId> ConsensusSerializable<()> for ProofTrieNode<T> {

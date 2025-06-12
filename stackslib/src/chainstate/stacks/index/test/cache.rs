@@ -14,18 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::VecDeque;
 use std::time::SystemTime;
 use std::{cmp, fs};
 
-use rand::{thread_rng, Rng};
-use sha2::Digest;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use super::*;
-use crate::chainstate::stacks::index::marf::*;
-use crate::chainstate::stacks::index::node::*;
-use crate::chainstate::stacks::index::storage::*;
 use crate::chainstate::stacks::index::*;
 
 /// Deterministic random keys to insert

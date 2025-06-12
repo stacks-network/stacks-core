@@ -16,34 +16,21 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
-use clarity::vm::{ClarityName, ContractName, Value};
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::{
-    ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey,
-};
-use stacks_common::types::net::PeerHost;
-use stacks_common::types::{Address, StacksEpochId};
+use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, StacksPrivateKey};
+use stacks_common::types::StacksEpochId;
 
 use super::TestRPC;
 use crate::chainstate::stacks::db::blocks::test::*;
 use crate::chainstate::stacks::db::test::instantiate_chainstate;
-use crate::chainstate::stacks::db::{ExtendedStacksHeader, StacksChainState};
 use crate::chainstate::stacks::test::make_codec_test_block;
-use crate::chainstate::stacks::{
-    Error as chainstate_error, StacksBlock, StacksBlockHeader, StacksMicroblock,
-};
-use crate::core::BLOCK_LIMIT_MAINNET_21;
+use crate::chainstate::stacks::{StacksBlockHeader, StacksMicroblock};
 use crate::net::api::getmicroblocks_indexed::StacksIndexedMicroblockStream;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::HttpChunkGenerator;
-use crate::net::httpcore::{
-    HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp,
-    StacksHttpRequest,
-};
-use crate::net::{ProtocolFamily, TipRequest};
-use crate::util_lib::db::DBConn;
+use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
+use crate::net::ProtocolFamily;
 
 #[test]
 fn test_try_parse_request() {

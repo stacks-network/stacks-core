@@ -14,16 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fmt::Display;
 use std::io::{Read, Write};
 
-use percent_encoding::percent_decode_str;
-use rand::{thread_rng, Rng};
 use regex::{Captures, Regex};
 use serde_json;
-use stacks_common::codec::{write_next, Error as CodecError, StacksMessageCodec};
+use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::deps_common::httparse;
 use stacks_common::types::net::PeerHost;
 use url::form_urlencoded;
@@ -31,10 +27,7 @@ use url::form_urlencoded;
 use crate::net::http::common::{
     HttpReservedHeader, HTTP_PREAMBLE_MAX_ENCODED_SIZE, HTTP_PREAMBLE_MAX_NUM_HEADERS,
 };
-use crate::net::http::{
-    default_accept_header, write_headers, Error, HttpContentType, HttpResponseContents,
-    HttpResponsePreamble, HttpVersion,
-};
+use crate::net::http::{default_accept_header, write_headers, Error, HttpContentType, HttpVersion};
 
 /// HTTP request preamble.  This captures "control plane" data for an HTTP request, and contains
 /// everything of use to us from the HTTP requests's headers.
