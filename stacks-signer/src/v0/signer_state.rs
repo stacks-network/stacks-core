@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
@@ -21,6 +21,7 @@ use std::time::{Duration, SystemTime};
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
+#[cfg(any(test, feature = "testing"))]
 use clarity::types::chainstate::StacksAddress;
 use clarity::util::hash::Sha512Trunc256Sum;
 #[cfg(any(test, feature = "testing"))]
@@ -271,8 +272,12 @@ impl LocalStateMachine {
         }
         let new_active_tenure_ch = last_sortition.consensus_hash;
         let inactive_tenure_ch = *tenure_id;
-        state_machine.current_miner =
-            Self::make_miner_state(last_sortition, client, db, proposal_config)?;
+        state_machine.current_miner = Self::make_miner_state(
+            last_sortition,
+            client,
+            db,
+            proposal_config.tenure_last_block_proposal_timeout,
+        )?;
         info!(
             "Current tenure timed out, setting the active miner to the prior tenure";
             "inactive_tenure_ch" => %inactive_tenure_ch,
@@ -286,22 +291,21 @@ impl LocalStateMachine {
         Ok(())
     }
 
-    /// Construct a MinerState from the given sortition and proposal config
-    pub fn make_miner_state(
-        sortition_to_set: SortitionState,
+    /// Retrieves the last known block height and ID for a given parent tenure, querying
+    /// both the connected stacks-node and local signer database to determine the most
+    /// recent block associated with the specified `parent_tenure_id`.
+    pub fn get_parent_tenure_last_block(
         client: &StacksClient,
         db: &SignerDb,
-        proposal_config: &ProposalEvalConfig,
-    ) -> Result<MinerState, SignerChainstateError> {
-        let next_current_miner_pkh = sortition_to_set.miner_pkh;
-        let next_parent_tenure_id = sortition_to_set.parent_tenure_id;
-
+        tenure_last_block_proposal_timeout: Duration,
+        parent_tenure_id: &ConsensusHash,
+    ) -> Result<(u64, StacksBlockId), SignerChainstateError> {
         let stacks_node_last_block = client
-            .get_tenure_tip(&next_parent_tenure_id)
+            .get_tenure_tip(parent_tenure_id)
             .inspect_err(|e| {
                 warn!(
                     "Failed to fetch last block in parent tenure from stacks-node";
-                    "parent_tenure_id" => %sortition_to_set.parent_tenure_id,
+                    "parent_tenure_id" => %parent_tenure_id,
                     "err" => ?e,
                 )
             })
@@ -309,13 +313,13 @@ impl LocalStateMachine {
             .map(|header| {
                 (
                     header.height(),
-                    StacksBlockId::new(&next_parent_tenure_id, &header.block_hash()),
+                    StacksBlockId::new(parent_tenure_id, &header.block_hash()),
                 )
             });
         let signerdb_last_block = SortitionsView::get_tenure_last_block_info(
-            &next_parent_tenure_id,
+            parent_tenure_id,
             db,
-            proposal_config.tenure_last_block_proposal_timeout,
+            tenure_last_block_proposal_timeout,
         )?
         .map(|info| (info.block.header.chain_length, info.block.block_id()));
 
@@ -327,11 +331,29 @@ impl LocalStateMachine {
                 (None, Some(signerdb_info)) => signerdb_info,
                 (Some(stacks_node_info), None) => stacks_node_info,
                 (None, None) => {
-                    return Err(SignerChainstateError::NoParentTenureInfo(
-                        next_parent_tenure_id,
-                    ))
+                    return Err(SignerChainstateError::NoParentTenureInfo(*parent_tenure_id))
                 }
             };
+        Ok((parent_tenure_last_block_height, parent_tenure_last_block))
+    }
+
+    /// Construct a MinerState from the given sortition and proposal config
+    pub fn make_miner_state(
+        sortition_to_set: SortitionState,
+        client: &StacksClient,
+        db: &SignerDb,
+        tenure_last_block_proposal_timeout: Duration,
+    ) -> Result<MinerState, SignerChainstateError> {
+        let next_current_miner_pkh = sortition_to_set.miner_pkh;
+        let next_parent_tenure_id = sortition_to_set.parent_tenure_id;
+
+        let (parent_tenure_last_block_height, parent_tenure_last_block) =
+            Self::get_parent_tenure_last_block(
+                client,
+                db,
+                tenure_last_block_proposal_timeout,
+                &next_parent_tenure_id,
+            )?;
 
         let miner_state = MinerState::ActiveMiner {
             current_miner_pkh: next_current_miner_pkh,
@@ -436,6 +458,7 @@ impl LocalStateMachine {
 
         *parent_tenure_last_block = *block_id;
         *parent_tenure_last_block_height = height;
+        prior_state_machine.creation_time = CreationTime::now();
         *self = LocalStateMachine::Initialized(prior_state_machine);
 
         crate::monitoring::actions::increment_signer_agreement_state_change_reason(
@@ -528,7 +551,12 @@ impl LocalStateMachine {
         let is_current_valid = cur_sortition.is_tenure_valid(db, client, proposal_config, eval)?;
 
         let miner_state = if is_current_valid {
-            Self::make_miner_state(cur_sortition, client, db, proposal_config)?
+            Self::make_miner_state(
+                cur_sortition,
+                client,
+                db,
+                proposal_config.tenure_last_block_proposal_timeout,
+            )?
         } else {
             let last_sortition = last_sortition
                 .map(SortitionState::try_from)
@@ -545,7 +573,12 @@ impl LocalStateMachine {
                 last_sortition.is_tenure_valid(db, client, proposal_config, eval)?;
 
             if is_last_valid {
-                Self::make_miner_state(last_sortition, client, db, proposal_config)?
+                Self::make_miner_state(
+                    last_sortition,
+                    client,
+                    db,
+                    proposal_config.tenure_last_block_proposal_timeout,
+                )?
             } else {
                 warn!("Neither the current nor the prior sortition winner is considered a valid tenure");
                 MinerState::NoValidMiner
@@ -573,14 +606,16 @@ impl LocalStateMachine {
     }
 
     /// Updates the local state machine's viewpoint as necessary based on the global state
+    #[allow(clippy::too_many_arguments)]
     pub fn capitulate_viewpoint(
         &mut self,
+        stacks_client: &StacksClient,
         signerdb: &mut SignerDb,
         eval: &mut GlobalStateEvaluator,
-        local_address: StacksAddress,
         local_supported_signer_protocol_version: u64,
         reward_cycle: u64,
         capitulate_tenure_timeout: Duration,
+        tenure_last_block_proposal_timeout: Duration,
     ) {
         // Before we ever access eval...we should make sure to include our own local state machine update message in the evaluation
         let Ok(mut local_update) =
@@ -591,7 +626,7 @@ impl LocalStateMachine {
 
         let old_protocol_version = local_update.active_signer_protocol_version;
         // First check if we should update our active protocol version
-        eval.insert_update(local_address, local_update.clone());
+        eval.insert_update(*stacks_client.get_signer_address(), local_update.clone());
         let active_signer_protocol_version = eval
             .determine_latest_supported_signer_protocol_version()
             .unwrap_or(old_protocol_version);
@@ -654,9 +689,13 @@ impl LocalStateMachine {
         }
 
         // Check if we should also capitulate our miner viewpoint
-        let Some(new_miner) =
-            self.capitulate_miner_view(eval, signerdb, local_address, &local_update)
-        else {
+        let Some(new_miner) = self.capitulate_miner_view(
+            stacks_client,
+            eval,
+            signerdb,
+            &local_update,
+            tenure_last_block_proposal_timeout,
+        ) else {
             return;
         };
 
@@ -713,13 +752,14 @@ impl LocalStateMachine {
     /// view of the miner as it is up to signers to capitulate before this becomes the finalized view.
     pub fn capitulate_miner_view(
         &mut self,
+        stacks_client: &StacksClient,
         eval: &mut GlobalStateEvaluator,
         signerdb: &mut SignerDb,
-        local_address: StacksAddress,
         local_update: &StateMachineUpdateMessage,
+        tenure_last_block_proposal_timeout: Duration,
     ) -> Option<StateMachineUpdateMinerState> {
         // First always make sure we consider our own viewpoint
-        eval.insert_update(local_address, local_update.clone());
+        eval.insert_update(*stacks_client.get_signer_address(), local_update.clone());
 
         // Determine the current burn block from the local update
         let current_burn_block = *local_update.content.burn_block();
@@ -735,7 +775,7 @@ impl LocalStateMachine {
         }
 
         let mut miners = HashMap::new();
-        let mut potential_matches = Vec::new();
+        let mut potential_matches = HashSet::new();
 
         for (address, update) in &eval.address_updates {
             let Some(weight) = eval.address_weights.get(address) else {
@@ -756,7 +796,13 @@ impl LocalStateMachine {
             if *burn_block != global_burn_view {
                 continue;
             }
-            let StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. } = miner_state else {
+            let StateMachineUpdateMinerState::ActiveMiner {
+                tenure_id,
+                parent_tenure_last_block_height,
+                parent_tenure_id,
+                ..
+            } = miner_state
+            else {
                 // Only consider potential active miners
                 continue;
             };
@@ -777,7 +823,32 @@ impl LocalStateMachine {
 
             match signerdb.get_burn_block_by_ch(tenure_id) {
                 Ok(block) => {
-                    potential_matches.push((block.block_height, miner_state));
+                    // Don't query the node or signer db every time if we don't have to...
+                    let potential_match = (block.block_height, miner_state);
+                    if potential_matches.contains(&potential_match) {
+                        continue;
+                    };
+                    let Ok((local_parent_tenure_last_block_height, _)) =
+                        Self::get_parent_tenure_last_block(
+                            stacks_client,
+                            signerdb,
+                            tenure_last_block_proposal_timeout,
+                            parent_tenure_id,
+                        )
+                        .inspect_err(|e| {
+                            warn!(
+                                "Failed to fetch last block in parent tenure";
+                                "parent_tenure_id" => %parent_tenure_id,
+                                "err" => ?e,
+                            )
+                        })
+                    else {
+                        continue;
+                    };
+                    if local_parent_tenure_last_block_height < *parent_tenure_last_block_height {
+                        continue;
+                    }
+                    potential_matches.insert(potential_match);
                 }
                 Err(e) => {
                     warn!("Error retrieving burn block for consensus_hash {tenure_id} from signerdb: {e}");
@@ -785,6 +856,7 @@ impl LocalStateMachine {
             }
         }
 
+        let mut potential_matches: Vec<_> = potential_matches.into_iter().collect();
         potential_matches.sort_by_key(|(block_height, _)| *block_height);
 
         let new_miner = potential_matches.last().map(|(_, miner)| (*miner).clone());

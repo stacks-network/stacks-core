@@ -22,10 +22,10 @@ use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
 use clarity::types::chainstate::{
     BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
-    StacksPrivateKey, StacksPublicKey,
+    StacksPrivateKey, StacksPublicKey, TrieHash,
 };
 use clarity::util::get_epoch_time_secs;
-use clarity::util::hash::Hash160;
+use clarity::util::hash::{Hash160, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use libsigner::v0::messages::{
     StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,
@@ -34,9 +34,11 @@ use libsigner::v0::messages::{
 use libsigner::v0::signer_state::{
     CreationTime, GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
 };
+use stacks_common::bitvec::BitVec;
+use stacks_common::function_name;
 
 use crate::chainstate::{ProposalEvalConfig, SortitionState};
-use crate::client::tests::MockServerClient;
+use crate::client::tests::{build_get_tenure_tip_response, MockServerClient};
 use crate::client::StacksClient;
 use crate::config::GlobalConfig;
 use crate::signerdb::tests::{create_block_override, tmp_db_path};
@@ -45,8 +47,15 @@ use crate::v0::signer_state::{LocalStateMachine, NewBurnBlock, StateMachineUpdat
 
 #[test]
 fn check_capitulate_miner_view() {
+    let MockServerClient {
+        mut server,
+        client,
+        config,
+    } = MockServerClient::new();
+
     let mut address_weights = HashMap::new();
-    for _ in 0..10 {
+    address_weights.insert(*client.get_signer_address(), 10);
+    for _ in 1..10 {
         let stacks_address = StacksAddress::p2pkh(false, &StacksPublicKey::new());
         address_weights.insert(stacks_address, 10);
     }
@@ -184,37 +193,77 @@ fn check_capitulate_miner_view() {
     // Miner view should be None as we can't find consensus on a single miner
     assert!(
         local_state_machine
-            .capitulate_miner_view(&mut global_eval, &mut db, local_address, &new_update)
+            .capitulate_miner_view(
+                &client,
+                &mut global_eval,
+                &mut db,
+                &new_update,
+                Duration::from_secs(u64::MAX)
+            )
             .is_none(),
         "Evaluator should have told me to capitulate to the old miner"
     );
 
-    // Mark the old miner's block as globally accepted
-    db.mark_block_globally_accepted(&mut block_info_1).unwrap();
-    db.insert_block(&block_info_1).unwrap();
+    let h = std::thread::spawn(move || {
+        // Mark the old miner's block as globally accepted
+        db.mark_block_globally_accepted(&mut block_info_1).unwrap();
+        db.insert_block(&block_info_1).unwrap();
 
-    // Miner view should stay as the old miner as it has a globally accepted block and 60% consider it valid.
-    assert_eq!(
-        local_state_machine
-            .capitulate_miner_view(&mut global_eval, &mut db, local_address, &new_update)
-            .unwrap(),
-        old_miner,
-        "Evaluator should have told me to capitulate to the old miner"
-    );
+        // Miner view should stay as the old miner as it has a globally accepted block and 60% consider it valid.
+        assert_eq!(
+            local_state_machine
+                .capitulate_miner_view(
+                    &client,
+                    &mut global_eval,
+                    &mut db,
+                    &new_update,
+                    Duration::from_secs(u64::MAX)
+                )
+                .unwrap(),
+            old_miner,
+            "Evaluator should have told me to capitulate to the old miner"
+        );
 
-    // Now that we have a globally approved block for the new miner
-    db.mark_block_globally_accepted(&mut block_info_2).unwrap();
-    db.insert_block(&block_info_2).unwrap();
+        // Now that we have a globally approved block for the new miner
+        db.mark_block_globally_accepted(&mut block_info_2).unwrap();
+        db.insert_block(&block_info_2).unwrap();
 
-    // Now that the blocking minority references a tenure which would actually get reorged, lets capitulate to the NEW view
-    // even though both the old and new signer have > 30% approval (it has a higher burn block).
-    assert_eq!(
-        local_state_machine
-            .capitulate_miner_view(&mut global_eval, &mut db, local_address, &new_update)
-            .unwrap(),
-        new_miner,
-        "Evaluator should have told me to capitulate to the new miner"
-    );
+        assert_eq!(
+            local_state_machine
+                .capitulate_miner_view(
+                    &client,
+                    &mut global_eval,
+                    &mut db,
+                    &new_update,
+                    Duration::from_secs(u64::MAX)
+                )
+                .unwrap(),
+            new_miner,
+            "Evaluator should have told me to capitulate to the new miner"
+        );
+    });
+
+    let expected_result = StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
+        version: 1,
+        chain_length: parent_tenure_last_block_height,
+        burn_spent: 0,
+        consensus_hash: parent_tenure_id,
+        parent_block_id: parent_tenure_last_block,
+        tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
+        state_index_root: TrieHash([0u8; 32]),
+        timestamp: 0,
+        miner_signature: MessageSignature([0u8; 65]),
+        signer_signature: vec![],
+        pox_treatment: BitVec::ones(1).unwrap(),
+    });
+
+    let to_send = build_get_tenure_tip_response(&expected_result);
+    for _ in 0..2 {
+        crate::client::tests::write_response(server, to_send.as_bytes());
+        server = crate::client::tests::mock_server_from_config(&config);
+    }
+    crate::client::tests::write_response(server, to_send.as_bytes());
+    h.join().unwrap();
 }
 
 #[test]
@@ -222,7 +271,7 @@ fn check_miner_inactivity_timeout() {
     let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
     let stacks_client = StacksClient::from(&config);
 
-    let fn_name = "check_miner_inactivity_timeout";
+    let fn_name = function_name!();
     let signer_db_dir = "/tmp/stacks-node-tests/signer-units/";
     let signer_db_path = format!("{signer_db_dir}/{fn_name}.{}.sqlite", get_epoch_time_secs());
     fs::create_dir_all(signer_db_dir).unwrap();

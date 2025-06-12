@@ -6617,7 +6617,7 @@ fn signer_chainstate() {
                     cur_sortition,
                     &signer_client,
                     &signer_db,
-                    &proposal_conf,
+                    proposal_conf.tenure_last_block_proposal_timeout,
                 )
                 .unwrap()
             } else {
@@ -6630,7 +6630,7 @@ fn signer_chainstate() {
                         last_sortition,
                         &signer_client,
                         &signer_db,
-                        &proposal_conf,
+                        proposal_conf.tenure_last_block_proposal_timeout,
                     )
                     .unwrap()
                 } else {

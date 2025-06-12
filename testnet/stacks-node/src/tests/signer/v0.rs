@@ -10131,6 +10131,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
             signer_config.block_proposal_validation_timeout = Duration::from_secs(u64::MAX);
             signer_config.tenure_last_block_proposal_timeout = Duration::from_secs(u64::MAX);
             signer_config.first_proposal_burn_block_timing = Duration::from_secs(u64::MAX);
+            signer_config.block_proposal_timeout = Duration::from_secs(u64::MAX);
         },
         |config| {
             // Override this option, because this test depends on a block commit being submitted

@@ -432,7 +432,12 @@ impl Signer {
                             self.handle_block_response(stacks_client, block_response)
                         }
                         SignerMessage::StateMachineUpdate(update) => self
-                            .handle_state_machine_update(signer_public_key, update, received_time),
+                            .handle_state_machine_update(
+                                stacks_client,
+                                signer_public_key,
+                                update,
+                                received_time,
+                            ),
                         _ => {}
                     }
                 }
@@ -747,6 +752,7 @@ impl Signer {
     /// Handle signer state update message
     fn handle_state_machine_update(
         &mut self,
+        stacks_client: &StacksClient,
         signer_public_key: &Secp256k1PublicKey,
         update: &StateMachineUpdate,
         received_time: &SystemTime,
@@ -769,12 +775,13 @@ impl Signer {
         // See if this update means we should capitulate our viewpoint...
         let version = self.get_signer_protocol_version();
         self.local_state_machine.capitulate_viewpoint(
+            stacks_client,
             &mut self.signer_db,
             &mut self.global_state_evaluator,
-            self.stacks_address,
             version,
             self.reward_cycle,
             self.capitulate_tenure_timeout,
+            self.proposal_config.tenure_last_block_proposal_timeout,
         );
     }
 
