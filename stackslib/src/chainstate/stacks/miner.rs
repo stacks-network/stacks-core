@@ -91,7 +91,7 @@ pub static TEST_MINE_ALLOWED_REPLAY_TXS: LazyLock<TestFlag<Vec<String>>> =
 /// Given a tx id, check if it is should be skipped
 /// if not listed in `TEST_MINE_ALLOWED_REPLAY_TXS` flag.
 /// If flag is empty means no tx should be skipped
-fn should_skip_replay_tx(tx_id: Txid) -> bool {
+fn fault_injection_should_skip_replay_tx(tx_id: Txid) -> bool {
     let minable_txs = TEST_MINE_ALLOWED_REPLAY_TXS.get();
     let allowed =
         minable_txs.len() == 0 || minable_txs.iter().any(|tx_ids| *tx_ids == tx_id.to_hex());
@@ -102,6 +102,14 @@ fn should_skip_replay_tx(tx_id: Txid) -> bool {
         );
     }
     !allowed
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+/// Given a tx id, check if it is should be skipped
+/// if not listed in `TEST_MINE_ALLOWED_REPLAY_TXS` flag.
+/// If flag is empty means no tx should be skipped
+fn fault_injection_should_skip_replay_tx(_tx_id: Txid) -> bool {
+    false
 }
 
 /// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
@@ -3014,11 +3022,8 @@ fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
     debug!("Replay block transaction selection begins (parent height = {tip_height})");
     for replay_tx in replay_transactions {
         fault_injection_stall_tx();
-        #[cfg(any(test, feature = "testing"))]
-        {
-            if should_skip_replay_tx(replay_tx.txid()) {
-                continue;
-            }
+        if fault_injection_should_skip_replay_tx(replay_tx.txid()) {
+            continue;
         }
 
         let txid = replay_tx.txid();
