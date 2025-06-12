@@ -108,9 +108,9 @@ Arguments are supplied in one of two ways: through script evaluation or via hex 
 of the value serialization format. The method for supplying arguments is chosen by
 prefacing each argument with a flag:
 
-  -e               indicates the argument should be _evaluated_
-  -x               indicates the argument that a serialized Clarity value is being passed (hex-serialized)
-  -xf <file_path>  same as `-x`, but reads the serialized Clarity value from a file
+  -e                     indicates the argument should be _evaluated_
+  -x                     indicates the argument that a serialized Clarity value is being passed (hex-serialized)
+ --hex-file <file_path>  same as `-x`, but reads the serialized Clarity value from a file
 
 e.g.,
 
@@ -119,7 +119,7 @@ e.g.,
                        -e \"(+ 1 2)\" \\
                        -x 0000000000000000000000000000000001 \\
                        -x 050011deadbeef11ababffff11deadbeef11ababffff \\
-                       -xf /path/to/value.hex
+                       --hex-file /path/to/value.hex
 ";
 
 const TOKEN_TRANSFER_USAGE: &str = "blockstack-cli (options) token-transfer [origin-secret-key-hex] [fee-rate] [nonce] [recipient-address] [amount] [memo] [args...]
@@ -455,7 +455,7 @@ fn handle_contract_call(
 
     if val_args.len() % 2 != 0 {
         return Err(
-            "contract-call arguments must be supplied as a list of `-e ...` or `-x 0000...` pairs"
+            "contract-call arguments must be supplied as a list of `-e ...` or `-x 0000...` or `--hex-file <file_path>` pairs"
                 .into(),
         );
     }
@@ -473,7 +473,7 @@ fn handle_contract_call(
                 vm_execute(input, clarity_version)?
                     .ok_or("Supplied argument did not evaluate to a Value")?
             },
-            "-xf" => {
+            "--hex-file" => {
                 let content = fs::read_to_string(input)
                     .map_err(|e| {
                         let err_msg = format!("Cannot read file: {input}. Reason: {e}");
@@ -482,7 +482,7 @@ fn handle_contract_call(
                 Value::try_deserialize_hex_untyped(&content)?
             }
             _ => {
-                return Err("contract-call arguments must be supplied as a list of `-e ...` or `-x 0000...` pairs".into())
+                return Err("contract-call arguments must be supplied as a list of `-e ...` or `-x 0000...` or `--hex-file <file_path>` pairs".into())
             }
         };
 
@@ -1209,7 +1209,7 @@ mod test {
             "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
             "foo-contract",
             "transfer-fookens",
-            "-xf",
+            "--hex-file",
             file_path,
         ];
 
@@ -1231,7 +1231,7 @@ mod test {
             "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
             "foo-contract",
             "transfer-fookens",
-            "-xf",
+            "--hex-file",
             file_path,
         ];
 
@@ -1257,7 +1257,7 @@ mod test {
             "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
             "foo-contract",
             "transfer-fookens",
-            "-xf",
+            "--hex-file",
             &file_path,
         ];
 
@@ -1280,7 +1280,7 @@ mod test {
             "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
             "foo-contract",
             "transfer-fookens",
-            "-xf",
+            "--hex-file",
             &file_path,
         ];
 
