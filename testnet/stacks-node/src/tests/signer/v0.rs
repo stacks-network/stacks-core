@@ -27,7 +27,8 @@ use libsigner::v0::messages::{
     RejectReason, SignerMessage, StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
 use libsigner::{
-    BlockProposal, BlockProposalData, SignerSession, StackerDBSession, VERSION_STRING,
+    BlockProposal, BlockProposalData, SignerSession, StackerDBSession, StacksBlockEvent,
+    VERSION_STRING,
 };
 use madhouse::{execute_commands, prop_allof, scenario, Command};
 use pinny::tag;
@@ -37,7 +38,9 @@ use rusqlite::Connection;
 use stacks::address::AddressHashMode;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
+use stacks::chainstate::burn::operations::{
+    BlockstackOperationType, LeaderBlockCommitOp, PreStxOp, TransferStxOp,
+};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
@@ -66,7 +69,8 @@ use stacks::net::api::postblock_proposal::{
 };
 use stacks::net::relay::fault_injection::{clear_ignore_block, set_ignore_block};
 use stacks::types::chainstate::{
-    BlockHeaderHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksPrivateKey,
+    StacksPublicKey,
 };
 use stacks::types::PublicKey;
 use stacks::util::get_epoch_time_secs;
@@ -106,6 +110,7 @@ use crate::nakamoto_node::miner::{
 };
 use crate::nakamoto_node::stackerdb_listener::TEST_IGNORE_SIGNERS;
 use crate::neon::{Counters, RunLoopCounter};
+use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
     boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, next_block_and_controller,
@@ -3597,6 +3602,239 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
     signer_test
         .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
         .expect("Timed out waiting for tx replay set to be cleared");
+
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// Transaction replay test using a stacks-on-bitcoin transaction
+/// to demonstrate a replay set that contains an unminable transaction.
+///
+/// Test scenario:
+///
+/// - Alice sends STX to Bob in a stacks-on-bitcoin transaction
+/// - Bob transfers that STX
+/// - A fork occurs, which drops Alice's transaction, meaning
+///   Bob no longer has STX
+/// - The replay set is validated to contain only Bob's transaction
+/// - Since the replay set contains no mineable transactions, the
+///   replay set is cleared after an initial TenureChange block
+fn tx_replay_btc_on_stx_invalidation() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::from_seed("sender_1".as_bytes());
+    let sender_addr = tests::to_addr(&sender_sk);
+    let mut sender_burnop_signer = BurnchainOpSigner::new(sender_sk, false);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient_sk = Secp256k1PrivateKey::from_seed("recipient_1".as_bytes());
+    let recipient_addr = tests::to_addr(&recipient_sk);
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new_with_config_modifications_and_snapshot(
+            num_signers,
+            vec![(sender_addr, (send_amt + send_fee) * 10)],
+            |c| {
+                c.validate_with_replay_tx = true;
+            },
+            |node_config| {
+                node_config.miner.block_commit_delay = Duration::from_secs(1);
+                node_config.miner.replay_transactions = true;
+                node_config.miner.activated_vrf_key_path =
+                    Some(format!("{}/vrf_key", node_config.node.working_dir));
+            },
+            None,
+            None,
+            Some(function_name!()),
+        );
+
+    let conf = &signer_test.running_nodes.conf;
+    let mut miner_keychain = Keychain::default(conf.node.seed.clone()).generate_op_signer();
+    let _http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let mut btc_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let submitted_commits = signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commits
+        .clone();
+
+    if signer_test.bootstrap_snapshot() {
+        signer_test.shutdown_and_snapshot();
+        return;
+    }
+
+    info!("------------------------- Beginning test -------------------------");
+
+    let pre_fork_tenures = 10;
+    let burnchain = conf.get_burnchain();
+
+    let tip = signer_test.get_peer_info();
+    let pox_info = signer_test.get_pox_data();
+
+    info!("---- Burnchain ----";
+        // "burnchain" => ?conf.burnchain,
+        "pox_constants" => ?burnchain.pox_constants,
+        "cycle" => burnchain.pox_constants.reward_cycle_index(0, tip.burn_block_height),
+        "pox_info" => ?pox_info,
+    );
+
+    for i in 0..pre_fork_tenures {
+        info!("Mining pre-fork tenure {} of {pre_fork_tenures}", i + 1);
+        if i == 0 {
+            info!("Submitting first pre-stx op");
+            let pre_stx_op = PreStxOp {
+                output: sender_addr,
+                // to be filled in
+                txid: Txid([0u8; 32]),
+                vtxindex: 0,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            };
+
+            assert!(
+                btc_controller
+                    .submit_operation(
+                        StacksEpochId::Epoch30,
+                        BlockstackOperationType::PreStx(pre_stx_op),
+                        &mut miner_keychain,
+                        1
+                    )
+                    .is_ok(),
+                "Pre-stx operation should submit successfully"
+            );
+        }
+        signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+    }
+
+    info!("Submitting transfer STX op");
+    let recipient_balance = send_amt + send_fee;
+    let transfer_stx_op = TransferStxOp {
+        sender: sender_addr,
+        recipient: recipient_addr,
+        transfered_ustx: recipient_balance.into(),
+        memo: vec![],
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+    assert!(
+        btc_controller
+            .submit_operation(
+                StacksEpochId::Epoch30,
+                BlockstackOperationType::TransferStx(transfer_stx_op),
+                &mut sender_burnop_signer,
+                1
+            )
+            .is_ok(),
+        "Transfer STX operation should submit successfully"
+    );
+
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+
+    wait_for(30, || {
+        let account = get_account(&_http_origin, &recipient_addr);
+        Ok(account.balance == recipient_balance.into())
+    })
+    .expect("Timed out waiting for balance to be updated");
+
+    info!("---- Submitting transfer STX from recipient ----");
+
+    let (txid, recipient_nonce) = signer_test
+        .submit_transfer_tx(&recipient_sk, send_fee, send_amt)
+        .unwrap();
+
+    signer_test
+        .wait_for_nonce_increase(&recipient_addr, recipient_nonce)
+        .expect("Timed out waiting for STX transfer from recipient");
+
+    info!("---- Triggering Bitcoin fork ----");
+
+    let tip = signer_test.get_peer_info();
+    let burn_header_hash_to_fork = btc_controller.get_block_hash(tip.burn_block_height - 2);
+    btc_controller.invalidate_block(&burn_header_hash_to_fork);
+    btc_controller.build_next_block(3);
+
+    TEST_MINE_STALL.set(true);
+
+    // we need to mine some blocks to get back to being considered a frequent miner
+    for i in 0..3 {
+        let current_burn_height = get_chain_info(&conf).burn_block_height;
+        info!(
+            "Mining block #{i} to be considered a frequent miner";
+            "current_burn_height" => current_burn_height,
+        );
+        let commits_count = submitted_commits.load(Ordering::SeqCst);
+        next_block_and(&btc_controller, 60, || {
+            Ok(submitted_commits.load(Ordering::SeqCst) > commits_count)
+        })
+        .unwrap();
+    }
+
+    info!("---- Wait for tx replay set to be updated ----");
+
+    let mut last_log = Instant::now();
+    last_log -= Duration::from_secs(5);
+    signer_test
+        .wait_for_signer_state_check(30, |state| {
+            let Some(tx_replay_set) = state.get_tx_replay_set() else {
+                info!("---- No tx replay set");
+                return Ok(false);
+            };
+            let len_ok = tx_replay_set.len() == 1;
+            let txid_ok = tx_replay_set[0].txid().to_hex() == txid;
+            info!("---- Signer state check ----";
+                "tx_replay_set" => ?tx_replay_set,
+                "len_ok" => len_ok,
+                "txid_ok" => txid_ok,
+            );
+            if last_log.elapsed() > Duration::from_secs(5) {
+                info!("---- Signer state check ----";
+                    "tx_replay_set" => ?tx_replay_set,
+                    "len_ok" => len_ok,
+                    "txid_ok" => txid_ok,
+                );
+                last_log = Instant::now();
+            }
+            Ok(len_ok && txid_ok)
+        })
+        .expect("Timed out waiting for tx replay set to be updated");
+
+    info!("---- Waiting for tx replay set to be cleared ----");
+
+    let stacks_height_before = get_chain_info(&conf).stacks_tip_height;
+
+    TEST_MINE_STALL.set(false);
+
+    signer_test
+        .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
+        .expect("Timed out waiting for tx replay set to be cleared");
+
+    // Ensure that only one block was mined
+    wait_for(30, || {
+        let new_tip = get_chain_info(&conf).stacks_tip_height;
+        Ok(new_tip == stacks_height_before + 1)
+    })
+    .expect("Timed out waiting for block to advance by 1");
+
+    let blocks = test_observer::get_blocks();
+    let block: StacksBlockEvent =
+        serde_json::from_value(blocks.last().unwrap().clone()).expect("Failed to parse block");
+    assert_eq!(block.transactions.len(), 2);
+    assert!(matches!(
+        block.transactions[0].payload,
+        TransactionPayload::TenureChange(TenureChangePayload {
+            cause: TenureChangeCause::BlockFound,
+            ..
+        })
+    ));
+    assert!(matches!(
+        block.transactions[1].payload,
+        TransactionPayload::Coinbase(..)
+    ));
 
     signer_test.shutdown();
 }

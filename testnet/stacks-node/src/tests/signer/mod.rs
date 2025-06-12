@@ -41,6 +41,7 @@ use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, In
 use stacks::core::test_util::{
     make_contract_call, make_contract_publish, make_stacks_transfer_serialized,
 };
+use stacks::net::api::getpoxinfo::RPCPoxInfoData;
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
@@ -1005,7 +1006,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     pub fn wait_for_signer_state_check(
         &self,
         timeout: u64,
-        f: impl Fn(&LocalStateMachine) -> Result<bool, String>,
+        mut f: impl FnMut(&LocalStateMachine) -> Result<bool, String>,
     ) -> Result<(), String> {
         wait_for(timeout, || {
             let (signer_states, _) = self.get_burn_updated_states();
@@ -1427,6 +1428,13 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         self.stacks_client
             .get_peer_info()
             .expect("Failed to get peer info")
+    }
+
+    /// Get /v2/pox from the node
+    pub fn get_pox_data(&self) -> RPCPoxInfoData {
+        self.stacks_client
+            .get_pox_data()
+            .expect("Failed to get pox info")
     }
 
     pub fn readonly_stackerdb_client(&self, reward_cycle: u64) -> StackerDB<MessageSlotID> {
