@@ -416,6 +416,7 @@ impl LocalStateMachine {
                             "signer_signature_hash" => %signer_signature_hash,
                         );
                         prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
+                        prior_state_machine.creation_time = CreationTime::now();
                     }
                 }
                 Ok(None) => {
@@ -423,6 +424,7 @@ impl LocalStateMachine {
                         "txs" => ?txs,
                     );
                     prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
+                    prior_state_machine.creation_time = CreationTime::now();
                 }
                 Err(e) => {
                     warn!("Failed to check if block was validated by replay tx";
@@ -625,10 +627,11 @@ impl LocalStateMachine {
             return;
         };
         if let Some(creation_time) = self.get_creation_time() {
-            let elapsed = creation_time
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap_or(Duration::from_secs(0));
-            if elapsed <= capitulate_tenure_timeout {
+            let should_capitulate = SystemTime::now()
+                .duration_since(creation_time)
+                .map(|elapsed| elapsed > capitulate_tenure_timeout)
+                .unwrap_or_default();
+            if !should_capitulate {
                 // We haven't waited enough time to capitulate our miner view
                 return;
             }

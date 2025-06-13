@@ -11297,7 +11297,6 @@ fn reorg_attempts_activity_timeout_exceeded() {
 
     let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
-    let miner_pkh = Hash160::from_node_public_key(&miner_pk);
     let all_signers = signer_test.signer_test_pks();
 
     signer_test.boot_to_epoch_3();
