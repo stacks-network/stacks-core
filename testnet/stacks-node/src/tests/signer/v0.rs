@@ -11808,19 +11808,17 @@ fn block_proposal_timeout() {
     )
     .unwrap();
 
-    let reverted_height = chain_before.stacks_tip_height;
+    let reverted_tenure_id = chain_before.pox_consensus;
     let chain_before = get_chain_info(&signer_test.running_nodes.conf);
     info!("------------------------- Wait for Signers to Mark {miner_pkh} at height {} invalid -------------------------", chain_before.stacks_tip_height;
         "expected_burn_block" => %chain_before.pox_consensus,
         "expected_burn_block_height" => chain_before.burn_block_height,
         "new_miner_pkh" => %miner_pkh,
-        "new_stacks_tip_height" => reverted_height
+        "new_tenure_id" => %reverted_tenure_id,
     );
-    wait_for_state_machine_update(
+    wait_for_state_machine_update_by_miner_tenure_id(
         block_proposal_timeout.as_secs() + 30,
-        &chain_before.pox_consensus,
-        chain_before.burn_block_height,
-        Some((miner_pkh, reverted_height)),
+        &reverted_tenure_id,
         &all_signers,
         SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
