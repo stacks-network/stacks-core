@@ -18,17 +18,13 @@
 #![allow(unused_assignments)]
 
 use std::collections::HashMap;
-use std::fs;
-use std::io::{Cursor, Seek, SeekFrom};
 
 use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::to_hex;
 
 use crate::chainstate::stacks::index::bits::*;
 use crate::chainstate::stacks::index::marf::*;
 use crate::chainstate::stacks::index::node::*;
-use crate::chainstate::stacks::index::proofs::*;
 use crate::chainstate::stacks::index::storage::*;
 use crate::chainstate::stacks::index::trie::*;
 use crate::chainstate::stacks::index::{MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof};

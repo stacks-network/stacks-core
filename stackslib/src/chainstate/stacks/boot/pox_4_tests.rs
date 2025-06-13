@@ -14,77 +14,43 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::contexts::OwnedEnvironment;
-use clarity::vm::contracts::Contract;
-use clarity::vm::costs::{CostOverflowingMath, LimitedCostTracker};
+use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::*;
-use clarity::vm::errors::{
-    CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
-};
-use clarity::vm::eval;
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
-use clarity::vm::functions::principals;
-use clarity::vm::representations::SymbolicExpression;
-use clarity::vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
-use clarity::vm::types::Value::Response;
 use clarity::vm::types::{
-    BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
-    StacksAddressExtensions, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature,
-    Value, NONE,
+    OptionalData, PrincipalData, StacksAddressExtensions, StandardPrincipalData, TupleData, Value,
 };
 use clarity::vm::Value::Optional;
 use stacks_common::address::AddressHashMode;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
-};
-use stacks_common::types::{Address, PrivateKey};
-use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum};
+use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
+use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stdext::num::integer::Integer;
 
 use super::test::*;
-use super::RawRewardSetEntry;
 use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
-use crate::chainstate::burn::operations::*;
-use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
+use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::tests::pox_addr_from;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
-use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::pox_2_tests::{
-    check_pox_print_event, generate_pox_clarity_value, get_partial_stacked, get_reward_cycle_total,
+    check_pox_print_event, generate_pox_clarity_value, get_reward_cycle_total,
     get_reward_set_entries_at, get_stacking_state_pox, get_stx_account_at, with_clarity_db_ro,
-    PoxPrintFields, StackingStateCheckData,
+    PoxPrintFields,
 };
-use crate::chainstate::stacks::boot::signers_tests::{
-    get_signer_index, prepare_signers_test, readonly_call,
-};
-use crate::chainstate::stacks::boot::{
-    PoxVersions, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
-    MINERS_NAME, POX_2_NAME, POX_3_NAME,
-};
-use crate::chainstate::stacks::db::{
-    MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
-};
+use crate::chainstate::stacks::boot::signers_tests::get_signer_index;
+use crate::chainstate::stacks::boot::{PoxVersions, MINERS_NAME};
 use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
-use crate::chainstate::stacks::index::marf::MarfConnection;
-use crate::chainstate::stacks::index::MarfTrieId;
-use crate::chainstate::stacks::tests::make_coinbase;
 use crate::chainstate::stacks::*;
-use crate::clarity_vm::clarity::{ClarityBlockConnection, Error as ClarityError};
-use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
-use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
 use crate::net::test::{TestEventObserver, TestEventObserverBlock, TestPeer, TestPeerConfig};
 use crate::net::tests::NakamotoBootPlan;
 use crate::util_lib::boot::boot_code_id;
-use crate::util_lib::db::{DBConn, FromRow};
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
-use crate::util_lib::signed_structured_data::structured_data_message_hash;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 

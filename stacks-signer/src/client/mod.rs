@@ -431,6 +431,7 @@ pub(crate) mod tests {
             block_proposal_max_age_secs: config.block_proposal_max_age_secs,
             reorg_attempts_activity_timeout: config.reorg_attempts_activity_timeout,
             proposal_wait_for_parent_time: config.proposal_wait_for_parent_time,
+            validate_with_replay_tx: config.validate_with_replay_tx,
         }
     }
 

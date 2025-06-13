@@ -14,41 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::borrow::{Borrow, BorrowMut};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::ops::Deref;
-use std::thread::LocalKey;
 
 use clarity::util::hash::hex_bytes;
-use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
-use clarity::vm::{ClarityName, ContractName};
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey,
-};
-use stacks_common::types::net::PeerHost;
-use stacks_common::types::Address;
 
 use super::TestRPC;
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use crate::chainstate::stacks::db::blocks::test::*;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::{
-    Error as chainstate_error, StacksBlock, StacksBlockHeader, StacksMicroblock,
-};
-use crate::net::api::getblock_v3::NakamotoBlockStream;
+use crate::burnchains::Txid;
+use crate::chainstate::stacks::StacksTransaction;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
-use crate::net::http::HttpChunkGenerator;
-use crate::net::httpcore::{
-    HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp,
-    StacksHttpRequest,
-};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
 use crate::net::test::TestEventObserver;
-use crate::net::tests::inv::nakamoto::make_nakamoto_peer_from_invs;
-use crate::net::{ProtocolFamily, TipRequest};
-use crate::util_lib::db::DBConn;
+use crate::net::ProtocolFamily;
 
 #[test]
 fn test_try_parse_request() {

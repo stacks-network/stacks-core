@@ -13,18 +13,13 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-use sha2::{Digest, Sha256};
-use stacks_common::address::{public_keys_to_address_hash, AddressHashMode};
 use stacks_common::deps_common::bitcoin::blockdata::opcodes::{All as btc_opcodes, Class};
-use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Instruction, Script};
+use stacks_common::deps_common::bitcoin::blockdata::script::{Instruction, Script};
 use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     TxIn as BtcTxIn, TxOut as BtcTxOut,
 };
-use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::util::hash::{hex_bytes, Hash160};
-use stacks_common::util::log;
+#[cfg(test)]
+use stacks_common::util::hash::hex_bytes;
 
 use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
@@ -32,11 +27,7 @@ use crate::burnchains::bitcoin::{
     BitcoinInputType, BitcoinNetworkType, BitcoinTxInput, BitcoinTxInputRaw,
     BitcoinTxInputStructured, BitcoinTxOutput, Error as btc_error,
 };
-use crate::burnchains::{PublicKey, Txid};
-use crate::chainstate::stacks::{
-    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
+use crate::burnchains::Txid;
 
 /// Parse a script into its structured constituant opcodes and data and collect them
 pub fn parse_script(script: &Script) -> Vec<Instruction<'_>> {
@@ -624,14 +615,12 @@ mod tests {
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize as bitcoinlib_deserialize;
     use stacks_common::util::hash::hex_bytes;
-    use stacks_common::util::log;
 
     use super::{
-        parse_script, to_txid, BitcoinTxInput, BitcoinTxInputRaw, BitcoinTxInputStructured,
-        BitcoinTxOutput,
+        parse_script, to_txid, BitcoinTxInputRaw, BitcoinTxInputStructured, BitcoinTxOutput,
     };
     use crate::burnchains::bitcoin::address::{
-        BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
+        BitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
     };
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::bitcoin::{BitcoinInputType, BitcoinNetworkType};

@@ -15,15 +15,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
-use std::collections::HashMap;
 use std::hash::Hasher;
 use std::io::{Read, Seek, SeekFrom, Write};
 
 use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::blob::Blob;
-use rusqlite::types::ToSql;
-use rusqlite::{params, Error as sqlite_error, Row};
+use rusqlite::{params, Error as sqlite_error};
 use siphasher::sip::SipHasher; // this is SipHash-2-4
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::sqlite::NO_PARAMS;
@@ -601,7 +599,7 @@ pub mod test {
     use rusqlite::OpenFlags;
 
     use super::*;
-    use crate::util_lib::db::{sql_pragma, tx_begin_immediate, tx_busy_handler, DBConn, DBTx};
+    use crate::util_lib::db::{sql_pragma, tx_begin_immediate, tx_busy_handler, DBConn};
 
     pub fn setup_bloom_counter(db_name: &str) -> DBConn {
         let db_path = format!("/tmp/test_bloom_filter_{}.db", db_name);

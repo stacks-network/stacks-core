@@ -15,24 +15,18 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::borrow::Borrow;
-use std::io::prelude::*;
+use std::fmt;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
-use std::{fmt, io};
 
 use clarity::vm::errors::RuntimeErrorType;
 use clarity::vm::representations::{
-    ClarityName, ContractName, SymbolicExpression, CONTRACT_MAX_NAME_LENGTH,
-    CONTRACT_MIN_NAME_LENGTH, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH,
-};
-use clarity::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
+    ClarityName, ContractName, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH,
 };
 use lazy_static::lazy_static;
 use regex::Regex;
 use stacks_common::codec::{
-    read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
-    MAX_MESSAGE_LEN,
+    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
 };
 use stacks_common::util::retry::BoundReader;
 use url;
@@ -320,12 +314,10 @@ impl UrlString {
 
 #[cfg(test)]
 mod test {
-    use std::error::Error;
+    use clarity::vm::representations::CONTRACT_MAX_NAME_LENGTH;
 
     use super::*;
     use crate::net::codec::test::check_codec_and_corruption;
-    use crate::net::codec::*;
-    use crate::net::*;
 
     #[test]
     fn tx_stacks_strings_codec() {

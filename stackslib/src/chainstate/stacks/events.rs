@@ -1,12 +1,10 @@
 use clarity::vm::analysis::ContractAnalysis;
 use clarity::vm::costs::ExecutionCost;
 pub use clarity::vm::events::StacksTransactionEvent;
-use clarity::vm::types::{
-    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
-};
+use clarity::vm::types::{QualifiedContractIdentifier, Value};
 use libstackerdb::StackerDBChunkData;
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress};
+use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::util::hash::to_hex;
 
 use crate::burnchains::Txid;

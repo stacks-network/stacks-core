@@ -17,9 +17,7 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-use regex::{Captures, Regex};
-use stacks_common::types::net::PeerAddress;
-use stacks_common::util::log;
+use regex::Regex;
 
 use crate::net::Error as net_error;
 
@@ -221,9 +219,6 @@ impl ASEntry4 {
 #[cfg(test)]
 mod test {
     use std::io;
-    use std::io::BufRead;
-
-    use stacks_common::util::log;
 
     use super::*;
 

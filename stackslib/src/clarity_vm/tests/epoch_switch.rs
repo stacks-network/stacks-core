@@ -14,32 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::database::{
-    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
-    NULL_BURN_STATE_DB, NULL_HEADER_DB,
-};
-use clarity::vm::errors::{InterpreterResult, RuntimeErrorType};
-use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
-use rand::{thread_rng, RngCore};
-use rusqlite::{Connection, OptionalExtension};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
-};
+use clarity::vm::database::BurnStateDB;
+use rand::RngCore;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::util::hash::to_hex;
 
-use crate::burnchains::PoxConstants;
-use crate::chainstate::burn::db::sortdb::{
-    SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
-};
-use crate::chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId, TrieMerkleProof};
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::core::{
     StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
     PEER_VERSION_EPOCH_2_05, STACKS_EPOCH_MAX,
 };
-use crate::util_lib::db::{DBConn, FromRow};
 
 fn test_burnstatedb_epoch(
     burnstatedb: &dyn BurnStateDB,

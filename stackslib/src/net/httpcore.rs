@@ -15,14 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 /// This module binds the http library to Stacks as a `ProtocolFamily` implementation
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
 use std::{fmt, io, mem};
 
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::{QualifiedContractIdentifier, BOUND_VALUE_SERIALIZATION_HEX};
+use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::{ClarityName, ContractName};
 use percent_encoding::percent_decode_str;
 use regex::{Captures, Regex};
@@ -37,20 +37,18 @@ use stacks_common::util::retry::{BoundReader, RetryReader};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 use url::Url;
 
-use super::rpc::ConversationHttp;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
-use crate::core::{MemPoolDB, StacksEpoch};
+use crate::core::StacksEpoch;
 use crate::net::connection::{ConnectionOptions, NetworkConnection};
 use crate::net::http::common::{parse_raw_bytes, HTTP_PREAMBLE_MAX_ENCODED_SIZE};
 use crate::net::http::{
-    http_reason, parse_bytes, parse_json, Error as HttpError, HttpBadRequest, HttpContentType,
-    HttpErrorResponse, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
-    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
-    HttpVersion,
+    http_reason, parse_bytes, parse_json, Error as HttpError, HttpContentType, HttpErrorResponse,
+    HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
+    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::server::HttpPeer;

@@ -16,7 +16,7 @@
 
 pub mod chain_data;
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -2772,7 +2772,7 @@ pub struct MinerConfig {
     /// - `"NextNonceWithHighestFeeRate"`: Selects the highest-fee transaction among those
     ///   matching the next expected nonce for sender/sponsor accounts.
     /// ---
-    /// @default: `"GlobalFeeRate"`
+    /// @default: `"NextNonceWithHighestFeeRate"`
     pub mempool_walk_strategy: MemPoolWalkStrategy,
     /// Probability (percentage, 0-100) of prioritizing a transaction without a
     /// known fee rate during candidate selection.
@@ -3193,7 +3193,7 @@ impl Default for MinerConfig {
             activated_vrf_key_path: None,
             fast_rampup: false,
             underperform_stop_threshold: None,
-            mempool_walk_strategy: MemPoolWalkStrategy::GlobalFeeRate,
+            mempool_walk_strategy: MemPoolWalkStrategy::NextNonceWithHighestFeeRate,
             txs_to_consider: MemPoolWalkTxTypes::all(),
             filter_origins: HashSet::new(),
             max_reorg_depth: 3,
@@ -4254,7 +4254,7 @@ impl MinerConfigFile {
             underperform_stop_threshold: self.underperform_stop_threshold,
             mempool_walk_strategy: self.mempool_walk_strategy
                 .map(|s| str::parse(&s).unwrap_or_else(|e| panic!("Could not parse '{s}': {e}")))
-                .unwrap_or(MemPoolWalkStrategy::GlobalFeeRate),
+                .unwrap_or(MemPoolWalkStrategy::NextNonceWithHighestFeeRate),
             txs_to_consider: {
                 if let Some(txs_to_consider) = &self.txs_to_consider {
                     txs_to_consider

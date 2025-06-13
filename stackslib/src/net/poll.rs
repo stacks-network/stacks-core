@@ -15,19 +15,17 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::io::{Error as io_error, ErrorKind, Read, Write};
+use std::io::ErrorKind;
 use std::net::{Shutdown, SocketAddr};
 use std::time::Duration;
-use std::{io, net, time};
+use std::{io, time};
 
 use mio::{net as mio_net, PollOpt, Ready, Token};
 use rand::RngCore;
-use stacks_common::types::net::PeerAddress;
-use stacks_common::util::{log, sleep_ms};
+use stacks_common::util::sleep_ms;
 use {mio, rand};
 
-use crate::net::{Error as net_error, Neighbor, NeighborKey};
-use crate::util_lib::db::{DBConn, Error as db_error};
+use crate::net::Error as net_error;
 
 const SERVER: Token = mio::Token(0);
 
@@ -484,9 +482,6 @@ impl NetworkState {
 #[cfg(test)]
 mod test {
     use std::collections::HashSet;
-
-    use mio;
-    use mio::{net as mio_net, PollOpt, Ready, Token};
 
     use super::*;
 
