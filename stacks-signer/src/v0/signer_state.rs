@@ -88,10 +88,17 @@ pub struct NewBurnBlock {
     pub consensus_hash: ConsensusHash,
 }
 
-/// Scope of Tx Replay in terms of Burn block boundaries
-/// - tuple.0 is the fork originating the tx replay,
-/// - tuple.1 is the canonical burnchain tip when Tx Replay begun
-pub type TxReplayScopeOpt = Option<(NewBurnBlock, NewBurnBlock)>;
+/// Represents the scope of Tx Replay in terms of burn block boundaries.
+#[derive(Debug)]
+pub struct TxReplayScope {
+    /// The burn block where the fork that originated the transaction replay began.
+    pub fork_origin: NewBurnBlock,
+    /// The canonical burn chain tip at the time the transaction replay started.
+    pub past_tip: NewBurnBlock,
+}
+
+/// Optional `TxReplayScope`, representing the potential absence of a replay scope.
+pub type TxReplayScopeOpt = Option<TxReplayScope>;
 
 impl LocalStateMachine {
     /// Initialize a local state machine by querying the local stacks-node
@@ -936,7 +943,7 @@ impl LocalStateMachine {
                 "prior_state_machine.burn_block" => %prior_state_machine.burn_block,
             );
 
-            let (fork_origin, past_tip) = match tx_replay_scope {
+            let scope = match tx_replay_scope {
                 Some(scope) => scope,
                 None => {
                     warn!("Tx Replay: BUG! Scope cannot be None while in replay mode!");
@@ -945,7 +952,7 @@ impl LocalStateMachine {
             };
 
             let is_deepest_fork =
-                expected_burn_block.burn_block_height < fork_origin.burn_block_height;
+                expected_burn_block.burn_block_height < scope.fork_origin.burn_block_height;
             if !is_deepest_fork {
                 //if it is within the scope or after - this is not a new fork, but the continue of a reorg
                 info!("Tx Replay: nothing todo. Reorg in progress!");
@@ -958,9 +965,12 @@ impl LocalStateMachine {
                 db,
                 client,
                 expected_burn_block,
-                past_tip,
+                &scope.past_tip,
             )? {
-                let scope = (expected_burn_block.clone(), past_tip.clone());
+                let scope = TxReplayScope {
+                    fork_origin: expected_burn_block.clone(),
+                    past_tip: scope.past_tip.clone(),
+                };
 
                 info!("Tx Replay: replay set updated with {} tx(s)", replay_set.len();
                     "tx_replay_set" => ?replay_set,
@@ -1010,7 +1020,10 @@ impl LocalStateMachine {
             }
             Some(replay_set) => {
                 let scope_opt = if !replay_set.is_empty() {
-                    let scope = (expected_burn_block.clone(), potential_replay_tip);
+                    let scope = TxReplayScope {
+                        fork_origin: expected_burn_block.clone(),
+                        past_tip: potential_replay_tip,
+                    };
                     info!("Tx Replay: replay set updated with {} tx(s)", replay_set.len();
                     "tx_replay_set" => ?replay_set,
                     "tx_replay_scope" => ?scope);
