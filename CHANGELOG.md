@@ -18,6 +18,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - Changed default mempool walk strategy to `NextNonceWithHighestFeeRate`
 
+### Fixed
+- Fix several bugs in the mock-miner that caused it to fail to mine blocks in certain conditions
+
 ## [3.1.0.0.12]
 
 ### Added
