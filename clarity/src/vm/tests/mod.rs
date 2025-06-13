@@ -37,6 +37,8 @@ mod sequences;
 mod simple_apply_eval;
 mod traits;
 mod variables;
+// Module to wrap code related to clarity-wasm tests
+pub mod clarity_wasm;
 
 #[cfg(any(test, feature = "testing"))]
 impl<'a> OwnedEnvironment<'a> {
