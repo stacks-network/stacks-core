@@ -29,9 +29,7 @@ use blockstack_lib::util_lib::db::{
 };
 use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksPublicKey};
 use clarity::types::Address;
-use libsigner::v0::messages::{
-    RejectReason, RejectReasonPrefix, StateMachineUpdate,
-};
+use libsigner::v0::messages::{RejectReason, RejectReasonPrefix, StateMachineUpdate};
 use libsigner::v0::signer_state::GlobalStateEvaluator;
 use libsigner::BlockProposal;
 use rusqlite::functions::FunctionFlags;
