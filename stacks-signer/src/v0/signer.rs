@@ -52,7 +52,7 @@ use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
-use crate::v0::signer_state::{NewBurnBlock, TxReplayScopeOpt};
+use crate::v0::signer_state::{NewBurnBlock, ReplayScopeOpt};
 use crate::Signer as SignerTrait;
 
 /// A global variable that can be used to make signers repeat their proposal
@@ -126,7 +126,7 @@ pub struct Signer {
     /// Whether to validate blocks with replay transactions
     pub validate_with_replay_tx: bool,
     /// Scope of Tx Replay in terms of Burn block boundaries
-    pub tx_replay_scope: TxReplayScopeOpt,
+    pub tx_replay_scope: ReplayScopeOpt,
 }
 
 impl std::fmt::Display for SignerMode {

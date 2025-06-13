@@ -89,8 +89,8 @@ pub struct NewBurnBlock {
 }
 
 /// Represents the scope of Tx Replay in terms of burn block boundaries.
-#[derive(Debug)]
-pub struct TxReplayScope {
+#[derive(Debug, Clone)]
+pub struct ReplayScope {
     /// The burn block where the fork that originated the transaction replay began.
     pub fork_origin: NewBurnBlock,
     /// The canonical burn chain tip at the time the transaction replay started.
@@ -98,7 +98,35 @@ pub struct TxReplayScope {
 }
 
 /// Optional `TxReplayScope`, representing the potential absence of a replay scope.
-pub type TxReplayScopeOpt = Option<TxReplayScope>;
+pub type ReplayScopeOpt = Option<ReplayScope>;
+
+/// Represents the Tx Replay state
+pub enum ReplayState {
+    /// No replay has started yet, or the previous replay was cleared.
+    NotStartedOrCleared,
+    /// A replay is currently in progress, with an associated transaction set and scope.
+    InProgress(ReplayTransactionSet, ReplayScope),
+    /// An invalid state — a transaction set was provided without a valid scope.
+    Invalid,
+}
+
+impl ReplayState {
+    /// Constructs a `ReplayState` from a given replay transaction set and an optional scope.
+    ///
+    /// - Returns `NotStartedOrCleared` if the replay set is empty.
+    /// - Returns `Invalid` if the replay set exists but the scope is missing.
+    /// - Returns `InProgress` if both a non-empty replay set and a valid scope are provided.
+    fn from(replay_set: &ReplayTransactionSet, scope_opt: &ReplayScopeOpt) -> Self {
+        if replay_set.is_empty() {
+            return Self::NotStartedOrCleared;
+        }
+
+        match scope_opt {
+            None => Self::Invalid,
+            Some(scope) => Self::InProgress(replay_set.clone(), scope.clone()),
+        }
+    }
+}
 
 impl LocalStateMachine {
     /// Initialize a local state machine by querying the local stacks-node
@@ -204,7 +232,7 @@ impl LocalStateMachine {
         db: &SignerDb,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
-        tx_replay_scope: &mut TxReplayScopeOpt,
+        tx_replay_scope: &mut ReplayScopeOpt,
     ) -> Result<(), SignerChainstateError> {
         let LocalStateMachine::Pending { update, .. } = self else {
             return self.check_miner_inactivity(db, client, proposal_config);
@@ -514,7 +542,7 @@ impl LocalStateMachine {
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         mut expected_burn_block: Option<NewBurnBlock>,
-        tx_replay_scope: &mut TxReplayScopeOpt,
+        tx_replay_scope: &mut ReplayScopeOpt,
     ) -> Result<(), SignerChainstateError> {
         // set self to uninitialized so that if this function errors,
         //  self is left as uninitialized.
@@ -570,16 +598,26 @@ impl LocalStateMachine {
                 };
                 return Err(ClientError::InvalidResponse(err_msg).into());
             }
-            if let Some((new_replay_set, new_replay_scope)) = self.handle_possible_bitcoin_fork(
+
+            let replay_state = ReplayState::from(&tx_replay_set, &tx_replay_scope);
+            if let Some(new_replay_state) = self.handle_possible_bitcoin_fork(
                 db,
                 client,
                 &expected_burn_block,
                 &prior_state_machine,
-                tx_replay_set.is_some(),
-                tx_replay_scope,
+                replay_state,
             )? {
-                tx_replay_set = ReplayTransactionSet::new(new_replay_set);
-                *tx_replay_scope = new_replay_scope;
+                match new_replay_state {
+                    ReplayState::NotStartedOrCleared => {
+                        tx_replay_set = ReplayTransactionSet::none();
+                        *tx_replay_scope = None;
+                    }
+                    ReplayState::InProgress(new_txs_set, new_scope) => {
+                        tx_replay_set = new_txs_set;
+                        *tx_replay_scope = Some(new_scope);
+                    }
+                    ReplayState::Invalid => warn!("Tx Replay: Invalid is not possible here!"),
+                }
             }
         }
 
@@ -924,9 +962,8 @@ impl LocalStateMachine {
         client: &StacksClient,
         expected_burn_block: &NewBurnBlock,
         prior_state_machine: &SignerStateMachine,
-        is_in_tx_replay_mode: bool,
-        tx_replay_scope: &TxReplayScopeOpt,
-    ) -> Result<Option<(Vec<StacksTransaction>, TxReplayScopeOpt)>, SignerChainstateError> {
+        replay_state: ReplayState,
+    ) -> Result<Option<ReplayState>, SignerChainstateError> {
         if expected_burn_block.burn_block_height > prior_state_machine.burn_block_height {
             // no bitcoin fork, because we're advancing the burn block height
             return Ok(None);
@@ -935,21 +972,19 @@ impl LocalStateMachine {
             // no bitcoin fork, because we're at the same burn block hash as before
             return Ok(None);
         }
-        if is_in_tx_replay_mode {
+
+        if matches!(replay_state, ReplayState::Invalid) {
+            warn!("Tx Replay: Invalid state due to scope being not set while in replay mode!");
+            return Err(SignerChainstateError::LocalStateMachineNotReady);
+        }
+
+        if let ReplayState::InProgress(_txs_set, scope) = replay_state {
             info!("Tx Replay: detected bitcoin fork while in replay mode. Tryng to handle the fork";
                 "expected_burn_block.height" => expected_burn_block.burn_block_height,
                 "expected_burn_block.hash" => %expected_burn_block.consensus_hash,
                 "prior_state_machine.burn_block_height" => prior_state_machine.burn_block_height,
                 "prior_state_machine.burn_block" => %prior_state_machine.burn_block,
             );
-
-            let scope = match tx_replay_scope {
-                Some(scope) => scope,
-                None => {
-                    warn!("Tx Replay: BUG! Scope cannot be None while in replay mode!");
-                    return Err(SignerChainstateError::LocalStateMachineNotReady);
-                }
-            };
 
             let is_deepest_fork =
                 expected_burn_block.burn_block_height < scope.fork_origin.burn_block_height;
@@ -959,15 +994,14 @@ impl LocalStateMachine {
                 return Ok(None);
             }
 
-            let updated_replay_set;
-            let updated_scope_opt;
+            let replay_state;
             if let Some(replay_set) = self.compute_forked_txs_set_in_same_cycle(
                 db,
                 client,
                 expected_burn_block,
                 &scope.past_tip,
             )? {
-                let scope = TxReplayScope {
+                let scope = ReplayScope {
                     fork_origin: expected_burn_block.clone(),
                     past_tip: scope.past_tip.clone(),
                 };
@@ -975,14 +1009,13 @@ impl LocalStateMachine {
                 info!("Tx Replay: replay set updated with {} tx(s)", replay_set.len();
                     "tx_replay_set" => ?replay_set,
                     "tx_replay_scope" => ?scope);
-                updated_replay_set = replay_set;
-                updated_scope_opt = Some(scope);
+                replay_state =
+                    ReplayState::InProgress(ReplayTransactionSet::new(replay_set), scope);
             } else {
                 info!("Tx Replay: replay set will be cleared, because the fork involves the previous reward cycle.");
-                updated_replay_set = vec![];
-                updated_scope_opt = None;
+                replay_state = ReplayState::NotStartedOrCleared;
             }
-            return Ok(Some((updated_replay_set, updated_scope_opt)));
+            return Ok(Some(replay_state));
         }
 
         info!("Signer State: fork detected";
@@ -1019,20 +1052,21 @@ impl LocalStateMachine {
                 Ok(None)
             }
             Some(replay_set) => {
-                let scope_opt = if !replay_set.is_empty() {
-                    let scope = TxReplayScope {
+                if replay_set.is_empty() {
+                    info!("Tx Replay: no transactions to be replayed.");
+                    Ok(None)
+                } else {
+                    let scope = ReplayScope {
                         fork_origin: expected_burn_block.clone(),
                         past_tip: potential_replay_tip,
                     };
                     info!("Tx Replay: replay set updated with {} tx(s)", replay_set.len();
                     "tx_replay_set" => ?replay_set,
                     "tx_replay_scope" => ?scope);
-                    Some(scope)
-                } else {
-                    info!("Tx Replay: no transactions to be replayed.");
-                    None
-                };
-                Ok(Some((replay_set, scope_opt)))
+                    let replay_state =
+                        ReplayState::InProgress(ReplayTransactionSet::new(replay_set), scope);
+                    Ok(Some(replay_state))
+                }
             }
         }
     }
