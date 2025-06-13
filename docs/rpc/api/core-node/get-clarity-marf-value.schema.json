@@ -3,7 +3,9 @@
   "description": "Response of get Clarity MARF value request",
   "title": "ClarityMARFValueResponse",
   "type": "object",
-  "required": ["data"],
+  "required": [
+    "data"
+  ],
   "properties": {
     "data": {
       "type": "string",
