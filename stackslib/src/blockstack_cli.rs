@@ -34,9 +34,9 @@ use blockstack_lib::burnchains::Address;
 use blockstack_lib::chainstate::stacks::{
     StacksBlock, StacksBlockHeader, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
     StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
-    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionSmartContract,
-    TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
+    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use blockstack_lib::clarity_cli::vm_execute;
 use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
@@ -90,6 +90,10 @@ is that the miner chooses, but you can decide which with the following options:
 
   --microblock-only  indicates to mine this transaction only in a microblock
   --block-only       indicates to mine this transaction only in a block
+
+The use of post-conditions in the contract can be controlled with the following option:
+  
+  --postcondition-mode  indicates the post-condition mode for the contract. Allowed values: [`allow`, `deny`]. Default: `deny`.
 ";
 
 const CALL_USAGE: &str = "blockstack-cli (options) contract-call [origin-secret-key-hex] [fee-rate] [nonce] [contract-publisher-address] [contract-name] [function-name] [args...]
@@ -340,7 +344,10 @@ fn parse_anchor_mode(
     for i in 0..num_args {
         if args[i] == "--microblock-only" {
             if idx > 0 {
-                return Err(CliError::Message(format!("USAGE:\n {}", usage,)));
+                return Err(CliError::Message(format!(
+                    "Multiple anchor mode detected.\n\nUSAGE:\n{}",
+                    usage,
+                )));
             }
 
             offchain_only = true;
@@ -348,7 +355,10 @@ fn parse_anchor_mode(
         }
         if args[i] == "--block-only" {
             if idx > 0 {
-                return Err(CliError::Message(format!("USAGE:\n {}", usage,)));
+                return Err(CliError::Message(format!(
+                    "Multiple anchor mode detected.\n\nUSAGE:\n{}",
+                    usage,
+                )));
             }
 
             onchain_only = true;
@@ -367,6 +377,49 @@ fn parse_anchor_mode(
     }
 }
 
+fn parse_postcondition_mode(
+    args: &mut Vec<String>,
+    usage: &str,
+) -> Result<TransactionPostConditionMode, CliError> {
+    let mut i = 0;
+    let mut value = None;
+    while i < args.len() {
+        if args[i] == "--postcondition-mode" {
+            if value.is_some() {
+                return Err(CliError::Message(format!(
+                    "Duplicated `--postcondition-mode`.\n\nUSAGE:\n{}",
+                    usage
+                )));
+            }
+            if i + 1 >= args.len() {
+                return Err(CliError::Message(format!(
+                    "Missing value for `--postcondition-mode`.\n\nUSAGE:\n{}",
+                    usage
+                )));
+            }
+            value = Some(args.remove(i + 1));
+            args.remove(i);
+            continue; // do not increment i since elements shifted
+        }
+        i += 1;
+    }
+
+    let mode = match value {
+        Some(mode_str) => match mode_str.as_ref() {
+            "allow" => TransactionPostConditionMode::Allow,
+            "deny" => TransactionPostConditionMode::Deny,
+            _ => {
+                return Err(CliError::Message(format!(
+                    "Invalid value for `--postcondition-mode`.\n\nUSAGE:\n{}",
+                    usage,
+                )))
+            }
+        },
+        None => TransactionPostConditionMode::Deny,
+    };
+    Ok(mode)
+}
+
 fn handle_contract_publish(
     args_slice: &[String],
     version: TransactionVersion,
@@ -375,15 +428,16 @@ fn handle_contract_publish(
     let mut args = args_slice.to_vec();
 
     if !args.is_empty() && args[0] == "-h" {
-        return Err(CliError::Message(format!("USAGE:\n {}", PUBLISH_USAGE)));
+        return Err(CliError::Message(format!("USAGE:\n{}", PUBLISH_USAGE)));
     }
-    if args.len() != 5 {
+    if args.len() < 5 {
         return Err(CliError::Message(format!(
-            "Incorrect argument count supplied \n\nUSAGE:\n {}",
+            "Incorrect argument count supplied \n\nUSAGE:\n{}",
             PUBLISH_USAGE
         )));
     }
     let anchor_mode = parse_anchor_mode(&mut args, PUBLISH_USAGE)?;
+    let postcond_mode = parse_postcondition_mode(&mut args, PUBLISH_USAGE)?;
     let sk_publisher = &args[0];
     let tx_fee = args[1].parse()?;
     let nonce = args[2].parse()?;
@@ -410,6 +464,7 @@ fn handle_contract_publish(
         tx_fee,
     );
     unsigned_tx.anchor_mode = anchor_mode;
+    unsigned_tx.post_condition_mode = postcond_mode;
 
     let mut unsigned_tx_bytes = vec![];
     unsigned_tx
@@ -896,9 +951,25 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
 
 #[cfg(test)]
 mod test {
+    use std::panic;
+
+    use blockstack_lib::chainstate::stacks::TransactionPostCondition;
     use stacks_common::util::cargo_workspace;
 
     use super::*;
+
+    mod utils {
+        use super::*;
+        pub fn tx_deserialize(hex_str: &str) -> StacksTransaction {
+            let tx_str = hex_bytes(&hex_str).expect("Failed to get hex byte from tx str!");
+            let mut cursor = io::Cursor::new(&tx_str);
+            StacksTransaction::consensus_deserialize(&mut cursor).expect("Failed deserialize tx!")
+        }
+
+        pub fn file_read(file_path: &str) -> String {
+            fs::read_to_string(file_path).expect("Failed to read file contents")
+        }
+    }
 
     #[test]
     fn generate_should_work() {
@@ -912,20 +983,54 @@ mod test {
     }
 
     #[test]
-    fn simple_publish() {
+    fn test_contract_publish_ok_with_mandatory_params() {
+        let contract_path = cargo_workspace("sample/contracts/tokens.clar")
+            .display()
+            .to_string();
         let publish_args = [
             "publish",
             "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
             "1",
             "0",
             "foo-contract",
-            &cargo_workspace("sample/contracts/tokens.clar")
-                .display()
-                .to_string(),
+            &contract_path,
         ];
 
-        assert!(main_handler(to_string_vec(&publish_args)).is_ok());
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_ok());
 
+        let serial_tx = result.unwrap();
+        let deser_tx = utils::tx_deserialize(&serial_tx);
+
+        assert_eq!(TransactionVersion::Mainnet, deser_tx.version);
+        assert_eq!(CHAIN_ID_MAINNET, deser_tx.chain_id);
+        assert!(matches!(deser_tx.auth, TransactionAuth::Standard(..)));
+        assert_eq!(1, deser_tx.get_tx_fee());
+        assert_eq!(0, deser_tx.get_origin_nonce());
+        assert_eq!(TransactionAnchorMode::Any, deser_tx.anchor_mode);
+        assert_eq!(
+            TransactionPostConditionMode::Deny,
+            deser_tx.post_condition_mode
+        );
+        assert_eq!(
+            Vec::<TransactionPostCondition>::new(),
+            deser_tx.post_conditions
+        );
+
+        let (contract, clarity) = match deser_tx.payload {
+            TransactionPayload::SmartContract(a, b) => (a, b),
+            _ => panic!("Should not happen!"),
+        };
+        assert_eq!("foo-contract", contract.name.as_str());
+        assert_eq!(
+            utils::file_read(&contract_path),
+            contract.code_body.to_string()
+        );
+        assert_eq!(None, clarity);
+    }
+
+    #[test]
+    fn test_contract_publish_fails_on_unexistent_file() {
         let publish_args = [
             "publish",
             "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
@@ -937,11 +1042,177 @@ mod test {
                 .to_string(),
         ];
 
-        assert!(format!(
-            "{}",
-            main_handler(to_string_vec(&publish_args)).unwrap_err()
-        )
-        .contains("IO error"));
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.starts_with("IO error reading CLI input:"));
+    }
+
+    #[test]
+    fn test_contract_publish_ok_with_anchor_mode() {
+        let contract_path = cargo_workspace("sample/contracts/tokens.clar")
+            .display()
+            .to_string();
+
+        let mut publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--microblock-only",
+        ];
+
+        // Scenario OK with anchor mode = `offchain`
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_ok());
+
+        let serial_tx = result.unwrap();
+        let deser_tx = utils::tx_deserialize(&serial_tx);
+        assert_eq!(TransactionAnchorMode::OffChainOnly, deser_tx.anchor_mode);
+
+        // Scenario OK with anchor mode = `onchain`
+        publish_args[6] = "--block-only";
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_ok());
+
+        let serial_tx = result.unwrap();
+        let deser_tx = utils::tx_deserialize(&serial_tx);
+        assert_eq!(TransactionAnchorMode::OnChainOnly, deser_tx.anchor_mode);
+    }
+
+    #[test]
+    fn test_contract_publish_fails_with_anchor_mode() {
+        let contract_path = cargo_workspace("sample/contracts/tokens.clar")
+            .display()
+            .to_string();
+
+        // Scenario FAIL using both anchor modes
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--microblock-only",
+            "--block-only",
+        ];
+
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let exp_err_msg = format!(
+            "{}\n\nUSAGE:\n{}",
+            "Multiple anchor mode detected.", PUBLISH_USAGE
+        );
+        assert_eq!(exp_err_msg, result.unwrap_err().to_string());
+    }
+
+    #[test]
+    fn test_contract_publish_ok_with_postcond_mode() {
+        let contract_path = cargo_workspace("sample/contracts/tokens.clar")
+            .display()
+            .to_string();
+
+        let mut publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--postcondition-mode",
+            "allow",
+        ];
+
+        // Scenario OK with post-condition = `allow`
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_ok());
+
+        let serial_tx = result.unwrap();
+        let deser_tx = utils::tx_deserialize(&serial_tx);
+        assert_eq!(
+            TransactionPostConditionMode::Allow,
+            deser_tx.post_condition_mode
+        );
+
+        // Scenario OK with post-condition = `deny`
+        publish_args[7] = "deny";
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_contract_publish_fails_with_postcond_mode() {
+        let contract_path = cargo_workspace("sample/contracts/tokens.clar")
+            .display()
+            .to_string();
+
+        // Scenario FAIL with invalid post-condition
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--postcondition-mode",
+            "invalid",
+        ];
+
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let exp_err_msg = format!(
+            "{}\n\nUSAGE:\n{}",
+            "Invalid value for `--postcondition-mode`.", PUBLISH_USAGE
+        );
+        assert_eq!(exp_err_msg, result.unwrap_err().to_string());
+
+        // Scenario FAIL with missing post-condition value
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--postcondition-mode",
+        ];
+
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let exp_err_msg = format!(
+            "{}\n\nUSAGE:\n{}",
+            "Missing value for `--postcondition-mode`.", PUBLISH_USAGE
+        );
+        assert_eq!(exp_err_msg, result.unwrap_err().to_string());
+
+        // Scenario FAIL with duplicated post-condition
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--postcondition-mode",
+            "allow",
+            "--postcondition-mode",
+        ];
+
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let exp_err_msg = format!(
+            "{}\n\nUSAGE:\n{}",
+            "Duplicated `--postcondition-mode`.", PUBLISH_USAGE
+        );
+        assert_eq!(exp_err_msg, result.unwrap_err().to_string());
     }
 
     #[test]
