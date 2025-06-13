@@ -286,7 +286,6 @@ fn test_emit_nested_print_nok() {
     let (value, events) = helper_execute(contract, "emit-event-ok");
     assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
     assert_eq!(events.len(), 1);
-
 }
 
 #[test]
