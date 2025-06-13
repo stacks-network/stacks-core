@@ -1,0 +1,9 @@
+{
+    "BurnchainConfig": "[burnchain]",
+    "NodeConfig": "[node]",
+    "MinerConfig": "[miner]",
+    "ConnectionOptionsFile": "[connection_options]",
+    "FeeEstimationConfigFile": "[fee_estimation]",
+    "EventObserverConfigFile": "[[events_observer]]",
+    "InitialBalanceFile": "[[ustx_balance]]"
+}
