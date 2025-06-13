@@ -328,8 +328,11 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         let now = get_epoch_time_secs();
 
         // who has data we need?
-        for (i, local_version) in local_slot_versions.iter().enumerate() {
-            let write_ts = local_write_timestamps[i];
+        for ((i, local_version), write_ts) in local_slot_versions
+            .iter()
+            .enumerate()
+            .zip(local_write_timestamps.iter())
+        {
             if self.write_freq > 0 && write_ts + self.write_freq > now {
                 debug!(
                     "{:?}: {}: Chunk {} was written too frequently ({} + {} > {}) in {}, so will not fetch chunk",
@@ -350,7 +353,12 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     continue;
                 }
 
-                if *local_version >= chunk_inv.slot_versions[i] {
+                let Some(remote_version) = chunk_inv.slot_versions.get(i) else {
+                    // remote peer isn't tracking this chunk
+                    continue;
+                };
+
+                if local_version >= remote_version {
                     // remote peer has same view as local peer, or stale
                     continue;
                 }
@@ -368,7 +376,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                                 contract_id: self.smart_contract_id.clone(),
                                 rc_consensus_hash,
                                 slot_id: i as u32,
-                                slot_version: chunk_inv.slot_versions[i],
+                                slot_version: *remote_version,
                             },
                             vec![naddr.clone()],
                         ),
@@ -376,7 +384,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     continue;
                 };
 
-                if request.slot_version < chunk_inv.slot_versions[i] {
+                if request.slot_version < *remote_version {
                     // this peer has a newer view
                     available.clear();
                     available.push(naddr.clone());
@@ -384,9 +392,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         contract_id: self.smart_contract_id.clone(),
                         rc_consensus_hash,
                         slot_id: i as u32,
-                        slot_version: chunk_inv.slot_versions[i],
+                        slot_version: *remote_version,
                     };
-                } else if request.slot_version == chunk_inv.slot_versions[i] {
+                } else if request.slot_version == *remote_version {
                     // this peer has the same view as a prior peer.
                     // just track how many times we see this
                     available.push(naddr.clone());
@@ -438,7 +446,12 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     continue;
                 }
 
-                if *local_version <= chunk_inv.slot_versions[i] {
+                let Some(remote_version) = chunk_inv.slot_versions.get(i) else {
+                    // remote peer isn't tracking this chunk
+                    continue;
+                };
+
+                if local_version <= remote_version {
                     // remote peer has same or newer view than local peer
                     continue;
                 }
@@ -581,8 +594,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
 
         let need_resync = if let Some(old_inv) = self.chunk_invs.get(&naddr) {
             let mut resync = false;
-            for (old_slot_id, old_version) in old_inv.slot_versions.iter().enumerate() {
-                if *old_version < new_inv.slot_versions[old_slot_id] {
+            for (old_slot_id, (old_version, new_version)) in old_inv
+                .slot_versions
+                .iter()
+                .zip(new_inv.slot_versions.iter())
+                .enumerate()
+            {
+                if old_version < new_version {
                     // remote peer indicated that it has a newer version of this chunk.
                     debug!(
                         "{:?}: {}: peer {:?} has a newer version of slot {} ({} < {})",
@@ -591,7 +609,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         &naddr,
                         old_slot_id,
                         old_version,
-                        new_inv.slot_versions[old_slot_id],
+                        new_version,
                     );
                     resync = true;
                     break;
@@ -1020,9 +1038,19 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             if self.comms.count_inflight() >= self.request_capacity {
                 break;
             }
+            let cur_fetch_priority = self
+                .chunk_fetch_priorities
+                .get_mut(cur_priority)
+                .ok_or_else(|| {
+                    error!(
+                        "Error setting chunk fetch priories. Priority index out of bounds";
+                        "cur_priority" => cur_priority,
+                    );
+                    net_error::InvalidState
+                })?;
 
-            let chunk_request = self.chunk_fetch_priorities[cur_priority].0.clone();
-            let selected_neighbor_opt = self.chunk_fetch_priorities[cur_priority]
+            let chunk_request = cur_fetch_priority.0.clone();
+            let selected_neighbor_opt = cur_fetch_priority
                 .1
                 .iter()
                 .enumerate()
@@ -1064,7 +1092,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             requested += 1;
 
             // don't ask this neighbor again
-            self.chunk_fetch_priorities[cur_priority].1.remove(idx);
+            cur_fetch_priority.1.remove(idx);
 
             // next-prioritized chunk
             cur_priority = (cur_priority + 1) % self.chunk_fetch_priorities.len();
@@ -1185,13 +1213,20 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             if self.comms.count_inflight() >= self.request_capacity {
                 break;
             }
+            let cur_push_priority = self
+                .chunk_push_priorities
+                .get_mut(cur_priority)
+                .ok_or_else(|| {
+                    error!(
+                        "Error setting chunk push priories. Priority index out of bounds";
+                        "cur_priority" => cur_priority,
+                    );
+                    net_error::InvalidState
+                })?;
 
-            let chunk_push = self.chunk_push_priorities[cur_priority].0.clone();
+            let chunk_push = cur_push_priority.0.clone();
             // try the first neighbor in the chunk_push_priorities list
-            let selected_neighbor_opt = self.chunk_push_priorities[cur_priority]
-                .1
-                .first()
-                .map(|neighbor| (0, neighbor));
+            let selected_neighbor_opt = cur_push_priority.1.first().map(|neighbor| (0, neighbor));
 
             let Some((idx, selected_neighbor)) = selected_neighbor_opt else {
                 debug!("{:?}: {}: pushchunks_begin: no available neighbor to send StackerDBChunk(id={},ver={}) to",
@@ -1239,7 +1274,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 .insert(selected_neighbor.clone(), (slot_id, slot_version));
 
             // don't send to this neighbor again
-            self.chunk_push_priorities[cur_priority].1.remove(idx);
+            cur_push_priority.1.remove(idx);
 
             // next-prioritized chunk
             cur_priority = (cur_priority + 1) % self.chunk_push_priorities.len();
@@ -1332,8 +1367,12 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         // figure out the new expected versions
         let mut expected_versions = vec![0u32; self.num_slots];
         for (_, chunk_inv) in self.chunk_invs.iter() {
-            for (slot_id, slot_version) in chunk_inv.slot_versions.iter().enumerate() {
-                expected_versions[slot_id] = (*slot_version).max(expected_versions[slot_id]);
+            for (slot_version, expected_version) in chunk_inv
+                .slot_versions
+                .iter()
+                .zip(expected_versions.iter_mut())
+            {
+                *expected_version = (*slot_version).max(*expected_version);
             }
         }
 

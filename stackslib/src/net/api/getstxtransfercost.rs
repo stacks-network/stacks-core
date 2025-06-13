@@ -114,8 +114,15 @@ impl RPCRequestHandler for RPCGetStxTransferCostRequestHandler {
                     ));
                 }
 
-                // safety -- checked estimations.len() == 3 above
-                let median_estimation = &estimations[1];
+                let Some(median_estimation) = estimations.get(1) else {
+                    // logic bug, but treat as runtime error
+                    return Err(StacksHttpResponse::new_error(
+                        &preamble,
+                        &HttpServerError::new(
+                            "Logic error in fee estimation: did not get three estimates".into(),
+                        ),
+                    ));
+                };
 
                 // NOTE: this returns the fee _rate_
                 Ok(median_estimation.fee / estimated_len)

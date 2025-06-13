@@ -146,9 +146,8 @@ impl PoxAddress {
             return None;
         }
 
-        let mut hashbytes_20 = [0u8; 20];
-        hashbytes_20.copy_from_slice(&hashbytes[0..20]);
-        let bytes = Hash160(hashbytes_20);
+        let hashbytes_20: &[u8; 20] = hashbytes.try_into().ok()?;
+        let bytes = Hash160(*hashbytes_20);
 
         let version = if mainnet {
             hashmode.to_version_mainnet()
@@ -176,10 +175,9 @@ impl PoxAddress {
             return None;
         }
 
-        let mut hashbytes_20 = [0u8; 20];
-        hashbytes_20.copy_from_slice(&hashbytes[0..20]);
+        let hashbytes_20: &[u8; 20] = hashbytes.try_into().ok()?;
 
-        Some(PoxAddress::Addr20(mainnet, addrtype, hashbytes_20))
+        Some(PoxAddress::Addr20(mainnet, addrtype, *hashbytes_20))
     }
 
     /// Try to convert a Clarity value representation of the PoX address into a
@@ -196,10 +194,9 @@ impl PoxAddress {
             return None;
         }
 
-        let mut hashbytes_32 = [0u8; 32];
-        hashbytes_32.copy_from_slice(&hashbytes[0..32]);
+        let hashbytes_32: &[u8; 32] = hashbytes.get(0..32)?.try_into().ok()?;
 
-        Some(PoxAddress::Addr32(mainnet, addrtype, hashbytes_32))
+        Some(PoxAddress::Addr32(mainnet, addrtype, *hashbytes_32))
     }
 
     /// Try to convert a Clarity value representation of the PoX address into a PoxAddress.
@@ -217,7 +214,7 @@ impl PoxAddress {
         let hashmode_u8 = match hashmode_value {
             Value::Sequence(SequenceData::Buffer(data)) => {
                 if data.data.len() == 1 {
-                    data.data[0]
+                    *data.data.first()?
                 } else {
                     return None;
                 }
@@ -450,35 +447,15 @@ impl PoxAddress {
                 let pox_addr = PoxAddress::Standard(addr, None);
                 Some(pox_addr)
             }
-            BitcoinAddress::Segwit(ref segwit_addr) => {
-                if segwit_addr.is_p2wpkh() {
-                    let mut bytes20 = [0u8; 20];
-                    bytes20.copy_from_slice(&segwit_addr.bytes_ref()[0..20]);
-                    Some(PoxAddress::Addr20(
-                        segwit_addr.is_mainnet(),
-                        PoxAddressType20::P2WPKH,
-                        bytes20,
-                    ))
-                } else if segwit_addr.is_p2wsh() {
-                    let mut bytes32 = [0u8; 32];
-                    bytes32.copy_from_slice(&segwit_addr.bytes_ref()[0..32]);
-                    Some(PoxAddress::Addr32(
-                        segwit_addr.is_mainnet(),
-                        PoxAddressType32::P2WSH,
-                        bytes32,
-                    ))
-                } else if segwit_addr.is_p2tr() {
-                    let mut bytes32 = [0u8; 32];
-                    bytes32.copy_from_slice(&segwit_addr.bytes_ref()[0..32]);
-                    Some(PoxAddress::Addr32(
-                        segwit_addr.is_mainnet(),
-                        PoxAddressType32::P2TR,
-                        bytes32,
-                    ))
-                } else {
-                    None
-                }
-            }
+            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WPKH(is_mainnet, bytes_20)) => Some(
+                PoxAddress::Addr20(*is_mainnet, PoxAddressType20::P2WPKH, *bytes_20),
+            ),
+            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WSH(is_mainnet, bytes_32)) => Some(
+                PoxAddress::Addr32(*is_mainnet, PoxAddressType32::P2WSH, *bytes_32),
+            ),
+            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(is_mainnet, bytes_32)) => Some(
+                PoxAddress::Addr32(*is_mainnet, PoxAddressType32::P2TR, *bytes_32),
+            ),
         }
     }
 

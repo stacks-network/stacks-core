@@ -73,13 +73,8 @@ impl<'de> Deserialize<'de> for PeerAddress {
 
 impl PeerAddress {
     pub fn from_slice(bytes: &[u8]) -> Option<PeerAddress> {
-        if bytes.len() != 16 {
-            return None;
-        }
-
-        let mut bytes16 = [0u8; 16];
-        bytes16.copy_from_slice(&bytes[0..16]);
-        Some(PeerAddress(bytes16))
+        let bytes16: &[u8; 16] = bytes.try_into().ok()?;
+        Some(PeerAddress(*bytes16))
     }
 
     /// Is this an IPv4 address?
@@ -98,9 +93,7 @@ impl PeerAddress {
         {
             return None;
         }
-        let mut ret = [0u8; 4];
-        ret.copy_from_slice(&self.0[12..16]);
-        Some(ret)
+        Some([self[12], self[13], self[14], self[15]])
     }
 
     /// Return the bit representation of this peer address as an IPv4 address, in network byte

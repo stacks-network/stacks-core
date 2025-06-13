@@ -329,6 +329,7 @@ fn sign_transaction_single_sig_standard(
         .ok_or("TX did not finish signing -- was this a standard single signature transaction?")?)
 }
 
+#[allow(clippy::indexing_slicing)]
 fn parse_anchor_mode(
     args: &mut Vec<String>,
     usage: &str,
@@ -367,6 +368,7 @@ fn parse_anchor_mode(
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn handle_contract_publish(
     args_slice: &[String],
     version: TransactionVersion,
@@ -425,6 +427,7 @@ fn handle_contract_publish(
     Ok(to_hex(&signed_tx_bytes))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn handle_contract_call(
     args_slice: &[String],
     version: TransactionVersion,
@@ -511,6 +514,7 @@ fn handle_contract_call(
     Ok(to_hex(&signed_tx_bytes))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn handle_token_transfer(
     args_slice: &[String],
     version: TransactionVersion,
@@ -573,6 +577,7 @@ fn handle_token_transfer(
     Ok(to_hex(&signed_tx_bytes))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
     if !args.is_empty() && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", GENERATE_USAGE)));
@@ -604,6 +609,7 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<S
     ))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!("USAGE:\n {}", ADDRESSES_USAGE)));
@@ -643,6 +649,7 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
     ))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -681,6 +688,7 @@ fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<S
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -720,6 +728,7 @@ fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -757,6 +766,7 @@ fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String,
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -796,6 +806,7 @@ fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<St
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_microblocks(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(

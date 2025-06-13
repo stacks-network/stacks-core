@@ -742,6 +742,8 @@ pub enum Error {
     ShutdownInitiated,
     /// No epoch defined at that height
     NoStacksEpoch,
+    /// Node error processing the operation
+    ProcessorError,
 }
 
 impl fmt::Display for Error {
@@ -771,6 +773,7 @@ impl fmt::Display for Error {
                 f,
                 "No Stacks epoch is defined at the height being evaluated"
             ),
+            Error::ProcessorError => write!(f, "Failure processing burn state"),
         }
     }
 }
@@ -795,6 +798,7 @@ impl error::Error for Error {
             Error::CoordinatorClosed => None,
             Error::ShutdownInitiated => None,
             Error::NoStacksEpoch => None,
+            Error::ProcessorError => None,
         }
     }
 }

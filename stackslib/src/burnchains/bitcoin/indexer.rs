@@ -731,14 +731,17 @@ impl BitcoinIndexer {
             // scan for common ancestor, but excluding the block we wrote to bootstrap the
             // reorg_spv_client.
             for i in (start_block + 1..max_height).rev() {
-                if canonical_headers[(i - start_block) as usize].header
-                    == reorg_headers[(i - start_block) as usize].header
-                {
+                let canonical_header = canonical_headers
+                    .get((i - start_block) as usize)
+                    .ok_or_else(|| btc_error::MissingHeader)?;
+                let reorg_header = reorg_headers
+                    .get((i - start_block) as usize)
+                    .ok_or_else(|| btc_error::MissingHeader)?;
+                if canonical_header.header == reorg_header.header {
                     // found common ancestor
                     debug!(
                         "Found common Bitcoin block ancestor at height {}: {:?}",
-                        i,
-                        &canonical_headers[(i - start_block) as usize].header
+                        i, &canonical_header.header
                     );
                     new_tip = i;
                     found_common_ancestor = true;
@@ -746,9 +749,7 @@ impl BitcoinIndexer {
                 } else {
                     debug!(
                         "Diverged headers at {}: {:?} != {:?}",
-                        i,
-                        &canonical_headers[(i - start_block) as usize].header,
-                        &reorg_headers[(i - start_block) as usize].header
+                        i, &canonical_header.header, &reorg_header.header
                     );
                 }
             }
@@ -1040,10 +1041,10 @@ impl BurnchainIndexer for BitcoinIndexer {
 
         let headers = spv_client.read_block_headers(start_block, end_block)?;
         let mut ret_headers: Vec<BitcoinHeaderIPC> = vec![];
-        for i in 0..headers.len() {
+        for (i, block_header) in headers.iter().enumerate() {
             ret_headers.push({
                 BitcoinHeaderIPC {
-                    block_header: headers[i].clone(),
+                    block_header: block_header.clone(),
                     block_height: (i as u64) + start_block,
                 }
             });

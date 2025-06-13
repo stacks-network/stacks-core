@@ -187,7 +187,7 @@ impl SeedNode {
 
         // have the peer mine some blocks for two reward cycles
         for i in 0..(2 * rc_len) {
-            debug!("Tenure {}", i);
+            debug!("Producing tenure {i}");
             let (burn_ops, mut tenure_change, miner_key) =
                 peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
             let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
@@ -212,11 +212,11 @@ impl SeedNode {
                 .make_nakamoto_tenure_change(tenure_change.clone());
             let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
-            debug!("Next burnchain block: {}", &consensus_hash);
-
             let num_blocks: usize = (thread_rng().gen::<usize>() % 10) + 1;
 
             let block_height = peer.get_burn_block_height();
+
+            debug!("Next burnchain block"; "consensus_hash" => %consensus_hash, "block_height" => %block_height);
 
             // do a stx transfer in each block to a given recipient
             let recipient_addr =

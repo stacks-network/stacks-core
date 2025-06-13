@@ -28,6 +28,7 @@ use std::{env, process};
 use blockstack_lib::clarity_cli as clarity;
 use stacks_common::util::log;
 
+#[allow(clippy::indexing_slicing)]
 fn main() {
     let argv: Vec<String> = env::args().collect();
 

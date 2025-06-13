@@ -357,7 +357,8 @@ impl RPCPoxInfoData {
             as u64;
 
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
-        let epochs: Vec<_> = SortitionDB::get_stacks_epochs(sortdb.conn())?
+        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())?
+            .to_vec()
             .into_iter()
             .map(RPCPoxEpoch::from)
             .collect();
