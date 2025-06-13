@@ -30,7 +30,7 @@ use blockstack_lib::util_lib::db::{
 use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksPublicKey};
 use clarity::types::Address;
 use libsigner::v0::messages::{
-    RejectReason, RejectReasonPrefix, StateMachineUpdate, StateMachineUpdateContent,
+    RejectReason, RejectReasonPrefix, StateMachineUpdate,
 };
 use libsigner::v0::signer_state::GlobalStateEvaluator;
 use libsigner::BlockProposal;
@@ -894,10 +894,7 @@ impl SignerDb {
                 let content = serde_json::from_str::<StateMachineUpdate>(&value)
                     .map_err(|e| SqliteError::UserFunctionError(e.into()))?
                     .content;
-                Ok(match content {
-                    StateMachineUpdateContent::V0 { burn_block, .. }
-                    | StateMachineUpdateContent::V1 { burn_block, .. } => burn_block,
-                })
+                Ok(*content.burn_block_view().0)
             },
         )?;
         Ok(())
@@ -1565,7 +1562,7 @@ impl SignerDb {
             "active_signer_protocol_version" => update.active_signer_protocol_version,
             "local_supported_signer_protocol_version" => update.local_supported_signer_protocol_version
         );
-        let burn_block_consensus_hash = update.content.burn_block();
+        let burn_block_consensus_hash = update.content.burn_block_view().0;
         self.db.execute("INSERT OR REPLACE INTO signer_state_machine_updates (signer_addr, reward_cycle, burn_block_consensus_hash, state_update, received_time) VALUES (?1, ?2, ?3, ?4, ?5)", params![
             address.to_string(),
             u64_to_sql(reward_cycle)?,
@@ -3064,7 +3061,7 @@ pub mod tests {
                 let content = serde_json::from_str::<StateMachineUpdate>(&value)
                     .map_err(|e| SqliteError::UserFunctionError(e.into()))?
                     .content;
-                Ok(*content.burn_block())
+                Ok(*content.burn_block_view().0)
             },
         )
         .unwrap();

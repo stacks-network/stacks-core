@@ -71,6 +71,7 @@ use tiny_http::{
 
 use crate::http::{decode_http_body, decode_http_request};
 use crate::stacks_common::types::PublicKey;
+use crate::v0::signer_state::ReplayTransactionSet;
 use crate::{
     BlockProposal, EventError, MessageSlotID as MessageSlotIDTrait,
     SignerMessage as SignerMessageTrait, VERSION_STRING,
@@ -691,10 +692,37 @@ impl StateMachineUpdateContent {
         }
     }
 
-    /// Get the tip burn block
-    pub fn burn_block(&self) -> &ConsensusHash {
+    /// Get the burn block view
+    pub fn burn_block_view(&self) -> (&ConsensusHash, u64) {
         match self {
-            Self::V0 { burn_block, .. } | Self::V1 { burn_block, .. } => burn_block,
+            Self::V0 {
+                burn_block,
+                burn_block_height,
+                ..
+            }
+            | Self::V1 {
+                burn_block,
+                burn_block_height,
+                ..
+            } => (burn_block, *burn_block_height),
+        }
+    }
+
+    /// Get the current miner
+    pub fn current_miner(&self) -> &StateMachineUpdateMinerState {
+        match self {
+            Self::V0 { current_miner, .. } | Self::V1 { current_miner, .. } => current_miner,
+        }
+    }
+
+    /// Get the tx replay set
+    pub fn tx_replay_set(&self) -> ReplayTransactionSet {
+        match self {
+            Self::V0 { .. } => ReplayTransactionSet::none(),
+            Self::V1 {
+                replay_transactions,
+                ..
+            } => ReplayTransactionSet::new(replay_transactions.clone()),
         }
     }
 

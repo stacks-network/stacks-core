@@ -93,25 +93,13 @@ impl GlobalStateEvaluator {
             let Some(weight) = self.address_weights.get(address) else {
                 continue;
             };
-            let (burn_block, burn_block_height) = match update.content {
-                StateMachineUpdateContent::V0 {
-                    burn_block,
-                    burn_block_height,
-                    ..
-                }
-                | StateMachineUpdateContent::V1 {
-                    burn_block,
-                    burn_block_height,
-                    ..
-                } => (burn_block, burn_block_height),
-            };
-
+            let (burn_block, burn_block_height) = update.content.burn_block_view();
             let entry = burn_blocks
                 .entry((burn_block, burn_block_height))
                 .or_insert_with(|| 0);
             *entry += weight;
             if self.reached_agreement(*entry) {
-                return Some((burn_block, burn_block_height));
+                return Some((*burn_block, burn_block_height));
             }
         }
         None
@@ -129,36 +117,16 @@ impl GlobalStateEvaluator {
             let Some(weight) = self.address_weights.get(address) else {
                 continue;
             };
-            let (burn_block, burn_block_height, current_miner, tx_replay_set) =
-                match &update.content {
-                    StateMachineUpdateContent::V0 {
-                        burn_block,
-                        burn_block_height,
-                        current_miner,
-                        ..
-                    } => (
-                        burn_block,
-                        burn_block_height,
-                        current_miner,
-                        ReplayTransactionSet::none(),
-                    ),
-                    StateMachineUpdateContent::V1 {
-                        burn_block,
-                        burn_block_height,
-                        current_miner,
-                        replay_transactions,
-                    } => (
-                        burn_block,
-                        burn_block_height,
-                        current_miner,
-                        ReplayTransactionSet::new(replay_transactions.clone()),
-                    ),
-                };
+            let (burn_block, burn_block_height) = update.content.burn_block_view();
+            let current_miner = update.content.current_miner();
+            let tx_replay_set = update.content.tx_replay_set();
+
             let state_machine = SignerStateMachine {
                 burn_block: *burn_block,
-                burn_block_height: *burn_block_height,
+                burn_block_height,
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
+                // We need to calculate the threshold for the tx_replay_set separately
                 tx_replay_set: ReplayTransactionSet::none(),
                 creation_time: CreationTime::now(),
             };

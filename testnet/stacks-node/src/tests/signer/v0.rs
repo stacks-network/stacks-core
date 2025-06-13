@@ -11369,11 +11369,9 @@ fn reorg_attempts_activity_timeout_exceeded() {
     let wait_time = block_proposal_timeout.saturating_sub(reorg_attempts_activity_timeout);
     info!("------------------------- Waiting {} Seconds for Miner To be Marked Invalid -------------------------", wait_time.as_secs());
     std::thread::sleep(wait_time);
-    wait_for_state_machine_update(
+    wait_for_state_machine_update_by_miner_tenure_id(
         30,
-        &chain_after.pox_consensus,
-        chain_after.burn_block_height,
-        Some((miner_pkh, chain_start.stacks_tip_height)),
+        &chain_start.pox_consensus,
         &all_signers,
         SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
