@@ -854,11 +854,10 @@ impl Trie {
         children_root_hash: &TrieHash,
     ) -> Result<TrieHash, Error> {
         let hashes = Trie::get_trie_root_ancestor_hashes_bytes(storage, children_root_hash)?;
-        if hashes.len() == 1 {
-            #[allow(clippy::indexing_slicing)]
-            Ok(hashes[0])
-        } else {
-            Ok(TrieHash::from_data_array(hashes.as_slice()))
+        let hashes = Trie::get_trie_root_ancestor_hashes_bytes(storage, children_root_hash)?;
+        match hashes.as_slice() {
+            [single_hash] => Ok(*single_hash),
+            multiple_hashes => Ok(TrieHash::from_data_array(multiple_hashes)),
         }
     }
 
