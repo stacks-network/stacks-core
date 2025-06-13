@@ -278,6 +278,7 @@ impl LocalStateMachine {
             db,
             proposal_config.tenure_last_block_proposal_timeout,
         )?;
+        state_machine.creation_time = CreationTime::now();
         info!(
             "Current tenure timed out, setting the active miner to the prior tenure";
             "inactive_tenure_ch" => %inactive_tenure_ch,
