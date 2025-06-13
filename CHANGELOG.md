@@ -13,6 +13,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - Added a new option `--postcondition-mode [allow, deny]` to `blockstack-cli publish` command, to allow/deny post-conditions on the smart contract (default is deny)
 
+### Fixed
+
+- Fixed an issue that prevented the correct usage of anchor mode options (`--microblock-only`, `--block-only`) when using `blockstack-cli publish` command.
+
 ## [3.1.0.0.12]
 
 ### Added
