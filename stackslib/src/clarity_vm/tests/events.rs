@@ -273,48 +273,20 @@ fn test_emit_stx_burn_nok() {
 
 #[test]
 fn test_emit_nested_print_nok() {
-    // The original code had two problems:
-    // 1. emit-event-ok called emit-event-nok without handling the (err u1)
-    //    response, causing "UncheckedIntermediaryResponses" error during
-    //    contract initialization.
-    // 2. The test incorrectly expected (ok u1) and 1 event, but when a public
-    //    function returns an error, the entire transaction rolls back and no
-    //    events are emitted.
-    //
-    // Fixed by:
-    // - Adding try! to properly handle the error response from emit-event-nok.
-    // - Adding an if statement to make both code paths valid for contract
-    //    initialization.
-    // - Updating test expectations to match actual behavior: (err u1) and 0
-    //    events.
-    //
-    // This test demonstrates that when a public function returns an error,
-    // ALL side effects (including print statements) are rolled back, even if
-    // they executed successfully before the error occurred.
-    let contract = r#"
-(define-public (emit-event-nok)
-            (if (is-eq 1 1) 
-                (begin
-                    (print "bar")
-                    (err u1)
-                ) 
-                (ok u1)
-            ))
-
-(define-public (emit-event-ok)
+    let contract = "(define-public (emit-event-nok)
             (begin
-                (try! (emit-event-nok))
-                (print "foo")
-                (ok u1)))
-                "#;
+                (print \"bar\")
+                (err u1)))
+        (define-public (emit-event-ok)
+            (begin
+                (unwrap-err! (emit-event-nok) (err u1))
+                (print \"foo\")
+                (ok u1)))";
 
     let (value, events) = helper_execute(contract, "emit-event-ok");
-    // try! propagates the error from emit-event-nok, so emit-event-ok returns (err u1).
-    assert_eq!(value, Value::error(Value::UInt(1)).unwrap());
-    // No events are emitted because when a public function returns an error,
-    // Clarity rolls back the entire transaction, discarding all side effects
-    // including print statements.
-    assert_eq!(events.len(), 0);
+    assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
+    assert_eq!(events.len(), 1);
+
 }
 
 #[test]

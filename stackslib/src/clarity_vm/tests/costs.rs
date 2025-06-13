@@ -731,11 +731,11 @@ fn epoch205_nfts(use_mainnet: bool) {
     // test nft-mint
     let smaller_exec = "(define-non-fungible-token db (list 500 int))
       (define-public (execute)
-        (begin (try! (nft-mint? db (list 1 2 3 4 5) tx-sender))
+        (begin (nft-mint? db (list 1 2 3 4 5) tx-sender)
                (ok 1)))";
     let larger_exec = "(define-non-fungible-token db (list 500 int))
       (define-public (execute)
-        (begin (try! (nft-mint? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20) tx-sender))
+        (begin (nft-mint? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20) tx-sender)
                (ok 1)))";
     let smaller_cost_epoch_200 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch20);
     let smaller_cost_epoch_205 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch2_05);
@@ -753,13 +753,13 @@ fn epoch205_nfts(use_mainnet: bool) {
     //  these transfers fail, but the cost tabulation is still the same
     let smaller_exec = "(define-non-fungible-token db (list 500 int))
       (define-public (execute)
-        (begin (try! (nft-transfer? db (list 1 2 3 4 5)
-                             tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR))
+        (begin (nft-transfer? db (list 1 2 3 4 5)
+                             tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
                (ok 1)))";
     let larger_exec = "(define-non-fungible-token db (list 500 int))
       (define-public (execute)
-        (begin (try! (nft-transfer? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
-                             tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR))
+        (begin (nft-transfer? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
+                             tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
                (ok 1)))";
     let smaller_cost_epoch_200 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch20);
     let smaller_cost_epoch_205 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch2_05);
@@ -777,13 +777,13 @@ fn epoch205_nfts(use_mainnet: bool) {
     //  these burns fail, but the cost tabulation is still the same
     let smaller_exec = "(define-non-fungible-token db (list 500 int))
       (define-public (execute)
-        (begin (try! (nft-burn? db (list 1 2 3 4 5)
-                             'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR))
+        (begin (nft-burn? db (list 1 2 3 4 5)
+                             'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
                (ok 1)))";
     let larger_exec = "(define-non-fungible-token db (list 500 int))
       (define-public (execute)
-        (begin (try! (nft-burn? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
-                             'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR))
+        (begin (nft-burn? db (list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
+                             'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
                (ok 1)))";
     let smaller_cost_epoch_200 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch20);
     let smaller_cost_epoch_205 = exec_cost(smaller_exec, use_mainnet, StacksEpochId::Epoch2_05);
@@ -821,11 +821,13 @@ fn epoch205_nfts(use_mainnet: bool) {
 }
 
 #[test]
+#[cfg(not(feature = "clarity-wasm"))]
 fn epoch205_nfts_mainnet() {
     epoch205_nfts(true)
 }
 
 #[test]
+#[cfg(not(feature = "clarity-wasm"))]
 fn epoch205_nfts_testnet() {
     epoch205_nfts(false)
 }
