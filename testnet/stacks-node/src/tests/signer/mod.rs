@@ -646,6 +646,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     pub fn submit_contract_deploy(
         &self,
         sender_sk: &StacksPrivateKey,
+        tx_fee: u64,
         contract_code: &str,
         contract_name: &str,
     ) -> Result<(String, u64), String> {
@@ -656,7 +657,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         let contract_tx = make_contract_publish(
             &sender_sk,
             sender_nonce,
-            1000,
+            tx_fee,
             self.running_nodes.conf.burnchain.chain_id,
             contract_name,
             contract_code,
@@ -673,6 +674,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     pub fn submit_contract_call(
         &self,
         sender_sk: &StacksPrivateKey,
+        tx_fee: u64,
         contract_name: &str,
         contract_func: &str,
         contract_args: &[Value],
@@ -683,7 +685,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         let contract_call_tx = make_contract_call(
             &sender_sk,
             sender_nonce,
-            1000,
+            tx_fee,
             self.running_nodes.conf.burnchain.chain_id,
             &sender_addr,
             contract_name,
@@ -716,8 +718,12 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
          (define-public (run-update)
            (ok (var-set local-burn-block-ht burn-block-height)))
         ";
-        let (txid, sender_nonce) =
-            self.submit_contract_deploy(sender_sk, burn_height_contract, "burn-height-local")?;
+        let (txid, sender_nonce) = self.submit_contract_deploy(
+            sender_sk,
+            1000,
+            burn_height_contract,
+            "burn-height-local",
+        )?;
 
         self.wait_for_nonce_increase(&to_addr(&sender_sk), sender_nonce)?;
         Ok(txid)
@@ -730,7 +736,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         sender_sk: &StacksPrivateKey,
     ) -> Result<String, String> {
         let (txid, sender_nonce) =
-            self.submit_contract_call(sender_sk, "burn-height-local", "run-update", &[])?;
+            self.submit_contract_call(sender_sk, 1000, "burn-height-local", "run-update", &[])?;
 
         self.wait_for_nonce_increase(&to_addr(&sender_sk), sender_nonce)?;
         Ok(txid)
