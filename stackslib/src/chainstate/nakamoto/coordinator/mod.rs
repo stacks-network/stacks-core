@@ -19,26 +19,19 @@ use std::sync::{Arc, Mutex};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::database::{BurnStateDB, HeadersDB};
-use clarity::vm::types::PrincipalData;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
-    StacksPrivateKey, StacksPublicKey,
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId,
 };
 use stacks_common::types::{StacksEpoch, StacksEpochId};
 
 use crate::burnchains::db::{BurnchainBlockData, BurnchainDB, BurnchainHeaderReader};
-use crate::burnchains::{self, burnchain, Burnchain, BurnchainBlockHeader};
+use crate::burnchains::{self, Burnchain};
 use crate::chainstate::burn::db::sortdb::{
     get_ancestor_sort_id, SortitionDB, SortitionHandle, SortitionHandleConn,
 };
 use crate::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::coordinator::comm::{
-    CoordinatorChannels, CoordinatorCommunication, CoordinatorEvents, CoordinatorNotices,
-    CoordinatorReceivers,
-};
+use crate::chainstate::coordinator::comm::{CoordinatorEvents, CoordinatorNotices};
 use crate::chainstate::coordinator::{
     calculate_paid_rewards, dispatcher_announce_burn_ops, BlockEventDispatcher, ChainsCoordinator,
     Error, OnChainRewardSetProvider, PaidRewards, PoxAnchorBlockStatus, RewardCycleInfo,
@@ -49,7 +42,6 @@ use crate::chainstate::stacks::boot::{RewardSet, SIGNERS_NAME};
 use crate::chainstate::stacks::db::{
     StacksBlockHeaderTypes, StacksChainState, StacksDBConn, StacksHeaderInfo,
 };
-use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use crate::chainstate::stacks::Error as ChainstateError;
 use crate::clarity_vm::database::HeadersDBConn;

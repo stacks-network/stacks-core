@@ -1,16 +1,8 @@
 use clarity::vm::costs::ExecutionCost;
 use rand::rngs::StdRng;
-use rand::{thread_rng, RngCore, SeedableRng};
-use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
+use rand::{RngCore, SeedableRng};
 
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
-use crate::chainstate::stacks::events::StacksTransactionReceipt;
-use crate::chainstate::stacks::{
-    CoinbasePayload, StacksTransaction, TokenTransferMemo, TransactionAuth,
-    TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
-};
-use crate::core::StacksEpochId;
+use crate::chainstate::stacks::db::StacksEpochReceipt;
 use crate::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
 use crate::cost_estimates::tests::common::make_block_receipt;
 use crate::cost_estimates::{EstimatorError, FeeEstimator, FeeRateEstimate};

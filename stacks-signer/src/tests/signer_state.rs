@@ -25,7 +25,7 @@ use libsigner::v0::messages::{
     StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,
     StateMachineUpdateMinerState,
 };
-use libsigner::v0::signer_state::{GlobalStateEvaluator, SignerStateMachine};
+use libsigner::v0::signer_state::{GlobalStateEvaluator, ReplayTransactionSet, SignerStateMachine};
 
 use crate::signerdb::tests::{create_block_override, tmp_db_path};
 use crate::signerdb::SignerDb;
@@ -161,7 +161,7 @@ fn check_capitulate_miner_view() {
         burn_block,
         burn_block_height,
         current_miner: (&new_miner).into(),
-        tx_replay_set: None,
+        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
 

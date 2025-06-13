@@ -110,7 +110,6 @@
 /// is ephemeral -- its longevity in the system depends on application endpoints re-replicating the
 /// state periodically (whereas Gaia stores data for as long as the back-end storage provider's SLA
 /// indicates).
-
 #[cfg(test)]
 pub mod tests;
 
@@ -122,12 +121,8 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
-use stacks_common::consts::SIGNER_SLOTS_PER_USER;
+use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
 use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoChainState;
@@ -137,9 +132,8 @@ use crate::net::connection::ConnectionOptions;
 use crate::net::neighbors::NeighborComms;
 use crate::net::p2p::PeerNetwork;
 use crate::net::{
-    Error as net_error, NackData, NackErrorCodes, Neighbor, NeighborAddress, NeighborKey, Preamble,
-    StackerDBChunkData, StackerDBChunkInvData, StackerDBGetChunkData, StackerDBPushChunkData,
-    StacksMessage, StacksMessageType,
+    Error as net_error, NackData, NackErrorCodes, NeighborAddress, Preamble, StackerDBChunkData,
+    StackerDBChunkInvData, StackerDBGetChunkData, StackerDBPushChunkData, StacksMessageType,
 };
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{DBConn, DBTx, Error as db_error};

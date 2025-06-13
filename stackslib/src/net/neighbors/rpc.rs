@@ -15,29 +15,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::{cmp, mem};
 
-use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::log;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
-use crate::burnchains::{Address, PublicKey};
-use crate::core::PEER_VERSION_TESTNET;
-use crate::net::connection::{ConnectionOptions, ReplyHandleP2P};
-use crate::net::db::{LocalPeer, PeerDB};
 use crate::net::neighbors::comms::ToNeighborKey;
-use crate::net::neighbors::{
-    NeighborWalk, NeighborWalkDB, NeighborWalkResult, MAX_NEIGHBOR_BLOCK_DELAY,
-    NEIGHBOR_MINIMUM_CONTACT_INTERVAL,
-};
 use crate::net::p2p::PeerNetwork;
 use crate::net::server::HttpPeer;
 use crate::net::{
-    DropNeighbor, DropReason, DropSource, Error as NetError, HandshakeData, Neighbor,
-    NeighborAddress, NeighborKey, PeerAddress, PeerHostExtensions, StacksHttpRequest,
-    StacksHttpResponse, StacksMessage, StacksMessageType, NUM_NEIGHBORS,
+    DropNeighbor, DropReason, DropSource, Error as NetError, NeighborAddress, PeerHostExtensions,
+    StacksHttpRequest, StacksHttpResponse,
 };
 
 /// This struct represents a batch of in-flight RPCs to a set of peers, identified by a
