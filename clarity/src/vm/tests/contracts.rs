@@ -460,6 +460,8 @@ fn test_fully_qualified_contract_call(
     }
 }
 
+// Test not valid for clarity-wasm runtime
+// Contracts would error in the static analysis pass.
 #[cfg(not(feature = "clarity-wasm"))]
 #[apply(test_epochs)]
 fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
