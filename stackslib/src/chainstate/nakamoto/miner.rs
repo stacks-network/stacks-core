@@ -602,6 +602,7 @@ impl NakamotoBlockBuilder {
         }
 
         if builder.txs.is_empty() {
+            set_last_mined_block_transaction_count(0);
             return Err(Error::NoTransactionsToMine);
         }
 
