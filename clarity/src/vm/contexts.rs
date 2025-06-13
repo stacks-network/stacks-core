@@ -45,6 +45,8 @@ use crate::vm::errors::{
 };
 use crate::vm::events::*;
 use crate::vm::representations::{ClarityName, SymbolicExpression};
+#[cfg(all(feature = "clarity-wasm", feature = "testing"))]
+use crate::vm::tests::clarity_wasm::MemoryAnalysisDatabase;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
     AssetIdentifier, BuffData, CallableData, PrincipalData, QualifiedContractIdentifier,
@@ -219,6 +221,8 @@ pub struct GlobalContext<'a> {
     pub execution_time_tracker: ExecutionTimeTracker,
     #[cfg(feature = "clarity-wasm")]
     pub engine: Engine,
+    #[cfg(all(feature = "clarity-wasm", feature = "testing"))]
+    pub analysis_db: MemoryAnalysisDatabase,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -1341,8 +1345,6 @@ impl<'a, 'b> Environment<'a, 'b> {
         contract_content: &str,
         ast_rules: ASTRules,
     ) -> Result<()> {
-        use super::database::MemoryBackingStore;
-
         let clarity_version = self.contract_context.clarity_version;
 
         let mut contract_ast = ast::build_ast_with_rules(
@@ -1354,18 +1356,22 @@ impl<'a, 'b> Environment<'a, 'b> {
             ast_rules,
         )?;
 
-        let mut store = MemoryBackingStore::new();
-        let contract_analysis = analysis::run_analysis(
-            &contract_identifier,
-            &contract_ast.expressions,
-            &mut store.as_analysis_db(),
-            false,
-            LimitedCostTracker::Free,
-            self.global_context.epoch_id,
-            clarity_version,
-            true,
-        )
-        .map_err(|(check_error, _)| check_error.err)?;
+        let contract_analysis =
+            self.global_context
+                .analysis_db
+                .with_analysis_db_mut(|analysis_db| {
+                    analysis::run_analysis(
+                        &contract_identifier,
+                        &contract_ast.expressions,
+                        analysis_db,
+                        true,
+                        LimitedCostTracker::Free,
+                        self.global_context.epoch_id,
+                        clarity_version,
+                        true,
+                    )
+                    .map_err(|(check_error, _)| check_error.err)
+                })?;
 
         self.initialize_contract_from_ast(
             contract_identifier,
@@ -1683,6 +1689,8 @@ impl<'a> GlobalContext<'a> {
             execution_time_tracker: ExecutionTimeTracker::NoTracking,
             #[cfg(feature = "clarity-wasm")]
             engine,
+            #[cfg(all(feature = "clarity-wasm", feature = "testing"))]
+            analysis_db: MemoryAnalysisDatabase::build(),
         }
     }
 
@@ -1804,6 +1812,7 @@ impl<'a> GlobalContext<'a> {
         self.database.begin();
         let read_only = self.is_read_only();
         self.read_only.push(read_only);
+        self.analysis_db.begin();
     }
 
     pub fn begin_read_only(&mut self) {
