@@ -10225,6 +10225,8 @@ fn no_reorg_due_to_successive_block_validation_ok() {
 
     info!("------------------------- Pause Block Validation Submission of N+1'-------------------------");
     TEST_STALL_BLOCK_VALIDATION_SUBMISSION.set(true);
+    // Don't mine so we can enforce exactly one proposal AFTER consensus reached by the signers
+    TEST_MINE_SKIP.set(true);
 
     info!("------------------------- Start Miner 2's Tenure-------------------------");
     miners
@@ -10232,6 +10234,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
         .expect("Failed to Start Miner 2's Tenure");
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
+    TEST_MINE_SKIP.set(false);
     let block_n_1_prime = wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk_2)
         .expect("Failed to find block N+1'");
 
