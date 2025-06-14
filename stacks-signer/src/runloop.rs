@@ -22,7 +22,6 @@ use hashbrown::HashMap;
 use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
 use stacks_common::{debug, error, info, warn};
 
-use crate::chainstate::SortitionsView;
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig, SignerConfigMode};
 use crate::signerdb::BlockInfo;
@@ -196,8 +195,6 @@ where
     pub state: State,
     /// The current reward cycle info. Only None if the runloop is uninitialized
     pub current_reward_cycle_info: Option<RewardCycleInfo>,
-    /// Cache sortitin data from `stacks-node`
-    pub sortition_state: Option<SortitionsView>,
 }
 
 impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLoop<Signer, T> {
@@ -210,7 +207,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             stacks_signers: HashMap::with_capacity(2),
             state: State::Uninitialized,
             current_reward_cycle_info: None,
-            sortition_state: None,
         }
     }
     /// Get the registered signers for a specific reward cycle
@@ -329,6 +325,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             reorg_attempts_activity_timeout: self.config.reorg_attempts_activity_timeout,
             proposal_wait_for_parent_time: self.config.proposal_wait_for_parent_time,
             validate_with_replay_tx: self.config.validate_with_replay_tx,
+            capitulate_tenure_timeout: self.config.capitulate_tenure_timeout,
         }))
     }
 
@@ -595,7 +592,6 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
 
             signer.process_event(
                 &self.stacks_client,
-                &mut self.sortition_state,
                 event.as_ref(),
                 res,
                 current_reward_cycle,
@@ -615,7 +611,7 @@ mod tests {
     use blockstack_lib::chainstate::stacks::boot::NakamotoSignerEntry;
     use libsigner::SignerEntries;
     use rand::{thread_rng, Rng, RngCore};
-    use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
+    use stacks_common::types::chainstate::StacksPublicKey;
 
     use super::RewardCycleInfo;
 
@@ -625,8 +621,7 @@ mod tests {
         let weight = 10;
         let mut signer_entries = Vec::with_capacity(nmb_signers);
         for _ in 0..nmb_signers {
-            let key =
-                StacksPublicKey::from_private(&StacksPrivateKey::random()).to_bytes_compressed();
+            let key = StacksPublicKey::new().to_bytes_compressed();
             let mut signing_key = [0u8; 33];
             signing_key.copy_from_slice(&key);
             signer_entries.push(NakamotoSignerEntry {

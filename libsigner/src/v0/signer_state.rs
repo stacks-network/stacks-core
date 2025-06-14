@@ -14,7 +14,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::time::{Duration, UNIX_EPOCH};
+use std::hash::{Hash, Hasher};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
@@ -92,25 +93,13 @@ impl GlobalStateEvaluator {
             let Some(weight) = self.address_weights.get(address) else {
                 continue;
             };
-            let (burn_block, burn_block_height) = match update.content {
-                StateMachineUpdateContent::V0 {
-                    burn_block,
-                    burn_block_height,
-                    ..
-                }
-                | StateMachineUpdateContent::V1 {
-                    burn_block,
-                    burn_block_height,
-                    ..
-                } => (burn_block, burn_block_height),
-            };
-
+            let (burn_block, burn_block_height) = update.content.burn_block_view();
             let entry = burn_blocks
                 .entry((burn_block, burn_block_height))
                 .or_insert_with(|| 0);
             *entry += weight;
             if self.reached_agreement(*entry) {
-                return Some((burn_block, burn_block_height));
+                return Some((*burn_block, burn_block_height));
             }
         }
         None
@@ -121,51 +110,52 @@ impl GlobalStateEvaluator {
         let active_signer_protocol_version =
             self.determine_latest_supported_signer_protocol_version()?;
         let mut state_views = HashMap::new();
+        let mut tx_replay_sets = HashMap::new();
+        let mut found_state_view = None;
+        let mut found_replay_set = None;
         for (address, update) in &self.address_updates {
             let Some(weight) = self.address_weights.get(address) else {
                 continue;
             };
-            let (burn_block, burn_block_height, current_miner, tx_replay_set) =
-                match &update.content {
-                    StateMachineUpdateContent::V0 {
-                        burn_block,
-                        burn_block_height,
-                        current_miner,
-                        ..
-                    } => (
-                        burn_block,
-                        burn_block_height,
-                        current_miner,
-                        ReplayTransactionSet::none(),
-                    ),
-                    StateMachineUpdateContent::V1 {
-                        burn_block,
-                        burn_block_height,
-                        current_miner,
-                        replay_transactions,
-                    } => (
-                        burn_block,
-                        burn_block_height,
-                        current_miner,
-                        ReplayTransactionSet::new(replay_transactions.clone()),
-                    ),
-                };
+            let (burn_block, burn_block_height) = update.content.burn_block_view();
+            let current_miner = update.content.current_miner();
+            let tx_replay_set = update.content.tx_replay_set();
+
             let state_machine = SignerStateMachine {
                 burn_block: *burn_block,
-                burn_block_height: *burn_block_height,
+                burn_block_height,
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
-                tx_replay_set,
+                // We need to calculate the threshold for the tx_replay_set separately
+                tx_replay_set: ReplayTransactionSet::none(),
+                creation_time: CreationTime::now(),
             };
-            let entry = state_views
-                .entry(state_machine.clone())
-                .or_insert_with(|| 0);
+            let key = SignerStateMachineKey(state_machine.clone());
+            let entry = state_views.entry(key).or_insert_with(|| 0);
             *entry += weight;
+
             if self.reached_agreement(*entry) {
-                return Some(state_machine);
+                found_state_view = Some(state_machine);
+            }
+
+            let replay_entry = tx_replay_sets
+                .entry(tx_replay_set.clone())
+                .or_insert_with(|| 0);
+            *replay_entry += weight;
+
+            if self.reached_agreement(*replay_entry) {
+                found_replay_set = Some(tx_replay_set);
+            }
+            if found_replay_set.is_some() && found_state_view.is_some() {
+                break;
             }
         }
-        None
+        if let Some(tx_replay_set) = found_replay_set {
+            if let Some(state_view) = found_state_view.as_mut() {
+                state_view.tx_replay_set = tx_replay_set;
+            }
+        }
+        found_state_view
     }
 
     /// Will insert the update for the given address and weight only if the GlobalStateMachineEvaluator already is aware of this address
@@ -258,7 +248,7 @@ impl Default for ReplayTransactionSet {
 /// A signer state machine view. This struct can
 ///  be used to encode the local signer's view or
 ///  the global view.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq)]
 pub struct SignerStateMachine {
     /// The tip burn block (i.e., the latest bitcoin block) seen by this signer
     pub burn_block: ConsensusHash,
@@ -270,6 +260,60 @@ pub struct SignerStateMachine {
     pub active_signer_protocol_version: u64,
     /// Transaction replay set
     pub tx_replay_set: ReplayTransactionSet,
+    /// The time when this state machine was initialized
+    pub creation_time: CreationTime,
+}
+
+/// A wrapped SystemTime to enforce equality regardless of the value
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreationTime(pub SystemTime);
+
+impl CreationTime {
+    /// Creates a Creation Time with SystemTime::now()
+    pub fn now() -> Self {
+        CreationTime(SystemTime::now())
+    }
+}
+
+impl PartialEq for CreationTime {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for CreationTime {}
+
+impl Hash for CreationTime {
+    fn hash<H: Hasher>(&self, _: &mut H) {}
+}
+
+#[derive(Debug)]
+/// A wrapped SignerStateMachine that implements a very specific hash that enables properly ignoring the
+/// tx_replay_set when evaluating the global signer state machine
+pub struct SignerStateMachineKey(SignerStateMachine);
+
+impl PartialEq for SignerStateMachineKey {
+    fn eq(&self, other: &Self) -> bool {
+        // tx_replay_set is intentionally ignored
+        self.0.burn_block == other.0.burn_block
+            && self.0.burn_block_height == other.0.burn_block_height
+            && self.0.current_miner == other.0.current_miner
+            && self.0.active_signer_protocol_version == other.0.active_signer_protocol_version
+            && self.0.creation_time == other.0.creation_time // This doesn't actually do anything. But include for completeness sake.
+    }
+}
+
+impl Eq for SignerStateMachineKey {}
+
+impl Hash for SignerStateMachineKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // tx_replay_set is intentionally ignored
+        self.0.burn_block.hash(state);
+        self.0.burn_block_height.hash(state);
+        self.0.current_miner.hash(state);
+        self.0.active_signer_protocol_version.hash(state);
+        self.0.creation_time.hash(state); // This doesn't actually do anything. But include for completeness sake.
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]

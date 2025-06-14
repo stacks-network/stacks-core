@@ -3293,6 +3293,7 @@ dependencies = [
  "slog-term",
  "stacks-common",
  "stackslib",
+ "stdext",
  "thiserror",
  "tiny_http",
  "toml",
