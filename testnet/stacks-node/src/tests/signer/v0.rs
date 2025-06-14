@@ -11288,11 +11288,6 @@ fn reorg_attempts_activity_timeout_exceeded() {
         None,
         None,
     );
-    let commits_submitted = signer_test
-        .running_nodes
-        .counters
-        .naka_submitted_commits
-        .clone();
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
     let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
@@ -11327,30 +11322,25 @@ fn reorg_attempts_activity_timeout_exceeded() {
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk]);
 
     info!("------------------------- Start Tenure B  -------------------------");
-    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    test_observer::clear();
     let chain_before = get_chain_info(&signer_test.running_nodes.conf);
     next_block_and(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
         || {
             let chain_info = get_chain_info(&signer_test.running_nodes.conf);
-            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before
-                && chain_info.burn_block_height > chain_before.burn_block_height)
+            Ok(chain_info.burn_block_height > chain_before.burn_block_height)
         },
     )
     .unwrap();
-
-    info!("------------------------- Wait for block N' to arrive late  -------------------------");
-    test_observer::clear();
-    // Allow block N validation to finish.
-    TEST_VALIDATE_STALL.set(false);
-    wait_for(30, || {
-        let chain_info = get_chain_info(&signer_test.running_nodes.conf);
-        Ok(chain_info.stacks_tip_height > chain_before.stacks_tip_height)
-    })
-    .expect("Timed out waiting for stacks tip to advance to block N");
     let chain_after = get_chain_info(&signer_test.running_nodes.conf);
-    TEST_VALIDATE_STALL.set(true);
+    wait_for_state_machine_update_by_miner_tenure_id(
+        30,
+        &chain_after.pox_consensus,
+        &all_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    )
+    .expect("Failed to update to Tenure B");
 
     let wait_time = reorg_attempts_activity_timeout.add(Duration::from_secs(1));
     info!("------------------------- Waiting {} Seconds for Reorg Activity Timeout to be Exceeded-------------------------", wait_time.as_secs());
@@ -11360,10 +11350,22 @@ fn reorg_attempts_activity_timeout_exceeded() {
     std::thread::sleep(wait_time);
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
     let block_proposal_n_prime =
-        wait_for_block_proposal(30, chain_after.stacks_tip_height, &miner_pk)
+        wait_for_block_proposal(30, chain_start.stacks_tip_height + 1, &miner_pk)
             .expect("Failed to get block proposal N'");
     // Make sure that no subsequent proposal arrives before the block_proposal_timeout is exceeded
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk]);
+
+    info!("------------------------- Wait for block N' to arrive late  -------------------------");
+    // Allow block N validation to finish.
+    TEST_VALIDATE_STALL.set(false);
+    wait_for(30, || {
+        let chain_info = get_chain_info(&signer_test.running_nodes.conf);
+        Ok(chain_info.stacks_tip_height > chain_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for stacks tip to advance to block N");
+    let chain_after = get_chain_info(&signer_test.running_nodes.conf);
+
+    TEST_VALIDATE_STALL.set(true);
     // We only need to wait the difference between the two timeouts now since we already slept for a min of reorg_attempts_activity_timeout + 1
     let wait_time = block_proposal_timeout.saturating_sub(reorg_attempts_activity_timeout);
     info!("------------------------- Waiting {} Seconds for Miner To be Marked Invalid -------------------------", wait_time.as_secs());
