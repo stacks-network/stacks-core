@@ -333,91 +333,189 @@ fn sign_transaction_single_sig_standard(
         .ok_or("TX did not finish signing -- was this a standard single signature transaction?")?)
 }
 
+/// Counts how many times a specific flag appears in the argument list.
+///
+/// # Arguments
+///
+/// * `args` - A reference to a vector of argument strings.
+/// * `flag` - The flag to count occurrences of.
+///
+/// # Returns
+///
+/// The number of times `flag` appears in `args`.
+fn count_flag(args: &Vec<String>, flag: &str) -> usize {
+    args.iter().filter(|&arg| arg == flag).count()
+}
+
+/// Removes the first occurrence of a flag from the argument list.
+///
+/// # Arguments
+///
+/// * `args` - A mutable reference to a vector of argument strings.
+/// * `flag` - The flag to remove.
+///
+/// # Returns
+///
+/// `true` if the flag was found and removed; `false` otherwise.
+fn extract_flag(args: &mut Vec<String>, flag: &str) -> bool {
+    args.iter()
+        .position(|arg| arg == flag)
+        .map(|flag_index| {
+            args.remove(flag_index);
+        })
+        .is_some()
+}
+
+/// Removes a flag and its following value from the argument list.
+///
+/// # Arguments
+///
+/// * `args` - A mutable reference to a vector of argument strings.
+/// * `flag` - The flag whose value to extract and remove.
+///
+/// # Returns
+///
+/// An `Option<String>` containing the value following the flag if both were found and removed;  
+/// returns `None` if the flag was not found or no value follows the flag.
+fn extract_flag_with_value(args: &mut Vec<String>, flag: &str) -> Option<String> {
+    args.iter()
+        .position(|arg| arg == flag)
+        .and_then(|flag_index| {
+            if flag_index + 1 < args.len() {
+                let value = args.remove(flag_index + 1);
+                args.remove(flag_index);
+                Some(value)
+            } else {
+                None
+            }
+        })
+}
+
+/// Parses anchor mode flags from the CLI arguments.
+///
+/// This function checks for the presence of `--microblock-only` and `--block-only` flags
+/// in the provided `args` vector, and returns the corresponding `TransactionAnchorMode`.
+///
+/// The user may specify **at most one** of these flags:
+/// - `--microblock-only` maps to `TransactionAnchorMode::OffChainOnly`
+/// - `--block-only` maps to `TransactionAnchorMode::OnChainOnly`
+///
+/// If **neither flag is provided**, the default mode `TransactionAnchorMode::Any` is returned.
+///
+/// Both flags are removed from the `args` vector if present.
+///
+/// # Arguments
+///
+/// * `args` - A mutable reference to a vector of CLI arguments.
+/// * `usage` - A usage string displayed in error messages.
+///
+/// # Returns
+///
+/// * `Ok(TransactionAnchorMode)` - On successful parsing or if no anchor mode is specified.
+/// * `Err(CliError)` - If either flag is duplicated, or if both are present simultaneously.
+///
+/// # Errors
+///
+/// Returns a `CliError::Message` if:
+/// - `--microblock-only` or `--block-only` appears more than once.
+/// - Both flags are specified together (mutually exclusive).
+///
+/// # Side Effects
+///
+/// Removes `--microblock-only` or `--block-only` from the `args` vector if found.
 fn parse_anchor_mode(
     args: &mut Vec<String>,
     usage: &str,
 ) -> Result<TransactionAnchorMode, CliError> {
-    let num_args = args.len();
-    let mut offchain_only = false;
-    let mut onchain_only = false;
-    let mut idx = 0;
-    for i in 0..num_args {
-        if args[i] == "--microblock-only" {
-            if idx > 0 {
-                return Err(CliError::Message(format!(
-                    "Multiple anchor modes detected.\n\nUSAGE:\n{}",
-                    usage,
-                )));
-            }
+    const FLAG_MICROBLOCK: &str = "--microblock-only";
+    const FLAG_BLOCK: &str = "--block-only";
 
-            offchain_only = true;
-            idx = i;
-        }
-        if args[i] == "--block-only" {
-            if idx > 0 {
-                return Err(CliError::Message(format!(
-                    "Multiple anchor modes detected.\n\nUSAGE:\n{}",
-                    usage,
-                )));
-            }
+    let count_micro = count_flag(args, FLAG_MICROBLOCK);
+    let count_block = count_flag(args, FLAG_BLOCK);
 
-            onchain_only = true;
-            idx = i;
-        }
+    if count_micro > 1 || count_block > 1 {
+        return Err(CliError::Message(format!(
+            "Duplicated anchor mode detected.\n\nUSAGE:\n{}",
+            usage,
+        )));
     }
-    if idx > 0 {
-        args.remove(idx);
-    }
-    if onchain_only {
-        Ok(TransactionAnchorMode::OnChainOnly)
-    } else if offchain_only {
-        Ok(TransactionAnchorMode::OffChainOnly)
-    } else {
-        Ok(TransactionAnchorMode::Any)
+
+    let has_microblock = extract_flag(args, FLAG_MICROBLOCK);
+    let has_block = extract_flag(args, FLAG_BLOCK);
+
+    match (has_microblock, has_block) {
+        (true, true) => Err(CliError::Message(format!(
+            "Both anchor modes detected.\n\nUSAGE:\n{}",
+            usage
+        ))),
+        (true, false) => Ok(TransactionAnchorMode::OffChainOnly),
+        (false, true) => Ok(TransactionAnchorMode::OnChainOnly),
+        (false, false) => Ok(TransactionAnchorMode::Any),
     }
 }
 
+/// Parses the `--postcondition-mode` flag from the CLI arguments.
+///
+/// This function looks for the `--postcondition-mode` flag in the provided `args` vector
+/// and extracts its associated value. The flag must be specified at most once, and the value
+/// must be either `"allow"` or `"deny"`. If the flag is not present, the default mode
+/// `TransactionPostConditionMode::Deny` is returned.
+///
+/// The flag and its value are removed from `args` if found.
+///
+/// # Arguments
+///
+/// * `args` - A mutable reference to a vector of CLI arguments.
+/// * `usage` - A usage string that is displayed in error messages.
+///
+/// # Returns
+///
+/// * `Ok(TransactionPostConditionMode)` - If the flag is parsed successfully or not present (defaults to `Deny`).
+/// * `Err(CliError)` - If the flag is duplicated, missing a value, or contains an invalid value.
+///
+/// # Errors
+///
+/// Returns a `CliError::Message` if:
+/// - The flag appears more than once.
+/// - The flag is present but missing a value.
+/// - The flag value is not `"allow"` or `"deny"`.
+///
+/// # Side Effects
+///
+/// This function modifies the `args` vector by removing the parsed flag and its value if found.
 fn parse_postcondition_mode(
     args: &mut Vec<String>,
     usage: &str,
 ) -> Result<TransactionPostConditionMode, CliError> {
-    let mut i = 0;
-    let mut value = None;
-    while i < args.len() {
-        if args[i] == "--postcondition-mode" {
-            if value.is_some() {
-                return Err(CliError::Message(format!(
-                    "Duplicated `--postcondition-mode`.\n\nUSAGE:\n{}",
-                    usage
-                )));
-            }
-            if i + 1 >= args.len() {
-                return Err(CliError::Message(format!(
-                    "Missing value for `--postcondition-mode`.\n\nUSAGE:\n{}",
-                    usage
-                )));
-            }
-            value = Some(args.remove(i + 1));
-            args.remove(i);
-            continue; // do not increment i since elements shifted
+    const FLAG_POSTCONDITION: &str = "--postcondition-mode";
+    const VALUE_ALLOW: &str = "allow";
+    const VALUE_DENY: &str = "deny";
+
+    match count_flag(args, FLAG_POSTCONDITION) {
+        0 => return Ok(TransactionPostConditionMode::Deny),
+        1 => { /* continue below */ }
+        _ => {
+            return Err(CliError::Message(format!(
+                "Duplicated `{}`.\n\nUSAGE:\n{}",
+                FLAG_POSTCONDITION, usage
+            )));
         }
-        i += 1;
     }
 
-    let mode = match value {
-        Some(mode_str) => match mode_str.as_ref() {
-            "allow" => TransactionPostConditionMode::Allow,
-            "deny" => TransactionPostConditionMode::Deny,
-            _ => {
-                return Err(CliError::Message(format!(
-                    "Invalid value for `--postcondition-mode`.\n\nUSAGE:\n{}",
-                    usage,
-                )))
-            }
+    match extract_flag_with_value(args, FLAG_POSTCONDITION) {
+        Some(value) => match value.as_str() {
+            VALUE_ALLOW => Ok(TransactionPostConditionMode::Allow),
+            VALUE_DENY => Ok(TransactionPostConditionMode::Deny),
+            _ => Err(CliError::Message(format!(
+                "Invalid value for `{}`.\n\nUSAGE:\n{}",
+                FLAG_POSTCONDITION, usage
+            ))),
         },
-        None => TransactionPostConditionMode::Deny,
-    };
-    Ok(mode)
+        None => Err(CliError::Message(format!(
+            "Missing value for `{}`.\n\nUSAGE:\n{}",
+            FLAG_POSTCONDITION, usage
+        ))),
+    }
 }
 
 fn handle_contract_publish(
@@ -1106,7 +1204,28 @@ mod test {
 
         let exp_err_msg = format!(
             "{}\n\nUSAGE:\n{}",
-            "Multiple anchor modes detected.", PUBLISH_USAGE
+            "Both anchor modes detected.", PUBLISH_USAGE
+        );
+        assert_eq!(exp_err_msg, result.unwrap_err().to_string());
+
+        // Scenario FAIL using duplicated anchor mode
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--microblock-only",
+            "--microblock-only",
+        ];
+
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let exp_err_msg = format!(
+            "{}\n\nUSAGE:\n{}",
+            "Duplicated anchor mode detected.", PUBLISH_USAGE
         );
         assert_eq!(exp_err_msg, result.unwrap_err().to_string());
     }
