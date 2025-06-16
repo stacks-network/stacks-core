@@ -445,7 +445,6 @@ impl Signer {
                         }
                         SignerMessage::StateMachineUpdate(update) => self
                             .handle_state_machine_update(
-                                stacks_client,
                                 signer_public_key,
                                 update,
                                 received_time,
@@ -764,7 +763,6 @@ impl Signer {
     /// Handle signer state update message
     fn handle_state_machine_update(
         &mut self,
-        stacks_client: &StacksClient,
         signer_public_key: &Secp256k1PublicKey,
         update: &StateMachineUpdate,
         received_time: &SystemTime,
