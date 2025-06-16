@@ -649,6 +649,7 @@ impl Signer {
                 "{self}: Cannot validate block, no global signer state";
                 "signer_signature_hash" => %signer_signature_hash,
                 "block_id" => %block_id,
+                "local_signer_state" => ?self.local_state_machine
             );
             return Some(self.create_block_rejection(RejectReason::NoSortitionView, block));
         };
@@ -658,11 +659,12 @@ impl Signer {
             config: self.proposal_config.clone(),
         };
 
-        debug!(
+        info!(
             "{self}: Evaluating proposal against global state";
             "signer_state" => ?sortitions_view.signer_state,
             "signer_signature_hash" => %signer_signature_hash,
             "block_id" => %block_id,
+            "local_signer_state" => ?self.local_state_machine,
         );
 
         // Check if proposal can be rejected now if not valid against the global state
