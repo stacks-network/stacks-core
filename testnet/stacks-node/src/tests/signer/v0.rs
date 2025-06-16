@@ -3668,7 +3668,6 @@ fn tx_replay_btc_on_stx_invalidation() {
 
     info!("------------------------- Beginning test -------------------------");
 
-    let pre_fork_tenures = 10;
     let burnchain = conf.get_burnchain();
 
     let tip = signer_test.get_peer_info();
@@ -3681,31 +3680,31 @@ fn tx_replay_btc_on_stx_invalidation() {
         "pox_info" => ?pox_info,
     );
 
+    info!("Submitting first pre-stx op");
+    let pre_stx_op = PreStxOp {
+        output: sender_addr,
+        // to be filled in
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
+    assert!(
+        btc_controller
+            .submit_operation(
+                StacksEpochId::Epoch30,
+                BlockstackOperationType::PreStx(pre_stx_op),
+                &mut miner_keychain,
+                1
+            )
+            .is_ok(),
+        "Pre-stx operation should submit successfully"
+    );
+
+    let pre_fork_tenures = 9;
     for i in 0..pre_fork_tenures {
         info!("Mining pre-fork tenure {} of {pre_fork_tenures}", i + 1);
-        if i == 0 {
-            info!("Submitting first pre-stx op");
-            let pre_stx_op = PreStxOp {
-                output: sender_addr,
-                // to be filled in
-                txid: Txid([0u8; 32]),
-                vtxindex: 0,
-                block_height: 0,
-                burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-            };
-
-            assert!(
-                btc_controller
-                    .submit_operation(
-                        StacksEpochId::Epoch30,
-                        BlockstackOperationType::PreStx(pre_stx_op),
-                        &mut miner_keychain,
-                        1
-                    )
-                    .is_ok(),
-                "Pre-stx operation should submit successfully"
-            );
-        }
         signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
     }
 
@@ -3776,8 +3775,6 @@ fn tx_replay_btc_on_stx_invalidation() {
 
     info!("---- Wait for tx replay set to be updated ----");
 
-    let mut last_log = Instant::now();
-    last_log -= Duration::from_secs(5);
     signer_test
         .wait_for_signer_state_check(30, |state| {
             let Some(tx_replay_set) = state.get_tx_replay_set() else {
@@ -3791,14 +3788,6 @@ fn tx_replay_btc_on_stx_invalidation() {
                 "len_ok" => len_ok,
                 "txid_ok" => txid_ok,
             );
-            if last_log.elapsed() > Duration::from_secs(5) {
-                info!("---- Signer state check ----";
-                    "tx_replay_set" => ?tx_replay_set,
-                    "len_ok" => len_ok,
-                    "txid_ok" => txid_ok,
-                );
-                last_log = Instant::now();
-            }
             Ok(len_ok && txid_ok)
         })
         .expect("Timed out waiting for tx replay set to be updated");

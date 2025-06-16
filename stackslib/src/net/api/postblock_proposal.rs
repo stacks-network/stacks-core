@@ -715,7 +715,6 @@ impl NakamotoBlockProposal {
 
             // If a list of replay transactions is set, this transaction must be the next
             // mineable transaction from this list.
-            // if let Some(ref mut replay_txs) = replay_txs_maybe {
             loop {
                 if matches!(
                     tx.payload,
@@ -822,8 +821,8 @@ impl NakamotoBlockProposal {
         let no_replay_txs_remaining = replay_txs.is_empty();
 
         // Now, we need to check if the remaining replay transactions are unmineable.
-        let only_unmineable_remaining = replay_txs.is_empty()
-            || replay_txs.iter().all(|tx| {
+        let only_unmineable_remaining = !replay_txs.is_empty()
+            && replay_txs.iter().all(|tx| {
                 let tx_result = replay_builder.try_mine_tx_with_len(
                     &mut replay_tenure_tx,
                     &tx,
