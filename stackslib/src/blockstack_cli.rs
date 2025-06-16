@@ -345,7 +345,7 @@ fn parse_anchor_mode(
         if args[i] == "--microblock-only" {
             if idx > 0 {
                 return Err(CliError::Message(format!(
-                    "Multiple anchor mode detected.\n\nUSAGE:\n{}",
+                    "Multiple anchor modes detected.\n\nUSAGE:\n{}",
                     usage,
                 )));
             }
@@ -356,7 +356,7 @@ fn parse_anchor_mode(
         if args[i] == "--block-only" {
             if idx > 0 {
                 return Err(CliError::Message(format!(
-                    "Multiple anchor mode detected.\n\nUSAGE:\n{}",
+                    "Multiple anchor modes detected.\n\nUSAGE:\n{}",
                     usage,
                 )));
             }
@@ -1106,7 +1106,7 @@ mod test {
 
         let exp_err_msg = format!(
             "{}\n\nUSAGE:\n{}",
-            "Multiple anchor mode detected.", PUBLISH_USAGE
+            "Multiple anchor modes detected.", PUBLISH_USAGE
         );
         assert_eq!(exp_err_msg, result.unwrap_err().to_string());
     }
