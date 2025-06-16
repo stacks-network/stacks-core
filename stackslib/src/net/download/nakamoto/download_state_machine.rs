@@ -659,32 +659,48 @@ impl NakamotoDownloadStateMachine {
         schedule.into_iter().map(|(_count, ch)| ch).collect()
     }
 
-    /// Returns the highest Stacks tip height reported by the given neighbors.
+    /// Returns the highest Stacks tip height from available sources.
     ///
-    /// For each neighbor, this checks if there's an active unconfirmed download with a known
-    /// `tip_height`. If so, it's considered when finding the maximum.
+    /// In IBD mode (Confirmed state), this queries confirmed tenure downloaders for their
+    /// tenure end block heights. In steady-state mode (Unconfirmed state), this checks
+    /// the unconfirmed tenure downloads for the given neighbors to find their tip heights.
     ///
     /// # Arguments
     ///
-    /// * `neighbors` - A slice of `NeighborAddress` structs to check.
+    /// * `neighbors` - A slice of `NeighborAddress` structs to check in unconfirmed mode.
+    ///                 Ignored in IBD mode.
     ///
     /// # Returns
     ///
-    /// * `Some(u64)` if at least one neighbor has a tip height.
-    /// * `None` if no tip heights are found.
+    /// * `Some(u64)` - The maximum height found, or None if no heights are available.
     pub(crate) fn get_max_stacks_height_of_neighbors(
         &self,
         neighbors: &[NeighborAddress],
     ) -> Option<u64> {
-        neighbors
-            .iter()
-            .filter_map(|naddr| {
-                self.unconfirmed_tenure_downloads
-                    .get(naddr)
-                    .and_then(|downloader| downloader.tenure_tip.as_ref())
-                    .map(|tip| tip.tip_height)
-            })
-            .max()
+        match self.state {
+            NakamotoDownloadState::Confirmed => self
+                .tenure_downloads
+                .downloaders
+                .iter()
+                .flatten()
+                .filter_map(|downloader| {
+                    downloader
+                        .tenure_end_block
+                        .as_ref()
+                        .map(|end_block| end_block.header.chain_length + 1)
+                })
+                .max(),
+            NakamotoDownloadState::Unconfirmed => neighbors
+                .iter()
+                .filter_map(|neighbor_addr| {
+                    self.unconfirmed_tenure_downloads
+                        .get(neighbor_addr)?
+                        .tenure_tip
+                        .as_ref()
+                        .map(|tip| tip.tip_height)
+                })
+                .max(),
+        }
     }
 
     /// How many neighbors can we contact still, given the map of tenures to neighbors which can
