@@ -13,6 +13,10 @@ WORKDIR /build
 # Copy from three levels up (project root) to maintain the directory structure
 COPY ../../../ /build
 
+RUN useradd -ms /bin/bash docs-builder
+RUN chown docs-builder -R /build
+USER docs-builder
+
 # Pre-build the config-docs-generator binaries during image build
 RUN cargo build --package config-docs-generator --release
 
