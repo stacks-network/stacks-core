@@ -602,7 +602,7 @@ impl LocalStateMachine {
                 return Err(ClientError::InvalidResponse(err_msg).into());
             }
 
-            let replay_state = ReplayState::infer_state(&tx_replay_set, &tx_replay_scope);
+            let replay_state = ReplayState::infer_state(&tx_replay_set, tx_replay_scope);
             if let Some(new_replay_state) = self.handle_possible_bitcoin_fork(
                 db,
                 client,
@@ -1118,7 +1118,7 @@ impl LocalStateMachine {
             info!("Tx Replay: replay set will be cleared, because the fork involves the previous reward cycle.");
             replay_state = ReplayState::Unset;
         }
-        return Ok(Some(replay_state));
+        Ok(Some(replay_state))
     }
 
     /// Retrieves the set of transactions that were part of a Bitcoin fork within the same reward cycle.
