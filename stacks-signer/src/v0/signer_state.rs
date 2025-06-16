@@ -255,19 +255,19 @@ impl LocalStateMachine {
             .ok()
             .flatten();
         let Some(last_sortition) = last_sortition else {
-            warn!("Current miner timed out due to inactivity, but could not find a valid prior miner. Allowing current miner to continue");
+            warn!("Signer State: Current miner timed out due to inactivity, but could not find a valid prior miner. Allowing current miner to continue");
             return Ok(());
         };
 
         // If we already reverted to the last sortition miner, don't time it out as it means we have already timed out the current sorititon miner
         // as there is no other miner available.
         if last_sortition.consensus_hash == *tenure_id {
-            warn!("Last sortition miner has timed out, but no prior valid miner. Allowing last sortition miner to continue");
+            warn!("Signer State: Last sortition miner has timed out, but no prior valid miner. Allowing last sortition miner to continue");
             return Ok(());
         }
 
         if !last_sortition.is_tenure_valid(db, client, proposal_config, eval)? {
-            warn!("Current miner timed out due to inactivity, but prior miner is not valid. Allowing current miner to continue");
+            warn!("Signer State: Current miner timed out due to inactivity, but prior miner is not valid. Allowing current miner to continue");
             return Ok(());
         }
         let new_active_tenure_ch = last_sortition.consensus_hash;
@@ -280,7 +280,7 @@ impl LocalStateMachine {
         )?;
         state_machine.creation_time = CreationTime::now();
         info!(
-            "Current tenure timed out, setting the active miner to the prior tenure";
+            "Signer State: Current tenure timed out, setting the active miner to the prior tenure";
             "inactive_tenure_ch" => %inactive_tenure_ch,
             "new_active_tenure_ch" => %new_active_tenure_ch
         );
@@ -305,7 +305,7 @@ impl LocalStateMachine {
             .get_tenure_tip(parent_tenure_id)
             .inspect_err(|e| {
                 warn!(
-                    "Failed to fetch last block in parent tenure from stacks-node";
+                    "Signer State: Failed to fetch last block in parent tenure from stacks-node";
                     "parent_tenure_id" => %parent_tenure_id,
                     "err" => ?e,
                 )
@@ -420,14 +420,14 @@ impl LocalStateMachine {
                     }
                 }
                 Ok(None) => {
-                    info!("Signer state: got a new block during replay that wasn't validated by our replay set. Clearing the local replay set.";
+                    info!("Signer State: got a new block during replay that wasn't validated by our replay set. Clearing the local replay set.";
                         "txs" => ?txs,
                     );
                     prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
                     prior_state_machine.creation_time = CreationTime::now();
                 }
                 Err(e) => {
-                    warn!("Failed to check if block was validated by replay tx";
+                    warn!("Signer State: Failed to check if block was validated by replay tx";
                         "err" => ?e,
                         "signer_signature_hash" => %signer_signature_hash,
                     );
@@ -459,6 +459,12 @@ impl LocalStateMachine {
             return Ok(());
         }
 
+        info!("Signer State: got a delayed parent tenure block. Updating miner parent tenure info";
+            "old_parent_tenure_last_block" => %*parent_tenure_last_block,
+            "old_parent_tenure_last_block_height" => *parent_tenure_last_block_height,
+            "new_parent_tenure_last_block" => %*block_id,
+            "new_parent_tenre_last_block_height" => height,
+        );
         *parent_tenure_last_block = *block_id;
         *parent_tenure_last_block_height = height;
         prior_state_machine.creation_time = CreationTime::now();
@@ -583,7 +589,7 @@ impl LocalStateMachine {
                     proposal_config.tenure_last_block_proposal_timeout,
                 )?
             } else {
-                warn!("Neither the current nor the prior sortition winner is considered a valid tenure");
+                warn!("Signer State: Neither the current nor the prior sortition winner is considered a valid tenure");
                 MinerState::NoValidMiner
             }
         };
@@ -648,7 +654,7 @@ impl LocalStateMachine {
         let tx_replay_set = local_update.content.tx_replay_set();
 
         if active_signer_protocol_version != old_protocol_version {
-            info!("Updating active signer protocol version from {old_protocol_version} to {active_signer_protocol_version}");
+            info!("Signer State: Updating active signer protocol version from {old_protocol_version} to {active_signer_protocol_version}");
             crate::monitoring::actions::increment_signer_agreement_state_change_reason(
                 crate::monitoring::SignerAgreementStateChangeReason::ProtocolUpgrade,
             );
@@ -689,7 +695,7 @@ impl LocalStateMachine {
 
             let (burn_block, burn_block_height) = local_update.content.burn_block_view();
             let tx_replay_set = local_update.content.tx_replay_set();
-            info!("Capitulating local state machine's current miner viewpoint";
+            info!("Signer State: Capitulating local state machine's current miner viewpoint";
                 "current_miner" => ?current_miner,
                 "new_miner" => ?new_miner,
                 "burn_block" => %burn_block,
@@ -730,7 +736,7 @@ impl LocalStateMachine {
         let (global_burn_block, global_burn_block_height) = eval.determine_global_burn_view()?;
         if *current_burn_block != global_burn_block {
             debug!(
-                "Burn block mismatch. Cannot capitulate.";
+                "Signer State: Burn block mismatch. Cannot capitulate.";
                 "current_burn_block" => %current_burn_block,
                 "current_burn_block_height" => current_burn_block_height,
                 "global_burn_block" => %current_burn_block,
@@ -796,7 +802,7 @@ impl LocalStateMachine {
                         )
                         .inspect_err(|e| {
                             warn!(
-                                "Failed to fetch last block in parent tenure";
+                                "Signer State: Failed to fetch last block in parent tenure";
                                 "parent_tenure_id" => %parent_tenure_id,
                                 "err" => ?e,
                             )
@@ -806,21 +812,17 @@ impl LocalStateMachine {
                     };
                     if local_parent_tenure_last_block_height < *parent_tenure_last_block_height {
                         warn!(
-                            "A threshold number of signers have a longer active miner parent tenure view. Signer may have an oudated view.";
+                            "Signer State: A threshold number of signers have a longer active miner parent tenure view. Signer may have an oudated view.";
                             "parent_tenure_id" => %parent_tenure_id,
                             "local_parent_tenure_last_block_height" => local_parent_tenure_last_block_height,
                             "parent_tenure_last_block_height" => parent_tenure_last_block_height,
                         );
                         continue;
                     }
-                    debug!("Found a potential capitulation miner view";
-                        "burn_block" => %potential_match.0,
-                        "miner" => ?potential_match.1,
-                    );
                     potential_matches.insert(potential_match);
                 }
                 Err(e) => {
-                    warn!("Error retrieving burn block for consensus_hash {tenure_id} from signerdb: {e}");
+                    warn!("Signer State: Error retrieving burn block for consensus_hash {tenure_id} from signerdb: {e}");
                 }
             }
         }
@@ -907,7 +909,7 @@ impl LocalStateMachine {
         }
         if is_in_tx_replay_mode {
             // TODO: handle fork while still in replay
-            info!("Detected bitcoin fork while in replay mode, will not try to handle the fork");
+            info!("Signer State: Detected bitcoin fork while in replay mode, will not try to handle the fork");
             return Ok(None);
         }
         info!("Signer State: fork detected";
@@ -957,7 +959,7 @@ impl LocalStateMachine {
             block_rc == current_reward_cycle
         });
         if !is_fork_in_current_reward_cycle {
-            info!("Detected bitcoin fork occurred in previous reward cycle. Tx replay won't be executed");
+            info!("Signer State: Detected bitcoin fork occurred in previous reward cycle. Tx replay won't be executed");
             return Ok(None);
         }
 
