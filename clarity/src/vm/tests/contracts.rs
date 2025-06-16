@@ -97,51 +97,78 @@ fn test_get_block_info_eval(
     epoch: StacksEpochId,
     mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
 ) {
-    let contracts = [
-        "(define-private (test-func) (get-block-info? time u1))",
-        "(define-private (test-func) (get-block-info? time block-height))",
-        "(define-private (test-func) (get-block-info? time u100000))",
-        "(define-private (test-func) (get-block-info? time (- 1)))",
-        "(define-private (test-func) (get-block-info? time true))",
-        "(define-private (test-func) (get-block-info? header-hash u1))",
-        "(define-private (test-func) (get-block-info? burnchain-header-hash u1))",
-        "(define-private (test-func) (get-block-info? vrf-seed u1))",
+    let mut test_cases = vec![
+        (
+            "case-1",
+            "(define-private (test-func) (get-block-info? time u1))",
+            Ok(Value::none()),
+        ),
+        (
+            "case-2",
+            "(define-private (test-func) (get-block-info? time block-height))",
+            Ok(Value::none()),
+        ),
+        (
+            "case-3",
+            "(define-private (test-func) (get-block-info? time u100000))",
+            Ok(Value::none()),
+        ),
+        (
+            "case-4",
+            "(define-private (test-func) (get-block-info? header-hash u1))",
+            Ok(Value::none()),
+        ),
+        (
+            "case-5",
+            "(define-private (test-func) (get-block-info? burnchain-header-hash u1))",
+            Ok(Value::none()),
+        ),
+        (
+            "case-6",
+            "(define-private (test-func) (get-block-info? vrf-seed u1))",
+            Ok(Value::none()),
+        ),
     ];
 
-    let expected = [
-        Ok(Value::none()),
-        Ok(Value::none()),
-        Ok(Value::none()),
-        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(-1)).into()),
-        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Bool(true)).into()),
-        Ok(Value::none()),
-        Ok(Value::none()),
-        Ok(Value::none()),
-    ];
+    // test cases where the clarity-wasm analysis pass would fail.
+    if cfg!(not(feature = "clarity-wasm")) {
+        test_cases.extend([
+            (
+                "case-7",
+                "(define-private (test-func) (get-block-info? time (- 1)))",
+                Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(-1)).into()),
+            ),
+            (
+                "case-8",
+                "(define-private (test-func) (get-block-info? time true))",
+                Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Bool(true)).into()),
+            ),
+        ]);
+    }
 
-    let mut placeholder_context = ContractContext::new(
+    let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
         ClarityVersion::Clarity2,
     );
 
     let mut owned_env = tl_env_factory.get_env(epoch);
-    for i in 0..contracts.len() {
+    for (case, contract, expected) in test_cases {
         let contract_identifier =
-            QualifiedContractIdentifier::local(&format!("test-contract-{}", i)).unwrap();
+            QualifiedContractIdentifier::local(&format!("test-contract-{}", case)).unwrap();
         owned_env
             .initialize_versioned_contract(
                 contract_identifier.clone(),
                 ClarityVersion::Clarity2,
-                contracts[i],
+                contract,
                 None,
                 ASTRules::PrecheckSize,
             )
             .unwrap();
 
-        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        eprintln!("{}", contracts[i]);
+        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        eprintln!("{}", contract);
         let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
-        match expected[i] {
+        match expected {
             // any (some UINT) is okay for checking get-block-info? time
             Ok(Value::UInt(0)) => {
                 assert!(
@@ -152,7 +179,7 @@ fn test_get_block_info_eval(
                     }
                 );
             }
-            _ => assert_eq!(expected[i], eval_result),
+            _ => assert_eq!(expected, eval_result),
         }
     }
 }
