@@ -444,11 +444,7 @@ impl Signer {
                             self.handle_block_response(stacks_client, block_response)
                         }
                         SignerMessage::StateMachineUpdate(update) => self
-                            .handle_state_machine_update(
-                                signer_public_key,
-                                update,
-                                received_time,
-                            ),
+                            .handle_state_machine_update(signer_public_key, update, received_time),
                         _ => {}
                     }
                 }
