@@ -1626,7 +1626,7 @@ pub fn wait_for_state_machine_update(
             };
             found_updates.insert(address);
         }
-        Ok(found_updates.len() >= signer_keys.len() * 7 / 10)
+        Ok(found_updates.len() > signer_keys.len() * 7 / 10)
     })
 }
 
@@ -1679,7 +1679,7 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
                 (_, _) => {}
             };
         }
-        Ok(found_updates.len() >= signer_keys.len() * 7 / 10)
+        Ok(found_updates.len() > signer_keys.len() * 7 / 10)
     })
 }
 
@@ -15562,6 +15562,8 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     info!("----------------- Miner 2 Submits Block Commit for Tenure C Before Any Tenure B Blocks Produced ------------------");
     miners.submit_commit_miner_2(&sortdb);
 
+    let info = get_chain_info(&conf_1);
+
     info!("----------------------------- Resume Block Production for Tenure B -----------------------------");
 
     let stacks_height_before = miners.get_peer_stacks_tip_height();
@@ -15613,8 +15615,12 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
 
     // allow B to process, so it'll be distinct from C
     TEST_BLOCK_ANNOUNCE_STALL.set(false);
-    sleep_ms(1000);
+    wait_for(30, || {
+        Ok(get_chain_info(&conf_1).stacks_tip_height > info.stacks_tip_height)
+    })
+    .expect("Failed to announce block");
 
+    let info = get_chain_info(&conf_1);
     info!("--------------- Miner 2 Wins Tenure C With Old Block Commit ----------------");
     info!("Prevent Miner 1 from extending at first");
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
@@ -15646,13 +15652,11 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
 
     let all_signers = miners.signer_test.signer_test_pks();
 
-    info!("--------------- Waiting for Signers to Capitulate to Miner {miner_pkh_1} with Expected Stacks Height {} ----------------", tip_a.stacks_block_height;
+    info!("--------------- Waiting for Signers to Capitulate to Miner {miner_pkh_1} with tenure id {} ----------------", info.pox_consensus;
     );
-    wait_for_state_machine_update(
+    wait_for_state_machine_update_by_miner_tenure_id(
         30,
-        &tenure_c_block_proposal.header.consensus_hash,
-        burn_height_before + 1,
-        Some((miner_pkh_1, tip_a.stacks_block_height)),
+        &info.pox_consensus,
         &all_signers,
         SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
@@ -15661,7 +15665,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     info!("--------------- Miner 1 Extends Tenure B over Tenure C ---------------");
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
     let tenure_extend_block =
-        wait_for_block_proposal(30, tip_b.stacks_block_height + 1, &miner_pk_1)
+        wait_for_block_pushed_by_miner_key(30, tip_b.stacks_block_height + 1, &miner_pk_1)
             .expect("Timed out waiting for miner 1's tenure extend block");
     wait_for_block_acceptance_from_signers(
         30,
