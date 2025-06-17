@@ -820,12 +820,18 @@ fn epoch205_nfts(use_mainnet: bool) {
     );
 }
 
+// Test not valid for clarity-wasm runtime
+// Contracts would error in the static analysis pass.
 #[test]
+#[cfg(not(feature = "clarity-wasm"))]
 fn epoch205_nfts_mainnet() {
     epoch205_nfts(true)
 }
 
+// Test not valid for clarity-wasm runtime
+// Contracts would error in the static analysis pass.
 #[test]
+#[cfg(not(feature = "clarity-wasm"))]
 fn epoch205_nfts_testnet() {
     epoch205_nfts(false)
 }
