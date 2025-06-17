@@ -1,0 +1,196 @@
+name: "Generate Node Configuration Documentation"
+
+on:
+  # Allow manual triggering
+  workflow_dispatch:
+    inputs:
+      output-dir:
+        description: "Output directory for generated documentation"
+        required: false
+        default: "./target/generated-docs"
+        type: string
+      min-doc-size:
+        description: "Minimum documentation size in bytes"
+        required: false
+        default: "50000"
+        type: string
+      rust-nightly-version:
+        description: "Specific nightly version to use (e.g., 'nightly-2025-06-17')"
+        required: false
+        default: "nightly-2025-06-17"
+        type: string
+
+  # Allow being called by other workflows
+  workflow_call:
+    inputs:
+      output-dir:
+        description: "Output directory for generated documentation"
+        required: false
+        default: "./target/generated-docs"
+        type: string
+      min-doc-size:
+        description: "Minimum documentation size in bytes"
+        required: false
+        default: "50000"
+        type: string
+      rust-nightly-version:
+        description: "Specific nightly version to use (e.g., 'nightly-2025-06-17')"
+        required: false
+        default: "nightly-2025-06-17"
+        type: string
+
+jobs:
+  generate-config-docs:
+    name: Generate Configuration Documentation
+    runs-on: ubuntu-latest
+
+    steps:
+      ## Checkout the code
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      ## Install required system dependencies
+      - name: Install system dependencies
+        id: install_deps
+        shell: bash
+        run: |
+          echo "Installing system dependencies..."
+          sudo apt-get update -q
+          sudo apt-get install -y jq
+
+      ## Install Rust nightly toolchain (required for rustdoc JSON output)
+      - name: Install Rust nightly toolchain
+        id: install_rust
+        uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b # stable
+        with:
+          toolchain: ${{ inputs.rust-nightly-version || 'nightly-2025-06-17' }}
+          components: rustdoc
+
+      ## Cache Cargo dependencies
+      - name: Cache Cargo dependencies
+        id: cache_cargo
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ./target/
+          key: ${{ runner.os }}-cargo-nightly-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-nightly-
+            ${{ runner.os }}-cargo-
+
+      ## Generate configuration documentation
+      - name: Generate Config Documentation
+        id: generate_docs
+        shell: bash
+        run: |
+          echo "Generating configuration documentation..."
+
+          # Set environment variables for the script
+          export PROJECT_ROOT="$(pwd)"
+          export OUTPUT_DIR="$(pwd)/${{ inputs.output-dir || './target/generated-docs' }}"
+
+          cd contrib/tools/config-docs-generator
+          chmod +x generate-config-docs.sh
+          ./generate-config-docs.sh
+
+          # Verify output was generated
+          if [[ ! -f "$OUTPUT_DIR/node-parameters.md" ]]; then
+            echo "Error: Configuration documentation was not generated"
+            echo "Expected file: $OUTPUT_DIR/node-parameters.md"
+            exit 1
+          fi
+
+          echo "Documentation generated successfully at $OUTPUT_DIR/node-parameters.md"
+
+      ## Validate generated documentation quality
+      - name: Validate Generated Documentation
+        id: validate_docs
+        shell: bash
+        run: |
+          echo "Validating generated documentation..."
+
+          MARKDOWN_FILE="${{ inputs.output-dir || './target/generated-docs' }}/node-parameters.md"
+
+          # Check if file exists and has content
+          if [[ ! -f "$MARKDOWN_FILE" ]]; then
+            echo "Error: Markdown file not found at $MARKDOWN_FILE"
+            exit 1
+          fi
+
+          # Check file size (should be substantial)
+          FILE_SIZE=$(wc -c < "$MARKDOWN_FILE")
+          MIN_SIZE=${{ inputs.min-doc-size || '50000' }}
+
+          if [[ $FILE_SIZE -lt $MIN_SIZE ]]; then
+            echo "Error: Generated documentation is too small ($FILE_SIZE bytes, minimum $MIN_SIZE)"
+            echo "This likely indicates a generation failure"
+            exit 1
+          fi
+
+          # Check word count and basic structure
+          WORD_COUNT=$(wc -w < "$MARKDOWN_FILE")
+          LINE_COUNT=$(wc -l < "$MARKDOWN_FILE")
+
+          echo "Documentation validation results:"
+          echo "  - File size: $FILE_SIZE bytes"
+          echo "  - Word count: $WORD_COUNT words"
+          echo "  - Line count: $LINE_COUNT lines"
+
+          # Basic content validation
+          if ! grep -q "# Configuration Reference" "$MARKDOWN_FILE"; then
+            echo "Warning: Documentation may be malformed - missing main title"
+          fi
+
+          if [[ $WORD_COUNT -lt 100 ]]; then
+            echo "Warning: Documentation seems very short ($WORD_COUNT words)"
+          fi
+
+          echo "Documentation validation completed successfully ✅"
+
+      ## Upload documentation as artifact
+      - name: Upload Documentation Artifact
+        id: upload_artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: "node-parameters.md"
+          path: |
+            ${{ inputs.output-dir || './target/generated-docs' }}/*
+          retention-days: 30
+          if-no-files-found: error
+
+      ## Generate job summary
+      - name: Generate Job Summary
+        id: summary
+        shell: bash
+        run: |
+          echo "## Configuration Documentation Generated ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The Stacks Core configuration documentation has been successfully generated and uploaded." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Add file statistics if available
+          MARKDOWN_FILE="${{ inputs.output-dir || './target/generated-docs' }}/node-parameters.md"
+          if [[ -f "$MARKDOWN_FILE" ]]; then
+            FILE_SIZE=$(wc -c < "$MARKDOWN_FILE")
+            WORD_COUNT=$(wc -w < "$MARKDOWN_FILE")
+
+            echo "### 📊 Generation Statistics:" >> $GITHUB_STEP_SUMMARY
+            echo "- **File Size**: $(numfmt --to=iec-i --suffix=B $FILE_SIZE)" >> $GITHUB_STEP_SUMMARY
+            echo "- **Word Count**: $WORD_COUNT words" >> $GITHUB_STEP_SUMMARY
+            echo "- **Rust Toolchain**: ${{ inputs.rust-nightly-version || 'nightly-2025-06-17' }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "### 📄 Generated Files:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`node-parameters.md\` - Complete configuration documentation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Artifact Details:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Name**: \`node-parameters.md\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Retention**: 30 days" >> $GITHUB_STEP_SUMMARY
+          echo "- **Location**: Available in workflow run artifacts section" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> 💡 **Tip**: Download the artifact to access the generated documentation files"

@@ -68,6 +68,12 @@ jobs:
           input: ./docs/rpc/openapi.yaml
           output: ./open-api-docs.html
 
+  ## Generate and upload node configuration documentation
+  node-config-docsgen:
+    name: Node Configuration Documentation
+    needs: open-api-validation
+    uses: ./.github/workflows/node-config-docsgen.yml
+
   ## Disabled
   ##   - this test can take several hours to run
   nettest:
@@ -138,6 +144,7 @@ jobs:
     if: always()
     needs:
       - open-api-validation
+      - node-config-docsgen
       - core-contracts-clarinet-test
     steps:
       - name: Check Tests Status
