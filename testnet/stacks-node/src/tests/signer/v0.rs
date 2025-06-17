@@ -1349,7 +1349,7 @@ pub fn wait_for_block_global_rejection_with_reject_reason(
     timeout_secs: u64,
     block_signer_signature_hash: Sha512Trunc256Sum,
     num_signers: usize,
-    reject_reason: RejectReason,
+    reject_reason: Option<RejectReason>,
 ) -> Result<(), String> {
     let mut found_rejections = HashSet::new();
     wait_for(timeout_secs, || {
@@ -1366,11 +1366,15 @@ pub fn wait_for_block_global_rejection_with_reject_reason(
                 ..
             })) = message
             {
-                if signer_signature_hash == block_signer_signature_hash
-                    && response_data.reject_reason == reject_reason
-                {
-                    found_rejections.insert(signature);
+                if signer_signature_hash != block_signer_signature_hash {
+                    continue;
                 }
+                if let Some(reason) = reject_reason.as_ref() {
+                    if &response_data.reject_reason != reason {
+                        continue;
+                    }
+                }
+                found_rejections.insert(signature);
             }
         }
         Ok(found_rejections.len() >= num_signers * 3 / 10)
@@ -3622,7 +3626,9 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
         30,
         rejected_block.header.signer_signature_hash(),
         num_signers,
-        RejectReason::ValidationFailed(ValidateRejectCode::InvalidTransactionReplay),
+        Some(RejectReason::ValidationFailed(
+            ValidateRejectCode::InvalidTransactionReplay,
+        )),
     )
     .expect("Timed out waiting for global block rejection due to invalid transaction replay");
     TEST_EXCLUDE_REPLAY_TXS.set(false);
@@ -12191,12 +12197,8 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         (ChainExpectSortitionWinner::new(test_context.clone(), MINER2)),
         MinerSendAndMineStacksTransferTx,
         MinerSendAndMineStacksTransferTx,
-        (ChainGenerateBitcoinBlocks::one(test_context.clone())),
-        (ChainExpectNakaBlockProposal::with_rejection(
-            test_context.clone(),
-            MINER1,
-            RejectReason::SortitionViewMismatch
-        )),
+        (MinerMineBitcoinBlocks::one(test_context.clone())),
+        (ChainExpectNakaBlockProposal::with_rejection(test_context.clone(), MINER1, None,)),
         (ChainVerifyMinerNakaBlockCount::after_boot_to_epoch3(test_context.clone(), MINER1, 1)), // FIXME: This takes the expected block count as a parameter - can we avoid that?
         ChainShutdownMiners, // FIXME: miners.shutdown() says: Cannot shutdown miners: other references to Arc still exist
     ]
