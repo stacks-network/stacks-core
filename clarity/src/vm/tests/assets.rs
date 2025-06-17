@@ -810,6 +810,9 @@ fn test_simple_token_system(
     assert!(asset_map.to_table().is_empty());
 }
 
+// Test not valid for clarity-wasm runtime
+// Contracts would error in the static analysis pass.
+#[cfg(not(feature = "clarity-wasm"))]
 #[apply(test_epochs)]
 fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
