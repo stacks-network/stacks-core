@@ -12195,7 +12195,7 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         (ChainExpectNakaBlockProposal::with_rejection(
             test_context.clone(),
             MINER1,
-            RejectReason::ReorgNotAllowed
+            RejectReason::SortitionViewMismatch
         )),
         (ChainVerifyMinerNakaBlockCount::after_boot_to_epoch3(test_context.clone(), MINER1, 1)), // FIXME: This takes the expected block count as a parameter - can we avoid that?
         ChainShutdownMiners, // FIXME: miners.shutdown() says: Cannot shutdown miners: other references to Arc still exist
