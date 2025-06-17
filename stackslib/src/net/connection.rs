@@ -482,6 +482,9 @@ pub struct ConnectionOptions {
     /// Do not require that an unsolicited message originate from an authenticated, connected
     /// neighbor
     pub test_disable_unsolicited_message_authentication: bool,
+
+    /// max execution time of readonly calls when cost tracking is disabled
+    pub read_only_max_execution_time_secs: u64,
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -592,6 +595,8 @@ impl std::default::Default for ConnectionOptions {
 
             // no test facilitations on by default
             test_disable_unsolicited_message_authentication: false,
+
+            read_only_max_execution_time_secs: 30,
         }
     }
 }

@@ -14,12 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::Duration;
+
 use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
+use clarity::vm::costs::{CostErrors, ExecutionCost, LimitedCostTracker};
+use clarity::vm::errors::Error as ClarityRuntimeError;
 use clarity::vm::errors::Error::Unchecked;
-use clarity::vm::errors::{Error as ClarityRuntimeError, InterpreterError};
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, SymbolicExpression, Value};
@@ -68,10 +70,16 @@ pub struct RPCCallReadOnlyRequestHandler {
     pub sender: Option<PrincipalData>,
     pub sponsor: Option<PrincipalData>,
     pub arguments: Option<Vec<Value>>,
+
+    read_only_max_execution_time: Duration,
 }
 
 impl RPCCallReadOnlyRequestHandler {
-    pub fn new(maximum_call_argument_size: u32, read_only_call_limit: ExecutionCost) -> Self {
+    pub fn new(
+        maximum_call_argument_size: u32,
+        read_only_call_limit: ExecutionCost,
+        read_only_max_execution_time: Duration,
+    ) -> Self {
         Self {
             maximum_call_argument_size,
             read_only_call_limit,
@@ -80,6 +88,7 @@ impl RPCCallReadOnlyRequestHandler {
             sender: None,
             sponsor: None,
             arguments: None,
+            read_only_max_execution_time,
         }
     }
 }
@@ -184,6 +193,12 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
             }
         };
 
+        let cost_tracker = contents
+            .get_query_args()
+            .get("cost_tracker")
+            .map(|cost_tracker| cost_tracker.as_str().into())
+            .unwrap_or(CostTrackerRequest::Limited);
+
         let contract_identifier = self
             .contract_identifier
             .take()
@@ -216,20 +231,27 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                 cost_limit.write_length = 0;
                 cost_limit.write_count = 0;
 
+                let mut enforce_max_execution_time = false;
+
                 chainstate.maybe_read_only_clarity_tx(
                     &sortdb.index_handle_at_block(chainstate, &tip)?,
                     &tip,
                     |clarity_tx| {
                         let epoch = clarity_tx.get_epoch();
                         let cost_track = clarity_tx
-                            .with_clarity_db_readonly(|clarity_db| {
-                                LimitedCostTracker::new_mid_block(
+                            .with_clarity_db_readonly(|clarity_db| match cost_tracker {
+                                CostTrackerRequest::Limited => LimitedCostTracker::new_mid_block(
                                     mainnet, chain_id, cost_limit, clarity_db, epoch,
-                                )
+                                ),
+                                CostTrackerRequest::Free => {
+                                    enforce_max_execution_time = true;
+                                    Ok(LimitedCostTracker::new_free())
+                                }
+                                CostTrackerRequest::Invalid => {
+                                    Err(CostErrors::Expect("Invalid cost tracker".into()))
+                                }
                             })
-                            .map_err(|_| {
-                                ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
-                            })?;
+                            .map_err(|e| ClarityRuntimeError::from(e))?;
 
                         let clarity_version = clarity_tx
                             .with_analysis_db_readonly(|analysis_db| {
@@ -250,6 +272,13 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                             sponsor,
                             cost_track,
                             |env| {
+                                // cost tracking in read only calls is meamingful mainly from a security point of view
+                                // for this reason we enforce max_execution_time when cost tracking is disabled/free
+                                if enforce_max_execution_time {
+                                    env.global_context
+                                        .set_max_execution_time(self.read_only_max_execution_time);
+                                }
+
                                 // we want to execute any function as long as no actual writes are made as
                                 // opposed to be limited to purely calling `define-read-only` functions,
                                 // so use `read_only = false`.  This broadens the number of functions that
@@ -326,6 +355,38 @@ impl HttpResponse for RPCCallReadOnlyRequestHandler {
     }
 }
 
+/// All representations of the `cost_tracker=` query parameter value
+#[derive(Debug, Clone, PartialEq)]
+pub enum CostTrackerRequest {
+    Limited,
+    Free,
+    Invalid,
+}
+
+impl CostTrackerRequest {}
+
+impl std::fmt::Display for CostTrackerRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Limited => write!(f, "limited"),
+            Self::Free => write!(f, "free"),
+            Self::Invalid => write!(f, "invalid"),
+        }
+    }
+}
+
+impl From<&str> for CostTrackerRequest {
+    fn from(s: &str) -> CostTrackerRequest {
+        if s == "limited" || s == "" {
+            CostTrackerRequest::Limited
+        } else if s == "free" {
+            CostTrackerRequest::Free
+        } else {
+            CostTrackerRequest::Invalid
+        }
+    }
+}
+
 impl StacksHttpRequest {
     /// Make a new request to run a read-only function
     pub fn new_callreadonlyfunction(
@@ -337,6 +398,7 @@ impl StacksHttpRequest {
         function_name: ClarityName,
         function_args: Vec<Value>,
         tip_req: TipRequest,
+        cost_tracker: CostTrackerRequest,
     ) -> StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
@@ -345,14 +407,17 @@ impl StacksHttpRequest {
                 "/v2/contracts/call-read/{}/{}/{}",
                 &contract_addr, &contract_name, &function_name
             ),
-            HttpRequestContents::new().for_tip(tip_req).payload_json(
-                serde_json::to_value(CallReadOnlyRequestBody {
-                    sender: sender.to_string(),
-                    sponsor: sponsor.map(|s| s.to_string()),
-                    arguments: function_args.into_iter().map(|v| v.to_string()).collect(),
-                })
-                .expect("FATAL: failed to encode infallible data"),
-            ),
+            HttpRequestContents::new()
+                .for_tip(tip_req)
+                .query_arg("cost_tracker".to_string(), cost_tracker.to_string())
+                .payload_json(
+                    serde_json::to_value(CallReadOnlyRequestBody {
+                        sender: sender.to_string(),
+                        sponsor: sponsor.map(|s| s.to_string()),
+                        arguments: function_args.into_iter().map(|v| v.to_string()).collect(),
+                    })
+                    .expect("FATAL: failed to encode infallible data"),
+                ),
         )
         .expect("FATAL: failed to construct request from infallible data")
     }
