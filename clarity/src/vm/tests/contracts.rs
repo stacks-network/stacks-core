@@ -747,6 +747,9 @@ fn test_simple_contract_call(epoch: StacksEpochId, mut env_factory: MemoryEnviro
     }
 }
 
+// Test not valid for clarity-wasm runtime
+// Contracts would error in the static analysis pass.
+#[cfg(not(feature = "clarity-wasm"))]
 #[apply(test_epochs)]
 fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
