@@ -29,6 +29,7 @@ ENV PROJECT_ROOT=/project_root \
     TEMP_DIR=/tmp/stacks-config-docs/doc-generation \
     EXTRACT_DOCS_BIN=/build/target/release/extract-docs \
     GENERATE_MARKDOWN_BIN=/build/target/release/generate-markdown \
+    OUTPUT_DIR=/project_root/target/generated-docs \
     SKIP_BUILD=true
 
 # Create the Docker-specific temp directory

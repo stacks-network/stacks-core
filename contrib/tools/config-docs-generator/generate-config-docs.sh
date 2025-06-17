@@ -11,8 +11,8 @@ NC='\033[0m' # No Color
 # Configuration - Allow environment variable overrides
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$SCRIPT_DIR/../../../" && pwd)}"
-OUTPUT_DIR="$PROJECT_ROOT/docs/generated"
 CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PROJECT_ROOT/target}"
+OUTPUT_DIR="${OUTPUT_DIR:-$CARGO_TARGET_DIR/generated-docs}"
 TEMP_DIR="${TEMP_DIR:-$CARGO_TARGET_DIR/doc-generation}"
 
 # Binary paths - allow override via environment
