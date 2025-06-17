@@ -11929,8 +11929,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     info!("------------------------- Miner 2 Submits a Block Commit -------------------------");
     miners.submit_commit_miner_2(&sortdb);
 
-    info!("------------------------- Pause Miner 2's Block Mining -------------------------");
-    TEST_MINE_STALL.set(true);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2]);
 
     info!("------------------------- Mine Tenure -------------------------");
     miners
@@ -11946,7 +11945,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     info!("------------------------- Miner 2 Mines Block N+1 -------------------------");
 
     test_observer::clear();
-    TEST_MINE_STALL.set(false);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
     let miner_2_block_n_1 = wait_for_block_pushed_by_miner_key(30, block_n_height + 1, &miner_pk_2)
         .expect("Failed to get block N+1");
 
@@ -11956,10 +11955,12 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     );
 
     info!("------------------------- Miner 1 Wins the Next Tenure, Mines N+1' -------------------------");
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2]);
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 30)
         .expect("Failed to mine BTC block");
 
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
     let miner_1_block_n_1_prime =
         wait_for_block_pushed_by_miner_key(30, block_n_height + 1, &miner_pk_1)
             .expect("Failed to get block N+1'");
