@@ -276,6 +276,18 @@ impl SignerTrait<SignerMessage> for Signer {
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
         }
 
+        // See if we capitulate our viewpoint...
+        let version = self.get_signer_protocol_version();
+        self.local_state_machine.capitulate_viewpoint(
+            stacks_client,
+            &mut self.signer_db,
+            &mut self.global_state_evaluator,
+            version,
+            self.reward_cycle,
+            self.capitulate_tenure_timeout,
+            self.proposal_config.tenure_last_block_proposal_timeout,
+        );
+
         if prior_state != self.local_state_machine {
             let version = self.get_signer_protocol_version();
             self.local_state_machine
@@ -322,18 +334,6 @@ impl SignerTrait<SignerMessage> for Signer {
 
         self.check_submitted_block_proposal();
         self.check_pending_block_validations(stacks_client);
-
-        // See if we capitulate our viewpoint...
-        let version = self.get_signer_protocol_version();
-        self.local_state_machine.capitulate_viewpoint(
-            stacks_client,
-            &mut self.signer_db,
-            &mut self.global_state_evaluator,
-            version,
-            self.reward_cycle,
-            self.capitulate_tenure_timeout,
-            self.proposal_config.tenure_last_block_proposal_timeout,
-        );
 
         if prior_state != self.local_state_machine {
             let version = self.get_signer_protocol_version();
