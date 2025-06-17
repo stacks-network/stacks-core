@@ -91,7 +91,7 @@ is that the miner chooses, but you can decide which with the following options:
   --microblock-only  indicates to mine this transaction only in a microblock
   --block-only       indicates to mine this transaction only in a block
 
-The use of post-conditions in the contract can be controlled with the following option:
+The post-condition mode for the transaction can be controlled with the following option:
   
   --postcondition-mode  indicates the post-condition mode for the contract. Allowed values: [`allow`, `deny`]. Default: `deny`.
 ";
