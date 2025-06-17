@@ -2,6 +2,7 @@ mod context;
 
 mod bitcoin_mining;
 mod block_commit;
+mod block_verify;
 mod block_wait;
 mod boot;
 mod commit_ops;
@@ -10,14 +11,16 @@ mod sortition;
 mod stacks_mining;
 mod transfer;
 
-pub use bitcoin_mining::MineBitcoinBlock;
-pub use block_commit::SubmitBlockCommitMiner2;
-pub use block_wait::{WaitForTenureChangeBlockFromMiner1, WaitForTenureChangeBlockFromMiner2};
-pub use boot::BootToEpoch3;
-pub use commit_ops::{SkipCommitOpMiner1, SkipCommitOpMiner2};
-pub use context::SignerTestContext;
-pub use shutdown::ShutdownMiners;
-pub use sortition::{
-    VerifyLastSortitionWinnerReorged, VerifyMiner1WonSortition, VerifyMiner2WonSortition,
+pub use bitcoin_mining::{ChainGenerateBitcoinBlocks, MinerMineBitcoinBlocks};
+pub use block_commit::MinerSubmitNakaBlockCommit;
+pub use block_verify::ChainVerifyMinerNakaBlockCount;
+pub use block_wait::{
+    ChainExpectNakaBlock, ChainExpectNakaBlockProposal, ChainExpectStacksTenureChange,
 };
-pub use stacks_mining::{PauseStacksMining, ResumeStacksMining};
+pub use boot::ChainBootToEpoch3;
+pub use commit_ops::ChainMinerCommitOp;
+pub use context::SignerTestContext;
+pub use shutdown::ChainShutdownMiners;
+pub use sortition::{ChainExpectSortitionWinner, ChainVerifyLastSortitionWinnerReorged};
+pub use stacks_mining::ChainStacksMining;
+pub use transfer::MinerSendAndMineStacksTransferTx;
