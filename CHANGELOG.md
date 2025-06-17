@@ -10,6 +10,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 - Added a new RPC endpoint `/v3/health` to query the node's health status. The endpoint returns a 200 status code with relevant synchronization information (including the node's current Stacks tip height, the maximum Stacks tip height among its neighbors, and the difference between these two). A user can use the `difference_from_max_peer` value to decide what is a good threshold for them before considering the node out of sync. The endpoint returns a 500 status code if the query cannot retrieve viable data.
+- Added a new query string option for rpc readonly call (cost_tracker=) for allowing faster "free" cost tracking mode. When the "free" mode is enabled, max_execution_time is automatically activated (can be configured with the read_only_max_execution_time_secs connection option, default is 30 seconds)
 
 ### Changed
 
