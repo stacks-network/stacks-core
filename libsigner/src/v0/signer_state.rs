@@ -247,8 +247,8 @@ impl Default for ReplayTransactionSet {
 
 /// A signer state machine view. This struct can
 ///  be used to encode the local signer's view or
-///  the global view.
-#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq)]
+///  the global view
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
 pub struct SignerStateMachine {
     /// The tip burn block (i.e., the latest bitcoin block) seen by this signer
     pub burn_block: ConsensusHash,
