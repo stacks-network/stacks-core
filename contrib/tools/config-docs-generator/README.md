@@ -27,6 +27,13 @@ This approach:
 
 If you prefer to run without Docker:
 
+### Prerequisites
+
+- Rust nightly toolchain (install with `rustup toolchain install nightly`)
+- jq (install with `apt-get install jq`)
+
+### Steps
+
 ```bash
 # Install nightly toolchain if needed
 rustup toolchain install nightly
