@@ -229,7 +229,7 @@ impl LocalStateMachine {
 
         if elapsed > proposal_config.block_proposal_timeout {
             info!(
-                "Tenure miner was inactive too long and timed out";
+                "Signer State: Tenure miner was inactive too long and timed out";
                 "tenure_ch" => %sortition,
                 "elapsed_inactive" => elapsed.as_secs(),
                 "config_block_proposal_timeout" => proposal_config.block_proposal_timeout.as_secs()
@@ -267,7 +267,7 @@ impl LocalStateMachine {
             .ok()
             .flatten();
         let Some(last_sortition) = last_sortition else {
-            warn!("Current miner timed out due to inactivity, but could not find a valid prior miner. Allowing current miner to continue");
+            warn!("Signer State: Current miner timed out due to inactivity, but could not find a valid prior miner. Allowing current miner to continue");
             return Ok(());
         };
 
@@ -278,7 +278,7 @@ impl LocalStateMachine {
                 Self::make_miner_state(last_sortition, client, db, proposal_config)?;
             state_machine.update_time = UpdateTime::now();
             info!(
-                "Current tenure timed out, setting the active miner to the prior tenure";
+                "Signer State: Current tenure timed out, setting the active miner to the prior tenure";
                 "inactive_tenure_ch" => %inactive_tenure_ch,
                 "new_active_tenure_ch" => %new_active_tenure_ch
             );
@@ -289,7 +289,7 @@ impl LocalStateMachine {
 
             Ok(())
         } else {
-            warn!("Current miner timed out due to inactivity, but prior miner is not valid. Allowing current miner to continue");
+            warn!("Signer State: Current miner timed out due to inactivity, but prior miner is not valid. Allowing current miner to continue");
             Ok(())
         }
     }
@@ -307,7 +307,7 @@ impl LocalStateMachine {
             .get_tenure_tip(&next_parent_tenure_id)
             .inspect_err(|e| {
                 warn!(
-                    "Failed to fetch last block in parent tenure from stacks-node";
+                    "Signer State: Failed to fetch last block in parent tenure from stacks-node";
                     "parent_tenure_id" => %sortition_to_set.parent_tenure_id,
                     "err" => ?e,
                 )
@@ -404,14 +404,14 @@ impl LocalStateMachine {
                     }
                 }
                 Ok(None) => {
-                    info!("Signer state: got a new block during replay that wasn't validated by our replay set. Clearing the local replay set.";
+                    info!("Signer State: got a new block during replay that wasn't validated by our replay set. Clearing the local replay set.";
                         "txs" => ?txs,
                     );
                     prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
                     prior_state_machine.update_time = UpdateTime::now()
                 }
                 Err(e) => {
-                    warn!("Failed to check if block was validated by replay tx";
+                    warn!("Signer State: Failed to check if block was validated by replay tx";
                         "err" => ?e,
                         "signer_signature_hash" => %signer_signature_hash,
                     );
@@ -603,7 +603,7 @@ impl LocalStateMachine {
             if is_last_valid {
                 Self::make_miner_state(last_sortition, client, db, proposal_config)?
             } else {
-                warn!("Neither the current nor the prior sortition winner is considered a valid tenure");
+                warn!("Signer State: Neither the current nor the prior sortition winner is considered a valid tenure");
                 MinerState::NoValidMiner
             }
         };
@@ -652,40 +652,18 @@ impl LocalStateMachine {
             .determine_latest_supported_signer_protocol_version()
             .unwrap_or(old_protocol_version);
 
-        let (burn_block, burn_block_height, current_miner, tx_replay_set) =
-            match &local_update.content {
-                StateMachineUpdateContent::V0 {
-                    burn_block,
-                    burn_block_height,
-                    current_miner,
-                    ..
-                } => (
-                    burn_block,
-                    burn_block_height,
-                    current_miner,
-                    ReplayTransactionSet::none(),
-                ),
-                StateMachineUpdateContent::V1 {
-                    burn_block,
-                    burn_block_height,
-                    current_miner,
-                    replay_transactions,
-                } => (
-                    burn_block,
-                    burn_block_height,
-                    current_miner,
-                    ReplayTransactionSet::new(replay_transactions.clone()),
-                ),
-            };
-
         if active_signer_protocol_version != old_protocol_version {
-            info!("Updating active signer protocol version from {old_protocol_version} to {active_signer_protocol_version}");
+            info!("Signer State: Updating active signer protocol version from {old_protocol_version} to {active_signer_protocol_version}");
             crate::monitoring::actions::increment_signer_agreement_state_change_reason(
                 crate::monitoring::SignerAgreementStateChangeReason::ProtocolUpgrade,
             );
+            let (burn_block, burn_block_height) = local_update.content.burn_block_view();
+            let current_miner = local_update.content.current_miner();
+            let tx_replay_set = local_update.content.tx_replay_set();
+
             *self = Self::Initialized(SignerStateMachine {
                 burn_block: *burn_block,
-                burn_block_height: *burn_block_height,
+                burn_block_height,
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
                 tx_replay_set,
@@ -707,45 +685,26 @@ impl LocalStateMachine {
             return;
         };
 
-        let (burn_block, burn_block_height, current_miner, tx_replay_set) =
-            match local_update.content {
-                StateMachineUpdateContent::V0 {
-                    burn_block,
-                    burn_block_height,
-                    current_miner,
-                    ..
-                } => (
-                    burn_block,
-                    burn_block_height,
-                    current_miner,
-                    ReplayTransactionSet::none(),
-                ),
-                StateMachineUpdateContent::V1 {
-                    burn_block,
-                    burn_block_height,
-                    current_miner,
-                    replay_transactions,
-                } => (
-                    burn_block,
-                    burn_block_height,
-                    current_miner,
-                    ReplayTransactionSet::new(replay_transactions.clone()),
-                ),
-            };
+        let (burn_block, burn_block_height) = local_update.content.burn_block_view();
+        let current_miner = local_update.content.current_miner();
+        let tx_replay_set = local_update.content.tx_replay_set();
 
-        if current_miner != new_miner {
-            info!("Capitulating local state machine's current miner viewpoint";
+        if current_miner != &new_miner {
+            info!("Signer State: Capitulating local state machine's current miner viewpoint";
                 "current_miner" => ?current_miner,
                 "new_miner" => ?new_miner,
+                "burn_block" => %burn_block,
+                "burn_block_height" => burn_block_height,
+                "tx_replay_set" => ?tx_replay_set,
             );
             crate::monitoring::actions::increment_signer_agreement_state_change_reason(
                 crate::monitoring::SignerAgreementStateChangeReason::MinerViewUpdate,
             );
-            Self::monitor_miner_parent_tenure_update(&current_miner, &new_miner);
+            Self::monitor_miner_parent_tenure_update(current_miner, &new_miner);
             Self::monitor_capitulation_latency(signerdb, reward_cycle);
 
             *self = Self::Initialized(SignerStateMachine {
-                burn_block,
+                burn_block: *burn_block,
                 burn_block_height,
                 current_miner: (&new_miner).into(),
                 active_signer_protocol_version,
@@ -784,15 +743,20 @@ impl LocalStateMachine {
         eval.insert_update(local_address, local_update.clone());
 
         // Determine the current burn block from the local update
-        let current_burn_block = match local_update.content {
-            StateMachineUpdateContent::V0 { burn_block, .. }
-            | StateMachineUpdateContent::V1 { burn_block, .. } => burn_block,
-        };
+        let (current_burn_block, current_burn_block_height) =
+            local_update.content.burn_block_view();
 
         // Determine the global burn view
-        let (global_burn_view, _) = eval.determine_global_burn_view()?;
-        if current_burn_block != global_burn_view {
+        let (global_burn_view, global_burn_block_height) = eval.determine_global_burn_view()?;
+        if *current_burn_block != global_burn_view {
             // We don't have the majority's burn block yet...will have to wait
+            debug!(
+                "Signer State: Burn block mismatch. Cannot capitulate.";
+                "current_burn_block" => %current_burn_block,
+                "current_burn_block_height" => current_burn_block_height,
+                "global_burn_block" => %current_burn_block,
+                "global_burn_block_height" => global_burn_block_height,
+            );
             crate::monitoring::actions::increment_signer_agreement_state_conflict(
                 crate::monitoring::SignerAgreementStateConflict::BurnBlockDelay,
             );
@@ -806,21 +770,11 @@ impl LocalStateMachine {
             let Some(weight) = eval.address_weights.get(address) else {
                 continue;
             };
-            let (burn_block, miner_state) = match &update.content {
-                StateMachineUpdateContent::V0 {
-                    burn_block,
-                    current_miner,
-                    ..
-                }
-                | StateMachineUpdateContent::V1 {
-                    burn_block,
-                    current_miner,
-                    ..
-                } => (burn_block, current_miner),
-            };
+            let (burn_block, _) = update.content.burn_block_view();
             if *burn_block != global_burn_view {
                 continue;
             }
+            let miner_state = update.content.current_miner();
             let StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. } = miner_state else {
                 // Only consider potential active miners
                 continue;
@@ -845,7 +799,7 @@ impl LocalStateMachine {
                     potential_matches.push((block.block_height, miner_state));
                 }
                 Err(e) => {
-                    warn!("Error retrieving burn block for consensus_hash {tenure_id} from signerdb: {e}");
+                    warn!("Signer State: Error retrieving burn block for consensus_hash {tenure_id} from signerdb: {e}");
                 }
             }
         }
@@ -931,7 +885,7 @@ impl LocalStateMachine {
         }
         if is_in_tx_replay_mode {
             // TODO: handle fork while still in replay
-            info!("Detected bitcoin fork while in replay mode, will not try to handle the fork");
+            info!("Signer State: Detected bitcoin fork while in replay mode, will not try to handle the fork");
             return Ok(None);
         }
         info!("Signer State: fork detected";
@@ -981,7 +935,7 @@ impl LocalStateMachine {
             block_rc == current_reward_cycle
         });
         if !is_fork_in_current_reward_cycle {
-            info!("Detected bitcoin fork occurred in previous reward cycle. Tx replay won't be executed");
+            info!("Signer State: Detected bitcoin fork occurred in previous reward cycle. Tx replay won't be executed");
             return Ok(None);
         }
 
