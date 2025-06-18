@@ -1243,9 +1243,9 @@ mod test {
     }
 
     #[test]
-    fn test_contract_call_with_serialized_arg_from_file_fails_due_to_content() {
-        //Scenerio 01: Bad hex string but (good except for the \n)
+    fn test_contract_call_with_serialized_arg_from_file_fails_due_to_bad_hex() {
         let mut file = NamedTempFile::new().expect("Cannot create tempfile!");
+        // Bad hex string but (good except for the \n)
         write!(file, "0000000000000000000000000000000001\n").expect("Cannot Write to temp file");
         let file_path = file.path().to_str().unwrap();
 
@@ -1266,9 +1266,12 @@ mod test {
 
         let expected_msg = "Failed to deserialize: Deserialization error: Bad hex string";
         assert_eq!(expected_msg, result.unwrap_err().to_string());
+    }
 
-        //Scenerio 02: short buffer
+    #[test]
+    fn test_contract_call_with_serialized_arg_from_file_fails_due_to_short_buffer() {
         let mut file = NamedTempFile::new().expect("Cannot create tempfile!");
+        // hex buffer is short
         write!(file, "0101").expect("Cannot Write to temp file");
         let file_path = file.path().to_str().unwrap();
 
