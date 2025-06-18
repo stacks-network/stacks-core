@@ -638,6 +638,7 @@ impl LocalStateMachine {
     }
 
     /// Updates the local state machine's viewpoint as necessary based on the global state
+    #[allow(clippy::too_many_arguments)]
     pub fn capitulate_viewpoint(
         &mut self,
         signerdb: &mut SignerDb,
