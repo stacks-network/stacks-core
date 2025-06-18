@@ -2721,6 +2721,13 @@ fn test_filter_txs_by_type() {
         },
     );
 
+    // NextNonceWithHighestFeeRate tracks processed txs in the `considered_txs` table.
+    // We need to clear this tracking so that the following call can re-consider
+    // the previously processed transactions.
+    mempool
+        .reset_mempool_caches()
+        .expect("Should be able to reset nonces");
+
     mempool_settings.txs_to_consider = [MemPoolWalkTxTypes::TokenTransfer].into_iter().collect();
 
     chainstate.with_read_only_clarity_tx(

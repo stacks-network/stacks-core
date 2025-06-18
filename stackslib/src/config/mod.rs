@@ -1236,229 +1236,242 @@ impl std::default::Default for Config {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct BurnchainConfig {
     /// The underlying blockchain used for Proof-of-Transfer.
-    /// Currently, only `"bitcoin"` is supported.
-    ///
-    /// Default: `"bitcoin"`
+    /// ---
+    /// @default: `"bitcoin"`
+    /// @notes:
+    ///   - Currently, only `"bitcoin"` is supported.
     pub chain: String,
     /// The operational mode or network profile for the Stacks node.
     /// This setting determines network parameters (like chain ID, peer version),
     /// default configurations, genesis block definitions, and overall node behavior.
     ///
     /// Supported values:
-    /// ```text
-    /// | Mode            | Network Type |
-    /// |-----------------|--------------|
-    /// | "mainnet"       | mainnet      |
-    /// | "xenon"         | testnet      |
-    /// | "mocknet"       | regtest      |
-    /// | "helium"        | regtest      |
-    /// | "neon"          | regtest      |
-    /// | "argon"         | regtest      |
-    /// | "krypton"       | regtest      |
-    /// | "nakamoto-neon" | regtest      |
-    /// ```
-    ///
-    /// Default: `"mocknet"`
+    /// - `"mainnet"`: mainnet
+    /// - `"xenon"`: testnet
+    /// - `"mocknet"`: regtest
+    /// - `"helium"`: regtest
+    /// - `"neon"`: regtest
+    /// - `"argon"`: regtest
+    /// - `"krypton"`: regtest
+    /// - `"nakamoto-neon"`: regtest
+    /// ---
+    /// @default: `"mocknet"`
     pub mode: String,
     /// The network-specific identifier used in P2P communication and database initialization.
-    /// Derived from `mode` during config load, unless explicitly overridden (for test purposes).
-    ///
-    /// **Warning:** Do not modify this unless you really know what you're doing.
-    /// This is intended strictly for testing purposes.
-    ///
-    /// Default: Derived from [`BurnchainConfig::mode`] ([`CHAIN_ID_MAINNET`] for `mainnet`, [`CHAIN_ID_TESTNET`] otherwise).
+    /// ---
+    /// @default: |
+    ///   - if [`BurnchainConfig::mode`] is `"mainnet"`: [`CHAIN_ID_MAINNET`]
+    ///   - else: [`CHAIN_ID_TESTNET`]
+    /// @notes:
+    ///   - **Warning:** Do not modify this unless you really know what you're doing.
+    ///   - This is intended strictly for testing purposes.
     pub chain_id: u32,
     /// The peer protocol version number used in P2P communication.
     /// This parameter cannot be set via the configuration file.
-    ///
-    /// **Warning:** Do not modify this unless you really know what you're doing.
-    ///
-    /// Default: Derived from [`BurnchainConfig::mode`] ([`PEER_VERSION_MAINNET`] for `mainnet`, [`PEER_VERSION_TESTNET`] otherwise).
+    /// ---
+    /// @default: |
+    ///   - if [`BurnchainConfig::mode`] is `"mainnet"`: [`PEER_VERSION_MAINNET`]
+    ///   - else: [`PEER_VERSION_TESTNET`]
+    /// @notes:
+    ///   - **Warning:** Do not modify this unless you really know what you're doing.
     pub peer_version: u32,
     /// Specifies a mandatory wait period (in milliseconds) after receiving a burnchain tip
     /// before the node attempts to build the anchored block for the new tenure.
-    /// This duration effectively schedules the start of the block-building
-    /// process relative to the tip's arrival time.
-    ///
-    /// This is intended strictly for testing purposes.
-    ///
-    /// Default: `5000` milliseconds.
-    ///          `10000` milliseconds when launched with the `helium` or `mocknet` subcommands.
+    /// This duration effectively schedules the start of the block-building process
+    /// relative to the tip's arrival time.
+    /// ---
+    /// @default: `5_000`
+    /// @units: milliseconds
+    /// @notes:
+    ///   - This is intended strictly for testing purposes.
     pub commit_anchor_block_within: u64,
-    /// The maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election.
-    /// Acts as a safety cap to limit the maximum amount spent on mining.
-    /// It serves as both the target fee and a fallback if dynamic fee calculations fail or cannot be performed.
+    /// The maximum amount (in sats) of "burn commitment" to broadcast for the next
+    /// block's leader election. Acts as a safety cap to limit the maximum amount
+    /// spent on mining. It serves as both the target fee and a fallback if dynamic
+    /// fee calculations fail or cannot be performed.
     ///
-    /// This setting can be hot-reloaded from the config file, allowing adjustment without restarting.
-    ///
-    /// Only relevant if [`NodeConfig::miner`] is `true`.
-    ///
-    /// Default: `20000` satoshis
+    /// This setting can be hot-reloaded from the config file, allowing adjustment
+    /// without restarting.
+    /// ---
+    /// @default: `20_000`
+    /// @units: satoshis
+    /// @notes:
+    ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub burn_fee_cap: u64,
     /// The hostname or IP address of the bitcoin node peer.
     ///
-    /// This field is required for all node configurations as it specifies where to find the underlying
-    /// bitcoin node to interact with for PoX operations, block validation, and mining.
-    ///
-    /// Default: `"0.0.0.0"`
+    /// This field is required for all node configurations as it specifies where to
+    /// find the underlying bitcoin node to interact with for PoX operations,
+    /// block validation, and mining.
+    /// ---
+    /// @default: `"0.0.0.0"`
     pub peer_host: String,
     /// The P2P network port of the bitcoin node specified by [`BurnchainConfig::peer_host`].
-    ///
-    /// Default: `8333`
+    /// ---
+    /// @default: `8333`
     pub peer_port: u16,
     /// The RPC port of the bitcoin node specified by [`BurnchainConfig::peer_host`].
-    ///
-    /// Default: `8332`
+    /// ---
+    /// @default: `8332`
     pub rpc_port: u16,
-    /// Flag indicating whether to use SSL/TLS when connecting to the bitcoin node's RPC interface.
-    ///
-    /// Default: `false`
+    /// Flag indicating whether to use SSL/TLS when connecting to the bitcoin node's
+    /// RPC interface.
+    /// ---
+    /// @default: `false`
     pub rpc_ssl: bool,
     /// The username for authenticating with the bitcoin node's RPC interface.
     /// Required if the bitcoin node requires RPC authentication.
-    ///
-    /// Only relevant if [`NodeConfig::miner`] is `true`.
-    ///
-    /// Default: `None`
+    /// ---
+    /// @default: `None`
+    /// @notes:
+    ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub username: Option<String>,
     /// The password for authenticating with the bitcoin node's RPC interface.
     /// Required if the bitcoin node requires RPC authentication.
-    ///
-    /// Only relevant if [`NodeConfig::miner`] is `true`.
-    ///
-    /// Default: `None`
+    /// ---
+    /// @default: `None`
+    /// @notes:
+    ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub password: Option<String>,
     /// Timeout duration, in seconds, for RPC calls made to the bitcoin node.
     /// Configures the timeout on the underlying HTTP client.
-    ///
-    /// Default: `60` seconds
+    /// ---
+    /// @default: `60`
+    /// @units: seconds
     pub timeout: u32,
-    /// The network "magic bytes" used to identify packets for the specific bitcoin network instance
-    /// (e.g., mainnet, testnet, regtest). Must match the magic bytes of the connected bitcoin node.
+    /// The network "magic bytes" used to identify packets for the specific bitcoin
+    /// network instance (e.g., mainnet, testnet, regtest). Must match the magic
+    /// bytes of the connected bitcoin node.
     ///
-    /// These two-byte identifiers help ensure that nodes only connect to peers on the same network type.
-    /// Common values include:
+    /// These two-byte identifiers help ensure that nodes only connect to peers on the
+    /// same network type. Common values include:
     /// - "X2" for mainnet
     /// - "T2" for testnet (xenon)
     /// - Other values for specific test networks
     ///
     /// Configured as a 2-character ASCII string (e.g., "X2" for mainnet).
-    ///
-    /// Default: [`BLOCKSTACK_MAGIC_MAINNET`] (corresponds to "X2") unless overridden by [`BurnchainConfig::mode`] (e.g., "T2" for testnet (xenon)).
+    /// ---
+    /// @default: |
+    ///   - if [`BurnchainConfig::mode`] is `"xenon"`: `"T2"`
+    ///   - else: `"X2"`
     pub magic_bytes: MagicBytes,
-    /// The public key associated with the local mining address for the underlying Bitcoin regtest node.
-    /// Provided as a hex string representing an uncompressed public key.
+    /// The public key associated with the local mining address for the underlying
+    /// Bitcoin regtest node. Provided as a hex string representing an uncompressed
+    /// public key.
     ///
-    /// It is primarily used in modes that rely on a controlled Bitcoin regtest backend
-    /// (e.g., "helium", "mocknet", "neon") where the Stacks node itself needs to
-    /// instruct the Bitcoin node to generate blocks.
+    /// It is primarily used in modes that rely on a controlled Bitcoin regtest
+    /// backend (e.g., "helium", "mocknet", "neon") where the Stacks node itself
+    /// needs to instruct the Bitcoin node to generate blocks.
     ///
-    /// The key is used to derive the Bitcoin address that receives the coinbase rewards
-    /// when generating blocks on the regtest network.
-    ///
-    /// Mandatory if [`BurnchainConfig::mode`] is "helium".
-    /// This is intended strictly for testing purposes.
-    ///
-    /// Default: `None`
+    /// The key is used to derive the Bitcoin address that receives the coinbase
+    /// rewards when generating blocks on the regtest network.
+    /// ---
+    /// @default: `None`
+    /// @notes:
+    ///   - Mandatory if [`BurnchainConfig::mode`] is "helium".
+    ///   - This is intended strictly for testing purposes.
     pub local_mining_public_key: Option<String>,
-    /// Optional bitcoin block height at which the Stacks node process should gracefully exit.
-    /// When bitcoin reaches this height, the node logs a message and initiates a graceful shutdown.
-    ///
-    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
-    /// This is intended strictly for testing purposes.
-    ///
-    /// Default: `None`
+    /// Optional bitcoin block height at which the Stacks node process should
+    /// gracefully exit. When bitcoin reaches this height, the node logs a message
+    /// and initiates a graceful shutdown.
+    /// ---
+    /// @default: `None`
+    /// @notes:
+    ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    ///   - This is intended strictly for testing purposes.
     pub process_exit_at_block_height: Option<u64>,
-    /// The interval, in seconds, at which the node polls the bitcoin node for new blocks and state updates.
+    /// The interval, in seconds, at which the node polls the bitcoin node for new
+    /// blocks and state updates.
     ///
     /// The default value of 10 seconds is mainly intended for testing purposes.
-    /// It's suggested to set this to a higher value for mainnet, e.g., 300 seconds (5 minutes).
-    ///
-    /// Default: `10` seconds
+    /// It's suggested to set this to a higher value for mainnet, e.g., 300 seconds
+    /// (5 minutes).
+    /// ---
+    /// @default: `10`
+    /// @units: seconds
     pub poll_time_secs: u64,
-    /// The default fee rate in satoshis per virtual byte (sats/vB) to use when estimating fees for miners
+    /// The default fee rate in sats/vByte to use when estimating fees for miners
     /// to submit bitcoin transactions (like block commits or leader key registrations).
-    ///
-    /// Only relevant if [`NodeConfig::miner`] is `true`.
-    ///
-    /// Default: [`DEFAULT_SATS_PER_VB`] (currently 50 satoshis per virtual byte)
+    /// ---
+    /// @default: [`DEFAULT_SATS_PER_VB`]
+    /// @units: sats/vByte
+    /// @notes:
+    ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub satoshis_per_byte: u64,
-    /// Maximum fee rate multiplier allowed when using Replace-By-Fee (RBF) for bitcoin transactions.
-    /// Expressed as a percentage of the original [`BurnchainConfig::satoshis_per_byte`] rate (e.g.,
-    /// 150 means the fee rate can be increased up to 1.5x). Used in mining logic for RBF decisions
-    /// to cap the replacement fee rate.
-    ///
-    /// Only relevant if [`NodeConfig::miner`] is `true`.
-    ///
-    /// Default: [`DEFAULT_MAX_RBF_RATE`] (currently 150, i.e., 1.5x)
+    /// Maximum fee rate multiplier allowed when using Replace-By-Fee (RBF) for
+    /// bitcoin transactions. Expressed as a percentage of the original
+    /// [`BurnchainConfig::satoshis_per_byte`] rate (e.g., 150 means the fee rate
+    /// can be increased up to 1.5x). Used in mining logic for RBF decisions to
+    /// cap the replacement fee rate.
+    /// ---
+    /// @default: [`DEFAULT_MAX_RBF_RATE`]
+    /// @units: percent
+    /// @notes:
+    ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub max_rbf: u64,
-    /// Estimated size (in virtual bytes) of a leader key registration transaction on bitcoin.
-    /// Used for fee calculation in mining logic by multiplying with the fee rate [`BurnchainConfig::satoshis_per_byte`].
-    ///
-    /// Only relevant if [`NodeConfig::miner`] is `true`.
-    ///
-    /// Default: [`OP_TX_LEADER_KEY_ESTIM_SIZE`] (currently 290)
+    /// Estimated size (in virtual bytes) of a leader key registration transaction
+    /// on bitcoin. Used for fee calculation in mining logic by multiplying with the
+    /// fee rate [`BurnchainConfig::satoshis_per_byte`].
+    /// ---
+    /// @default: [`OP_TX_LEADER_KEY_ESTIM_SIZE`]
+    /// @units: virtual bytes
+    /// @notes:
+    ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub leader_key_tx_estimated_size: u64,
     /// Estimated size (in virtual bytes) of a block commit transaction on bitcoin.
-    /// Used for fee calculation in mining logic by multiplying with the fee rate [`BurnchainConfig::satoshis_per_byte`].
-    ///
-    /// Only relevant if [`NodeConfig::miner`] is `true`.
-    ///
-    /// Default: [`OP_TX_BLOCK_COMMIT_ESTIM_SIZE`] (currently 380)
+    /// Used for fee calculation in mining logic by multiplying with the fee rate
+    /// [`BurnchainConfig::satoshis_per_byte`].
+    /// ---
+    /// @default: [`OP_TX_BLOCK_COMMIT_ESTIM_SIZE`]
+    /// @units: virtual bytes
+    /// @notes:
+    ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub block_commit_tx_estimated_size: u64,
-    /// The incremental amount (in Sats/vByte) to add to the previous transaction's
+    /// The incremental amount (in sats/vByte) to add to the previous transaction's
     /// fee rate for RBF bitcoin transactions.
-    ///
-    /// Only relevant if [`NodeConfig::miner`] is `true`.
-    ///
-    /// Default: [`DEFAULT_RBF_FEE_RATE_INCREMENT`] (currently 5 satoshis per virtual byte)
+    /// ---
+    /// @default: [`DEFAULT_RBF_FEE_RATE_INCREMENT`]
+    /// @units: sats/vByte
+    /// @notes:
+    ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub rbf_fee_increment: u64,
     /// Overrides the default starting bitcoin block height for the node.
     /// Allows starting synchronization from a specific historical point in test environments.
-    /// Should be used together with [`BurnchainConfig::first_burn_block_timestamp`] and [`BurnchainConfig::first_burn_block_hash`] for proper operation.
-    ///
-    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
-    /// This is intended strictly for testing purposes.
-    ///
-    /// Default: `None` (uses the burnchain's default starting height for the mode).
+    /// ---
+    /// @default: `None` (uses the burnchain's default starting height for the mode)
+    /// @notes:
+    ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    ///   - This is intended strictly for testing purposes.
+    ///   - Should be used together with [`BurnchainConfig::first_burn_block_timestamp`] and
+    ///     [`BurnchainConfig::first_burn_block_hash`] for proper operation.
     pub first_burn_block_height: Option<u64>,
     /// Overrides the default starting block timestamp of the burnchain.
-    /// Should be used together with [`BurnchainConfig::first_burn_block_height`] and [`BurnchainConfig::first_burn_block_hash`] for proper operation.
-    ///
-    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
-    /// This is intended strictly for testing purposes.
-    ///
-    /// Default: `None` (uses the burnchain's default starting timestamp).
+    /// ---
+    /// @default: `None` (uses the burnchain's default starting timestamp)
+    /// @notes:
+    ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    ///   - This is intended strictly for testing purposes.
+    ///   - Should be used together with [`BurnchainConfig::first_burn_block_height`] and
+    ///     [`BurnchainConfig::first_burn_block_hash`] for proper operation.
     pub first_burn_block_timestamp: Option<u32>,
     /// Overrides the default starting block hash of the burnchain.
-    /// Should be used together with [`BurnchainConfig::first_burn_block_timestamp`] and [`BurnchainConfig::first_burn_block_height`] for proper operation.
-    ///
-    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
-    /// This is intended strictly for testing purposes.
-    ///
-    /// Default: `None` (uses the burnchain's default starting block hash).
+    /// ---
+    /// @default: `None` (uses the burnchain's default starting block hash)
+    /// @notes:
+    ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    ///   - This is intended strictly for testing purposes.
+    ///   - Should be used together with [`BurnchainConfig::first_burn_block_height`] and
+    ///     [`BurnchainConfig::first_burn_block_timestamp`] for proper operation.
     pub first_burn_block_hash: Option<String>,
-    /// Custom override for the definitions of Stacks epochs (start/end burnchain heights, consensus rules).
-    /// This setting allows testing specific epoch transitions or custom consensus rules by defining exactly
-    /// when each epoch starts on bitcoin.
+    /// Custom override for the definitions of Stacks epochs (start/end burnchain
+    /// heights, consensus rules). This setting allows testing specific epoch
+    /// transitions or custom consensus rules by defining exactly when each epoch
+    /// starts on bitcoin.
     ///
-    /// **Configuration:**
-    /// Configured as a list `[[burnchain.epochs]]` in TOML, each with:
-    /// - `epoch_name`: A string identifying the epoch (e.g., `"1.0"`, `"2.05"`, `"3.1"`).
-    /// - `start_height`: The Bitcoin block height at which this epoch becomes active.
-    ///
-    /// Example TOML entry:
-    /// ```toml
-    /// [[burnchain.epochs]]
-    /// epoch_name = "2.1"
-    /// start_height = 150
-    /// ```
-    ///
-    /// **Details:**
-    /// Epochs define distinct protocol rule sets (consensus rules, execution costs, capabilities).
-    /// When configured, the list must include all epochs sequentially from "1.0" up to the
-    /// highest desired epoch, without skipping any intermediate ones.
-    /// Valid `epoch_name` values currently include:
+    /// Epochs define distinct protocol rule sets (consensus rules, execution costs,
+    /// capabilities). When configured, the list must include all epochs
+    /// sequentially from "1.0" up to the highest desired epoch, without skipping
+    /// any intermediate ones. Valid `epoch_name` values currently include:
     /// `"1.0"`, `"2.0"`, `"2.05"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"`, `"2.5"`, `"3.0"`, `"3.1"`.
     ///
     /// **Validation Rules:**
@@ -1466,11 +1479,21 @@ pub struct BurnchainConfig {
     /// - `start_height` values must be non-decreasing across the list.
     /// - Epoch `"1.0"` must have `start_height = 0`.
     /// - The number of defined epochs cannot exceed the maximum supported by the node software.
+    /// ---
+    /// @default: `None` (uses the standard epoch definitions for the selected [`BurnchainConfig::mode`])
+    /// @notes:
+    ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    ///   - This is intended strictly for testing purposes.
+    ///   - Configured as a list `[[burnchain.epochs]]` in TOML, each with `epoch_name` (string)
+    ///     and `start_height` (integer Bitcoin block height).
+    /// @toml_example: |
+    ///   [[burnchain.epochs]]
+    ///   epoch_name = "2.1"
+    ///   start_height = 150
     ///
-    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
-    /// This is intended strictly for testing purposes.
-    ///
-    /// Default: `None` (uses the standard epoch definitions for the selected `mode`).
+    ///   [[burnchain.epochs]]
+    ///   epoch_name = "2.2"
+    ///   start_height = 200
     pub epochs: Option<EpochList<ExecutionCost>>,
     /// Sets a custom burnchain height for PoX-2 activation (for testing).
     ///
@@ -1479,119 +1502,125 @@ pub struct BurnchainConfig {
     /// 2. The block height from which PoX reward set calculations switch to PoX v2 rules.
     ///
     /// **Behavior:**
-    /// - This value directly sets the auto unlock height for PoX v1 lockups before transition to PoX v2. This
-    ///   also defines the burn height at which PoX reward sets are calculated using PoX v2 rather than v1.
+    /// - This value directly sets the auto unlock height for PoX v1 lockups before
+    ///   transition to PoX v2. This also defines the burn height at which PoX reward
+    ///   sets are calculated using PoX v2 rather than v1.
     /// - If custom [`BurnchainConfig::epochs`] are provided:
     ///   - This value is used to validate that Epoch 2.1's start height is ≤ this value.
     ///   - However, the height specified in `epochs` for Epoch 2.1 takes precedence.
-    ///
-    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
-    /// This is intended strictly for testing purposes.
-    ///
-    /// Default: `None`.
+    /// ---
+    /// @default: `None`
+    /// @notes:
+    ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    ///   - This is intended strictly for testing purposes.
     pub pox_2_activation: Option<u32>,
     /// Overrides the length (in bitcoin blocks) of the PoX reward cycle.
-    ///
-    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
-    /// This is intended strictly for testing purposes.
-    ///
-    /// Default: `None` (uses the standard reward cycle length for the mode).
+    /// ---
+    /// @default: `None` (uses the standard reward cycle length for the mode)
+    /// @units: bitcoin blocks
+    /// @notes:
+    ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    ///   - This is intended strictly for testing purposes.
     pub pox_reward_length: Option<u32>,
     /// Overrides the length (in bitcoin blocks) of the PoX prepare phase.
-    ///
-    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
-    /// This is intended strictly for testing purposes.
-    ///
-    /// Default: `None` (uses the standard prepare phase length for the mode).
+    /// ---
+    /// @default: `None` (uses the standard prepare phase length for the mode)
+    /// @units: bitcoin blocks
+    /// @notes:
+    ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    ///   - This is intended strictly for testing purposes.
     pub pox_prepare_length: Option<u32>,
-    /// Overrides the bitcoin height at which the PoX sunset period begins in epochs before 2.1.
-    /// The sunset period represents a planned phase-out of the PoX mechanism. During this period,
-    /// stacking rewards gradually decrease, eventually ceasing entirely. This parameter allows
-    /// testing the PoX sunset transition by explicitly setting its start height.
-    ///
-    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
-    /// This is intended strictly for testing purposes.
-    ///
-    /// Default: `None` (uses the standard sunset start height for the mode).
-    /// Deprecated: The sunset phase was removed in Epoch 2.1. This parameter can still be used for testing purposes for epochs before 2.1.
+    /// Overrides the bitcoin height at which the PoX sunset period begins in epochs
+    /// before 2.1. The sunset period represents a planned phase-out of the PoX
+    /// mechanism. During this period, stacking rewards gradually decrease,
+    /// eventually ceasing entirely. This parameter allows testing the PoX sunset
+    /// transition by explicitly setting its start height.
+    /// ---
+    /// @default: `None` (uses the standard sunset start height for the mode)
+    /// @deprecated: The sunset phase was removed in Epoch 2.1.
+    /// @notes:
+    ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    ///   - This is intended strictly for testing purposes for epochs before 2.1.
     pub sunset_start: Option<u32>,
-    ///
-    /// Overrides the bitcoin height, non-inclusive, at which the PoX sunset period ends in epochs before 2.1.
-    /// After this height, Stacking rewards are disabled completely. This parameter works together
-    /// with `sunset_start` to define the full sunset transition period for PoX.
-    ///
-    /// Applied only if [`BurnchainConfig::mode`] is not "mainnet".
-    /// This is intended strictly for testing purposes.
-    ///
-    /// Default: `None` (uses the standard sunset end height for the mode).
-    /// Deprecated: The sunset phase was removed in Epoch 2.1. This parameter can still be used for testing purposes for epochs before 2.1.
+    /// Overrides the bitcoin height, non-inclusive, at which the PoX sunset period
+    /// ends in epochs before 2.1. After this height, Stacking rewards are disabled
+    /// completely. This parameter works together with `sunset_start` to define the
+    /// full sunset transition period for PoX.
+    /// ---
+    /// @default: `None` (uses the standard sunset end height for the mode)
+    /// @deprecated: The sunset phase was removed in Epoch 2.1.
+    /// @notes:
+    ///   - Applied only if [`BurnchainConfig::mode`] is not "mainnet".
+    ///   - This is intended strictly for testing purposes for epochs before 2.1.
     pub sunset_end: Option<u32>,
-    /// Specifies the name of the Bitcoin wallet to use within the connected bitcoin node.
-    /// Used to interact with a specific named wallet if the bitcoin node manages multiple wallets.
+    /// Specifies the name of the Bitcoin wallet to use within the connected bitcoin
+    /// node. Used to interact with a specific named wallet if the bitcoin node
+    /// manages multiple wallets.
     ///
-    /// If the specified wallet doesn't exist, the node will attempt to create it via the createwallet RPC call.
-    /// This is particularly useful for miners who need to manage separate wallets.
-    ///
-    /// Primarily relevant for miners interacting with multi-wallet Bitcoin nodes.
-    ///
-    /// Default: `""` (empty string, implying the default wallet or no specific wallet needed).
+    /// If the specified wallet doesn't exist, the node will attempt to create it via
+    /// the `createwallet` RPC call. This is particularly useful for miners who need
+    /// to manage separate wallets.
+    /// ---
+    /// @default: `""` (empty string, implying the default wallet or no specific wallet needed)
+    /// @notes:
+    ///   - Primarily relevant for miners interacting with multi-wallet Bitcoin nodes.
     pub wallet_name: String,
-    /// Override for the burnchain height activating stricter AST size checks pre-epoch 3.0 for testing purposes.
+    /// Override for the burnchain height activating stricter AST size checks
+    /// pre-epoch 3.0 for testing purposes.
     ///
-    /// Used pre-epoch 3.0 to control activation before it became standard (at burn height `752000`).
-    /// Ignored in standard production builds as the underlying mechanism is disabled unless the `testing` feature is active.
-    ///
-    /// Default: `None`.
-    /// Deprecated: This setting is ignored in Epoch 3.0+.
+    /// Used pre-epoch 3.0 to control activation before it became standard (at burn
+    /// height `752000`). Ignored in standard production builds as the underlying
+    /// mechanism is disabled unless the `testing` feature is active.
+    /// ---
+    /// @default: `None`
+    /// @deprecated: This setting is ignored in Epoch 3.0+.
     pub ast_precheck_size_height: Option<u64>,
     /// Overrides for the burnchain block affirmation map for specific reward cycles.
-    /// Allows manually setting the miner affirmation ('p'resent/'n'ot-present/'a'bsent) map for a
-    /// given cycle, bypassing the map normally derived from sortition results.
+    /// Allows manually setting the miner affirmation ('p'resent/'n'ot-present/'a'bsent)
+    /// map for a given cycle, bypassing the map normally derived from sortition results.
     ///
-    /// **Configuration:**
-    /// Configured as a list `[[burnchain.affirmation_overrides]]` in TOML, each with:
-    /// - `reward_cycle`: The cycle number to override.
-    /// - `affirmation`: The 'p'/'n'/'a' sequence representing the map. Must have length `reward_cycle - 1`.
-    ///
-    /// Example TOML:
-    /// ```toml
-    /// [[burnchain.affirmation_overrides]]
-    /// reward_cycle = 413
-    /// affirmation = "pna..." # Must be 412 chars long
-    /// ```
-    ///
-    /// **Details:**
-    /// Special defaults are added when [`BurnchainConfig::mode`] is "xenon" or the node
-    /// is launched with the `testnet` subcommand, but config entries take precedence.
-    /// At startup, these overrides are written to the `BurnchainDB` (`overrides` table).
-    /// Primarily used for testing or recovering from network issues.
-    ///
-    /// Default: Empty `HashMap`.
-    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
+    /// Special defaults are added when [`BurnchainConfig::mode`] is "xenon", but
+    /// config entries take precedence. At startup, these overrides are written to
+    /// the `BurnchainDB` (`overrides` table).
+    /// ---
+    /// @default: Empty map
+    /// @deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
+    /// @notes:
+    ///   - Primarily used for testing or recovering from network issues.
+    ///   - Configured as a list `[[burnchain.affirmation_overrides]]` in TOML, each with
+    ///     `reward_cycle` (integer) and `affirmation` (string of 'p'/'n'/'a', length `reward_cycle - 1`).
+    /// @toml_example: |
+    ///   [[burnchain.affirmation_overrides]]
+    ///   reward_cycle = 413
+    ///   affirmation = "pna..." # Must be 412 chars long
     pub affirmation_overrides: HashMap<u64, AffirmationMap>,
-    /// Fault injection setting for testing. Introduces an artificial delay (in milliseconds)
-    /// before processing each burnchain block download. Simulates a slow burnchain connection.
-    ///
-    /// This is intended strictly for testing purposes.
-    ///
-    /// Default: `0` (no delay).
+    /// Fault injection setting for testing. Introduces an artificial delay (in
+    /// milliseconds) before processing each burnchain block download. Simulates a
+    /// slow burnchain connection.
+    /// ---
+    /// @default: `0` (no delay)
+    /// @units: milliseconds
+    /// @notes:
+    ///   - This is intended strictly for testing purposes.
     pub fault_injection_burnchain_block_delay: u64,
-    /// The maximum number of unspent transaction outputs (UTXOs) to request from the bitcoin node.
+    /// The maximum number of unspent transaction outputs (UTXOs) to request from
+    /// the bitcoin node.
     ///
-    /// This value is passed as the `maximumCount` parameter to the bitcoin node. It helps manage
-    /// response size and processing load, particularly relevant for miners querying for available
-    /// UTXOs to fund operations like block commits or leader key registrations.
+    /// This value is passed as the `maximumCount` parameter to the bitcoin node.
+    /// It helps manage response size and processing load, particularly relevant
+    /// for miners querying for available UTXOs to fund operations like block
+    /// commits or leader key registrations.
     ///
-    /// Setting this limit too high might lead to performance issues or timeouts when querying
-    /// nodes with a very large number of UTXOs. Conversely, setting it too low might prevent
-    /// the miner from finding enough UTXOs in a single query to meet the required funding amount
-    /// for a transaction, even if sufficient funds exist across more UTXOs not returned by the limited query.
-    ///
-    /// This value must be `<= 1024`.
-    ///
-    /// Only relevant if [`NodeConfig::miner`] is `true`.
-    ///
-    /// Default: `Some(1024)`
+    /// Setting this limit too high might lead to performance issues or timeouts when
+    /// querying nodes with a very large number of UTXOs. Conversely, setting it too
+    /// low might prevent the miner from finding enough UTXOs in a single query to
+    /// meet the required funding amount for a transaction, even if sufficient funds
+    /// exist across more UTXOs not returned by the limited query.
+    /// ---
+    /// @default: `1024`
+    /// @notes:
+    ///   - This value must be `<= 1024`.
+    ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub max_unspent_utxos: Option<u64>,
 }
 
@@ -1994,114 +2023,136 @@ impl BurnchainConfigFile {
 
 #[derive(Clone, Debug)]
 pub struct NodeConfig {
-    /// Human-readable name for the node. Primarily used for identification in testing environments
-    /// (e.g., deriving log file names, temporary directory names).
-    ///
-    /// Default: `"helium-node"`
+    /// Human-readable name for the node. Primarily used for identification in testing
+    /// environments (e.g., deriving log file names, temporary directory names).
+    /// ---
+    /// @default: `"helium-node"`
     pub name: String,
     /// The node's Bitcoin wallet private key, provided as a hex string in the config file.
     /// Used to initialize the node's keychain for signing operations.
-    /// If `miner.mining_key` is not set, this seed may also be used for mining-related signing.
-    /// Required if [`NodeConfig::miner`] is `true` and [`MinerConfig::mining_key`] is absent.
-    ///
-    /// Default: Randomly generated 32 bytes.
+    /// If [`MinerConfig::mining_key`] is not set, this seed may also be used for
+    /// mining-related signing.
+    /// ---
+    /// @default: Randomly generated 32 bytes
+    /// @notes:
+    ///   - Required if [`NodeConfig::miner`] is `true` and [`MinerConfig::mining_key`] is absent.
     pub seed: Vec<u8>,
     /// The file system absolute path to the node's working directory.
-    /// All persistent data, including chainstate, burnchain databases, and potentially other stores,
-    /// will be located within this directory.
-    /// This path can be overridden by setting the `STACKS_WORKING_DIR` environment variable.
-    /// Note: For persistent mainnet or testnet nodes, this path must be explicitly
-    /// configured to a non-temporary location in the configuration file.
-    ///
-    /// Default: `/tmp/stacks-node-{current_timestamp}`.
+    /// All persistent data, including chainstate, burnchain databases, and potentially
+    /// other stores, will be located within this directory. This path can be
+    /// overridden by setting the `STACKS_WORKING_DIR` environment variable.
+    /// ---
+    /// @default: `/tmp/stacks-node-{current_timestamp}`
+    /// @notes:
+    ///   - For persistent mainnet or testnet nodes, this path must be explicitly
+    ///     configured to a non-temporary location.
     pub working_dir: String,
-    /// The IPv4 address and port (e.g., "0.0.0.0:20443") on which the node's HTTP RPC server
-    /// should bind and listen for incoming API requests.
-    ///
-    /// Default: `"0.0.0.0:20443"`
+    /// The IPv4 address and port (e.g., "0.0.0.0:20443") on which the node's HTTP RPC
+    /// server should bind and listen for incoming API requests.
+    /// ---
+    /// @default: `"0.0.0.0:20443"`
     pub rpc_bind: String,
-    /// The IPv4 address and port (e.g., "0.0.0.0:20444") on which the node's P2P networking
-    /// service should bind and listen for incoming connections from other peers.
-    ///
-    /// Default: `"0.0.0.0:20444"`
+    /// The IPv4 address and port (e.g., "0.0.0.0:20444") on which the node's P2P
+    /// networking service should bind and listen for incoming connections from other peers.
+    /// ---
+    /// @default: `"0.0.0.0:20444"`
     pub p2p_bind: String,
-    /// The publicly accessible URL that this node advertises to peers during the P2P handshake
-    /// as its HTTP RPC endpoint. Other nodes or services might use this URL to query the node's API.
-    ///
-    /// Default: `http://{rpc_bind}` (e.g., "http://0.0.0.0:20443" if rpc_bind is default).
+    /// The publicly accessible URL that this node advertises to peers during the P2P
+    /// handshake as its HTTP RPC endpoint. Other nodes or services might use this URL
+    /// to query the node's API.
+    /// ---
+    /// @default: Derived by adding "http://" prefix to [`NodeConfig::rpc_bind`] value.
+    /// @notes:
+    ///   - Example: For rpc_bind="0.0.0.0:20443", data_url becomes "http://0.0.0.0:20443".
     pub data_url: String,
-    /// The publicly accessible IPv4 address and port that this node advertises to peers for P2P connections.
-    /// This might differ from `p2p_bind` if the node is behind NAT or a proxy.
-    /// Note: The default value derivation might be unexpected, potentially using the `rpc_bind` address; explicit configuration is recommended if needed.
-    ///
-    /// Default: Derived from `rpc_bind` (e.g., "0.0.0.0:20443" if rpc_bind is default).
+    /// The publicly accessible IPv4 address and port that this node advertises to peers
+    /// for P2P connections. This might differ from [`NodeConfig::p2p_bind`] if the
+    /// node is behind NAT or a proxy.
+    /// ---
+    /// @default: Derived directly from [`NodeConfig::rpc_bind`] value.
+    /// @notes:
+    ///   - Example: For rpc_bind="0.0.0.0:20443", p2p_address becomes "0.0.0.0:20443".
+    ///   - The default value derivation might be unexpected, potentially using the
+    ///     [`NodeConfig::rpc_bind`] address; explicit configuration is recommended if needed.
     pub p2p_address: String,
-    /// The private key seed, provided as a hex string in the config file, used specifically for the
-    /// node's identity and message signing within the P2P networking layer.
-    /// This is separate from the main [`NodeConfig::seed`].
-    ///
-    /// Default: Randomly generated 32 bytes.
+    /// The private key seed, provided as a hex string in the config file, used
+    /// specifically for the node's identity and message signing within the P2P
+    /// networking layer. This is separate from the main [`NodeConfig::seed`].
+    /// ---
+    /// @default: Randomly generated 32 bytes
     pub local_peer_seed: Vec<u8>,
-    /// A list of initial peer nodes used to bootstrap connections into the Stacks P2P network.
-    /// Peers are specified in a configuration file as comma-separated strings in the
-    /// format `"PUBKEY@IP:PORT"` or `"PUBKEY@HOSTNAME:PORT"`. DNS hostnames are resolved
-    /// during configuration loading.
-    ///
-    /// Default: Empty vector `[]`.
+    /// A list of initial peer nodes used to bootstrap connections into the Stacks P2P
+    /// network. Peers are specified in a configuration file as comma-separated
+    /// strings in the format `"PUBKEY@IP:PORT"` or `"PUBKEY@HOSTNAME:PORT"`. DNS
+    /// hostnames are resolved during configuration loading.
+    /// ---
+    /// @default: `[]` (empty vector)
+    /// @toml_example: |
+    ///   bootstrap_node = "pubkey1@example.com:30444,pubkey2@192.168.1.100:20444"
     pub bootstrap_node: Vec<Neighbor>,
     /// A list of peer addresses that this node should explicitly deny connections from.
-    /// Peers are specified as comma-separated strings in the format "IP:PORT" or "HOSTNAME:PORT"
-    /// in the configuration file. DNS hostnames are resolved during configuration loading.
-    ///
-    /// Default: Empty vector `[]`.
+    /// Peers are specified as comma-separated strings in the format "IP:PORT" or
+    /// "HOSTNAME:PORT" in the configuration file. DNS hostnames are resolved during
+    /// configuration loading.
+    /// ---
+    /// @default: `[]` (empty vector)
+    /// @toml_example: |
+    ///   deny_nodes = "192.168.1.100:20444,badhost.example.com:20444"
     pub deny_nodes: Vec<Neighbor>,
-    /// Flag indicating whether this node should activate its mining logic and attempt to produce Stacks blocks.
-    /// Setting this to `true` typically requires providing necessary private keys (either [`NodeConfig::seed`] or [`MinerConfig::mining_key`]).
-    /// It also influences default behavior for settings like [`NodeConfig::require_affirmed_anchor_blocks`].
-    ///
-    /// Default: `false`
+    /// Flag indicating whether this node should activate its mining logic and attempt to
+    /// produce Stacks blocks. Setting this to `true` typically requires providing
+    /// necessary private keys (either [`NodeConfig::seed`] or [`MinerConfig::mining_key`]).
+    /// It also influences default behavior for settings like
+    /// [`NodeConfig::require_affirmed_anchor_blocks`].
+    /// ---
+    /// @default: `false`
     pub miner: bool,
-    /// Setting this to `true` enables the node to replicate the miner and signer Stacker DBs
-    /// required for signing, and is required if the node is connected to a signer.
-    ///
-    /// Default: `false`
+    /// Setting this to `true` enables the node to replicate the miner and signer
+    /// Stacker DBs required for signing, and is required if the node is connected to a
+    /// signer.
+    /// ---
+    /// @default: `false`
     pub stacker: bool,
     /// Enables a simulated mining mode, primarily for local testing and development.
     /// When `true`, the node may generate blocks locally without participating in the
     /// real bitcoin consensus or P2P block production process.
-    ///
-    /// Only relevant if [`NodeConfig::miner`] is `true`.
-    ///
-    /// Default: `false`
+    /// ---
+    /// @default: `false`
+    /// @notes:
+    ///   - Only relevant if [`NodeConfig::miner`] is `true`.
     pub mock_mining: bool,
-    /// If [`NodeConfig::mock_mining`] is enabled, this specifies an optional directory path where the
-    /// generated mock Stacks blocks will be saved. (pre-Nakamoto)
+    /// If [`NodeConfig::mock_mining`] is enabled, this specifies an optional directory
+    /// path where the generated mock Stacks blocks will be saved. (pre-Nakamoto)
     /// The path is canonicalized on load.
-    ///
-    /// Default: `None`
-    /// Deprecated: This setting was only used in the neon node and is ignored in Epoch 3.0+.
+    /// ---
+    /// @default: `None`
+    /// @deprecated: This setting was only used in the neon node and is ignored in Epoch 3.0+.
     pub mock_mining_output_dir: Option<PathBuf>,
     /// Enable microblock mining.
-    ///
-    /// Default: `true`
-    /// Deprecated: This setting is ignored in Epoch 2.5+.
+    /// ---
+    /// @default: `true`
+    /// @deprecated: This setting is ignored in Epoch 2.5+.
     pub mine_microblocks: bool,
     /// How often to attempt producing microblocks, in milliseconds.
-    /// Only applies when [`NodeConfig::mine_microblocks`] is true and before Epoch 2.5.
-    ///
-    /// Default: `30_000` ms (30 seconds)
-    /// Deprecated: This setting is ignored in Epoch 2.5+.
+    /// ---
+    /// @default: `30_000` (30 seconds)
+    /// @deprecated: This setting is ignored in Epoch 2.5+.
+    /// @notes:
+    ///   - Only applies when [`NodeConfig::mine_microblocks`] is true and before Epoch 2.5.
+    /// @units: milliseconds
     pub microblock_frequency: u64,
     /// The maximum number of microblocks allowed per Stacks block.
-    ///
-    /// Default: `65535` (u16::MAX)
-    /// Deprecated: This setting is ignored in Epoch 2.5+.
+    /// ---
+    /// @default: `65535` (u16::MAX)
+    /// @deprecated: This setting is ignored in Epoch 2.5+.
     pub max_microblocks: u64,
     /// Cooldown period after a microblock is produced, in milliseconds.
-    /// Only applies when [`NodeConfig::mine_microblocks`] is true and before Epoch 2.5.
-    ///
-    /// Default: `30_000` ms (30 seconds)
-    /// Deprecated: This setting is ignored in Epoch 2.5+.
+    /// ---
+    /// @default: `30_000` (30 seconds)
+    /// @deprecated: This setting is ignored in Epoch 2.5+.
+    /// @notes:
+    ///   - Only applies when [`NodeConfig::mine_microblocks`] is true and before Epoch 2.5.
+    /// @units: milliseconds
     pub wait_time_for_microblocks: u64,
     /// When operating as a miner, this specifies the maximum time (in milliseconds)
     /// the node waits after detecting a new burnchain block to synchronize corresponding
@@ -2109,21 +2160,24 @@ pub struct NodeConfig {
     /// If synchronization doesn't complete within this duration, mining resumes anyway
     /// to prevent stalling. This setting is loaded by all nodes but primarily affects
     /// miner behavior within the relayer thread.
-    ///
-    /// Default: `30_000` ms (30 seconds)
+    /// ---
+    /// @default: `30_000` (30 seconds)
+    /// @units: milliseconds
     pub wait_time_for_blocks: u64,
-    /// Controls how frequently, in milliseconds, the Nakamoto miner's relay thread polls for work
-    /// or takes periodic actions when idle (e.g., checking for new burnchain blocks).
-    /// Default value of 10 seconds is reasonable in mainnet (where bitcoin blocks are ~10 minutes)
-    /// A lower value might be useful in other environments with faster burn blocks.
-    ///
-    /// Default: `10_000` ms (10 seconds)
+    /// Controls how frequently, in milliseconds, the Nakamoto miner's relay thread
+    /// polls for work or takes periodic actions when idle (e.g., checking for new
+    /// burnchain blocks). A default value of 10 seconds is reasonable on mainnet
+    /// (where bitcoin blocks are ~10 minutes). A lower value might be useful in
+    /// other environments with faster burn blocks.
+    /// ---
+    /// @default: `10_000` (10 seconds)
+    /// @units: milliseconds
     pub next_initiative_delay: u64,
-    /// Optional network address and port (e.g., "127.0.0.1:9153") for binding the Prometheus metrics server.
-    /// If set, the node will start an HTTP server on this address to expose internal metrics
-    /// for scraping by a Prometheus instance.
-    ///
-    /// Default: `None` (Prometheus server disabled).
+    /// Optional network address and port (e.g., "127.0.0.1:9153") for binding the
+    /// Prometheus metrics server. If set, the node will start an HTTP server on this
+    /// address to expose internal metrics for scraping by a Prometheus instance.
+    /// ---
+    /// @default: `None` (Prometheus server disabled)
     pub prometheus_bind: Option<String>,
     /// The strategy to use for MARF trie node caching in memory.
     /// Controls the trade-off between memory usage and performance for state access.
@@ -2134,90 +2188,124 @@ pub struct NodeConfig {
     /// - `"node256"`: Cache only larger `TrieNode256` nodes.
     ///
     /// If the value is `None` or an unrecognized string, it defaults to `"noop"`.
-    ///
-    /// Default: `None` (effectively `"noop"`).
+    /// ---
+    /// @default: `None` (effectively `"noop"`)
     pub marf_cache_strategy: Option<String>,
     /// Controls the timing of hash calculations for MARF trie nodes.
-    /// - If `true`, hashes are calculated only when the MARF is flushed to disk (deferred hashing).
-    /// - If `false`, hashes are calculated immediately as leaf nodes are inserted or updated (immediate hashing).
+    /// - If `true`, hashes are calculated only when the MARF is flushed to disk
+    ///   (deferred hashing).
+    /// - If `false`, hashes are calculated immediately as leaf nodes are inserted or
+    ///   updated (immediate hashing).
     /// Deferred hashing might improve write performance.
-    ///
-    /// Default: `true`
+    /// ---
+    /// @default: `true`
     pub marf_defer_hashing: bool,
-    /// Sampling interval in seconds for the PoX synchronization watchdog thread (pre-Nakamoto).
-    /// Determines how often the watchdog checked PoX state consistency in the Neon run loop.
-    ///
-    /// Default: `30` seconds
-    /// Deprecated: Unused after the Nakamoto upgrade. This setting is ignored in Epoch 3.0+.
+    /// Sampling interval in seconds for the PoX synchronization watchdog thread
+    /// (pre-Nakamoto). Determines how often the watchdog checked PoX state
+    /// consistency in the Neon run loop.
+    /// ---
+    /// @default: `30`
+    /// @units: seconds
+    /// @deprecated: Unused after the Nakamoto upgrade. This setting is ignored in Epoch 3.0+.
     pub pox_sync_sample_secs: u64,
-    /// If set to `true`, the node initializes its state using an alternative test genesis block definition,
-    /// loading different initial balances, names, and lockups than the standard network genesis.
-    /// This is intended strictly for testing purposes and is disallowed on mainnet.
-    ///
-    /// Default: `None` (uses standard network genesis).
+    /// If set to `true`, the node initializes its state using an alternative test
+    /// genesis block definition, loading different initial balances, names, and
+    /// lockups than the standard network genesis.
+    /// ---
+    /// @default: `None` (uses standard network genesis)
+    /// @notes:
+    ///   - This is intended strictly for testing purposes and is disallowed on mainnet.
     pub use_test_genesis_chainstate: Option<bool>,
-    /// Controls if Stacks Epoch 2.1+ affirmation map logic should be applied even before Epoch 2.1.
-    /// - If `true` (default), the node consistently uses the newer (Epoch 2.1) rules for PoX anchor block
-    ///   validation and affirmation-based reorg handling, even in earlier epochs.
-    /// - If `false`, the node strictly follows the rules defined for the specific epoch it is currently
-    ///   processing, only applying 2.1+ logic from Epoch 2.1 onwards.
-    /// Differences in this setting between nodes prior to Epoch 2.1 could lead to consensus forks.
-    ///
-    /// Default: `true`
+    /// Controls if Stacks Epoch 2.1+ affirmation map logic should be applied even
+    /// before Epoch 2.1.
+    /// - If `true` (default), the node consistently uses the newer (Epoch 2.1) rules
+    ///   for PoX anchor block validation and affirmation-based reorg handling, even in
+    ///   earlier epochs.
+    /// - If `false`, the node strictly follows the rules defined for the specific epoch
+    ///   it is currently processing, only applying 2.1+ logic from Epoch 2.1 onwards.
+    /// Differences in this setting between nodes prior to Epoch 2.1 could lead to
+    /// consensus forks.
+    /// ---
+    /// @default: `true`
     pub always_use_affirmation_maps: bool,
-    /// Controls if the node must wait for locally missing but burnchain-affirmed PoX anchor blocks.
-    /// If an anchor block is confirmed by the affirmation map but not yet processed by this node:
-    /// - If `true`: Burnchain processing halts until the affirmed block is acquired. Ensures strict
-    ///   adherence to the affirmed canonical chain, typical for followers.
-    /// - If `false`: Burnchain processing continues without waiting. Allows miners to operate optimistically
-    ///   but may necessitate unwinding later if the affirmed block alters the chain state.
-    ///
-    /// Default: `true` for followers, `false` for miners (when not explicitly configured).
+    /// Controls if the node must wait for locally missing but burnchain-affirmed PoX
+    /// anchor blocks. If an anchor block is confirmed by the affirmation map but not
+    /// yet processed by this node:
+    /// - If `true`: Burnchain processing halts until the affirmed block is acquired.
+    ///   Ensures strict adherence to the affirmed canonical chain, typical for
+    ///   followers.
+    /// - If `false`: Burnchain processing continues without waiting. Allows miners to
+    ///   operate optimistically but may necessitate unwinding later if the affirmed
+    ///   block alters the chain state.
+    /// ---
+    /// @default: Derived from the inverse of [`NodeConfig::miner`] value.
     pub require_affirmed_anchor_blocks: bool,
-    /// Controls if the node must strictly wait for any PoX anchor block selected by the core consensus mechanism.
-    /// - If `true`: Halts burnchain processing immediately whenever a selected anchor block is missing locally
-    ///   (`SelectedAndUnknown` status), regardless of affirmation status. This is always true in Nakamoto (Epoch 3.0+)
-    /// and runs *before* affirmation checks.
-    /// - If `false` (primarily for testing): Skips this immediate halt, allowing processing to proceed to
-    ///   affirmation map checks.
-    /// Normal operation requires this to be `true`; setting to `false` will likely break consensus adherence.
-    /// This parameter cannot be set via the configuration file; it must be modified programmatically.
-    ///
-    /// Default: `true`
+    /// Controls if the node must strictly wait for any PoX anchor block selected by
+    /// the core consensus mechanism.
+    /// - If `true`: Halts burnchain processing immediately whenever a selected anchor
+    ///   block is missing locally (`SelectedAndUnknown` status), regardless of
+    ///   affirmation status.
+    /// - If `false` (primarily for testing): Skips this immediate halt, allowing
+    ///   processing to proceed to affirmation map checks.
+    /// Normal operation requires this to be `true`; setting to `false` will likely
+    /// break consensus adherence.
+    /// ---
+    /// @default: `true`
+    /// @notes:
+    ///   - This parameter cannot be set via the configuration file; it must be modified
+    ///     programmatically.
+    ///   - This is intended strictly for testing purposes.
+    ///   - The halt check runs *before* affirmation checks.
+    ///   - In Nakamoto (Epoch 3.0+), all prepare phases have anchor blocks.
     pub assume_present_anchor_blocks: bool,
-    /// Fault injection setting for testing purposes. If set to `Some(p)`, where `p` is between 0 and 100,
-    /// the node will have a `p` percent chance of intentionally *not* pushing a newly processed block
-    /// to its peers.
-    ///
-    /// Default: `None` (no fault injection).
+    /// Fault injection setting for testing purposes. If set to `Some(p)`, where `p` is
+    /// between 0 and 100, the node will have a `p` percent chance of intentionally
+    /// *not* pushing a newly processed block to its peers.
+    /// ---
+    /// @default: `None` (no fault injection)
+    /// @notes:
+    ///   - Values: 0-100 (percentage).
     pub fault_injection_block_push_fail_probability: Option<u8>,
-    /// Fault injection setting for testing purposes. If `true`, the node's chainstate database
-    /// access layer may intentionally fail to retrieve block data, even if it exists,
-    /// simulating block hiding or data unavailability.
-    /// This parameter cannot be set via the configuration file; it must be modified programmatically.
-    ///
-    /// Default: `false`
+    /// Fault injection setting for testing purposes. If `true`, the node's chainstate
+    /// database access layer may intentionally fail to retrieve block data, even if it
+    /// exists, simulating block hiding or data unavailability.
+    /// ---
+    /// @default: `false`
+    /// @notes:
+    ///   - This parameter cannot be set via the configuration file; it must be modified
+    ///     programmatically.
     pub fault_injection_hide_blocks: bool,
-    /// The polling interval, in seconds, for the background thread that monitors chain liveness.
-    /// This thread periodically wakes up the main coordinator to check for chain progress or
-    /// other conditions requiring action.
-    ///
-    /// Default: `300` seconds (5 minutes)
+    /// The polling interval, in seconds, for the background thread that monitors
+    /// chain liveness. This thread periodically wakes up the main coordinator to
+    /// check for chain progress or other conditions requiring action.
+    /// ---
+    /// @default: `300` (5 minutes)
+    /// @units: seconds
     pub chain_liveness_poll_time_secs: u64,
-    /// A list of specific StackerDB contracts (identified by their qualified contract identifiers,
-    /// e.g., "SP000000000000000000002Q6VF78.pox-3") that this node should actively replicate.
-    ///
-    /// Default: The initial list depends on the [`NodeConfig::miner`] and [`NodeConfig::stacker`] settings:
-    /// - If `miner = true` or `stacker = true`: Relevant system contracts (like `.miners`
-    ///   and `.signers-*`) are automatically added during configuration loading, in addition
-    ///   to any contracts specified in the configuration file.
-    /// - If `miner = false` and `stacker = false`: Empty vector `[]`.
+    /// A list of specific StackerDB contracts (identified by their qualified contract
+    /// identifiers, e.g., "SP000000000000000000002Q6VF78.pox-3") that this node
+    /// should actively replicate.
+    /// ---
+    /// @default: |
+    ///   - if [`NodeConfig::miner`] is `true` or [`NodeConfig::stacker`] is `true`:
+    ///     relevant system contracts (e.g., `.miners`, `.signers-*`) are
+    ///     automatically added in addition to any contracts specified in the
+    ///     configuration file.
+    ///   - else: defaults to an empty list `[]`.
+    /// @notes:
+    ///   - Values are strings representing qualified contract identifiers.
+    /// @toml_example: |
+    ///   stacker_dbs = [
+    ///     "SP000000000000000000002Q6VF78.pox-3",
+    ///     "SP2C2YFP12AJZB4M4KUPSTMZQR0SNHNPH204SCQJM.stx-oracle-v1"
+    ///   ]
     pub stacker_dbs: Vec<QualifiedContractIdentifier>,
-    /// Enables the transaction index, which maps transaction IDs to the blocks containing them.
-    /// Setting this to `true` allows the use of RPC endpoints that look up transactions by ID
-    /// (e.g., `/extended/v1/tx/{txid}`), but requires substantial additional disk space for the index database.
-    ///
-    /// Default: `false`
+    /// Enables the transaction index, which maps transaction IDs to the blocks
+    /// containing them. Setting this to `true` allows the use of RPC endpoints
+    /// that look up transactions by ID (e.g., `/extended/v1/tx/{txid}`), but
+    /// requires substantial additional disk space for the index database.
+    /// ---
+    /// @default: `false`
     pub txindex: bool,
 }
 
@@ -2647,26 +2735,31 @@ impl NodeConfig {
 #[derive(Clone, Debug, PartialEq)]
 pub struct MinerConfig {
     /// Time to wait (in milliseconds) before the first attempt to mine a block.
-    ///
-    /// Default: `10` ms
-    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
+    /// ---
+    /// @default: `10`
+    /// @units: milliseconds
+    /// @deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub first_attempt_time_ms: u64,
     /// Time to wait (in milliseconds) for subsequent attempts to mine a block,
     /// after the first attempt fails.
-    ///
-    /// Default: `120_000` ms (2 minutes)
-    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
+    /// ---
+    /// @default: `120_000` (2 minutes)
+    /// @units: milliseconds
+    /// @deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub subsequent_attempt_time_ms: u64,
-    /// Time to wait (in milliseconds) to mine a microblock,
-    ///
-    /// Default: `30_000` ms (30 seconds)
-    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
+    /// Time to wait (in milliseconds) to mine a microblock.
+    /// ---
+    /// @default: `30_000` (30 seconds)
+    /// @units: milliseconds
+    /// @deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub microblock_attempt_time_ms: u64,
-    /// Maximum time (in milliseconds) the miner spends selecting transactions from the mempool
-    /// when assembling a Nakamoto block. Once this duration is exceeded, the miner stops
-    /// adding transactions and finalizes the block with those already selected.
-    ///
-    /// Default: `5_000` ms (5 seconds)
+    /// Maximum time (in milliseconds) the miner spends selecting transactions from
+    /// the mempool when assembling a Nakamoto block. Once this duration is exceeded,
+    /// the miner stops adding transactions and finalizes the block with those
+    /// already selected.
+    /// ---
+    /// @default: `5_000` (5 seconds)
+    /// @units: milliseconds
     pub nakamoto_attempt_time_ms: u64,
     /// Strategy for selecting the next transaction candidate from the mempool.
     /// Controls prioritization between maximizing immediate fee capture vs. ensuring
@@ -2678,92 +2771,103 @@ pub struct MinerConfig {
     /// - `"GlobalFeeRate"`: Selects the transaction with the highest fee rate globally.
     /// - `"NextNonceWithHighestFeeRate"`: Selects the highest-fee transaction among those
     ///   matching the next expected nonce for sender/sponsor accounts.
-    ///
-    /// Default: `"GlobalFeeRate"`
+    /// ---
+    /// @default: `"NextNonceWithHighestFeeRate"`
     pub mempool_walk_strategy: MemPoolWalkStrategy,
-    /// Probability (percentage, 0-100) of prioritizing a transaction without a known fee rate
-    /// during candidate selection.
+    /// Probability (percentage, 0-100) of prioritizing a transaction without a
+    /// known fee rate during candidate selection.
     ///
     /// Only effective when `mempool_walk_strategy` is `GlobalFeeRate`. Helps ensure
-    /// transactions lacking fee estimates are periodically considered alongside high-fee ones,
-    /// preventing potential starvation. A value of 0 means never prioritize them first,
-    /// 100 means always prioritize them first (if available).
-    ///
-    /// Default: `25` (25% chance)
+    /// transactions lacking fee estimates are periodically considered alongside
+    /// high-fee ones, preventing potential starvation. A value of 0 means never
+    /// prioritize them first, 100 means always prioritize them first (if available).
+    /// ---
+    /// @default: `25` (25% chance)
+    /// @units: percent
+    /// @notes:
+    ///   - Values: 0-100.
     pub probability_pick_no_estimate_tx: u8,
     /// Optional recipient for the coinbase block reward, overriding the default miner address.
     ///
-    /// By default (`None`), the reward is sent to the miner's primary address ([`NodeConfig::seed`]).
-    /// If set to some principal address *and* the current Stacks epoch is 2.1+,
-    /// the reward will be directed to the specified address instead.
-    ///
-    /// Default: `None`
+    /// By default (`None`), the reward is sent to the miner's primary address
+    /// ([`NodeConfig::seed`]). If set to some principal address *and* the current
+    /// Stacks epoch is > 2.1, the reward will be directed to the specified
+    /// address instead.
+    /// ---
+    /// @default: `None`
     pub block_reward_recipient: Option<PrincipalData>,
     /// If possible, mine with a p2wpkh address.
-    ///
-    /// Default: `false`
+    /// ---
+    /// @default: `false`
     pub segwit: bool,
     /// Wait for a downloader pass before mining.
     /// This can only be disabled in testing; it can't be changed in the config file.
-    ///
-    /// Default: `true`
+    /// ---
+    /// @default: `true`
     pub wait_for_block_download: bool,
     /// Max size (in bytes) of the in-memory cache for storing expected account nonces.
     ///
-    /// This cache accelerates mempool processing (e.g., during block building) by storing
-    /// the anticipated next nonce for accounts, reducing expensive lookups into the node's
-    /// state (MARF trie). A larger cache can improve performance for workloads involving
-    /// many unique accounts but increases memory consumption.
-    ///
-    /// Must be configured to a value greater than 0.
-    ///
-    /// Default: `1048576` bytes (1 MiB)
+    /// This cache accelerates mempool processing (e.g., during block building) by
+    /// storing the anticipated next nonce for accounts, reducing expensive lookups
+    /// into the node's state (MARF trie). A larger cache can improve performance
+    /// for workloads involving many unique accounts but increases memory consumption.
+    /// ---
+    /// @default: `1048576` (1 MiB)
+    /// @units: bytes
+    /// @notes:
+    ///   - Must be configured to a value greater than 0.
     pub nonce_cache_size: usize,
     /// Max size (in *number* of items) of transaction candidates to hold in the in-memory
-    /// retry cache. Each element [`MemPoolTxInfoPartial`] is currently 112 bytes.
+    /// retry cache.
     ///
-    /// This cache stores transactions encountered during a `GlobalFeeRate` mempool walk
-    /// whose nonces are currently too high for immediate processing. These candidates
-    /// are prioritized for reconsideration later within the *same* walk, potentially
-    /// becoming valid if other processed transactions update the expected nonces.
+    /// This cache stores transactions encountered during a `GlobalFeeRate` mempool
+    /// walk whose nonces are currently too high for immediate processing. These
+    /// candidates are prioritized for reconsideration later within the *same* walk,
+    /// potentially becoming valid if other processed transactions update the
+    /// expected nonces.
     ///
-    /// A larger cache retains more potentially valid future candidates but uses more memory.
-    /// This setting is primarily relevant for the `GlobalFeeRate` strategy.
-    ///
-    /// Default: `1048576` items (112 bytes * 1048576 = 112 MB)
+    /// A larger cache retains more potentially valid future candidates but uses more
+    /// memory. This setting is primarily relevant for the `GlobalFeeRate` strategy.
+    /// ---
+    /// @default: `1048576`
+    /// @units: items
+    /// @notes:
+    ///   - Each element [`crate::core::mempool::MemPoolTxInfoPartial`] is currently 112 bytes.
     pub candidate_retry_cache_size: usize,
     /// Amount of time (in seconds) to wait for unprocessed blocks before mining a new block.
-    ///
-    /// Default: `30`
-    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
+    /// ---
+    /// @default: `30`
+    /// @units: seconds
+    /// @deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub unprocessed_block_deadline_secs: u64,
     /// The private key (Secp256k1) used for signing blocks, provided as a hex string.
     ///
     /// This key must be present at runtime for mining operations to succeed.
-    ///
-    /// Default: The effective default depends on:
-    /// - If the `[miner]` section *is present* in the config file, the [`NodeConfig::seed`] is used.
-    /// - If the `[miner]` section *is not present* in the config file, `None`. Mining operations will fail at runtime.
+    /// ---
+    /// @default: |
+    ///   - if the `[miner]` section *is present* in the config file: [`NodeConfig::seed`]
+    ///   - else: `None`
     pub mining_key: Option<Secp256k1PrivateKey>,
-    /// Amount of time while mining in nakamoto to wait in between mining interim blocks
-    ///
-    /// Default: `None`
-    /// Deprecated: use [`MinerConfig::min_time_between_blocks_ms`] instead.
+    /// Amount of time while mining in nakamoto to wait in between mining interim blocks.
+    /// ---
+    /// @default: `None`
+    /// @deprecated: Use `min_time_between_blocks_ms` instead.
     pub wait_on_interim_blocks: Option<Duration>,
-    /// Minimum number of transactions that must be in a block if we're going to replace a pending
-    /// block-commit with a new block-commit
-    ///
-    /// Default: `0`
-    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
+    /// Minimum number of transactions that must be in a block if we're going to
+    /// replace a pending block-commit with a new block-commit.
+    /// ---
+    /// @default: `0`
+    /// @deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub min_tx_count: u64,
-    /// If true, requires subsequent mining attempts for the same block height
-    /// to have a transaction count >= the previous best attempt.
-    ///
-    /// Default: `false`
-    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
+    /// If true, requires subsequent mining attempts for the same block height to have
+    /// a transaction count >= the previous best attempt.
+    /// ---
+    /// @default: `false`
+    /// @deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub only_increase_tx_count: bool,
-    /// Optional path to an external helper script for fetching unconfirmed block-commits.
-    /// Used to inform the miner's dynamic burn fee bidding strategy with off-chain data.
+    /// Optional path to an external helper script for fetching unconfirmed
+    /// block-commits. Used to inform the miner's dynamic burn fee bidding strategy
+    /// with off-chain data.
     ///
     /// If a path is provided, the target script must:
     /// - Be executable by the user running the Stacks node process.
@@ -2772,68 +2876,73 @@ pub struct MinerConfig {
     ///   (see [`stacks::config::chain_data::UnconfirmedBlockCommit`] struct) to stdout.
     /// - Exit with code 0 on success.
     ///
-    /// Look at [`test_get_unconfirmed_commits`](stackslib/src/config/chain_data.rs) for an example script.
-    ///
-    /// Default: `None` (feature disabled).
-    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode and
-    /// by the `get-spend-amount` cli subcommand.
+    /// Look at `test_get_unconfirmed_commits` in `stackslib/src/config/chain_data.rs`
+    /// for an example script.
+    /// ---
+    /// @default: `None` (feature disabled).
+    /// @deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode
+    ///   and by the `get-spend-amount` cli subcommand.
     pub unconfirmed_commits_helper: Option<String>,
     /// The minimum win probability this miner aims to achieve in block sortitions.
     ///
-    /// This target is used to detect prolonged periods of underperformance. If the miner's
-    /// calculated win probability consistently falls below this value for a duration specified
-    /// by [`MinerConfig::underperform_stop_threshold`] (after an initial startup phase), the miner may
-    /// cease spending in subsequent sortitions (returning a burn fee cap of 0) to conserve resources.
+    /// This target is used to detect prolonged periods of underperformance. If the
+    /// miner's calculated win probability consistently falls below this value for a
+    /// duration specified by [`MinerConfig::underperform_stop_threshold`] (after
+    /// an initial startup phase), the miner may cease spending in subsequent
+    /// sortitions (returning a burn fee cap of 0) to conserve resources.
     ///
     /// Setting this value close to 0.0 effectively disables the underperformance check.
-    ///
-    /// Default: `0.0`
-    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
+    /// ---
+    /// @default: `0.0`
+    /// @deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub target_win_probability: f64,
     /// Path to a file for storing and loading the currently active, registered VRF leader key.
     ///
-    /// Loading: On startup or when needing to register a key, if this path is set, the relayer first
-    /// attempts to load a serialized [`RegisteredKey`] from this file. If successful, it uses the
-    /// loaded key and skips the on-chain VRF key registration transaction, saving time and fees.
-    /// Saving: After a new VRF key registration transaction is confirmed and activated on the burnchain,
-    /// if this path is set, the node saves the details of the newly activated [`RegisteredKey`] to this file.
-    /// This allows the miner to persist its active VRF key across restarts.
-    /// If the file doesn't exist during load, or the path is `None`, the node proceeds with a new registration.
-    ///
-    /// Default: `None`
+    /// Loading: On startup or when needing to register a key, if this path is set,
+    /// the relayer first attempts to load a serialized [`RegisteredKey`] from this
+    /// file. If successful, it uses the loaded key and skips the on-chain VRF key
+    /// registration transaction, saving time and fees.
+    /// Saving: After a new VRF key registration transaction is confirmed and
+    /// activated on the burnchain, if this path is set, the node saves the details
+    /// of the newly activated [`RegisteredKey`] to this file. This allows the
+    /// miner to persist its active VRF key across restarts.
+    /// If the file doesn't exist during load, or the path is `None`, the node
+    /// proceeds with a new registration.
+    /// ---
+    /// @default: `None`
     pub activated_vrf_key_path: Option<String>,
     /// Controls how the miner estimates its win probability when checking for underperformance.
     ///
     /// This estimation is used in conjunction with [`MinerConfig::target_win_probability`] and
-    /// [`MinerConfig::underperform_stop_threshold`] to decide whether to pause mining due to
-    /// low predicted success rate.
+    /// [`MinerConfig::underperform_stop_threshold`] to decide whether to pause
+    /// mining due to low predicted success rate.
     ///
-    /// - If `true`: The win probability estimation looks at projected spend distributions
-    ///   ~6 blocks into the future. This might help the miner adjust its spending more quickly
-    ///   based on anticipated competition changes.
-    /// - If `false`: The win probability estimation uses the currently observed spend distribution
-    ///   for the next block.
-    ///
-    /// Default: `false`
-    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode and
-    /// by the `get-spend-amount` cli subcommand.
+    /// - If `true`: The win probability estimation looks at projected spend
+    ///   distributions ~6 blocks into the future. This might help the miner adjust
+    ///   its spending more quickly based on anticipated competition changes.
+    /// - If `false`: The win probability estimation uses the currently observed
+    ///   spend distribution for the next block.
+    /// ---
+    /// @default: `false`
+    /// @deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode and by the
+    ///   `get-spend-amount` cli subcommand.
     pub fast_rampup: bool,
-    /// The maximum number of consecutive Bitcoin blocks the miner will tolerate underperforming
-    /// (i.e., having a calculated win probability below [`MinerConfig::target_win_probability`])
-    /// before temporarily pausing mining efforts.
+    /// The maximum number of consecutive Bitcoin blocks the miner will tolerate
+    /// underperforming (i.e., having a calculated win probability below
+    /// [`MinerConfig::target_win_probability`]) before temporarily pausing mining efforts.
     ///
-    /// This check is only active after an initial startup phase (6 blocks past the mining start height).
-    /// If the miner underperforms for this number of consecutive blocks, the [`BlockMinerThread::get_mining_spend_amount`]
-    /// function will return 0, effectively preventing the miner from submitting a block commit
+    /// This check is only active after an initial startup phase (6 blocks past the
+    /// mining start height). If the miner underperforms for this number of
+    /// consecutive blocks, the [`BlockMinerThread::get_mining_spend_amount`] function
+    /// will return 0, effectively preventing the miner from submitting a block commit
     /// for the current sortition to conserve funds.
-    ///
-    /// If set to `None`, this underperformance check is disabled.
-    ///
-    /// Default: `None`
-    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
+    /// ---
+    /// @default: `None` (underperformance check is disabled).
+    /// @deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
     pub underperform_stop_threshold: Option<u64>,
-    /// Specifies which types of transactions the miner should consider including in a block
-    /// during the mempool walk process. Transactions of types not included in this set will be skipped.
+    /// Specifies which types of transactions the miner should consider including in a
+    /// block during the mempool walk process. Transactions of types not included in
+    /// this set will be skipped.
     ///
     /// This allows miners to exclude specific transaction categories.
     /// Configured as a comma-separated string of transaction type names in the configuration file.
@@ -2842,184 +2951,219 @@ pub struct MinerConfig {
     /// - `"TokenTransfer"`
     /// - `"SmartContract"`
     /// - `"ContractCall"`
-    ///
-    /// Default: all transaction types are considered.
+    /// ---
+    /// @default: All transaction types are considered (equivalent to [`MemPoolWalkTxTypes::all()`]).
+    /// @toml_example: |
+    ///   txs_to_consider = "TokenTransfer,ContractCall"
     pub txs_to_consider: HashSet<MemPoolWalkTxTypes>,
-    /// A whitelist of Stacks addresses whose transactions should be exclusively considered during
-    /// the mempool walk for block building. If this list is non-empty, any transaction whose
-    /// origin address is *not* in this set will be skipped.
+    /// A comma separated list of Stacks addresses to whitelist so that only
+    /// transactions from these addresses should be considered during the mempool walk
+    /// for block building. If this list is non-empty, any transaction whose origin
+    /// address is *not* in this set will be skipped.
     ///
     /// This allows miners to prioritize transactions originating from specific accounts that are
     /// important to them.
-    /// Configured as a comma-separated string of standard Stacks addresses (e.g., "ST123...,ST456...")
-    /// in the configuration file.
-    ///
-    /// Default: `HashSet::new()` (empty set, meaning all origins are considered).
+    /// Configured as a comma-separated string of standard Stacks addresses
+    /// (e.g., "ST123...,ST456...") in the configuration file.
+    /// ---
+    /// @default: Empty set (all origins are considered).
+    /// @toml_example: |
+    ///   filter_origins = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2,ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF"
     pub filter_origins: HashSet<StacksAddress>,
-    /// Defines the maximum depth (in Stacks blocks) the miner considers when evaluating
-    /// potential chain tips when selecting the best tip to mine the next block on.
+    /// Defines the maximum depth (in Stacks blocks) the miner considers when
+    /// evaluating potential chain tips when selecting the best tip to mine the next
+    /// block on.
     ///
-    /// The miner analyzes candidate tips within this depth from the highest known tip.
-    /// It selects the "nicest" tip, often defined as the one that minimizes chain reorganizations
-    /// or orphans within this lookback window. A lower value restricts the analysis to shallower forks,
-    /// while a higher value considers deeper potential reorganizations.
+    /// The miner analyzes candidate tips within this depth from the highest known
+    /// tip. It selects the "nicest" tip, often defined as the one that minimizes
+    /// chain reorganizations or orphans within this lookback window. A lower value
+    /// restricts the analysis to shallower forks, while a higher value considers
+    /// deeper potential reorganizations.
     ///
     /// This setting influences which fork the miner chooses to build upon if multiple valid tips exist.
-    ///
-    /// Default: `3`
-    /// Deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode and
-    /// the `pick-best-tip` cli subcommand.
+    /// ---
+    /// @default: `3`
+    /// @deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode and the
+    ///   `pick-best-tip` cli subcommand.
     pub max_reorg_depth: u64,
-    /// Enables a mock signing process for testing purposes, specifically designed for use during Epoch 2.5
-    /// before the activation of Nakamoto consensus.
+    /// Enables a mock signing process for testing purposes, specifically designed
+    /// for use during Epoch 2.5 before the activation of Nakamoto consensus.
     ///
-    /// When set to `true` and [`MinerConfig::mining_key`] is provided, the miner will interact
-    /// with the `.miners` and `.signers` contracts via the stackerdb to send and receive mock
-    /// proposals and signatures, simulating aspects of the Nakamoto leader election and block signing flow.
-    ///
-    /// This is intended strictly for testing purposes for Epoch 2.5 conditions.
-    ///
-    /// Default: `false`
-    /// Deprecated: This setting is ignored in Epoch 3.0+.
+    /// When set to `true` and [`MinerConfig::mining_key`] is provided, the miner
+    /// will interact with the `.miners` and `.signers` contracts via the stackerdb
+    /// to send and receive mock proposals and signatures, simulating aspects of the
+    /// Nakamoto leader election and block signing flow.
+    /// ---
+    /// @default: `false` (Should only default true if [`MinerConfig::mining_key`] is set).
+    /// @deprecated: This setting is ignored in Epoch 3.0+.
+    /// @notes:
+    ///   - This is intended strictly for testing Epoch 2.5 conditions.
     pub pre_nakamoto_mock_signing: bool,
-    /// The minimum time to wait between mining blocks in milliseconds. The value must be greater
-    /// than or equal to 1000 ms because if a block is mined within the same second as its parent,
-    /// it will be rejected by the signers.
+    /// The minimum time to wait between mining blocks in milliseconds. The value
+    /// must be greater than or equal to 1000 ms because if a block is mined
+    /// within the same second as its parent, it will be rejected by the signers.
     ///
-    /// This check ensures compliance with signer rules that prevent blocks with identical timestamps
-    /// (at second resolution) to their parents. If a lower value is configured, 1000 ms is used instead.
-    ///
-    /// Default: [`DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS`] (currently 1000 ms)
+    /// This check ensures compliance with signer rules that prevent blocks with
+    /// identical timestamps (at second resolution) to their parents. If a lower
+    /// value is configured, 1000 ms is used instead.
+    /// ---
+    /// @default: [`DEFAULT_MIN_TIME_BETWEEN_BLOCKS_MS`]
+    /// @units: milliseconds
     pub min_time_between_blocks_ms: u64,
-    /// The amount of time in milliseconds that the miner should sleep in between attempts to
-    /// mine a block when the mempool is empty.
+    /// The amount of time in milliseconds that the miner should sleep in between
+    /// attempts to mine a block when the mempool is empty.
     ///
-    /// This prevents the miner from busy-looping when there are no pending transactions,
-    /// conserving CPU resources. During this sleep, the miner still checks burnchain tip changes.
-    ///
-    /// Default: [`DEFAULT_EMPTY_MEMPOOL_SLEEP_MS`] (currently 2500 ms)
+    /// This prevents the miner from busy-looping when there are no pending
+    /// transactions, conserving CPU resources. During this sleep, the miner still
+    /// checks burnchain tip changes.
+    /// ---
+    /// @default: [`DEFAULT_EMPTY_MEMPOOL_SLEEP_MS`]
+    /// @units: milliseconds
     pub empty_mempool_sleep_time: Duration,
-    /// Time in milliseconds to pause after receiving the first threshold rejection, before proposing a new block.
+    /// Time in milliseconds to pause after receiving the first threshold rejection,
+    /// before proposing a new block.
     ///
-    /// When a miner's block proposal fails to gather enough signatures from the signers for the first time
-    /// at a given height, the miner will pause for this duration before attempting to mine and propose again.
-    ///
-    /// Default: [`DEFAULT_FIRST_REJECTION_PAUSE_MS`] (currently 5000 ms)
+    /// When a miner's block proposal fails to gather enough signatures from the
+    /// signers for the first time at a given height, the miner will pause for this
+    /// duration before attempting to mine and propose again.
+    /// ---
+    /// @default: [`DEFAULT_FIRST_REJECTION_PAUSE_MS`]
+    /// @units: milliseconds
     pub first_rejection_pause_ms: u64,
-    /// Time in milliseconds to pause after receiving subsequent threshold rejections, before proposing a new block.
+    /// Time in milliseconds to pause after receiving subsequent threshold rejections,
+    /// before proposing a new block.
     ///
-    /// If a miner's block proposal is rejected multiple times at the same height (after the first rejection),
-    /// this potentially longer pause duration is used before retrying. This gives more significant time
-    /// for network state changes or signer coordination.
-    ///
-    /// Default: [`DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS`] (currently 10_000 ms)
+    /// If a miner's block proposal is rejected multiple times at the same height
+    /// (after the first rejection), this potentially longer pause duration is used
+    /// before retrying. This gives more significant time for network state changes
+    /// or signer coordination.
+    /// ---
+    /// @default: [`DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS`]
+    /// @units: milliseconds
     pub subsequent_rejection_pause_ms: u64,
-    /// Time in milliseconds to wait for a Nakamoto block after seeing a burnchain block before submitting a block commit.
+    /// Time in milliseconds to wait for a Nakamoto block after seeing a burnchain
+    /// block before submitting a block commit.
     ///
-    /// After observing a new burnchain block, the miner's relayer waits for this duration
-    /// before submitting its next block commit transaction to Bitcoin. This delay provides an opportunity
-    /// for a new Nakamoto block (produced by the winner of the latest sortition) to arrive.
-    /// Waiting helps avoid situations where the relayer immediately submits a commit that needs
-    /// to be replaced via RBF if a new Stacks block appears shortly after.
-    /// This delay is skipped if the new burnchain blocks leading to the tip contain no sortitions.
-    ///
-    /// Default: [`DEFAULT_BLOCK_COMMIT_DELAY_MS`] (currently 40_000 ms)
+    /// After observing a new burnchain block, the miner's relayer waits for this
+    /// duration before submitting its next block commit transaction to Bitcoin.
+    /// This delay provides an opportunity for a new Nakamoto block (produced by the
+    /// winner of the latest sortition) to arrive. Waiting helps avoid situations
+    /// where the relayer immediately submits a commit that needs to be replaced
+    /// via RBF if a new Stacks block appears shortly after. This delay is skipped
+    /// if the new burnchain blocks leading to the tip contain no sortitions.
+    /// ---
+    /// @default: [`DEFAULT_BLOCK_COMMIT_DELAY_MS`]
+    /// @units: milliseconds
     pub block_commit_delay: Duration,
     /// The percentage of the remaining tenure cost limit to consume each block.
     ///
-    /// This setting limits the execution cost (Clarity cost) a single Nakamoto block can incur,
-    /// expressed as a percentage of the *remaining* cost budget for the current mining tenure.
-    /// For example, if set to 25, a block can use at most 25% of the tenure's currently available cost limit.
-    /// This allows miners to spread the tenure's total execution budget across multiple blocks rather than
+    /// This setting limits the execution cost (Clarity cost) a single Nakamoto block
+    /// can incur, expressed as a percentage of the *remaining* cost budget for the
+    /// current mining tenure. For example, if set to 25, a block can use at most
+    /// 25% of the tenure's currently available cost limit. This allows miners to
+    /// spread the tenure's total execution budget across multiple blocks rather than
     /// potentially consuming it all in the first block.
-    ///
-    /// A value of `100` (or setting this to `None`) effectively disables this per-block limit, allowing
-    /// a block to use the entire remaining tenure budget.
-    /// The value must be between 1 and 100, inclusive.
-    ///
-    /// Default: [`DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE`] (currently 25 %)
+    /// ---
+    /// @default: [`DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE`]
+    /// @units: percent
+    /// @notes:
+    ///   - Values: 1-100.
+    ///   - Setting to 100 effectively disables this per-block limit, allowing a block to use the
+    ///     entire remaining tenure budget.
     pub tenure_cost_limit_per_block_percentage: Option<u8>,
     /// Duration to wait in-between polling the sortition DB to see if we need to
     /// extend the ongoing tenure (e.g. because the current sortition is empty or invalid).
     ///
-    /// After the relayer determines that a tenure extension might be needed but cannot proceed immediately
-    /// (e.g., because a miner thread is already active for the current burn view), it will wait for this
-    /// duration before re-checking the conditions for tenure extension.
-    ///
-    /// Default: [`DEFAULT_TENURE_EXTEND_POLL_SECS`] (currently 1 second)
+    /// After the relayer determines that a tenure extension might be needed but
+    /// cannot proceed immediately (e.g., because a miner thread is already active
+    /// for the current burn view), it will wait for this duration before
+    /// re-checking the conditions for tenure extension.
+    /// ---
+    /// @default: [`DEFAULT_TENURE_EXTEND_POLL_SECS`]
+    /// @units: seconds
     pub tenure_extend_poll_timeout: Duration,
-    /// Duration to wait before trying to continue a tenure because the next miner did not produce blocks.
+    /// Duration to wait before trying to continue a tenure because the next miner
+    /// did not produce blocks.
     ///
-    /// If the node was the winner of the previous sortition but not the most recent one,
-    /// the relayer waits for this duration before attempting to extend its own tenure.
-    /// This gives the new winner of the most recent sortition a grace period to produce their first block.
-    /// Also used in scenarios with empty sortitions to give the winner of the *last valid* sortition time
-    /// to produce a block before the current miner attempts an extension.
-    ///
-    /// Default: [`DEFAULT_TENURE_EXTEND_WAIT_MS`] (currently 120_000 ms)
+    /// If the node was the winner of the previous sortition but not the most recent
+    /// one, the relayer waits for this duration before attempting to extend its own
+    /// tenure. This gives the new winner of the most recent sortition a grace period
+    /// to produce their first block. Also used in scenarios with empty sortitions
+    /// to give the winner of the *last valid* sortition time to produce a block
+    /// before the current miner attempts an extension.
+    /// ---
+    /// @default: [`DEFAULT_TENURE_EXTEND_WAIT_MS`]
+    /// @units: milliseconds
     pub tenure_extend_wait_timeout: Duration,
     /// Duration to wait before attempting to issue a time-based tenure extend.
     ///
-    /// A miner can proactively attempt to extend its tenure if a significant amount of time has passed
-    /// since the last tenure change, even without an explicit trigger like an empty sortition.
-    /// If the time elapsed since the last tenure change exceeds this value, and the signer coordinator
-    /// indicates an extension is timely, and the cost usage threshold ([`MinerConfig::tenure_extend_cost_threshold`])
+    /// A miner can proactively attempt to extend its tenure if a significant amount
+    /// of time has passed since the last tenure change, even without an explicit
+    /// trigger like an empty sortition. If the time elapsed since the last tenure
+    /// change exceeds this value, and the signer coordinator indicates an extension
+    /// is timely, and the cost usage threshold ([`MinerConfig::tenure_extend_cost_threshold`])
     /// is met, the miner will include a tenure extension transaction in its next block.
-    ///
-    /// Default: [`DEFAULT_TENURE_TIMEOUT_SECS`] (currently 180 seconds)
+    /// ---
+    /// @default: [`DEFAULT_TENURE_TIMEOUT_SECS`]
+    /// @units: seconds
     pub tenure_timeout: Duration,
     /// Percentage of block budget that must be used before attempting a time-based tenure extend.
     ///
-    /// This sets a minimum threshold for the accumulated execution cost within a tenure before a
-    /// time-based tenure extension ([`MinerConfig::tenure_timeout`]) can be initiated.
-    /// The miner checks if the proportion of the total tenure budget consumed so far exceeds this percentage.
-    /// If the cost usage is below this threshold, a time-based extension will not be attempted, even if
-    /// the [`MinerConfig::tenure_timeout`] duration has elapsed.
-    /// This prevents miners from extending tenures very early if they have produced only low-cost blocks.
-    ///
-    /// Default: [`DEFAULT_TENURE_EXTEND_COST_THRESHOLD`] (currently 50 %)
+    /// This sets a minimum threshold for the accumulated execution cost within a
+    /// tenure before a time-based tenure extension ([`MinerConfig::tenure_timeout`])
+    /// can be initiated. The miner checks if the proportion of the total tenure
+    /// budget consumed so far exceeds this percentage. If the cost usage is below
+    /// this threshold, a time-based extension will not be attempted, even if the
+    /// [`MinerConfig::tenure_timeout`] duration has elapsed. This prevents miners
+    /// from extending tenures very early if they have produced only low-cost blocks.
+    /// ---
+    /// @default: [`DEFAULT_TENURE_EXTEND_COST_THRESHOLD`]
+    /// @units: percent
+    /// @notes:
+    ///   - Values: 0-100.
     pub tenure_extend_cost_threshold: u64,
-    /// Defines adaptive timeouts for waiting for signer responses, based on the accumulated weight of rejections.
+    /// Defines adaptive timeouts for waiting for signer responses, based on the
+    /// accumulated weight of rejections.
     ///
-    /// Configured as a map where keys represent rejection count thresholds in percentage,
-    /// and values are the timeout durations (in seconds) to apply when the rejection count
-    /// reaches or exceeds that key but is less than the next key.
+    /// Configured as a map where keys represent rejection count thresholds in
+    /// percentage, and values are the timeout durations (in seconds) to apply when
+    /// the rejection count reaches or exceeds that key but is less than the next key.
     ///
-    /// When a miner proposes a block, it waits for signer responses (approvals or rejections).
-    /// The SignerCoordinator tracks the total weight of received rejections. It uses this map to determine
-    /// the current timeout duration. It selects the timeout value associated with the largest key
-    /// in the map that is less than or equal to the current accumulated rejection weight.
-    /// If this timeout duration expires before a decision is reached, the coordinator signals a timeout.
-    /// This prompts the miner to potentially retry proposing the block.
-    /// As more rejections come in, the applicable timeout step might change (likely decrease),
-    /// allowing the miner to abandon unviable proposals faster.
+    /// When a miner proposes a block, it waits for signer responses (approvals or
+    /// rejections). The SignerCoordinator tracks the total weight of received
+    /// rejections. It uses this map to determine the current timeout duration. It
+    /// selects the timeout value associated with the largest key in the map that is
+    /// less than or equal to the current accumulated rejection weight. If this
+    /// timeout duration expires before a decision is reached, the coordinator
+    /// signals a timeout. This prompts the miner to potentially retry proposing the
+    /// block. As more rejections come in, the applicable timeout step might change
+    /// (likely decrease), allowing the miner to abandon unviable proposals faster.
     ///
-    /// A key for 0 (zero rejections) must be defined, representing the initial timeout when no rejections have been received.
-    ///
-    /// **Example TOML:**
-    /// ```toml
-    /// [miner]
-    /// # Keys are rejection counts, values are timeouts in seconds.
-    /// block_rejection_timeout_steps = { 0 = 180, 10 = 90, 20 = 45, 30 = 0 }
-    /// ```
-    /// This example means:
-    /// - If rejection weight is 0 <= weight < 10, wait up to 180 seconds.
-    /// - If rejection weight is 10 <= weight < 20, wait up to 90 seconds.
-    /// - If rejection weight is 20 <= weight < 30, wait up to 45 seconds.
-    /// - If rejection weight is >= 30, timeout immediately (0 seconds).
-    ///
-    /// (Note: The actual rejection weight values depend on the specific signer set and their weights.)
-    ///
-    /// Default: `{ 0: 180s, 10: 90s, 20: 45s, 30: 0s }`
+    /// A key for 0 (zero rejections) must be defined, representing the initial
+    /// timeout when no rejections have been received.
+    /// ---
+    /// @default: `{ 0: 180, 10: 90, 20: 45, 30: 0 }` (times in seconds)
+    /// @notes:
+    ///   - Keys are rejection weight percentages (0-100).
+    ///   - Values are timeout durations.
+    /// @toml_example: |
+    ///   # Keys are rejection counts (as strings), values are timeouts in seconds.
+    ///   [miner.block_rejection_timeout_steps]
+    ///   "0" = 180
+    ///   "10" = 90
+    ///   "20" = 45
+    ///   "30" = 0
     pub block_rejection_timeout_steps: HashMap<u32, Duration>,
     /// Defines the maximum execution time (in seconds) allowed for a single contract call transaction.
     ///
-    /// When processing a transaction (contract call or smart contract deployment), if this option is set,
-    /// and the execution time exceeds this limit, the transaction processing fails with an `ExecutionTimeout` error,
-    /// and the transaction is skipped. This prevents potentially long-running or infinite-loop transactions
-    /// from blocking block production.
-    ///
-    /// Default: `None` (no execution time limit)
+    /// When processing a transaction (contract call or smart contract deployment),
+    /// if this option is set, and the execution time exceeds this limit, the
+    /// transaction processing fails with an `ExecutionTimeout` error, and the
+    /// transaction is skipped. This prevents potentially long-running or
+    /// infinite-loop transactions from blocking block production.
+    /// ---
+    /// @default: `None` (no execution time limit)
+    /// @units: seconds
     pub max_execution_time_secs: Option<u64>,
     /// TODO: remove this option when its no longer a testing feature and it becomes default behaviour
     /// The miner will attempt to replay transactions that a threshold number of signers are expecting in the next block
@@ -3049,7 +3193,7 @@ impl Default for MinerConfig {
             activated_vrf_key_path: None,
             fast_rampup: false,
             underperform_stop_threshold: None,
-            mempool_walk_strategy: MemPoolWalkStrategy::GlobalFeeRate,
+            mempool_walk_strategy: MemPoolWalkStrategy::NextNonceWithHighestFeeRate,
             txs_to_consider: MemPoolWalkTxTypes::all(),
             filter_origins: HashSet::new(),
             max_reorg_depth: 3,
@@ -3086,328 +3230,383 @@ impl Default for MinerConfig {
 pub struct ConnectionOptionsFile {
     /// Maximum number of messages allowed in the per-connection incoming buffer.
     /// The limits apply individually to each established connection (both P2P and HTTP).
-    ///
-    /// Default: 100.
+    /// ---
+    /// @default: `100`
     pub inbox_maxlen: Option<usize>,
     /// Maximum number of messages allowed in the per-connection outgoing buffer.
     /// The limit applies individually to each established connection (both P2P and HTTP).
-    ///
-    /// Default: 100.
+    /// ---
+    /// @default: `100`
     pub outbox_maxlen: Option<usize>,
-    /// Maximum duration (in seconds) a connection attempt is allowed to remain in the connecting state.
+    /// Maximum duration (in seconds) a connection attempt is allowed to remain in
+    /// the connecting state.
     ///
-    /// This applies to both incoming P2P and HTTP connections. If a remote peer initiates a connection
-    /// but does not complete the connection process (e.g., handshake for P2P) within this time, the node
-    /// will consider it unresponsive and drop the connection attempt.
-    ///
-    /// Default: 10 seconds.
+    /// This applies to both incoming P2P and HTTP connections. If a remote peer
+    /// initiates a connection but does not complete the connection process
+    /// (e.g., handshake for P2P) within this time, the node will consider it
+    /// unresponsive and drop the connection attempt.
+    /// ---
+    /// @default: `10`
+    /// @units: seconds
     pub connect_timeout: Option<u64>,
-    /// Maximum duration (in seconds) a P2P peer is allowed after connecting before completing the handshake.
+    /// Maximum duration (in seconds) a P2P peer is allowed after connecting before
+    /// completing the handshake.
     ///
-    /// If a P2P peer connects successfully but fails to send the necessary handshake messages
-    /// within this time, the node will consider it unresponsive and drop the connection.
-    ///
-    /// Default: 5 seconds.
+    /// If a P2P peer connects successfully but fails to send the necessary handshake
+    /// messages within this time, the node will consider it unresponsive and drop the
+    /// connection.
+    /// ---
+    /// @default: `5`
+    /// @units: seconds
     pub handshake_timeout: Option<u64>,
     /// General communication timeout (in seconds).
     ///
     /// - For HTTP connections: Governs two timeout aspects:
-    ///   - Server-side: Defines the maximum allowed time since the last request was received from a client.
-    ///                  An idle connection is dropped if both this timeout and [`ConnectionOptionsFile::idle_timeout`] are exceeded.
-    ///   - Client-side: Sets the timeout duration (TTL) for outgoing HTTP requests initiated by the node itself.
+    ///   - Server-side: Defines the maximum allowed time since the last request was
+    ///     received from a client. An idle connection is dropped if both this
+    ///     timeout and [`ConnectionOptionsFile::idle_timeout`] are exceeded.
+    ///   - Client-side: Sets the timeout duration (TTL) for outgoing HTTP requests
+    ///     initiated by the node itself.
     /// - For P2P connections: Used as the specific timeout for NAT punch-through requests.
-    ///
-    /// Default: 15 seconds.
+    /// ---
+    /// @default: `15`
+    /// @units: seconds
     pub timeout: Option<u64>,
     /// Maximum idle time (in seconds) for HTTP connections.
     ///
-    /// This applies only to HTTP connections. It defines the maximum allowed time since the
-    /// last response was sent by the node to the client. An HTTP connection is dropped if
-    /// both this `idle_timeout` and the general [`ConnectionOptionsFile::timeout`] (time since last request received)
-    /// are exceeded.
-    ///
-    /// Default: 15 seconds.
+    /// This applies only to HTTP connections. It defines the maximum allowed time
+    /// since the last response was sent by the node to the client. An HTTP
+    /// connection is dropped if both this `idle_timeout` and the general
+    /// [`ConnectionOptionsFile::timeout`] (time since last request received) are exceeded.
+    /// ---
+    /// @default: `15`
+    /// @units: seconds
     pub idle_timeout: Option<u64>,
-    /// Interval (in seconds) at which this node expects to send or receive P2P keep-alive messages.
+    /// Interval (in seconds) at which this node expects to send or receive P2P
+    /// keep-alive messages.
     ///
-    /// During the P2P handshake, this node advertises this configured `heartbeat` value to its peers.
-    /// Each peer uses the other's advertised heartbeat interval (plus a timeout margin) to monitor
-    /// responsiveness and detect potential disconnections. This node also uses its own configured
-    /// value to proactively send Ping messages if the connection would otherwise be idle, helping to keep it active.
-    ///
-    /// Default: 3600 seconds (1 hour).
+    /// During the P2P handshake, this node advertises this configured `heartbeat`
+    /// value to its peers. Each peer uses the other's advertised heartbeat
+    /// interval (plus a timeout margin) to monitor responsiveness and detect
+    /// potential disconnections. This node also uses its own configured value to
+    /// proactively send Ping messages if the connection would otherwise be idle,
+    /// helping to keep it active.
+    /// ---
+    /// @default: `3_600` (1 hour)
+    /// @units: seconds
     pub heartbeat: Option<u32>,
-    /// Validity duration (in number of bitcoin blocks) for the node's P2P session private key.
-    ///
-    /// The node uses a temporary private key for signing P2P messages. This key has an associated
-    /// expiry bitcoin block height stored in the peer database. When the current bitcoin height
-    /// reaches or exceeds the key's expiry height, the node automatically generates a new random
+    /// Validity duration (in number of bitcoin blocks) for the node's P2P session
     /// private key.
-    /// The expiry block height for this new key is calculated by adding the configured
-    /// `private_key_lifetime` (in blocks) to the previous key's expiry block height.
-    /// The node then re-handshakes with peers to transition to the new key.
-    /// This provides periodic key rotation for P2P communication.
     ///
-    /// Default: `9223372036854775807` (i64::MAX, effectively infinite, disabling automatic re-keying).
+    /// The node uses a temporary private key for signing P2P messages. This key has
+    /// an associated expiry bitcoin block height stored in the peer database. When
+    /// the current bitcoin height reaches or exceeds the key's expiry height, the
+    /// node automatically generates a new random private key.
+    /// The expiry block height for this new key is calculated by adding the
+    /// configured [`ConnectionOptionsFile::private_key_lifetime`] (in blocks) to the
+    /// previous key's expiry block height. The node then re-handshakes with peers
+    /// to transition to the new key. This provides periodic key rotation for P2P communication.
+    /// ---
+    /// @default: `9223372036854775807` (i64::MAX, effectively infinite, disabling automatic re-keying).
+    /// @units: bitcoin blocks
     pub private_key_lifetime: Option<u64>,
     /// Target number of peers for StackerDB replication.
     ///
-    /// Sets the maximum number of potential replication target peers requested from the
-    /// StackerDB control contract (`get-replication-targets`) when configuring a replica.
+    /// Sets the maximum number of potential replication target peers requested from
+    /// the StackerDB control contract (`get-replication-targets`) when configuring a replica.
     ///
     /// Note: Formerly (pre-Epoch 3.0), this also controlled the target peer count for
     /// inventory synchronization.
-    ///
-    /// Default: 32.
+    /// ---
+    /// @default: `32`
     pub num_neighbors: Option<u64>,
     /// Maximum number of allowed concurrent inbound P2P connections.
     ///
-    /// This acts as a hard limit. If the node already has this many active inbound P2P
-    /// connections, any new incoming P2P connection attempts will be rejected.
+    /// This acts as a hard limit. If the node already has this many active inbound
+    /// P2P connections, any new incoming P2P connection attempts will be rejected.
     /// Outbound P2P connections initiated by this node are not counted against this limit.
-    ///
-    /// Default: 750.
+    /// ---
+    /// @default: `750`
     pub num_clients: Option<u64>,
     /// Maximum total number of allowed concurrent HTTP connections.
     ///
-    /// This limits the total number of simultaneous connections the node's RPC/HTTP server
-    /// will accept. If this limit is reached, new incoming HTTP connection attempts
-    /// will be rejected.
-    ///
-    /// Default: 1000.
+    /// This limits the total number of simultaneous connections the node's RPC/HTTP
+    /// server will accept. If this limit is reached, new incoming HTTP connection
+    /// attempts will be rejected.
+    /// ---
+    /// @default: `1000`
     pub max_http_clients: Option<u64>,
     /// Target number of outbound P2P connections the node aims to maintain.
     ///
     /// The connection pruning logic only activates if the current number of established
-    /// outbound P2P connections exceeds this value. Pruning aims to reduce the connection
-    /// count back down to this target, ensuring the node maintains a baseline number
-    /// of outbound peers for network connectivity.
-    ///
-    /// Default: 16.
+    /// outbound P2P connections exceeds this value. Pruning aims to reduce the
+    /// connection count back down to this target, ensuring the node maintains a
+    /// baseline number of outbound peers for network connectivity.
+    /// ---
+    /// @default: `16`
     pub soft_num_neighbors: Option<u64>,
     /// Soft limit threshold for triggering inbound P2P connection pruning.
     ///
-    /// If the total number of currently active inbound P2P connections exceeds this value,
-    /// the node will activate pruning logic to reduce the count, typically by applying
-    /// per-host limits (see [`ConnectionOptionsFile::soft_max_clients_per_host`]).
+    /// If the total number of currently active inbound P2P connections exceeds this
+    /// value, the node will activate pruning logic to reduce the count, typically by
+    /// applying per-host limits (see [`ConnectionOptionsFile::soft_max_clients_per_host`]).
     /// This helps manage the overall load from inbound peers.
-    ///
-    /// Default: 750.
+    /// ---
+    /// @default: `750`
     pub soft_num_clients: Option<u64>,
-    /// maximum number of neighbors per host we permit
-    ///
-    /// Default: 1.
-    /// Deprecated: it does not have any effect on the node's behavior.
+    /// Maximum number of neighbors per host we permit.
+    /// ---
+    /// @default: `1`
+    /// @deprecated: It does not have any effect on the node's behavior.
     pub max_neighbors_per_host: Option<u64>,
-    /// maximum number of inbound p2p connections per host we permit
-    ///
-    /// Default: 4.
-    /// Deprecated: it does not have any effect on the node's behavior.
+    /// Maximum number of inbound p2p connections per host we permit.
+    /// ---
+    /// @default: `4`
+    /// @deprecated: It does not have any effect on the node's behavior.
     pub max_clients_per_host: Option<u64>,
-    /// soft limit on the number of neighbors per host we permit
-    ///
-    /// Default: 1.
-    /// Deprecated: it does not have any effect on the node's behavior.
+    /// Soft limit on the number of neighbors per host we permit.
+    /// ---
+    /// @default: `1`
+    /// @deprecated: It does not have any effect on the node's behavior.
     pub soft_max_neighbors_per_host: Option<u64>,
     /// Soft limit on the number of outbound P2P connections per network organization (ASN).
     ///
-    /// During connection pruning (when total outbound connections > [`ConnectionOptionsFile::soft_num_neighbors`]),
-    /// the node checks if any single network organization (identified by ASN) has more
-    /// outbound connections than this limit. If so, it preferentially prunes the least
-    /// healthy/newest connections from that overrepresented organization until its count
-    /// is reduced to this limit or the total outbound count reaches [`ConnectionOptionsFile::soft_num_neighbors`].
-    /// This encourages connection diversity across different network providers.
-    ///
-    /// Default: 32.
+    /// During connection pruning (when total outbound connections >
+    /// [`ConnectionOptionsFile::soft_num_neighbors`]), the node checks if any single
+    /// network organization (identified by ASN) has more outbound connections than
+    /// this limit. If so, it preferentially prunes the least healthy/newest
+    /// connections from that overrepresented organization until its count is
+    /// reduced to this limit or the total outbound count reaches
+    /// [`ConnectionOptionsFile::soft_num_neighbors`]. This encourages connection diversity
+    /// across different network providers.
+    /// ---
+    /// @default: `32`
     pub soft_max_neighbors_per_org: Option<u64>,
     /// Soft limit on the number of inbound P2P connections allowed per host IP address.
     ///
-    /// During inbound connection pruning (when total inbound connections > [`ConnectionOptionsFile::soft_num_clients`]),
-    /// the node checks if any single IP address has more connections than this limit.
-    /// If so, it preferentially prunes the newest connections originating from that
-    /// specific IP address until its count is reduced to this limit.
-    /// This prevents a single host from dominating the node's inbound connection capacity.
-    ///
-    /// Default: 4.
+    /// During inbound connection pruning (when total inbound connections >
+    /// [`ConnectionOptionsFile::soft_num_clients`]), the node checks if any single
+    /// IP address has more connections than this limit. If so, it preferentially
+    /// prunes the newest connections originating from that specific IP address
+    /// until its count is reduced to this limit. This prevents a single host from
+    /// dominating the node's inbound connection capacity.
+    /// ---
+    /// @default: `4`
     pub soft_max_clients_per_host: Option<u64>,
     /// Maximum total number of concurrent network sockets the node is allowed to manage.
     ///
-    /// This limit applies globally to all types of sockets handled by the node's networking layer,
-    /// including listening sockets (P2P and RPC/HTTP), established P2P connections (inbound/outbound),
-    /// and established HTTP connections.
-    /// It serves as a hard limit to prevent the node from exhausting operating system
-    /// resources related to socket descriptors.
-    ///
-    /// Default: 800.
+    /// This limit applies globally to all types of sockets handled by the node's
+    /// networking layer, including listening sockets (P2P and RPC/HTTP),
+    /// established P2P connections (inbound/outbound), and established HTTP connections.
+    /// It serves as a hard limit to prevent the node from exhausting operating
+    /// system resources related to socket descriptors.
+    /// ---
+    /// @default: `800`
     pub max_sockets: Option<u64>,
     /// Minimum interval (in seconds) between the start of consecutive neighbor discovery walks.
     ///
-    /// The node periodically performs "neighbor walks" to discover new peers and maintain
-    /// an up-to-date view of the P2P network topology. This setting controls how frequently
-    /// these walks can be initiated, preventing excessive network traffic and processing.
-    ///
-    /// Default: 60 seconds.
+    /// The node periodically performs "neighbor walks" to discover new peers and
+    /// maintain an up-to-date view of the P2P network topology. This setting
+    /// controls how frequently these walks can be initiated, preventing excessive
+    /// network traffic and processing.
+    /// ---
+    /// @default: `60`
+    /// @units: seconds
     pub walk_interval: Option<u64>,
     /// Probability (0.0 to 1.0) of forcing a neighbor walk to start from a seed/bootstrap peer.
     ///
     /// This probability applies only when the node is not in Initial Block Download (IBD)
     /// and is already connected to at least one seed/bootstrap peer.
-    /// Normally, in this situation, the walk would start from a random inbound or outbound peer.
-    /// However, with this probability, the walk is forced to start from a seed peer instead.
-    /// This helps ensure the node periodically re-establishes its network view from trusted entry points.
-    ///
-    /// Default: 0.1 (10%).
+    /// Normally, in this situation, the walk would start from a random inbound or
+    /// outbound peer. However, with this probability, the walk is forced to start
+    /// from a seed peer instead. This helps ensure the node periodically
+    /// re-establishes its network view from trusted entry points.
+    /// ---
+    /// @default: `0.1` (10%)
     pub walk_seed_probability: Option<f64>,
-    /// Frequency (in milliseconds) for logging the current P2P neighbor list at the DEBUG level.
+    /// Frequency (in milliseconds) for logging the current P2P neighbor list at the
+    /// DEBUG level.
     ///
-    /// If set to a non-zero value, the node will periodically log details about its currently
-    /// established P2P connections (neighbors). Setting this to 0 disables this periodic logging.
-    ///
-    /// Default: 60_000 ms (1 minute).
+    /// If set to a non-zero value, the node will periodically log details about its
+    /// currently established P2P connections (neighbors). Setting this to 0 disables
+    /// this periodic logging.
+    /// ---
+    /// @default: `60_000` (1 minute)
+    /// @units: milliseconds
     pub log_neighbors_freq: Option<u64>,
     /// Maximum time (in milliseconds) to wait for a DNS query to resolve.
     ///
-    /// When the node needs to resolve a hostname (e.g., from a peer's advertised `data_url`
-    /// or an Atlas attachment URL) into an IP address, it initiates a DNS lookup.
-    /// This setting defines the maximum duration the node will wait for the DNS server
-    /// to respond before considering the lookup timed out.
-    ///
-    /// Default: 15_000 ms, (15 seconds).
+    /// When the node needs to resolve a hostname (e.g., from a peer's advertised
+    /// [`NodeConfig::data_url`] or an Atlas attachment URL) into an IP address, it
+    /// initiates a DNS lookup. This setting defines the maximum duration the node will
+    /// wait for the DNS server to respond before considering the lookup timed out.
+    /// ---
+    /// @default: `15_000` (15 seconds)
+    /// @units: milliseconds
     pub dns_timeout: Option<u64>,
     /// Maximum number of concurrent Nakamoto block download requests allowed.
     ///
     /// This limits how many separate block download processes for Nakamoto tenures
     /// (both confirmed and unconfirmed) can be active simultaneously. Helps manage
     /// network bandwidth and processing load during chain synchronization.
-    ///
-    /// Default: 6.
+    /// ---
+    /// @default: `6`
     pub max_inflight_blocks: Option<u64>,
-    /// Maximum number of concurrent Atlas attachment download requests allowed.
+    /// Maximum number of concurrent Atlas data attachment download requests allowed.
     ///
     /// This limits how many separate download requests for Atlas data attachments
     /// can be active simultaneously. Helps manage network resources when fetching
     /// potentially large attachment data.
-    ///
-    /// Default: 6.
+    /// ---
+    /// @default: `6`
     pub max_inflight_attachments: Option<u64>,
     /// Maximum total size (in bytes) of data allowed to be written during a read-only call.
-    /// Note: This limit is effectively forced to 0 by the API handler, ensuring read-only behavior.
-    /// Configuring a non-zero value has no effect on read-only call execution.
-    ///
-    /// Default: 0.
+    /// ---
+    /// @default: `0`
+    /// @notes:
+    ///   - This limit is effectively forced to 0 by the API handler, ensuring read-only behavior.
+    ///   - Configuring a non-zero value has no effect on read-only call execution.
+    /// @units: bytes
     pub read_only_call_limit_write_length: Option<u64>,
-    /// Maximum total size (in bytes) of data allowed to be read from Clarity data space (variables, maps)
-    /// during a read-only call.
-    ///
-    /// Default: 100_000 bytes (100 KB).
+    /// Maximum total size (in bytes) of data allowed to be read from Clarity data
+    /// space (variables, maps) during a read-only call.
+    /// ---
+    /// @default: `100_000` (100 KB).
+    /// @units: bytes
     pub read_only_call_limit_read_length: Option<u64>,
-    /// Total number of independent read operations permitted for an individual write-only function call
     /// Maximum number of distinct write operations allowed during a read-only call.
-    /// Note: This limit is effectively forced to 0 by the API handler, ensuring read-only behavior.
-    /// Configuring a non-zero value has no effect on read-only call execution.
-    ///
-    /// Default: 0.
+    /// ---
+    /// @default: `0`
+    /// @notes:
+    ///   - This limit is effectively forced to 0 by the API handler, ensuring read-only behavior.
+    ///   - Configuring a non-zero value has no effect on read-only call execution.
     pub read_only_call_limit_write_count: Option<u64>,
-    /// Maximum number of distinct read operations from Clarity data space allowed during a read-only call.
-    ///
-    /// Default: 30.
+    /// Maximum number of distinct read operations from Clarity data space allowed
+    /// during a read-only call.
+    /// ---
+    /// @default: `30`
     pub read_only_call_limit_read_count: Option<u64>,
     /// Runtime cost limit for an individual read-only function call. This represents
     /// computation effort within the Clarity VM.
-    /// (https://github.com/stacksgov/sips/blob/main/sips/sip-006/sip-006-runtime-cost-assessment.md)
-    ///
-    /// Default: 1_000_000_000 units.
+    /// (See SIP-006: https://github.com/stacksgov/sips/blob/main/sips/sip-006/sip-006-runtime-cost-assessment.md)
+    /// ---
+    /// @default: `1_000_000_000`
+    /// @units: Clarity VM cost units
     pub read_only_call_limit_runtime: Option<u64>,
     /// Maximum size (in bytes) of the HTTP request body for read-only contract calls.
     ///
     /// This limit is enforced on the `Content-Length` of incoming requests to the
     /// `/v2/contracts/call-read-only/...` RPC endpoint. It prevents excessively large
-    /// request bodies, which might contain numerous or very large hex-encoded function arguments,
-    /// from overwhelming the node.
-    ///
-    /// Default: `83_886_080` bytes (80 MiB), calculated as 20 * [`clarity::vm::types::BOUND_VALUE_SERIALIZATION_HEX`].
+    /// request bodies, which might contain numerous or very large hex-encoded
+    /// function arguments, from overwhelming the node.
+    /// ---
+    /// @default: `83_886_080` (80 MiB)
+    /// @units: bytes
+    /// @notes:
+    ///   - Calculated as 20 * [`clarity::vm::types::BOUND_VALUE_SERIALIZATION_HEX`].
     pub maximum_call_argument_size: Option<u32>,
     /// Minimum interval (in seconds) between consecutive block download scans in epoch 2.x.
     ///
-    /// In the pre-Nakamoto block download logic, if a full scan for blocks completed without
-    /// finding any new blocks to download, and if the known peer inventories had not changed,
-    /// the node would wait at least this duration before initiating the next download scan.
-    /// This throttled the downloader when the node was likely already synchronized.
-    ///
-    /// Default: 10 seconds.
-    /// Deprecated: This setting is ignored in Epoch 3.0+.
+    /// In the pre-Nakamoto block download logic, if a full scan for blocks completed
+    /// without finding any new blocks to download, and if the known peer inventories
+    /// had not changed, the node would wait at least this duration before
+    /// initiating the next download scan. This throttled the downloader when the
+    /// node was likely already synchronized.
+    /// ---
+    /// @default: `10`
+    /// @units: seconds
+    /// @deprecated: This setting is ignored in Epoch 3.0+.
     pub download_interval: Option<u64>,
-    /// Minimum interval (in seconds) between initiating inventory synchronization attempts with the same peer.
+    /// Minimum interval (in seconds) between initiating inventory synchronization
+    /// attempts with the same peer.
     ///
-    /// Acts as a per-peer cooldown to throttle sync requests. A new sync cycle with a peer generally
-    /// starts only after this interval has passed since the previous attempt began *and* the previous
-    /// cycle is considered complete.
-    ///
-    /// Default: 45 seconds.
+    /// Acts as a per-peer cooldown to throttle sync requests. A new sync cycle with
+    /// a peer generally starts only after this interval has passed since the previous
+    /// attempt began *and* the previous cycle is considered complete.
+    /// ---
+    /// @default: `45`
+    /// @units: seconds
     pub inv_sync_interval: Option<u64>,
     /// Deprecated: it does not have any effect on the node's behavior.
+    /// ---
+    /// @default: `None`
+    /// @deprecated: It does not have any effect on the node's behavior.
     pub full_inv_sync_interval: Option<u64>,
     /// Lookback depth (in PoX reward cycles) for Nakamoto inventory synchronization requests.
     ///
-    /// When initiating an inventory sync cycle with a peer, the node requests data starting
-    /// from `inv_reward_cycles` cycles before the current target reward cycle. This determines
-    /// how much historical inventory information is requested in each sync attempt.
-    ///
-    /// Default: Derived from [`BurnchainConfig::mode`] 3 for `mainnet`, [`INV_REWARD_CYCLES_TESTNET`] otherwise (6).
+    /// When initiating an inventory sync cycle with a peer, the node requests data
+    /// starting from `inv_reward_cycles` cycles before the current target reward
+    /// cycle. This determines how much historical inventory information is requested
+    /// in each sync attempt.
+    /// ---
+    /// @default: |
+    ///   - if [`BurnchainConfig::mode`] is `"mainnet"`: `3`
+    ///   - else: [`INV_REWARD_CYCLES_TESTNET`]
+    /// @units: PoX reward cycles
     pub inv_reward_cycles: Option<u64>,
-    /// The Public IPv4 address and port to advertise to other nodes.
+    /// The Public IPv4 address and port (e.g. "203.0.113.42:20444") to advertise to other nodes.
     ///
-    /// If this option is not set (`None`), the node will attemp to automatically discover its
-    /// public IP address.
-    ///
-    /// Default: `None` (triggers automatic discovery attempt).
+    /// If this option is not set (`None`), the node will attempt to automatically
+    /// discover its public IP address.
+    /// ---
+    /// @default: `None` (triggers automatic discovery attempt)
     pub public_ip_address: Option<String>,
-    /// If true, disables the neighbor discovery mechanism from starting walks from inbound peers.
-    /// Walks will only initiate from seed/bootstrap peers, outbound connections, or pingbacks.
-    ///
-    /// Primarily intended for testing or specific network debugging scenarios.
-    ///
-    /// Default: `false`.
+    /// If true, disables the neighbor discovery mechanism from starting walks from
+    /// inbound peers. Walks will only initiate from seed/bootstrap peers, outbound
+    /// connections, or pingbacks.
+    /// ---
+    /// @default: `false`
+    /// @notes:
+    ///   - Primarily intended for testing or specific network debugging scenarios.
     pub disable_inbound_walks: Option<bool>,
-    /// If true, prevents the node from processing initial handshake messages from new inbound P2P connections.
+    /// If true, prevents the node from processing initial handshake messages from new
+    /// inbound P2P connections.
     ///
-    /// This effectively stops the node from establishing new authenticated inbound P2P sessions.
-    /// Outbound connections initiated by this node are unaffected.
-    ///
-    /// Primarily intended for testing purposes.
-    ///
-    /// Default: `false`.
+    /// This effectively stops the node from establishing new authenticated inbound
+    /// P2P sessions. Outbound connections initiated by this node are unaffected.
+    /// ---
+    /// @default: `false`
+    /// @notes:
+    ///   - Primarily intended for testing purposes.
     pub disable_inbound_handshakes: Option<bool>,
     /// If true, completely disables the block download state machine.
     ///
-    /// The node will not attempt to download Stacks blocks (neither Nakamoto tenures nor
-    /// legacy blocks) from peers.
-    ///
-    /// Intended for testing or specialized node configurations.
-    ///
-    /// Default: `false`.
+    /// The node will not attempt to download Stacks blocks (neither Nakamoto
+    /// tenures nor legacy blocks) from peers.
+    /// ---
+    /// @default: `false`
+    /// @notes:
+    ///   - Intended for testing or specialized node configurations.
     pub disable_block_download: Option<bool>,
-    /// Fault injection setting for testing purposes. Interval (in seconds) for forced disconnection of all peers.
+    /// Fault injection setting for testing purposes. Interval (in seconds) for
+    /// forced disconnection of all peers.
     ///
-    /// If set to a positive value, the node will periodically disconnect all of its P2P peers at roughly this interval.
-    /// This simulates network churn or partitioning for testing node resilience.
-    ///
-    /// Note: The code enforcing this behavior is conditionally compiled using `cfg!(test)` and is
-    /// only active during test runs (e.g., via `cargo test`). This setting has no effect in
-    /// standard production builds.
-    ///
-    /// Default: `None` (feature disabled).
+    /// If set to a positive value, the node will periodically disconnect all of its
+    /// P2P peers at roughly this interval. This simulates network churn or
+    /// partitioning for testing node resilience.
+    /// ---
+    /// @default: `None` (feature disabled)
+    /// @notes:
+    ///   - If set to a positive value, the node will periodically disconnect all of
+    ///     its P2P peers at roughly this interval.
+    ///   - This simulates network churn or partitioning for testing node resilience.
+    ///   - The code enforcing this behavior is conditionally compiled using `cfg!(test)`
+    ///     and is only active during test runs.
+    ///   - This setting has no effect in standard production builds.
+    /// @units: seconds
     pub force_disconnect_interval: Option<u64>,
-    /// Controls whether a node with public inbound connections should still push blocks, even if not NAT'ed.
+    /// Controls whether a node with public inbound connections should still push
+    /// blocks, even if not NAT'ed.
     ///
-    /// In the Stacks 2.x anti-entropy logic, if a node detected it had inbound connections
-    /// from public IPs (suggesting it wasn't behind NAT) and this flag was set to `false`,
-    /// it would refrain from proactively pushing blocks and microblocks to peers.
-    /// The assumption was that publicly reachable nodes should primarily serve downloads.
-    /// If set to `true` (default), the node would push data regardless of its perceived reachability.
-    ///
-    /// Default: `true`.
-    /// Deprecated: This setting is ignored in Epoch 3.0+.
+    /// In the Stacks 2.x anti-entropy logic, if a node detected it had inbound
+    /// connections from public IPs (suggesting it wasn't behind NAT) and this flag
+    /// was set to `false`, it would refrain from proactively pushing blocks and
+    /// microblocks to peers. The assumption was that publicly reachable nodes should
+    /// primarily serve downloads. If set to `true` (default), the node would push
+    /// data regardless of its perceived reachability.
+    /// ---
+    /// @default: `true`
+    /// @deprecated: This setting is ignored in Epoch 3.0+.
     pub antientropy_public: Option<bool>,
     /// Whether to allow connections and interactions with peers having private IP addresses.
     ///
@@ -3418,100 +3617,97 @@ pub struct ConnectionOptionsFile {
     /// - Skip querying peers with private IPs for mempool or StackerDB data.
     /// - Filter out peers with private IPs from API responses listing potential peers.
     ///
-    /// Setting this to `true` disables these restrictions, which can be useful for local testing
-    /// environments or fully private network deployments.
-    ///
-    /// Default: `false`.
+    /// Setting this to `true` disables these restrictions, which can be useful for
+    /// local testing environments or fully private network deployments.
+    /// ---
+    /// @default: `false`
     pub private_neighbors: Option<bool>,
     /// HTTP auth password to use when communicating with stacks-signer binary.
     ///
     /// This token is used in the `Authorization` header for certain requests.
-    /// Primarily, it secures the communication channel between this node and a connected
-    /// `stacks-signer` instance.
-    ///
-    /// **Requirement:** This field **must** be configured if the node needs to receive block
-    /// proposals from a configured `stacks-signer`event_observer via the `/v3/block_proposal` endpoint. The value
-    /// must match the token configured on the signer.
+    /// Primarily, it secures the communication channel between this node and a
+    /// connected `stacks-signer` instance.
     ///
     /// It is also used to authenticate requests to `/v2/blocks?broadcast=1`.
-    ///
-    /// Default: `None` (authentication disabled for relevant endpoints).
+    /// ---
+    /// @default: `None` (authentication disabled for relevant endpoints)
+    /// @notes:
+    ///   - This field **must** be configured if the node needs to receive
+    ///     block proposals from a configured `stacks-signer` [[events_observer]]
+    ///     via the `/v3/block_proposal` endpoint.
+    ///   - The value must match the token configured on the signer.
     pub auth_token: Option<String>,
-    /// Minimum interval (in seconds) between attempts to run the Epoch 2.x anti-entropy data push mechanism.
+    /// Minimum interval (in seconds) between attempts to run the Epoch 2.x anti-entropy
+    /// data push mechanism.
     ///
-    /// The Stacks 2.x anti-entropy protocol involves the node proactively pushing its known
-    /// Stacks blocks and microblocks to peers. This `antientropy_retry` value specifies the
-    /// cooldown period for this operation.
-    /// This prevents the node from excessively attempting to push data to its peers.
-    ///
-    /// Default: 3600 seconds (1 hour).
-    /// Deprecated: This setting is ignored in Epoch 3.0+.
+    /// The Stacks 2.x anti-entropy protocol involves the node proactively pushing its
+    /// known Stacks blocks and microblocks to peers. This value specifies the
+    /// cooldown period for this operation. This prevents the node from excessively
+    /// attempting to push data to its peers.
+    /// ---
+    /// @default: `3_600` (1 hour)
+    /// @deprecated: This setting is ignored in Epoch 3.0+.
+    /// @units: seconds
     pub antientropy_retry: Option<u64>,
     /// Controls whether the node accepts Nakamoto blocks pushed proactively by peers.
     ///
-    /// - If `true`: Pushed blocks are ignored (logged at DEBUG and discarded). The node will
-    ///   still process blocks that it actively downloads.
+    /// - If `true`: Pushed blocks are ignored (logged at DEBUG and discarded). The
+    ///   node will still process blocks that it actively downloads.
     /// - If `false`: Both pushed blocks and actively downloaded blocks are processed.
-    ///
-    /// Default: `false`.
+    /// ---
+    /// @default: `false`
     pub reject_blocks_pushed: Option<bool>,
-    /// Static list of preferred replica peers for specific StackerDB contracts, provided as a JSON string.
+    /// Static list of preferred replica peers for specific StackerDB contracts,
+    /// provided as a JSON string.
     ///
-    /// This allows manually specifying known peers to use for replicating particular StackerDBs,
-    /// potentially overriding or supplementing the peers discovered via the StackerDB's control contract.
+    /// This allows manually specifying known peers to use for replicating particular
+    /// StackerDBs, potentially overriding or supplementing the peers discovered via
+    /// the StackerDB's control contract.
     ///
     /// Format: The configuration value must be a TOML string containing valid JSON.
-    /// The JSON structure must be an array of tuples, where each tuple pairs a contract identifier
-    /// with a list of preferred neighbor addresses:
+    /// The JSON structure must be an array of tuples, where each tuple pairs a
+    /// contract identifier with a list of preferred neighbor addresses:
     /// `[[ContractIdentifier, [NeighborAddress, ...]], ...]`
     ///
-    /// 1.  `ContractIdentifier`: A JSON object representing the `QualifiedContractIdentifier`.
+    /// 1.  `ContractIdentifier`: A JSON object representing the [`QualifiedContractIdentifier`].
     ///     It must have the specific structure:
     ///     `{"issuer": [version_byte, [byte_array_20]], "name": "contract-name"}`
-    ///     - `version_byte`: The address version byte.
-    ///     - `byte_array_20`: A 20-element array of bytes representing the address.
-    ///     - `name`: The contract name string.
     ///
-    /// 2.  `NeighborAddress`: A JSON object specifying the peer details.
-    ///     It must contain:
-    ///     - `ip`: string (The peer's IP address)
-    ///     - `port`: number (The peer's P2P port)
-    ///     - `public_key_hash`: string (The peer's 20-byte public key hash, hex-encoded)
-
-    ///
-    /// Example JSON structure expected within the TOML string value:
-    /// ```toml
-    /// stackerdb_hint_replicas = '''
-    /// [
+    /// 2.  `NeighborAddress`: A JSON object specifying the peer details:
+    ///     `{"ip": "...", "port": ..., "public_key_hash": "..."}`
+    /// ---
+    /// @default: `None` (no hints provided)
+    /// @notes:
+    ///   - Use this option with caution, primarily for advanced testing or bootstrapping.
+    /// @toml_example: |
+    ///   stackerdb_hint_replicas = '''
     ///   [
-    ///     {
-    ///       "issuer": [1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]],
-    ///       "name": "my-contract"
-    ///     },
     ///     [
     ///       {
-    ///         "ip": "192.0.2.1",
-    ///         "port": 20444,
-    ///         "public_key_hash": "0102030405060708090a0b0c0d0e0f1011121314"
-    ///       }
+    ///         "issuer": [1, [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]],
+    ///         "name": "my-contract"
+    ///       },
+    ///       [
+    ///         {
+    ///           "ip": "192.0.2.1",
+    ///           "port": 20444,
+    ///           "public_key_hash": "0102030405060708090a0b0c0d0e0f1011121314"
+    ///         }
+    ///       ]
     ///     ]
     ///   ]
-    /// ]
-    /// '''
-    /// ```
-    ///
-    /// Use this option with caution, primarily for advanced testing or bootstrapping.
-    ///
-    /// Default: `None` (no hints provided).
+    ///   '''
     pub stackerdb_hint_replicas: Option<String>,
-    /// Maximum age (in seconds) allowed for a block proposal received via the `/v3/block_proposal` RPC endpoint.
+    /// Maximum age (in seconds) allowed for a block proposal received via the
+    /// `/v3/block_proposal` RPC endpoint.
     ///
-    /// If a block proposal is received whose timestamp is older than
-    /// the current time minus this configured value, the node will reject the proposal
-    /// with an HTTP 422 (Unprocessable Entity) error, considering it too stale.
-    /// This prevents the node from spending resources validating outdated proposals.
-    ///
-    /// Default: 600 seconds (10 minutes).
+    /// If a block proposal is received whose timestamp is older than the current
+    /// time minus this configured value, the node will reject the proposal with an
+    /// HTTP 422 (Unprocessable Entity) error, considering it too stale. This
+    /// prevents the node from spending resources validating outdated proposals.
+    /// ---
+    /// @default: [`DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS`]
+    /// @units: seconds
     pub block_proposal_max_age_secs: Option<u64>,
 }
 
@@ -3825,11 +4021,11 @@ pub struct FeeEstimationConfigFile {
     ///   tracks the highest observed costs for each operation type and uses the average
     ///   of the top 10 values as its estimate, providing a conservative approach to
     ///   cost estimation.
-    ///
-    /// If not specified, or if [`FeeEstimationConfigFile::disabled`] is `true`,
-    /// the node will use the default cost estimator.
-    ///
-    /// Default: `"NaivePessimistic"`
+    /// ---
+    /// @default: `"NaivePessimistic"`
+    /// @notes:
+    ///   - If [`FeeEstimationConfigFile::disabled`] is `true`, the node will
+    ///     use the default unit cost estimator.
     pub cost_estimator: Option<String>,
     /// Specifies the name of the fee estimator to use.
     /// This controls how the node calculates appropriate transaction fees based on costs.
@@ -3840,11 +4036,11 @@ pub struct FeeEstimationConfigFile {
     /// - `"FuzzedWeightedMedianFeeRate"`: Fee estimation that adds controlled randomness
     ///   to a weighted median rate calculator. This helps prevent fee optimization attacks
     ///   by adding unpredictability to fee estimates while still maintaining accuracy.
-    ///
-    /// If not specified, or if [`FeeEstimationConfigFile::disabled`] is `true`,
-    /// the node will use the default fee estimator.
-    ///
-    /// Default: `"ScalarFeeRate"`
+    /// ---
+    /// @default: `"ScalarFeeRate"`
+    /// @notes:
+    ///   - If [`FeeEstimationConfigFile::disabled`] is `true`, the node will
+    ///     use the default unit fee estimator.
     pub fee_estimator: Option<String>,
     /// Specifies the name of the cost metric to use.
     /// This controls how the node measures and compares transaction costs.
@@ -3853,61 +4049,66 @@ pub struct FeeEstimationConfigFile {
     /// - `"ProportionDotProduct"`: The only currently supported cost metric. This metric
     ///   computes a weighted sum of cost dimensions (runtime, read/write counts, etc.)
     ///   proportional to how much of the block limit they consume.
-    ///
-    /// If not specified, or if [`FeeEstimationConfigFile::disabled`] is `true`,
-    /// the node will use the default cost metric.
-    ///
-    /// Default: `"ProportionDotProduct"`
+    /// ---
+    /// @default: `"ProportionDotProduct"`
+    /// @notes:
+    ///   - If [`FeeEstimationConfigFile::disabled`] is `true`, the node will
+    ///     use the default unit cost metric.
     pub cost_metric: Option<String>,
     /// If `true`, all fee and cost estimation features are disabled.
-    /// The node will use unit estimators and metrics, which effectively
-    /// provide no actual estimation capabilities.
+    /// The node will use unit estimators and metrics, which effectively provide no
+    /// actual estimation capabilities.
     ///
     /// When disabled, the node will:
-    /// 1. Not track historical transaction costs or fee rates
-    /// 2. Return simple unit values for costs for any transaction, regardless of its actual complexity
-    /// 3. Be unable to provide meaningful fee estimates for API requests (always returns an error)
-    /// 4. Consider only raw transaction fees (not fees per cost unit) when assembling blocks
+    /// 1. Not track historical transaction costs or fee rates.
+    /// 2. Return simple unit values for costs for any transaction, regardless of
+    ///    its actual complexity.
+    /// 3. Be unable to provide meaningful fee estimates for API requests (always
+    ///    returns an error).
+    /// 4. Consider only raw transaction fees (not fees per cost unit) when
+    ///    assembling blocks.
     ///
     /// This setting takes precedence over individual estimator/metric configurations.
-    /// When `true`, the values for [`FeeEstimationConfigFile::cost_estimator`],
-    /// [`FeeEstimationConfigFile::fee_estimator`], and [`FeeEstimationConfigFile::cost_metric`]
-    /// are ignored and treated as `None`.
-    ///
-    /// Default: `false`
+    /// ---
+    /// @default: `false`
+    /// @notes:
+    ///   - When `true`, the values for [`FeeEstimationConfigFile::cost_estimator`],
+    ///     [`FeeEstimationConfigFile::fee_estimator`], and
+    ///     [`FeeEstimationConfigFile::cost_metric`] are ignored.
     pub disabled: Option<bool>,
     /// If `true`, errors encountered during cost or fee estimation will be logged.
     /// This can help diagnose issues with the fee estimation subsystem.
-    ///
-    /// Default: `false`
+    /// ---
+    /// @default: `false`
     pub log_error: Option<bool>,
-    /// Specifies the fraction of random noise to add if using the `FuzzedWeightedMedianFeeRate` fee estimator.
-    /// This value should be in the range [0, 1], representing a percentage of the base fee rate.
+    /// Specifies the fraction of random noise to add if using the
+    /// `FuzzedWeightedMedianFeeRate` fee estimator. This value should be in the
+    /// range [0, 1], representing a percentage of the base fee rate.
     ///
-    /// For example, with a value of 0.1 (10%), fee rate estimates will have random noise added
-    /// within the range of ±10% of the original estimate. This randomization makes it difficult
-    /// for users to precisely optimize their fees while still providing reasonable estimates.
-    ///
-    /// This setting is only relevant when [`FeeEstimationConfigFile::fee_estimator`] is set to
-    /// `"FuzzedWeightedMedianFeeRate"`. It controls how much randomness is introduced in the
-    /// fee estimation process to prevent fee optimization attacks.
-    ///
-    /// Default: `0.1` (10%)
+    /// For example, with a value of 0.1 (10%), fee rate estimates will have random
+    /// noise added within the range of ±10% of the original estimate. This
+    /// randomization makes it difficult for users to precisely optimize their fees
+    /// while still providing reasonable estimates.
+    /// ---
+    /// @default: `0.1` (10%)
+    /// @notes:
+    ///   - This setting is only relevant when [`FeeEstimationConfigFile::fee_estimator`] is set to
+    ///     `"FuzzedWeightedMedianFeeRate"`.
     pub fee_rate_fuzzer_fraction: Option<f64>,
-    /// Specifies the window size for the [`WeightedMedianFeeRateEstimator`].
+    /// Specifies the window size for the `WeightedMedianFeeRateEstimator`.
     /// This determines how many historical fee rate data points are considered
     /// when calculating the median fee rate.
     ///
-    /// The window size controls how quickly the fee estimator responds to changing
-    /// network conditions. A smaller window size (e.g., 5) makes the estimator more
-    /// responsive to recent fee rate changes but potentially more volatile. A larger
-    /// window size (e.g., 10) produces more stable estimates but may be slower to
-    /// adapt to rapid network changes.
-    ///
-    /// This setting is primarily relevant when [`FeeEstimationConfigFile::fee_estimator`] is set to
-    /// `"FuzzedWeightedMedianFeeRate"`, as it's used by the underlying [`WeightedMedianFeeRateEstimator`].
-    ///
-    /// Default: `5`
+    // The window size controls how quickly the fee estimator responds to changing
+    // network conditions. A smaller window size (e.g., 5) makes the estimator more
+    // responsive to recent fee rate changes but potentially more volatile. A larger
+    // window size (e.g., 10) produces more stable estimates but may be slower to
+    // adapt to rapid network changes.
+    /// ---
+    /// @default: `5`
+    /// @notes:
+    ///   - This setting is primarily relevant when [`FeeEstimationConfigFile::fee_estimator`] is set
+    ///     to `"FuzzedWeightedMedianFeeRate"`.
     pub fee_rate_window_size: Option<u64>,
 }
 
@@ -4053,7 +4254,7 @@ impl MinerConfigFile {
             underperform_stop_threshold: self.underperform_stop_threshold,
             mempool_walk_strategy: self.mempool_walk_strategy
                 .map(|s| str::parse(&s).unwrap_or_else(|e| panic!("Could not parse '{s}': {e}")))
-                .unwrap_or(MemPoolWalkStrategy::GlobalFeeRate),
+                .unwrap_or(MemPoolWalkStrategy::NextNonceWithHighestFeeRate),
             txs_to_consider: {
                 if let Some(txs_to_consider) = &self.txs_to_consider {
                     txs_to_consider
@@ -4165,118 +4366,127 @@ impl AtlasConfigFile {
 #[derive(Clone, Deserialize, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
 #[serde(deny_unknown_fields)]
 pub struct EventObserverConfigFile {
-    /// URL endpoint (hostname and port) where event notifications will be sent via HTTP POST requests.
+    /// URL endpoint (hostname and port) where event notifications will be sent via
+    /// HTTP POST requests.
     ///
     /// The node will automatically prepend `http://` to this endpoint and append the
-    /// specific event path (e.g., `/new_block`, `/new_mempool_tx`).
-    /// Therefore, this value should be specified as `hostname:port` (e.g., "localhost:3700").
-    ///
-    /// **Do NOT include the `http://` scheme in this configuration value.**
+    /// specific event path (e.g., `/new_block`, `/new_mempool_tx`). Therefore, this
+    /// value should be specified as `hostname:port` (e.g., "localhost:3700").
     ///
     /// This should point to a service capable of receiving and processing Stacks event data.
-    ///
-    /// Default: No default. This field is required.
+    /// ---
+    /// @default: No default.
+    /// @required: true
+    /// @notes:
+    ///   - **Do NOT include the `http://` scheme in this configuration value.**
+    /// @toml_example: |
+    ///   endpoint = "localhost:3700"
     pub endpoint: String,
     /// List of event types that this observer is configured to receive.
     ///
-    /// For a more detailed documentation check the event-dispatcher docs in the `/docs` folder.
+    /// Each string in the list specifies an event category or a specific event to
+    /// subscribe to. For an observer to receive any notifications, this list must
+    /// contain at least one valid key. Providing an invalid string that doesn't match
+    /// any of the valid formats below will cause the node to panic on startup when
+    /// parsing the configuration.
     ///
-    /// Each string in the list specifies an event category or a specific event to subscribe to.
-    /// For an observer to receive any notifications, this list must contain at least one valid key.
-    /// Providing an invalid string that doesn't match any of the valid formats below will cause
-    /// the node to panic on startup when parsing the configuration.
+    /// All observers, regardless of their `events_keys` configuration, implicitly
+    /// receive payloads on the `/attachments/new` endpoint.
     ///
-    /// All observers, regardless of their `events_keys` configuration, implicitly receive
-    /// payloads on the `/attachments/new` endpoint.
-    ///
-    /// **Valid Event Keys:**
-    ///
+    /// Valid Event Keys:
     /// - `"*"`: Subscribes to a broad set of common events.
-    ///   - **Events delivered to:**
-    ///     - `/new_block`: For blocks containing transactions that generate STX, FT, NFT, or smart contract events.
-    ///     - `/new_microblocks`: For all new microblock streams. **Note:** Only until epoch 2.5.
+    ///   - Events delivered to:
+    ///     - `/new_block`: For blocks containing transactions that generate STX, FT,
+    ///       NFT, or smart contract events.
+    ///     - `/new_microblocks`: For all new microblock streams. Note: Only until epoch 2.5.
     ///     - `/new_mempool_tx`: For new mempool transactions.
     ///     - `/drop_mempool_tx`: For dropped mempool transactions.
     ///     - `/new_burn_block`: For new burnchain blocks.
-    ///   - **Note:** This key does NOT by itself subscribe to `/stackerdb_chunks` or `/proposal_response`.
+    ///   - Note: This key does NOT by itself subscribe to `/stackerdb_chunks` or `/proposal_response`.
     ///
     /// - `"stx"`: Subscribes to STX token operation events (transfer, mint, burn, lock).
-    ///   - **Events delivered to:** `/new_block`, `/new_microblocks`.
-    ///   - **Payload details:** The "events" array in the delivered payloads will be filtered to include only STX-related events.
+    ///   - Events delivered to: `/new_block`, `/new_microblocks`.
+    ///   - Payload details: The "events" array in the delivered payloads will be
+    ///     filtered to include only STX-related events.
     ///
     /// - `"memtx"`: Subscribes to new and dropped mempool transaction events.
-    ///   - **Events delivered to:** `/new_mempool_tx`, `/drop_mempool_tx`.
+    ///   - Events delivered to: `/new_mempool_tx`, `/drop_mempool_tx`.
     ///
     /// - `"burn_blocks"`: Subscribes to new burnchain block events.
-    ///   - **Events delivered to:** `/new_burn_block`.
+    ///   - Events delivered to: `/new_burn_block`.
     ///
     /// - `"microblocks"`: Subscribes to new microblock stream events.
-    ///   - **Events delivered to:** `/new_microblocks`.
-    ///   - **Payload details:**
+    ///   - Events delivered to: `/new_microblocks`.
+    ///   - Payload details:
     ///     - The "transactions" field will contain all transactions from the microblocks.
-    ///     - The "events" field will contain STX, FT, NFT, or specific smart contract events
-    ///       *only if* this observer is also subscribed to those more specific event types
-    ///       (e.g., via `"stx"`, `"*"`, a specific contract event key, or a specific asset identifier key).
-    ///   - **Note:** Only until epoch 2.5.
+    ///     - The "events" field will contain STX, FT, NFT, or specific smart contract
+    ///       events *only if* this observer is also subscribed to those more specific
+    ///       event types (e.g., via `"stx"`, `"*"`, a specific contract event key,
+    ///       or a specific asset identifier key).
+    ///   - Note: Only until epoch 2.5.
     ///
     /// - `"stackerdb"`: Subscribes to StackerDB chunk update events.
-    ///   - **Events delivered to:** `/stackerdb_chunks`.
+    ///   - Events delivered to: `/stackerdb_chunks`.
     ///
     /// - `"block_proposal"`: Subscribes to block proposal response events (for Nakamoto consensus).
-    ///   - **Events delivered to:** `/proposal_response`.
+    ///   - Events delivered to: `/proposal_response`.
     ///
-    /// - **Smart Contract Event**: Subscribes to a specific smart contract event.
-    ///   - **Format:** `"{contract_address}.{contract_name}::{event_name}"`
+    /// - Smart Contract Event: Subscribes to a specific smart contract event.
+    ///   - Format: `"{contract_address}.{contract_name}::{event_name}"`
     ///     (e.g., `ST0000000000000000000000000000000000000000.my-contract::my-custom-event`)
-    ///   - **Events delivered to:** `/new_block`, `/new_microblocks`.
-    ///   - **Payload details:** The "events" array in the delivered payloads will be filtered for this specific event.
+    ///   - Events delivered to: `/new_block`, `/new_microblocks`.
+    ///   - Payload details: The "events" array in the delivered payloads will be
+    ///     filtered for this specific event.
     ///
-    /// - **Asset Identifier for FT/NFT Events**: Subscribes to events (mint, burn, transfer) for a specific Fungible Token (FT) or Non-Fungible Token (NFT).
-    ///   - **Format:** `"{contract_address}.{contract_name}.{asset_name}"`
-    ///     (e.g., for an FT: `ST0000000000000000000000000000000000000000.my-ft-contract.my-fungible-token`)
-    ///   - **Events delivered to:** `/new_block`, `/new_microblocks`.
-    ///   - **Payload details:** The "events" array in the delivered payloads will be filtered for events related to the specified asset.
-    ///
-    /// **Configuration:**
-    ///
-    /// ```toml
-    /// # Example events_keys in TOML configuration:
-    /// events_keys = [
-    ///   "burn_blocks",
-    ///   "memtx",
-    ///   "ST0000000000000000000000000000000000000000.my-contract::my-custom-event",  # Smart contract event
-    ///   "ST0000000000000000000000000000000000000000.token-contract.my-ft"           # Fungible token asset event
-    /// ]
-    /// ```
-    ///
-    /// Default: No default. This field is required.
+    /// - Asset Identifier for FT/NFT Events: Subscribes to events (mint, burn,
+    ///   transfer) for a specific Fungible Token (FT) or Non-Fungible Token (NFT).
+    ///   - Format: `"{contract_address}.{contract_name}.{asset_name}"`
+    ///     (e.g., for an FT: `ST0000000000000000000000000000000000000000.contract.token`)
+    ///   - Events delivered to: `/new_block`, `/new_microblocks`.
+    ///   - Payload details: The "events" array in the delivered payloads will be
+    ///     filtered for events related to the specified asset.
+    /// ---
+    /// @default: No default.
+    /// @required: true
+    /// @notes:
+    ///   - For a more detailed documentation check the event-dispatcher docs in the `/docs` folder.
+    /// @toml_example: |
+    ///   events_keys = [
+    ///     "burn_blocks",
+    ///     "memtx",
+    ///     "ST0000000000000000000000000000000000000000.my-contract::my-custom-event",
+    ///     "ST0000000000000000000000000000000000000000.token-contract.my-ft"
+    ///   ]
     pub events_keys: Vec<String>,
     /// Maximum duration (in milliseconds) to wait for the observer endpoint to respond.
     ///
-    /// When the node sends an event notification to this observer, it will wait at most this long
-    /// for a successful HTTP response (status code 200) before considering the request timed out.
-    /// If a timeout occurs and retries are enabled (see [`EventObserverConfig::disable_retries`]),
-    /// the request will be attempted again according to the retry strategy.
-    ///
-    /// Default: `1_000` ms (1 second).
+    /// When the node sends an event notification to this observer, it will wait at
+    /// most this long for a successful HTTP response (status code 200) before
+    /// considering the request timed out. If a timeout occurs and retries are enabled
+    /// (see [`EventObserverConfigFile::disable_retries`]), the request will be attempted
+    /// again according to the retry strategy.
+    /// ---
+    /// @default: `1_000`
+    /// @units: milliseconds
     pub timeout_ms: Option<u64>,
-    /// Controls whether the node should retry sending event notifications if delivery fails or times out.
+    /// Controls whether the node should retry sending event notifications if delivery
+    /// fails or times out.
     ///
-    /// - If `false` (default): The node will attempt to deliver event notifications persistently.
-    ///   If an attempt fails (due to network error, timeout, or a non-200 HTTP response), the event
-    ///   payload is saved and retried indefinitely. This ensures that all events will eventually be
-    ///   delivered. However, this can cause the node's block processing to stall if an observer is
-    ///   down, or indefinitely fails to process the event.
+    /// If `false` (default): The node will attempt to deliver event notifications
+    ///   persistently. If an attempt fails (due to network error, timeout, or a
+    ///   non-200 HTTP response), the event payload is saved and retried indefinitely.
+    ///   This ensures that all events will eventually be delivered. However, this can
+    ///   cause the node's block processing to stall if an observer is down, or
+    ///   indefinitely fails to process the event.
     ///
-    /// - If `true`: The node will make only a single attempt to deliver each event notification.
-    ///   If this single attempt fails for any reason, the event is discarded, and no further retries
-    ///   will be made for that specific event.
-    ///
-    /// **Warning:** Setting this to `true` can lead to missed events if the observer endpoint is
-    /// temporarily unavailable or experiences issues. This setting should only be used for observers
-    /// where completeness of the event history is not critical.
-    ///
-    /// Default: `false` (retries are enabled).
+    /// - If `true`: The node will make only a single attempt to deliver each event
+    ///   notification. If this single attempt fails for any reason, the event is
+    ///   discarded, and no further retries will be made for that specific event.
+    /// ---
+    /// @default: `false` (retries are enabled)
+    /// @notes:
+    ///   - **Warning:** Setting this to `true` can lead to missed events if the
+    ///     observer endpoint is temporarily unavailable or experiences issues.
     pub disable_retries: Option<bool>,
 }
 
@@ -4381,13 +4591,16 @@ pub struct InitialBalance {
 pub struct InitialBalanceFile {
     /// The Stacks address to receive the initial STX balance.
     /// Must be a valid "non-mainnet" Stacks address (e.g., "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2").
-    ///
-    /// Default: No default. This field is required.
+    /// ---
+    /// @default: No default.
+    /// @required: true
     pub address: String,
     /// The amount of microSTX to allocate to the address at node startup.
-    /// 1 STX = 1_000_000 microSTX.
-    ///
-    /// Default: No default. This field is required.
+    /// 1 STX = 1,000,000 microSTX.
+    /// ---
+    /// @default: No default.
+    /// @required: true
+    /// @units: microSTX
     pub amount: u64,
 }
 
