@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
@@ -163,6 +163,15 @@ impl LocalStateMachine {
             active_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
             tx_replay_set: ReplayTransactionSet::none(),
             update_time: UpdateTime::now(),
+        }
+    }
+
+    /// Return the update time of the internal signer state machine
+    pub fn get_update_time(&self) -> Option<SystemTime> {
+        match self {
+            LocalStateMachine::Initialized(update)
+            | LocalStateMachine::Pending { prior: update, .. } => Some(update.update_time.0),
+            LocalStateMachine::Uninitialized => None,
         }
     }
 
@@ -637,6 +646,7 @@ impl LocalStateMachine {
         local_supported_signer_protocol_version: u64,
         reward_cycle: u64,
         sortition_state: &mut Option<SortitionsView>,
+        capitulate_miner_view_timeout: Duration,
     ) {
         // Before we ever access eval...we should make sure to include our own local state machine update message in the evaluation
         let Ok(mut local_update) =
@@ -644,6 +654,12 @@ impl LocalStateMachine {
         else {
             return;
         };
+        // call this BEFORE updating active signer protocol version as we still may
+        // want to update our miner view and don't want a protocol version update to prevent it
+        let should_capitulate_miner_view = SystemTime::now()
+            .duration_since(self.get_update_time().unwrap_or(SystemTime::now()))
+            .map(|elapsed| elapsed > capitulate_miner_view_timeout)
+            .unwrap_or_default();
 
         let old_protocol_version = local_update.active_signer_protocol_version;
         // First check if we should update our active protocol version
@@ -678,7 +694,11 @@ impl LocalStateMachine {
             local_update = update;
         }
 
-        // Check if we should also capitulate our miner viewpoint
+        if !should_capitulate_miner_view {
+            return;
+        }
+
+        // Is there a miner view to which we should capitulate?
         let Some(new_miner) =
             self.capitulate_miner_view(eval, signerdb, local_address, &local_update)
         else {

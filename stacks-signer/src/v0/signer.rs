@@ -125,6 +125,8 @@ pub struct Signer {
     pub global_state_evaluator: GlobalStateEvaluator,
     /// Whether to validate blocks with replay transactions
     pub validate_with_replay_tx: bool,
+    /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
+    pub capitulate_miner_view_timeout: Duration,
 }
 
 impl std::fmt::Display for SignerMode {
@@ -241,6 +243,7 @@ impl SignerTrait<SignerMessage> for Signer {
             recently_processed: RecentlyProcessedBlocks::new(),
             global_state_evaluator,
             validate_with_replay_tx: signer_config.validate_with_replay_tx,
+            capitulate_miner_view_timeout: signer_config.capitulate_miner_view_timeout,
         }
     }
 
@@ -273,6 +276,18 @@ impl SignerTrait<SignerMessage> for Signer {
                 .send_signer_update_message(&mut self.stackerdb, version);
             prior_state = self.local_state_machine.clone();
         }
+
+        // See if this update means we should capitulate our viewpoint...
+        let version = self.get_signer_protocol_version();
+        self.local_state_machine.capitulate_viewpoint(
+            &mut self.signer_db,
+            &mut self.global_state_evaluator,
+            self.stacks_address,
+            version,
+            self.reward_cycle,
+            sortition_state,
+            self.capitulate_miner_view_timeout,
+        );
 
         let event_parity = match event {
             // Block proposal events do have reward cycles, but each proposal has its own cycle,
@@ -430,12 +445,7 @@ impl Signer {
                             sortition_state,
                         ),
                         SignerMessage::StateMachineUpdate(update) => self
-                            .handle_state_machine_update(
-                                signer_public_key,
-                                update,
-                                received_time,
-                                sortition_state,
-                            ),
+                            .handle_state_machine_update(signer_public_key, update, received_time),
                         _ => {}
                     }
                 }
@@ -766,7 +776,6 @@ impl Signer {
         signer_public_key: &Secp256k1PublicKey,
         update: &StateMachineUpdate,
         received_time: &SystemTime,
-        sortition_state: &mut Option<SortitionsView>,
     ) {
         let address = StacksAddress::p2pkh(self.mainnet, signer_public_key);
         // Store the state machine update so we can reload it if we crash
@@ -780,17 +789,6 @@ impl Signer {
         }
         self.global_state_evaluator
             .insert_update(address, update.clone());
-
-        // See if this update means we should capitulate our viewpoint...
-        let version = self.get_signer_protocol_version();
-        self.local_state_machine.capitulate_viewpoint(
-            &mut self.signer_db,
-            &mut self.global_state_evaluator,
-            self.stacks_address,
-            version,
-            self.reward_cycle,
-            sortition_state,
-        );
     }
 
     /// Handle block proposal messages submitted to signers stackerdb

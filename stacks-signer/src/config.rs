@@ -49,6 +49,9 @@ const DEFAULT_TENURE_IDLE_TIMEOUT_BUFFER_SECS: u64 = 2;
 ///  cannot determine that our stacks-node has processed the parent
 ///  block
 const DEFAULT_PROPOSAL_WAIT_TIME_FOR_PARENT_SECS: u64 = 15;
+/// Default time (in secs) to wait between updating our local state
+/// machine view point and capitulating to other signers tenure view
+const DEFAULT_CAPITULATE_MINER_VIEW_SECS: u64 = 20;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -184,6 +187,8 @@ pub struct SignerConfig {
     pub proposal_wait_for_parent_time: Duration,
     /// Whether or not to validate blocks with replay transactions
     pub validate_with_replay_tx: bool,
+    /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
+    pub capitulate_miner_view_timeout: Duration,
 }
 
 /// The parsed configuration for the signer
@@ -237,6 +242,8 @@ pub struct GlobalConfig {
     pub dry_run: bool,
     /// Whether or not to validate blocks with replay transactions
     pub validate_with_replay_tx: bool,
+    /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
+    pub capitulate_miner_view_timeout: Duration,
 }
 
 /// Internal struct for loading up the config file
@@ -288,6 +295,8 @@ struct RawConfigFile {
     pub dry_run: Option<bool>,
     /// Whether or not to validate blocks with replay transactions
     pub validate_with_replay_tx: Option<bool>,
+    /// Time to wait (in secs) between updating our local state machine view point and capitulating to other signers miner view
+    pub capitulate_miner_view_timeout_secs: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -413,6 +422,12 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
         // https://github.com/stacks-network/stacks-core/issues/6087
         let validate_with_replay_tx = raw_data.validate_with_replay_tx.unwrap_or(false);
 
+        let capitulate_miner_view_timeout = Duration::from_secs(
+            raw_data
+                .capitulate_miner_view_timeout_secs
+                .unwrap_or(DEFAULT_CAPITULATE_MINER_VIEW_SECS),
+        );
+
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
@@ -435,6 +450,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             tenure_idle_timeout_buffer,
             proposal_wait_for_parent_time,
             validate_with_replay_tx,
+            capitulate_miner_view_timeout,
         })
     }
 }
@@ -702,6 +718,10 @@ db_path = ":memory:"
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
         assert_eq!(config.stacks_address.to_string(), expected_addr);
         assert!(!config.validate_with_replay_tx);
+        assert_eq!(
+            config.capitulate_miner_view_timeout,
+            Duration::from_secs(DEFAULT_CAPITULATE_MINER_VIEW_SECS)
+        );
         // 65 bytes (with compression flag)
         let sk_hex = "2de4e77aab89c0c2570bb8bb90824f5cf2a5204a975905fee450ff9dad0fcf2801";
 
@@ -714,12 +734,17 @@ network = "mainnet"
 auth_password = "abcd"
 db_path = ":memory:"
 validate_with_replay_tx = true
+capitulate_miner_view_timeout_secs = 1000
             "#
         );
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
         assert_eq!(config.stacks_address.to_string(), expected_addr);
         assert_eq!(config.to_chain_id(), CHAIN_ID_MAINNET);
         assert!(config.validate_with_replay_tx);
+        assert_eq!(
+            config.capitulate_miner_view_timeout,
+            Duration::from_secs(1000)
+        );
     }
 
     #[test]
