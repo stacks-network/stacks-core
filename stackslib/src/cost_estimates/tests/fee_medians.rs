@@ -289,7 +289,8 @@ fn test_fee_rate_estimate_5_vs_95() {
                 fee_rate: 10f64,
                 weight: 95u64,
             },
-        ]),
+        ])
+        .unwrap(),
         FeeRateEstimate {
             high: 10.0f64,
             middle: 9.549999999999999f64,
@@ -310,7 +311,8 @@ fn test_fee_rate_estimate_50_vs_50() {
                 fee_rate: 10f64,
                 weight: 50u64,
             },
-        ]),
+        ])
+        .unwrap(),
         FeeRateEstimate {
             high: 10.0f64,
             middle: 5.5f64,
@@ -331,7 +333,8 @@ fn test_fee_rate_estimate_95_vs_5() {
                 fee_rate: 10f64,
                 weight: 5u64,
             },
-        ]),
+        ])
+        .unwrap(),
         FeeRateEstimate {
             high: 9.549999999999999f64,
             middle: 1.4500000000000004f64,
@@ -351,7 +354,7 @@ fn test_fee_rate_estimate_20() {
     }
 
     assert_eq!(
-        fee_rate_estimate_from_sorted_weighted_fees(&pairs),
+        fee_rate_estimate_from_sorted_weighted_fees(&pairs).unwrap(),
         FeeRateEstimate {
             high: 19.5f64,
             middle: 10.5f64,
@@ -371,7 +374,7 @@ fn test_fee_rate_estimate_100() {
     }
 
     assert_eq!(
-        fee_rate_estimate_from_sorted_weighted_fees(&pairs),
+        fee_rate_estimate_from_sorted_weighted_fees(&pairs).unwrap(),
         FeeRateEstimate {
             high: 95.5f64,
             middle: 50.5f64,

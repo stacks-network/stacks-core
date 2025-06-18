@@ -578,7 +578,7 @@ impl PeerNetwork {
         expected_versions: &[u32],
     ) -> Result<bool, net_error> {
         // validate -- must be a valid chunk
-        if data.slot_id >= (expected_versions.len() as u32) {
+        let Some(expected_version) = expected_versions.get(data.slot_id as usize) else {
             info!(
                 "Received StackerDBChunk for {} ID {}, which is too big ({})",
                 smart_contract_id,
@@ -586,7 +586,7 @@ impl PeerNetwork {
                 expected_versions.len()
             );
             return Ok(false);
-        }
+        };
 
         // validate -- must be signed by the expected author
         let addr = match self
@@ -609,11 +609,10 @@ impl PeerNetwork {
         }
 
         // validate -- must be the current or newer version
-        let slot_idx = data.slot_id as usize;
-        if data.slot_version < expected_versions[slot_idx] {
+        if data.slot_version < *expected_version {
             info!(
                 "Received StackerDBChunk for {} ID {} version {}, which is stale (expected {})",
-                smart_contract_id, data.slot_id, data.slot_version, expected_versions[slot_idx]
+                smart_contract_id, data.slot_id, data.slot_version, *expected_version
             );
             return Ok(false);
         }
@@ -705,8 +704,19 @@ impl PeerNetwork {
                 }
 
                 // patch inventory -- we'll accept this chunk
-                data.slot_versions[chunk_data.chunk_data.slot_id as usize] =
-                    chunk_data.chunk_data.slot_version;
+                let Some(slot_version) = data
+                    .slot_versions
+                    .get_mut(chunk_data.chunk_data.slot_id as usize)
+                else {
+                    error!(
+                        "Chunk not accepted with slot_id {}, which is greater than our slot_versions array {} in {}",
+                        chunk_data.chunk_data.slot_id,
+                        data.slot_versions.len(),
+                        chunk_data.contract_id
+                    );
+                    return Ok((false, false));
+                };
+                *slot_version = chunk_data.chunk_data.slot_version;
 
                 // wake up the state machine -- force it to begin a new sync if it's asleep
                 if let Some(stackerdb_syncs) = self.stacker_db_syncs.as_mut() {

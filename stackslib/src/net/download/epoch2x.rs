@@ -625,7 +625,17 @@ impl BlockDownloader {
                             Some(http_response) => {
                                 match StacksHttpResponse::decode_microblocks(http_response) {
                                     Ok(microblocks) => {
-                                        if microblocks.is_empty() {
+                                        if let Some(first_mblock) = microblocks.first() {
+                                            // have microblocks (but we don't know yet if they're well-formed)
+                                            debug!(
+                                                "Got (tentative) microblocks {}: {}/{}-{}",
+                                                block_key.sortition_height,
+                                                &block_key.consensus_hash,
+                                                &block_key.index_block_hash,
+                                                first_mblock.block_hash()
+                                            );
+                                            self.microblocks.insert(block_key, microblocks);
+                                        } else {
                                             // we wouldn't have asked for a 0-length stream
                                             info!("Got unexpected zero-length microblock stream from {:?} ({:?})", &block_key.neighbor, &block_key.data_url;
                                                 "consensus_hash" => %block_key.consensus_hash
@@ -636,17 +646,7 @@ impl BlockDownloader {
                                                 reason: DropReason::BrokenConnection("Remote neighbor sent an unexpected zero-length microblock stream".into()),
                                                 source: DropSource::BlockDownloaderGetMicroblocks
                                             });
-                                        } else {
-                                            // have microblocks (but we don't know yet if they're well-formed)
-                                            debug!(
-                                                "Got (tentative) microblocks {}: {}/{}-{}",
-                                                block_key.sortition_height,
-                                                &block_key.consensus_hash,
-                                                &block_key.index_block_hash,
-                                                microblocks[0].block_hash()
-                                            );
-                                            self.microblocks.insert(block_key, microblocks);
-                                        }
+                                        };
                                     }
                                     Err(net_error::NotFoundError) => {
                                         // remote peer didn't have the microblock, even though their blockinv said

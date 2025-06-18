@@ -119,13 +119,11 @@ pub fn parse_raw_bytes(
             expected_content_type
         )));
     }
-    if (body.len() as u64) < max_len {
-        let buf = body.to_vec();
-        Ok(buf)
-    } else {
-        let buf = body[0..(max_len as usize)].to_vec();
-        Ok(buf)
-    }
+    let out_len = usize::try_from(max_len).unwrap().min(body.len());
+    let out_bytes = body
+        .get(..out_len)
+        .ok_or_else(|| Error::DecodeError("Unexpected body size".into()))?;
+    Ok(out_bytes.to_vec())
 }
 
 /// Helper function to read `application/octet-stream` content

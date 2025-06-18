@@ -835,7 +835,10 @@ impl StacksHttpRecvStream {
 
             consumed += consumed_pass;
             if read_pass > 0 {
-                self.data.extend_from_slice(&decoded_buf[0..read_pass]);
+                self.data
+                    .extend_from_slice(decoded_buf.get(0..read_pass).ok_or_else(|| {
+                        NetError::DeserializeError("Expected more bytes in buffer".into())
+                    })?);
             }
         }
 
@@ -1298,6 +1301,7 @@ impl StacksHttp {
     /// `i` is the offset into the chunk `buf` being searched.  If `i < 4`, then we must check the
     /// last `4 - i` bytes of `self.last_four_preamble_bytes` as well as the first `i` bytes of
     /// `buf`.  Otherwise, we just check `buf[i-4..i]`.
+    #[allow(clippy::indexing_slicing)]
     fn body_start_search_window(&self, i: usize, buf: &[u8]) -> [u8; 4] {
         let window = match i {
             0 => [
@@ -1572,13 +1576,13 @@ impl ProtocolFamily for StacksHttp {
             StacksHttpPreamble::Request(ref http_request_preamble) => {
                 // all requests have a known length
                 let len = http_request_preamble.get_content_length() as usize;
-                if len > buf.len() {
+                let Some(buf_data) = buf.get(0..len) else {
                     return Err(NetError::InvalidState);
-                }
+                };
 
                 trace!("read http request payload of {} bytes", len);
 
-                match self.try_parse_request(http_request_preamble, &buf[0..len]) {
+                match self.try_parse_request(http_request_preamble, buf_data) {
                     Ok(data_request) => Ok((StacksHttpMessage::Request(data_request), len)),
                     Err(NetError::Http(http_error)) => {
                         // convert into a response

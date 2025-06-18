@@ -154,16 +154,17 @@ pub(crate) fn apply_blockstack_txs_safety_checks(
     blockstack_txs.sort_by(|a, b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
 
     // safety -- no duplicate vtxindex (shouldn't happen but crash if so)
-    if blockstack_txs.len() > 1 {
-        for i in 0..blockstack_txs.len() - 1 {
-            if blockstack_txs[i].vtxindex() == blockstack_txs[i + 1].vtxindex() {
-                panic!(
-                    "FATAL: BUG: duplicate vtxindex {} in block {}",
-                    blockstack_txs[i].vtxindex(),
-                    blockstack_txs[i].block_height()
-                );
-            }
+    let mut prior_vtxindex = None;
+    for tx in blockstack_txs.iter() {
+        let current_vtxindex = Some(tx.vtxindex());
+        if current_vtxindex == prior_vtxindex {
+            panic!(
+                "FATAL: BUG: duplicate vtxindex {} in block {}",
+                tx.vtxindex(),
+                tx.block_height()
+            );
         }
+        prior_vtxindex = current_vtxindex;
     }
 
     // safety -- block heights all match

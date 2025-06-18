@@ -108,8 +108,7 @@ pub fn parse_u64(value: &str) -> Option<u64> {
     if bytes.len() != 8 {
         return None;
     }
-    let mut bytes_u64 = [0u8; 8];
-    bytes_u64[0..8].copy_from_slice(&bytes[0..8]);
+    let bytes_u64 = bytes.try_into().ok()?;
     Some(u64::from_be_bytes(bytes_u64))
 }
 
@@ -119,7 +118,7 @@ pub fn parse_bool(value: &str) -> Option<bool> {
     if bytes.len() != 1 {
         return None;
     }
-    Some(bytes[0] != 0)
+    Some(*bytes.first()? != 0)
 }
 
 /// Decode a MARF-stored tenure event ID
@@ -130,14 +129,12 @@ pub fn parse_tenure_id_value(value: &str) -> Option<NakamotoTenureEventId> {
         // StacksBlockId is 32 bytes
         return None;
     }
-    let mut ch_bytes = [0u8; 20];
-    let mut block_id_bytes = [0u8; 32];
-    ch_bytes[0..20].copy_from_slice(&bytes[0..20]);
-    block_id_bytes[0..32].copy_from_slice(&bytes[20..52]);
+    let ch_bytes: &[u8; 20] = bytes.get(0..20)?.try_into().ok()?;
+    let block_id_bytes: &[u8; 32] = bytes.get(20..52)?.try_into().ok()?;
 
     let id = NakamotoTenureEventId {
-        burn_view_consensus_hash: ConsensusHash(ch_bytes),
-        block_id: StacksBlockId(block_id_bytes),
+        burn_view_consensus_hash: ConsensusHash(*ch_bytes),
+        block_id: StacksBlockId(*block_id_bytes),
     };
     Some(id)
 }

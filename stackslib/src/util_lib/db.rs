@@ -491,6 +491,36 @@ where
     Ok(row_data)
 }
 
+/// boilerplate code for querying a column out of a sequence of rows,
+///  expecting exactly 0 or 1 results. panics if more.
+pub fn query_one_row_column<T, P>(
+    conn: &Connection,
+    sql_query: &str,
+    sql_args: P,
+    column_name: &str,
+    panic_msg: &str,
+) -> Result<Option<T>, Error>
+where
+    P: Params,
+    T: FromColumn<T>,
+{
+    log_sql_eqp(conn, sql_query);
+    let mut stmt = conn.prepare(sql_query)?;
+    let mut rows = stmt.query(sql_args)?;
+
+    // gather
+    let mut result = None;
+    while let Some(row) = rows.next().map_err(Error::SqliteError)? {
+        if result.is_some() {
+            panic!("{panic_msg}");
+        }
+        let next_row = T::from_column(row, column_name)?;
+        result = Some(next_row);
+    }
+
+    Ok(result)
+}
+
 /// Boilerplate for querying a single integer (first and only item of the query must be an int)
 pub fn query_int<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
@@ -499,20 +529,16 @@ where
     log_sql_eqp(conn, sql_query);
     let mut stmt = conn.prepare(sql_query)?;
     let mut rows = stmt.query(sql_args)?;
-    let mut row_data = vec![];
+    let mut row_data = None;
     while let Some(row) = rows.next().map_err(Error::SqliteError)? {
-        if !row_data.is_empty() {
+        if row_data.is_some() {
             return Err(Error::Overflow);
         }
         let i: i64 = row.get(0)?;
-        row_data.push(i);
+        row_data = Some(i);
     }
 
-    if row_data.is_empty() {
-        return Err(Error::NotFoundError);
-    }
-
-    Ok(row_data[0])
+    row_data.ok_or_else(|| Error::NotFoundError)
 }
 
 pub fn query_count<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
@@ -907,8 +933,8 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         }
 
         let mut marf_values = Vec::with_capacity(values.len());
-        for i in 0..values.len() {
-            let marf_value = self.store_indexed(&values[i])?;
+        for value in values.iter() {
+            let marf_value = self.store_indexed(value)?;
             marf_values.push(marf_value);
         }
 

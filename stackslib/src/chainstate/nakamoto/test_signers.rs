@@ -120,8 +120,7 @@ impl TestSigners {
         let mut pox_addrs = vec![];
         for key in self.signer_keys.iter() {
             let signing_key_vec = Secp256k1PublicKey::from_private(key).to_bytes_compressed();
-            let mut signing_key = [0u8; 33];
-            signing_key[0..33].copy_from_slice(&signing_key_vec[0..33]);
+            let signing_key = signing_key_vec.try_into().unwrap();
 
             let nakamoto_signer_entry = NakamotoSignerEntry {
                 signing_key,

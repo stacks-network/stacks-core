@@ -500,7 +500,10 @@ impl AtlasDB {
         let mut bool_vector = vec![true; AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE as usize];
         for (attachment_index, is_available) in rows.into_iter() {
             let index = attachment_index % AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
-            bool_vector[index as usize] = is_available == 0;
+            let slot = bool_vector
+                .get_mut(index as usize)
+                .ok_or(db_error::NotFoundError)?;
+            *slot = is_available == 0;
         }
         Ok(bool_vector)
     }

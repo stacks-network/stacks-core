@@ -74,10 +74,16 @@ impl LeaderKeyRegisterOp {
     pub fn set_nakamoto_signing_key(&mut self, pubkey_hash160: &Hash160) {
         if self.memo.len() < 20 {
             let mut new_memo = vec![0; 20];
-            new_memo[0..self.memo.len()].copy_from_slice(&self.memo);
+            new_memo
+                .get_mut(0..self.memo.len())
+                .expect("FATAL: improper handling of key_register op memo")
+                .copy_from_slice(&self.memo);
             self.memo = new_memo;
         }
-        self.memo[0..20].copy_from_slice(&pubkey_hash160.0);
+        self.memo
+            .get_mut(0..20)
+            .expect("FATAL: improper handling of key_register op memo")
+            .copy_from_slice(&pubkey_hash160.0);
     }
 
     fn parse_data(data: &[u8]) -> Option<ParsedData> {
@@ -102,9 +108,9 @@ impl LeaderKeyRegisterOp {
             return None;
         }
 
-        let consensus_hash = ConsensusHash::from_bytes(&data[0..20])
+        let consensus_hash = ConsensusHash::from_bytes(data.get(0..20)?)
             .expect("FATAL: invalid byte slice for consensus hash");
-        let pubkey = match VRFPublicKey::from_bytes(&data[20..52]) {
+        let pubkey = match VRFPublicKey::from_bytes(data.get(20..52)?) {
             Some(pubk) => pubk,
             None => {
                 warn!("Invalid VRF public key");
@@ -112,7 +118,7 @@ impl LeaderKeyRegisterOp {
             }
         };
 
-        let memo = &data[52..];
+        let memo = data.get(52..)?;
 
         Some(ParsedData {
             consensus_hash,
@@ -181,11 +187,11 @@ impl StacksMessageCodec for LeaderKeyRegisterOp {
         write_next(fd, &self.consensus_hash)?;
         fd.write_all(&self.public_key.as_bytes()[..])
             .map_err(codec_error::WriteError)?;
-
         let memo = match self.memo.len() {
-            l if l <= 25 => self.memo[0..].to_vec(),
-            _ => self.memo[0..25].to_vec(),
-        };
+            l if l <= 25 => self.memo.get(0..),
+            _ => self.memo.get(0..25),
+        }
+        .expect("FATAL: improper memo serialization");
         fd.write_all(&memo).map_err(codec_error::WriteError)?;
         Ok(())
     }

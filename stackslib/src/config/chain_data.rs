@@ -306,7 +306,7 @@ impl MinerStats {
         if burn_dist.is_empty() {
             return HashMap::new();
         }
-        if burn_dist.len() == 1 {
+        if let Ok(burn_dist) = TryInto::<&[_; 1]>::try_into(burn_dist) {
             let mut ret = HashMap::new();
             ret.insert(burn_dist[0].candidate.apparent_sender.to_string(), 1.0);
             return ret;
@@ -340,12 +340,14 @@ impl MinerStats {
                 if commit.commit_outs.len() != expected_pox_addrs.len() {
                     return false;
                 }
-                for (i, commit_out) in commit.commit_outs.iter().enumerate() {
-                    if commit_out.to_burnchain_repr() != expected_pox_addrs[i].to_burnchain_repr() {
+                for (commit_out, expected_pox_addr) in
+                    commit.commit_outs.iter().zip(expected_pox_addrs)
+                {
+                    if commit_out.to_burnchain_repr() != expected_pox_addr.to_burnchain_repr() {
                         info!(
                             "Skipping invalid unconfirmed block-commit: {:?} != {:?}",
                             &commit_out.to_burnchain_repr(),
-                            expected_pox_addrs[i].to_burnchain_repr()
+                            expected_pox_addr.to_burnchain_repr()
                         );
                         return false;
                     }
@@ -468,12 +470,14 @@ impl MinerStats {
                 if commit.commit_outs.len() != expected_pox_addrs.len() {
                     return false;
                 }
-                for (i, commit_out) in commit.commit_outs.iter().enumerate() {
-                    if commit_out.to_burnchain_repr() != expected_pox_addrs[i].to_burnchain_repr() {
+                for (commit_out, expected_pox_addr) in
+                    commit.commit_outs.iter().zip(expected_pox_addrs)
+                {
+                    if commit_out.to_burnchain_repr() != expected_pox_addr.to_burnchain_repr() {
                         info!(
                             "Skipping invalid unconfirmed block-commit: {:?} != {:?}",
                             &commit_out.to_burnchain_repr(),
-                            expected_pox_addrs[i].to_burnchain_repr()
+                            expected_pox_addr.to_burnchain_repr()
                         );
                         return false;
                     }

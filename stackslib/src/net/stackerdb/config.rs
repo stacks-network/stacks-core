@@ -343,8 +343,14 @@ impl StackerDBConfig {
             }
             // NOTE: port is now known to be in range [1024, 65535]
 
-            let mut pubkey_hash_slice = [0u8; 20];
-            pubkey_hash_slice.copy_from_slice(&pubkey_hash_bytes[0..20]);
+            let pubkey_hash_slice: &[u8; 20] = pubkey_hash_bytes
+                .get(0..20)
+                .and_then(|bytes| bytes.try_into().ok())
+                .ok_or_else(|| {
+                    let reason = format!("{contract_id} stipulates pubkey hash bytes length < 20");
+                    warn!("{reason}");
+                    NetError::InvalidStackerDBContract(contract_id.clone(), reason)
+                })?;
 
             let peer_addr = PeerAddress::from_slice(&addr_bytes).expect("FATAL: not 16 bytes");
             if peer_addr.is_in_private_range() {
@@ -358,7 +364,7 @@ impl StackerDBConfig {
             let naddr = NeighborAddress {
                 addrbytes: peer_addr,
                 port: port as u16,
-                public_key_hash: Hash160(pubkey_hash_slice),
+                public_key_hash: Hash160(*pubkey_hash_slice),
             };
             hint_replicas.push(naddr);
         }

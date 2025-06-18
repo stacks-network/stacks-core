@@ -163,6 +163,7 @@ impl BurnSamplePoint {
     ///     The latter occurs everywhere else, and must have `OUTPUTS_PER_COMMIT` outputs after the
     ///     `OP_RETURN` payload.  The length of this vector must be equal to the length of the
     ///     `block_commits` vector.  `burn_blocks[i]` is `true` if the `ith` block-commit must be PoB.
+    #[allow(clippy::indexing_slicing)] // this method panics on bad inputs, it should panic on bad indexes as well
     pub fn make_min_median_distribution(
         mining_commitment_window: u8,
         mut block_commits: Vec<Vec<LeaderBlockCommitOp>>,
@@ -364,8 +365,11 @@ impl BurnSamplePoint {
         }
         if burn_sample.len() == 1 {
             // sample that covers the whole range
-            burn_sample[0].range_start = Uint256::zero();
-            burn_sample[0].range_end = Uint256::max();
+            let sample_step = burn_sample
+                .first_mut()
+                .expect("FATAL: expected non-zero burn sample");
+            sample_step.range_start = Uint256::zero();
+            sample_step.range_end = Uint256::max();
             return;
         }
 
@@ -379,27 +383,25 @@ impl BurnSamplePoint {
         //   * the upper 256 bits are the integer
         //   * the lower 256 bits are the fraction
         // These range fields correspond to ranges in the 32-byte hash space
-        let mut burn_acc = Uint512::from_u128(burn_sample[0].burns);
+        let mut burn_acc = Uint512::zero();
+        let mut last_sample_range_end = Uint256::zero();
+        for sample_step in burn_sample.iter_mut() {
+            sample_step.range_start = last_sample_range_end;
 
-        burn_sample[0].range_start = Uint256::zero();
-        burn_sample[0].range_end =
-            ((Uint512::from_uint256(&Uint256::max()) * burn_acc) / total_burns).to_uint256();
-        for i in 1..burn_sample.len() {
-            burn_sample[i].range_start = burn_sample[i - 1].range_end;
-
-            burn_acc = burn_acc + Uint512::from_u128(burn_sample[i].burns);
-            burn_sample[i].range_end =
+            burn_acc = burn_acc + Uint512::from_u128(sample_step.burns);
+            sample_step.range_end =
                 ((Uint512::from_uint256(&Uint256::max()) * burn_acc) / total_burns).to_uint256();
+            last_sample_range_end = sample_step.range_end;
         }
 
-        for _i in 0..burn_sample.len() {
+        for _sample in burn_sample.iter() {
             test_debug!(
                 "Range for block {}: {} / {}: {} - {}",
-                burn_sample[_i].candidate.block_header_hash,
-                burn_sample[_i].burns,
+                _sample.candidate.block_header_hash,
+                _sample.burns,
                 total_burns_u128,
-                burn_sample[_i].range_start,
-                burn_sample[_i].range_end
+                _sample.range_start,
+                _sample.range_end
             );
         }
     }

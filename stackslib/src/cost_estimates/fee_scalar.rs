@@ -222,9 +222,15 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
             let median_index = measures_len / 2;
             let lowest_index = measures_len / 20;
             let block_estimate = FeeRateEstimate {
-                high: all_fee_rates[highest_index],
-                middle: all_fee_rates[median_index],
-                low: all_fee_rates[lowest_index],
+                high: *all_fee_rates
+                    .get(highest_index)
+                    .ok_or_else(|| EstimatorError::NoEstimateAvailable)?,
+                middle: *all_fee_rates
+                    .get(median_index)
+                    .ok_or_else(|| EstimatorError::NoEstimateAvailable)?,
+                low: *all_fee_rates
+                    .get(lowest_index)
+                    .ok_or_else(|| EstimatorError::NoEstimateAvailable)?,
             };
 
             self.update_estimate(block_estimate);
