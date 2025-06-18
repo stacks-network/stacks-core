@@ -777,7 +777,7 @@ impl NakamotoBlockProposal {
 
                                 return Err(BlockValidateRejectReason {
                                     reason_code: ValidateRejectCode::InvalidTransactionReplay,
-                                    reason: "Transaction is not in the replay set".into(),
+                                    reason: "Next replay tx exceeds cost limits, so should have been in the next block.".into(),
                                 });
                             }
                             _ => {
