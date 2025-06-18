@@ -30,7 +30,7 @@ use libsigner::v0::messages::{
     StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
 use libsigner::v0::signer_state::{
-    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
+    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine, UpdateTime,
 };
 use serde::{Deserialize, Serialize};
 use stacks_common::bitvec::BitVec;
@@ -162,6 +162,7 @@ impl LocalStateMachine {
             current_miner: MinerState::NoValidMiner,
             active_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
             tx_replay_set: ReplayTransactionSet::none(),
+            update_time: UpdateTime::now(),
         }
     }
 
@@ -275,6 +276,7 @@ impl LocalStateMachine {
             let inactive_tenure_ch = *tenure_id;
             state_machine.current_miner =
                 Self::make_miner_state(last_sortition, client, db, proposal_config)?;
+            state_machine.update_time = UpdateTime::now();
             info!(
                 "Current tenure timed out, setting the active miner to the prior tenure";
                 "inactive_tenure_ch" => %inactive_tenure_ch,
@@ -398,6 +400,7 @@ impl LocalStateMachine {
                             "signer_signature_hash" => %signer_signature_hash,
                         );
                         prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
+                        prior_state_machine.update_time = UpdateTime::now();
                     }
                 }
                 Ok(None) => {
@@ -405,6 +408,7 @@ impl LocalStateMachine {
                         "txs" => ?txs,
                     );
                     prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
+                    prior_state_machine.update_time = UpdateTime::now()
                 }
                 Err(e) => {
                     warn!("Failed to check if block was validated by replay tx";
@@ -439,8 +443,16 @@ impl LocalStateMachine {
             return Ok(());
         }
 
+        info!("Signer State: got a delayed parent tenure block. Updating miner parent tenure info";
+            "old_parent_tenure_last_block" => %*parent_tenure_last_block,
+            "old_parent_tenure_last_block_height" => *parent_tenure_last_block_height,
+            "new_parent_tenure_last_block" => %*block_id,
+            "new_parent_tenre_last_block_height" => height,
+        );
+
         *parent_tenure_last_block = *block_id;
         *parent_tenure_last_block_height = height;
+        prior_state_machine.update_time = UpdateTime::now();
         *self = LocalStateMachine::Initialized(prior_state_machine);
 
         crate::monitoring::actions::increment_signer_agreement_state_change_reason(
@@ -604,6 +616,7 @@ impl LocalStateMachine {
             current_miner: miner_state,
             active_signer_protocol_version: prior_state_machine.active_signer_protocol_version,
             tx_replay_set,
+            update_time: UpdateTime::now(),
         });
 
         if prior_state != *self {
@@ -676,6 +689,7 @@ impl LocalStateMachine {
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
                 tx_replay_set,
+                update_time: UpdateTime::now(),
             });
             // Because we updated our active signer protocol version, update local_update so its included in the subsequent evaluations
             let Ok(update) =
@@ -736,6 +750,7 @@ impl LocalStateMachine {
                 current_miner: (&new_miner).into(),
                 active_signer_protocol_version,
                 tx_replay_set,
+                update_time: UpdateTime::now(),
             });
 
             match new_miner {

@@ -13,7 +13,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashMap;
+use std::time::SystemTime;
 
+use blockstack_lib::chainstate::stacks::{
+    StacksTransaction, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
+    TransactionPayload, TransactionPostConditionMode, TransactionVersion,
+};
 use clarity::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
@@ -24,7 +29,9 @@ use crate::v0::messages::{
     StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,
     StateMachineUpdateMinerState,
 };
-use crate::v0::signer_state::{GlobalStateEvaluator, ReplayTransactionSet, SignerStateMachine};
+use crate::v0::signer_state::{
+    GlobalStateEvaluator, ReplayTransactionSet, SignerStateMachine, UpdateTime,
+};
 
 fn generate_global_state_evaluator(num_addresses: u32) -> GlobalStateEvaluator {
     let address_weights = generate_random_address_with_equal_weights(num_addresses);
@@ -238,6 +245,7 @@ fn determine_global_states() {
         current_miner: (&current_miner).into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
         tx_replay_set: ReplayTransactionSet::none(),
+        update_time: UpdateTime::now(),
     };
 
     global_eval.insert_update(local_address, local_update);
@@ -277,9 +285,147 @@ fn determine_global_states() {
         current_miner: (&new_miner).into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
         tx_replay_set: ReplayTransactionSet::none(),
+        update_time: UpdateTime::now(),
     };
 
     global_eval.insert_update(local_address, new_update);
     // Let's tip the scales over to a different miner
     assert_eq!(global_eval.determine_global_state().unwrap(), state_machine)
+}
+
+#[test]
+fn determine_global_states_with_tx_replay_set() {
+    let mut global_eval = generate_global_state_evaluator(5);
+
+    let addresses: Vec<_> = global_eval.address_weights.keys().cloned().collect();
+    let local_address = addresses[0];
+    let local_update = global_eval
+        .address_updates
+        .get(&local_address)
+        .unwrap()
+        .clone();
+    let StateMachineUpdateMessage {
+        content:
+            StateMachineUpdateContent::V0 {
+                burn_block,
+                burn_block_height,
+                current_miner,
+            },
+        ..
+    } = local_update.clone()
+    else {
+        panic!("Unexpected state machine update message version");
+    };
+
+    let local_supported_signer_protocol_version = 1;
+    let active_signer_protocol_version = 1;
+
+    let state_machine = SignerStateMachine {
+        burn_block,
+        burn_block_height,
+        current_miner: (&current_miner).into(),
+        active_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
+        tx_replay_set: ReplayTransactionSet::none(),
+        update_time: UpdateTime::now(),
+    };
+
+    let burn_block = ConsensusHash([20u8; 20]);
+    let burn_block_height = burn_block_height + 1;
+    assert_eq!(global_eval.determine_global_state().unwrap(), state_machine);
+
+    let no_tx_replay_set_update = StateMachineUpdateMessage::new(
+        active_signer_protocol_version,
+        local_supported_signer_protocol_version,
+        StateMachineUpdateContent::V1 {
+            burn_block: ConsensusHash([20u8; 20]),
+            burn_block_height,
+            current_miner: current_miner.clone(),
+            replay_transactions: vec![],
+        },
+    )
+    .unwrap();
+
+    // Let's update 3 signers to some new tx_replay_set but one that has no txs in it
+    for address in addresses.iter().skip(1).take(3) {
+        global_eval.insert_update(*address, no_tx_replay_set_update.clone());
+    }
+
+    // we have disagreement about the burn block height
+    assert!(
+        global_eval.determine_global_state().is_none(),
+        "We should have disagreement about the burn view"
+    );
+
+    global_eval.insert_update(local_address, no_tx_replay_set_update.clone());
+
+    let new_burn_view_state_machine = SignerStateMachine {
+        burn_block,
+        burn_block_height,
+        current_miner: (&current_miner).into(),
+        active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
+        tx_replay_set: ReplayTransactionSet::none(),
+        update_time: UpdateTime::now(),
+    };
+
+    // Let's tip the scales over to the correct burn view
+    global_eval.insert_update(local_address, no_tx_replay_set_update);
+    assert_eq!(
+        global_eval.determine_global_state().unwrap(),
+        new_burn_view_state_machine
+    );
+
+    let pk = StacksPrivateKey::random();
+    let tx = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: 0x80000000,
+        auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::TokenTransfer(
+            local_address.into(),
+            123,
+            TokenTransferMemo([0u8; 34]),
+        ),
+    };
+
+    let tx_replay_set_update = StateMachineUpdateMessage::new(
+        active_signer_protocol_version,
+        local_supported_signer_protocol_version,
+        StateMachineUpdateContent::V1 {
+            burn_block,
+            burn_block_height,
+            current_miner: current_miner.clone(),
+            replay_transactions: vec![tx.clone()],
+        },
+    )
+    .unwrap();
+
+    // Let's update 3 signers to some new non empty replay set
+    for address in addresses.into_iter().skip(1).take(3) {
+        global_eval.insert_update(address, tx_replay_set_update.clone());
+    }
+
+    // We still have a valid view but with no global tx set so we aren't blocked entirely but also aren't enforcing the tx replays set
+    assert_eq!(
+        global_eval.determine_global_state().unwrap(),
+        new_burn_view_state_machine
+    );
+
+    // Let's tip the scales over to require a tx replay set
+    global_eval.insert_update(local_address, tx_replay_set_update.clone());
+
+    let tx_replay_state_machine = SignerStateMachine {
+        burn_block,
+        burn_block_height,
+        current_miner: (&current_miner).into(),
+        active_signer_protocol_version,
+        tx_replay_set: ReplayTransactionSet::new(vec![tx]),
+        update_time: UpdateTime::now(),
+    };
+
+    assert_eq!(
+        global_eval.determine_global_state().unwrap(),
+        tx_replay_state_machine
+    );
 }

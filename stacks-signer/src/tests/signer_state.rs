@@ -25,7 +25,9 @@ use libsigner::v0::messages::{
     StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,
     StateMachineUpdateMinerState,
 };
-use libsigner::v0::signer_state::{GlobalStateEvaluator, ReplayTransactionSet, SignerStateMachine};
+use libsigner::v0::signer_state::{
+    GlobalStateEvaluator, ReplayTransactionSet, SignerStateMachine, UpdateTime,
+};
 
 use crate::signerdb::tests::{create_block_override, tmp_db_path};
 use crate::signerdb::SignerDb;
@@ -163,6 +165,7 @@ fn check_capitulate_miner_view() {
         current_miner: (&new_miner).into(),
         tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
+        update_time: UpdateTime::now(),
     };
 
     let mut local_state_machine = LocalStateMachine::Initialized(signer_state_machine.clone());
