@@ -883,6 +883,7 @@ impl From<&RejectReason> for RejectReasonPrefix {
             RejectReason::InvalidParentBlock => RejectReasonPrefix::InvalidParentBlock,
             RejectReason::DuplicateBlockFound => RejectReasonPrefix::DuplicateBlockFound,
             RejectReason::InvalidTenureExtend => RejectReasonPrefix::InvalidTenureExtend,
+            RejectReason::IrrecoverablePubkeyHash => RejectReasonPrefix::IrrecoverablePubkeyHash,
             RejectReason::Unknown(_) => RejectReasonPrefix::Unknown,
             RejectReason::NotRejected => RejectReasonPrefix::NotRejected,
         }
@@ -957,6 +958,8 @@ pub enum RejectReason {
     /// The block attempted a tenure extend but the burn view has not changed
     /// and not enough time has passed for a time-based tenure extend
     InvalidTenureExtend,
+    /// The block has an irrecoverable pubkey hash
+    IrrecoverablePubkeyHash,
     /// The block was approved, no rejection details needed
     NotRejected,
     /// Handle unknown codes gracefully
@@ -998,6 +1001,8 @@ pub enum RejectReasonPrefix {
     /// The block attempted a tenure extend but the burn view has not changed
     /// and not enough time has passed for a time-based tenure extend
     InvalidTenureExtend = 13,
+    /// The block has an irrecoverable pubkey hash
+    IrrecoverablePubkeyHash = 14,
     /// Unknown reject code, for forward compatibility
     Unknown = 254,
     /// The block was approved, no rejection details needed
@@ -1022,6 +1027,7 @@ impl RejectReasonPrefix {
             Self::InvalidParentBlock => 11,
             Self::DuplicateBlockFound => 12,
             Self::InvalidTenureExtend => 13,
+            Self::IrrecoverablePubkeyHash => 14,
             Self::Unknown => 254,
             Self::NotRejected => 255,
         }
@@ -1045,6 +1051,7 @@ impl From<u8> for RejectReasonPrefix {
             11 => Self::InvalidParentBlock,
             12 => Self::DuplicateBlockFound,
             13 => Self::InvalidTenureExtend,
+            14 => Self::IrrecoverablePubkeyHash,
             255 => Self::NotRejected,
             // For forward compatibility, all other values are unknown
             _ => Self::Unknown,
@@ -1623,6 +1630,7 @@ impl StacksMessageCodec for RejectReason {
             | RejectReason::InvalidParentBlock
             | RejectReason::DuplicateBlockFound
             | RejectReason::InvalidTenureExtend
+            | RejectReason::IrrecoverablePubkeyHash
             | RejectReason::Unknown(_)
             | RejectReason::NotRejected => {
                 // No additional data to serialize / deserialize
@@ -1660,6 +1668,7 @@ impl StacksMessageCodec for RejectReason {
             RejectReasonPrefix::InvalidParentBlock => RejectReason::InvalidParentBlock,
             RejectReasonPrefix::DuplicateBlockFound => RejectReason::DuplicateBlockFound,
             RejectReasonPrefix::InvalidTenureExtend => RejectReason::InvalidTenureExtend,
+            RejectReasonPrefix::IrrecoverablePubkeyHash => RejectReason::IrrecoverablePubkeyHash,
             RejectReasonPrefix::Unknown => RejectReason::Unknown(type_prefix_byte),
             RejectReasonPrefix::NotRejected => RejectReason::NotRejected,
         };
@@ -1758,6 +1767,12 @@ impl std::fmt::Display for RejectReason {
                 write!(
                     f,
                     "The block attempted a tenure extend but the burn view has not changed and not enough time has passed for a time-based tenure extend."
+                )
+            }
+            RejectReason::IrrecoverablePubkeyHash => {
+                write!(
+                    f,
+                    "The block has an irreocverable associated miner public key hash."
                 )
             }
             RejectReason::Unknown(code) => {

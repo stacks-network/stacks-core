@@ -462,19 +462,10 @@ impl Signer {
                             if self.test_ignore_all_block_proposals(block_proposal) {
                                 continue;
                             }
-                            let Some(miner_pubkey) = block_proposal.block.header.recover_miner_pk()
-                            else {
-                                warn!("{self}: Failed to recover miner pubkey";
-                                      "signer_signature_hash" => %block_proposal.block.header.signer_signature_hash(),
-                                      "consensus_hash" => %block_proposal.block.header.consensus_hash);
-                                continue;
-                            };
-
                             self.handle_block_proposal(
                                 stacks_client,
                                 sortition_state,
                                 block_proposal,
-                                &miner_pubkey,
                             );
                         }
                         SignerMessage::BlockPushed(b) => {
@@ -646,7 +637,6 @@ impl Signer {
         stacks_client: &StacksClient,
         sortition_state: &mut Option<SortitionsView>,
         block: &NakamotoBlock,
-        miner_pubkey: &Secp256k1PublicKey,
     ) -> Option<BlockResponse> {
         let signer_signature_hash = block.header.signer_signature_hash();
         let block_id = block.block_id();
@@ -666,13 +656,7 @@ impl Signer {
 
         // Check if proposal can be rejected now if not valid against sortition view
         if let Some(sortition_state) = sortition_state {
-            match sortition_state.check_proposal(
-                stacks_client,
-                &mut self.signer_db,
-                block,
-                miner_pubkey,
-                true,
-            ) {
+            match sortition_state.check_proposal(stacks_client, &mut self.signer_db, block, true) {
                 // Error validating block
                 Err(RejectReason::ConnectivityIssues(e)) => {
                     warn!(
@@ -797,7 +781,6 @@ impl Signer {
         stacks_client: &StacksClient,
         sortition_state: &mut Option<SortitionsView>,
         block_proposal: &BlockProposal,
-        miner_pubkey: &Secp256k1PublicKey,
     ) {
         debug!("{self}: Received a block proposal: {block_proposal:?}");
         if block_proposal.reward_cycle != self.reward_cycle {
@@ -878,7 +861,6 @@ impl Signer {
             stacks_client,
             sortition_state,
             &block_proposal.block,
-            miner_pubkey,
         );
 
         #[cfg(any(test, feature = "testing"))]
@@ -1744,7 +1726,8 @@ fn should_reevaluate_block(block_info: &BlockInfo) -> bool {
             | RejectReason::InvalidMiner
             | RejectReason::NotLatestSortitionWinner
             | RejectReason::InvalidParentBlock
-            | RejectReason::DuplicateBlockFound => {
+            | RejectReason::DuplicateBlockFound
+            | RejectReason::IrrecoverablePubkeyHash => {
                 // No need to re-validate these types of rejections.
                 false
             }

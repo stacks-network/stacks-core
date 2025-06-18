@@ -214,7 +214,6 @@ impl SortitionsView {
         client: &StacksClient,
         signer_db: &mut SignerDb,
         block: &NakamotoBlock,
-        block_pk: &StacksPublicKey,
         reset_view_if_wrong_consensus_hash: bool,
     ) -> Result<(), RejectReason> {
         if self
@@ -287,6 +286,14 @@ impl SortitionsView {
                 last_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
             }
         }
+        let Some(miner_pk) = block.header.recover_miner_pk() else {
+            warn!("Failed to recover miner pubkey";
+                  "signer_signature_hash" => %block.header.signer_signature_hash(),
+                  "consensus_hash" => %block.header.consensus_hash);
+            return Err(RejectReason::IrrecoverablePubkeyHash);
+        };
+        let miner_pkh = Hash160::from_data(&miner_pk.to_bytes_compressed());
+
         let bitvec_all_1s = block.header.pox_treatment.iter().all(|entry| entry);
         if !bitvec_all_1s {
             warn!(
@@ -298,8 +305,6 @@ impl SortitionsView {
             );
             return Err(RejectReason::InvalidBitvec);
         }
-
-        let block_pkh = Hash160::from_data(&block_pk.to_bytes_compressed());
         let Some(proposed_by) =
             (if block.header.consensus_hash == self.cur_sortition.consensus_hash {
                 Some(ProposedBy::CurrentSortition(&self.cur_sortition))
@@ -325,7 +330,7 @@ impl SortitionsView {
                 );
                 self.reset_view(client)
                     .map_err(SignerChainstateError::from)?;
-                return self.check_proposal(client, signer_db, block, block_pk, false);
+                return self.check_proposal(client, signer_db, block, false);
             }
             warn!(
                 "Miner block proposal has consensus hash that is neither the current or last sortition. Considering invalid.";
@@ -337,13 +342,13 @@ impl SortitionsView {
             return Err(RejectReason::SortitionViewMismatch);
         };
 
-        if proposed_by.state().miner_pkh != block_pkh {
+        if proposed_by.state().miner_pkh != miner_pkh {
             warn!(
                 "Miner block proposal pubkey does not match the winning pubkey hash for its sortition. Considering invalid.";
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
                 "signer_signature_hash" => %block.header.signer_signature_hash(),
-                "proposed_block_pubkey" => &block_pk.to_hex(),
-                "proposed_block_pubkey_hash" => %block_pkh,
+                "proposed_block_pubkey" => &miner_pk.to_hex(),
+                "proposed_block_pubkey_hash" => %miner_pkh,
                 "sortition_winner_pubkey_hash" => %proposed_by.state().miner_pkh,
             );
             return Err(RejectReason::PubkeyHashMismatch);
