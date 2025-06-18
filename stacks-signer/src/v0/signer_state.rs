@@ -106,27 +106,31 @@ pub enum ReplayState {
     Unset,
     /// A replay is currently in progress, with an associated transaction set and scope.
     InProgress(ReplayTransactionSet, ReplayScope),
-    /// An invalid state where a replay set was provided without a valid scope.
-    /// Possibly caused by the scope being a local state in the `Signer` struct.
-    Invalid,
 }
 
 impl ReplayState {
-    /// Constructs a `ReplayState` from a given replay transaction set and an optional scope.
+    /// Infers the appropriate `ReplayState` based on the contents of the replay transaction set
+    /// and the optional scope.
+    ///
+    /// # Arguments
+    ///
+    /// * `replay_set` - A reference to a set of transactions intended for replay.
+    /// * `scope_opt` - An optional scope defining the boundaries or context for the replay.
     ///
     /// # Returns
     ///
-    /// - `Unset` if the replay set is empty.
-    /// - `Invalid` if the replay set exists but the scope is missing.
-    /// - `InProgress` if both a non-empty replay set and a valid scope are provided.
-    fn infer_state(replay_set: &ReplayTransactionSet, scope_opt: &ReplayScopeOpt) -> Self {
+    /// * `Some(ReplayState::Unset)` if the `replay_set` is empty.
+    /// * `Some(ReplayState::InProgress)` if the `replay_set` is non-empty and a `scope` is provided.
+    /// * `None` if the `replay_set` is non-empty but no `scope` is provided.
+    ///   - Possibly caused by the scope being a local state in the `Signer` struct, which is not persisted.
+    fn infer_state(replay_set: &ReplayTransactionSet, scope_opt: &ReplayScopeOpt) -> Option<Self> {
         if replay_set.is_empty() {
-            return Self::Unset;
+            return Some(Self::Unset);
         }
 
         match scope_opt {
-            None => Self::Invalid,
-            Some(scope) => Self::InProgress(replay_set.clone(), scope.clone()),
+            Some(scope) => Some(Self::InProgress(replay_set.clone(), scope.clone())),
+            None => None,
         }
     }
 }
@@ -602,7 +606,16 @@ impl LocalStateMachine {
                 return Err(ClientError::InvalidResponse(err_msg).into());
             }
 
-            let replay_state = ReplayState::infer_state(&tx_replay_set, tx_replay_scope);
+            let replay_state = match ReplayState::infer_state(&tx_replay_set, tx_replay_scope) {
+                Some(valid_state) => valid_state,
+                None => {
+                    warn!(
+                        "Tx Replay: Invalid state due to scope being not set while in replay mode!"
+                    );
+                    return Err(SignerChainstateError::LocalStateMachineNotReady);
+                }
+            };
+
             if let Some(new_replay_state) = self.handle_possible_bitcoin_fork(
                 db,
                 client,
@@ -618,10 +631,6 @@ impl LocalStateMachine {
                     ReplayState::InProgress(new_txs_set, new_scope) => {
                         tx_replay_set = new_txs_set;
                         *tx_replay_scope = Some(new_scope);
-                    }
-                    ReplayState::Invalid => {
-                        warn!("Tx Replay: Invalid state due to scope being not set while in replay mode!");
-                        return Err(SignerChainstateError::LocalStateMachineNotReady);
                     }
                 }
             }
@@ -998,7 +1007,6 @@ impl LocalStateMachine {
                 prior_state_machine,
                 scope,
             ),
-            ReplayState::Invalid => Ok(Some(ReplayState::Invalid)),
         }
     }
 
