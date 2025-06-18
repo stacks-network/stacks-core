@@ -15,47 +15,28 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::hash::{Hash, Hasher};
-use std::io::{Read, Write};
+use std::hash::Hash;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::mpsc::{
-    sync_channel, Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError,
-};
 
 use p2p::DropSource;
 use rand::seq::SliceRandom;
-use rand::{thread_rng, RngCore};
-use stacks_common::types::chainstate::{BlockHeaderHash, PoxId, SortitionId, StacksBlockId};
-use stacks_common::types::net::{PeerAddress, PeerHost};
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
+use rand::thread_rng;
+use stacks_common::types::chainstate::{BlockHeaderHash, PoxId, StacksBlockId};
+use stacks_common::types::net::PeerHost;
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
-use crate::burnchains::{Burnchain, BurnchainView};
-use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB, SortitionDBConn};
-use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{Error as chainstate_error, StacksBlockHeader};
-use crate::core::{
-    EMPTY_MICROBLOCK_PARENT_HASH, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
-};
-use crate::net::asn::ASEntry4;
+use crate::core::EMPTY_MICROBLOCK_PARENT_HASH;
 use crate::net::atlas::AttachmentsDownloader;
-use crate::net::codec::*;
-use crate::net::connection::{ConnectionOptions, ReplyHandleHttp};
 use crate::net::db::{PeerDB, *};
-use crate::net::dns::*;
 use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::inv::epoch2x::InvState;
-use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::p2p::PeerNetwork;
-use crate::net::rpc::*;
-use crate::net::server::HttpPeer;
-use crate::net::{
-    Error as net_error, GetBlocksInv, Neighbor, NeighborKey, StacksMessage, StacksP2P, *,
-};
-use crate::util_lib::db::{DBConn, Error as db_error};
+use crate::net::{Error as net_error, NeighborKey, *};
+use crate::util_lib::db::Error as db_error;
 
 #[cfg(not(test))]
 pub const BLOCK_DOWNLOAD_INTERVAL: u64 = 180;

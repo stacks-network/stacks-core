@@ -64,7 +64,6 @@ use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
-use stacks::net::api::{prefix_hex, prefix_hex_codec, prefix_opt_hex};
 use stacks::net::atlas::{Attachment, AttachmentInstance};
 use stacks::net::http::HttpRequestContents;
 use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
@@ -79,6 +78,9 @@ use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, Sta
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::serde_serializers::{
+    prefix_hex, prefix_hex_codec, prefix_opt_hex, prefix_string_0x,
+};
 use url::Url;
 
 #[cfg(any(test, feature = "testing"))]
@@ -331,14 +333,6 @@ impl RewardSetEventPayload {
     }
 }
 
-pub fn hex_prefix_string<S: serde::Serializer>(
-    hex_string: &String,
-    s: S,
-) -> Result<S::Ok, S::Error> {
-    let prefixed = format!("0x{hex_string}");
-    s.serialize_str(&prefixed)
-}
-
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct TransactionEventPayload<'a> {
     #[serde(with = "prefix_hex")]
@@ -352,7 +346,7 @@ pub struct TransactionEventPayload<'a> {
     /// The raw transaction result
     pub raw_result: Value,
     /// The hex encoded raw transaction
-    #[serde(serialize_with = "hex_prefix_string")]
+    #[serde(with = "prefix_string_0x")]
     pub raw_tx: String,
     /// The contract interface
     pub contract_interface: Option<ContractInterface>,

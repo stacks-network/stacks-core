@@ -15,37 +15,18 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::types::StacksEpochId;
-use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::Error as ClarityError;
-use clarity::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
-use clarity::vm::contracts::Contract;
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::database::{ClarityDatabase, MemoryBackingStore};
-use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use clarity::vm::representations::SymbolicExpression;
-use clarity::vm::tests::{
-    execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values, BurnStateDB,
-    TEST_BURN_STATE_DB, TEST_HEADER_DB,
-};
+use clarity::vm::errors::{CheckErrors, Error};
 use clarity::vm::types::SequenceData::Buffer;
 use clarity::vm::types::{
-    BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
-    StandardPrincipalData, TupleData, TypeSignature, Value,
+    BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
+    Value,
 };
+use clarity::vm::ClarityVersion;
 use clarity::vm::Value::Sequence;
-use clarity::vm::{ast, execute as vm_execute, ClarityVersion};
-#[cfg(any(test, feature = "testing"))]
-use rstest::rstest;
-#[cfg(any(test, feature = "testing"))]
-use rstest_reuse::{self, *};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
-};
-use stacks_common::types::StacksEpoch;
-use stacks_common::util::hash::hex_bytes;
+use stacks_common::types::chainstate::StacksAddress;
 
-use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::stacks::boot::contract_tests::{test_sim_height_to_hash, ClarityTestSim};
 use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use crate::clarity_vm::clarity::ClarityBlockConnection;

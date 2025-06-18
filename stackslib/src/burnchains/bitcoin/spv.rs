@@ -15,33 +15,27 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::VecDeque;
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::ops::Deref;
 use std::{cmp, fs};
 
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
+use rusqlite::{params, OpenFlags, OptionalExtension, Row, Transaction};
 use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
 use stacks_common::deps_common::bitcoin::blockdata::constants::genesis_block;
 use stacks_common::deps_common::bitcoin::network::constants::Network;
 use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
 use stacks_common::deps_common::bitcoin::network::message as btc_message;
-use stacks_common::deps_common::bitcoin::network::serialize::{
-    deserialize, serialize, BitcoinHash,
-};
+use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::uint::Uint256;
-use stacks_common::util::{get_epoch_time_secs, log};
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
 use crate::burnchains::bitcoin::{BitcoinNetworkType, Error as btc_error, PeerMessage};
 use crate::util_lib::db::{
-    query_int, query_row, query_rows, sqlite_open, tx_begin_immediate, tx_busy_handler, u64_to_sql,
-    DBConn, DBTx, Error as db_error, FromColumn, FromRow,
+    query_row, sqlite_open, tx_begin_immediate, u64_to_sql, DBConn, DBTx, Error as db_error,
+    FromColumn, FromRow,
 };
 
 const BLOCK_HEADER_SIZE: u64 = 81;
@@ -1277,14 +1271,12 @@ impl BitcoinMessageHandler for SpvClient {
 mod test {
 
     use std::env;
-    use std::fs::*;
 
     use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
     use stacks_common::deps_common::bitcoin::network::serialize::{
         deserialize, serialize, BitcoinHash,
     };
     use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
-    use stacks_common::util::log;
 
     use super::*;
     use crate::burnchains::bitcoin::{Error as btc_error, *};

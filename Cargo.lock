@@ -1889,10 +1889,10 @@ dependencies = [
 
 [[package]]
 name = "madhouse"
-version = "0.1.0"
-source = "git+https://github.com/stacks-network/madhouse-rs.git?rev=fc651ddcbaf85e888b06d4a87aa788c4b7ba9309#fc651ddcbaf85e888b06d4a87aa788c4b7ba9309"
+version = "0.2.0"
+source = "git+https://github.com/stacks-network/madhouse-rs.git?tag=0.2.0#a0983d0f7d43c4b2a765df7f46b7ee28f160924d"
 dependencies = [
- "proptest 1.6.0 (git+https://github.com/proptest-rs/proptest.git?rev=c9bdf18c232665b2b740c667c81866b598d06dc7)",
+ "proptest",
 ]
 
 [[package]]
@@ -2379,25 +2379,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "proptest"
-version = "1.6.0"
-source = "git+https://github.com/proptest-rs/proptest.git?rev=c9bdf18c232665b2b740c667c81866b598d06dc7#c9bdf18c232665b2b740c667c81866b598d06dc7"
-dependencies = [
- "bit-set",
- "bit-vec",
- "bitflags 2.4.2",
- "lazy_static",
- "num-traits",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
- "rand_xorshift",
- "regex-syntax 0.8.2",
- "rusty-fork",
- "tempfile",
- "unarray",
-]
-
-[[package]]
 name = "protobuf"
 version = "2.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2579,13 +2560,6 @@ name = "regex-syntax"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08c74e62047bb2de4ff487b251e4a92e24f48745648451635cec7d591162d9f"
-
-[[package]]
-name = "relay-server"
-version = "0.0.1"
-dependencies = [
- "hashbrown 0.15.2",
-]
 
 [[package]]
 name = "reqwest"
@@ -3203,7 +3177,7 @@ dependencies = [
  "lazy_static",
  "libsecp256k1",
  "nix",
- "proptest 1.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "proptest",
  "rand 0.8.5",
  "rand_core 0.6.4",
  "ripemd",
@@ -3242,7 +3216,7 @@ dependencies = [
  "mutants",
  "pico-args",
  "pinny",
- "proptest 1.6.0 (git+https://github.com/proptest-rs/proptest.git?rev=c9bdf18c232665b2b740c667c81866b598d06dc7)",
+ "proptest",
  "rand 0.8.5",
  "regex",
  "reqwest",
@@ -3255,6 +3229,7 @@ dependencies = [
  "stacks-common",
  "stacks-signer",
  "stackslib",
+ "stdext",
  "stx-genesis",
  "tempfile",
  "thiserror",

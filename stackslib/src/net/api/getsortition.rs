@@ -13,42 +13,29 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::{fs, io};
-
 use clarity::types::chainstate::VRFSeed;
 use regex::{Captures, Regex};
-use serde::de::Error as de_Error;
 use serde::Serialize;
-use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId,
 };
 use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::{to_hex, Hash160};
-use stacks_common::util::HexError;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex};
 use {serde, serde_json};
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::nakamoto::{
-    NakamotoBlock, NakamotoChainState, NakamotoStagingBlocksConn, StacksDBIndexed,
-};
+use crate::chainstate::nakamoto::{NakamotoChainState, StacksDBIndexed};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
-use crate::net::api::getblock_v3::NakamotoBlockStream;
-use crate::net::api::{prefix_hex, prefix_opt_hex};
 use crate::net::http::{
-    parse_bytes, parse_json, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType,
-    HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
-    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError, HttpVersion,
+    parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
+    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{
-    HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
-    StacksHttpResponse,
-};
-use crate::net::{Error as NetError, StacksNodeState, TipRequest, MAX_HEADERS};
-use crate::util_lib::db::{DBConn, Error as DBError};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
+use crate::net::{Error as NetError, StacksNodeState};
+use crate::util_lib::db::Error as DBError;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum QuerySpecifier {

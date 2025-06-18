@@ -15,14 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 /// This module binds the http library to Stacks as a `ProtocolFamily` implementation
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
 use std::{fmt, io, mem};
 
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::{QualifiedContractIdentifier, BOUND_VALUE_SERIALIZATION_HEX};
+use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::{ClarityName, ContractName};
 use percent_encoding::percent_decode_str;
 use regex::{Captures, Regex};
@@ -37,20 +37,18 @@ use stacks_common::util::retry::{BoundReader, RetryReader};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 use url::Url;
 
-use super::rpc::ConversationHttp;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
-use crate::core::{MemPoolDB, StacksEpoch};
+use crate::core::StacksEpoch;
 use crate::net::connection::{ConnectionOptions, NetworkConnection};
 use crate::net::http::common::{parse_raw_bytes, HTTP_PREAMBLE_MAX_ENCODED_SIZE};
 use crate::net::http::{
-    http_reason, parse_bytes, parse_json, Error as HttpError, HttpBadRequest, HttpContentType,
-    HttpErrorResponse, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
-    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
-    HttpVersion,
+    http_reason, parse_bytes, parse_json, Error as HttpError, HttpContentType, HttpErrorResponse,
+    HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
+    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::server::HttpPeer;
@@ -1779,7 +1777,7 @@ fn handle_net_error(e: NetError, msg: &str) -> io::Error {
     match e {
         NetError::ReadError(ioe) | NetError::WriteError(ioe) => ioe,
         NetError::RecvTimeout => io::Error::new(io::ErrorKind::WouldBlock, "recv timeout"),
-        _ => io::Error::new(io::ErrorKind::Other, format!("{}: {:?}", &e, msg).as_str()),
+        _ => io::Error::other(format!("{e}: {msg:?}").as_str()),
     }
 }
 
@@ -1815,10 +1813,7 @@ pub fn send_http_request(
     }
 
     let Some((mut stream, addr)) = stream_and_addr else {
-        return Err(last_err.unwrap_or(io::Error::new(
-            io::ErrorKind::Other,
-            "Unable to connect to {host}:{port}",
-        )));
+        return Err(last_err.unwrap_or(io::Error::other("Unable to connect to {host}:{port}")));
     };
 
     stream.set_read_timeout(Some(timeout))?;
@@ -1870,10 +1865,7 @@ pub fn send_http_request(
     let mut request_handle = connection
         .make_request_handle(0, get_epoch_time_secs() + timeout.as_secs(), 0)
         .map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Failed to create request handle: {:?}", &e).as_str(),
-            )
+            io::Error::other(format!("Failed to create request handle: {e:?}").as_str())
         })?;
 
     // Step 3: load up the request with the message we're gonna send, and iteratively dump its
@@ -1979,18 +1971,14 @@ pub fn send_http_request(
             let path = &request.preamble().path_and_query_str;
             let resp_status_code = response.preamble().status_code;
             let resp_body = response.body();
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
+            return Err(io::Error::other(
                 format!(
                     "HTTP '{verb} {path}' did not succeed ({resp_status_code} != 200). Response body = {resp_body:?}"
                 ),
             ));
         }
         _ => {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Did not receive an HTTP response",
-            ));
+            return Err(io::Error::other("Did not receive an HTTP response"));
         }
     };
 

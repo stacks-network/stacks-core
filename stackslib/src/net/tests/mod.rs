@@ -24,14 +24,11 @@ pub mod relay;
 
 use std::collections::{HashMap, HashSet};
 
-use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libstackerdb::StackerDBChunkData;
-use rand::prelude::SliceRandom;
-use rand::{thread_rng, Rng, RngCore};
+use rand::Rng;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::bitvec::BitVec;
-use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{
     BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey,
     StacksPublicKey, TrieHash,
@@ -40,12 +37,10 @@ use stacks_common::types::net::PeerAddress;
 use stacks_common::types::{Address, StacksEpochId};
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::BlockstackOperationType;
-use crate::chainstate::coordinator::tests::p2pkh_from;
 use crate::chainstate::nakamoto::coordinator::tests::boot_nakamoto;
 use crate::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
@@ -53,26 +48,21 @@ use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::test::{
-    key_to_stacks_addr, make_pox_4_lockup, make_pox_4_lockup_chain_id, make_signer_key_signature,
-    with_sortdb,
-};
+use crate::chainstate::stacks::boot::test::{key_to_stacks_addr, make_pox_4_lockup_chain_id};
 use crate::chainstate::stacks::boot::{
     MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::blocks::test::make_empty_coinbase_block;
-use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::test::make_codec_test_microblock;
 use crate::chainstate::stacks::{
-    CoinbasePayload, StacksTransaction, StacksTransactionSigner, TenureChangeCause,
-    TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
-    TransactionContractCall, TransactionPayload, TransactionVersion,
+    StacksTransaction, StacksTransactionSigner, TenureChangeCause, TenureChangePayload,
+    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionContractCall,
+    TransactionPayload, TransactionVersion,
 };
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::{StacksEpoch, StacksEpochExtension};
-use crate::net::relay::{BlockAcceptResponse, Relayer};
-use crate::net::stackerdb::StackerDBConfig;
+use crate::net::relay::Relayer;
 use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
 use crate::net::{
     BlocksData, BlocksDatum, MicroblocksData, NakamotoBlocksData, NeighborKey, NetworkResult,

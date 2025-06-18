@@ -15,15 +15,16 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::net::Shutdown;
-use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use std::{cmp, fs, net, path, time};
+use std::{cmp, fs, net};
 
 use rand::{thread_rng, Rng};
+#[cfg(test)]
 use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
+#[cfg(test)]
 use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
 use stacks_common::deps_common::bitcoin::network::message::NetworkMessage;
 use stacks_common::deps_common::bitcoin::network::serialize::{
@@ -31,7 +32,7 @@ use stacks_common::deps_common::bitcoin::network::serialize::{
 };
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::util::{get_epoch_time_secs, log};
+use stacks_common::util::get_epoch_time_secs;
 
 use crate::burnchains::bitcoin::blocks::{
     BitcoinBlockDownloader, BitcoinBlockParser, BitcoinHeaderIPC,
@@ -42,7 +43,7 @@ use crate::burnchains::bitcoin::{BitcoinNetworkType, Error as btc_error};
 use crate::burnchains::db::BurnchainHeaderReader;
 use crate::burnchains::indexer::{BurnchainIndexer, *};
 use crate::burnchains::{
-    Burnchain, BurnchainBlockHeader, Error as burnchain_error, MagicBytes, BLOCKSTACK_MAGIC_MAINNET,
+    BurnchainBlockHeader, Error as burnchain_error, MagicBytes, BLOCKSTACK_MAGIC_MAINNET,
 };
 use crate::core::{
     EpochList, StacksEpoch, StacksEpochExtension, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST,
@@ -1181,15 +1182,12 @@ mod test {
 
     use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
     use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
-    use stacks_common::deps_common::bitcoin::network::serialize::{
-        deserialize, serialize, BitcoinHash,
-    };
     use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::uint::Uint256;
 
     use super::*;
-    use crate::burnchains::bitcoin::{Error as btc_error, *};
+    use crate::burnchains::bitcoin::*;
     use crate::burnchains::{Error as burnchain_error, *};
 
     #[test]

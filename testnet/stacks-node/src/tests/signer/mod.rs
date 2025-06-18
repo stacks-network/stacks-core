@@ -16,17 +16,22 @@ mod commands;
 mod v0;
 
 use std::collections::HashSet;
+use std::fs::File;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
+use std::{env, thread};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
+use clarity::vm::Value;
 use libsigner::v0::messages::{
     BlockAccepted, BlockResponse, MessageSlotID, PeerInfo, SignerMessage,
 };
+use libsigner::v0::signer_state::MinerState;
 use libsigner::{BlockProposal, SignerEntries, SignerEventTrait};
+use serde::{Deserialize, Serialize};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::NakamotoBlock;
@@ -51,13 +56,16 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_signer::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::{SignerResult, State, StateInfo};
-use stacks_signer::v0::signer_state::{LocalStateMachine, MinerState};
+use stacks_signer::signerdb::SignerDb;
+use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::{Signer, SpawnedSigner};
 
 use super::nakamoto_integrations::{
     check_nakamoto_empty_block_heuristics, next_block_and, wait_for,
 };
-use super::neon_integrations::{get_account, get_sortition_info_ch, submit_tx_fallible};
+use super::neon_integrations::{
+    copy_dir_all, get_account, get_sortition_info_ch, submit_tx_fallible, Account,
+};
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
@@ -99,6 +107,23 @@ pub struct SignerTest<S> {
     pub stacks_client: StacksClient,
     /// The number of cycles to stack for
     pub num_stacking_cycles: u64,
+    /// The path to the snapshot directory
+    pub snapshot_path: Option<PathBuf>,
+}
+
+struct SnapshotSetupInfo {
+    snapshot_path: PathBuf,
+    snapshot_exists: bool,
+}
+
+enum SetupSnapshotResult {
+    WithSnapshot(SnapshotSetupInfo),
+    NoSnapshot,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct SnapshotMetadata {
+    created_at: SystemTime,
 }
 
 impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<SpawnedSigner<S, T>> {
@@ -116,10 +141,33 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     pub fn new_with_config_modifications<F: FnMut(&mut SignerConfig), G: FnMut(&mut NeonConfig)>(
         num_signers: usize,
         initial_balances: Vec<(StacksAddress, u64)>,
+        signer_config_modifier: F,
+        node_config_modifier: G,
+        btc_miner_pubkeys: Option<Vec<Secp256k1PublicKey>>,
+        signer_stacks_private_keys: Option<Vec<StacksPrivateKey>>,
+    ) -> Self {
+        Self::new_with_config_modifications_and_snapshot(
+            num_signers,
+            initial_balances,
+            signer_config_modifier,
+            node_config_modifier,
+            btc_miner_pubkeys,
+            signer_stacks_private_keys,
+            None,
+        )
+    }
+
+    pub fn new_with_config_modifications_and_snapshot<
+        F: FnMut(&mut SignerConfig),
+        G: FnMut(&mut NeonConfig),
+    >(
+        num_signers: usize,
+        initial_balances: Vec<(StacksAddress, u64)>,
         mut signer_config_modifier: F,
         mut node_config_modifier: G,
         btc_miner_pubkeys: Option<Vec<Secp256k1PublicKey>>,
         signer_stacks_private_keys: Option<Vec<StacksPrivateKey>>,
+        snapshot_name: Option<&str>,
     ) -> Self {
         // Generate Signer Data
         let signer_stacks_private_keys = signer_stacks_private_keys
@@ -132,11 +180,16 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             })
             .unwrap_or_else(|| {
                 (0..num_signers)
-                    .map(|_| StacksPrivateKey::random())
+                    .map(|i| {
+                        StacksPrivateKey::from_seed(
+                            format!("signer_{i}_{}", snapshot_name.unwrap_or("")).as_bytes(),
+                        )
+                    })
                     .collect()
             });
 
-        let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+        let (mut naka_conf, _miner_account) =
+            naka_neon_integration_conf(snapshot_name.map(|n| n.as_bytes()));
 
         node_config_modifier(&mut naka_conf);
 
@@ -195,12 +248,20 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 vec![pk]
             });
 
+        let snapshot_setup_result = Self::setup_snapshot(snapshot_name, &naka_conf);
+
+        let snapshot_exists = match &snapshot_setup_result {
+            SetupSnapshotResult::WithSnapshot(info) => info.snapshot_exists,
+            SetupSnapshotResult::NoSnapshot => false,
+        };
+
         let node = setup_stx_btc_node(
             naka_conf,
             &signer_stacks_private_keys,
             &signer_configs,
             btc_miner_pubkeys.as_slice(),
             node_config_modifier,
+            snapshot_exists,
         );
         let config = signer_configs.first().unwrap();
         let stacks_client = StacksClient::from(config);
@@ -212,7 +273,137 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             stacks_client,
             num_stacking_cycles: 12_u64,
             signer_configs,
+            snapshot_path: match &snapshot_setup_result {
+                SetupSnapshotResult::WithSnapshot(info) => Some(info.snapshot_path.clone()),
+                SetupSnapshotResult::NoSnapshot => None,
+            },
         }
+    }
+
+    /// Whether the snapshot needs to be created.
+    ///
+    /// Returns `false` if not configured to snapshot.
+    pub fn needs_snapshot(&self) -> bool {
+        let Some(snapshot_path) = self.snapshot_path.as_ref() else {
+            return false;
+        };
+
+        !std::fs::metadata(snapshot_path).is_ok()
+    }
+
+    /// Setup a snapshot by copying the snapshot directory to the working directory.
+    ///
+    /// If the env variable `STACKS_TEST_SNAPSHOT` is not set, this will return `NoSnapshot`.
+    fn setup_snapshot(snapshot_name: Option<&str>, conf: &NeonConfig) -> SetupSnapshotResult {
+        let Some(snapshot_name) = snapshot_name else {
+            return SetupSnapshotResult::NoSnapshot;
+        };
+
+        // sanitize the snapshot name
+        let snapshot_name = snapshot_name.replace("::", "_");
+
+        if env::var("STACKS_TEST_SNAPSHOT") != Ok("1".into()) {
+            return SetupSnapshotResult::NoSnapshot;
+        }
+
+        let working_dir = conf.get_working_dir();
+
+        let snapshot_path: PathBuf = format!("/tmp/stacks-node-tests/snapshots/{snapshot_name}/")
+            .try_into()
+            .unwrap();
+
+        info!("Snapshot path: {}", snapshot_path.clone().display());
+
+        let snapshot_exists = std::fs::metadata(snapshot_path.clone()).is_ok();
+
+        if snapshot_exists {
+            let metadata_path = snapshot_path.join("metadata.json");
+            if !metadata_path.clone().exists() {
+                warn!("Snapshot metadata file does not exist, not restoring snapshot");
+                return SetupSnapshotResult::NoSnapshot;
+            }
+            let Ok(metadata) = serde_json::from_reader::<_, SnapshotMetadata>(
+                File::open(metadata_path.clone()).unwrap(),
+            ) else {
+                warn!(
+                    "Invalid snapshot metadata file: {}",
+                    metadata_path.display()
+                );
+                return SetupSnapshotResult::NoSnapshot;
+            };
+
+            let now = SystemTime::now();
+            let created_at = metadata.created_at;
+            let duration = now.duration_since(created_at).unwrap();
+            // Regtest doesn't like if the last block is > 2 hours old, so
+            // don't use this snapshot.
+            if duration > Duration::from_secs(3600 * 1) {
+                // Bitcoin regtest node is too old, act like no snapshot exists
+                warn!("Bitcoin regtest node is too old, not restoring snapshot");
+                std::fs::remove_dir_all(snapshot_path.clone()).unwrap();
+                return SetupSnapshotResult::WithSnapshot(SnapshotSetupInfo {
+                    snapshot_path: snapshot_path.clone(),
+                    snapshot_exists: false,
+                });
+            }
+
+            info!(
+                "Snapshot directory already exists, copying to working dir";
+                "snapshot_path" => %snapshot_path.display(),
+                "working_dir" => %working_dir.display()
+            );
+            let err_msg = format!(
+                "Failed to copy snapshot dir to working dir: {} -> {}",
+                snapshot_path.display(),
+                working_dir.display()
+            );
+            copy_dir_all(snapshot_path.clone(), working_dir).expect(&err_msg);
+        }
+
+        SetupSnapshotResult::WithSnapshot(SnapshotSetupInfo {
+            snapshot_path,
+            snapshot_exists,
+        })
+    }
+
+    /// Make a snapshot of the current working directory.
+    ///
+    /// This will stop the bitcoind node and copy the working directory to the snapshot path.
+    pub fn make_snapshot(working_dir: &PathBuf, snapshot_path: &Option<PathBuf>) {
+        let Some(snapshot_path) = snapshot_path else {
+            return;
+        };
+
+        let snapshot_dir_exists = std::fs::metadata(snapshot_path).is_ok();
+
+        if snapshot_dir_exists {
+            info!("Snapshot directory already exists, skipping snapshot";
+                "snapshot_path" => %snapshot_path.display(),
+                "working_dir" => %working_dir.display()
+            );
+            return;
+        }
+
+        info!(
+            "Making snapshot";
+            "snapshot_path" => %snapshot_path.display(),
+            "working_dir" => %working_dir.display()
+        );
+
+        let err_msg = format!(
+            "Failed to copy working dir to snapshot path: {} -> {}",
+            working_dir.display(),
+            snapshot_path.display()
+        );
+
+        copy_dir_all(working_dir, snapshot_path).expect(&err_msg);
+
+        let metadata_path = snapshot_path.join("metadata.json");
+        let metadata = SnapshotMetadata {
+            created_at: SystemTime::now(),
+        };
+        let metadata_file = File::create(metadata_path).unwrap();
+        serde_json::to_writer_pretty(metadata_file, &metadata).unwrap();
     }
 
     /// Send a status request to each spawned signer
@@ -233,7 +424,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         }
     }
 
-    pub fn wait_for_registered(&mut self) {
+    pub fn wait_for_registered(&self) {
         let mut finished_signers = HashSet::new();
         wait_for(120, || {
             self.send_status_request(&finished_signers);
@@ -253,7 +444,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     /// Send a status request to the signers to ensure they are registered for both reward cycles.
-    pub fn wait_for_registered_both_reward_cycles(&mut self) {
+    pub fn wait_for_registered_both_reward_cycles(&self) {
         let mut finished_signers = HashSet::new();
         wait_for(120, || {
             self.send_status_request(&finished_signers);
@@ -279,7 +470,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         .expect("Timed out while waiting for the signers to be registered for both reward cycles");
     }
 
-    pub fn wait_for_cycle(&mut self, timeout_secs: u64, reward_cycle: u64) {
+    pub fn wait_for_cycle(&self, timeout_secs: u64, reward_cycle: u64) {
         let mut finished_signers = HashSet::new();
         wait_for(timeout_secs, || {
             self.send_status_request(&finished_signers);
@@ -299,9 +490,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         }).unwrap();
     }
 
-    pub fn mine_bitcoin_block(&mut self) {
+    pub fn mine_bitcoin_block(&self) {
         let info = self.get_peer_info();
-        next_block_and(&mut self.running_nodes.btc_regtest_controller, 60, || {
+        next_block_and(&self.running_nodes.btc_regtest_controller, 60, || {
             Ok(get_chain_info(&self.running_nodes.conf).burn_block_height > info.burn_block_height)
         })
         .unwrap();
@@ -314,7 +505,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     ///    1. Having a valid sortition
     ///    2. The active miner is the winner of that sortition
     ///    3. The active miner is building off of the prior tenure
-    pub fn check_signer_states_normal(&mut self) {
+    pub fn check_signer_states_normal(&self) {
         let (state_machines, info_cur) = self.get_burn_updated_states();
 
         let sortition_latest =
@@ -375,7 +566,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     ///  latest burn block:
     ///    1. Having an invalid miner
     ///    2. The active miner is the winner of the prior sortition
-    pub fn check_signer_states_revert_to_prior(&mut self) {
+    pub fn check_signer_states_revert_to_prior(&self) {
         let (state_machines, info_cur) = self.get_burn_updated_states();
 
         let sortition_latest =
@@ -431,7 +622,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Submit a stacks transfer just to trigger block production
     pub fn submit_transfer_tx(
-        &mut self,
+        &self,
         sender_sk: &StacksPrivateKey,
         send_fee: u64,
         send_amt: u64,
@@ -451,43 +642,41 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         submit_tx_fallible(&http_origin, &transfer_tx).map(|resp| (resp, sender_nonce))
     }
 
-    /// Submit a burn block dependent contract for publishing
-    ///  and wait until it is included in a block
-    pub fn submit_burn_block_contract_and_wait(
-        &mut self,
+    /// Submit a contract deploy and return (txid, sender_nonce)
+    pub fn submit_contract_deploy(
+        &self,
         sender_sk: &StacksPrivateKey,
-    ) -> Result<String, String> {
+        contract_code: &str,
+        contract_name: &str,
+    ) -> Result<(String, u64), String> {
         let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
         let sender_addr = to_addr(&sender_sk);
         let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
-        let burn_height_contract = "
-         (define-data-var local-burn-block-ht uint u0)
-         (define-public (run-update)
-           (ok (var-set local-burn-block-ht burn-block-height)))
-        ";
+
         let contract_tx = make_contract_publish(
             &sender_sk,
-            0,
+            sender_nonce,
             1000,
             self.running_nodes.conf.burnchain.chain_id,
-            "burn-height-local",
-            burn_height_contract,
+            contract_name,
+            contract_code,
         );
-        let txid = submit_tx_fallible(&http_origin, &contract_tx)?;
-
-        wait_for(120, || {
-            let next_nonce = get_account(&http_origin, &sender_addr).nonce;
-            Ok(next_nonce > sender_nonce)
-        })
-        .map(|()| txid)
+        submit_tx_fallible(&http_origin, &contract_tx).map(|resp| (resp, sender_nonce))
     }
 
-    /// Submit a burn block dependent contract-call
-    ///  and wait until it is included in a block
-    pub fn submit_burn_block_call_and_wait(
-        &mut self,
+    pub fn get_account<F: std::fmt::Display>(&self, account: &F) -> Account {
+        let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
+        get_account(&http_origin, account)
+    }
+
+    /// Submit a contract call and return (txid, sender_nonce)
+    pub fn submit_contract_call(
+        &self,
         sender_sk: &StacksPrivateKey,
-    ) -> Result<String, String> {
+        contract_name: &str,
+        contract_func: &str,
+        contract_args: &[Value],
+    ) -> Result<(String, u64), String> {
         let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
         let sender_addr = to_addr(&sender_sk);
         let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
@@ -497,23 +686,60 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             1000,
             self.running_nodes.conf.burnchain.chain_id,
             &sender_addr,
-            "burn-height-local",
-            "run-update",
-            &[],
+            contract_name,
+            contract_func,
+            contract_args,
         );
-        let txid = submit_tx_fallible(&http_origin, &contract_call_tx)?;
+        submit_tx_fallible(&http_origin, &contract_call_tx).map(|resp| (resp, sender_nonce))
+    }
 
+    pub fn wait_for_nonce_increase(
+        &self,
+        sender_addr: &StacksAddress,
+        sender_nonce: u64,
+    ) -> Result<(), String> {
+        let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
         wait_for(120, || {
             let next_nonce = get_account(&http_origin, &sender_addr).nonce;
             Ok(next_nonce > sender_nonce)
         })
-        .map(|()| txid)
+    }
+
+    /// Submit a burn block dependent contract for publishing
+    ///  and wait until it is included in a block
+    pub fn submit_burn_block_contract_and_wait(
+        &self,
+        sender_sk: &StacksPrivateKey,
+    ) -> Result<String, String> {
+        let burn_height_contract = "
+         (define-data-var local-burn-block-ht uint u0)
+         (define-public (run-update)
+           (ok (var-set local-burn-block-ht burn-block-height)))
+        ";
+        let (txid, sender_nonce) =
+            self.submit_contract_deploy(sender_sk, burn_height_contract, "burn-height-local")?;
+
+        self.wait_for_nonce_increase(&to_addr(&sender_sk), sender_nonce)?;
+        Ok(txid)
+    }
+
+    /// Submit a burn block dependent contract-call
+    ///  and wait until it is included in a block
+    pub fn submit_burn_block_call_and_wait(
+        &self,
+        sender_sk: &StacksPrivateKey,
+    ) -> Result<String, String> {
+        let (txid, sender_nonce) =
+            self.submit_contract_call(sender_sk, "burn-height-local", "run-update", &[])?;
+
+        self.wait_for_nonce_increase(&to_addr(&sender_sk), sender_nonce)?;
+        Ok(txid)
     }
 
     /// Get the local state machines and most recent peer info from the stacks-node,
     ///  waiting until all of the signers have updated their state machines to
     ///  reflect the most recent burn block.
-    pub fn get_burn_updated_states(&mut self) -> (Vec<LocalStateMachine>, PeerInfo) {
+    pub fn get_burn_updated_states(&self) -> (Vec<LocalStateMachine>, PeerInfo) {
         let info_cur = self.get_peer_info();
         let current_rc = self.get_current_reward_cycle();
         let mut states = Vec::with_capacity(0);
@@ -582,7 +808,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     ///    1. Not having a sortition!
     ///    2. The active miner is the winner of the last sortition
     ///    3. The active miner is building off of the prior tenure
-    pub fn check_signer_states_normal_missed_sortition(&mut self) {
+    pub fn check_signer_states_normal_missed_sortition(&self) {
         let (state_machines, info_cur) = self.get_burn_updated_states();
         let non_sortition_latest =
             get_sortition_info_ch(&self.running_nodes.conf, &info_cur.pox_consensus);
@@ -653,7 +879,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     ///    2. The active miner is the winner of that sortition
     ///    3. The active miner is building off of the prior tenure
     pub fn check_signer_states_reorg(
-        &mut self,
+        &self,
         accepting_reorg: &[StacksPublicKey],
         rejecting_reorg: &[StacksPublicKey],
     ) {
@@ -731,7 +957,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Get status check results (if returned) from each signer (blocks on the receipt)
     /// Returns Some() or None() for each signer, in order of `self.spawned_signers`
-    pub fn get_all_states(&mut self) -> Vec<StateInfo> {
+    pub fn get_all_states(&self) -> Vec<StateInfo> {
         let mut finished_signers = HashSet::new();
         let mut output_states = Vec::new();
         let mut sent_request = false;
@@ -775,6 +1001,21 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .collect()
     }
 
+    /// Wait for a certain condition to be met for each signer's state machine
+    pub fn wait_for_signer_state_check(
+        &self,
+        timeout: u64,
+        f: impl Fn(&LocalStateMachine) -> Result<bool, String>,
+    ) -> Result<(), String> {
+        wait_for(timeout, || {
+            let (signer_states, _) = self.get_burn_updated_states();
+            let all_pass = signer_states
+                .iter()
+                .all(|state| f(state).map_or(false, |ok| ok));
+            Ok(all_pass)
+        })
+    }
+
     /// Replace the test's configured signer st
     pub fn replace_signers(
         &mut self,
@@ -795,7 +1036,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Get status check results (if returned) from each signer without blocking
     /// Returns Some() or None() for each signer, in order of `self.spawned_signers`
-    pub fn get_states(&mut self, exclude: &HashSet<usize>) -> Vec<Option<StateInfo>> {
+    pub fn get_states(&self, exclude: &HashSet<usize>) -> Vec<Option<StateInfo>> {
         let mut output = Vec::new();
         for (ix, signer) in self.spawned_signers.iter().enumerate() {
             if exclude.contains(&ix) {
@@ -817,12 +1058,12 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
     /// Mine a BTC block and wait for a new Stacks block to be mined
     /// Note: do not use nakamoto blocks mined heuristic if running a test with multiple miners
-    fn mine_nakamoto_block(&mut self, timeout: Duration, use_nakamoto_blocks_mined: bool) {
+    fn mine_nakamoto_block(&self, timeout: Duration, use_nakamoto_blocks_mined: bool) {
         let mined_block_time = Instant::now();
         let mined_before = self.running_nodes.counters.naka_mined_blocks.get();
         let info_before = self.get_peer_info();
         next_block_and_mine_commit(
-            &mut self.running_nodes.btc_regtest_controller,
+            &self.running_nodes.btc_regtest_controller,
             timeout.as_secs(),
             &self.running_nodes.conf,
             &self.running_nodes.counters,
@@ -841,7 +1082,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     fn mine_block_wait_on_processing(
-        &mut self,
+        &self,
         node_confs: &[&NeonConfig],
         node_counters: &[&Counters],
         timeout: Duration,
@@ -849,7 +1090,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         let blocks_len = test_observer::get_blocks().len();
         let mined_block_time = Instant::now();
         next_block_and_wait_for_commits(
-            &mut self.running_nodes.btc_regtest_controller,
+            &self.running_nodes.btc_regtest_controller,
             timeout.as_secs(),
             node_confs,
             node_counters,
@@ -872,7 +1113,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     /// Chain information is captured before `f` is called, and then again after `f`
     /// to ensure that the block was mined.
     /// Note: this function does _not_ mine a BTC block.
-    fn wait_for_nakamoto_block(&mut self, timeout_secs: u64, f: impl FnOnce() -> ()) {
+    fn wait_for_nakamoto_block(&self, timeout_secs: u64, f: impl FnOnce() -> ()) {
         let blocks_before = self.running_nodes.counters.naka_mined_blocks.get();
         let info_before = self.get_peer_info();
 
@@ -891,7 +1132,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     /// Wait for a confirmed block and return a list of individual
     /// signer signatures
     fn wait_for_confirmed_block_v0(
-        &mut self,
+        &self,
         block_signer_sighash: &Sha512Trunc256Sum,
         timeout: Duration,
     ) -> Vec<MessageSignature> {
@@ -911,7 +1152,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     /// Wait for a confirmed block and return a list of individual
     /// signer signatures
     fn wait_for_confirmed_block_with_hash(
-        &mut self,
+        &self,
         block_signer_sighash: &Sha512Trunc256Sum,
         timeout: Duration,
     ) -> serde_json::Map<String, serde_json::Value> {
@@ -938,7 +1179,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         panic!("Timed out while waiting for confirmation of block with signer sighash = {block_signer_sighash}")
     }
 
-    fn wait_for_validate_ok_response(&mut self, timeout: Duration) -> BlockValidateOk {
+    fn wait_for_validate_ok_response(&self, timeout: Duration) -> BlockValidateOk {
         // Wait for the block to show up in the test observer
         let t_start = Instant::now();
         loop {
@@ -958,7 +1199,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     fn wait_for_validate_reject_response(
-        &mut self,
+        &self,
         timeout: Duration,
         signer_signature_hash: Sha512Trunc256Sum,
     ) -> BlockValidateReject {
@@ -983,14 +1224,14 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     // Must be called AFTER booting the chainstate
-    fn run_until_epoch_3_boundary(&mut self) {
+    fn run_until_epoch_3_boundary(&self) {
         let epochs = self.running_nodes.conf.burnchain.epochs.clone().unwrap();
         let epoch_3 = &epochs[StacksEpochId::Epoch30];
 
         let epoch_30_boundary = epoch_3.start_height - 1;
         // advance to epoch 3.0 and trigger a sign round (cannot vote on blocks in pre epoch 3.0)
         run_until_burnchain_height(
-            &mut self.running_nodes.btc_regtest_controller,
+            &self.running_nodes.btc_regtest_controller,
             &self.running_nodes.counters.blocks_processed,
             epoch_30_boundary,
             &self.running_nodes.conf,
@@ -1094,7 +1335,15 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         String::new()
     }
 
+    pub fn shutdown_and_snapshot(self) {
+        self.shutdown_and_make_snapshot(true);
+    }
+
     pub fn shutdown(self) {
+        self.shutdown_and_make_snapshot(false);
+    }
+
+    fn shutdown_and_make_snapshot(mut self, needs_snapshot: bool) {
         check_nakamoto_empty_block_heuristics();
 
         self.running_nodes
@@ -1103,10 +1352,20 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .expect("Mutex poisoned")
             .stop_chains_coordinator();
 
+        self.running_nodes.btcd_controller.stop_bitcoind().unwrap();
+
         self.running_nodes
             .run_loop_stopper
             .store(false, Ordering::SeqCst);
         self.running_nodes.run_loop_thread.join().unwrap();
+
+        if needs_snapshot {
+            Self::make_snapshot(
+                &self.running_nodes.conf.get_working_dir(),
+                &self.snapshot_path,
+            );
+        }
+
         for signer in self.spawned_signers {
             assert!(signer.stop().is_none());
         }
@@ -1120,6 +1379,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             false,
             self.get_current_reward_cycle(),
             SignerSlotID(0), // We are just reading so again, don't care about index.
+            SignerDb::new(":memory:").unwrap(),
         );
         let latest_msgs = StackerDB::get_messages(
             stackerdb
@@ -1169,6 +1429,17 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             .expect("Failed to get peer info")
     }
 
+    pub fn readonly_stackerdb_client(&self, reward_cycle: u64) -> StackerDB<MessageSlotID> {
+        StackerDB::new_normal(
+            &self.running_nodes.conf.node.rpc_bind,
+            StacksPrivateKey::random(), // We are just reading so don't care what the key is
+            self.running_nodes.conf.is_mainnet(),
+            reward_cycle,
+            SignerSlotID(0), // We are just reading so again, don't care about index.
+            SignerDb::new(":memory:").unwrap(), // also don't care about the signer db for version tracking
+        )
+    }
+
     pub fn verify_no_block_response_found(
         &self,
         stackerdb: &mut StackerDB<MessageSlotID>,
@@ -1209,6 +1480,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             self.get_signer_slot_id(reward_cycle, &to_addr(private_key))
                 .expect("Failed to get signer slot id")
                 .expect("Signer does not have a slot id"),
+            SignerDb::new(":memory:").unwrap(),
         );
 
         let signature = private_key
@@ -1231,6 +1503,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     signer_configs: &[SignerConfig],
     btc_miner_pubkeys: &[Secp256k1PublicKey],
     mut node_config_modifier: G,
+    snapshot_exists: bool,
 ) -> RunningNodes {
     // Spawn the endpoints for observing signers
     for signer_config in signer_configs {
@@ -1310,10 +1583,11 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     .expect("Failed to get epoch 2.5 start height");
     let bootstrap_block = epoch_2_5_start - 6;
 
-    info!("Bootstraping to block {bootstrap_block}...");
-    btc_regtest_controller.bootstrap_chain_to_pks(bootstrap_block, btc_miner_pubkeys);
-
-    info!("Chain bootstrapped...");
+    if !snapshot_exists {
+        info!("Bootstraping to block {bootstrap_block}...");
+        btc_regtest_controller.bootstrap_chain_to_pks(bootstrap_block, btc_miner_pubkeys);
+        info!("Chain bootstrapped...");
+    }
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -1327,17 +1601,19 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     info!("Wait for runloop...");
     wait_for_runloop(&blocks_processed);
 
-    // First block wakes up the run loop.
-    info!("Mine first block...");
-    next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
+    if !snapshot_exists {
+        // First block wakes up the run loop.
+        info!("Mine first block...");
+        next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
 
-    // Second block will hold our VRF registration.
-    info!("Mine second block...");
-    next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
+        // Second block will hold our VRF registration.
+        info!("Mine second block...");
+        next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
 
-    // Third block will be the first mined Stacks block.
-    info!("Mine third block...");
-    next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
+        // Third block will be the first mined Stacks block.
+        info!("Mine third block...");
+        next_block_and_wait(&mut btc_regtest_controller, &counters.blocks_processed);
+    }
 
     RunningNodes {
         btcd_controller,

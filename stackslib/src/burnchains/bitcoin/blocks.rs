@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::ops::Deref;
-
 use stacks_common::deps_common::bitcoin::blockdata::block::{Block, LoneBlockHeader};
 use stacks_common::deps_common::bitcoin::blockdata::opcodes::All as btc_opcodes;
 use stacks_common::deps_common::bitcoin::blockdata::script::{Instruction, Script};
@@ -25,25 +23,21 @@ use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
 use stacks_common::deps_common::bitcoin::util::hash::bitcoin_merkle_root;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
 
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
-use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
 use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
 use crate::burnchains::bitcoin::{
-    bits, BitcoinBlock, BitcoinInputType, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInput,
-    BitcoinTxOutput, Error as btc_error, PeerMessage,
+    bits, BitcoinBlock, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
+    Error as btc_error, PeerMessage,
 };
 use crate::burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser,
 };
 use crate::burnchains::{
-    BurnchainBlock, BurnchainTransaction, Error as burnchain_error, MagicBytes, Txid,
-    MAGIC_BYTES_LENGTH,
+    BurnchainBlock, Error as burnchain_error, MagicBytes, Txid, MAGIC_BYTES_LENGTH,
 };
 use crate::core::StacksEpochId;
-use crate::deps;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BitcoinHeaderIPC {
@@ -283,6 +277,9 @@ impl BitcoinBlockParser {
             (Instruction::Op(ref opcode), Instruction::PushBytes(data)) => {
                 if *opcode != btc_opcodes::OP_RETURN {
                     test_debug!("Data output does not use a standard OP_RETURN");
+                    return None;
+                }
+                if data.len() <= MAGIC_BYTES_LENGTH {
                     return None;
                 }
                 if !data.starts_with(self.magic_bytes.as_bytes()) {
@@ -547,16 +544,15 @@ mod tests {
     use stacks_common::types::chainstate::BurnchainHeaderHash;
     use stacks_common::types::Address;
     use stacks_common::util::hash::hex_bytes;
-    use stacks_common::util::log;
 
     use super::BitcoinBlockParser;
     use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::bitcoin::{
-        BitcoinBlock, BitcoinInputType, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInput,
-        BitcoinTxInputRaw, BitcoinTxInputStructured, BitcoinTxOutput,
+        BitcoinBlock, BitcoinInputType, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInputRaw,
+        BitcoinTxInputStructured, BitcoinTxOutput,
     };
-    use crate::burnchains::{BurnchainBlock, BurnchainTransaction, MagicBytes, Txid};
+    use crate::burnchains::{MagicBytes, Txid};
     use crate::core::StacksEpochId;
 
     struct TxFixture {

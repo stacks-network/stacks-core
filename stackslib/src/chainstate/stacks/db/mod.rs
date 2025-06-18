@@ -18,44 +18,39 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashSet};
 use std::io::prelude::*;
 use std::ops::{Deref, DerefMut};
-use std::path::{Path, PathBuf};
-use std::{fmt, fs, io};
+use std::path::PathBuf;
+use std::{fs, io};
 
 use clarity::vm::analysis::analysis_db::AnalysisDatabase;
-use clarity::vm::analysis::run_analysis;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
+    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
 };
 use clarity::vm::events::*;
-use clarity::vm::representations::{ClarityName, ContractName};
+use clarity::vm::representations::ContractName;
 use clarity::vm::types::TupleData;
 use clarity::vm::{SymbolicExpression, Value};
-use lazy_static::lazy_static;
-use rusqlite::types::ToSql;
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
+use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::de::Error as de_Error;
 use serde::Deserialize;
 use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::util;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
-use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddress};
+use crate::burnchains::bitcoin::address::LegacyBitcoinAddress;
 use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
-use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB, SortitionDBConn, *};
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::{
     DelegateStxOp, StackStxOp, TransferStxOp, VoteForAggregateKeyOp,
 };
 use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
 use crate::chainstate::nakamoto::{
-    HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
-    NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2,
-    NAKAMOTO_CHAINSTATE_SCHEMA_3, NAKAMOTO_CHAINSTATE_SCHEMA_4, NAKAMOTO_CHAINSTATE_SCHEMA_5,
+    HeaderTypeNames, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConn,
+    NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2, NAKAMOTO_CHAINSTATE_SCHEMA_3,
+    NAKAMOTO_CHAINSTATE_SCHEMA_4, NAKAMOTO_CHAINSTATE_SCHEMA_5, NAKAMOTO_CHAINSTATE_SCHEMA_6,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -63,12 +58,8 @@ use crate::chainstate::stacks::db::accounts::*;
 use crate::chainstate::stacks::db::blocks::*;
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::events::*;
-use crate::chainstate::stacks::index::marf::{
-    MARFOpenOpts, MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY,
-    BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
-};
-use crate::chainstate::stacks::index::storage::TrieFileStorage;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, MarfTrieId};
+use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::{
     Error, StacksBlockHeader, StacksMicroblockHeader, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
@@ -83,11 +74,9 @@ use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
 use crate::monitoring;
 use crate::net::atlas::BNS_CHARS_REGEX;
-use crate::net::Error as net_error;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::{
-    query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx, Error as db_error,
-    FromColumn, FromRow, IndexDBConn, IndexDBTx,
+    query_row, DBConn, DBTx, Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 
 pub mod accounts;
@@ -294,15 +283,15 @@ impl DBConfig {
         });
         match epoch_id {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 9,
-            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 9,
-            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 9,
-            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 9,
-            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 9,
-            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 9,
-            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 9,
-            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 9,
-            StacksEpochId::Epoch31 => version_u32 >= 3 && version_u32 <= 9,
+            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 10,
+            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 10,
+            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 10,
+            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 10,
+            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 10,
+            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 10,
+            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 10,
+            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 10,
+            StacksEpochId::Epoch31 => version_u32 >= 3 && version_u32 <= 10,
         }
     }
 }
@@ -654,7 +643,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &str = "9";
+pub const CHAINSTATE_VERSION: &str = "10";
 
 const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -1119,6 +1108,14 @@ impl StacksChainState {
                         "Migrating chainstate schema from version 8 to 9: add index for staging_blocks"
                     );
                     for cmd in CHAINSTATE_SCHEMA_4.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "9" => {
+                    info!(
+                        "Migrating chainstate schema from version 9 to 10: add index for nakamoto_block_headers"
+                    );
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_6.iter() {
                         tx.execute_batch(cmd)?;
                     }
                 }
@@ -2730,7 +2727,6 @@ pub mod test {
     use stx_genesis::GenesisData;
 
     use super::*;
-    use crate::chainstate::stacks::db::*;
     use crate::chainstate::stacks::*;
     use crate::util_lib::boot::boot_code_test_addr;
 

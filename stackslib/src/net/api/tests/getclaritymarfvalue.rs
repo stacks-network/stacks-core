@@ -15,13 +15,9 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+use clarity::types::chainstate::StacksBlockId;
 use clarity::vm::database::{ClarityDeserializable, STXBalance};
-use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions, TypeSignature};
-use clarity::vm::{ClarityName, ContractName, Value};
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::{StacksAddress, TrieHash};
-use stacks_common::types::net::PeerHost;
-use stacks_common::types::Address;
+use stacks_common::types::chainstate::TrieHash;
 
 use super::test_rpc;
 use crate::net::api::*;
