@@ -16,8 +16,10 @@
 
 use stacks_common::types::StacksEpochId;
 
+use crate::vm::analysis::analysis_db;
 use crate::vm::ast::ASTRules;
 use crate::vm::contexts::{AssetMap, AssetMapEntry, OwnedEnvironment};
+use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::representations::SymbolicExpression;
@@ -176,20 +178,26 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     let second_contract_id =
         QualifiedContractIdentifier::new(p1_std_principal_data, "second".into());
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     owned_env
-        .initialize_contract(
+        .initialize_contract_with_db(
             token_contract_id.clone(),
             contract,
             None,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
     owned_env
-        .initialize_contract(
+        .initialize_contract_with_db(
             second_contract_id.clone(),
             contract_second,
             None,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
 
@@ -944,28 +952,35 @@ fn test_overlapping_nfts(
     let names_2_contract_id =
         QualifiedContractIdentifier::new(p1_std_principal_data, "names-2".into());
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     owned_env
-        .initialize_contract(
+        .initialize_contract_with_db(
             tokens_contract_id,
             tokens_contract,
             None,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
     owned_env
-        .initialize_contract(
+        .initialize_contract_with_db(
             names_contract_id,
             names_contract,
             None,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
     owned_env
-        .initialize_contract(
+        .initialize_contract_with_db(
             names_2_contract_id,
             names_contract,
             None,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
 }
@@ -1018,22 +1033,28 @@ fn test_simple_naming_system(
     let name_hash_expensive_1 = execute("(hash160 2)");
     let name_hash_cheap_0 = execute("(hash160 100001)");
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     owned_env
-        .initialize_contract(
+        .initialize_contract_with_db(
             tokens_contract_id,
             tokens_contract,
             None,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
 
     let names_contract_id = QualifiedContractIdentifier::new(p1_std_principal_data, "names".into());
     owned_env
-        .initialize_contract(
+        .initialize_contract_with_db(
             names_contract_id.clone(),
             names_contract,
             None,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
 

@@ -31,6 +31,7 @@ use super::analysis::{self, ContractAnalysis};
 #[cfg(feature = "clarity-wasm")]
 use super::clarity_wasm::call_function;
 use super::EvalHook;
+use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
@@ -38,7 +39,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostErrors, CostTracker, ExecutionCost, LimitedCostTracker};
 use crate::vm::database::{
     ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
-    NonFungibleTokenMetadata,
+    MemoryBackingStore, NonFungibleTokenMetadata,
 };
 use crate::vm::errors::{
     CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
@@ -659,12 +660,55 @@ impl<'a> OwnedEnvironment<'a> {
         sponsor: Option<PrincipalData>,
         ast_rules: ASTRules,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
+        let mut store = MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
+
+        self.initialize_contract_with_db(
+            contract_identifier,
+            contract_content,
+            sponsor,
+            ast_rules,
+            &mut analysis_db,
+        )
+    }
+
+    /// Initializes a Clarity smart contract with a custom analysis database within a transaction context.
+    ///
+    /// This function should only be used for testing.
+    ///
+    /// This function creates a complete transaction environment to initialize a Clarity smart contract
+    /// using a provided memory-backed database for analysis data. It executes the contract initialization
+    /// within a proper execution context.
+    ///
+    /// # Arguments
+    ///
+    /// * `contract_identifier` - Unique identifier for the contract (principal + contract name)
+    /// * `contract_content` - The raw Clarity source code as a string
+    /// * `sponsor` - Optional sponsor principal for transaction fees (if `None`, sender pays)
+    /// * `ast_rules` - Parsing rules to apply during AST construction (e.g., `ASTRules::PrecheckSize`)
+    /// * `analysis_db` - Mutable reference to a database for analysis data
+    ///
+    #[cfg(any(test, feature = "testing"))]
+    pub fn initialize_contract_with_db(
+        &mut self,
+        contract_identifier: QualifiedContractIdentifier,
+        contract_content: &str,
+        sponsor: Option<PrincipalData>,
+        ast_rules: ASTRules,
+        analysis_db: &mut AnalysisDatabase,
+    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
             sponsor,
             None,
             |exec_env| {
-                exec_env.initialize_contract(contract_identifier, contract_content, ast_rules)
+                exec_env.initialize_contract_with_db(
+                    contract_identifier,
+                    contract_content,
+                    ast_rules,
+                    analysis_db,
+                )
             },
         )
     }
@@ -1341,8 +1385,46 @@ impl<'a, 'b> Environment<'a, 'b> {
         contract_content: &str,
         ast_rules: ASTRules,
     ) -> Result<()> {
-        use super::database::MemoryBackingStore;
+        let mut store = MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
 
+        self.initialize_contract_with_db(
+            contract_identifier,
+            contract_content,
+            ast_rules,
+            &mut analysis_db,
+        )
+    }
+
+    /// Initializes a Clarity smart contract with a custom analysis database.
+    ///
+    /// This function should only be used for testing.
+    ///
+    /// This function parses and analyzes a Clarity smart contract using
+    /// a provided database for analysis data. It's primarily used for testing
+    /// scenarios where you need control over the backing storage.
+    ///
+    /// # Arguments
+    ///
+    /// * `contract_identifier` - Unique identifier for the contract (principal + name)
+    /// * `contract_content` - The raw Clarity source code as a string
+    /// * `ast_rules` - Parsing rules to apply during AST construction
+    /// * `analysis_db` - Mutable reference to a database for analysis data
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Contract successfully initialized
+    /// * `Err(Error)` - Initialization failed due to parsing or analysis
+    ///
+    #[cfg(feature = "rusqlite")]
+    pub fn initialize_contract_with_db(
+        &mut self,
+        contract_identifier: QualifiedContractIdentifier,
+        contract_content: &str,
+        ast_rules: ASTRules,
+        analysis_db: &mut AnalysisDatabase,
+    ) -> Result<()> {
         let clarity_version = self.contract_context.clarity_version;
 
         let mut contract_ast = ast::build_ast_with_rules(
@@ -1354,12 +1436,11 @@ impl<'a, 'b> Environment<'a, 'b> {
             ast_rules,
         )?;
 
-        let mut store = MemoryBackingStore::new();
         let contract_analysis = analysis::run_analysis(
             &contract_identifier,
             &contract_ast.expressions,
-            &mut store.as_analysis_db(),
-            false,
+            analysis_db,
+            true,
             LimitedCostTracker::Free,
             self.global_context.epoch_id,
             clarity_version,
