@@ -128,10 +128,9 @@ impl ReplayState {
             return Some(Self::Unset);
         }
 
-        match scope_opt {
-            Some(scope) => Some(Self::InProgress(replay_set.clone(), scope.clone())),
-            None => None,
-        }
+        scope_opt
+            .as_ref()
+            .map(|scope| Self::InProgress(replay_set.clone(), scope.clone()))
     }
 }
 
