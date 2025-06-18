@@ -462,30 +462,19 @@ pub fn get_burnchain_signer() -> Option<BurnchainSigner> {
     None
 }
 
-pub enum MinerStopReason {
-    NoTransactions,
-    Preempted,
-    LimitReached,
-    DeadlineReached,
-}
-
-impl MinerStopReason {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            MinerStopReason::NoTransactions => "no_transactions",
-            MinerStopReason::Preempted => "preempted",
-            MinerStopReason::LimitReached => "limit_reached",
-            MinerStopReason::DeadlineReached => "deadline_reached",
-        }
-    }
-}
+define_named_enum!(MinerStopReason {
+    NoTransactions("no_transactions"),
+    Preempted("preempted"),
+    LimitReached("limit_reached"),
+    DeadlineReached("deadline_reached"),
+});
 
 // Increment the counter for the given miner stop reason.
 #[allow(unused_variables)]
 pub fn increment_miner_stop_reason(reason: MinerStopReason) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::MINER_STOP_REASON_TOTAL
-        .with_label_values(&[reason.as_str()])
+        .with_label_values(&[reason.get_name_str()])
         .inc();
 }
 
