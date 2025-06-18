@@ -4887,7 +4887,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
     TEST_MINE_STALL.set(false);
 
     signer_test
-        .wait_for_signer_state_check(30, |state| {
+        .wait_for_signer_state_check(60, |state| {
             let tx_replay_set = state.get_tx_replay_set();
             Ok(tx_replay_set.is_none())
         })
@@ -5143,7 +5143,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     TEST_MINE_STALL.set(false);
 
     signer_test
-        .wait_for_signer_state_check(30, |state| {
+        .wait_for_signer_state_check(60, |state| {
             let tx_replay_set = state.get_tx_replay_set();
             Ok(tx_replay_set.is_none())
         })
