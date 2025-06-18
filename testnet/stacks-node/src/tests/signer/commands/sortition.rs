@@ -1,108 +1,79 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 
 use super::context::SignerTestState;
 use super::SignerTestContext;
-use crate::tests::signer::v0::{verify_sortition_winner, MultipleMinerTest};
+use crate::tests::signer::v0::verify_sortition_winner;
 
-pub struct VerifyMiner1WonSortition {
-    miners: Arc<Mutex<MultipleMinerTest>>,
+/// Command to verify that a specific miner is correctly recorded as
+/// the winner of the latest sortition in that miner's local sortition database.
+pub struct ChainExpectSortitionWinner {
+    ctx: Arc<SignerTestContext>,
+    miner_index: usize,
 }
 
-impl VerifyMiner1WonSortition {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
-        Self { miners }
+impl ChainExpectSortitionWinner {
+    pub fn new(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
+        Self { ctx, miner_index }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for VerifyMiner1WonSortition {
+impl Command<SignerTestState, SignerTestContext> for ChainExpectSortitionWinner {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
-            "Checking: Verifying miner 1 won sortition. Result: {:?}",
-            true
+            "Checking: Verifying miner {} won sortition. Result: {}",
+            self.miner_index, true
         );
         true
     }
 
     fn apply(&self, _state: &mut SignerTestState) {
-        info!("Applying: Verifying miner 1 won sortition");
-
-        let (conf_1, _) = self.miners.lock().unwrap().get_node_configs();
-        let burnchain = conf_1.get_burnchain();
-        let sortdb = burnchain.open_sortition_db(true).unwrap();
-        let (miner_pkh_1, _) = self.miners.lock().unwrap().get_miner_public_key_hashes();
-
-        verify_sortition_winner(&sortdb, &miner_pkh_1);
-    }
-    fn label(&self) -> String {
-        "VERIFY_MINER_1_WON_SORTITION".to_string()
-    }
-    fn build(
-        ctx: Arc<SignerTestContext>,
-    ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(VerifyMiner1WonSortition::new(
-            ctx.miners.clone(),
-        )))
-    }
-}
-
-pub struct VerifyMiner2WonSortition {
-    miners: Arc<Mutex<MultipleMinerTest>>,
-}
-
-impl VerifyMiner2WonSortition {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
-        Self { miners }
-    }
-}
-
-impl Command<SignerTestState, SignerTestContext> for VerifyMiner2WonSortition {
-    fn check(&self, _state: &SignerTestState) -> bool {
         info!(
-            "Checking: Verifying miner 2 won sortition. Result: {:?}",
-            true
+            "Applying: Verifying miner {} won sortition",
+            self.miner_index
         );
-        true
+
+        let sortdb = self.ctx.get_sortition_db(self.miner_index);
+        let miner_pkh = self.ctx.get_miner_public_key_hash(self.miner_index);
+
+        verify_sortition_winner(&sortdb, &miner_pkh);
     }
 
-    fn apply(&self, _state: &mut SignerTestState) {
-        info!("Applying: Verifying miner 2 won sortition");
-
-        let (conf_1, _) = self.miners.lock().unwrap().get_node_configs();
-        let burnchain = conf_1.get_burnchain();
-        let sortdb = burnchain.open_sortition_db(true).unwrap();
-        let (_, miner_pkh_2) = self.miners.lock().unwrap().get_miner_public_key_hashes();
-
-        verify_sortition_winner(&sortdb, &miner_pkh_2);
-    }
     fn label(&self) -> String {
-        "VERIFY_MINER_2_WON_SORTITION".to_string()
+        format!("VERIFY_MINER_{}_WON_SORTITION", self.miner_index)
     }
+
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(VerifyMiner2WonSortition::new(
-            ctx.miners.clone(),
-        )))
+        (1usize..=2usize).prop_flat_map(move |miner_index| {
+            Just(CommandWrapper::new(ChainExpectSortitionWinner::new(
+                ctx.clone(),
+                miner_index,
+            )))
+        })
     }
 }
 
-pub struct VerifyLastSortitionWinnerReorged {
-    miners: Arc<Mutex<MultipleMinerTest>>,
+/// Command to verify that a Stacks chain reorganization has occurred by comparing consensus hashes.
+/// This checks if the last sortition's consensus hash differs from the current Stacks parent consensus hash,
+/// indicating that the previously selected sortition winner is no longer part of the canonical chain.
+pub struct ChainVerifyLastSortitionWinnerReorged {
+    ctx: Arc<SignerTestContext>,
 }
 
-impl VerifyLastSortitionWinnerReorged {
-    pub fn new(miners: Arc<Mutex<MultipleMinerTest>>) -> Self {
-        Self { miners }
+impl ChainVerifyLastSortitionWinnerReorged {
+    pub fn new(ctx: Arc<SignerTestContext>) -> Self {
+        Self { ctx }
     }
 }
 
-impl Command<SignerTestState, SignerTestContext> for VerifyLastSortitionWinnerReorged {
+impl Command<SignerTestState, SignerTestContext> for ChainVerifyLastSortitionWinnerReorged {
     fn check(&self, _state: &SignerTestState) -> bool {
         info!(
-            "Checking: Verifying last sortition winner reorged. Result: {:?}",
+            "Checking: Verifying last sortition winner reorged. Result: {}",
             true
         );
         true
@@ -110,7 +81,8 @@ impl Command<SignerTestState, SignerTestContext> for VerifyLastSortitionWinnerRe
 
     fn apply(&self, _state: &mut SignerTestState) {
         info!("Applying: Verifying last sortition winner reorged");
-        self.miners
+        self.ctx
+            .miners
             .lock()
             .unwrap()
             .assert_last_sortition_winner_reorged();
@@ -123,8 +95,8 @@ impl Command<SignerTestState, SignerTestContext> for VerifyLastSortitionWinnerRe
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(VerifyLastSortitionWinnerReorged::new(
-            ctx.miners.clone(),
-        )))
+        Just(CommandWrapper::new(
+            ChainVerifyLastSortitionWinnerReorged::new(ctx.clone()),
+        ))
     }
 }

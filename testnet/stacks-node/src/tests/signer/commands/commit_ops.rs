@@ -1,91 +1,87 @@
 use std::sync::Arc;
 
 use madhouse::{Command, CommandWrapper};
-use proptest::prelude::{Just, Strategy};
-use stacks::util::tests::TestFlag;
+use proptest::prelude::Strategy;
 
 use super::context::{SignerTestContext, SignerTestState};
 
-pub struct SkipCommitOpMiner1 {
-    miner_1_skip_commit_flag: TestFlag<bool>,
+/// Command to enable or disable the block commit operations for a specific
+/// miner within the test environment.
+/// This command is used to simulate scenarios where a miner might temporarily or
+/// intentionally stop sending its block commit transactions to the burn chain.
+pub struct ChainMinerCommitOp {
+    ctx: Arc<SignerTestContext>,
+    miner_index: usize,
+    skip: bool, // true to disable commit operations, false to enable
 }
 
-impl SkipCommitOpMiner1 {
-    pub fn new(miner_1_skip_commit_flag: TestFlag<bool>) -> Self {
+impl ChainMinerCommitOp {
+    fn new(ctx: Arc<SignerTestContext>, miner_index: usize, skip: bool) -> Self {
         Self {
-            miner_1_skip_commit_flag,
+            ctx,
+            miner_index,
+            skip,
         }
     }
-}
 
-impl Command<SignerTestState, SignerTestContext> for SkipCommitOpMiner1 {
-    fn check(&self, state: &SignerTestState) -> bool {
-        info!(
-            "Checking: Skipping commit operations for miner 1. Result: {:?}",
-            !state.is_primary_miner_skip_commit_op
-        );
-        !state.is_primary_miner_skip_commit_op
+    pub fn enable_for(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
+        Self::new(ctx, miner_index, false)
     }
 
-    fn apply(&self, state: &mut SignerTestState) {
-        info!("Applying: Skipping commit operations for miner 1");
+    pub fn disable_for(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
+        Self::new(ctx, miner_index, true)
+    }
+}
 
-        self.miner_1_skip_commit_flag.set(true);
+impl Command<SignerTestState, SignerTestContext> for ChainMinerCommitOp {
+    fn check(&self, _state: &SignerTestState) -> bool {
+        let current_state = self
+            .ctx
+            .get_counters_for_miner(self.miner_index)
+            .naka_skip_commit_op
+            .get();
 
-        state.is_primary_miner_skip_commit_op = true;
+        let should_apply = current_state != self.skip;
+        let operation = if self.skip { "disabl" } else { "enabl" };
+        info!(
+            "Checking: {}ing commit operations for miner {}. Result: {}",
+            operation, self.miner_index, should_apply
+        );
+        should_apply
+    }
+
+    fn apply(&self, _state: &mut SignerTestState) {
+        let operation = if self.skip { "disabl" } else { "enabl" };
+        info!(
+            "Applying: {}ing commit operations for miner {}",
+            operation, self.miner_index
+        );
+        self.ctx
+            .get_counters_for_miner(self.miner_index)
+            .naka_skip_commit_op
+            .set(self.skip);
     }
 
     fn label(&self) -> String {
-        "SKIP_COMMIT_OP_MINER_1".to_string()
+        let operation = if self.skip { "DISABLE" } else { "ENABLE" };
+        format!("{}_COMMIT_OP_MINER_{}", operation, self.miner_index)
     }
 
     fn build(
         ctx: Arc<SignerTestContext>,
     ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(SkipCommitOpMiner1::new(
-            ctx.miners.lock().unwrap().get_primary_skip_commit_flag(),
-        )))
-    }
-}
-
-pub struct SkipCommitOpMiner2 {
-    miner_2_skip_commit_flag: TestFlag<bool>,
-}
-
-impl SkipCommitOpMiner2 {
-    pub fn new(miner_2_skip_commit_flag: TestFlag<bool>) -> Self {
-        Self {
-            miner_2_skip_commit_flag,
-        }
-    }
-}
-
-impl Command<SignerTestState, SignerTestContext> for SkipCommitOpMiner2 {
-    fn check(&self, state: &SignerTestState) -> bool {
-        info!(
-            "Checking: Skipping commit operations for miner 2. Result: {:?}",
-            !state.is_secondary_miner_skip_commit_op
-        );
-        !state.is_secondary_miner_skip_commit_op
-    }
-
-    fn apply(&self, state: &mut SignerTestState) {
-        info!("Applying: Skipping commit operations for miner 2");
-
-        self.miner_2_skip_commit_flag.set(true);
-
-        state.is_secondary_miner_skip_commit_op = true;
-    }
-
-    fn label(&self) -> String {
-        "SKIP_COMMIT_OP_MINER_2".to_string()
-    }
-
-    fn build(
-        ctx: Arc<SignerTestContext>,
-    ) -> impl Strategy<Value = CommandWrapper<SignerTestState, SignerTestContext>> {
-        Just(CommandWrapper::new(SkipCommitOpMiner2::new(
-            ctx.miners.lock().unwrap().get_secondary_skip_commit_flag(),
-        )))
+        use proptest::prelude::*;
+        (1usize..=2usize).prop_flat_map(move |miner_index| {
+            prop_oneof![
+                Just(CommandWrapper::new(ChainMinerCommitOp::enable_for(
+                    ctx.clone(),
+                    miner_index
+                ))),
+                Just(CommandWrapper::new(ChainMinerCommitOp::disable_for(
+                    ctx.clone(),
+                    miner_index
+                )))
+            ]
+        })
     }
 }

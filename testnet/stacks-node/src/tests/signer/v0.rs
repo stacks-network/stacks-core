@@ -29,7 +29,7 @@ use libsigner::v0::messages::{
 use libsigner::{
     BlockProposal, BlockProposalData, SignerSession, StackerDBSession, VERSION_STRING,
 };
-use madhouse::{execute_commands, prop_allof, scenario, Command};
+use madhouse::{execute_commands, prop_allof, scenario, Command, CommandWrapper};
 use pinny::tag;
 use proptest::prelude::Strategy;
 use rand::{thread_rng, Rng};
@@ -694,12 +694,12 @@ impl MultipleMinerTest {
         }
     }
 
-    pub fn get_primary_skip_commit_flag(&self) -> stacks::util::tests::TestFlag<bool> {
-        self.signer_test
-            .running_nodes
-            .counters
-            .naka_skip_commit_op
-            .clone()
+    pub fn get_counters_for_miner(&self, miner_index: usize) -> Counters {
+        match miner_index {
+            1 => self.signer_test.running_nodes.counters.clone(),
+            2 => self.rl2_counters.clone(),
+            _ => panic!("Invalid miner index {}: must be 1 or 2", miner_index),
+        }
     }
 
     pub fn get_primary_proposals_submitted(&self) -> RunLoopCounter {
@@ -707,38 +707,6 @@ impl MultipleMinerTest {
             .running_nodes
             .counters
             .naka_proposed_blocks
-            .clone()
-    }
-
-    pub fn get_secondary_skip_commit_flag(&self) -> stacks::util::tests::TestFlag<bool> {
-        self.rl2_counters.naka_skip_commit_op.clone()
-    }
-
-    pub fn get_primary_last_stacks_tip_counter(&self) -> RunLoopCounter {
-        self.signer_test
-            .running_nodes
-            .counters
-            .naka_submitted_commit_last_stacks_tip
-            .clone()
-    }
-
-    pub fn get_secondary_last_stacks_tip_counter(&self) -> RunLoopCounter {
-        self.rl2_counters
-            .naka_submitted_commit_last_stacks_tip
-            .clone()
-    }
-
-    pub fn get_primary_submitted_commit_last_burn_height(&self) -> RunLoopCounter {
-        self.signer_test
-            .running_nodes
-            .counters
-            .naka_submitted_commit_last_burn_height
-            .clone()
-    }
-
-    pub fn get_secondary_submitted_commit_last_burn_height(&self) -> RunLoopCounter {
-        self.rl2_counters
-            .naka_submitted_commit_last_burn_height
             .clone()
     }
 
@@ -1234,7 +1202,7 @@ fn wait_for_tenure_change_tx(
 
 /// Waits for a block proposal to be observed in the test_observer stackerdb chunks at the expected height
 /// and signed by the expected miner
-fn wait_for_block_proposal(
+pub fn wait_for_block_proposal(
     timeout_secs: u64,
     expected_height: u64,
     expected_miner: &StacksPublicKey,
@@ -1333,7 +1301,7 @@ fn wait_for_block_global_rejection(
 
 /// Waits for >30% of num_signers block rejection to be observed in the test_observer stackerdb chunks for a block
 /// with the provided signer signature hash and the specified reject_reason
-fn wait_for_block_global_rejection_with_reject_reason(
+pub fn wait_for_block_global_rejection_with_reject_reason(
     timeout_secs: u64,
     block_signer_signature_hash: Sha512Trunc256Sum,
     num_signers: usize,
@@ -3997,7 +3965,7 @@ fn multiple_miners() {
 
 /// Read processed nakamoto block IDs from the test observer, and use `config` to open
 ///  a chainstate DB and returns their corresponding StacksHeaderInfos
-fn get_nakamoto_headers(config: &Config) -> Vec<StacksHeaderInfo> {
+pub fn get_nakamoto_headers(config: &Config) -> Vec<StacksHeaderInfo> {
     let nakamoto_block_ids: HashSet<_> = test_observer::get_blocks()
         .into_iter()
         .filter_map(|block_json| {
@@ -11702,6 +11670,9 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs_scenario() {
         return;
     }
 
+    pub const MINER1: usize = 1;
+    pub const MINER2: usize = 2;
+
     let num_signers = 5;
     let num_transfer_txs = 3;
 
@@ -11709,20 +11680,20 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs_scenario() {
 
     scenario![
         test_context,
-        SkipCommitOpMiner2,
-        BootToEpoch3,
-        SkipCommitOpMiner1,
-        PauseStacksMining,
-        MineBitcoinBlock,
-        VerifyMiner1WonSortition,
-        SubmitBlockCommitMiner2,
-        ResumeStacksMining,
-        WaitForTenureChangeBlockFromMiner1,
-        MineBitcoinBlock,
-        VerifyMiner2WonSortition,
-        VerifyLastSortitionWinnerReorged,
-        WaitForTenureChangeBlockFromMiner2,
-        ShutdownMiners
+        (ChainMinerCommitOp::disable_for(test_context.clone(), MINER2)),
+        ChainBootToEpoch3,
+        (ChainMinerCommitOp::disable_for(test_context.clone(), MINER1)),
+        (ChainStacksMining::pause()),
+        (MinerMineBitcoinBlocks::one(test_context.clone())),
+        (ChainExpectSortitionWinner::new(test_context.clone(), MINER1)),
+        (MinerSubmitNakaBlockCommit::new(test_context.clone(), MINER2)),
+        (ChainStacksMining::resume()),
+        (ChainExpectNakaBlock::from_miner_height(test_context.clone(), MINER1)),
+        (MinerMineBitcoinBlocks::one(test_context.clone())),
+        (ChainExpectSortitionWinner::new(test_context.clone(), MINER2)),
+        ChainVerifyLastSortitionWinnerReorged,
+        (ChainExpectNakaBlock::from_miner_height(test_context.clone(), MINER2)),
+        ChainShutdownMiners
     ]
 }
 
@@ -11880,6 +11851,50 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
 
     info!("------------------------- Shutdown -------------------------");
     miners.shutdown();
+}
+
+#[test]
+#[ignore]
+fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one_block_scenario() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    pub const MINER1: usize = 1;
+    pub const MINER2: usize = 2;
+
+    let num_signers = 5;
+    let num_txs = 3;
+
+    let test_context = Arc::new(SignerTestContext::new(num_signers, num_txs));
+
+    scenario![
+        test_context,
+        (ChainMinerCommitOp::disable_for(test_context.clone(), MINER2)),
+        ChainBootToEpoch3,
+        (ChainMinerCommitOp::disable_for(test_context.clone(), MINER1)),
+        (MinerMineBitcoinBlocks::one(test_context.clone())), // Sets block height in the state
+        (ChainExpectStacksTenureChange::new(test_context.clone(), MINER1)),
+        (ChainExpectNakaBlock::from_state_height(test_context.clone(), MINER1)), // Uses block height from the state
+        (ChainExpectSortitionWinner::new(test_context.clone(), MINER1)),
+        (MinerSubmitNakaBlockCommit::new(test_context.clone(), MINER2)),
+        (ChainStacksMining::pause()),
+        (MinerMineBitcoinBlocks::one(test_context.clone())),
+        (MinerSubmitNakaBlockCommit::new(test_context.clone(), MINER1)),
+        (ChainStacksMining::resume()),
+        (ChainExpectNakaBlock::from_miner_height(test_context.clone(), MINER2)),
+        (ChainExpectSortitionWinner::new(test_context.clone(), MINER2)),
+        MinerSendAndMineStacksTransferTx,
+        MinerSendAndMineStacksTransferTx,
+        (ChainGenerateBitcoinBlocks::one(test_context.clone())),
+        (ChainExpectNakaBlockProposal::with_rejection(
+            test_context.clone(),
+            MINER1,
+            RejectReason::ReorgNotAllowed
+        )),
+        (ChainVerifyMinerNakaBlockCount::after_boot_to_epoch3(test_context.clone(), MINER1, 1)), // FIXME: This takes the expected block count as a parameter - can we avoid that?
+        ChainShutdownMiners, // FIXME: miners.shutdown() says: Cannot shutdown miners: other references to Arc still exist
+    ]
 }
 
 #[test]
