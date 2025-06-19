@@ -14,11 +14,15 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   - `stacks_node_miner_stop_reason_total`: Counts the number of times the miner stopped mining due to various reasons.
   - Always report the number of transactions mined in the last attempt, even if there were 0
 
+- Added a new option `--postcondition-mode [allow, deny]` to `blockstack-cli publish` command, to set the post-condition mode to allow or deny on the transaction (default is deny)
+
 ### Changed
 
 - Changed default mempool walk strategy to `NextNonceWithHighestFeeRate`
 
 ### Fixed
+
+- Fixed an issue that prevented the correct usage of anchor mode options (`--microblock-only`, `--block-only`) when using `blockstack-cli publish` command.
 - Fix several bugs in the mock-miner that caused it to fail to mine blocks in certain conditions
 
 ## [3.1.0.0.12]
