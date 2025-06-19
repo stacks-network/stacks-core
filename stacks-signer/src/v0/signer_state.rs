@@ -21,6 +21,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
+use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use clarity::types::chainstate::StacksAddress;
 #[cfg(any(test, feature = "testing"))]
@@ -620,7 +621,7 @@ impl LocalStateMachine {
                 client,
                 &expected_burn_block,
                 &prior_state_machine,
-                replay_state,
+                &replay_state,
             )? {
                 match new_replay_state {
                     ReplayState::Unset => {
@@ -631,6 +632,18 @@ impl LocalStateMachine {
                         tx_replay_set = new_txs_set;
                         *tx_replay_scope = Some(new_scope);
                     }
+                }
+            } else {
+                if Self::handle_possible_replay_failsafe(
+                    &replay_state,
+                    &expected_burn_block,
+                    client,
+                )? {
+                    info!(
+                    "Signer state: replay set is stalled after 2 tenures. Clearing the replay set."
+                );
+                    tx_replay_set = ReplayTransactionSet::none();
+                    *tx_replay_scope = None;
                 }
             }
         }
@@ -981,7 +994,7 @@ impl LocalStateMachine {
         client: &StacksClient,
         expected_burn_block: &NewBurnBlock,
         prior_state_machine: &SignerStateMachine,
-        replay_state: ReplayState,
+        replay_state: &ReplayState,
     ) -> Result<Option<ReplayState>, SignerChainstateError> {
         if expected_burn_block.burn_block_height > prior_state_machine.burn_block_height {
             // no bitcoin fork, because we're advancing the burn block height
@@ -1088,7 +1101,7 @@ impl LocalStateMachine {
         client: &StacksClient,
         expected_burn_block: &NewBurnBlock,
         prior_state_machine: &SignerStateMachine,
-        scope: ReplayScope,
+        scope: &ReplayScope,
     ) -> Result<Option<ReplayState>, SignerChainstateError> {
         info!("Tx Replay: detected bitcoin fork while in replay mode. Tryng to handle the fork";
             "expected_burn_block.height" => expected_burn_block.burn_block_height,
@@ -1182,6 +1195,10 @@ impl LocalStateMachine {
             return Ok(None);
         }
 
+        Ok(Some(Self::get_forked_txs_from_fork_info(&fork_info)))
+    }
+
+    fn get_forked_txs_from_fork_info(fork_info: &Vec<TenureForkingInfo>) -> Vec<StacksTransaction> {
         // Collect transactions to be replayed across the forked blocks
         let mut forked_blocks = fork_info
             .iter()
@@ -1201,6 +1218,70 @@ impl LocalStateMachine {
                 ))
             .cloned()
             .collect::<Vec<_>>();
-        Ok(Some(forked_txs))
+        forked_txs
+    }
+
+    /// If it has been 2 burn blocks since the origin of our replay set, and
+    /// we haven't produced any replay blocks since then, we should reset our replay set
+    ///
+    /// Returns a `bool` indicating whether the replay set should be reset.
+    fn handle_possible_replay_failsafe(
+        replay_state: &ReplayState,
+        new_burn_block: &NewBurnBlock,
+        client: &StacksClient,
+    ) -> Result<bool, SignerChainstateError> {
+        let ReplayState::InProgress(_, replay_scope) = replay_state else {
+            // Not in replay - skip
+            return Ok(false);
+        };
+
+        // if replay_scope.fork_origin.burn_block_height + 2 >= new_burn_block.burn_block_height {
+        if new_burn_block.burn_block_height < replay_scope.fork_origin.burn_block_height + 2 {
+            // We havent' had two burn blocks yet - skip
+            return Ok(false);
+        }
+
+        info!("Signer state: checking for replay set failsafe";
+            "replay_scope.fork_origin.burn_block_height" => replay_scope.fork_origin.burn_block_height,
+            "new_burn_block.burn_block_height" => new_burn_block.burn_block_height,
+        );
+        let Ok(fork_info) = client.get_tenure_forking_info(
+            &replay_scope.fork_origin.consensus_hash,
+            &new_burn_block.consensus_hash,
+        ) else {
+            warn!("Signer state: failed to get fork info");
+            return Ok(false);
+        };
+
+        let tenures_with_sortition = fork_info
+            .iter()
+            .filter(|fork_info| {
+                fork_info.was_sortition
+                    && fork_info
+                        .nakamoto_blocks
+                        .as_ref()
+                        .map(|b| b.len())
+                        .unwrap_or(0)
+                        > 0
+            })
+            .count();
+
+        info!("Signer state: fork info in failsafe check";
+            "tenures_with_sortition" => tenures_with_sortition,
+            "fork_info" => ?fork_info,
+        );
+
+        if tenures_with_sortition < 2 {
+            // We might have had 2 burn blocks, but not 2 tenures.
+            return Ok(false);
+        }
+
+        let forked_txs = Self::get_forked_txs_from_fork_info(&fork_info);
+
+        info!("Signer state: forked txs in failsafe check";
+            "forked_txs_len" => forked_txs.len(),
+        );
+
+        Ok(forked_txs.is_empty())
     }
 }
