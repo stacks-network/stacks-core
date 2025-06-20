@@ -633,18 +633,16 @@ impl LocalStateMachine {
                         *tx_replay_scope = Some(new_scope);
                     }
                 }
-            } else {
-                if Self::handle_possible_replay_failsafe(
-                    &replay_state,
-                    &expected_burn_block,
-                    client,
-                )? {
-                    info!(
+            } else if Self::handle_possible_replay_failsafe(
+                &replay_state,
+                &expected_burn_block,
+                client,
+            )? {
+                info!(
                     "Signer state: replay set is stalled after 2 tenures. Clearing the replay set."
                 );
-                    tx_replay_set = ReplayTransactionSet::none();
-                    *tx_replay_scope = None;
-                }
+                tx_replay_set = ReplayTransactionSet::none();
+                *tx_replay_scope = None;
             }
         }
 
@@ -1198,7 +1196,7 @@ impl LocalStateMachine {
         Ok(Some(Self::get_forked_txs_from_fork_info(&fork_info)))
     }
 
-    fn get_forked_txs_from_fork_info(fork_info: &Vec<TenureForkingInfo>) -> Vec<StacksTransaction> {
+    fn get_forked_txs_from_fork_info(fork_info: &[TenureForkingInfo]) -> Vec<StacksTransaction> {
         // Collect transactions to be replayed across the forked blocks
         let mut forked_blocks = fork_info
             .iter()
