@@ -49,7 +49,6 @@ use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{
     TransactionEvent, TransactionSuccessEvent, TEST_EXCLUDE_REPLAY_TXS,
-    TEST_MINE_ALLOWED_REPLAY_TXS,
 };
 use stacks::chainstate::stacks::{
     StacksTransaction, TenureChangeCause, TenureChangePayload, TransactionPayload,
@@ -84,7 +83,8 @@ use stacks::util_lib::signed_structured_data::pox4::{
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::sleep_ms;
-use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
+use stacks_signer::chainstate::v1::SortitionsView;
+use stacks_signer::chainstate::ProposalEvalConfig;
 use stacks_signer::client::StackerDB;
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::signerdb::SignerDb;

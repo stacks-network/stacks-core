@@ -6596,7 +6596,7 @@ fn signer_chainstate() {
 
         // check the prior tenure's proposals again, confirming that the sortitions_view
         //  will reject them.
-        if let Some((ref miner_pk, ref prior_tenure_first, ref prior_tenure_interims)) =
+        if let Some((_miner_pk, ref prior_tenure_first, ref prior_tenure_interims)) =
             last_tenures_proposals
         {
             let reject_code = sortitions_view
@@ -6624,7 +6624,8 @@ fn signer_chainstate() {
         let time_start = Instant::now();
         let proposal = loop {
             let proposal = get_latest_block_proposal(&naka_conf, &sortdb).unwrap();
-            if proposal.0.header.consensus_hash == sortitions_view.cur_sortition.consensus_hash {
+            if proposal.0.header.consensus_hash == sortitions_view.cur_sortition.data.consensus_hash
+            {
                 break proposal;
             }
             if time_start.elapsed() > Duration::from_secs(20) {
@@ -6936,7 +6937,7 @@ fn signer_chainstate() {
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     let start_sortition = &reorg_to_block.header.consensus_hash;
-    let stop_sortition = &sortitions_view.cur_sortition.prior_sortition;
+    let stop_sortition = &sortitions_view.cur_sortition.data.prior_sortition;
     // check that the get_tenure_forking_info response is sane
     let fork_info = signer_client
         .get_tenure_forking_info(start_sortition, stop_sortition)
