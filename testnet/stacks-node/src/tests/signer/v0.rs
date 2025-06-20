@@ -49,7 +49,6 @@ use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{
     TransactionEvent, TransactionSuccessEvent, TEST_EXCLUDE_REPLAY_TXS,
-    TEST_MINE_ALLOWED_REPLAY_TXS,
 };
 use stacks::chainstate::stacks::{
     StacksTransaction, TenureChangeCause, TenureChangePayload, TransactionPayload,
@@ -84,7 +83,8 @@ use stacks::util_lib::signed_structured_data::pox4::{
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::sleep_ms;
-use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
+use stacks_signer::chainstate::v1::SortitionsView;
+use stacks_signer::chainstate::ProposalEvalConfig;
 use stacks_signer::client::StackerDB;
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::signerdb::SignerDb;
@@ -1625,7 +1625,7 @@ fn block_proposal_rejection() {
     // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
-    block.header.consensus_hash = view.cur_sortition.consensus_hash;
+    block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
     block.header.chain_length = 35; // We have mined 35 blocks so far.
 
     block
@@ -10133,7 +10133,7 @@ fn block_validation_response_timeout() {
     // Propose a block to the signers that passes initial checks but will not be submitted to the stacks node due to the submission stall
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
-    block.header.consensus_hash = view.cur_sortition.consensus_hash;
+    block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
     block.header.chain_length = info_before.stacks_tip_height + 1;
 
     block
@@ -10420,7 +10420,7 @@ fn block_validation_pending_table() {
 
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
-    block.header.consensus_hash = view.cur_sortition.consensus_hash;
+    block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
     block.header.chain_length = peer_info.stacks_tip_height + 1;
     block
         .header
@@ -11715,7 +11715,7 @@ fn incoming_signers_ignore_block_proposals() {
     // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
-    block.header.consensus_hash = view.cur_sortition.consensus_hash;
+    block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
     block.header.chain_length =
         get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height + 1;
     block
@@ -11882,7 +11882,7 @@ fn outgoing_signers_ignore_block_proposals() {
     // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
-    block.header.consensus_hash = view.cur_sortition.consensus_hash;
+    block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
     block.header.chain_length =
         get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height + 1;
     block
