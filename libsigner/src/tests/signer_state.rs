@@ -65,10 +65,7 @@ fn generate_global_state_evaluator(num_addresses: u32) -> GlobalStateEvaluator {
 fn generate_random_address_with_equal_weights(num_addresses: u32) -> HashMap<StacksAddress, u32> {
     let mut address_weights = HashMap::new();
     for _ in 0..num_addresses {
-        let stacks_address = StacksAddress::p2pkh(
-            false,
-            &StacksPublicKey::from_private(&StacksPrivateKey::random()),
-        );
+        let stacks_address = StacksAddress::p2pkh(false, &StacksPublicKey::new());
         address_weights.insert(stacks_address, 10);
     }
     address_weights

@@ -884,6 +884,8 @@ impl From<&RejectReason> for RejectReasonPrefix {
             RejectReason::DuplicateBlockFound => RejectReasonPrefix::DuplicateBlockFound,
             RejectReason::InvalidTenureExtend => RejectReasonPrefix::InvalidTenureExtend,
             RejectReason::IrrecoverablePubkeyHash => RejectReasonPrefix::IrrecoverablePubkeyHash,
+            RejectReason::NoSignerConsensus => RejectReasonPrefix::NoSignerConsensus,
+            RejectReason::ConsensusHashMismatch { .. } => RejectReasonPrefix::ConsensusHashMismatch,
             RejectReason::Unknown(_) => RejectReasonPrefix::Unknown,
             RejectReason::NotRejected => RejectReasonPrefix::NotRejected,
         }
@@ -960,6 +962,15 @@ pub enum RejectReason {
     InvalidTenureExtend,
     /// The block has an irrecoverable pubkey hash
     IrrecoverablePubkeyHash,
+    /// No signer consensus reached
+    NoSignerConsensus,
+    /// The block consensus hash does not match the active miner's tenure id
+    ConsensusHashMismatch {
+        /// The expected active miner's tenure id
+        expected: ConsensusHash,
+        /// The block proposal's corresponding miner's tenure id
+        actual: ConsensusHash,
+    },
     /// The block was approved, no rejection details needed
     NotRejected,
     /// Handle unknown codes gracefully
@@ -1003,6 +1014,10 @@ pub enum RejectReasonPrefix {
     InvalidTenureExtend = 13,
     /// The block has an irrecoverable pubkey hash
     IrrecoverablePubkeyHash = 14,
+    /// The block could not be validated as no consensus among signers
+    NoSignerConsensus = 15,
+    /// The block consensus hash does not match the active miner's tenure id
+    ConsensusHashMismatch = 16,
     /// Unknown reject code, for forward compatibility
     Unknown = 254,
     /// The block was approved, no rejection details needed
@@ -1028,6 +1043,8 @@ impl RejectReasonPrefix {
             Self::DuplicateBlockFound => 12,
             Self::InvalidTenureExtend => 13,
             Self::IrrecoverablePubkeyHash => 14,
+            Self::NoSignerConsensus => 15,
+            Self::ConsensusHashMismatch => 16,
             Self::Unknown => 254,
             Self::NotRejected => 255,
         }
@@ -1052,6 +1069,8 @@ impl From<u8> for RejectReasonPrefix {
             12 => Self::DuplicateBlockFound,
             13 => Self::InvalidTenureExtend,
             14 => Self::IrrecoverablePubkeyHash,
+            15 => Self::NoSignerConsensus,
+            16 => Self::ConsensusHashMismatch,
             255 => Self::NotRejected,
             // For forward compatibility, all other values are unknown
             _ => Self::Unknown,
@@ -1617,6 +1636,10 @@ impl StacksMessageCodec for RejectReason {
         // Do not do a single match here as we may add other variants in the future and don't want to miss adding it
         match self {
             RejectReason::ValidationFailed(code) => write_next(fd, &(*code as u8))?,
+            RejectReason::ConsensusHashMismatch { expected, actual } => {
+                write_next(fd, expected)?;
+                write_next(fd, actual)?;
+            }
             RejectReason::ConnectivityIssues(_)
             | RejectReason::RejectedInPriorRound
             | RejectReason::NoSortitionView
@@ -1631,6 +1654,7 @@ impl StacksMessageCodec for RejectReason {
             | RejectReason::DuplicateBlockFound
             | RejectReason::InvalidTenureExtend
             | RejectReason::IrrecoverablePubkeyHash
+            | RejectReason::NoSignerConsensus
             | RejectReason::Unknown(_)
             | RejectReason::NotRejected => {
                 // No additional data to serialize / deserialize
@@ -1669,6 +1693,12 @@ impl StacksMessageCodec for RejectReason {
             RejectReasonPrefix::DuplicateBlockFound => RejectReason::DuplicateBlockFound,
             RejectReasonPrefix::InvalidTenureExtend => RejectReason::InvalidTenureExtend,
             RejectReasonPrefix::IrrecoverablePubkeyHash => RejectReason::IrrecoverablePubkeyHash,
+            RejectReasonPrefix::NoSignerConsensus => RejectReason::NoSignerConsensus,
+            RejectReasonPrefix::ConsensusHashMismatch => {
+                let expected = read_next::<ConsensusHash, _>(fd)?;
+                let actual = read_next::<ConsensusHash, _>(fd)?;
+                RejectReason::ConsensusHashMismatch { expected, actual }
+            }
             RejectReasonPrefix::Unknown => RejectReason::Unknown(type_prefix_byte),
             RejectReasonPrefix::NotRejected => RejectReason::NotRejected,
         };
@@ -1773,6 +1803,15 @@ impl std::fmt::Display for RejectReason {
                 write!(
                     f,
                     "The block has an irreocverable associated miner public key hash."
+                )
+            }
+            RejectReason::NoSignerConsensus => {
+                write!(f, "No signer consensus reached.")
+            }
+            RejectReason::ConsensusHashMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "The block's consensus hash ({expected}) does not match the active miner's tenure id ({actual})",
                 )
             }
             RejectReason::Unknown(code) => {
