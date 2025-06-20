@@ -16,6 +16,7 @@ use serde::Deserialize;
 use serde_json::json;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::burnchains::burnchain::TEST_DOWNLOAD_ERROR_ON_REORG;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::{Address, Burnchain, PoxConstants, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -3328,6 +3329,79 @@ fn bitcoind_forking_test() {
 
     eprintln!("End of test");
     channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn download_err_in_btc_reorg() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    *TEST_DOWNLOAD_ERROR_ON_REORG.lock().unwrap() = true;
+
+    let (mut conf, _miner_account) = neon_integration_test_conf();
+    conf.node.mine_microblocks = false;
+    conf.burnchain.pox_reward_length = Some(1000);
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let counters = run_loop.get_counters();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let mut sort_height = channel.get_sortitions_processed();
+    eprintln!("Sort height: {sort_height}");
+
+    while sort_height < 210 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {sort_height}");
+    }
+
+    // okay, let's figure out the burn block we want to fork away.
+    let reorg_height = 210;
+    warn!("Will trigger re-org at block {reorg_height}");
+    let burn_header_hash_to_fork = btc_regtest_controller.get_block_hash(reorg_height);
+    btc_regtest_controller.invalidate_block(&burn_header_hash_to_fork);
+
+    btc_regtest_controller.build_next_block(1);
+    thread::sleep(Duration::from_secs(5));
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        &counters.neon_submitted_commits,
+    );
+
+    let stacks_height = get_chain_info(&conf).stacks_tip_height;
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    thread::sleep(Duration::from_secs(5));
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    thread::sleep(Duration::from_secs(5));
+    let next_stacks_height = get_chain_info(&conf).stacks_tip_height;
+    info!("Checking stacks height change"; "before" => stacks_height, "after" => next_stacks_height);
+    assert!(next_stacks_height > stacks_height);
 }
 
 #[test]
