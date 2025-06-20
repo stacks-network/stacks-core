@@ -4,11 +4,19 @@ servers:
     description: Local
 info:
   title: Stacks 3.0+ RPC API
-  version: '1.0.0'
+  version: "1.0.0"
   description: |
     This is the documentation for the `stacks-node` RPC interface.
   license:
     name: CC-0
+    url: https://creativecommons.org/publicdomain/zero/1.0/
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Authentication token for administrative operations
 
 paths:
   /v2/transactions:
@@ -25,6 +33,20 @@ paths:
               type: string
               format: binary
             example: binary format of 00000000010400bed38c2aadffa348931bcb542880ff79d607afec000000000000000000000000000000c800012b0b1fff6cccd0974966dcd665835838f0985be508e1322e09fb3d751eca132c492bda720f9ef1768d14fdabed6127560ba52d5e3ac470dcb60b784e97dc88c9030200000000000516df0ba3e79792be7be5e50a370289accfc8c9e032000000000000303974657374206d656d6f00000000000000000000000000000000000000000000000000
+          application/json:
+            schema:
+              type: object
+              required: ["tx"]
+              properties:
+                tx:
+                  type: string
+                  description: Hex-encoded transaction
+                attachment:
+                  type: string
+                  description: Optional hex-encoded attachment for contract-call transactions
+            example:
+              tx: "00000000010400bed38c2aadffa348931bcb542880ff79d607afec..."
+              attachment: "68656c6c6f20776f726c64"
       responses:
         "200":
           description: Transaction ID of successful post of a raw tx to the node's mempool
@@ -59,24 +81,9 @@ paths:
               example:
                 $ref: ./api/core-node/get-contract-interface.example.json
     parameters:
-      - name: contract_address
-        in: path
-        required: true
-        description: Stacks address
-        schema:
-          type: string
-      - name: contract_name
-        in: path
-        required: true
-        description: Contract name
-        schema:
-          type: string
-      - name: tip
-        in: query
-        schema:
-          type: string
-        description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-          known tip (includes unconfirmed state).
+      - $ref: ./parameters/contract-address.parameter.json
+      - $ref: ./parameters/contract-name.parameter.json
+      - $ref: ./parameters/tip.parameter.json
   /v2/map_entry/{contract_address}/{contract_name}/{map_name}:
     post:
       summary: Get specific data-map inside a contract
@@ -101,35 +108,16 @@ paths:
         "400":
           description: Failed loading data map
       parameters:
-        - name: contract_address
-          in: path
-          required: true
-          description: Stacks address
-          schema:
-            type: string
-        - name: contract_name
-          in: path
-          required: true
-          description: Contract name
-          schema:
-            type: string
+        - $ref: ./parameters/contract-address.parameter.json
+        - $ref: ./parameters/contract-name.parameter.json
         - name: map_name
           in: path
           required: true
           description: Map name
           schema:
             type: string
-        - name: proof
-          in: query
-          description: Returns object without the proof field when set to 0
-          schema:
-            type: integer
-        - name: tip
-          in: query
-          schema:
-            type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-            known tip (includes unconfirmed state).
+        - $ref: ./parameters/proof.parameter.json
+        - $ref: ./parameters/tip.parameter.json
       x-codegen-request-body-name: key
       requestBody:
         description: Hex string serialization of the lookup key (which should be a Clarity value)
@@ -156,30 +144,10 @@ paths:
               example:
                 $ref: ./api/core-node/get-contract-source.example.json
     parameters:
-      - name: contract_address
-        in: path
-        required: true
-        description: Stacks address
-        schema:
-          type: string
-      - name: contract_name
-        in: path
-        required: true
-        description: Contract name
-        schema:
-          type: string
-      - name: proof
-        in: query
-        description: Returns object without the proof field if set to 0
-        schema:
-          type: integer
-      - name: tip
-        in: query
-        schema:
-          type: string
-        description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-          known tip (includes unconfirmed state).
-        required: false
+      - $ref: ./parameters/contract-address.parameter.json
+      - $ref: ./parameters/contract-name.parameter.json
+      - $ref: ./parameters/proof.parameter.json
+      - $ref: ./parameters/tip.parameter.json
 
   /v2/contracts/call-read/{contract_address}/{contract_name}/{function_name}:
     post:
@@ -204,43 +172,27 @@ paths:
                 fail:
                   $ref: ./api/contract/post-call-read-only-fn-fail.example.json
       parameters:
-        - name: contract_address
-          in: path
-          required: true
-          description: Stacks address
-          schema:
-            type: string
-        - name: contract_name
-          in: path
-          required: true
-          description: Contract name
-          schema:
-            type: string
+        - $ref: ./parameters/contract-address.parameter.json
+        - $ref: ./parameters/contract-name.parameter.json
         - name: function_name
           in: path
           required: true
           description: Function name
           schema:
             type: string
-        - name: tip
-          in: query
-          schema:
-            type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-            known tip (includes unconfirmed state).
-          required: false
+        - $ref: ./parameters/tip.parameter.json
       requestBody:
         description: map of arguments and the simulated tx-sender where sender is either a Contract identifier or a normal Stacks address, and arguments is an array of hex serialized Clarity values.
         required: true
         content:
           application/json:
             schema:
-              $ref: './entities/contracts/read-only-function-args.schema.json'
+              $ref: "./entities/contracts/read-only-function-args.schema.json"
               example:
-                sender: 'SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info'
+                sender: "SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info"
                 arguments:
-                  - '0x0011...'
-                  - '0x00231...'
+                  - "0x0011..."
+                  - "0x00231..."
 
   /v2/accounts/{principal}:
     get:
@@ -255,23 +207,9 @@ paths:
 
         For non-existent accounts, this does not 404, rather it returns an object with balance and nonce of 0.
       parameters:
-        - name: principal
-          in: path
-          description: Stacks address or a Contract identifier (e.g. `SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info`)
-          required: true
-          schema:
-            type: string
-        - name: proof
-          in: query
-          description: Returns object without the proof field if set to 0
-          schema:
-            type: integer
-        - name: tip
-          in: query
-          schema:
-            type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-            known tip (includes unconfirmed state).
+        - $ref: ./parameters/principal.parameter.json
+        - $ref: ./parameters/proof.parameter.json
+        - $ref: ./parameters/tip.parameter.json
       responses:
         "200":
           description: Success
@@ -378,16 +316,17 @@ paths:
       tags:
         - Fees
       operationId: get_fee_transfer
-      description: Get an estimated fee rate for STX transfer transactions. This a a fee rate / byte, and is returned as a JSON integer
+      description: Get an estimated fee rate for STX transfer transactions. This is a fee rate per byte, returned as a JSON integer (microSTX per byte).
       responses:
         "200":
-          description: Success
+          description: Fee rate in microSTX per byte
           content:
             application/json:
               schema:
-                $ref: ./api/core-node/get-fee-transfer.schema.json
-              example:
-                $ref: ./api/core-node/get-fee-transfer.example.json
+                type: integer
+                minimum: 1
+                description: Fee rate in microSTX per byte
+              example: 123
 
   /v2/info:
     get:
@@ -423,12 +362,7 @@ paths:
               example:
                 $ref: ./api/core-node/get-pox.example.json
       parameters:
-        - name: tip
-          in: query
-          schema:
-            type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-            known tip (includes unconfirmed state).
+        - $ref: ./parameters/tip.parameter.json
 
   /v2/traits/{contract_address}/{contract_name}/{trait_contract_address}/{trait_contract_name}/{trait_name}:
     get:
@@ -446,58 +380,62 @@ paths:
                 $ref: ./api/trait/get-is-trait-implemented.schema.json
               example:
                 $ref: ./api/trait/get-is-trait-implemented.example.json
+        "404":
+          description: Contract or trait not found.
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "No contract analysis found or trait definition not found"
     parameters:
-      - name: contract_address
-        in: path
-        required: true
-        description: Stacks address
-        schema:
-          type: string
-      - name: contract_name
-        in: path
-        required: true
-        description: Contract name
-        schema:
-          type: string
+      - $ref: ./parameters/contract-address.parameter.json
+      - $ref: ./parameters/contract-name.parameter.json
       - name: trait_contract_address
         in: path
         required: true
-        description: Trait Stacks address
+        description: |
+          Stacks address of the trait-defining contract.
         schema:
           type: string
+          pattern: "^[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}$"
+          minLength: 28
+          maxLength: 41
+          example: "SP2Z1K16238380NBP4T38A4G10A90Q03JJ2C2003"
       - name: trait_contract_name
         in: path
         required: true
-        description: Trait contract name
+        description: |
+          Contract name of the trait-defining contract.
         schema:
           type: string
+          pattern: "^[a-zA-Z]([a-zA-Z0-9]|[-_]){0,127}$"
+          minLength: 1
+          maxLength: 128
+          example: "some-trait"
       - name: trait_name
         in: path
         required: true
-        description: Trait name
+        description: Trait name, must conform to Clarity naming rules.
         schema:
           type: string
-      - name: tip
-        in: query
-        schema:
-          type: string
-        description: |
-          The Stacks chain tip to query from.
-          If tip == "latest", the query will be run from the latest known tip (includes unconfirmed state).
-          If the tip is left unspecified, the stacks chain tip will be selected (only includes confirmed state).
+          pattern: "^([a-zA-Z0-9_]|[-!?+<>=/*]){1,128}$"
+          minLength: 1
+          maxLength: 128
+      - $ref: ./parameters/tip.parameter.json
 
-  /v2/clarity/marf/{clarity_marf_key}:
-    post:
+  /v2/clarity/marf/{marf_key_hash}:
+    get:
       summary: Get the MARF value for a given key
       tags:
         - Smart Contracts
       operationId: get_clarity_marf_value
       description: |
-        Attempt to fetch the value of a MARF key.
+        Attempt to fetch the value of a MARF key. The key is a 64-character hex string representing the MARF node hash.
 
         In the response, `data` is the hex serialization of the value.
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
@@ -505,29 +443,37 @@ paths:
                 $ref: ./api/core-node/get-clarity-marf-value.schema.json
               example:
                 $ref: ./api/core-node/get-clarity-marf-value.example.json
-        400:
-          description: Failed to retrieve MARF key
+        "400":
+          description: Invalid request, e.g., the hash string is not a valid 64-character hex string.
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "Invalid hash string"
+        "404":
+          description: The requested MARF key or chain tip could not be found.
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "Marf key hash not found"
       parameters:
-        - name: clarity_marf_key
+        - name: marf_key_hash
           in: path
           required: true
-          description: MARF key
+          description: The 64-character hex-encoded hash of the MARF key.
           schema:
             type: string
-        - name: proof
-          in: query
-          description: Returns object without the proof field when set to 0
-          schema:
-            type: integer
-        - name: tip
-          in: query
-          schema:
-            type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-            known tip (includes unconfirmed state).
+            pattern: "^[0-9a-f]{64}$"
+            minLength: 64
+            maxLength: 64
+        - $ref: ./parameters/proof.parameter.json
+        - $ref: ./parameters/tip.parameter.json
 
   /v2/clarity/metadata/{contract_address}/{contract_name}/{clarity_metadata_key}:
-    post:
+    get:
       summary: Get the contract metadata for the metadata key
       tags:
         - Smart Contracts
@@ -548,33 +494,18 @@ paths:
         400:
           description: Failed to retrieve constant value from contract
       parameters:
-        - name: contract_address
-          in: path
-          required: true
-          description: Stacks address
-          schema:
-            type: string
-        - name: contract_name
-          in: path
-          required: true
-          description: Contract name
-          schema:
-            type: string
+        - $ref: ./parameters/contract-address.parameter.json
+        - $ref: ./parameters/contract-name.parameter.json
         - name: clarity_metadata_key
           in: path
           required: true
           description: Metadata key
           schema:
             type: string
-        - name: tip
-          in: query
-          schema:
-            type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-            known tip (includes unconfirmed state).
+        - $ref: ./parameters/tip.parameter.json
 
   /v2/constant_val/{contract_address}/{contract_name}/{constant_name}:
-    post:
+    get:
       summary: Get the value of a constant inside a contract
       tags:
         - Smart Contracts
@@ -595,30 +526,15 @@ paths:
         "400":
           description: Failed to retrieve constant value from contract
       parameters:
-        - name: contract_address
-          in: path
-          required: true
-          description: Stacks address
-          schema:
-            type: string
-        - name: contract_name
-          in: path
-          required: true
-          description: Contract name
-          schema:
-            type: string
+        - $ref: ./parameters/contract-address.parameter.json
+        - $ref: ./parameters/contract-name.parameter.json
         - name: constant_name
           in: path
           required: true
           description: Constant name
           schema:
             type: string
-        - name: tip
-          in: query
-          schema:
-            type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-            known tip (includes unconfirmed state).
+        - $ref: ./parameters/tip.parameter.json
 
   /v3/block_proposal:
     post:
@@ -630,6 +546,8 @@ paths:
         Used by stackers to validate a proposed Stacks block from a miner.
 
         **This API endpoint requires a basic Authorization header.**
+      security:
+        - bearerAuth: []
       responses:
         "202":
           description: Block proposal has been accepted for processing.
@@ -640,8 +558,20 @@ paths:
                 $ref: ./api/core-node/post-block-proposal-response.example.json
         "400":
           description: Endpoint not enabled.
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "Block proposal endpoint is not enabled on this node."
         "401":
-          description: Unauthorized.
+          description: Unauthorized. Invalid or missing authentication token.
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "Unauthorized"
         "429":
           description: There is an ongoing proposal validation being processed,
             the new request cannot be accepted until the prior request has been processed.
@@ -688,12 +618,16 @@ paths:
 
   /v3/blocks/{block_id}:
     get:
-      summary: Fetch a Nakamoto block
+      summary: Get Nakamoto block by ID
       tags:
         - Blocks
       operationId: get_block_v3
-      description:
-        Fetch a Nakamoto block by its index block hash.
+      description: |
+        Get a specific Nakamoto block (Stacks 3.x+) by its index block hash. This endpoint streams
+        the block data from the Nakamoto staging blocks database where Nakamoto blocks are stored
+        with additional metadata including tenure information.
+
+        **Compatibility**: Works with Nakamoto blocks only. For Stacks 2.x blocks, use `/v2/blocks/{block_id}`.
       parameters:
         - name: block_id
           in: path
@@ -712,7 +646,9 @@ paths:
         "404":
           description: The block could not be found
           content:
-            application/text-plain: {}
+            text/plain:
+              schema:
+                type: string
 
   /v3/blocks/height/{block_height}:
     get:
@@ -720,8 +656,7 @@ paths:
       tags:
         - Blocks
       operationId: get_block_v3_by_height
-      description:
-        Fetch a Nakamoto block by its height and optional tip.
+      description: Fetch a Nakamoto block by its height and optional tip.
       parameters:
         - name: block_height
           in: path
@@ -733,7 +668,8 @@ paths:
           in: query
           schema:
             type: string
-          description: The Stacks chain tip to query from. If tip == latest or empty, the query will be run
+          description:
+            The Stacks chain tip to query from. If tip == latest or empty, the query will be run
             from the latest known tip.
       responses:
         "200":
@@ -746,7 +682,10 @@ paths:
         "404":
           description: The block could not be found
           content:
-            application/text-plain: {}
+            text/plain:
+              schema:
+                type: string
+              example: "No such block at height 12345"
 
   /v3/tenures/info:
     get:
@@ -754,8 +693,7 @@ paths:
       tags:
         - Blocks
       operationId: get_tenure_info
-      description:
-        Fetch metadata about the ongoing Nakamoto tenure. This information is sufficient to obtain and authenticate the highest complete tenure, as well as obtain new tenure blocks.
+      description: Fetch metadata about the ongoing Nakamoto tenure. This information is sufficient to obtain and authenticate the highest complete tenure, as well as obtain new tenure blocks.
       responses:
         "200":
           description: Metadata about the ongoing tenure
@@ -770,8 +708,7 @@ paths:
       tags:
         - Blocks
       operationId: get_tenures
-      description:
-        Fetch a sequence of Nakamoto blocks in a tenure.  The blocks will be served in order from highest to lowest.  The blocks will be encoded in their SIP-003 wire format, and concatenated together.
+      description: Fetch a sequence of Nakamoto blocks in a tenure.  The blocks will be served in order from highest to lowest.  The blocks will be encoded in their SIP-003 wire format, and concatenated together.
       responses:
         "200":
           description: SIP-003-encoded Nakamoto blocks, concatenated together
@@ -783,60 +720,196 @@ paths:
     parameters:
       - name: block_id
         in: path
-        description:
-          The tenure-start block ID of the tenure to query
+        description: The tenure-start block ID of the tenure to query
         required: true
         schema:
           type: string
       - name: stop
         in: query
-        description:
-          The block ID hash of the highest block in this tenure that is already known to the caller.  Neither the corresponding block nor any of its ancestors will be served.  This is used to fetch tenure blocks that the caller does not have.
+        description: The block ID hash of the highest block in this tenure that is already known to the caller.  Neither the corresponding block nor any of its ancestors will be served.  This is used to fetch tenure blocks that the caller does not have.
         required: false
         schema:
           type: string
 
-  /v3/sortitions/{lookup_kind}/{lookup}:
+  /v3/sortitions:
     get:
-      summary: Fetch information about evaluated burnchain blocks (i.e., sortitions).
+      summary: Get latest sortition information
       tags:
         - Blocks
-      operationId: get_sortitions
-      description:
-        Fetch sortition information about a burnchain block. If the `lookup_kind` and `lookup` parameters are empty, it will return information about the latest burn block.
+      operationId: get_sortitions_latest
+      description: |
+        Get sortition information about the latest burnchain block processed by this node.
+        Returns a single-element array with the latest sortition.
       responses:
         "200":
-          description: Information for the burn block or in the case of `latest_and_last`, multiple burn blocks
+          description: Latest sortition information
           content:
             application/json:
-              examples:
-                Latest:
-                  description: A single element list is returned when just one sortition is requested
-                  value:
-                    $ref: ./api/core-node/get_sortitions.example.json
-                LatestAndLast:
-                  description: Sortition information about the latest burn block with a winning miner, and the previous such burn block.
-                  value:
-                    $ref: ./api/core-node/get_sortitions_latest_and_prior.example.json
-    parameters:
-      - name: lookup_kind
-        in: path
-        description: |-
-          The style of lookup that should be performed. If not given, the most recent burn block processed will be returned.
-          Otherwise, the `lookup_kind` should be one of the following strings:
-            * `consensus` - find the burn block using the consensus hash supplied in the `lookup` field.
-            * `burn_height` - find the burn block using the burn block height supplied in the `lookup` field.
-            * `burn` - find the burn block using the burn block hash supplied in the `lookup` field.
-            * `latest_and_last` - return information about the latest burn block with a winning miner *and* the previous such burn block
-        required: false
-        schema:
-          type: string
-      - name: lookup
-        in: path
-        description: The value to use for the lookup if `lookup_kind` is `consensus`, `burn_height`, or `burn`
-        required: false
-        schema:
-          type: string
+              schema:
+                $ref: ./api/core-node/get-sortitions-single.schema.json
+              example:
+                $ref: ./api/core-node/get_sortitions.example.json
+        "404":
+          description: Sortition not found for specified criteria
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+
+  /v3/sortitions/latest_and_last:
+    get:
+      summary: Get latest and last winning sortitions
+      tags:
+        - Blocks
+      operationId: get_sortitions_latest_and_last
+      description: |
+        Get sortition information about the latest burn block with a winning miner
+        AND the previous such burn block. Returns an array with two sortition objects.
+      responses:
+        "200":
+          description: Latest and last sortition information
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-sortitions.schema.json
+              example:
+                $ref: ./api/core-node/get_sortitions_latest_and_prior.example.json
+        "404":
+          description: Sortition not found
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+
+  /v3/sortitions/consensus/{consensus_hash}:
+    get:
+      summary: Get sortition by consensus hash
+      tags:
+        - Blocks
+      operationId: get_sortitions_by_consensus
+      description: |
+        Get sortition information for a specific consensus hash.
+        Returns a single-element array with the matching sortition.
+      parameters:
+        - name: consensus_hash
+          in: path
+          required: true
+          description: Hex-encoded consensus hash (40 characters)
+          schema:
+            type: string
+            pattern: "^(0x)?[0-9a-f]{40}$"
+      responses:
+        "200":
+          description: Sortition information for the consensus hash
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-sortitions-single.schema.json
+              example:
+                $ref: ./api/core-node/get_sortitions.example.json
+        "404":
+          description: Sortition not found for consensus hash
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+
+  /v3/sortitions/burn/{burn_header_hash}:
+    get:
+      summary: Get sortition by burn header hash
+      tags:
+        - Blocks
+      operationId: get_sortitions_by_burn_hash
+      description: |
+        Get sortition information for a specific burn header hash.
+        Returns a single-element array with the matching sortition.
+      parameters:
+        - name: burn_header_hash
+          in: path
+          required: true
+          description: Hex-encoded burn header hash (64 characters)
+          schema:
+            type: string
+            pattern: "^(0x)?[0-9a-f]{64}$"
+      responses:
+        "200":
+          description: Sortition information for the burn header hash
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-sortitions-single.schema.json
+              example:
+                $ref: ./api/core-node/get_sortitions.example.json
+        "404":
+          description: Sortition not found for burn header hash
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+
+  /v3/sortitions/burn_height/{height}:
+    get:
+      summary: Get sortition by burn block height
+      tags:
+        - Blocks
+      operationId: get_sortitions_by_height
+      description: |
+        Get sortition information for a specific burn block height.
+        Returns a single-element array with the matching sortition.
+      parameters:
+        - name: height
+          in: path
+          required: true
+          description: Burn block height (integer)
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Sortition information for the burn block height
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-sortitions-single.schema.json
+              example:
+                $ref: ./api/core-node/get_sortitions.example.json
+        "404":
+          description: Sortition not found for burn block height
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+
   /v3/signer/{signer}/{cycle_number}:
     get:
       summary: Get number of blocks signed by signer during a given reward cycle
@@ -862,24 +935,31 @@ paths:
         200:
           description: Number of blocks signed
           content:
-            text/plain:
+            application/json:
               schema:
-                type: integer
-                example: 7
+                type: object
+                properties:
+                  blocks_signed:
+                    type: integer
+                    description: Number of blocks signed by this signer
+                required:
+                  - blocks_signed
+              example:
+                blocks_signed: 7
   /v3/transaction/{txid}:
-    post:
+    get:
       summary: Retrieve transaction details by TXID
       tags:
         - Transactions
       description: Get a JSON with the transaction details including the `index_block_hash`, the hex-encoded transaction body, and the `result`.
       operationId: get_transaction
       parameters:
-      - name: txid
-        in: path
-        required: true
-        description: Transaction ID
-        schema:
-          type: string
+        - name: txid
+          in: path
+          required: true
+          description: Transaction ID
+          schema:
+            type: string
       responses:
         "200":
           description: Transaction JSON with index_block_hash, transaction body and result
@@ -890,11 +970,17 @@ paths:
         "404":
           description: Transaction not found
           content:
-            application/text-plain: {}
+            text/plain:
+              schema:
+                type: string
+              example: "No such transaction 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         "501":
           description: Transaction indexing not enabled
           content:
-            application/text-plain: {}
+            text/plain:
+              schema:
+                type: string
+              example: "Transaction indexing is not enabled"
 
   /v3/health:
     get:
@@ -928,3 +1014,912 @@ paths:
                 $ref: ./api/core-node/get-health-error.schema.json
               example:
                 $ref: ./api/core-node/get-health-error.example.json
+
+  /v2/attachments/{hash}:
+    get:
+      summary: Get attachment by hash
+      tags:
+        - Atlas
+      operationId: get_attachment
+      description: |
+        Get an attachment by its hash. Attachments are content stored in the Atlas network.
+
+        The attachment hash is a 40-character hex string (SHA-1 hash).
+      parameters:
+        - name: hash
+          in: path
+          required: true
+          description: Hex-encoded SHA-1 hash of the attachment (40 characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{40}$"
+      responses:
+        "200":
+          description: The attachment content
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attachment:
+                    type: string
+                    format: byte # For base64 encoded binary data
+                    description: The attachment data, base64 encoded.
+                required:
+                  - attachment
+        "404":
+          description: Attachment not found
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "NoSuchAttachment"
+
+  /v2/attachments/inv:
+    get:
+      summary: Get attachment inventory
+      tags:
+        - Atlas
+      operationId: get_attachments_inv
+      description: |
+        Get inventory of attachments for a given index block hash and page range.
+        This returns a bitfield indicating which attachments are available.
+      parameters:
+        - name: index_block_hash
+          in: query
+          required: true
+          description: Hex-encoded index block hash (64 characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+        - name: pages_indexes
+          in: query
+          required: true
+          description: Comma-separated list of page indexes to query
+          schema:
+            type: string
+            example: "1,2,3"
+      responses:
+        "200":
+          description: Attachment inventory bitfield
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  block_id:
+                    type: string
+                    description: Index block hash
+                  pages:
+                    type: object
+                    additionalProperties:
+                      type: string
+                      description: Hex-encoded bitfield for the page
+                example:
+                  block_id: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                  pages:
+                    "1": "ff00ff00"
+                    "2": "00ff00ff"
+        "400":
+          description: Bad request - missing or invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "Invalid Http request: expecting index_block_hash and pages_indexes"
+
+  /v2/microblocks/confirmed/{block_id}:
+    get:
+      summary: Get confirmed microblocks
+      tags:
+        - Blocks
+        - Microblocks
+      operationId: get_microblocks_confirmed
+      description: |
+        Get microblocks that were confirmed by the given anchored block.
+        The microblocks are returned as a binary stream of concatenated microblock data.
+      parameters:
+        - name: block_id
+          in: path
+          required: true
+          description: Hex-encoded Stacks block ID (64 characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+      responses:
+        "200":
+          description: Stream of confirmed microblocks
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Block not found
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "No such block"
+
+  /v2/microblocks/{microblock_id}:
+    get:
+      summary: Get microblock by ID
+      tags:
+        - Blocks
+        - Microblocks
+      operationId: get_microblock
+      description: |
+        Get a specific microblock by its block hash.
+        Returns the microblock as a binary stream.
+      parameters:
+        - name: microblock_id
+          in: path
+          required: true
+          description: Hex-encoded microblock hash (64 characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+      responses:
+        "200":
+          description: The microblock data
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Microblock not found
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "No such microblock"
+
+  /v2/microblocks/unconfirmed/{block_id}/{seq}:
+    get:
+      summary: Get unconfirmed microblocks
+      tags:
+        - Blocks
+        - Microblocks
+      operationId: get_microblocks_unconfirmed
+      description: |
+        Get unconfirmed microblocks starting from a specific sequence number.
+        The microblocks are returned as a binary stream.
+      parameters:
+        - name: block_id
+          in: path
+          required: true
+          description: Hex-encoded parent block ID (64 characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+        - name: seq
+          in: path
+          required: true
+          description: Starting sequence number (0-65535)
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 65535
+      responses:
+        "200":
+          description: Stream of unconfirmed microblocks
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Parent block not found
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "No such block"
+
+  /v2/microblocks:
+    post:
+      summary: Submit microblock
+      tags:
+        - Blocks
+        - Microblocks
+      operationId: post_microblock
+      description: |
+        Submit a microblock to the node for validation and relay.
+        The microblock must be provided in binary format.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Microblock accepted
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Microblock accepted"
+        "400":
+          description: Invalid microblock
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "Invalid microblock"
+
+  /v2/stackerdb/{principal}/{contract_name}/{slot_id}:
+    get:
+      summary: Get StackerDB chunk (latest version)
+      tags:
+        - StackerDB
+      operationId: get_stackerdb_chunk
+      description: |
+        Get the latest version of a chunk of data from a StackerDB instance.
+      parameters:
+        - $ref: ./parameters/principal.parameter.json
+        - $ref: ./parameters/contract-name.parameter.json
+        - name: slot_id
+          in: path
+          required: true
+          description: Slot ID
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: StackerDB chunk data
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Chunk not found
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "NoSuchSlot"
+
+  /v2/stackerdb/{principal}/{contract_name}/{slot_id}/{slot_version}:
+    get:
+      summary: Get StackerDB chunk (specific version)
+      tags:
+        - StackerDB
+      operationId: get_stackerdb_chunk_versioned
+      description: |
+        Get a specific version of a chunk of data from a StackerDB instance.
+      parameters:
+        - $ref: ./parameters/principal.parameter.json
+        - $ref: ./parameters/contract-name.parameter.json
+        - name: slot_id
+          in: path
+          required: true
+          description: Slot ID
+          schema:
+            type: integer
+            minimum: 0
+        - name: slot_version
+          in: path
+          required: true
+          description: Specific slot version
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: StackerDB chunk data
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Chunk not found
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "NoSuchSlot"
+
+  /v2/stackerdb/{principal}/{contract_name}:
+    get:
+      summary: Get StackerDB metadata
+      tags:
+        - StackerDB
+      operationId: get_stackerdb_metadata
+      description: |
+        Get metadata about a StackerDB instance, including slot information.
+      parameters:
+        - $ref: ./parameters/principal.parameter.json
+        - $ref: ./parameters/contract-name.parameter.json
+      responses:
+        "200":
+          description: StackerDB metadata
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    slot_id:
+                      type: integer
+                    slot_version:
+                      type: integer
+                    data_hash:
+                      type: string
+                    data_size:
+                      type: integer
+                example:
+                  - slot_id: 0
+                    slot_version: 1
+                    data_hash: "abcd1234..."
+                    data_size: 1024
+        "404":
+          description: StackerDB not found
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "NoSuchStackerDB"
+    post:
+      summary: Write StackerDB chunk
+      tags:
+        - StackerDB
+      operationId: post_stackerdb_chunk
+      description: |
+        Write a chunk of data to a StackerDB instance.
+      parameters:
+        - $ref: ./parameters/principal.parameter.json
+        - $ref: ./parameters/contract-name.parameter.json
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Chunk written successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "OK"
+        "400":
+          description: Invalid chunk data
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "InvalidChunk"
+
+  /v2/stackerdb/{principal}/{contract_name}/replicas:
+    get:
+      summary: List StackerDB replicas
+      tags:
+        - StackerDB
+      operationId: list_stackerdb_replicas
+      description: |
+        Get a list of replicas for a StackerDB instance.
+      parameters:
+        - $ref: ./parameters/principal.parameter.json
+        - $ref: ./parameters/contract-name.parameter.json
+      responses:
+        "200":
+          description: List of StackerDB replicas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    peer_addr:
+                      type: string
+                    public_key:
+                      type: string
+                example:
+                  - peer_addr: "127.0.0.1:20444"
+                    public_key: "03abc123..."
+        "404":
+          description: StackerDB not found
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "NoSuchStackerDB"
+
+  /v2/data_var/{principal}/{contract_name}/{var_name}:
+    get:
+      summary: Get contract data variable
+      tags:
+        - Smart Contracts
+      operationId: get_contract_data_var
+      description: |
+        Fetch a data variable from a smart contract.
+        Returns the raw hex-encoded value of the variable.
+      parameters:
+        - $ref: ./parameters/principal.parameter.json
+        - $ref: ./parameters/contract-name.parameter.json
+        - name: var_name
+          in: path
+          required: true
+          description: Variable name
+          schema:
+            type: string
+        - $ref: ./parameters/proof.parameter.json
+        - $ref: ./parameters/tip.parameter.json
+      responses:
+        "200":
+          description: The data variable value
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: string
+                    description: Hex-encoded variable value
+                  proof:
+                    type: string
+                    description: MARF proof (optional)
+                example:
+                  data: "0x01ce..."
+                  proof: "0x01ab..."
+        "404":
+          description: Variable not found
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "NoSuchDataVariable"
+
+  /v2/headers/{count}:
+    get:
+      summary: Get block headers
+      tags:
+        - Blocks
+      operationId: get_block_headers
+      description: |
+        Get a number of ancestral Stacks block headers, in order from newest to oldest.
+        If the tip query parameter is given, the headers will be loaded from that block.
+        Up to 2100 headers (one PoX reward cycle) may be returned.
+      parameters:
+        - name: count
+          in: path
+          required: true
+          description: Number of headers to return (max 2100)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2100
+        - name: tip
+          in: query
+          description: Block ID to start from (defaults to canonical tip)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Array of block headers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    consensus_hash:
+                      type: string
+                      description: Consensus hash of the sortition
+                    header:
+                      type: string
+                      description: Hex-encoded raw block header
+                    parent_block_id:
+                      type: string
+                      description: Block ID of the parent block
+                example:
+                  - consensus_hash: "dff37af13badf99683228e61c71585bb7a82ac92"
+                    header: "0600000047ddfbee8c..."
+                    parent_block_id: "e0cb2be07552556f856503d2fbd855a27d49dc5a8c47fb2d9f0314eb6bad6861"
+        "404":
+          description: Tip block not found
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "NoSuchBlock"
+
+  /v2/blocks/{block_id}:
+    get:
+      summary: Get Stacks 2.x block by ID
+      tags:
+        - Blocks
+      operationId: get_block
+      description: |
+        Get a specific Stacks 2.x era block by its block ID. This endpoint streams the block data
+        from the filesystem storage where traditional Stacks blocks are stored as individual files.
+
+        **Compatibility**: Works with all Stacks 2.x blocks. For Nakamoto blocks (Stacks 3.x+), use `/v3/blocks/{block_id}`.
+      parameters:
+        - name: block_id
+          in: path
+          required: true
+          description: Hex-encoded block ID (64 characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+      responses:
+        "200":
+          description: The block data
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Block not found
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "NoSuchBlock"
+
+  /v2/neighbors:
+    get:
+      summary: Get neighbor peers
+      tags:
+        - Network
+      operationId: get_neighbors
+      description: |
+        Get information about the node's neighbor peers in the network.
+      responses:
+        "200":
+          description: List of neighbor peers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    peer_id:
+                      type: string
+                    address:
+                      type: string
+                    port:
+                      type: integer
+                example:
+                  - peer_id: "SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7"
+                    address: "127.0.0.1"
+                    port: 20444
+
+  /v3/tenures/fork_info/{start}/{stop}:
+    get:
+      summary: Get tenure fork information
+      tags:
+        - Blocks
+      operationId: get_tenures_fork_info
+      description: |
+        Get information about tenure forking between two consensus hashes.
+        This is used to identify conflicting tenures in the Nakamoto consensus.
+      parameters:
+        - name: start
+          in: path
+          required: true
+          description: Starting consensus hash (40 characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{40}$"
+        - name: stop
+          in: path
+          required: true
+          description: Stopping consensus hash (40 characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{40}$"
+      responses:
+        "200":
+          description: Tenure fork information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fork_info:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        consensus_hash:
+                          type: string
+                        tenure_id:
+                          type: string
+                        blocks:
+                          type: array
+                          items:
+                            type: string
+                example:
+                  fork_info:
+                    - consensus_hash: "abc123..."
+                      tenure_id: "def456..."
+                      blocks: ["block1", "block2"]
+
+  /v3/tenures/tip/{consensus_hash}:
+    get:
+      summary: Get tenure tip
+      tags:
+        - Blocks
+      operationId: get_tenure_tip
+      description: |
+        Get the tip block of a tenure identified by consensus hash.
+      parameters:
+        - name: consensus_hash
+          in: path
+          required: true
+          description: Consensus hash (40 characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{40}$"
+      responses:
+        "200":
+          description: Tenure tip block information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tip_block_id:
+                    type: string
+                  consensus_hash:
+                    type: string
+                  height:
+                    type: integer
+                example:
+                  tip_block_id: "abc123..."
+                  consensus_hash: "def456..."
+                  height: 12345
+
+  /v2/transactions/unconfirmed/{txid}:
+    get:
+      summary: Get unconfirmed transaction
+      tags:
+        - Transactions
+      operationId: get_transaction_unconfirmed
+      description: |
+        Get an unconfirmed transaction by its transaction ID.
+        This looks in both the mempool and unconfirmed microblock stream.
+      parameters:
+        - name: txid
+          in: path
+          required: true
+          description: Transaction ID (64 hex characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+      responses:
+        "200":
+          description: Unconfirmed transaction details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tx:
+                    type: string
+                    description: Hex-encoded transaction data
+                  status:
+                    oneOf:
+                      - type: object
+                        properties:
+                          Microblock:
+                            type: object
+                            properties:
+                              block_hash:
+                                type: string
+                                description: Block hash containing the microblock
+                              seq:
+                                type: integer
+                                description: Microblock sequence number
+                      - type: string
+                        enum: ["Mempool"]
+                example:
+                  tx: "800000000004..."
+                  status:
+                    Microblock:
+                      block_hash: "abc123..."
+                      seq: 1
+        "404":
+          description: Transaction not found
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "Transaction not found in mempool or unconfirmed microblock stream"
+
+  /v2/blocks/upload/{consensus_hash}:
+    post:
+      summary: Upload a Stacks block
+      tags:
+        - Blocks
+      operationId: post_block
+      description: |
+        Upload a Stacks block to the node for processing.
+        The block must be in binary format and associated with the given consensus hash.
+      parameters:
+        - name: consensus_hash
+          in: path
+          required: true
+          description: Consensus hash (40 hex characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{40}$"
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              description: Binary-encoded Stacks block
+      responses:
+        "200":
+          description: Block upload result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stacks_block_id:
+                    type: string
+                    description: The ID of the uploaded block
+                  accepted:
+                    type: boolean
+                    description: Whether the block was accepted
+                example:
+                  stacks_block_id: "abc123..."
+                  accepted: true
+        "400":
+          description: Invalid block data
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "Failed to deserialize posted block"
+        "404":
+          description: Unknown consensus hash
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "Unrecognized consensus hash"
+
+  /v2/mempool/query:
+    post:
+      summary: Query mempool for missing transactions
+      tags:
+        - Mempool
+      operationId: post_mempool_query
+      description: |
+        Query the mempool for transactions that might be missing from the requesting node.
+        This endpoint supports pagination and streaming of transaction data.
+      parameters:
+        - name: page_id
+          in: query
+          description: Transaction ID to start pagination from
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Mempool sync data query
+              # Note: The exact schema depends on MemPoolSyncData structure
+              properties:
+                transactions:
+                  type: array
+                  items:
+                    type: string
+                    description: Transaction IDs
+              example:
+                transactions: ["abc123...", "def456..."]
+      responses:
+        "200":
+          description: Stream of missing transactions
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+                description: |
+                  Binary stream of transactions and pagination data.
+                  The stream contains serialized transactions followed by a page ID for continuation.
+
+  /v3/blocks/upload:
+    post:
+      summary: Upload a Nakamoto block
+      tags:
+        - Blocks
+      operationId: post_block_v3
+      description: |
+        Upload a Nakamoto block to the node for processing.
+
+        **Authentication (`bearerAuth` scheme) is required IF the `broadcast` query parameter is set to "1".**
+        If `broadcast` is not "1" or is omitted, authentication is not required for this endpoint.
+      parameters:
+        - name: broadcast
+          in: query
+          description: |
+            Whether to broadcast the block to the network.
+            **If set to "1", authentication is required.**
+          schema:
+            type: string
+            enum: ["1"]
+          required: false # It's optional, defaulting to not broadcasting / no auth needed
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              description: Binary-encoded Nakamoto block
+      responses:
+        "200":
+          description: Block upload result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stacks_block_id:
+                    type: string
+                    description: The ID of the uploaded block
+                  accepted:
+                    type: boolean
+                    description: Whether the block was accepted
+                example:
+                  stacks_block_id: "abc123..."
+                  accepted: true
+        "400":
+          description: Invalid block data.
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "Failed to deserialize posted block"
+        "401":
+          description: Authentication required because `broadcast=1` was specified, but authentication failed or was missing.
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/api-error.schema.json
+              example:
+                error: "Unauthorized"
