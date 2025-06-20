@@ -48,6 +48,8 @@ use crate::signerdb::{BlockValidatedByReplaySet, SignerDb};
 
 /// This is the latest supported protocol version for this signer binary
 pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 1;
+/// The version at which global signer state activates
+pub static GLOBAL_SIGNER_STATE_ACTIVATION_VERSION: u64 = 2;
 
 /// Vec of pubkeys that should ignore checking for a bitcoin fork
 #[cfg(any(test, feature = "testing"))]
@@ -284,7 +286,9 @@ impl LocalStateMachine {
             return Ok(());
         };
 
-        let is_timed_out = if state_machine.active_signer_protocol_version < 2 {
+        let is_timed_out = if state_machine.active_signer_protocol_version
+            < GLOBAL_SIGNER_STATE_ACTIVATION_VERSION
+        {
             SortitionStateV1::is_timed_out(tenure_id, db, proposal_config.block_proposal_timeout)
         } else {
             SortitionStateV2::is_timed_out(
@@ -305,9 +309,7 @@ impl LocalStateMachine {
             client.get_current_and_last_sortition()?;
         let Some(last_sortition) = last_sortition
             .and_then(|val| SortitionData::try_from(val).ok())
-            .and_then(|data| {
-                SortitionState::new(state_machine.active_signer_protocol_version, data).ok()
-            })
+            .map(|data| SortitionState::new(state_machine.active_signer_protocol_version, data))
         else {
             warn!("Signer State: Current miner timed out due to inactivity, but could not find a valid prior miner. Allowing current miner to continue");
             return Ok(());
@@ -668,7 +670,7 @@ impl LocalStateMachine {
         let cur_sortition = SortitionState::new(
             prior_state_machine.active_signer_protocol_version,
             current_sortition.try_into()?,
-        )?;
+        );
         let is_current_valid = cur_sortition.is_tenure_valid(db, client, proposal_config, eval)?;
 
         let miner_state = if is_current_valid {
@@ -691,7 +693,7 @@ impl LocalStateMachine {
             let last_sortition = SortitionState::new(
                 prior_state_machine.active_signer_protocol_version,
                 last_sortition_data,
-            )?;
+            );
             let is_last_valid =
                 last_sortition.is_tenure_valid(db, client, proposal_config, eval)?;
 

@@ -33,6 +33,7 @@ use crate::chainstate::v1::SortitionMinerStatus;
 use crate::client::{ClientError, StacksClient};
 use crate::config::SignerConfig;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
+use crate::v0::signer_state::GLOBAL_SIGNER_STATE_ACTIVATION_VERSION;
 
 /// The testing module for the various chainstate implementations
 #[cfg(test)]
@@ -57,9 +58,6 @@ pub enum SignerChainstateError {
     /// The local state machine wasn't ready to be queried
     #[error("The local state machine is not ready, so no update message can be produced")]
     LocalStateMachineNotReady,
-    /// Unknown signer version
-    #[error("Unknown signer version: {0}")]
-    UnknownSignerVersion(u64),
 }
 
 impl From<SignerChainstateError> for RejectReason {
@@ -431,15 +429,15 @@ pub enum SortitionState {
 }
 
 impl SortitionState {
-    /// Create a new SortitionState with the appropriate version number
-    pub fn new(signer_version: u64, data: SortitionData) -> Result<Self, SignerChainstateError> {
-        match signer_version {
-            0 | 1 => Ok(Self::V1(SortitionStateV1 {
+    /// Create a new SortitionState from the provided active protocol version and data
+    pub fn new(active_version: u64, data: SortitionData) -> Self {
+        if active_version < GLOBAL_SIGNER_STATE_ACTIVATION_VERSION {
+            Self::V1(SortitionStateV1 {
                 data,
                 miner_status: SortitionMinerStatus::Valid,
-            })),
-            2 => Ok(Self::V2(SortitionStateV2 { data })),
-            _ => Err(SignerChainstateError::UnknownSignerVersion(signer_version)),
+            })
+        } else {
+            Self::V2(SortitionStateV2 { data })
         }
     }
 

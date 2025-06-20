@@ -54,7 +54,9 @@ use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
-use crate::v0::signer_state::{NewBurnBlock, ReplayScopeOpt};
+use crate::v0::signer_state::{
+    NewBurnBlock, ReplayScopeOpt, GLOBAL_SIGNER_STATE_ACTIVATION_VERSION,
+};
 use crate::Signer as SignerTrait;
 
 /// A global variable that can be used to make signers repeat their proposal
@@ -665,7 +667,7 @@ impl Signer {
             );
             return Some(self.create_block_rejection(RejectReason::NoSignerConsensus, block));
         };
-        if latest_version < 2 {
+        if latest_version < GLOBAL_SIGNER_STATE_ACTIVATION_VERSION {
             self.check_block_against_sortition_state(stacks_client, sortition_state, block)
         } else {
             self.check_block_against_global_state(stacks_client, block)
