@@ -15,14 +15,16 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::time::Duration;
 
 use clarity::types::chainstate::StacksBlockId;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::Address;
 
-use super::test_rpc;
+use super::{test_rpc, test_rpc_with_config};
 use crate::core::BLOCK_LIMIT_MAINNET_21;
+use crate::net::api::callreadonly::CostTrackerRequest;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
@@ -47,6 +49,7 @@ fn test_try_parse_request() {
         "ro-test".try_into().unwrap(),
         vec![],
         TipRequest::SpecificTip(StacksBlockId([0x22; 32])),
+        CostTrackerRequest::Limited,
     );
     assert_eq!(
         request.contents().tip_request(),
@@ -58,8 +61,11 @@ fn test_try_parse_request() {
     debug!("Request:\n{}\n", std::str::from_utf8(&bytes).unwrap());
 
     let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
-    let mut handler =
-        callreadonly::RPCCallReadOnlyRequestHandler::new(4096, BLOCK_LIMIT_MAINNET_21);
+    let mut handler = callreadonly::RPCCallReadOnlyRequestHandler::new(
+        4096,
+        BLOCK_LIMIT_MAINNET_21,
+        Duration::from_secs(30),
+    );
     let mut parsed_request = http
         .handle_try_parse_request(
             &mut handler,
@@ -119,6 +125,7 @@ fn test_try_make_response() {
         "ro-confirmed".try_into().unwrap(),
         vec![],
         TipRequest::UseLatestAnchoredTip,
+        CostTrackerRequest::Limited,
     );
     requests.push(request);
 
@@ -134,6 +141,7 @@ fn test_try_make_response() {
         "ro-test".try_into().unwrap(),
         vec![],
         TipRequest::UseLatestUnconfirmedTip,
+        CostTrackerRequest::Limited,
     );
     requests.push(request);
 
@@ -149,6 +157,7 @@ fn test_try_make_response() {
         "does-not-exist".try_into().unwrap(),
         vec![],
         TipRequest::UseLatestUnconfirmedTip,
+        CostTrackerRequest::Limited,
     );
     requests.push(request);
 
@@ -164,6 +173,7 @@ fn test_try_make_response() {
         "ro-test".try_into().unwrap(),
         vec![],
         TipRequest::UseLatestUnconfirmedTip,
+        CostTrackerRequest::Limited,
     );
     requests.push(request);
 
@@ -179,6 +189,7 @@ fn test_try_make_response() {
         "ro-confirmed".try_into().unwrap(),
         vec![],
         TipRequest::SpecificTip(StacksBlockId([0x11; 32])),
+        CostTrackerRequest::Limited,
     );
     requests.push(request);
 
@@ -268,4 +279,120 @@ fn test_try_make_response() {
 
     let (preamble, payload) = response.destruct();
     assert_eq!(preamble.status_code, 404);
+}
+
+#[test]
+fn test_try_make_response_free_cost_tracker() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+
+    let mut requests = vec![];
+
+    // query confirmed tip
+    let request = StacksHttpRequest::new_callreadonlyfunction(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+            .unwrap()
+            .to_account_principal(),
+        None,
+        "ro-confirmed".try_into().unwrap(),
+        vec![],
+        TipRequest::UseLatestAnchoredTip,
+        CostTrackerRequest::Free,
+    );
+    requests.push(request);
+
+    let mut responses = test_rpc_with_config(
+        function_name!(),
+        requests,
+        |peer_1_config| {
+            peer_1_config
+                .connection_opts
+                .read_only_max_execution_time_secs = 0
+        },
+        |peer_2_config| {
+            peer_2_config
+                .connection_opts
+                .read_only_max_execution_time_secs = 0
+        },
+    );
+
+    // confirmed tip
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    assert_eq!(
+        response.preamble().get_canonical_stacks_tip_height(),
+        Some(1)
+    );
+
+    let resp = response.decode_call_readonly_response().unwrap();
+
+    assert!(!resp.okay);
+    assert!(resp.result.is_none());
+    assert!(resp.cause.is_some());
+
+    assert_eq!(resp.cause.unwrap(), "Unchecked(ExecutionTimeExpired)");
+}
+
+#[test]
+fn test_try_make_response_invalid_cost_tracker() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+
+    let mut requests = vec![];
+
+    // query confirmed tip
+    let request = StacksHttpRequest::new_callreadonlyfunction(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+            .unwrap()
+            .to_account_principal(),
+        None,
+        "ro-confirmed".try_into().unwrap(),
+        vec![],
+        TipRequest::UseLatestAnchoredTip,
+        CostTrackerRequest::Invalid,
+    );
+    requests.push(request);
+
+    let mut responses = test_rpc_with_config(
+        function_name!(),
+        requests,
+        |peer_1_config| {
+            peer_1_config
+                .connection_opts
+                .read_only_max_execution_time_secs = 0
+        },
+        |peer_2_config| {
+            peer_2_config
+                .connection_opts
+                .read_only_max_execution_time_secs = 0
+        },
+    );
+
+    // confirmed tip
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    assert_eq!(
+        response.preamble().get_canonical_stacks_tip_height(),
+        Some(1)
+    );
+
+    let resp = response.decode_call_readonly_response().unwrap();
+
+    assert!(!resp.okay);
+    assert!(resp.result.is_none());
+    assert!(resp.cause.is_some());
+
+    assert_eq!(resp.cause.unwrap(), "Interpreter(Expect(\"Interpreter failure during cost calculation: Invalid cost tracker\"))");
 }

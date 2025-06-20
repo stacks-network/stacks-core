@@ -73,6 +73,7 @@ impl StacksHttp {
         self.register_rpc_endpoint(callreadonly::RPCCallReadOnlyRequestHandler::new(
             self.maximum_call_argument_size,
             self.read_only_call_limit.clone(),
+            self.read_only_max_execution_time,
         ));
         self.register_rpc_endpoint(getaccount::RPCGetAccountRequestHandler::new());
         self.register_rpc_endpoint(getattachment::RPCGetAttachmentRequestHandler::new());
