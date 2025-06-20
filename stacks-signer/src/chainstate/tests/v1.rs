@@ -155,7 +155,7 @@ fn check_proposal_miner_pkh_mismatch() {
     let (stacks_client, mut signer_db, _, mut view, mut block) =
         setup_test_environment(function_name!());
     block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
-    let different_block_sk = &StacksPrivateKey::from_seed(&[2, 3]);
+    let different_block_sk = StacksPrivateKey::from_seed(&[2, 3]);
     block.header.sign_miner(&different_block_sk).unwrap();
     view.check_proposal(&stacks_client, &mut signer_db, &block, false)
         .expect_err("Proposal should not validate");
@@ -287,13 +287,13 @@ fn reorg_timing_testing(
 
 #[test]
 fn check_proposal_reorg_timing_bad() {
-    let result = reorg_timing_testing("reorg_timing_bad", 30, 31);
+    let result = reorg_timing_testing(function_name!(), 30, 31);
     result.expect_err("Proposal should not validate, because the reorg occurred in a block whose proposed time was long enough before the sortition");
 }
 
 #[test]
 fn check_proposal_reorg_timing_ok() {
-    let result = reorg_timing_testing("reorg_timing_okay", 30, 29);
+    let result = reorg_timing_testing(function_name!(), 30, 29);
     result.expect("Proposal should validate okay, because the reorg occurred in a block whose proposed time was close to the sortition");
 }
 

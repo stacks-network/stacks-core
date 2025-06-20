@@ -44,7 +44,6 @@ use crate::config::GlobalConfig;
 use crate::signerdb::tests::{create_block_override, tmp_db_path};
 use crate::signerdb::SignerDb;
 use crate::v0::signer_state::{LocalStateMachine, NewBurnBlock, StateMachineUpdate};
-use crate::v0::tests::TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION;
 
 #[test]
 fn check_capitulate_miner_view() {

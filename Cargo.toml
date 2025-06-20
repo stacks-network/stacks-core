@@ -9,7 +9,8 @@ members = [
     "libstackerdb",
     "libsigner",
     "stacks-signer",
-    "testnet/stacks-node"]
+    "testnet/stacks-node",
+    "contrib/tools/config-docs-generator"]
 
 # Dependencies we want to keep the same between workspace members
 [workspace.dependencies]

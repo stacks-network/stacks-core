@@ -54,7 +54,7 @@ use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
-use crate::v0::signer_state::NewBurnBlock;
+use crate::v0::signer_state::{NewBurnBlock, ReplayScopeOpt};
 use crate::Signer as SignerTrait;
 
 /// A global variable that can be used to make signers repeat their proposal
@@ -127,6 +127,8 @@ pub struct Signer {
     pub global_state_evaluator: GlobalStateEvaluator,
     /// Whether to validate blocks with replay transactions
     pub validate_with_replay_tx: bool,
+    /// Scope of Tx Replay in terms of Burn block boundaries
+    pub tx_replay_scope: ReplayScopeOpt,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout: Duration,
 }
@@ -250,6 +252,7 @@ impl SignerTrait<SignerMessage> for Signer {
             recently_processed: RecentlyProcessedBlocks::new(),
             global_state_evaluator,
             validate_with_replay_tx: signer_config.validate_with_replay_tx,
+            tx_replay_scope: None,
             capitulate_miner_view_timeout: signer_config.capitulate_miner_view_timeout,
         }
     }
@@ -273,7 +276,9 @@ impl SignerTrait<SignerMessage> for Signer {
 
         let mut prior_state = self.local_state_machine.clone();
         if self.reward_cycle <= current_reward_cycle {
-            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client, &self.proposal_config, &self.global_state_evaluator)
+            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client,
+                &self.proposal_config,
+                &mut self.tx_replay_scope, &self.global_state_evaluator)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
         }
 
@@ -541,11 +546,14 @@ impl Signer {
                         );
                         panic!("{self} Failed to write burn block event to signerdb: {e}");
                     });
+
                 self.local_state_machine
                     .bitcoin_block_arrival(&self.signer_db, stacks_client, &self.proposal_config, Some(NewBurnBlock {
                         burn_block_height: *burn_height,
                         consensus_hash: *consensus_hash,
-                    }), &self.global_state_evaluator)
+                    }),
+                    &mut self.tx_replay_scope
+                , &self.global_state_evaluator)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
                 *sortition_state = None;
             }

@@ -104,7 +104,9 @@ fn setup_test_environment(
         CHAIN_ID_TESTNET,
     );
 
-    let signer_db_path = tmp_db_path();
+    let signer_db_dir = "/tmp/stacks-node-tests/signer-units/";
+    let signer_db_path = format!("{signer_db_dir}/{fn_name}.{}.sqlite", get_epoch_time_secs());
+    fs::create_dir_all(signer_db_dir).unwrap();
     let signer_db = SignerDb::new(signer_db_path).unwrap();
 
     let mut block = NakamotoBlock {

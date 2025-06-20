@@ -427,7 +427,7 @@ impl<T: SignerEventTrait> EventReceiver<T> for SignerEventReceiver<T> {
                 event_receiver.stop_signal.store(true, Ordering::SeqCst);
                 Err(EventError::Terminated)
             } else if request.url() == "/new_block" {
-                process_event::<T, BlockEvent>(request)
+                process_event::<T, StacksBlockEvent>(request)
             } else {
                 let url = request.url().to_string();
                 debug!(
@@ -655,7 +655,8 @@ fn deserialize_raw_tx_hex<'de, D: serde::Deserializer<'de>>(
 }
 
 #[derive(Debug, Deserialize)]
-struct BlockEvent {
+/// Payload received from the event dispatcher for a new Stacks block
+pub struct StacksBlockEvent {
     #[serde(with = "prefix_hex")]
     index_block_hash: StacksBlockId,
     #[serde(with = "prefix_opt_hex")]
@@ -666,14 +667,15 @@ struct BlockEvent {
     #[serde(with = "prefix_hex")]
     block_hash: BlockHeaderHash,
     block_height: u64,
+    /// The transactions included in the block
     #[serde(deserialize_with = "deserialize_raw_tx_hex")]
-    transactions: Vec<StacksTransaction>,
+    pub transactions: Vec<StacksTransaction>,
 }
 
-impl<T: SignerEventTrait> TryFrom<BlockEvent> for SignerEvent<T> {
+impl<T: SignerEventTrait> TryFrom<StacksBlockEvent> for SignerEvent<T> {
     type Error = EventError;
 
-    fn try_from(block_event: BlockEvent) -> Result<Self, Self::Error> {
+    fn try_from(block_event: StacksBlockEvent) -> Result<Self, Self::Error> {
         Ok(SignerEvent::NewBlock {
             signer_sighash: block_event.signer_signature_hash,
             block_id: block_event.index_block_hash,
