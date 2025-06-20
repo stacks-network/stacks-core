@@ -54,7 +54,8 @@ use crate::clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
 use crate::core::mempool::*;
 use crate::core::*;
 use crate::monitoring::{
-    set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed,
+    increment_miner_stop_reason, set_last_mined_block_transaction_count,
+    set_last_mined_execution_cost_observed, MinerStopReason,
 };
 use crate::net::relay::Relayer;
 
@@ -2801,6 +2802,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                     (*settings.miner_status.lock().expect("FATAL: mutex poisoned")).is_blocked();
                 if blocked {
                     info!("Miner stopping due to preemption");
+                    increment_miner_stop_reason(MinerStopReason::Preempted);
                     return Ok(None);
                 }
 
@@ -2809,6 +2811,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
 
                 if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
                     info!("Miner stopping due to limit reached");
+                    increment_miner_stop_reason(MinerStopReason::LimitReached);
                     return Ok(None);
                 }
                 let time_now = get_epoch_time_ms();
@@ -2817,6 +2820,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                         "Miner stopping due to mining time exceeded ({} ms)",
                         max_miner_time_ms
                     );
+                    increment_miner_stop_reason(MinerStopReason::DeadlineReached);
                     return Ok(None);
                 }
                 if let Some(time_estimate) = txinfo.metadata.time_estimate_ms {
@@ -2926,6 +2930,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                                 {
                                     info!("Miner stopping due to limit reached");
                                     block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
+                                    increment_miner_stop_reason(MinerStopReason::LimitReached);
                                     return Ok(None);
                                 }
                             }

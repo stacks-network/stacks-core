@@ -1298,9 +1298,14 @@ impl RelayerThread {
         debug!("Relayer: starting new tenure thread");
 
         let rand_id = thread_rng().gen::<u32>();
+        let is_mock = if self.config.node.mock_mining {
+            "mock-"
+        } else {
+            ""
+        };
 
         let new_miner_handle = std::thread::Builder::new()
-            .name(format!("miner.{parent_tenure_start}.{rand_id}",))
+            .name(format!("{is_mock}miner.{parent_tenure_start}.{rand_id}",))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
                 debug!(

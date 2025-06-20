@@ -1695,7 +1695,7 @@ impl MemPoolDB {
                     break MempoolIterationStopReason::DeadlineReached;
                 }
 
-                // First, try to read from the retry list
+                // Get the next candidate transaction.
                 let (candidate, update_estimate) = match settings.strategy {
                     MemPoolWalkStrategy::GlobalFeeRate => {
                         // First, try to read from the retry list
@@ -1733,6 +1733,9 @@ impl MemPoolDB {
                                                 !start_with_no_estimate,
                                             ),
                                             None => {
+                                                monitoring::increment_miner_stop_reason(
+                                                    monitoring::MinerStopReason::NoTransactions,
+                                                );
                                                 break MempoolIterationStopReason::NoMoreCandidates;
                                             }
                                         }
@@ -1749,6 +1752,9 @@ impl MemPoolDB {
                                 (tx, update_estimate)
                             }
                             None => {
+                                monitoring::increment_miner_stop_reason(
+                                    monitoring::MinerStopReason::NoTransactions,
+                                );
                                 break MempoolIterationStopReason::NoMoreCandidates;
                             }
                         }
