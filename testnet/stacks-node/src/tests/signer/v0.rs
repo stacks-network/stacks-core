@@ -49,7 +49,6 @@ use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{
     TransactionEvent, TransactionSuccessEvent, TEST_EXCLUDE_REPLAY_TXS,
-    TEST_MINE_ALLOWED_REPLAY_TXS,
 };
 use stacks::chainstate::stacks::{
     StacksTransaction, TenureChangeCause, TenureChangePayload, TransactionPayload,
@@ -65,8 +64,8 @@ use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT_20};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::getsigner::GetSignerResponse;
 use stacks::net::api::postblock_proposal::{
-    BlockValidateResponse, ValidateRejectCode, TEST_VALIDATE_DELAY_DURATION_SECS,
-    TEST_VALIDATE_STALL,
+    BlockValidateResponse, ValidateRejectCode, TEST_REJECT_REPLAY_TXS,
+    TEST_VALIDATE_DELAY_DURATION_SECS, TEST_VALIDATE_STALL,
 };
 use stacks::net::relay::fault_injection::{clear_ignore_block, set_ignore_block};
 use stacks::types::chainstate::{
@@ -75,13 +74,14 @@ use stacks::types::chainstate::{
 };
 use stacks::types::PublicKey;
 use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::{hex_bytes, Hash160, MerkleHashFunc, Sha512Trunc256Sum};
+use stacks::util::hash::{hex_bytes, to_hex, Hash160, MerkleHashFunc, Sha512Trunc256Sum};
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
 };
 use stacks_common::bitvec::BitVec;
+use stacks_common::deps_common::bitcoin::network::serialize::serialize;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::sleep_ms;
 use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
@@ -102,6 +102,7 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use super::SignerTest;
+use crate::burnchains::bitcoin_regtest_controller::BitcoinRPCRequest;
 use crate::event_dispatcher::{
     EventObserver, MinedNakamotoBlockEvent, TEST_SKIP_BLOCK_ANNOUNCEMENT,
 };
@@ -1603,6 +1604,7 @@ fn block_proposal_rejection() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
+        reset_replay_set_after_fork_blocks: 2,
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -3798,6 +3800,243 @@ fn tx_replay_btc_on_stx_invalidation() {
         block.transactions[1].payload,
         TransactionPayload::Coinbase(..)
     ));
+
+    signer_test.shutdown();
+}
+
+/// Test scenario to ensure that the replay set is cleared
+/// if there have been multiple tenures with a stalled replay set.
+///
+/// This test is executed by triggering a fork, and then using
+/// a test flag to reject any transaction replay blocks.
+///
+/// The test mines a number of burn blocks during replay before
+/// validating that the replay set is eventually cleared.
+#[ignore]
+#[test]
+fn tx_replay_failsafe() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::from_seed("sender_1".as_bytes());
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new_with_config_modifications_and_snapshot(
+            num_signers,
+            vec![(sender_addr, (send_amt + send_fee) * 10)],
+            |c| {
+                c.validate_with_replay_tx = true;
+            },
+            |node_config| {
+                node_config.miner.block_commit_delay = Duration::from_secs(1);
+                node_config.miner.replay_transactions = true;
+                node_config.miner.activated_vrf_key_path =
+                    Some(format!("{}/vrf_key", node_config.node.working_dir));
+            },
+            None,
+            None,
+            Some(function_name!()),
+        );
+
+    let conf = &signer_test.running_nodes.conf;
+    let _http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
+
+    let miner_pk = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_mining_pubkey()
+        .as_deref()
+        .map(Secp256k1PublicKey::from_hex)
+        .unwrap()
+        .unwrap();
+
+    if signer_test.bootstrap_snapshot() {
+        signer_test.shutdown_and_snapshot();
+        return;
+    }
+
+    info!("------------------------- Beginning test -------------------------");
+
+    let burnchain = conf.get_burnchain();
+
+    let tip = signer_test.get_peer_info();
+    let pox_info = signer_test.get_pox_data();
+
+    info!("---- Burnchain ----";
+        // "burnchain" => ?conf.burnchain,
+        "pox_constants" => ?burnchain.pox_constants,
+        "cycle" => burnchain.pox_constants.reward_cycle_index(0, tip.burn_block_height),
+        "pox_info" => ?pox_info,
+    );
+
+    let pre_fork_tenures = 3;
+    for i in 0..pre_fork_tenures {
+        info!("Mining pre-fork tenure {} of {pre_fork_tenures}", i + 1);
+        signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+    }
+
+    info!("---- Submitting STX transfer ----");
+
+    let tip = get_chain_info(&conf);
+    // Make a transfer tx (this will get forked)
+    let (txid, nonce) = signer_test
+        .submit_transfer_tx(&sender_sk, send_fee, send_amt)
+        .unwrap();
+
+    // Ensure we got a new block with this tx
+    signer_test
+        .wait_for_nonce_increase(&sender_addr, nonce)
+        .expect("Timed out waiting for transfer tx to be mined");
+
+    wait_for(30, || {
+        let new_tip = get_chain_info(&conf);
+        Ok(new_tip.stacks_tip_height > tip.stacks_tip_height)
+    })
+    .expect("Timed out waiting for transfer tx to be mined");
+
+    let tip_before = get_chain_info(&conf);
+
+    info!("---- Triggering Bitcoin fork ----";
+        "tip.stacks_tip_height" => tip_before.stacks_tip_height,
+        "tip.burn_block_height" => tip_before.burn_block_height,
+    );
+
+    let mut tx_hex = String::new();
+    let mut commit_txid: Option<Txid> = None;
+
+    wait_for(30, || {
+        let Some(confirmed_utxo) = btc_controller
+            .get_all_utxos(&miner_pk)
+            .into_iter()
+            .find(|utxo| utxo.confirmations == 0)
+        else {
+            return Ok(false);
+        };
+        let unconfirmed_txid = Txid::from_bitcoin_tx_hash(&confirmed_utxo.txid);
+        let unconfirmed_tx = btc_controller.get_raw_transaction(&unconfirmed_txid);
+        info!("---- Unconfirmed tx ----";
+            "unconfirmed_tx.input" => ?unconfirmed_tx.input,
+        );
+        let parent_txid = unconfirmed_tx.input[0].previous_output.txid;
+        let parent_tx =
+            btc_controller.get_raw_transaction(&Txid::from_bitcoin_tx_hash(&parent_txid));
+        let parent_tx_opreturn_bytes = parent_tx.output[0].script_pubkey.as_bytes();
+        // info!(
+        //     "Parent tx bytes: {}",
+        //     stacks::util::hash::to_hex(parent_tx_opreturn_bytes)
+        // );
+        let data = LeaderBlockCommitOp::parse_data(
+            &parent_tx_opreturn_bytes[parent_tx_opreturn_bytes.len() - 77..],
+        )
+        .unwrap();
+        info!("---- Parent tx data ----";
+            "data" => ?data,
+        );
+        tx_hex = to_hex(serialize(&parent_tx).unwrap().as_slice());
+        commit_txid = Some(Txid::from_bitcoin_tx_hash(&parent_txid));
+        Ok(true)
+    })
+    .expect("Failed to get unconfirmed tx");
+
+    let burn_header_hash_to_fork = btc_controller.get_block_hash(tip_before.burn_block_height);
+    btc_controller.invalidate_block(&burn_header_hash_to_fork);
+    btc_controller.build_next_block(1);
+
+    TEST_MINE_STALL.set(true);
+
+    // Wait for the block commit re-broadcast to be confirmed
+    wait_for(10, || {
+        let is_confirmed =
+            BitcoinRPCRequest::check_transaction_confirmed(&conf, &commit_txid.unwrap()).unwrap();
+        Ok(is_confirmed)
+    })
+    .expect("Timed out waiting for transaction to be confirmed");
+
+    let tip_before = get_chain_info(&conf);
+
+    info!("---- Building next block ----";
+        "tip_before.stacks_tip_height" => tip_before.stacks_tip_height,
+        "tip_before.burn_block_height" => tip_before.burn_block_height,
+    );
+
+    btc_controller.build_next_block(1);
+    wait_for(30, || {
+        let tip = get_chain_info(&conf);
+        Ok(tip.stacks_tip_height < tip_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for next block to be mined");
+
+    info!("---- Wait for tx replay set to be updated ----");
+
+    signer_test
+        .wait_for_signer_state_check(30, |state| {
+            let Some(tx_replay_set) = state.get_tx_replay_set() else {
+                return Ok(false);
+            };
+            let len_ok = tx_replay_set.len() == 1;
+            let txid_ok = tx_replay_set[0].txid().to_hex() == txid;
+            info!("---- Signer state check ----";
+                "tx_replay_set" => ?tx_replay_set,
+                "len_ok" => len_ok,
+                "txid_ok" => txid_ok,
+            );
+            Ok(len_ok && txid_ok)
+        })
+        .expect("Timed out waiting for tx replay set to be updated");
+
+    let tip_after_fork = get_chain_info(&conf);
+
+    info!("---- Waiting for two tenures, without replay set cleared ----";
+        "tip_after_fork.stacks_tip_height" => tip_after_fork.stacks_tip_height,
+        "tip_after_fork.burn_block_height" => tip_after_fork.burn_block_height
+    );
+
+    TEST_REJECT_REPLAY_TXS.set(true);
+    TEST_MINE_STALL.set(false);
+
+    wait_for(30, || {
+        let tip = get_chain_info(&conf);
+        Ok(tip.stacks_tip_height > tip_after_fork.stacks_tip_height)
+    })
+    .expect("Timed out waiting for one TenureChange block to be mined");
+
+    signer_test
+        .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_some()))
+        .expect("Expected replay set to still be set");
+
+    info!("---- Mining a second tenure ----");
+
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+
+    signer_test
+        .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_some()))
+        .expect("Expected replay set to still be set");
+
+    wait_for(30, || {
+        let tip = get_chain_info(&conf);
+        Ok(tip.stacks_tip_height > tip_after_fork.stacks_tip_height + 1)
+    })
+    .expect("Timed out waiting for a TenureChange block to be mined");
+
+    info!("---- Mining a third tenure ----");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+
+    wait_for(30, || {
+        let tip = get_chain_info(&conf);
+        Ok(tip.stacks_tip_height > tip_after_fork.stacks_tip_height + 1)
+    })
+    .expect("Timed out waiting for a TenureChange block to be mined");
+
+    info!("---- Waiting for tx replay set to be cleared ----");
+
+    signer_test
+        .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
+        .expect("Expected replay set to be cleared");
 
     signer_test.shutdown();
 }
@@ -10122,6 +10361,7 @@ fn block_validation_response_timeout() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
+        reset_replay_set_after_fork_blocks: 2,
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -10411,6 +10651,7 @@ fn block_validation_pending_table() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
+        reset_replay_set_after_fork_blocks: 2,
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -11694,6 +11935,7 @@ fn incoming_signers_ignore_block_proposals() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
+        reset_replay_set_after_fork_blocks: 2,
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -11869,6 +12111,7 @@ fn outgoing_signers_ignore_block_proposals() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
+        reset_replay_set_after_fork_blocks: 2,
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
