@@ -92,6 +92,7 @@ fn setup_test_environment(
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(3),
             proposal_wait_for_parent_time: Duration::from_secs(0),
+            reset_replay_set_after_fork_blocks: 2,
         },
     };
 

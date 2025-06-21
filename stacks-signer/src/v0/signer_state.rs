@@ -636,7 +636,7 @@ impl LocalStateMachine {
             } else if Self::handle_possible_replay_failsafe(
                 &replay_state,
                 &expected_burn_block,
-                client,
+                proposal_config.reset_replay_set_after_fork_blocks,
             )? {
                 info!(
                     "Signer state: replay set is stalled after 2 tenures. Clearing the replay set."
@@ -1226,60 +1226,16 @@ impl LocalStateMachine {
     fn handle_possible_replay_failsafe(
         replay_state: &ReplayState,
         new_burn_block: &NewBurnBlock,
-        client: &StacksClient,
+        reset_replay_set_after_fork_blocks: u64,
     ) -> Result<bool, SignerChainstateError> {
         let ReplayState::InProgress(_, replay_scope) = replay_state else {
             // Not in replay - skip
             return Ok(false);
         };
 
-        // if replay_scope.fork_origin.burn_block_height + 2 >= new_burn_block.burn_block_height {
-        if new_burn_block.burn_block_height < replay_scope.fork_origin.burn_block_height + 2 {
-            // We havent' had two burn blocks yet - skip
-            return Ok(false);
-        }
+        let failsafe_height =
+            replay_scope.past_tip.burn_block_height + reset_replay_set_after_fork_blocks;
 
-        info!("Signer state: checking for replay set failsafe";
-            "replay_scope.fork_origin.burn_block_height" => replay_scope.fork_origin.burn_block_height,
-            "new_burn_block.burn_block_height" => new_burn_block.burn_block_height,
-        );
-        let Ok(fork_info) = client.get_tenure_forking_info(
-            &replay_scope.fork_origin.consensus_hash,
-            &new_burn_block.consensus_hash,
-        ) else {
-            warn!("Signer state: failed to get fork info");
-            return Ok(false);
-        };
-
-        let tenures_with_sortition = fork_info
-            .iter()
-            .filter(|fork_info| {
-                fork_info.was_sortition
-                    && fork_info
-                        .nakamoto_blocks
-                        .as_ref()
-                        .map(|b| b.len())
-                        .unwrap_or(0)
-                        > 0
-            })
-            .count();
-
-        info!("Signer state: fork info in failsafe check";
-            "tenures_with_sortition" => tenures_with_sortition,
-            "fork_info" => ?fork_info,
-        );
-
-        if tenures_with_sortition < 2 {
-            // We might have had 2 burn blocks, but not 2 tenures.
-            return Ok(false);
-        }
-
-        let forked_txs = Self::get_forked_txs_from_fork_info(&fork_info);
-
-        info!("Signer state: forked txs in failsafe check";
-            "forked_txs_len" => forked_txs.len(),
-        );
-
-        Ok(forked_txs.is_empty())
+        Ok(new_burn_block.burn_block_height > failsafe_height)
     }
 }

@@ -127,6 +127,8 @@ pub struct Signer {
     pub validate_with_replay_tx: bool,
     /// Scope of Tx Replay in terms of Burn block boundaries
     pub tx_replay_scope: ReplayScopeOpt,
+    /// The number of blocks after the past tip to reset the replay set
+    pub reset_replay_set_after_fork_blocks: u64,
 }
 
 impl std::fmt::Display for SignerMode {
@@ -244,6 +246,7 @@ impl SignerTrait<SignerMessage> for Signer {
             global_state_evaluator,
             validate_with_replay_tx: signer_config.validate_with_replay_tx,
             tx_replay_scope: None,
+            reset_replay_set_after_fork_blocks: signer_config.reset_replay_set_after_fork_blocks,
         }
     }
 
