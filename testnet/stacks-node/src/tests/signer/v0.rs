@@ -17372,12 +17372,14 @@ fn bitcoin_reorg_extended_tenure() {
     //  so that we can ensure all the signers approve the proposal
     //  before it gets accepted by stacks-nodes
     TEST_P2P_BROADCAST_STALL.set(true);
-    stacks_signer::v0::tests::TEST_SKIP_BLOCK_BROADCAST.set(true);
+    TEST_SKIP_BLOCK_BROADCAST.set(true);
 
     // the signer signature hash is the same as the block header hash.
     // we use the latest_signer_sighash to make sure we're getting block responses for the
     //  block we expect to be mined after the next contract call is submitted.
-    let latest_signer_sighash = Sha512Trunc256Sum(get_chain_info(&conf_1).stacks_tip.0);
+    test_observer::clear();
+    let chain_info = get_chain_info(&conf_1);
+    let latest_signer_sighash = Sha512Trunc256Sum(chain_info.stacks_tip.0);
 
     miners
         .signer_test
@@ -17391,40 +17393,40 @@ fn bitcoin_reorg_extended_tenure() {
         .unwrap();
 
     let rc = miners.signer_test.get_current_reward_cycle();
-    let slot_ids = miners.signer_test.get_signer_indices(rc);
-    let mut block_responses: Vec<_> = vec![];
     wait_for(60, || {
-        block_responses = slot_ids
-            .iter()
-            .filter_map(|slot_id| {
-                let latest_br = miners.signer_test.get_latest_block_response(slot_id.0);
-                if latest_br.get_signer_signature_hash() != latest_signer_sighash {
-                    Some(latest_br)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let Some(sighash) = block_responses
-            .first()
-            .map(BlockResponse::get_signer_signature_hash)
-        else {
-            return Ok(false);
-        };
-        let all_same_block = block_responses
-            .iter()
-            .all(|x| x.get_signer_signature_hash() == sighash);
-        let all_responded = block_responses.len() == num_signers;
-        Ok(all_same_block && all_responded)
+        let mut signatures = HashMap::new();
+        let chunks = test_observer::get_stackerdb_chunks();
+        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
+            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+            else {
+                continue;
+            };
+            let SignerMessage::BlockResponse(BlockResponse::Accepted(BlockAccepted {
+                signer_signature_hash,
+                signature,
+                ..
+            })) = message
+            else {
+                continue;
+            };
+            if signer_signature_hash == latest_signer_sighash {
+                continue;
+            }
+
+            let entry = signatures
+                .entry(signer_signature_hash)
+                .or_insert(HashSet::new());
+            (*entry).insert(signature);
+            if entry.len() == num_signers {
+                return Ok(true);
+            };
+        }
+        Ok(false)
     })
     .unwrap();
 
-    assert!(block_responses
-        .iter()
-        .all(|resp| resp.as_block_accepted().is_some()));
-
     TEST_P2P_BROADCAST_STALL.set(false);
-    stacks_signer::v0::tests::TEST_SKIP_BLOCK_BROADCAST.set(false);
+    TEST_SKIP_BLOCK_BROADCAST.set(false);
 
     miners
         .signer_test
