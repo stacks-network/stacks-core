@@ -1146,6 +1146,9 @@ fn test_cc_stack_depth(
     );
 }
 
+// Test not valid for clarity-wasm runtime
+// Contracts would error in the static analysis pass.
+#[cfg(not(feature = "clarity-wasm"))]
 #[apply(test_clarity_versions)]
 fn test_cc_trait_stack_depth(
     version: ClarityVersion,
