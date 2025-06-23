@@ -14770,7 +14770,6 @@ fn mark_miner_as_invalid_if_reorg_is_rejected() {
 
     let num_signers = 5;
     let num_txs = 3;
-
     let mut miners = MultipleMinerTest::new_with_config_modifications(
         num_signers,
         num_txs,
@@ -14778,6 +14777,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected() {
             // Lets make sure we never time out since we need to stall some things to force our scenario
             signer_config.block_proposal_validation_timeout = Duration::from_secs(1800);
             signer_config.tenure_last_block_proposal_timeout = Duration::from_secs(1800);
+            signer_config.capitulate_miner_view_timeout = Duration::from_secs(1800);
             if signer_config.endpoint.port() % 2 == 0 {
                 // Even signers will allow a reorg for a long time
                 signer_config.first_proposal_burn_block_timing = Duration::from_secs(1800);
@@ -14892,10 +14892,9 @@ fn mark_miner_as_invalid_if_reorg_is_rejected() {
         .expect("Failed to get block proposal N+1'");
     // Stall the miner from proposing again until we're ready
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
-    // Due to reorging signers capitulating to the majority rejection of the reorg...all signers will update their state to reject
     miners
         .signer_test
-        .check_signer_states_reorg(&[], &all_signers);
+        .check_signer_states_reorg(&approving_signers, &rejecting_signers);
 
     info!("------------------------- Wait for 3 acceptances and 2 rejections -------------------------");
     let signer_signature_hash = block_n_1_prime.header.signer_signature_hash();
