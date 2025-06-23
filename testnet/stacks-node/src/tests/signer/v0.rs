@@ -1561,6 +1561,59 @@ pub fn wait_for_state_machine_update(
     })
 }
 
+/// Waits for at least 70% of the provided signers to send an update with the specificed active miner tenure id.
+pub fn wait_for_state_machine_update_by_miner_tenure_id(
+    timeout_secs: u64,
+    expected_tenure_id: &ConsensusHash,
+    signer_keys: &[StacksPublicKey],
+    version: u64,
+) -> Result<(), String> {
+    let addresses: Vec<_> = signer_keys
+        .iter()
+        .map(|key| StacksAddress::p2pkh(false, &key))
+        .collect();
+
+    wait_for(timeout_secs, || {
+        let mut found_updates = HashSet::new();
+        let stackerdb_events = test_observer::get_stackerdb_chunks();
+        for chunk in stackerdb_events
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+        {
+            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                .expect("Failed to deserialize SignerMessage");
+            let SignerMessage::StateMachineUpdate(update) = message else {
+                continue;
+            };
+            let Some(address) = addresses.iter().find(|addr| chunk.verify(addr).unwrap()) else {
+                continue;
+            };
+            match (version, &update.content) {
+                (
+                    0,
+                    StateMachineUpdateContent::V0 {
+                        current_miner: StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. },
+                        ..
+                    },
+                )
+                | (
+                    1,
+                    StateMachineUpdateContent::V1 {
+                        current_miner: StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. },
+                        ..
+                    },
+                ) => {
+                    if tenure_id == expected_tenure_id {
+                        found_updates.insert(address);
+                    }
+                }
+                (_, _) => {}
+            };
+        }
+        Ok(found_updates.len() > signer_keys.len() * 7 / 10)
+    })
+}
+
 #[tag(bitcoind)]
 #[test]
 #[ignore]
@@ -16749,6 +16802,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     info!("----------------- Miner 2 Submits Block Commit for Tenure C Before Any Tenure B Blocks Produced ------------------");
     miners.submit_commit_miner_2(&sortdb);
 
+    let info = get_chain_info(&conf_1);
     info!("----------------------------- Resume Block Production for Tenure B -----------------------------");
 
     let stacks_height_before = miners.get_peer_stacks_tip_height();
@@ -16800,13 +16854,15 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
 
     // allow B to process, so it'll be distinct from C
     TEST_BLOCK_ANNOUNCE_STALL.set(false);
-    sleep_ms(1000);
+    wait_for(30, || {
+        Ok(get_chain_info(&conf_1).stacks_tip_height > info.stacks_tip_height)
+    })
+    .expect("Failed to announce block");
 
+    let info = get_chain_info(&conf_1);
     info!("--------------- Miner 2 Wins Tenure C With Old Block Commit ----------------");
     info!("Prevent Miner 1 from extending at first");
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
-
-    test_observer::clear();
 
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
@@ -16833,29 +16889,20 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
 
     let all_signers = miners.signer_test.signer_test_pks();
 
-    info!("--------------- Waiting for Signers to Capitulate to Miner {miner_pkh_1} with Expected Stacks Height {} ----------------", tip_a.stacks_block_height;
+    info!("--------------- Waiting for Signers to Capitulate to Miner {miner_pkh_1} with tenure id {} ----------------", info.pox_consensus;
     );
-    wait_for_state_machine_update(
+    wait_for_state_machine_update_by_miner_tenure_id(
         30,
-        &tenure_c_block_proposal.header.consensus_hash,
-        burn_height_before + 1,
-        Some((miner_pkh_1, tip_a.stacks_block_height)),
+        &info.pox_consensus,
         &all_signers,
         SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
-    .expect("Timed out waiting for state machine updates");
-
+    .expect("Failed to update signer state machines");
     info!("--------------- Miner 1 Extends Tenure B over Tenure C ---------------");
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
     let tenure_extend_block =
-        wait_for_block_proposal(30, tip_b.stacks_block_height + 1, &miner_pk_1)
-            .expect("Timed out waiting for miner 1's tenure extend block");
-    wait_for_block_acceptance_from_signers(
-        30,
-        &tenure_extend_block.header.signer_signature_hash(),
-        &miners.signer_test.signer_test_pks(),
-    )
-    .expect("Expected all signers to accept the extend");
+        wait_for_block_pushed_by_miner_key(30, tip_b.stacks_block_height + 1, &miner_pk_1)
+            .expect("Failed to mine miner 1's tenure extend block");
 
     info!("------------------------- Miner 1 Mines Another Block -------------------------");
     miners
