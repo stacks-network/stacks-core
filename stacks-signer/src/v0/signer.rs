@@ -1828,6 +1828,7 @@ fn should_reevaluate_block(block_info: &BlockInfo) -> bool {
             | RejectReason::TestingDirective
             | RejectReason::InvalidTenureExtend
             | RejectReason::ConsensusHashMismatch { .. }
+            | RejectReason::NoSignerConsensus
             | RejectReason::NotRejected
             | RejectReason::Unknown(_) => true,
             RejectReason::ValidationFailed(_)
@@ -1840,8 +1841,7 @@ fn should_reevaluate_block(block_info: &BlockInfo) -> bool {
             | RejectReason::NotLatestSortitionWinner
             | RejectReason::InvalidParentBlock
             | RejectReason::DuplicateBlockFound
-            | RejectReason::IrrecoverablePubkeyHash
-            | RejectReason::NoSignerConsensus => {
+            | RejectReason::IrrecoverablePubkeyHash => {
                 // No need to re-validate these types of rejections.
                 false
             }

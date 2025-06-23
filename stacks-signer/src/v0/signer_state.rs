@@ -213,6 +213,16 @@ impl LocalStateMachine {
         }
     }
 
+    /// Return the version of the internal signer state machine
+    pub fn get_version(&self) -> Option<u64> {
+        match self {
+            LocalStateMachine::Initialized(update)
+            | LocalStateMachine::Pending { prior: update, .. } => {
+                Some(update.active_signer_protocol_version)
+            }
+            LocalStateMachine::Uninitialized => None,
+        }
+    }
     /// Return the update time of the internal signer state machine
     pub fn get_update_time(&self) -> Option<SystemTime> {
         match self {
