@@ -18,6 +18,7 @@ use stacks_common::types::StacksEpochId;
 
 use super::MemoryEnvironmentGenerator;
 use crate::vm::ast::ASTRules;
+use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::{CheckErrors, Error};
 use crate::vm::tests::{
     env_factory, execute, symbols_from_values, test_clarity_versions, test_epochs,
@@ -1054,24 +1055,31 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
     let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
             contract_defining_trait,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
     }
