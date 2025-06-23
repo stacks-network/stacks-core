@@ -12,10 +12,15 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Added a new RPC endpoint `/v3/health` to query the node's health status. The endpoint returns a 200 status code with relevant synchronization information (including the node's current Stacks tip height, the maximum Stacks tip height among its neighbors, and the difference between these two). A user can use the `difference_from_max_peer` value to decide what is a good threshold for them before considering the node out of sync. The endpoint returns a 500 status code if the query cannot retrieve viable data.
 
 - Added a new option `--hex-file <file_path>` to `blockstack-cli contract-call` command, that allows to pass a serialized Clarity value by file.
+- Added a new option `--postcondition-mode [allow, deny]` to `blockstack-cli publish` command, to set the post-condition mode to allow or deny on the transaction (default is deny)
 
 ### Changed
 
 - Changed default mempool walk strategy to `NextNonceWithHighestFeeRate`
+
+### Fixed
+
+- Fixed an issue that prevented the correct usage of anchor mode options (`--microblock-only`, `--block-only`) when using `blockstack-cli publish` command.
 
 ## [3.1.0.0.12]
 
