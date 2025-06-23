@@ -15,6 +15,7 @@ use rusqlite::params;
 use serde::Deserialize;
 use serde_json::json;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
+use stacks::burnchains::bitcoin::spv::SpvClient;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::burnchain::TEST_DOWNLOAD_ERROR_ON_REORG;
 use stacks::burnchains::db::BurnchainDB;
@@ -72,6 +73,7 @@ use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
 };
 use stacks_common::address::AddressHashMode;
+use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash as _;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
 };
@@ -3401,6 +3403,60 @@ fn download_err_in_btc_reorg() {
     thread::sleep(Duration::from_secs(5));
     let next_stacks_height = get_chain_info(&conf).stacks_tip_height;
     info!("Checking stacks height change"; "before" => stacks_height, "after" => next_stacks_height);
+
+    let burnchain_db = BurnchainDB::open(
+        &btc_regtest_controller
+            .get_burnchain()
+            .get_burnchaindb_path(),
+        false,
+    )
+    .unwrap();
+
+    let spv_client = SpvClient::new(
+        &conf.get_spv_headers_file_path(),
+        0,
+        None,
+        BitcoinNetworkType::Regtest,
+        false,
+        false,
+    )
+    .expect("Unable to open SPV client DB");
+
+    let highest_btc_ht = spv_client
+        .get_highest_header_height()
+        .expect("Failed to query highest header from SPV DB");
+    let highest_stored_block = burnchain_db
+        .get_canonical_chain_tip()
+        .expect("Failed to query canonical burn block");
+    let mut highest_spv_header = spv_client
+        .read_block_header(highest_btc_ht)
+        .unwrap()
+        .unwrap()
+        .header
+        .bitcoin_hash()
+        .0;
+    highest_spv_header.reverse();
+    info!(
+        "Checking btc coherence";
+        "highest_stored_block_hash" => %highest_stored_block.block_hash,
+        "highest_stored_block_height" => highest_stored_block.block_height,
+        "highest_spv_block_hash" => %BurnchainHeaderHash(highest_spv_header),
+        "highest_spv_height" => highest_btc_ht,
+    );
+    for btc_block_ht in reorg_height - 1..=highest_btc_ht {
+        let btc_block_header = spv_client
+            .read_block_header(btc_block_ht)
+            .expect("Failed to read header from SPV DB that it claimed to have")
+            .expect("Failed to read header from SPV DB that it claimed to have");
+        let mut btc_block_hash = btc_block_header.header.bitcoin_hash().0;
+        btc_block_hash.reverse();
+        let btc_block_hash = BurnchainHeaderHash(btc_block_hash);
+        let has_block = burnchain_db
+            .has_burnchain_block(&btc_block_hash)
+            .expect("Failed to query burnchain DB");
+        assert!(has_block, "BurnchainDB should contain block header for BTC block #{btc_block_ht}. burn_hash = {btc_block_hash}");
+    }
+
     assert!(next_stacks_height > stacks_height);
 }
 
