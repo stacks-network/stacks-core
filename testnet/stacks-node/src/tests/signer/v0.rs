@@ -13167,25 +13167,25 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     info!("------------------------- Miner 2 Submits a Block Commit -------------------------");
     miners.submit_commit_miner_2(&sortdb);
 
-    info!("------------------------- Pause Miner 2's Block Mining -------------------------");
-    TEST_MINE_STALL.set(true);
+    info!("------------------------- Pause Miner 2's Block Proposals -------------------------");
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2]);
 
     info!("------------------------- Mine Tenure -------------------------");
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
         .expect("Failed to mine BTC block");
 
+    // assure we have a successful sortition that miner 2 won
+    verify_sortition_winner(&sortdb, &miner_pkh_2);
+
     info!("------------------------- Miner 1 Submits a Block Commit -------------------------");
     miners.submit_commit_miner_1(&sortdb);
 
     info!("------------------------- Miner 2 Mines Block N+1 -------------------------");
-
-    TEST_MINE_STALL.set(false);
+    test_observer::clear();
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
     let miner_2_block_n_1 = wait_for_block_pushed_by_miner_key(30, block_n_height + 1, &miner_pk_2)
         .expect("Failed to get block N+1");
-
-    // assure we have a successful sortition that miner 2 won
-    verify_sortition_winner(&sortdb, &miner_pkh_2);
 
     assert_eq!(
         get_chain_info(&conf_1).stacks_tip_height,
@@ -13193,10 +13193,13 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     );
 
     info!("------------------------- Miner 1 Wins the Next Tenure, Mines N+1' -------------------------");
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2]);
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 30)
         .expect("Failed to mine BTC block");
-
+    // assure we have a successful sortition that miner 1 won
+    verify_sortition_winner(&sortdb, &miner_pkh_1);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
     let miner_1_block_n_1_prime =
         wait_for_block_pushed_by_miner_key(30, block_n_height + 1, &miner_pk_1)
             .expect("Failed to get block N+1'");
@@ -16755,6 +16758,12 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
     let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
 
+    let all_signers = miners.signer_test.signer_test_pks();
+    let allow_reorg_signers: Vec<_> = all_signers
+        .iter()
+        .enumerate()
+        .filter_map(|(i, key)| if i % 2 == 0 { None } else { Some(*key) })
+        .collect();
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
 
     // Make sure Miner 2 cannot win a sortition at first.
@@ -16870,6 +16879,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     info!("Prevent Miner 1 from extending at first");
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
 
+    test_observer::clear();
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
         .expect("Failed to mine bitcoin block");
@@ -16893,14 +16903,11 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     assert_ne!(tip_c.burn_header_hash, tip_a.burn_header_hash);
     assert_eq!(tip_c.block_height, burn_height_before + 1);
 
-    let all_signers = miners.signer_test.signer_test_pks();
-
-    info!("--------------- Waiting for Signers to Capitulate to Miner {miner_pkh_1} with tenure id {} ----------------", info.pox_consensus;
-    );
+    info!("--------------- Waiting for {} Signers to Capitulate to Miner {miner_pkh_1} with tenure id {} ----------------",  allow_reorg_signers.len(), info.pox_consensus);
     wait_for_state_machine_update_by_miner_tenure_id(
         30,
         &info.pox_consensus,
-        &all_signers,
+        &allow_reorg_signers,
         SUPPORTED_SIGNER_PROTOCOL_VERSION,
     )
     .expect("Failed to update signer state machines");

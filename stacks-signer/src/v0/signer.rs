@@ -283,15 +283,7 @@ impl SignerTrait<SignerMessage> for Signer {
                 &mut self.tx_replay_scope, &self.global_state_evaluator)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
         }
-
-        if prior_state != self.local_state_machine {
-            let version = self.get_signer_protocol_version();
-            self.local_state_machine
-                .send_signer_update_message(&mut self.stackerdb, version);
-            prior_state = self.local_state_machine.clone();
-        }
-
-        // See if this update means we should capitulate our viewpoint...
+        // See if we should capitulate our viewpoint...
         let version = self.get_signer_protocol_version();
         self.local_state_machine.capitulate_viewpoint(
             stacks_client,
@@ -303,6 +295,13 @@ impl SignerTrait<SignerMessage> for Signer {
             self.capitulate_miner_view_timeout,
             self.proposal_config.tenure_last_block_proposal_timeout,
         );
+
+        if prior_state != self.local_state_machine {
+            let version = self.get_signer_protocol_version();
+            self.local_state_machine
+                .send_signer_update_message(&mut self.stackerdb, version);
+            prior_state = self.local_state_machine.clone();
+        }
 
         let event_parity = match event {
             // Block proposal events do have reward cycles, but each proposal has its own cycle,
