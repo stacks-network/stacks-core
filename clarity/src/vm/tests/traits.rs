@@ -868,8 +868,9 @@ fn test_bad_call_with_trait(
     epoch: StacksEpochId,
     mut env_factory: MemoryEnvironmentGenerator,
 ) {
-
-    if cfg!(feature = "clarity-wasm") && version == ClarityVersion::Clarity1 { return; }
+    if cfg!(feature = "clarity-wasm") && version == ClarityVersion::Clarity1 {
+        return;
+    }
 
     let mut owned_env = env_factory.get_env(epoch);
     // This set of contracts should be working in this context,
@@ -899,28 +900,28 @@ fn test_bad_call_with_trait(
             QualifiedContractIdentifier::local("defun").unwrap(),
             contract_defining_trait,
             ASTRules::PrecheckSize,
-            &mut analysis_db
+            &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatch").unwrap(),
             dispatching_contract,
             ASTRules::PrecheckSize,
-            &mut analysis_db
+            &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("implem").unwrap(),
             impl_contract,
             ASTRules::PrecheckSize,
-            &mut analysis_db
+            &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("call").unwrap(),
             caller_contract,
             ASTRules::PrecheckSize,
-            &mut analysis_db
+            &mut analysis_db,
         )
         .unwrap();
     }
