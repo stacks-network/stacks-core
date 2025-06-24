@@ -17432,7 +17432,7 @@ fn bitcoin_reorg_extended_tenure() {
     test_observer::clear();
     let chain_info = get_chain_info(&conf_1);
     let latest_signer_sighash = Sha512Trunc256Sum(chain_info.stacks_tip.0);
-
+    info!("------------------------- Submitting Contract Call -------------------------");
     miners
         .signer_test
         .submit_contract_call(
@@ -17445,8 +17445,9 @@ fn bitcoin_reorg_extended_tenure() {
         .unwrap();
 
     let rc = miners.signer_test.get_current_reward_cycle();
-    wait_for(60, || {
-        let mut signatures = HashMap::new();
+    // Propogation of stackerdb events between the nodes can be super slow...
+    wait_for(180, || {
+        let mut signatures = HashSet::new();
         let chunks = test_observer::get_stackerdb_chunks();
         for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
             let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
@@ -17461,15 +17462,13 @@ fn bitcoin_reorg_extended_tenure() {
             else {
                 continue;
             };
+            // Because the propogation is so slow, even with test_observer::clear call above,
+            // we need to make sure we don't inadvertantly include events for the wrong signature
             if signer_signature_hash == latest_signer_sighash {
                 continue;
             }
-
-            let entry = signatures
-                .entry(signer_signature_hash)
-                .or_insert(HashSet::new());
-            (*entry).insert(signature);
-            if entry.len() == num_signers {
+            signatures.insert(signature);
+            if signatures.len() == num_signers {
                 return Ok(true);
             };
         }
