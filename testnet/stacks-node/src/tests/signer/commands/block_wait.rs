@@ -355,7 +355,8 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectStacksTenureChan
     fn apply(&self, _state: &mut SignerTestState) {
         let miner_pk = self.ctx.get_miner_public_key(self.miner_index);
         // TODO: this is a bug. You cannot gaurantee that the block has not already been processed
-        // by the node causing a potential off by one race condition
+        // by the node causing a potential off by one race condition.
+        // See https://github.com/stacks-network/stacks-core/issues/6221
         let expected_height = self.ctx.get_peer_stacks_tip_height() + 1;
 
         info!(
