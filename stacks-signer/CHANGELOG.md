@@ -7,7 +7,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+### Changed
+
+- Upgraded `SUPPORTED_SIGNER_PROTOCOL_VERSION` to 2
+
 ### Added
+
 - Introduced `capitulate_miner_view_timeout_secs`: the duration (in seconds) for the signer to wait between updating the local state machine viewpoint and capitulating to other signers' miner views.
 
 ## [3.1.0.0.12.0]

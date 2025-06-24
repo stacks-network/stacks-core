@@ -25,7 +25,7 @@ use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use clarity::util::tests::TestFlag;
 use libsigner::v0::messages::{
     MessageSlotID, SignerMessage, StateMachineUpdate as StateMachineUpdateMessage,
-    StateMachineUpdateContent, StateMachineUpdateMinerState,
+    StateMachineUpdateContent, StateMachineUpdateContentBase, StateMachineUpdateMinerState,
 };
 use libsigner::v0::signer_state::{
     GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine, UpdateTime,
@@ -47,7 +47,7 @@ use crate::client::{ClientError, CurrentAndLastSortition, StackerDB, StacksClien
 use crate::signerdb::{BlockValidatedByReplaySet, SignerDb};
 
 /// This is the latest supported protocol version for this signer binary
-pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 1;
+pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 2;
 /// The version at which global signer state activates
 pub static GLOBAL_SIGNER_STATE_ACTIVATION_VERSION: u64 = 2;
 
@@ -177,16 +177,19 @@ impl LocalStateMachine {
             MinerState::NoValidMiner => StateMachineUpdateMinerState::NoValidMiner,
         };
 
+        let base = StateMachineUpdateContentBase {
+            burn_block: state_machine.burn_block,
+            burn_block_height: state_machine.burn_block_height,
+            current_miner,
+        };
         let content = match state_machine.active_signer_protocol_version {
-            0 => StateMachineUpdateContent::V0 {
-                burn_block: state_machine.burn_block,
-                burn_block_height: state_machine.burn_block_height,
-                current_miner,
-            },
+            0 => StateMachineUpdateContent::V0 { base },
             1 => StateMachineUpdateContent::V1 {
-                burn_block: state_machine.burn_block,
-                burn_block_height: state_machine.burn_block_height,
-                current_miner,
+                base,
+                replay_transactions: state_machine.tx_replay_set.clone().unwrap_or_default(),
+            },
+            2 => StateMachineUpdateContent::V2 {
+                base,
                 replay_transactions: state_machine.tx_replay_set.clone().unwrap_or_default(),
             },
             other => {

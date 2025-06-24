@@ -31,7 +31,7 @@ use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
 use libsigner::v0::messages::{
     MessageSlotID, RejectReason, SignerMessage as SignerMessageV0, StateMachineUpdate,
-    StateMachineUpdateContent, StateMachineUpdateMinerState,
+    StateMachineUpdateContent, StateMachineUpdateContentBase, StateMachineUpdateMinerState,
 };
 use libsigner::{SignerSession, StackerDBSession};
 use rand::{thread_rng, Rng};
@@ -105,6 +105,7 @@ use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stacks_signer::chainstate::v1::SortitionsView;
 use stacks_signer::chainstate::ProposalEvalConfig;
 use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
+use stacks_signer::v0::tests::TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use stacks_signer::v0::SpawnedSigner;
 
 use super::bitcoin_regtest::BitcoinCoreController;
@@ -12554,9 +12555,11 @@ fn miner_constructs_replay_block() {
         1,
         1,
         StateMachineUpdateContent::V1 {
-            burn_block: ConsensusHash([0u8; 20]),
-            burn_block_height: 1,
-            current_miner: StateMachineUpdateMinerState::NoValidMiner,
+            base: StateMachineUpdateContentBase {
+                burn_block: ConsensusHash([0u8; 20]),
+                burn_block_height: 1,
+                current_miner: StateMachineUpdateMinerState::NoValidMiner,
+            },
             replay_transactions,
         },
     )

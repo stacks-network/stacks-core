@@ -27,7 +27,7 @@ use clarity::util::secp256k1::MessageSignature;
 
 use crate::v0::messages::{
     StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,
-    StateMachineUpdateMinerState,
+    StateMachineUpdateContentBase, StateMachineUpdateMinerState,
 };
 use crate::v0::signer_state::{
     GlobalStateEvaluator, ReplayTransactionSet, SignerStateMachine, UpdateTime,
@@ -42,14 +42,16 @@ fn generate_global_state_evaluator(num_addresses: u32) -> GlobalStateEvaluator {
         active_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V0 {
-            burn_block: ConsensusHash([0x55; 20]),
-            burn_block_height: 100,
-            current_miner: StateMachineUpdateMinerState::ActiveMiner {
-                current_miner_pkh: Hash160([0xab; 20]),
-                tenure_id: ConsensusHash([0x44; 20]),
-                parent_tenure_id: ConsensusHash([0x22; 20]),
-                parent_tenure_last_block: StacksBlockId([0x33; 32]),
-                parent_tenure_last_block_height: 1,
+            base: StateMachineUpdateContentBase {
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh: Hash160([0xab; 20]),
+                    tenure_id: ConsensusHash([0x44; 20]),
+                    parent_tenure_id: ConsensusHash([0x22; 20]),
+                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                    parent_tenure_last_block_height: 1,
+                },
             },
         },
     )
@@ -95,9 +97,12 @@ fn determine_latest_supported_signer_protocol_versions() {
         local_supported_signer_protocol_version,
         content:
             StateMachineUpdateContent::V0 {
-                burn_block,
-                burn_block_height,
-                current_miner,
+                base:
+                    StateMachineUpdateContentBase {
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                    },
             },
         ..
     } = local_update.clone()
@@ -112,9 +117,11 @@ fn determine_latest_supported_signer_protocol_versions() {
             active_signer_protocol_version,
             new_version,
             StateMachineUpdateContent::V0 {
-                burn_block,
-                burn_block_height,
-                current_miner: current_miner.clone(),
+                base: StateMachineUpdateContentBase {
+                    burn_block,
+                    burn_block_height,
+                    current_miner: current_miner.clone(),
+                },
             },
         )
         .unwrap();
@@ -134,9 +141,11 @@ fn determine_latest_supported_signer_protocol_versions() {
         active_signer_protocol_version,
         3,
         StateMachineUpdateContent::V0 {
-            burn_block,
-            burn_block_height,
-            current_miner,
+            base: StateMachineUpdateContentBase {
+                burn_block,
+                burn_block_height,
+                current_miner,
+            },
         },
     )
     .unwrap();
@@ -167,9 +176,12 @@ fn determine_global_burn_views() {
         local_supported_signer_protocol_version,
         content:
             StateMachineUpdateContent::V0 {
-                burn_block,
-                burn_block_height,
-                current_miner,
+                base:
+                    StateMachineUpdateContentBase {
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                    },
             },
         ..
     } = local_update.clone()
@@ -187,9 +199,11 @@ fn determine_global_burn_views() {
         active_signer_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V0 {
-            burn_block,
-            burn_block_height: burn_block_height.wrapping_add(1),
-            current_miner: current_miner.clone(),
+            base: StateMachineUpdateContentBase {
+                burn_block,
+                burn_block_height: burn_block_height.wrapping_add(1),
+                current_miner: current_miner.clone(),
+            },
         },
     )
     .unwrap();
@@ -226,9 +240,12 @@ fn determine_global_states() {
         local_supported_signer_protocol_version,
         content:
             StateMachineUpdateContent::V0 {
-                burn_block,
-                burn_block_height,
-                current_miner,
+                base:
+                    StateMachineUpdateContentBase {
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                    },
             },
         ..
     } = local_update.clone()
@@ -259,9 +276,11 @@ fn determine_global_states() {
         active_signer_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V0 {
-            burn_block,
-            burn_block_height,
-            current_miner: new_miner.clone(),
+            base: StateMachineUpdateContentBase {
+                burn_block,
+                burn_block_height,
+                current_miner: new_miner.clone(),
+            },
         },
     )
     .unwrap();
@@ -304,9 +323,12 @@ fn determine_global_states_with_tx_replay_set() {
     let StateMachineUpdateMessage {
         content:
             StateMachineUpdateContent::V0 {
-                burn_block,
-                burn_block_height,
-                current_miner,
+                base:
+                    StateMachineUpdateContentBase {
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                    },
             },
         ..
     } = local_update.clone()
@@ -334,9 +356,11 @@ fn determine_global_states_with_tx_replay_set() {
         active_signer_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V1 {
-            burn_block: ConsensusHash([20u8; 20]),
-            burn_block_height,
-            current_miner: current_miner.clone(),
+            base: StateMachineUpdateContentBase {
+                burn_block: ConsensusHash([20u8; 20]),
+                burn_block_height,
+                current_miner: current_miner.clone(),
+            },
             replay_transactions: vec![],
         },
     )
@@ -390,9 +414,11 @@ fn determine_global_states_with_tx_replay_set() {
         active_signer_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V1 {
-            burn_block,
-            burn_block_height,
-            current_miner: current_miner.clone(),
+            base: StateMachineUpdateContentBase {
+                burn_block,
+                burn_block_height,
+                current_miner: current_miner.clone(),
+            },
             replay_transactions: vec![tx.clone()],
         },
     )

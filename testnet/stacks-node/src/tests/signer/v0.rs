@@ -24,7 +24,8 @@ use std::{env, thread};
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MinerSlotID, PeerInfo, RejectCode,
-    RejectReason, SignerMessage, StateMachineUpdateContent, StateMachineUpdateMinerState,
+    RejectReason, SignerMessage, StateMachineUpdateContent, StateMachineUpdateContentBase,
+    StateMachineUpdateMinerState,
 };
 use libsigner::{
     BlockProposal, BlockProposalData, SignerSession, StackerDBSession, StacksBlockEvent,
@@ -1510,26 +1511,16 @@ pub fn wait_for_state_machine_update(
                 continue;
             };
             let (burn_block, burn_block_height, current_miner) = match (version, &update.content) {
-                (
-                    0,
-                    StateMachineUpdateContent::V0 {
-                        burn_block,
-                        burn_block_height,
-                        current_miner,
-                    },
-                )
-                | (
-                    1,
-                    StateMachineUpdateContent::V1 {
-                        burn_block,
-                        burn_block_height,
-                        current_miner,
-                        ..
-                    },
-                ) => (burn_block, burn_block_height, current_miner),
+                (0, StateMachineUpdateContent::V0 { base })
+                | (1, StateMachineUpdateContent::V1 { base, .. })
+                | (2, StateMachineUpdateContent::V2 { base, .. }) => (
+                    base.burn_block,
+                    base.burn_block_height,
+                    base.current_miner.clone(),
+                ),
                 (_, _) => continue,
             };
-            if *burn_block_height != expected_burn_block_height || burn_block != expected_burn_block
+            if burn_block_height != expected_burn_block_height || &burn_block != expected_burn_block
             {
                 continue;
             }
@@ -1542,9 +1533,9 @@ pub fn wait_for_state_machine_update(
                         parent_tenure_last_block_height,
                         ..
                     } => {
-                        if expected_miner_pkh != *current_miner_pkh
+                        if expected_miner_pkh != current_miner_pkh
                             || expected_miner_parent_tenure_last_block_height
-                                != *parent_tenure_last_block_height
+                                != parent_tenure_last_block_height
                         {
                             continue;
                         }
@@ -1592,14 +1583,36 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
                 (
                     0,
                     StateMachineUpdateContent::V0 {
-                        current_miner: StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. },
+                        base:
+                            StateMachineUpdateContentBase {
+                                current_miner:
+                                    StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. },
+                                ..
+                            },
                         ..
                     },
                 )
                 | (
                     1,
                     StateMachineUpdateContent::V1 {
-                        current_miner: StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. },
+                        base:
+                            StateMachineUpdateContentBase {
+                                current_miner:
+                                    StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. },
+                                ..
+                            },
+                        ..
+                    },
+                )
+                | (
+                    2,
+                    StateMachineUpdateContent::V2 {
+                        base:
+                            StateMachineUpdateContentBase {
+                                current_miner:
+                                    StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. },
+                                ..
+                            },
                         ..
                     },
                 ) => {
@@ -16913,7 +16926,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     .expect("Failed to update signer state machines");
     info!("--------------- Miner 1 Extends Tenure B over Tenure C ---------------");
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
-    let tenure_extend_block =
+    let _tenure_extend_block =
         wait_for_block_pushed_by_miner_key(30, tip_b.stacks_block_height + 1, &miner_pk_1)
             .expect("Failed to mine miner 1's tenure extend block");
 

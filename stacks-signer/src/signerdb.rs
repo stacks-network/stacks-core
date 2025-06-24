@@ -1798,7 +1798,9 @@ pub mod tests {
     use clarity::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
     use clarity::util::hash::Hash160;
     use clarity::util::secp256k1::MessageSignature;
-    use libsigner::v0::messages::{StateMachineUpdateContent, StateMachineUpdateMinerState};
+    use libsigner::v0::messages::{
+        StateMachineUpdateContent, StateMachineUpdateContentBase, StateMachineUpdateMinerState,
+    };
     use libsigner::{BlockProposal, BlockProposalData};
 
     use super::*;
@@ -2758,14 +2760,16 @@ pub mod tests {
             0,
             3,
             StateMachineUpdateContent::V0 {
-                burn_block: ConsensusHash([0x55; 20]),
-                burn_block_height: 100,
-                current_miner: StateMachineUpdateMinerState::ActiveMiner {
-                    current_miner_pkh: Hash160([0xab; 20]),
-                    tenure_id: ConsensusHash([0x44; 20]),
-                    parent_tenure_id: ConsensusHash([0x22; 20]),
-                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
-                    parent_tenure_last_block_height: 1,
+                base: StateMachineUpdateContentBase {
+                    burn_block: ConsensusHash([0x55; 20]),
+                    burn_block_height: 100,
+                    current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                        current_miner_pkh: Hash160([0xab; 20]),
+                        tenure_id: ConsensusHash([0x44; 20]),
+                        parent_tenure_id: ConsensusHash([0x22; 20]),
+                        parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                        parent_tenure_last_block_height: 1,
+                    },
                 },
             },
         )
@@ -2776,9 +2780,11 @@ pub mod tests {
             0,
             4,
             StateMachineUpdateContent::V0 {
-                burn_block: ConsensusHash([0x55; 20]),
-                burn_block_height: 100,
-                current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                base: StateMachineUpdateContentBase {
+                    burn_block: ConsensusHash([0x55; 20]),
+                    burn_block_height: 100,
+                    current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                },
             },
         )
         .unwrap();
@@ -2788,9 +2794,11 @@ pub mod tests {
             0,
             2,
             StateMachineUpdateContent::V0 {
-                burn_block: ConsensusHash([0x66; 20]),
-                burn_block_height: 101,
-                current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                base: StateMachineUpdateContentBase {
+                    burn_block: ConsensusHash([0x66; 20]),
+                    burn_block_height: 101,
+                    current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                },
             },
         )
         .unwrap();
@@ -2849,14 +2857,16 @@ pub mod tests {
             0,
             3,
             StateMachineUpdateContent::V0 {
-                burn_block: ConsensusHash([0x55; 20]),
-                burn_block_height: 100,
-                current_miner: StateMachineUpdateMinerState::ActiveMiner {
-                    current_miner_pkh: Hash160([0xab; 20]),
-                    tenure_id: ConsensusHash([0x44; 20]),
-                    parent_tenure_id: ConsensusHash([0x22; 20]),
-                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
-                    parent_tenure_last_block_height: 1,
+                base: StateMachineUpdateContentBase {
+                    burn_block: ConsensusHash([0x55; 20]),
+                    burn_block_height: 100,
+                    current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                        current_miner_pkh: Hash160([0xab; 20]),
+                        tenure_id: ConsensusHash([0x44; 20]),
+                        parent_tenure_id: ConsensusHash([0x22; 20]),
+                        parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                        parent_tenure_last_block_height: 1,
+                    },
                 },
             },
         )
@@ -2868,9 +2878,11 @@ pub mod tests {
             0,
             4,
             StateMachineUpdateContent::V0 {
-                burn_block: ConsensusHash([0x55; 20]),
-                burn_block_height: 100,
-                current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                base: StateMachineUpdateContentBase {
+                    burn_block: ConsensusHash([0x55; 20]),
+                    burn_block_height: 100,
+                    current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                },
             },
         )
         .unwrap();
@@ -2881,9 +2893,11 @@ pub mod tests {
             0,
             2,
             StateMachineUpdateContent::V0 {
-                burn_block: ConsensusHash([0x66; 20]),
-                burn_block_height: 101,
-                current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                base: StateMachineUpdateContentBase {
+                    burn_block: ConsensusHash([0x66; 20]),
+                    burn_block_height: 101,
+                    current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                },
             },
         )
         .unwrap();
@@ -3081,9 +3095,11 @@ pub mod tests {
                     1,
                     1,
                     StateMachineUpdateContent::V1 {
-                        burn_block,
-                        burn_block_height: burn_height.into(),
-                        current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                        base: StateMachineUpdateContentBase {
+                            burn_block,
+                            burn_block_height: burn_height.into(),
+                            current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                        },
                         replay_transactions: vec![],
                     },
                 )
@@ -3093,9 +3109,11 @@ pub mod tests {
                     0,
                     0,
                     StateMachineUpdateContent::V0 {
-                        burn_block,
-                        burn_block_height: burn_height.into(),
-                        current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                        base: StateMachineUpdateContentBase {
+                            burn_block,
+                            burn_block_height: burn_height.into(),
+                            current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                        },
                     },
                 )
                 .unwrap()
