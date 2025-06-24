@@ -215,18 +215,24 @@ fn test_dynamic_dispatch_intra_contract_call(
     let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
             contract_defining_trait,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
     }
@@ -274,24 +280,31 @@ fn test_dynamic_dispatch_by_implementing_imported_trait(
     let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
             contract_defining_trait,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
     }
@@ -339,24 +352,31 @@ fn test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs(
     let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
             contract_defining_trait,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
     }
@@ -401,24 +421,31 @@ fn test_dynamic_dispatch_by_importing_trait(
     let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
             contract_defining_trait,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
     }
@@ -470,36 +497,45 @@ fn test_dynamic_dispatch_including_nested_trait(
     let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-defining-nested-trait").unwrap(),
             contract_defining_nested_trait,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
             contract_defining_trait,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("target-nested-contract").unwrap(),
             target_nested_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
     }
@@ -643,6 +679,9 @@ fn test_dynamic_dispatch_mismatched_returned(
     }
 }
 
+// Test not valid for clarity-wasm runtime
+// Contracts would error in the static analysis pass.
+#[cfg(not(feature = "clarity-wasm"))]
 #[apply(test_clarity_versions)]
 fn test_reentrant_dynamic_dispatch(
     version: ClarityVersion,
@@ -829,6 +868,10 @@ fn test_bad_call_with_trait(
     epoch: StacksEpochId,
     mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    if cfg!(feature = "clarity-wasm") && version == ClarityVersion::Clarity1 {
+        return;
+    }
+
     let mut owned_env = env_factory.get_env(epoch);
     // This set of contracts should be working in this context,
     // the analysis is not being performed.
@@ -847,30 +890,38 @@ fn test_bad_call_with_trait(
     let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("defun").unwrap(),
             contract_defining_trait,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatch").unwrap(),
             dispatching_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("implem").unwrap(),
             impl_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("call").unwrap(),
             caller_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
     }
@@ -915,30 +966,38 @@ fn test_good_call_with_trait(
     let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("defun").unwrap(),
             contract_defining_trait,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatch").unwrap(),
             dispatching_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("implem").unwrap(),
             impl_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("call").unwrap(),
             caller_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
     }
@@ -984,30 +1043,38 @@ fn test_good_call_2_with_trait(
     let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("defun").unwrap(),
             contract_defining_trait,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatch").unwrap(),
             dispatching_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("implem").unwrap(),
             impl_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("call").unwrap(),
             caller_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
     }
@@ -1125,24 +1192,31 @@ fn test_contract_of_value(
     let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("defun").unwrap(),
             contract_defining_trait,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatch").unwrap(),
             dispatching_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("implem").unwrap(),
             impl_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
     }
@@ -1192,24 +1266,31 @@ fn test_contract_of_no_impl(
     let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("defun").unwrap(),
             contract_defining_trait,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatch").unwrap(),
             dispatching_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("implem").unwrap(),
             impl_contract,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
     }
