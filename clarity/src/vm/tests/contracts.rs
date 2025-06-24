@@ -22,6 +22,7 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::ASTRules;
 use crate::vm::contexts::Environment;
+use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::tests::{
     env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
@@ -1146,15 +1147,16 @@ fn test_cc_stack_depth(
     );
 }
 
-// Test not valid for clarity-wasm runtime
-// Contracts would error in the static analysis pass.
-#[cfg(not(feature = "clarity-wasm"))]
 #[apply(test_clarity_versions)]
 fn test_cc_trait_stack_depth(
     version: ClarityVersion,
     epoch: StacksEpochId,
     mut env_factory: MemoryEnvironmentGenerator,
 ) {
+    // Test is not valid for ClarityV1.
+    if cfg!(feature = "clarity-wasm") && version == ClarityVersion::Clarity1 {
+        return;
+    }
     let mut owned_env = env_factory.get_env(epoch);
 
     let contract_one = "(define-public (foo)
@@ -1176,16 +1178,31 @@ fn test_cc_trait_stack_depth(
 
     let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
 
     let contract_identifier = QualifiedContractIdentifier::local("c-foo").unwrap();
-    env.initialize_contract(contract_identifier, contract_one, ASTRules::PrecheckSize)
-        .unwrap();
+    env.initialize_contract_with_db(
+        contract_identifier,
+        contract_one,
+        ASTRules::PrecheckSize,
+        &mut analysis_db,
+    )
+    .unwrap();
 
     let contract_identifier = QualifiedContractIdentifier::local("c-bar").unwrap();
     assert_eq!(
-        env.initialize_contract(contract_identifier, contract_two, ASTRules::PrecheckSize)
-            .unwrap_err(),
+        env.initialize_contract_with_db(
+            contract_identifier,
+            contract_two,
+            ASTRules::PrecheckSize,
+            &mut analysis_db
+        )
+        .unwrap_err(),
         RuntimeErrorType::MaxStackDepthReached.into()
     );
 }
