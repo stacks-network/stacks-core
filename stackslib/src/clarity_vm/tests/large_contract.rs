@@ -59,7 +59,7 @@ pub const TEST_BURN_STATE_DB_AST_PRECHECK: UnitTestBurnStateDB = UnitTestBurnSta
 const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance: uint })
          (define-read-only (my-get-token-balance (account principal))
             (default-to u0 (get balance (map-get? tokens (tuple (account account))))))
-         (define-read-only (explode (account principal))
+         (define-private (explode (account principal))
              (map-delete tokens (tuple (account account))))
          (define-private (token-credit! (account principal) (amount uint))
             (if (<= amount u0)
@@ -84,8 +84,8 @@ const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance
            (if (>= block-height block-to-release)
                (faucet)
                (err \"must be in the future\")))
-         (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u10000)
-                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u200)
+         (begin (try! (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u10000))
+                (try! (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u200))
                 (token-credit! .tokens u4))";
 
 /// Since setup_block is not called, we need to manually increment the tenure
@@ -537,16 +537,30 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
         ClarityVersion::Clarity1,
     );
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
 
         let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
-        env.initialize_contract(contract_identifier, tokens_contract, ASTRules::PrecheckSize)
-            .unwrap();
+        env.initialize_contract_with_db(
+            contract_identifier,
+            tokens_contract,
+            ASTRules::PrecheckSize,
+            &mut analysis_db,
+        )
+        .unwrap();
 
         let contract_identifier = QualifiedContractIdentifier::local("names").unwrap();
-        env.initialize_contract(contract_identifier, names_contract, ASTRules::PrecheckSize)
-            .unwrap();
+        env.initialize_contract_with_db(
+            contract_identifier,
+            names_contract,
+            ASTRules::PrecheckSize,
+            &mut analysis_db,
+        )
+        .unwrap();
     }
 
     {
