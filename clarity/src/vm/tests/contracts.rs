@@ -1153,7 +1153,7 @@ fn test_cc_trait_stack_depth(
     epoch: StacksEpochId,
     mut env_factory: MemoryEnvironmentGenerator,
 ) {
-    // Test is not valid for ClarityV1.
+    // Clarity-wasm analysis pass will fail for ClarityV1. Skipping.
     if cfg!(feature = "clarity-wasm") && version == ClarityVersion::Clarity1 {
         return;
     }
