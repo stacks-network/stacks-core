@@ -667,18 +667,23 @@ fn pox_2_contract_caller_units() {
 
     let expected_unlock_height = POX_TESTNET_CYCLE_LENGTH * 4;
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     // execute past 2.1 epoch initialization
     sim.execute_next_block(|_env| {});
     sim.execute_next_block(|_env| {});
     sim.execute_next_block(|_env| {});
 
     sim.execute_next_block(|env| {
-        env.initialize_versioned_contract(
+        env.initialize_versioned_contract_with_db(
             POX_2_CONTRACT_TESTNET.clone(),
             ClarityVersion::Clarity2,
             &POX_2_TESTNET_CODE,
             None,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap()
     });
@@ -686,14 +691,16 @@ fn pox_2_contract_caller_units() {
     let cc = boot_code_id("stack-through", false);
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(cc.clone(),
+        env.initialize_contract_with_db(cc.clone(),
                                 "(define-public (cc-stack-stx (amount-ustx uint)
                                                            (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                                                            (start-burn-ht uint)
                                                            (lock-period uint))
                                    (contract-call? .pox-2 stack-stx amount-ustx pox-addr start-burn-ht lock-period))",
-                                None,
-                                ASTRules::PrecheckSize)
+            None,
+            ASTRules::PrecheckSize,
+            &mut analysis_db,
+        )
             .unwrap();
 
         let burn_height = env.eval_raw("burn-block-height").unwrap().0;

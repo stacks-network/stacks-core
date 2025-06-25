@@ -735,6 +735,51 @@ impl<'a> OwnedEnvironment<'a> {
         )
     }
 
+    /// Initializes a versioned Clarity smart contract with a custom analysis database within a transaction context.
+    ///
+    /// This function should only be used for testing.
+    ///
+    /// This function creates a complete transaction environment to initialize a Clarity smart contract
+    /// using a provided memory-backed database for analysis data. It executes the contract initialization
+    /// within a proper execution context with a specific Clarity version.
+    ///
+    /// # Arguments
+    ///
+    /// * `contract_identifier` - Unique identifier for the contract (principal + contract name)
+    /// * `version` - The Clarity version to use for this contract
+    /// * `contract_content` - The raw Clarity source code as a string
+    /// * `sponsor` - Optional sponsor principal for transaction fees (if `None`, sender pays)
+    /// * `ast_rules` - Parsing rules to apply during AST construction (e.g., `ASTRules::PrecheckSize`)
+    /// * `analysis_db` - Mutable reference to a database for analysis data
+    ///
+    #[cfg(any(test, feature = "testing"))]
+    pub fn initialize_versioned_contract_with_db(
+        &mut self,
+        contract_identifier: QualifiedContractIdentifier,
+        version: ClarityVersion,
+        contract_content: &str,
+        sponsor: Option<PrincipalData>,
+        ast_rules: ASTRules,
+        analysis_db: &mut AnalysisDatabase,
+    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
+        self.execute_in_env(
+            contract_identifier.issuer.clone().into(),
+            sponsor,
+            Some(ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                version,
+            )),
+            |exec_env| {
+                exec_env.initialize_contract_with_db(
+                    contract_identifier,
+                    contract_content,
+                    ast_rules,
+                    analysis_db,
+                )
+            },
+        )
+    }
+
     pub fn initialize_contract_from_ast(
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
