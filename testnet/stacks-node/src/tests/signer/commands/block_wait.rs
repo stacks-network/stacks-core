@@ -222,6 +222,7 @@ impl ChainExpectNakaBlockProposal {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_ok(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
         Self {
             ctx,
