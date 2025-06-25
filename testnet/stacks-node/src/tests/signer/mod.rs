@@ -1069,20 +1069,17 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         let mined_block_time = Instant::now();
         let mined_before = self.running_nodes.counters.naka_mined_blocks.get();
         let info_before = self.get_peer_info();
-        next_block_and_mine_commit(
+
+        next_block_and(
             &self.running_nodes.btc_regtest_controller,
             timeout.as_secs(),
-            &self.running_nodes.conf,
-            &self.running_nodes.counters,
+            || {
+                let info_after = self.get_peer_info();
+                let blocks_mined = self.running_nodes.counters.naka_mined_blocks.get();
+                Ok(info_after.stacks_tip_height > info_before.stacks_tip_height
+                    && (!use_nakamoto_blocks_mined || blocks_mined > mined_before))
+            },
         )
-        .unwrap();
-
-        wait_for(timeout.as_secs(), || {
-            let info_after = self.get_peer_info();
-            let blocks_mined = self.running_nodes.counters.naka_mined_blocks.get();
-            Ok(info_after.stacks_tip_height > info_before.stacks_tip_height
-                && (!use_nakamoto_blocks_mined || blocks_mined > mined_before))
-        })
         .unwrap();
         let mined_block_elapsed_time = mined_block_time.elapsed();
         info!("Nakamoto block mine time elapsed: {mined_block_elapsed_time:?}");
