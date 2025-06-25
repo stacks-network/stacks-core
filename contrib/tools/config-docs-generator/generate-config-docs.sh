@@ -12,7 +12,7 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$SCRIPT_DIR/../../../" && pwd)}"
 CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PROJECT_ROOT/target}"
-OUTPUT_DIR="${OUTPUT_DIR:-$CARGO_TARGET_DIR/generated-docs}"
+OUTPUT_FILE="${OUTPUT_FILE:-$CARGO_TARGET_DIR/generated-docs/node-parameters.md}"
 TEMP_DIR="${TEMP_DIR:-$CARGO_TARGET_DIR/doc-generation}"
 
 # Binary paths - allow override via environment
@@ -52,7 +52,7 @@ main() {
     log_info "Starting config documentation generation..."
 
     # Create necessary directories
-    mkdir -p "$OUTPUT_DIR"
+    mkdir -p "$(dirname "$OUTPUT_FILE")"
     mkdir -p "$TEMP_DIR"
 
     cd "$PROJECT_ROOT"
@@ -81,22 +81,21 @@ main() {
 
     # Step 3: Generate Markdown
     log_info "Generating Markdown documentation..."
-    MARKDOWN_OUTPUT="$OUTPUT_DIR/configuration-reference.md"
 
     # Call the command
-    "$GENERATE_MARKDOWN_BIN" --input "$EXTRACTED_JSON" --output "$MARKDOWN_OUTPUT" --template "$TEMPLATE_PATH" --section-name-mappings "$SECTION_MAPPINGS_PATH"
+    "$GENERATE_MARKDOWN_BIN" --input "$EXTRACTED_JSON" --output "$OUTPUT_FILE" --template "$TEMPLATE_PATH" --section-name-mappings "$SECTION_MAPPINGS_PATH"
 
     log_info "Documentation generation complete!"
     log_info "Generated files:"
-    log_info "  - Configuration reference: $MARKDOWN_OUTPUT"
+    log_info "  - Configuration reference: $OUTPUT_FILE"
     log_info "  - Intermediate JSON: $EXTRACTED_JSON"
 
     # Verify output
-    if [[ -f "$MARKDOWN_OUTPUT" ]]; then
-        WORD_COUNT=$(wc -w < "$MARKDOWN_OUTPUT")
+    if [[ -f "$OUTPUT_FILE" ]]; then
+        WORD_COUNT=$(wc -w < "$OUTPUT_FILE")
         log_info "Generated Markdown contains $WORD_COUNT words"
     else
-        log_error "Expected output file not found: $MARKDOWN_OUTPUT"
+        log_error "Expected output file not found: $OUTPUT_FILE"
         exit 1
     fi
 }
@@ -125,7 +124,7 @@ DESCRIPTION:
     Source file: stackslib/src/config/mod.rs
 
 OUTPUT:
-    docs/generated/configuration-reference.md
+    docs/generated/node-parameters.md
 
 EOF
 }
