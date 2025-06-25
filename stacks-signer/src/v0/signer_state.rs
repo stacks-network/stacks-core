@@ -564,15 +564,7 @@ impl LocalStateMachine {
                 //  to be changed.
                 match update {
                     StateMachineUpdate::BurnBlock(pending_burn_block) => {
-                        match expected_burn_block {
-                            None => expected_burn_block = Some(pending_burn_block),
-                            Some(ref expected) => {
-                                if pending_burn_block.burn_block_height > expected.burn_block_height
-                                {
-                                    expected_burn_block = Some(pending_burn_block);
-                                }
-                            }
-                        }
+                        expected_burn_block = Some(pending_burn_block);
                     }
                 }
 
@@ -595,9 +587,11 @@ impl LocalStateMachine {
                 && next_burn_block_hash != expected_burn_block.consensus_hash;
             if node_behind_expected || node_on_equal_fork {
                 let err_msg = format!(
-                    "Node has not processed the next burn block yet. Expected height = {}, Expected consensus hash = {}",
+                    "Node has not processed the next burn block yet. Expected height = {}, Expected consensus hash = {}, Node height = {}, Node consensus hash = {}",
                     expected_burn_block.burn_block_height,
                     expected_burn_block.consensus_hash,
+                    next_burn_block_height,
+                    next_burn_block_hash,
                 );
                 *self = Self::Pending {
                     update: StateMachineUpdate::BurnBlock(expected_burn_block),
