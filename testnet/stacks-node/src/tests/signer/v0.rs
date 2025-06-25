@@ -9246,7 +9246,11 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
     let block_n =
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
             .expect("Timed out waiting for block N to be mined");
-
+    // Due to a potential race condition in processing and block pushed...have to wait
+    wait_for(30, || {
+        Ok(signer_test.get_peer_info().stacks_tip_height > info_before.stacks_tip_height)
+    })
+    .expect("Stacks tip failed to advance");
     // Ensure that the block was accepted globally so the stacks tip has advanced to N
     let info_after = signer_test.get_peer_info();
     assert_eq!(
