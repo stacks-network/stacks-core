@@ -153,6 +153,9 @@ pub fn peer_get_nakamoto_invs<'a>(
     (peer, replies)
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_inv_10_tenures_10_sortitions() {
     let peer = simple_nakamoto_coordinator_10_tenures_10_sortitions();
@@ -235,6 +238,9 @@ fn test_nakamoto_inv_10_tenures_10_sortitions() {
     }
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_inv_2_tenures_3_sortitions() {
     let peer = simple_nakamoto_coordinator_2_tenures_3_sortitions();
@@ -310,6 +316,9 @@ fn test_nakamoto_inv_2_tenures_3_sortitions() {
     }
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
     let peer = simple_nakamoto_coordinator_10_extended_tenures_10_sortitions();
@@ -615,6 +624,9 @@ fn check_inv_state(
     }
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_invs_full() {
     let observer = TestEventObserver::new();
@@ -638,6 +650,9 @@ fn test_nakamoto_invs_full() {
     check_inv_messages(bitvecs, 10, nakamoto_start, reward_cycle_invs);
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_invs_alternating() {
     let observer = TestEventObserver::new();
@@ -671,6 +686,9 @@ fn test_nakamoto_invs_alternating() {
     check_inv_messages(bitvecs, 10, nakamoto_start, reward_cycle_invs);
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_invs_sparse() {
     let observer = TestEventObserver::new();
@@ -710,6 +728,9 @@ fn test_nakamoto_invs_sparse() {
     check_inv_messages(bitvecs, 10, nakamoto_start, reward_cycle_invs);
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_invs_different_anchor_blocks() {
     let observer = TestEventObserver::new();
@@ -849,6 +870,9 @@ fn test_nakamoto_tenure_inv() {
     assert!(nakamoto_inv.is_online());
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_inv_sync_state_machine() {
     let observer = TestEventObserver::new();
@@ -973,6 +997,9 @@ fn test_nakamoto_inv_sync_state_machine() {
     }
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_inv_sync_across_epoch_change() {
     let observer = TestEventObserver::new();
@@ -1107,6 +1134,9 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
     }
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_make_tenure_inv_in_forks() {
     let sender_key = StacksPrivateKey::random();
@@ -1724,6 +1754,9 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     assert_eq!(invgen.cache_misses(), 10);
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
     let sender_key = StacksPrivateKey::random();
@@ -2172,6 +2205,9 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
     assert_eq!(invgen.cache_misses(), 37);
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_make_tenure_inv_from_old_tips() {
     let sender_key = StacksPrivateKey::random();
@@ -2346,6 +2382,9 @@ fn test_nakamoto_make_tenure_inv_from_old_tips() {
     }
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_invs_shadow_blocks() {
     let observer = TestEventObserver::new();

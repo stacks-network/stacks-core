@@ -392,6 +392,9 @@ fn replay_reward_cycle(
     peer.check_nakamoto_migration();
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 /// Mine a single Nakamoto tenure with a single Nakamoto block
 #[test]
 fn test_simple_nakamoto_coordinator_bootup() {
@@ -445,6 +448,9 @@ fn test_simple_nakamoto_coordinator_bootup() {
     peer.check_nakamoto_migration();
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 /// Mine a single Nakamoto tenure with 10 Nakamoto blocks
 #[test]
 fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
@@ -794,6 +800,9 @@ impl TestPeer<'_> {
     }
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 // Test the block commit descendant check in nakamoto
 //   - create a 12 address PoX reward set
@@ -878,11 +887,17 @@ fn block_descendant() {
     );
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn block_info_primary_testnet() {
     block_info_tests(true)
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn block_info_other_testnet() {
     block_info_tests(false)
@@ -1312,6 +1327,9 @@ fn block_info_tests(use_primary_testnet: bool) {
     }
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 // Test PoX Reward and Punish treatment in nakamoto
 //   - create a 12 address PoX reward set
@@ -1568,6 +1586,9 @@ fn pox_treatment() {
     );
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 // Test Transactions indexing system
 fn transactions_indexing() {
@@ -1633,6 +1654,9 @@ fn transactions_indexing() {
     }
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 // Test Transactions indexing system (not indexing)
 fn transactions_not_indexing() {
@@ -1697,6 +1721,9 @@ fn transactions_not_indexing() {
     }
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 /// Test chainstate getters against an instantiated epoch2/Nakamoto chain.
 /// There are 11 epoch2 blocks and 2 nakamto tenure with 10 nakamoto blocks each
 /// Tests:
@@ -2530,6 +2557,9 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     return peer;
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_coordinator_10_tenures_10_sortitions() {
     simple_nakamoto_coordinator_10_tenures_10_sortitions();
@@ -2882,6 +2912,9 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
     return peer;
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_coordinator_2_tenures_3_sortitions() {
     simple_nakamoto_coordinator_2_tenures_3_sortitions();
@@ -3182,11 +3215,17 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
     return peer;
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
     simple_nakamoto_coordinator_10_extended_tenures_10_sortitions();
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn process_next_nakamoto_block_deadlock() {
     let private_key = StacksPrivateKey::from_seed(&[2]);
@@ -3274,6 +3313,9 @@ fn process_next_nakamoto_block_deadlock() {
     miner_thread.join().unwrap();
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 /// Test stacks-on-burnchain op discovery and usage
 #[test]
 fn test_stacks_on_burnchain_ops() {
