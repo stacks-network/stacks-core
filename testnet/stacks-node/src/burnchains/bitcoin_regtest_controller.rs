@@ -3045,7 +3045,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_all_utxos() {
+    fn test_get_all_utxos_with_one_confirmed() {
         let miner_seed = vec![1, 1, 1, 1];
         let keychain = Keychain::default(miner_seed.clone());
         let miner_pubkey = keychain.get_pub_key();
@@ -3066,11 +3066,13 @@ mod tests {
 
         let utxos = btc_controller.get_all_utxos(&miner_pubkey);
         assert_eq!(1, utxos.len());
+        let utxo = &utxos[0];
+        assert_eq!(101, utxo.confirmations);
+        assert_eq!(5000000000, utxo.amount);
     }
 
     #[test]
-    //NOTE: STALL if burn block at block_height doesn't exist....
-    fn test_get_utxos() {
+    fn test_get_utxos_ok() {
         let miner_seed = vec![1, 1, 1, 1];
         let keychain = Keychain::default(miner_seed.clone());
         let miner_pubkey = keychain.get_pub_key();
@@ -3089,7 +3091,7 @@ mod tests {
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller.bootstrap_chain(101);
 
-        let utxos = btc_controller.get_utxos(StacksEpochId::Epoch31, &miner_pubkey, 19000, None, 0);
+        let utxos = btc_controller.get_utxos(StacksEpochId::Epoch31, &miner_pubkey, 10000, None, 0);
 
         let uxto_set = utxos.expect("Shouldn't be None!");
         assert_eq!(1, uxto_set.num_utxos());
@@ -3097,6 +3099,45 @@ mod tests {
         let utxo = &uxto_set.utxos[0];
         assert_eq!(101, utxo.confirmations);
         assert_eq!(5000000000, utxo.amount);
+    }
+
+
+    #[test]
+    //NOTE: STALL if burn block at block_height doesn't exist....
+    fn test_get_utxos_fails_due_to_filtering() {
+        let miner_seed = vec![1, 1, 1, 1];
+        let keychain = Keychain::default(miner_seed.clone());
+        let miner_pubkey = keychain.get_pub_key();
+
+        let mut config = Config::default();
+        config.burnchain.magic_bytes = "T3".as_bytes().into();
+        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+        config.burnchain.username = Some("user".to_owned());
+        config.burnchain.password = Some("12345".to_owned());
+
+        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller.bootstrap_chain(101);
+
+        let too_much_required = 1000000000000000000_u64;
+        let utxos = btc_controller.get_utxos(StacksEpochId::Epoch31, &miner_pubkey, too_much_required, None, 0);
+        assert!(utxos.is_none(), "None because too much required");
+
+        let other_pubkey = Secp256k1PublicKey::from_hex("01010101010101100101010101").unwrap();
+        let utxos = btc_controller.get_utxos(StacksEpochId::Epoch31, &other_pubkey, too_much_required, None, 0);
+        assert!(utxos.is_none(), "None because utxos for other pubkey don't exist");
+
+        let future_block_height = 1000;
+        let utxos = btc_controller.get_utxos(StacksEpochId::Epoch31, &miner_pubkey, too_much_required, None, future_block_height);
+        assert!(utxos.is_none(), "None because utxos for future block height don't exist");
+
+        let existent_utxo = btc_controller.get_utxos(StacksEpochId::Epoch31, &miner_pubkey, 0, None, 0).expect("utxo set should exist");
+        let utxos = btc_controller.get_utxos(StacksEpochId::Epoch31, &miner_pubkey, 0, Some(existent_utxo), 0);
+        assert!(utxos.is_none(), "None because utxos filtering out existent utxo set");
     }
 
     #[test]
