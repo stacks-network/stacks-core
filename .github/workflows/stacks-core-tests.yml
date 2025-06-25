@@ -71,8 +71,7 @@ jobs:
   ## Generate and upload node configuration documentation
   node-config-docsgen:
     name: Node Configuration Documentation
-    needs: open-api-validation
-    uses: ./.github/workflows/node-config-docsgen.yml
+    uses: stacks-network/actions/node-config-docsgen@main
 
   ## Disabled
   ##   - this test can take several hours to run
