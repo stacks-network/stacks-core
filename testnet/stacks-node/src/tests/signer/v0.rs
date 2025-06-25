@@ -1786,7 +1786,10 @@ fn block_proposal_rejection() {
                 if signer_signature_hash == block_signer_signature_hash_1 {
                     found_signer_signature_hash_1 = true;
                     assert_eq!(reason_code, RejectCode::SortitionViewMismatch,);
-                    assert_eq!(response_data.reject_reason, RejectReason::InvalidBitvec);
+                    assert!(matches!(
+                        response_data.reject_reason,
+                        RejectReason::ConsensusHashMismatch { .. }
+                    ));
                 } else if signer_signature_hash == block_signer_signature_hash_2 {
                     found_signer_signature_hash_2 = true;
                     assert!(matches!(
@@ -9011,7 +9014,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
 
     let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
-    let miner_pkh = Hash160::from_node_public_key(&miner_pk);
+
     signer_test.boot_to_epoch_3();
     info!("------------------------- Starting Tenure A -------------------------");
     let info_before = signer_test.get_peer_info();
@@ -17732,7 +17735,6 @@ fn bitcoin_reorg_extended_tenure() {
         )
         .unwrap();
 
-    let rc = miners.signer_test.get_current_reward_cycle();
     // Propogation of stackerdb events between the nodes can be super slow...
     wait_for(180, || {
         let mut signatures = HashSet::new();

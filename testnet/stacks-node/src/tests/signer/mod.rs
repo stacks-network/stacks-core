@@ -71,8 +71,7 @@ use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
-    naka_neon_integration_conf, next_block_and_mine_commit, next_block_and_wait_for_commits,
-    POX_4_DEFAULT_STACKER_BALANCE,
+    naka_neon_integration_conf, next_block_and_wait_for_commits, POX_4_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
     get_chain_info, next_block_and_wait, run_until_burnchain_height, test_observer,
