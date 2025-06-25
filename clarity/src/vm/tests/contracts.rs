@@ -205,18 +205,24 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
         ClarityVersion::Clarity2,
     );
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-b").unwrap(),
             contract_b,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
     }
@@ -357,22 +363,28 @@ fn test_tx_sponsor(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGener
         panic!("p2 is not a principal value");
     };
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let mut env = owned_env.get_exec_environment(
             Some(p1.clone()),
             sponsor.clone(),
             &mut placeholder_context,
         );
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-b").unwrap(),
             contract_b,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
     }
@@ -420,18 +432,24 @@ fn test_fully_qualified_contract_call(
         ClarityVersion::Clarity2,
     );
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
-        env.initialize_contract(
+        env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-b").unwrap(),
             contract_b,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap();
     }
@@ -738,13 +756,27 @@ fn test_simple_contract_call(epoch: StacksEpochId, mut env_factory: MemoryEnviro
         &mut placeholder_context,
     );
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     let contract_identifier = QualifiedContractIdentifier::local("factorial-contract").unwrap();
-    env.initialize_contract(contract_identifier, contract_1, ASTRules::PrecheckSize)
-        .unwrap();
+    env.initialize_contract_with_db(
+        contract_identifier,
+        contract_1,
+        ASTRules::PrecheckSize,
+        &mut analysis_db,
+    )
+    .unwrap();
 
     let contract_identifier = QualifiedContractIdentifier::local("proxy-compute").unwrap();
-    env.initialize_contract(contract_identifier, contract_2, ASTRules::PrecheckSize)
-        .unwrap();
+    env.initialize_contract_with_db(
+        contract_identifier,
+        contract_2,
+        ASTRules::PrecheckSize,
+        &mut analysis_db,
+    )
+    .unwrap();
 
     let args = symbols_from_values(vec![]);
 
@@ -1135,14 +1167,28 @@ fn test_cc_stack_depth(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
     let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     let contract_identifier = QualifiedContractIdentifier::local("c-foo").unwrap();
-    env.initialize_contract(contract_identifier, contract_one, ASTRules::PrecheckSize)
-        .unwrap();
+    env.initialize_contract_with_db(
+        contract_identifier,
+        contract_one,
+        ASTRules::PrecheckSize,
+        &mut analysis_db,
+    )
+    .unwrap();
 
     let contract_identifier = QualifiedContractIdentifier::local("c-bar").unwrap();
     assert_eq!(
-        env.initialize_contract(contract_identifier, contract_two, ASTRules::PrecheckSize)
-            .unwrap_err(),
+        env.initialize_contract_with_db(
+            contract_identifier,
+            contract_two,
+            ASTRules::PrecheckSize,
+            &mut analysis_db
+        )
+        .unwrap_err(),
         RuntimeErrorType::MaxStackDepthReached.into()
     );
 }
