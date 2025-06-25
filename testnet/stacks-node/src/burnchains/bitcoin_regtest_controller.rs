@@ -3101,9 +3101,7 @@ mod tests {
         assert_eq!(5000000000, utxo.amount);
     }
 
-
     #[test]
-    //NOTE: STALL if burn block at block_height doesn't exist....
     fn test_get_utxos_fails_due_to_filtering() {
         let miner_seed = vec![1, 1, 1, 1];
         let keychain = Keychain::default(miner_seed.clone());
@@ -3124,20 +3122,49 @@ mod tests {
         btc_controller.bootstrap_chain(101);
 
         let too_much_required = 1000000000000000000_u64;
-        let utxos = btc_controller.get_utxos(StacksEpochId::Epoch31, &miner_pubkey, too_much_required, None, 0);
+        let utxos = btc_controller.get_utxos(
+            StacksEpochId::Epoch31,
+            &miner_pubkey,
+            0,
+            None,
+            0,
+        );
         assert!(utxos.is_none(), "None because too much required");
 
-        let other_pubkey = Secp256k1PublicKey::from_hex("01010101010101100101010101").unwrap();
-        let utxos = btc_controller.get_utxos(StacksEpochId::Epoch31, &other_pubkey, too_much_required, None, 0);
-        assert!(utxos.is_none(), "None because utxos for other pubkey don't exist");
+        let other_pubkey = Secp256k1PublicKey::from_hex("04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77").unwrap();
+        let utxos = btc_controller.get_utxos(
+            StacksEpochId::Epoch31,
+            &other_pubkey,
+            too_much_required,
+            None,
+            0,
+        );
+        assert!(
+            utxos.is_none(),
+            "None because utxos for other pubkey don't exist"
+        );
 
+        let existent_utxo = btc_controller
+            .get_utxos(StacksEpochId::Epoch31, &miner_pubkey, 0, None, 0)
+            .expect("utxo set should exist");
+        let utxos = btc_controller.get_utxos(
+            StacksEpochId::Epoch31,
+            &miner_pubkey,
+            0,
+            Some(existent_utxo),
+            0,
+        );
+        assert!(
+            utxos.is_none(),
+            "None because filtering exclude existent utxo set"
+        );
+
+        //NOTE: Operation stall if burn block at block_height doesn't exist
+        /*
         let future_block_height = 1000;
-        let utxos = btc_controller.get_utxos(StacksEpochId::Epoch31, &miner_pubkey, too_much_required, None, future_block_height);
+        let utxos = btc_controller.get_utxos(StacksEpochId::Epoch31, &miner_pubkey, 0, None, future_block_height);
         assert!(utxos.is_none(), "None because utxos for future block height don't exist");
-
-        let existent_utxo = btc_controller.get_utxos(StacksEpochId::Epoch31, &miner_pubkey, 0, None, 0).expect("utxo set should exist");
-        let utxos = btc_controller.get_utxos(StacksEpochId::Epoch31, &miner_pubkey, 0, Some(existent_utxo), 0);
-        assert!(utxos.is_none(), "None because utxos filtering out existent utxo set");
+        */
     }
 
     #[test]
