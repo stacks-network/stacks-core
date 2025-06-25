@@ -3948,40 +3948,36 @@ fn tx_replay_disagreement() {
     }
 
     let num_signers = 5;
-    let mut miners = MultipleMinerTest::new_with_config_modifications(
-        num_signers,
-        10,
-        |config| {
-            config.validate_with_replay_tx = true;
-        },
-        |config| {
-            config.burnchain.pox_reward_length = Some(30);
-            config.miner.block_commit_delay = Duration::from_secs(0);
-            config.miner.tenure_cost_limit_per_block_percentage = None;
-            config.miner.replay_transactions = true;
-        },
-        |config| {
-            config.burnchain.pox_reward_length = Some(30);
-            config.miner.block_commit_delay = Duration::from_secs(0);
-            config.miner.tenure_cost_limit_per_block_percentage = None;
-            config.miner.replay_transactions = true;
-        },
-    );
+    let sender_sk = Secp256k1PrivateKey::from_seed("sender_1".as_bytes());
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new_with_config_modifications_and_snapshot(
+            num_signers,
+            vec![(sender_addr, (send_amt + send_fee) * 10)],
+            |c| {
+                c.validate_with_replay_tx = true;
+            },
+            |node_config| {
+                node_config.miner.block_commit_delay = Duration::from_secs(1);
+                node_config.miner.replay_transactions = true;
+            },
+            None,
+            None,
+            Some(function_name!()),
+        );
 
-    let (conf_1, _conf_2) = miners.get_node_configs();
-    let _skip_commit_op_rl1 = miners
-        .signer_test
-        .running_nodes
-        .counters
-        .naka_skip_commit_op
-        .clone();
-    let skip_commit_op_rl2 = miners.rl2_counters.naka_skip_commit_op.clone();
+    let conf = &signer_test.running_nodes.conf;
+    let _http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
 
-    // Make sure that the first miner wins the first sortition.
-    info!("Pausing miner 2's block commit submissions");
-    skip_commit_op_rl2.set(true);
-    miners.boot_to_epoch_3();
-    let btc_controller = &miners.signer_test.running_nodes.btc_regtest_controller;
+    if signer_test.bootstrap_snapshot() {
+        signer_test.shutdown_and_snapshot();
+        return;
+    }
+
+    info!("------------------------- Beginning test -------------------------");
 
     let miner_pk = btc_controller
         .get_mining_pubkey()
@@ -3994,13 +3990,10 @@ fn tx_replay_disagreement() {
 
     for i in 0..pre_fork_tenures {
         info!("Mining pre-fork tenure {} of {pre_fork_tenures}", i + 1);
-        miners
-            .signer_test
-            .mine_nakamoto_block(Duration::from_secs(30), false);
+        signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
     }
 
-    let ignore_bitcoin_fork_keys = miners
-        .signer_test
+    let ignore_bitcoin_fork_keys = signer_test
         .signer_stacks_private_keys
         .iter()
         .enumerate()
@@ -4015,19 +4008,21 @@ fn tx_replay_disagreement() {
     TEST_IGNORE_BITCOIN_FORK_PUBKEYS.set(ignore_bitcoin_fork_keys);
 
     info!("------------------------- Triggering Bitcoin Fork -------------------------");
-    let tip = get_chain_info(&conf_1);
+    let tip = get_chain_info(&conf);
     // Make a transfer tx (this will get forked)
-    let (txid, _) = miners.send_transfer_tx();
+    let (txid, _) = signer_test
+        .submit_transfer_tx(&sender_sk, send_fee, send_amt)
+        .unwrap();
 
     wait_for(30, || {
-        let new_tip = get_chain_info(&conf_1);
+        let new_tip = get_chain_info(&conf);
         Ok(new_tip.stacks_tip_height > tip.stacks_tip_height)
     })
     .expect("Timed out waiting for transfer tx to be mined");
 
     let mut commit_txid: Option<Txid> = None;
     wait_for(30, || {
-        let Some(txid) = miners.signer_test.get_parent_block_commit_txid(&miner_pk) else {
+        let Some(txid) = signer_test.get_parent_block_commit_txid(&miner_pk) else {
             return Ok(false);
         };
         commit_txid = Some(txid);
@@ -4042,12 +4037,12 @@ fn tx_replay_disagreement() {
     // Wait for the block commit re-broadcast to be confirmed
     wait_for(10, || {
         let is_confirmed =
-            BitcoinRPCRequest::check_transaction_confirmed(&conf_1, &commit_txid.unwrap()).unwrap();
+            BitcoinRPCRequest::check_transaction_confirmed(&conf, &commit_txid.unwrap()).unwrap();
         Ok(is_confirmed)
     })
     .expect("Timed out waiting for transaction to be confirmed");
 
-    let tip_before = get_chain_info(&conf_1);
+    let tip_before = get_chain_info(&conf);
 
     info!("---- Building next block ----";
         "tip_before.stacks_tip_height" => tip_before.stacks_tip_height,
@@ -4056,43 +4051,19 @@ fn tx_replay_disagreement() {
 
     btc_controller.build_next_block(1);
     wait_for(30, || {
-        let tip = get_chain_info(&conf_1);
+        let tip = get_chain_info(&conf);
         Ok(tip.stacks_tip_height < tip_before.stacks_tip_height)
     })
     .expect("Timed out waiting for next block to be mined");
 
-    // note, we should still have normal signer states!
-    miners.signer_test.check_signer_states_normal();
-
-    info!("Wait for block off of shallow fork");
-
     TEST_MINE_STALL.set(true);
 
-    let submitted_commits = miners
-        .signer_test
-        .running_nodes
-        .counters
-        .naka_submitted_commits
-        .clone();
-
-    // we need to mine some blocks to get back to being considered a frequent miner
-    for i in 0..3 {
-        let current_burn_height = get_chain_info(&conf_1).burn_block_height;
-        info!(
-            "Mining block #{i} to be considered a frequent miner";
-            "current_burn_height" => current_burn_height,
-        );
-        let commits_count = submitted_commits.load(Ordering::SeqCst);
-        next_block_and(btc_controller, 60, || {
-            Ok(submitted_commits.load(Ordering::SeqCst) > commits_count)
-        })
-        .unwrap();
-    }
+    btc_controller.build_next_block(1);
 
     // Wait for the signer states to be updated. Odd indexed signers
     // should not have a replay set.
     wait_for(30, || {
-        let (signer_states, _) = miners.signer_test.get_burn_updated_states();
+        let (signer_states, _) = signer_test.get_burn_updated_states();
         let all_pass = signer_states.iter().enumerate().all(|(i, state)| {
             if i % 2 == 0 {
                 let Some(tx_replay_set) = state.get_tx_replay_set() else {
@@ -4107,27 +4078,26 @@ fn tx_replay_disagreement() {
     })
     .expect("Timed out waiting for signer states to be updated");
 
-    let tip = get_chain_info(&conf_1);
+    let tip = get_chain_info(&conf);
 
     TEST_MINE_STALL.set(false);
 
     // Now, wait for the tx replay set to be cleared
 
     wait_for(30, || {
-        let new_tip = get_chain_info(&conf_1);
+        let new_tip = get_chain_info(&conf);
         Ok(new_tip.stacks_tip_height >= tip.stacks_tip_height + 2)
     })
     .expect("Timed out waiting for transfer tx to be mined");
 
-    miners
-        .signer_test
+    signer_test
         .wait_for_signer_state_check(30, |state| {
             let tx_replay_set = state.get_tx_replay_set();
             Ok(tx_replay_set.is_none())
         })
         .expect("Timed out waiting for tx replay set to be cleared");
 
-    miners.shutdown();
+    signer_test.shutdown();
 }
 
 #[test]
