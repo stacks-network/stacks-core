@@ -3022,26 +3022,29 @@ mod tests {
     }
 
     #[test]
-    fn test_create_wallet_if_not_exists() {
-        let miner_seed = vec![1, 1, 1, 1];
-        let keychain = Keychain::default(miner_seed.clone());
-        let miner_pubkey = keychain.get_pub_key();
-
+    fn test_create_wallet_from_empty_name_default() {
         let mut config = Config::default();
         config.burnchain.magic_bytes = "T3".as_bytes().into();
-        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
-        config.burnchain.username = Some("user".to_owned());
-        config.burnchain.password = Some("12345".to_owned());
+        config.burnchain.username = Some(String::from("user"));
+        config.burnchain.password = Some(String::from("12345"));
+        config.burnchain.peer_host = String::from("127.0.0.1");
 
         let mut btcd_controller = BitcoinCoreController::new(config.clone());
         btcd_controller
             .start_bitcoind()
             .expect("bitcoind should be started!");
 
+        let wallets = BitcoinRPCRequest::list_wallets(&config).unwrap();
+        assert_eq!(0, wallets.len());
+
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller
             .create_wallet_if_dne()
             .expect("Wallet should now exists!");
+
+        let wallets = BitcoinRPCRequest::list_wallets(&config).unwrap();
+        assert_eq!(1, wallets.len());
+        assert_eq!("".to_owned(), wallets[0]);
     }
 
     #[test]
@@ -3053,8 +3056,9 @@ mod tests {
         let mut config = Config::default();
         config.burnchain.magic_bytes = "T3".as_bytes().into();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
-        config.burnchain.username = Some("user".to_owned());
-        config.burnchain.password = Some("12345".to_owned());
+        config.burnchain.username = Some(String::from("user"));
+        config.burnchain.password = Some(String::from("12345"));
+        config.burnchain.peer_host = String::from("127.0.0.1");
 
         let mut btcd_controller = BitcoinCoreController::new(config.clone());
         btcd_controller
@@ -3080,8 +3084,9 @@ mod tests {
         let mut config = Config::default();
         config.burnchain.magic_bytes = "T3".as_bytes().into();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
-        config.burnchain.username = Some("user".to_owned());
-        config.burnchain.password = Some("12345".to_owned());
+        config.burnchain.username = Some(String::from("user"));
+        config.burnchain.password = Some(String::from("12345"));
+        config.burnchain.peer_host = String::from("127.0.0.1");
 
         let mut btcd_controller = BitcoinCoreController::new(config.clone());
         btcd_controller
@@ -3109,9 +3114,10 @@ mod tests {
 
         let mut config = Config::default();
         config.burnchain.magic_bytes = "T3".as_bytes().into();
+        config.burnchain.username = Some(String::from("user"));
+        config.burnchain.password = Some(String::from("12345"));
+        config.burnchain.peer_host = String::from("127.0.0.1");
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
-        config.burnchain.username = Some("user".to_owned());
-        config.burnchain.password = Some("12345".to_owned());
 
         let mut btcd_controller = BitcoinCoreController::new(config.clone());
         btcd_controller
@@ -3177,10 +3183,11 @@ mod tests {
 
         let mut config = Config::default();
         config.burnchain.magic_bytes = "T3".as_bytes().into();
+        config.burnchain.username = Some(String::from("user"));
+        config.burnchain.password = Some(String::from("12345"));
+        config.burnchain.peer_host = String::from("127.0.0.1");
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
-        config.burnchain.username = Some("user".to_owned());
-        config.burnchain.password = Some("12345".to_owned());
-
+        
         let mut btcd_controller = BitcoinCoreController::new(config.clone());
         btcd_controller
             .start_bitcoind()
@@ -3246,9 +3253,10 @@ mod tests {
 
         let mut config = Config::default();
         config.burnchain.magic_bytes = "T3".as_bytes().into();
+        config.burnchain.username = Some(String::from("user"));
+        config.burnchain.password = Some(String::from("12345"));
+        config.burnchain.peer_host = String::from("127.0.0.1");
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
-        config.burnchain.username = Some("user".to_owned());
-        config.burnchain.password = Some("12345".to_owned());
 
         let mut btcd_controller = BitcoinCoreController::new(config.clone());
         btcd_controller
@@ -3323,9 +3331,10 @@ mod tests {
 
         let mut config = Config::default();
         config.burnchain.magic_bytes = "T3".as_bytes().into();
+        config.burnchain.username = Some(String::from("user"));
+        config.burnchain.password = Some(String::from("12345"));
+        config.burnchain.peer_host = String::from("127.0.0.1");
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
-        config.burnchain.username = Some("user".to_owned());
-        config.burnchain.password = Some("12345".to_owned());
 
         let mut btcd_controller = BitcoinCoreController::new(config.clone());
         btcd_controller
