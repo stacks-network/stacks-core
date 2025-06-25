@@ -3233,4 +3233,82 @@ mod tests {
             resubmit.unwrap_err()
         );
     }
+
+    #[test]
+    fn test_build_leader_block_commit_tx_ok_rbf_block_commit() {
+        let miner_seed = vec![1, 1, 1, 1];
+        let keychain = Keychain::default(miner_seed.clone());
+        let miner_pubkey = keychain.get_pub_key();
+        let mut signer = keychain.generate_op_signer();
+        let burn_signer = keychain.get_burnchain_signer();
+
+        let mut config = Config::default();
+        config.burnchain.magic_bytes = "T3".as_bytes().into();
+        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+        config.burnchain.username = Some("user".to_owned());
+        config.burnchain.password = Some("12345".to_owned());
+
+        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let mut btc_controller = BitcoinRegtestController::new(config, None);
+        btc_controller.bootstrap_chain(101);
+        btc_controller
+            .connect_dbs()
+            .expect("Cannot initialize dbs!");
+
+        let mut commit_op = LeaderBlockCommitOp {
+            block_header_hash: BlockHeaderHash::from_hex(
+                "e88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32af",
+            )
+            .unwrap(),
+            new_seed: VRFSeed::from_hex(
+                "d5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375",
+            )
+            .unwrap(),
+            parent_block_ptr: 2211, // 0x000008a3
+            parent_vtxindex: 1,     // 0x0001
+            key_block_ptr: 1432,    // 0x00000598
+            key_vtxindex: 1,        // 0x0001
+            memo: vec![11],         // 0x5a >> 3
+
+            burn_fee: 0,
+            input: (Txid([0x00; 32]), 0),
+            burn_parent_modulus: 2, // 0x5a & 0b111
+
+            apparent_sender: burn_signer,
+            commit_outs: vec![
+                PoxAddress::Standard(StacksAddress::burn_address(false), None),
+                PoxAddress::Standard(StacksAddress::burn_address(false), None),
+            ],
+
+            treatment: vec![],
+            sunset_burn: 0,
+
+            txid: Txid([0x00; 32]),
+            vtxindex: 0,
+            block_height: 2212,
+            burn_header_hash: BurnchainHeaderHash([0x01; 32]),
+        };
+
+        let _first_tx_ok = btc_controller
+            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut signer, 0)
+            .expect("Build leader block commit should work");
+
+        //re-gen signer othewise fails because it will be disposed during previous commit tx.
+        let mut signer = keychain.generate_op_signer();
+        //small change to the commit op payload
+        commit_op.burn_fee = 2;
+
+        let rbf_tx = btc_controller
+            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op, &mut signer, 0)
+            .expect("Commit tx should be rbf-ed");
+
+        assert_eq!(1, rbf_tx.version);
+        assert_eq!(0, rbf_tx.lock_time);
+        assert_eq!(1, rbf_tx.input.len());
+        assert_eq!(4, rbf_tx.output.len());
+    }
 }
