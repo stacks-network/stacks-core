@@ -678,6 +678,7 @@ impl NakamotoDownloadStateMachine {
         neighbors: &[NeighborAddress],
     ) -> Option<u64> {
         match self.state {
+            // Still in IBD mode, so we can only get the max height from the confirmed tenure downloads
             NakamotoDownloadState::Confirmed => self
                 .tenure_downloads
                 .downloaders
@@ -690,6 +691,7 @@ impl NakamotoDownloadStateMachine {
                         .map(|end_block| end_block.header.chain_length + 1)
                 })
                 .max(),
+            // In steady-state mode, we can get the max height from the unconfirmed tenure downloads
             NakamotoDownloadState::Unconfirmed => neighbors
                 .iter()
                 .filter_map(|neighbor_addr| {
