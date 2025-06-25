@@ -1,0 +1,8 @@
+type: object
+properties:
+  stacks_block_id:
+    type: string
+    description: The ID of the uploaded block
+  accepted:
+    type: boolean
+    description: Whether the block was accepted
