@@ -157,14 +157,19 @@ impl SortitionHash {
     }
 
     /// Convert a SortitionHash into a (little-endian) uint256
-    #[allow(clippy::indexing_slicing)]
     pub fn to_uint256(&self) -> Uint256 {
-        let mut tmp = [0u64; 4];
-        for i in 0..4 {
-            let b: &[u8; 8] = &self.0[8 * i..8 * (i + 1)].try_into().unwrap();
-            tmp[i] = u64::from_le_bytes(*b);
-        }
-        Uint256(tmp)
+        let (u64_chunks, []) = self.0.as_chunks::<8>() else {
+            panic!("SortitionHash was not evenly divisible by 8")
+        };
+
+        let tmp: Vec<u64> = u64_chunks
+            .iter()
+            .map(|chunk| u64::from_le_bytes(*chunk))
+            .collect();
+        Uint256(
+            tmp.try_into()
+                .expect("SortitionHash should have 4 chunks of 8 bytes"),
+        )
     }
 }
 

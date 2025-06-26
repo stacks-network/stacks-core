@@ -854,7 +854,6 @@ impl Trie {
         children_root_hash: &TrieHash,
     ) -> Result<TrieHash, Error> {
         let hashes = Trie::get_trie_root_ancestor_hashes_bytes(storage, children_root_hash)?;
-        let hashes = Trie::get_trie_root_ancestor_hashes_bytes(storage, children_root_hash)?;
         match hashes.as_slice() {
             [single_hash] => Ok(*single_hash),
             multiple_hashes => Ok(TrieHash::from_data_array(multiple_hashes)),

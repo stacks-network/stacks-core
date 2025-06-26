@@ -488,7 +488,7 @@ impl BurnchainHeaderHash {
     }
 
     pub fn to_bitcoin_hash(&self) -> Sha256dHash {
-        let mut buf = self.0.clone();
+        let mut buf = self.0;
         buf.reverse();
         Sha256dHash(buf)
     }
