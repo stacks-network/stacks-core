@@ -14,6 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt;
+use std::str::FromStr;
+
 use regex::{Captures, Regex};
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::StacksEpochId;
@@ -45,11 +48,38 @@ pub struct RPCGetHealthResponse {
 
 const NEIGHBORS_SCOPE_PARAM_NAME: &str = "neighbors";
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Clone, Debug, PartialEq)]
 pub enum NeighborsScope {
     Initial,
     All,
+}
+
+impl FromStr for NeighborsScope {
+    type Err = crate::net::http::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "initial" => Ok(NeighborsScope::Initial),
+            "all" => Ok(NeighborsScope::All),
+            _ => Err(crate::net::http::Error::Http(
+                400,
+                format!(
+                    "Invalid `neighbors` query parameter: `{}`, allowed values are `initial` or `all`",
+                    s
+                ),
+            )),
+        }
+    }
+}
+
+impl fmt::Display for NeighborsScope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            NeighborsScope::Initial => "initial",
+            NeighborsScope::All => "all",
+        };
+        write!(f, "{s}")
+    }
 }
 
 #[derive(Clone)]
@@ -97,9 +127,7 @@ impl HttpRequest for RPCGetHealthRequestHandler {
 
         let req_contents = HttpRequestContents::new().query_string(query);
         if let Some(scope) = req_contents.get_query_arg(NEIGHBORS_SCOPE_PARAM_NAME) {
-            self.neighbors_scope = Some(serde_json::from_str(scope.as_str()).map_err(|_e| {
-                Error::Http(400, format!("Invalid `neighbors` query parameter: `{}`, allowed values are `initial` or `all`", scope))
-            })?);
+            self.neighbors_scope = Some(scope.parse()?);
         }
 
         Ok(req_contents)
@@ -243,7 +271,7 @@ impl StacksHttpRequest {
             format!("/v3/health"),
             HttpRequestContents::new().query_arg(
                 NEIGHBORS_SCOPE_PARAM_NAME.into(),
-                serde_json::to_string(&neighbors_scope).unwrap(),
+                neighbors_scope.to_string(),
             ),
         )
         .expect("FATAL: failed to construct request from infallible data")
