@@ -564,7 +564,15 @@ impl LocalStateMachine {
                 //  to be changed.
                 match update {
                     StateMachineUpdate::BurnBlock(pending_burn_block) => {
-                        expected_burn_block = Some(pending_burn_block);
+                        match expected_burn_block {
+                            None => expected_burn_block = Some(pending_burn_block),
+                            Some(ref expected) => {
+                                if pending_burn_block.burn_block_height > expected.burn_block_height
+                                {
+                                    expected_burn_block = Some(pending_burn_block);
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -989,8 +997,41 @@ impl LocalStateMachine {
         replay_state: &ReplayState,
     ) -> Result<Option<ReplayState>, SignerChainstateError> {
         if expected_burn_block.burn_block_height > prior_state_machine.burn_block_height {
-            // no bitcoin fork, because we're advancing the burn block height
-            return Ok(None);
+            // prevent too large of a loop
+            if expected_burn_block
+                .burn_block_height
+                .saturating_sub(prior_state_machine.burn_block_height)
+                > 10
+            {
+                return Ok(None);
+            }
+            // are we building on top of this prior tip?
+            let mut parent_burn_block_info =
+                db.get_burn_block_by_ch(&expected_burn_block.consensus_hash)?;
+
+            while parent_burn_block_info.block_height > prior_state_machine.burn_block_height {
+                let Ok(parent_info) =
+                    db.get_burn_block_by_hash(&parent_burn_block_info.parent_burn_block_hash)
+                else {
+                    warn!(
+                        "Failed to get parent burn block info for {}",
+                        parent_burn_block_info.parent_burn_block_hash
+                    );
+                    return Ok(None);
+                };
+                parent_burn_block_info = parent_info;
+            }
+            if parent_burn_block_info.consensus_hash == prior_state_machine.burn_block {
+                // no bitcoin fork, because we're building on the parent
+                return Ok(None);
+            } else {
+                info!("Detected bitcoin fork - prior tip is not parent of new tip.";
+                    "new_tip.burn_block_height" => expected_burn_block.burn_block_height,
+                    "new_tip.consensus_hash" => %expected_burn_block.consensus_hash,
+                    "prior_tip.burn_block_height" => prior_state_machine.burn_block_height,
+                    "prior_tip.consensus_hash" => %prior_state_machine.burn_block,
+                );
+            }
         }
         if expected_burn_block.consensus_hash == prior_state_machine.burn_block {
             // no bitcoin fork, because we're at the same burn block hash as before

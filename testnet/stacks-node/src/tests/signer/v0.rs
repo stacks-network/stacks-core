@@ -3943,6 +3943,118 @@ fn tx_replay_failsafe() {
     signer_test.shutdown();
 }
 
+/// Simple/fast test scenario for transaction replay.
+///
+/// We fork one tenure, which has a STX transfer. The test
+/// verifies that the replay set is updated correctly, and then
+/// exits.
+#[ignore]
+#[test]
+fn tx_replay_simple() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::from_seed("sender_1".as_bytes());
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new_with_config_modifications_and_snapshot(
+            num_signers,
+            vec![(sender_addr, (send_amt + send_fee) * 10)],
+            |c| {
+                c.validate_with_replay_tx = true;
+            },
+            |node_config| {
+                node_config.miner.block_commit_delay = Duration::from_secs(1);
+                node_config.miner.replay_transactions = true;
+                node_config.miner.activated_vrf_key_path =
+                    Some(format!("{}/vrf_key", node_config.node.working_dir));
+            },
+            None,
+            None,
+            Some(function_name!()),
+        );
+
+    let conf = &signer_test.running_nodes.conf;
+    let _http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
+
+    let miner_pk = btc_controller
+        .get_mining_pubkey()
+        .as_deref()
+        .map(Secp256k1PublicKey::from_hex)
+        .unwrap()
+        .unwrap();
+
+    if signer_test.bootstrap_snapshot() {
+        signer_test.shutdown_and_snapshot();
+        return;
+    }
+
+    info!("------------------------- Beginning test -------------------------");
+
+    let tip = signer_test.get_peer_info();
+
+    info!("---- Tip ----";
+        "tip.stacks_tip_height" => tip.stacks_tip_height,
+        "tip.burn_block_height" => tip.burn_block_height,
+    );
+
+    let pre_fork_tenures = 1;
+    for i in 0..pre_fork_tenures {
+        info!("Mining pre-fork tenure {} of {pre_fork_tenures}", i + 1);
+        signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+    }
+
+    info!("---- Submitting STX transfer ----");
+
+    // let tip = get_chain_info(&conf);
+    // Make a transfer tx (this will get forked)
+    let (txid, nonce) = signer_test
+        .submit_transfer_tx(&sender_sk, send_fee, send_amt)
+        .unwrap();
+
+    // Ensure we got a new block with this tx
+    signer_test
+        .wait_for_nonce_increase(&sender_addr, nonce)
+        .expect("Timed out waiting for transfer tx to be mined");
+
+    let tip_before = get_chain_info(&conf);
+
+    info!("---- Triggering Bitcoin fork ----";
+        "tip.stacks_tip_height" => tip_before.stacks_tip_height,
+        "tip.burn_block_height" => tip_before.burn_block_height,
+        "tip.consensus_hash" => %tip_before.pox_consensus,
+    );
+
+    let burn_header_hash_to_fork = btc_controller.get_block_hash(tip_before.burn_block_height);
+    btc_controller.invalidate_block(&burn_header_hash_to_fork);
+    TEST_MINE_STALL.set(true);
+    btc_controller.build_next_block(2);
+
+    wait_for(30, || {
+        let tip = get_chain_info(&conf);
+        Ok(tip.stacks_tip_height < tip_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for next block to be mined");
+
+    let tip = get_chain_info(&conf);
+
+    info!("---- Tip after fork ----";
+        "tip.stacks_tip_height" => tip.stacks_tip_height,
+        "tip.burn_block_height" => tip.burn_block_height,
+    );
+
+    info!("---- Wait for tx replay set to be updated ----");
+
+    signer_test.wait_for_replay_set_eq(5, vec![txid.clone()]);
+
+    signer_test.shutdown();
+}
+
 /// Test scenario where two signers disagree on the tx replay set,
 /// which means there is no consensus on the tx replay set.
 #[test]
@@ -4488,6 +4600,7 @@ fn tx_replay_with_fork_after_empty_tenures_before_starting_replaying_txs() {
             vec![(sender1_addr, (send_amt + send_fee) * num_txs)],
             |c| {
                 c.validate_with_replay_tx = true;
+                c.reset_replay_set_after_fork_blocks = 5;
             },
             |node_config| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
@@ -4859,6 +4972,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
             |c| {
                 c.validate_with_replay_tx = true;
                 c.tenure_idle_timeout = Duration::from_secs(10);
+                c.reset_replay_set_after_fork_blocks = 5;
             },
             |node_config| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
