@@ -2088,7 +2088,7 @@ fn create_test_neighbors(ports: &[u16]) -> Vec<Neighbor> {
 /// Helper function to assert the expected heights for both IBD and non-IBD modes
 fn assert_max_heights(
     inv_state: &InvState,
-    neighbors: &[Neighbor],
+    neighbors: Option<&[Neighbor]>,
     expected_non_ibd: Option<u64>,
     expected_ibd: Option<u64>,
 ) {
@@ -2108,7 +2108,7 @@ fn assert_max_heights(
 fn test_get_max_stacks_height_of_neighbors() {
     // Test empty neighbors list
     let (inv_state, neighbors) = setup_test_inv_state(&[]);
-    assert_max_heights(&inv_state, &neighbors, None, None);
+    assert_max_heights(&inv_state, Some(&neighbors), None, None);
 }
 
 #[test]
@@ -2118,7 +2118,7 @@ fn test_get_max_stacks_height_of_neighbors_no_stats() {
     let neighbors = create_test_neighbors(&[8080]);
 
     // Should return None since no stats exist for the neighbor
-    assert_max_heights(&inv_state, &neighbors, None, None);
+    assert_max_heights(&inv_state, Some(&neighbors), None, None);
 }
 
 #[test]
@@ -2127,7 +2127,7 @@ fn test_get_max_stacks_height_of_neighbors_single_online_peer() {
         setup_test_inv_state(&[TestPeerSpec::new(8080, NodeStatus::Online, 150)]);
 
     // Online peers should be accepted in both modes (height = 100 + 150 = 250)
-    assert_max_heights(&inv_state, &neighbors, Some(250), Some(250));
+    assert_max_heights(&inv_state, Some(&neighbors), Some(250), Some(250));
 }
 
 #[test]
@@ -2136,7 +2136,7 @@ fn test_get_max_stacks_height_of_neighbors_single_diverged_peer() {
         setup_test_inv_state(&[TestPeerSpec::new(8080, NodeStatus::Diverged, 200)]);
 
     // Diverged peers accepted only in IBD mode (height = 100 + 200 = 300)
-    assert_max_heights(&inv_state, &neighbors, None, Some(300));
+    assert_max_heights(&inv_state, Some(&neighbors), None, Some(300));
 }
 
 #[test]
@@ -2145,7 +2145,7 @@ fn test_get_max_stacks_height_of_neighbors_single_broken_peer() {
         setup_test_inv_state(&[TestPeerSpec::new(8080, NodeStatus::Broken, 180)]);
 
     // Broken peers never accepted
-    assert_max_heights(&inv_state, &neighbors, None, None);
+    assert_max_heights(&inv_state, Some(&neighbors), None, None);
 }
 
 #[test]
@@ -2154,7 +2154,7 @@ fn test_get_max_stacks_height_of_neighbors_single_stale_peer() {
         setup_test_inv_state(&[TestPeerSpec::new(8080, NodeStatus::Stale, 120)]);
 
     // Stale peers never accepted
-    assert_max_heights(&inv_state, &neighbors, None, None);
+    assert_max_heights(&inv_state, Some(&neighbors), None, None);
 }
 
 #[test]
@@ -2163,7 +2163,7 @@ fn test_get_max_stacks_height_of_neighbors_single_dead_peer() {
         setup_test_inv_state(&[TestPeerSpec::new(8080, NodeStatus::Dead, 190)]);
 
     // Dead peers never accepted
-    assert_max_heights(&inv_state, &neighbors, None, None);
+    assert_max_heights(&inv_state, Some(&neighbors), None, None);
 }
 
 #[test]
@@ -2177,7 +2177,7 @@ fn test_get_max_stacks_height_of_neighbors_multiple_online_peers() {
     let (inv_state, neighbors) = setup_test_inv_state(&specs);
 
     // Should return max height among all online peers (350)
-    assert_max_heights(&inv_state, &neighbors, Some(350), Some(350));
+    assert_max_heights(&inv_state, Some(&neighbors), Some(350), Some(350));
 }
 
 #[test]
@@ -2192,7 +2192,7 @@ fn test_get_max_stacks_height_of_neighbors_mixed_statuses_non_ibd() {
     let (inv_state, neighbors) = setup_test_inv_state(&specs);
 
     // Non-IBD: only Online peers considered, max = 300
-    assert_max_heights(&inv_state, &neighbors, Some(300), Some(400));
+    assert_max_heights(&inv_state, Some(&neighbors), Some(300), Some(400));
 }
 
 #[test]
@@ -2207,7 +2207,7 @@ fn test_get_max_stacks_height_of_neighbors_mixed_statuses_ibd() {
     let (inv_state, neighbors) = setup_test_inv_state(&specs);
 
     // IBD: both Online and Diverged considered, max = 400
-    assert_max_heights(&inv_state, &neighbors, Some(300), Some(400));
+    assert_max_heights(&inv_state, Some(&neighbors), Some(300), Some(400));
 }
 
 #[test]
@@ -2216,7 +2216,7 @@ fn test_get_max_stacks_height_of_neighbors_minimum_height() {
         setup_test_inv_state(&[TestPeerSpec::new(8080, NodeStatus::Online, 0)]);
 
     // Should handle minimum height correctly (height = 100 + 0 = 100)
-    assert_max_heights(&inv_state, &neighbors, Some(100), Some(100));
+    assert_max_heights(&inv_state, Some(&neighbors), Some(100), Some(100));
 }
 
 #[test]
@@ -2229,7 +2229,7 @@ fn test_get_max_stacks_height_of_neighbors_all_invalid_statuses() {
     let (inv_state, neighbors) = setup_test_inv_state(&specs);
 
     // All invalid statuses should return None
-    assert_max_heights(&inv_state, &neighbors, None, None);
+    assert_max_heights(&inv_state, Some(&neighbors), None, None);
 }
 
 #[test]
@@ -2242,5 +2242,43 @@ fn test_get_max_stacks_height_of_neighbors_diverged_only_non_ibd() {
     let (inv_state, neighbors) = setup_test_inv_state(&specs);
 
     // Non-IBD: Diverged ignored, IBD: Diverged accepted
-    assert_max_heights(&inv_state, &neighbors, None, Some(300));
+    assert_max_heights(&inv_state, Some(&neighbors), None, Some(300));
+}
+
+#[test]
+fn test_get_max_stacks_height_of_all_neighbors_mixed_statuses() {
+    let specs = [
+        TestPeerSpec::new(8080, NodeStatus::Online, 150), // height = 250
+        TestPeerSpec::new(8081, NodeStatus::Diverged, 300), // height = 400
+        TestPeerSpec::new(8082, NodeStatus::Online, 200), // height = 300
+        TestPeerSpec::new(8083, NodeStatus::Broken, 350), // ignored
+    ];
+
+    let (inv_state, _neighbors) = setup_test_inv_state(&specs);
+
+    // When neighbors is None, it should scan all peers in block_stats.
+    // Non-IBD: only Online peers considered, max height = 300.
+    // IBD: both Online and Diverged considered, max height = 400.
+    assert_max_heights(&inv_state, None, Some(300), Some(400));
+}
+
+#[test]
+fn test_get_max_stacks_height_of_all_neighbors_empty_stats() {
+    // inv_state with no block_stats
+    let inv_state = InvState::new(100, 60, 3);
+    assert_max_heights(&inv_state, None, None, None);
+}
+
+#[test]
+fn test_get_max_stacks_height_of_all_neighbors_no_valid_peers() {
+    let specs = [
+        TestPeerSpec::new(8080, NodeStatus::Broken, 150),
+        TestPeerSpec::new(8081, NodeStatus::Dead, 200),
+        TestPeerSpec::new(8082, NodeStatus::Stale, 250),
+    ];
+
+    let (inv_state, _neighbors) = setup_test_inv_state(&specs);
+
+    // No peers with Online or Diverged status
+    assert_max_heights(&inv_state, None, None, None);
 }

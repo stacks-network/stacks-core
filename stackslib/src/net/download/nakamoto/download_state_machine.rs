@@ -73,7 +73,7 @@ pub struct NakamotoDownloadStateMachine {
     /// Last burnchain tip we've seen
     last_sort_tip: Option<BlockSnapshot>,
     /// Download behavior we're in
-    state: NakamotoDownloadState,
+    pub(crate) state: NakamotoDownloadState,
     /// Map a tenure ID to its tenure start-block and end-block for each of our neighbors' invs
     tenure_block_ids: HashMap<NeighborAddress, AvailableTenures>,
     /// Who can serve a given tenure
@@ -86,7 +86,7 @@ pub struct NakamotoDownloadStateMachine {
     pub(crate) unconfirmed_tenure_downloads:
         HashMap<NeighborAddress, NakamotoUnconfirmedTenureDownloader>,
     /// Ongoing confirmed tenure downloads for when we know the start and end block hashes.
-    tenure_downloads: NakamotoTenureDownloaderSet,
+    pub(crate) tenure_downloads: NakamotoTenureDownloaderSet,
     /// comms to remote neighbors
     pub(super) neighbor_rpc: NeighborRPC,
     /// Nakamoto chain tip
@@ -667,15 +667,15 @@ impl NakamotoDownloadStateMachine {
     ///
     /// # Arguments
     ///
-    /// * `neighbors` - A slice of `NeighborAddress` structs to check in unconfirmed mode.
-    ///                 Ignored in IBD mode.
+    /// * `neighbors` - Optional slice of `NeighborAddress` structs to check.
+    ///   If `None`, all neighbors are considered.
     ///
     /// # Returns
     ///
     /// * `Some(u64)` - The maximum height found, or None if no heights are available.
     pub(crate) fn get_max_stacks_height_of_neighbors(
         &self,
-        neighbors: &[NeighborAddress],
+        neighbors: Option<&[NeighborAddress]>,
     ) -> Option<u64> {
         match self.state {
             // Still in IBD mode, so we can only get the max height from the confirmed tenure downloads
@@ -684,24 +684,36 @@ impl NakamotoDownloadStateMachine {
                 .downloaders
                 .iter()
                 .flatten()
-                .filter_map(|downloader| {
-                    downloader
-                        .tenure_end_block
+                .filter(|d| neighbors.map_or(true, |n| n.contains(&d.naddr)))
+                .filter_map(|d| {
+                    d.tenure_end_block
                         .as_ref()
                         .map(|end_block| end_block.header.chain_length + 1)
+                        .or_else(|| {
+                            d.tenure_start_block
+                                .as_ref()
+                                .map(|start_block| start_block.header.chain_length + 1)
+                        })
                 })
                 .max(),
             // In steady-state mode, we can get the max height from the unconfirmed tenure downloads
-            NakamotoDownloadState::Unconfirmed => neighbors
-                .iter()
-                .filter_map(|neighbor_addr| {
-                    self.unconfirmed_tenure_downloads
-                        .get(neighbor_addr)?
-                        .tenure_tip
-                        .as_ref()
-                        .map(|tip| tip.tip_height)
-                })
-                .max(),
+            NakamotoDownloadState::Unconfirmed => match neighbors {
+                None => self
+                    .unconfirmed_tenure_downloads
+                    .values()
+                    .filter_map(|d| d.tenure_tip.as_ref().map(|tip| tip.tip_height))
+                    .max(),
+                Some(addrs) => addrs
+                    .iter()
+                    .filter_map(|addr| {
+                        self.unconfirmed_tenure_downloads
+                            .get(addr)?
+                            .tenure_tip
+                            .as_ref()
+                            .map(|tip| tip.tip_height)
+                    })
+                    .max(),
+            },
         }
     }
 
