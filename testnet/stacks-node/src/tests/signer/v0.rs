@@ -125,11 +125,84 @@ use crate::tests::neon_integrations::{
     TestProxy,
 };
 use crate::tests::signer::commands::*;
+use crate::tests::signer::SpawnedSignerTrait;
 use crate::tests::{self, gen_random_port};
 use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
 
 pub fn test_mine_stall_set(value: bool) {
     TEST_MINE_STALL.set(value)
+}
+impl<Z: SpawnedSignerTrait> SignerTest<Z> {
+    /// Run the test until the epoch 3 boundary
+    pub fn boot_to_epoch_3(&self) {
+        TEST_MINE_SKIP.set(true);
+        boot_to_epoch_3_reward_set(
+            &self.running_nodes.conf,
+            &self.running_nodes.counters.blocks_processed,
+            &self.signer_stacks_private_keys,
+            &self.signer_stacks_private_keys,
+            &self.running_nodes.btc_regtest_controller,
+            Some(self.num_stacking_cycles),
+        );
+        info!("Waiting for signer set calculation.");
+        // Make sure the signer set is calculated before continuing or signers may not
+        // recognize that they are registered signers in the subsequent burn block event
+        let reward_cycle = self.get_current_reward_cycle() + 1;
+        wait_for(120, || {
+            let Ok(Some(reward_set)) = self.stacks_client.get_reward_set_signers(reward_cycle)
+            else {
+                return Ok(false);
+            };
+
+            debug!("Signer set: {reward_set:?}");
+            Ok(true)
+        })
+        .expect("Timed out waiting for reward set calculation");
+        info!("Signer set calculated");
+
+        // Manually consume one more block to ensure signers refresh their state
+        info!("Waiting for signers to initialize.");
+        next_block_and_wait(
+            &self.running_nodes.btc_regtest_controller,
+            &self.running_nodes.counters.blocks_processed,
+        );
+        self.wait_for_registered();
+        info!("Signers initialized");
+
+        self.run_until_epoch_3_boundary();
+        wait_for(30, || {
+            Ok(get_chain_info_opt(&self.running_nodes.conf).is_some())
+        })
+        .expect("Timed out waiting for network to restart after 3.0 boundary reached");
+
+        // Wait until we see the first block of epoch 3.0.
+        // Note, we don't use `nakamoto_blocks_mined` counter, because there
+        // could be other miners mining blocks.
+        info!("Waiting for first Epoch 3.0 tenure to start");
+        let info = get_chain_info(&self.running_nodes.conf);
+        next_block_and(&self.running_nodes.btc_regtest_controller, 30, || {
+            Ok(get_chain_info(&self.running_nodes.conf).burn_block_height > info.burn_block_height)
+        })
+        .unwrap();
+        let info = get_chain_info(&self.running_nodes.conf);
+        let res = wait_for_state_machine_update_by_miner_tenure_id(
+            30,
+            &info.pox_consensus,
+            &self.signer_test_pks(),
+            SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        );
+        if res.is_err() {
+            warn!("Signer updates failed to update but attempting to continue test anyway");
+        }
+        TEST_MINE_SKIP.set(false);
+        let height_before = info.stacks_tip_height;
+        info!("Waiting for first Nakamoto block: {}", height_before + 1);
+        wait_for(30, || {
+            Ok(get_chain_info(&self.running_nodes.conf).stacks_tip_height > height_before)
+        })
+        .expect("Timed out waiting for first Nakamoto block after 3.0 boundary");
+        info!("Ready to mine Nakamoto blocks!");
+    }
 }
 
 impl SignerTest<SpawnedSigner> {
@@ -273,77 +346,6 @@ impl SignerTest<SpawnedSigner> {
             .btc_regtest_controller
             .get_headers_height();
         info!("At burn block height {current_burn_block_height}. Ready to mine the first Epoch 2.5 reward cycle!");
-    }
-
-    /// Run the test until the epoch 3 boundary
-    pub fn boot_to_epoch_3(&self) {
-        TEST_MINE_SKIP.set(true);
-        boot_to_epoch_3_reward_set(
-            &self.running_nodes.conf,
-            &self.running_nodes.counters.blocks_processed,
-            &self.signer_stacks_private_keys,
-            &self.signer_stacks_private_keys,
-            &self.running_nodes.btc_regtest_controller,
-            Some(self.num_stacking_cycles),
-        );
-        info!("Waiting for signer set calculation.");
-        // Make sure the signer set is calculated before continuing or signers may not
-        // recognize that they are registered signers in the subsequent burn block event
-        let reward_cycle = self.get_current_reward_cycle() + 1;
-        wait_for(120, || {
-            let Ok(Some(reward_set)) = self.stacks_client.get_reward_set_signers(reward_cycle)
-            else {
-                return Ok(false);
-            };
-
-            debug!("Signer set: {reward_set:?}");
-            Ok(true)
-        })
-        .expect("Timed out waiting for reward set calculation");
-        info!("Signer set calculated");
-
-        // Manually consume one more block to ensure signers refresh their state
-        info!("Waiting for signers to initialize.");
-        next_block_and_wait(
-            &self.running_nodes.btc_regtest_controller,
-            &self.running_nodes.counters.blocks_processed,
-        );
-        self.wait_for_registered();
-        info!("Signers initialized");
-
-        self.run_until_epoch_3_boundary();
-        wait_for(30, || {
-            Ok(get_chain_info_opt(&self.running_nodes.conf).is_some())
-        })
-        .expect("Timed out waiting for network to restart after 3.0 boundary reached");
-
-        // Wait until we see the first block of epoch 3.0.
-        // Note, we don't use `nakamoto_blocks_mined` counter, because there
-        // could be other miners mining blocks.
-        info!("Waiting for first Epoch 3.0 tenure to start");
-        let info = get_chain_info(&self.running_nodes.conf);
-        next_block_and(&self.running_nodes.btc_regtest_controller, 30, || {
-            Ok(get_chain_info(&self.running_nodes.conf).burn_block_height > info.burn_block_height)
-        })
-        .unwrap();
-        let info = get_chain_info(&self.running_nodes.conf);
-        let res = wait_for_state_machine_update_by_miner_tenure_id(
-            30,
-            &info.pox_consensus,
-            &self.signer_test_pks(),
-            SUPPORTED_SIGNER_PROTOCOL_VERSION,
-        );
-        if res.is_err() {
-            warn!("Signer updates failed to update but attempting to continue test anyway");
-        }
-        TEST_MINE_SKIP.set(false);
-        let height_before = info.stacks_tip_height;
-        info!("Waiting for first Nakamoto block: {}", height_before + 1);
-        wait_for(30, || {
-            Ok(get_chain_info(&self.running_nodes.conf).stacks_tip_height > height_before)
-        })
-        .expect("Timed out waiting for first Nakamoto block after 3.0 boundary");
-        info!("Ready to mine Nakamoto blocks!");
     }
 
     /// If this SignerTest is configured to use a snapshot, this

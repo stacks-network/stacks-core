@@ -13,12 +13,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 mod commands;
-mod v0;
+#[cfg(feature = "build-signer-v3-1-00-13")]
+pub mod multiversion;
+pub mod v0;
 
 use std::collections::HashSet;
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::TryRecvError;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use std::{env, thread};
@@ -92,6 +95,12 @@ pub struct RunningNodes {
     pub conf: NeonConfig,
 }
 
+impl RunningNodes {
+    fn rpc_origin(&self) -> String {
+        format!("http://{}", &self.conf.node.rpc_bind)
+    }
+}
+
 /// A test harness for running a v0 or v1 signer integration test
 pub struct SignerTest<S> {
     // The stx and bitcoin nodes and their run loops
@@ -126,7 +135,46 @@ struct SnapshotMetadata {
     created_at: SystemTime,
 }
 
-impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<SpawnedSigner<S, T>> {
+pub trait SpawnedSignerTrait {
+    type ReceiveResult;
+    type StopResult;
+    fn new(c: SignerConfig) -> Self;
+    fn try_recv(&self) -> Self::ReceiveResult;
+    fn stop(self) -> Option<Self::StopResult>;
+    fn state_info_from_recv_result(result: Self::ReceiveResult) -> Option<StateInfo>;
+}
+
+impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSignerTrait
+    for SpawnedSigner<S, T>
+{
+    type ReceiveResult = Result<SignerResult, TryRecvError>;
+    type StopResult = SignerResult;
+
+    fn new(c: SignerConfig) -> Self {
+        SpawnedSigner::new(c)
+    }
+
+    fn try_recv(&self) -> Self::ReceiveResult {
+        self.res_recv.try_recv()
+    }
+
+    fn stop(self) -> Option<Self::StopResult> {
+        SpawnedSigner::stop(self)
+    }
+
+    fn state_info_from_recv_result(result: Self::ReceiveResult) -> Option<StateInfo> {
+        let Ok(results) = result else {
+            return None;
+        };
+
+        // Note: if we ever add more signer result enum variants, this function
+        //  should return None and continue for non-StatusCheck variants
+        let SignerResult::StatusCheck(state_info) = results;
+        Some(state_info)
+    }
+}
+
+impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     pub fn new(num_signers: usize, initial_balances: Vec<(StacksAddress, u64)>) -> Self {
         Self::new_with_config_modifications(
             num_signers,
@@ -227,11 +275,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         .collect();
         assert_eq!(signer_configs.len(), num_signers);
 
-        let spawned_signers = signer_configs
-            .iter()
-            .cloned()
-            .map(SpawnedSigner::new)
-            .collect();
+        let spawned_signers = signer_configs.iter().cloned().map(Z::new).collect();
 
         // Setup the nodes and deploy the contract to it
         let btc_miner_pubkeys = btc_miner_pubkeys
@@ -627,7 +671,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         send_fee: u64,
         send_amt: u64,
     ) -> Result<(String, u64), String> {
-        let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
+        let http_origin = self.running_nodes.rpc_origin();
         let sender_addr = to_addr(&sender_sk);
         let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
         let recipient = PrincipalData::from(StacksAddress::burn_address(false));
@@ -650,7 +694,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         contract_code: &str,
         contract_name: &str,
     ) -> Result<(String, u64), String> {
-        let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
+        let http_origin = self.running_nodes.rpc_origin();
         let sender_addr = to_addr(&sender_sk);
         let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
 
@@ -666,7 +710,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     }
 
     pub fn get_account<F: std::fmt::Display>(&self, account: &F) -> Account {
-        let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
+        let http_origin = self.running_nodes.rpc_origin();
         get_account(&http_origin, account)
     }
 
@@ -679,7 +723,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         contract_func: &str,
         contract_args: &[Value],
     ) -> Result<(String, u64), String> {
-        let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
+        let http_origin = self.running_nodes.rpc_origin();
         let sender_addr = to_addr(&sender_sk);
         let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
         let contract_call_tx = make_contract_call(
@@ -700,7 +744,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         sender_addr: &StacksAddress,
         sender_nonce: u64,
     ) -> Result<(), String> {
-        let http_origin = format!("http://{}", &self.running_nodes.conf.node.rpc_bind);
+        let http_origin = self.running_nodes.rpc_origin();
         wait_for(120, || {
             let next_nonce = get_account(&http_origin, &sender_addr).nonce;
             Ok(next_nonce > sender_nonce)
@@ -1025,14 +1069,10 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     /// Replace the test's configured signer st
     pub fn replace_signers(
         &mut self,
-        new_signers: Vec<SpawnedSigner<S, T>>,
+        new_signers: Vec<Z>,
         new_signers_sks: Vec<StacksPrivateKey>,
         new_signer_configs: Vec<SignerConfig>,
-    ) -> (
-        Vec<SpawnedSigner<S, T>>,
-        Vec<StacksPrivateKey>,
-        Vec<SignerConfig>,
-    ) {
+    ) -> (Vec<Z>, Vec<StacksPrivateKey>, Vec<SignerConfig>) {
         let old_signers = std::mem::replace(&mut self.spawned_signers, new_signers);
         let old_signers_sks =
             std::mem::replace(&mut self.signer_stacks_private_keys, new_signers_sks);
@@ -1049,15 +1089,11 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
                 output.push(None);
                 continue;
             }
-            let Ok(results) = signer.res_recv.try_recv() else {
+            let result = Z::state_info_from_recv_result(signer.try_recv());
+            if result.is_none() {
                 info!("Could not receive latest state from signer #{ix}");
-                output.push(None);
-                continue;
-            };
-            // Note: if we ever add more signer result enum variants, this function
-            //  should push None and continue for non-StatusCheck variants
-            let SignerResult::StatusCheck(state_info) = results;
-            output.push(Some(state_info));
+            }
+            output.push(result);
         }
         output
     }
