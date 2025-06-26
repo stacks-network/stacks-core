@@ -3556,6 +3556,7 @@ fn tx_replay_btc_on_stx_invalidation() {
             vec![(sender_addr, (send_amt + send_fee) * 10)],
             |c| {
                 c.validate_with_replay_tx = true;
+                c.reset_replay_set_after_fork_blocks = 5;
             },
             |node_config| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
@@ -3572,13 +3573,11 @@ fn tx_replay_btc_on_stx_invalidation() {
     let mut miner_keychain = Keychain::default(conf.node.seed.clone()).generate_op_signer();
     let _http_origin = format!("http://{}", &conf.node.rpc_bind);
     let mut btc_controller = BitcoinRegtestController::new(conf.clone(), None);
-
-    let miner_pk = btc_controller
-        .get_mining_pubkey()
-        .as_deref()
-        .map(Secp256k1PublicKey::from_hex)
-        .unwrap()
-        .unwrap();
+    let submitted_commits = signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commits
+        .clone();
 
     if signer_test.bootstrap_snapshot() {
         signer_test.shutdown_and_snapshot();
@@ -3586,6 +3585,18 @@ fn tx_replay_btc_on_stx_invalidation() {
     }
 
     info!("------------------------- Beginning test -------------------------");
+
+    let burnchain = conf.get_burnchain();
+
+    let tip = signer_test.get_peer_info();
+    let pox_info = signer_test.get_pox_data();
+
+    info!("---- Burnchain ----";
+        // "burnchain" => ?conf.burnchain,
+        "pox_constants" => ?burnchain.pox_constants,
+        "cycle" => burnchain.pox_constants.reward_cycle_index(0, tip.burn_block_height),
+        "pox_info" => ?pox_info,
+    );
 
     info!("Submitting first pre-stx op");
     let pre_stx_op = PreStxOp {
@@ -3609,7 +3620,7 @@ fn tx_replay_btc_on_stx_invalidation() {
         "Pre-stx operation should submit successfully"
     );
 
-    let pre_fork_tenures = 1;
+    let pre_fork_tenures = 10;
     for i in 0..pre_fork_tenures {
         info!("Mining pre-fork tenure {} of {pre_fork_tenures}", i + 1);
         signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
@@ -3659,51 +3670,45 @@ fn tx_replay_btc_on_stx_invalidation() {
 
     info!("---- Triggering Bitcoin fork ----");
 
-    let mut commit_txid: Option<Txid> = None;
-    wait_for(30, || {
-        let Some(txid) = signer_test.get_parent_block_commit_txid(&miner_pk) else {
-            return Ok(false);
-        };
-        commit_txid = Some(txid);
-        Ok(true)
-    })
-    .expect("Failed to get unconfirmed tx");
-
-    let tip_before = signer_test.get_peer_info();
-    let burn_header_hash_to_fork = btc_controller.get_block_hash(tip_before.burn_block_height - 1);
-    TEST_MINE_STALL.set(true);
+    let tip = signer_test.get_peer_info();
+    let burn_header_hash_to_fork = btc_controller.get_block_hash(tip.burn_block_height - 2);
     btc_controller.invalidate_block(&burn_header_hash_to_fork);
-    btc_controller.build_next_block(2);
+    btc_controller.build_next_block(3);
 
-    let tip_before = get_chain_info(&conf);
+    TEST_MINE_STALL.set(true);
 
-    info!("---- Building next block ----";
-        "tip_before.stacks_tip_height" => tip_before.stacks_tip_height,
-        "tip_before.burn_block_height" => tip_before.burn_block_height,
-    );
-
-    let chain_tips = BitcoinRPCRequest::get_chain_tips(&conf).unwrap();
-    info!("---- chain_tips -----";
-        "chain_tips" => ?chain_tips,
-    );
-
-    btc_controller.build_next_block(1);
-
-    wait_for(30, || {
-        let tip = get_chain_info(&conf);
-        info!("----- tip -----";
-            "tip.stacks_tip_height" => tip.stacks_tip_height,
-            "tip_before.stacks_tip_height" => tip_before.stacks_tip_height,
-            "tip.burn_block_height" => tip.burn_block_height,
-            "tip_before.burn_block_height" => tip_before.burn_block_height,
+    // we need to mine some blocks to get back to being considered a frequent miner
+    for i in 0..3 {
+        let current_burn_height = get_chain_info(&conf).burn_block_height;
+        info!(
+            "Mining block #{i} to be considered a frequent miner";
+            "current_burn_height" => current_burn_height,
         );
-        Ok(tip.stacks_tip_height < tip_before.stacks_tip_height)
-    })
-    .expect("Timed out waiting for next block to be mined");
+        let commits_count = submitted_commits.load(Ordering::SeqCst);
+        next_block_and(&btc_controller, 60, || {
+            Ok(submitted_commits.load(Ordering::SeqCst) > commits_count)
+        })
+        .unwrap();
+    }
 
     info!("---- Wait for tx replay set to be updated ----");
 
-    signer_test.wait_for_replay_set_eq(30, vec![txid.clone()]);
+    signer_test
+        .wait_for_signer_state_check(30, |state| {
+            let Some(tx_replay_set) = state.get_tx_replay_set() else {
+                info!("---- No tx replay set");
+                return Ok(false);
+            };
+            let len_ok = tx_replay_set.len() == 1;
+            let txid_ok = tx_replay_set[0].txid().to_hex() == txid;
+            info!("---- Signer state check ----";
+                "tx_replay_set" => ?tx_replay_set,
+                "len_ok" => len_ok,
+                "txid_ok" => txid_ok,
+            );
+            Ok(len_ok && txid_ok)
+        })
+        .expect("Timed out waiting for tx replay set to be updated");
 
     info!("---- Waiting for tx replay set to be cleared ----");
 
@@ -3715,15 +3720,15 @@ fn tx_replay_btc_on_stx_invalidation() {
         .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
         .expect("Timed out waiting for tx replay set to be cleared");
 
-    let account = get_account(&_http_origin, &recipient_addr);
-    assert_eq!(account.nonce, 0, "Expected recipient nonce to be 0");
-
     // Ensure that only one block was mined
     wait_for(30, || {
         let new_tip = get_chain_info(&conf).stacks_tip_height;
         Ok(new_tip == stacks_height_before + 1)
     })
     .expect("Timed out waiting for block to advance by 1");
+
+    let account = get_account(&_http_origin, &recipient_addr);
+    assert_eq!(account.nonce, 0, "Expected recipient nonce to be 0");
 
     let blocks = test_observer::get_blocks();
     let block: StacksBlockEvent =
@@ -3732,7 +3737,7 @@ fn tx_replay_btc_on_stx_invalidation() {
     assert!(matches!(
         block.transactions[0].payload,
         TransactionPayload::TenureChange(TenureChangePayload {
-            cause: TenureChangeCause::Extended,
+            cause: TenureChangeCause::BlockFound,
             ..
         })
     ));
