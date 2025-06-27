@@ -18,6 +18,7 @@ use crate::net::httpcore::StacksHttp;
 use crate::net::Error as NetError;
 
 pub mod callreadonly;
+pub mod fastcallreadonly;
 pub mod get_tenures_fork_info;
 pub mod getaccount;
 pub mod getattachment;
@@ -71,6 +72,10 @@ impl StacksHttp {
     /// Put your new RPC method handlers here.
     pub fn register_rpc_methods(&mut self) {
         self.register_rpc_endpoint(callreadonly::RPCCallReadOnlyRequestHandler::new(
+            self.maximum_call_argument_size,
+            self.read_only_call_limit.clone(),
+        ));
+        self.register_rpc_endpoint(fastcallreadonly::RPCFastCallReadOnlyRequestHandler::new(
             self.maximum_call_argument_size,
             self.read_only_call_limit.clone(),
             self.read_only_max_execution_time,

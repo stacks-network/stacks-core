@@ -37,7 +37,7 @@ fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
-    let request = StacksHttpRequest::new_callreadonlyfunction(
+    let request = StacksHttpRequest::new_fastcallreadonlyfunction(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world-unconfirmed".try_into().unwrap(),
@@ -59,8 +59,11 @@ fn test_try_parse_request() {
     debug!("Request:\n{}\n", std::str::from_utf8(&bytes).unwrap());
 
     let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
-    let mut handler =
-        callreadonly::RPCCallReadOnlyRequestHandler::new(4096, BLOCK_LIMIT_MAINNET_21);
+    let mut handler = fastcallreadonly::RPCFastCallReadOnlyRequestHandler::new(
+        4096,
+        BLOCK_LIMIT_MAINNET_21,
+        Duration::from_secs(30),
+    );
     let mut parsed_request = http
         .handle_try_parse_request(
             &mut handler,
@@ -71,7 +74,7 @@ fn test_try_parse_request() {
 
     // consumed path args and body
     assert_eq!(
-        handler.contract_identifier,
+        handler.call_read_only_handler.contract_identifier,
         Some(
             QualifiedContractIdentifier::parse(
                 "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world-unconfirmed"
@@ -79,13 +82,16 @@ fn test_try_parse_request() {
             .unwrap()
         )
     );
-    assert_eq!(handler.function, Some("ro-test".into()));
     assert_eq!(
-        handler.sender,
+        handler.call_read_only_handler.function,
+        Some("ro-test".into())
+    );
+    assert_eq!(
+        handler.call_read_only_handler.sender,
         Some(PrincipalData::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap())
     );
-    assert_eq!(handler.sponsor, None);
-    assert_eq!(handler.arguments, Some(vec![]));
+    assert_eq!(handler.call_read_only_handler.sponsor, None);
+    assert_eq!(handler.call_read_only_handler.arguments, Some(vec![]));
 
     // parsed request consumes headers that would not be in a constructed reqeuest
     parsed_request.clear_headers();
@@ -95,11 +101,11 @@ fn test_try_parse_request() {
 
     // restart clears the handler state
     handler.restart();
-    assert!(handler.contract_identifier.is_none());
-    assert!(handler.function.is_none());
-    assert!(handler.sender.is_none());
-    assert!(handler.sponsor.is_none());
-    assert!(handler.arguments.is_none());
+    assert!(handler.call_read_only_handler.contract_identifier.is_none());
+    assert!(handler.call_read_only_handler.function.is_none());
+    assert!(handler.call_read_only_handler.sender.is_none());
+    assert!(handler.call_read_only_handler.sponsor.is_none());
+    assert!(handler.call_read_only_handler.arguments.is_none());
 }
 
 #[test]
@@ -109,7 +115,7 @@ fn test_try_make_response() {
     let mut requests = vec![];
 
     // query confirmed tip
-    let request = StacksHttpRequest::new_callreadonlyfunction(
+    let request = StacksHttpRequest::new_fastcallreadonlyfunction(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world".try_into().unwrap(),
@@ -124,7 +130,7 @@ fn test_try_make_response() {
     requests.push(request);
 
     // query unconfirmed tip
-    let request = StacksHttpRequest::new_callreadonlyfunction(
+    let request = StacksHttpRequest::new_fastcallreadonlyfunction(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world-unconfirmed".try_into().unwrap(),
@@ -139,7 +145,7 @@ fn test_try_make_response() {
     requests.push(request);
 
     // query non-existent function
-    let request = StacksHttpRequest::new_callreadonlyfunction(
+    let request = StacksHttpRequest::new_fastcallreadonlyfunction(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world-unconfirmed".try_into().unwrap(),
@@ -154,7 +160,7 @@ fn test_try_make_response() {
     requests.push(request);
 
     // query non-existent contract
-    let request = StacksHttpRequest::new_callreadonlyfunction(
+    let request = StacksHttpRequest::new_fastcallreadonlyfunction(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "does-not-exist".try_into().unwrap(),
@@ -169,7 +175,7 @@ fn test_try_make_response() {
     requests.push(request);
 
     // query non-existent tip
-    let request = StacksHttpRequest::new_callreadonlyfunction(
+    let request = StacksHttpRequest::new_fastcallreadonlyfunction(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world".try_into().unwrap(),
@@ -269,4 +275,61 @@ fn test_try_make_response() {
 
     let (preamble, payload) = response.destruct();
     assert_eq!(preamble.status_code, 404);
+}
+
+#[test]
+fn test_try_make_response_free_cost_tracker() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+
+    let mut requests = vec![];
+
+    // query confirmed tip
+    let request = StacksHttpRequest::new_fastcallreadonlyfunction(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+            .unwrap()
+            .to_account_principal(),
+        None,
+        "ro-confirmed".try_into().unwrap(),
+        vec![],
+        TipRequest::UseLatestAnchoredTip,
+    );
+    requests.push(request);
+
+    let mut responses = test_rpc_with_config(
+        function_name!(),
+        requests,
+        |peer_1_config| {
+            peer_1_config
+                .connection_opts
+                .read_only_max_execution_time_secs = 0
+        },
+        |peer_2_config| {
+            peer_2_config
+                .connection_opts
+                .read_only_max_execution_time_secs = 0
+        },
+    );
+
+    // confirmed tip
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    assert_eq!(
+        response.preamble().get_canonical_stacks_tip_height(),
+        Some(1)
+    );
+
+    let resp = response.decode_call_readonly_response().unwrap();
+
+    assert!(!resp.okay);
+    assert!(resp.result.is_none());
+    assert!(resp.cause.is_some());
+
+    assert_eq!(resp.cause.unwrap(), "Unchecked(ExecutionTimeExpired)");
 }

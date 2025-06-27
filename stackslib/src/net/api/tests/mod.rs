@@ -57,6 +57,7 @@ use crate::net::{
 };
 
 mod callreadonly;
+mod fastcallreadonly;
 mod get_tenures_fork_info;
 mod getaccount;
 mod getattachment;
