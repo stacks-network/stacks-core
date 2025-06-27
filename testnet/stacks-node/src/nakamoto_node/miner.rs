@@ -75,6 +75,9 @@ pub static TEST_MINE_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::d
 pub static TEST_BROADCAST_PROPOSAL_STALL: LazyLock<TestFlag<Vec<Secp256k1PublicKey>>> =
     LazyLock::new(TestFlag::default);
 #[cfg(test)]
+/// Test flag to make miner skip mining a block
+pub static TEST_MINE_SKIP: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+#[cfg(test)]
 // Test flag to stall the miner from announcing a block while this flag is true
 pub static TEST_BLOCK_ANNOUNCE_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 #[cfg(test)]
@@ -307,6 +310,21 @@ impl BlockMinerThread {
 
     #[cfg(not(test))]
     fn fault_injection_block_proposal_stall(_ignored: &NakamotoBlock) {}
+
+    #[cfg(test)]
+    fn fault_injection_block_mining_skip() -> bool {
+        if TEST_MINE_SKIP.get() {
+            warn!("Fault injection: Block mining is skipped due to testing directive.");
+            true
+        } else {
+            false
+        }
+    }
+
+    #[cfg(not(test))]
+    fn fault_injection_block_mining_skip() -> bool {
+        false
+    }
 
     #[cfg(test)]
     fn fault_injection_block_announce_stall(new_block: &NakamotoBlock) {
@@ -1388,6 +1406,9 @@ impl BlockMinerThread {
             .expect("FATAL: could not open chainstate DB");
 
         self.check_burn_tip_changed(&burn_db)?;
+        if Self::fault_injection_block_mining_skip() {
+            return Err(ChainstateError::MinerAborted.into());
+        }
         neon_node::fault_injection_long_tenure();
 
         let mut mem_pool = self
