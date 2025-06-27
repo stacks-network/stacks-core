@@ -1532,6 +1532,8 @@ impl BitcoinRegtestController {
                     BitcoinRPCRequest::check_transaction_confirmed(&self.config, txid),
                     Ok(true)
                 );
+
+            test_debug!("Ongoing Tx confirmed: {ongoing_tx_confirmed} - TXID: {txid}");
             if ongoing_tx_confirmed {
                 if ongoing_op.payload == payload {
                     info!("Abort attempt to re-submit confirmed LeaderBlockCommit");
@@ -2836,6 +2838,74 @@ mod tests {
     use crate::tests::bitcoin_regtest::BitcoinCoreController;
     use crate::Keychain;
 
+    mod utils {
+        use super::*;
+
+        pub fn create_config() -> Config {
+            let mut config = Config::default();
+            config.burnchain.magic_bytes = "T3".as_bytes().into();
+            config.burnchain.username = Some(String::from("user"));
+            config.burnchain.password = Some(String::from("12345"));
+            // overriding default "0.0.0.0" because doesn't play nicely on Windows.
+            config.burnchain.peer_host = String::from("127.0.0.1");
+            config
+        }
+
+        pub fn create_keychain() -> Keychain {
+            create_keychain_with_seed(1)
+        }
+
+        pub fn create_keychain_with_seed(value: u8) -> Keychain {
+            let seed = vec![value; 4];
+            let keychain = Keychain::default(seed);
+            keychain
+        }
+
+        pub fn create_miner1_pubkey() -> Secp256k1PublicKey {
+            create_keychain_with_seed(1).get_pub_key()
+        }
+
+        pub fn create_miner2_pubkey() -> Secp256k1PublicKey {
+            create_keychain_with_seed(2).get_pub_key()
+        }
+
+        pub fn create_commit_op() -> LeaderBlockCommitOp {
+            LeaderBlockCommitOp {
+                block_header_hash: BlockHeaderHash::from_hex(
+                    "e88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32af",
+                )
+                .unwrap(),
+                new_seed: VRFSeed::from_hex(
+                    "d5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375",
+                )
+                .unwrap(),
+                parent_block_ptr: 2211, // 0x000008a3
+                parent_vtxindex: 1,     // 0x0001
+                key_block_ptr: 1432,    // 0x00000598
+                key_vtxindex: 1,        // 0x0001
+                memo: vec![11],         // 0x5a >> 3
+
+                burn_fee: 110_000,      //relevant for fee calculation when sending the tx
+                input: (Txid([0x00; 32]), 0),
+                burn_parent_modulus: 2, // 0x5a & 0b111
+
+                apparent_sender: BurnchainSigner("mgbpit8FvkVJ9kuXY8QSM5P7eibnhcEMBk".to_string()),
+                commit_outs: vec![
+                    PoxAddress::Standard(StacksAddress::burn_address(false), None),
+                    PoxAddress::Standard(StacksAddress::burn_address(false), None),
+                ],
+
+                treatment: vec![],
+                sunset_burn: 5_500,     //relevant for fee calculation when sending the tx
+
+                txid: Txid([0x00; 32]),
+                vtxindex: 0,
+                block_height: 2212,
+                burn_header_hash: BurnchainHeaderHash([0x01; 32]),
+            }
+        }
+    }
+
     #[test]
     fn test_get_satoshis_per_byte() {
         let dir = temp_dir();
@@ -3011,22 +3081,19 @@ mod tests {
     }
 
     #[test]
-    fn test_create_wallet_from_empty_name_default() {
-        let mut config = Config::default();
-        config.burnchain.magic_bytes = "T3".as_bytes().into();
-        config.burnchain.username = Some(String::from("user"));
-        config.burnchain.password = Some(String::from("12345"));
-        config.burnchain.peer_host = String::from("127.0.0.1");
+    fn test_create_wallet_from_default_empty_name() {
+        let config = utils::create_config();
 
         let mut btcd_controller = BitcoinCoreController::new(config.clone());
         btcd_controller
             .start_bitcoind()
             .expect("bitcoind should be started!");
 
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+
         let wallets = BitcoinRPCRequest::list_wallets(&config).unwrap();
         assert_eq!(0, wallets.len());
 
-        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller
             .create_wallet_if_dne()
             .expect("Wallet should now exists!");
@@ -3037,17 +3104,9 @@ mod tests {
     }
 
     #[test]
-    fn test_get_all_utxos_with_one_confirmed() {
-        let miner_seed = vec![1, 1, 1, 1];
-        let keychain = Keychain::default(miner_seed.clone());
-        let miner_pubkey = keychain.get_pub_key();
-
-        let mut config = Config::default();
-        config.burnchain.magic_bytes = "T3".as_bytes().into();
-        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
-        config.burnchain.username = Some(String::from("user"));
-        config.burnchain.password = Some(String::from("12345"));
-        config.burnchain.peer_host = String::from("127.0.0.1");
+    fn test_create_wallet_from_custom_name() {
+        let mut config = utils::create_config();
+        config.burnchain.wallet_name = String::from("mywallet");
 
         let mut btcd_controller = BitcoinCoreController::new(config.clone());
         btcd_controller
@@ -3055,27 +3114,75 @@ mod tests {
             .expect("bitcoind should be started!");
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
-        btc_controller.bootstrap_chain(101);
 
+        btc_controller
+            .create_wallet_if_dne()
+            .expect("Wallet should now exists!");
+
+        let wallets = BitcoinRPCRequest::list_wallets(&config).unwrap();
+        assert_eq!(1, wallets.len());
+        assert_eq!("mywallet".to_owned(), wallets[0]);
+    }
+
+    #[test]
+    fn test_get_all_utxos_with_confirmation() {
+        let miner_pubkey = utils::create_miner1_pubkey();
+
+        let mut config = utils::create_config();
+        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+        
+        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        
+        btc_controller.bootstrap_chain(100);
+        let utxos = btc_controller.get_all_utxos(&miner_pubkey);
+        assert_eq!(0, utxos.len());
+
+        btc_controller.build_next_block(1);
         let utxos = btc_controller.get_all_utxos(&miner_pubkey);
         assert_eq!(1, utxos.len());
-        let utxo = &utxos[0];
-        assert_eq!(101, utxo.confirmations);
-        assert_eq!(5000000000, utxo.amount);
+        assert_eq!(101, utxos[0].confirmations);
+        assert_eq!(5_000_000_000, utxos[0].amount);
+
+        btc_controller.build_next_block(1);
+        let utxos = btc_controller.get_all_utxos(&miner_pubkey);
+        assert_eq!(2, utxos.len());
+        assert_eq!(101, utxos[0].confirmations);
+        assert_eq!(5_000_000_000, utxos[0].amount);
+        assert_eq!(102, utxos[1].confirmations);
+        assert_eq!(5_000_000_000, utxos[1].amount);
+    }
+
+    #[test]
+    fn test_get_all_utxos_empty_for_other_pubkey() {
+        let miner_pubkey = utils::create_miner1_pubkey();
+        let other_pubkey = utils::create_miner2_pubkey();
+
+        let mut config = utils::create_config();
+        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+        
+        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller.bootstrap_chain(101); // one utxo exists
+        
+        let utxos = btc_controller.get_all_utxos(&other_pubkey);
+        assert_eq!(0, utxos.len());
     }
 
     #[test]
     fn test_get_utxos_ok() {
-        let miner_seed = vec![1, 1, 1, 1];
-        let keychain = Keychain::default(miner_seed.clone());
-        let miner_pubkey = keychain.get_pub_key();
+        let miner_pubkey = utils::create_miner1_pubkey();
 
-        let mut config = Config::default();
-        config.burnchain.magic_bytes = "T3".as_bytes().into();
+        let mut config = utils::create_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
-        config.burnchain.username = Some(String::from("user"));
-        config.burnchain.password = Some(String::from("12345"));
-        config.burnchain.peer_host = String::from("127.0.0.1");
 
         let mut btcd_controller = BitcoinCoreController::new(config.clone());
         btcd_controller
@@ -3085,27 +3192,20 @@ mod tests {
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller.bootstrap_chain(101);
 
-        let utxos = btc_controller.get_utxos(StacksEpochId::Epoch31, &miner_pubkey, 10000, None, 0);
+        let utxos = btc_controller.get_utxos(StacksEpochId::Epoch31, &miner_pubkey, 1, None, 0);
 
         let uxto_set = utxos.expect("Shouldn't be None!");
         assert_eq!(1, uxto_set.num_utxos());
-        assert_eq!(5000000000, uxto_set.total_available());
-        let utxo = &uxto_set.utxos[0];
-        assert_eq!(101, utxo.confirmations);
-        assert_eq!(5000000000, utxo.amount);
+        assert_eq!(5_000_000_000, uxto_set.total_available());
+        assert_eq!(101, uxto_set.utxos[0].confirmations);
+        assert_eq!(5_000_000_000, uxto_set.utxos[0].amount);
     }
 
     #[test]
-    fn test_get_utxos_fails_due_to_filtering() {
-        let miner_seed = vec![1, 1, 1, 1];
-        let keychain = Keychain::default(miner_seed.clone());
-        let miner_pubkey = keychain.get_pub_key();
+    fn test_get_utxos_none_due_to_filter_total_required() {
+        let miner_pubkey = utils::create_miner1_pubkey();
 
-        let mut config = Config::default();
-        config.burnchain.magic_bytes = "T3".as_bytes().into();
-        config.burnchain.username = Some(String::from("user"));
-        config.burnchain.password = Some(String::from("12345"));
-        config.burnchain.peer_host = String::from("127.0.0.1");
+        let mut config = utils::create_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
         let mut btcd_controller = BitcoinCoreController::new(config.clone());
@@ -3114,23 +3214,39 @@ mod tests {
             .expect("bitcoind should be started!");
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
-        btc_controller.bootstrap_chain(101);
+        btc_controller.bootstrap_chain(101); // one utxo exists
 
-        let too_much_required = 1000000000000000000_u64;
+        let too_much_required = 1_000_000_000_000_000_000;
         let utxos = btc_controller.get_utxos(
             StacksEpochId::Epoch31,
             &miner_pubkey,
-            0,
+            too_much_required,
             None,
             0,
         );
         assert!(utxos.is_none(), "None because too much required");
+    }
 
-        let other_pubkey = Secp256k1PublicKey::from_hex("04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77").unwrap();
+    #[test]
+    fn test_get_utxos_none_due_to_filter_pubkey() {
+        let miner_pubkey = utils::create_miner1_pubkey();
+
+        let mut config = utils::create_config();
+        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller.bootstrap_chain(101); // one utxo exists
+
+        let other_pubkey = utils::create_miner2_pubkey();
         let utxos = btc_controller.get_utxos(
             StacksEpochId::Epoch31,
             &other_pubkey,
-            too_much_required,
+            1,
             None,
             0,
         );
@@ -3138,6 +3254,22 @@ mod tests {
             utxos.is_none(),
             "None because utxos for other pubkey don't exist"
         );
+    }
+
+    #[test]
+    fn test_get_utxos_none_due_to_filter_utxo_exclusion() {
+        let miner_pubkey = utils::create_miner1_pubkey();
+
+        let mut config = utils::create_config();
+        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller.bootstrap_chain(101); // one utxo exists
 
         let existent_utxo = btc_controller
             .get_utxos(StacksEpochId::Epoch31, &miner_pubkey, 0, None, 0)
@@ -3153,28 +3285,15 @@ mod tests {
             utxos.is_none(),
             "None because filtering exclude existent utxo set"
         );
-
-        //NOTE: Operation stall if burn block at block_height doesn't exist
-        /*
-        let future_block_height = 1000;
-        let utxos = btc_controller.get_utxos(StacksEpochId::Epoch31, &miner_pubkey, 0, None, future_block_height);
-        assert!(utxos.is_none(), "None because utxos for future block height don't exist");
-        */
     }
 
     #[test]
-    fn test_build_leader_block_commit_tx_ok_with_new_block_commit() {
-        let miner_seed = vec![1, 1, 1, 1];
-        let keychain = Keychain::default(miner_seed.clone());
+    fn test_build_leader_block_commit_tx_ok_with_new_commit_op() {
+        let keychain = utils::create_keychain();
         let miner_pubkey = keychain.get_pub_key();
         let mut signer = keychain.generate_op_signer();
-        let burn_signer = keychain.get_burnchain_signer();
 
-        let mut config = Config::default();
-        config.burnchain.magic_bytes = "T3".as_bytes().into();
-        config.burnchain.username = Some(String::from("user"));
-        config.burnchain.password = Some(String::from("12345"));
-        config.burnchain.peer_host = String::from("127.0.0.1");
+        let mut config = utils::create_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
         
         let mut btcd_controller = BitcoinCoreController::new(config.clone());
@@ -3183,44 +3302,12 @@ mod tests {
             .expect("bitcoind should be started!");
 
         let mut btc_controller = BitcoinRegtestController::new(config, None);
-        btc_controller.bootstrap_chain(101);
         btc_controller
             .connect_dbs()
-            .expect("Cannot initialize dbs!");
+            .expect("Dbs initialization required!");
+        btc_controller.bootstrap_chain(101);
 
-        let commit_op = LeaderBlockCommitOp {
-            block_header_hash: BlockHeaderHash::from_hex(
-                "e88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32af",
-            )
-            .unwrap(),
-            new_seed: VRFSeed::from_hex(
-                "d5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375",
-            )
-            .unwrap(),
-            parent_block_ptr: 2211, // 0x000008a3
-            parent_vtxindex: 1,     // 0x0001
-            key_block_ptr: 1432,    // 0x00000598
-            key_vtxindex: 1,        // 0x0001
-            memo: vec![11],         // 0x5a >> 3
-
-            burn_fee: 0,
-            input: (Txid([0x00; 32]), 0),
-            burn_parent_modulus: 2, // 0x5a & 0b111
-
-            apparent_sender: burn_signer,
-            commit_outs: vec![
-                PoxAddress::Standard(StacksAddress::burn_address(false), None),
-                PoxAddress::Standard(StacksAddress::burn_address(false), None),
-            ],
-
-            treatment: vec![],
-            sunset_burn: 0,
-
-            txid: Txid([0x00; 32]),
-            vtxindex: 0,
-            block_height: 2212,
-            burn_header_hash: BurnchainHeaderHash([0x01; 32]),
-        };
+        let commit_op = utils::create_commit_op();
 
         let tx = btc_controller
             .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op, &mut signer, 0)
@@ -3233,69 +3320,32 @@ mod tests {
     }
 
     #[test]
-    fn test_build_leader_block_commit_tx_fails_resubmitting_same_block_commit() {
-        let miner_seed = vec![1, 1, 1, 1];
-        let keychain = Keychain::default(miner_seed.clone());
+    fn test_build_leader_block_commit_tx_fails_resubmitting_same_commit_op_while_prev_not_confirmed() {
+        let keychain = utils::create_keychain();
         let miner_pubkey = keychain.get_pub_key();
         let mut signer = keychain.generate_op_signer();
-        let burn_signer = keychain.get_burnchain_signer();
 
-        let mut config = Config::default();
-        config.burnchain.magic_bytes = "T3".as_bytes().into();
-        config.burnchain.username = Some(String::from("user"));
-        config.burnchain.password = Some(String::from("12345"));
-        config.burnchain.peer_host = String::from("127.0.0.1");
+        let mut config = utils::create_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
-
+        
         let mut btcd_controller = BitcoinCoreController::new(config.clone());
         btcd_controller
             .start_bitcoind()
             .expect("bitcoind should be started!");
 
         let mut btc_controller = BitcoinRegtestController::new(config, None);
-        btc_controller.bootstrap_chain(101);
         btc_controller
             .connect_dbs()
-            .expect("Cannot initialize dbs!");
+            .expect("Dbs initialization required!");
+        btc_controller.bootstrap_chain(101);
 
-        let commit_op = LeaderBlockCommitOp {
-            block_header_hash: BlockHeaderHash::from_hex(
-                "e88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32af",
-            )
-            .unwrap(),
-            new_seed: VRFSeed::from_hex(
-                "d5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375",
-            )
-            .unwrap(),
-            parent_block_ptr: 2211, // 0x000008a3
-            parent_vtxindex: 1,     // 0x0001
-            key_block_ptr: 1432,    // 0x00000598
-            key_vtxindex: 1,        // 0x0001
-            memo: vec![11],         // 0x5a >> 3
-
-            burn_fee: 0,
-            input: (Txid([0x00; 32]), 0),
-            burn_parent_modulus: 2, // 0x5a & 0b111
-
-            apparent_sender: burn_signer,
-            commit_outs: vec![
-                PoxAddress::Standard(StacksAddress::burn_address(false), None),
-                PoxAddress::Standard(StacksAddress::burn_address(false), None),
-            ],
-
-            treatment: vec![],
-            sunset_burn: 0,
-
-            txid: Txid([0x00; 32]),
-            vtxindex: 0,
-            block_height: 2212,
-            burn_header_hash: BurnchainHeaderHash([0x01; 32]),
-        };
+        let commit_op = utils::create_commit_op();
 
         let _first_tx_ok = btc_controller
             .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut signer, 0)
-            .expect("Build leader block commit should work");
+            .expect("At first, building leader block commit should work");
 
+        // re-submitting same commit while previous it not confirmed by the burn
         let resubmit = btc_controller.build_leader_block_commit_tx(
             StacksEpochId::Epoch31,
             commit_op,
@@ -3311,73 +3361,132 @@ mod tests {
     }
 
     #[test]
-    fn test_build_leader_block_commit_tx_ok_rbf_block_commit() {
-        let miner_seed = vec![1, 1, 1, 1];
-        let keychain = Keychain::default(miner_seed.clone());
+    fn test_build_leader_block_commit_tx_fails_resubmitting_same_commit_op_while_prev_is_confirmed() {
+        let keychain = utils::create_keychain();
         let miner_pubkey = keychain.get_pub_key();
         let mut signer = keychain.generate_op_signer();
-        let burn_signer = keychain.get_burnchain_signer();
 
-        let mut config = Config::default();
-        config.burnchain.magic_bytes = "T3".as_bytes().into();
-        config.burnchain.username = Some(String::from("user"));
-        config.burnchain.password = Some(String::from("12345"));
-        config.burnchain.peer_host = String::from("127.0.0.1");
+        let mut config = utils::create_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
-
+        
         let mut btcd_controller = BitcoinCoreController::new(config.clone());
         btcd_controller
             .start_bitcoind()
             .expect("bitcoind should be started!");
 
         let mut btc_controller = BitcoinRegtestController::new(config, None);
-        btc_controller.bootstrap_chain(101);
         btc_controller
             .connect_dbs()
-            .expect("Cannot initialize dbs!");
+            .expect("Dbs initialization required!");
+        btc_controller.bootstrap_chain(101);
 
-        let mut commit_op = LeaderBlockCommitOp {
-            block_header_hash: BlockHeaderHash::from_hex(
-                "e88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32af",
-            )
-            .unwrap(),
-            new_seed: VRFSeed::from_hex(
-                "d5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375",
-            )
-            .unwrap(),
-            parent_block_ptr: 2211, // 0x000008a3
-            parent_vtxindex: 1,     // 0x0001
-            key_block_ptr: 1432,    // 0x00000598
-            key_vtxindex: 1,        // 0x0001
-            memo: vec![11],         // 0x5a >> 3
+        let commit_op = utils::create_commit_op();
 
-            burn_fee: 0,
-            input: (Txid([0x00; 32]), 0),
-            burn_parent_modulus: 2, // 0x5a & 0b111
-
-            apparent_sender: burn_signer,
-            commit_outs: vec![
-                PoxAddress::Standard(StacksAddress::burn_address(false), None),
-                PoxAddress::Standard(StacksAddress::burn_address(false), None),
-            ],
-
-            treatment: vec![],
-            sunset_burn: 0,
-
-            txid: Txid([0x00; 32]),
-            vtxindex: 0,
-            block_height: 2212,
-            burn_header_hash: BurnchainHeaderHash([0x01; 32]),
-        };
-
-        let _first_tx_ok = btc_controller
+        let first_tx_ok = btc_controller
             .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut signer, 0)
-            .expect("Build leader block commit should work");
+            .expect("At first, building leader block commit should work");
+
+        let ser = SerializedTx::new(first_tx_ok);
+        btc_controller.send_transaction(ser).expect("Tx should be sent to the burnchain!");
+        btc_controller.build_next_block(1); // Now tx is confirmed
+
+        // re-submitting same commit while previous it is confirmed by the burnchain
+        let resubmit = btc_controller.build_leader_block_commit_tx(
+            StacksEpochId::Epoch31,
+            commit_op,
+            &mut signer,
+            0,
+        );
+
+        assert!(resubmit.is_err());
+        assert_eq!(
+            BurnchainControllerError::IdenticalOperation,
+            resubmit.unwrap_err()
+        );
+    }
+
+    #[test]
+    fn test_build_leader_block_commit_tx_ok_rbf_while_prev_is_confirmed() {
+        let keychain = utils::create_keychain();
+        let miner_pubkey = keychain.get_pub_key();
+        let mut signer = keychain.generate_op_signer();
+
+        let mut config = utils::create_config();
+        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+        
+        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let mut btc_controller = BitcoinRegtestController::new(config, None);
+        btc_controller
+            .connect_dbs()
+            .expect("Dbs initialization required!");
+        btc_controller.bootstrap_chain(101);
+
+        let mut commit_op = utils::create_commit_op();
+
+        let first_tx_ok = btc_controller
+            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut signer, 0)
+            .expect("At first, building leader block commit should work");
+
+        let ser = SerializedTx::new(first_tx_ok);
+        btc_controller.send_transaction(ser).expect("Tx should be sent to the burnchain!");
+        btc_controller.build_next_block(1); // Now tx is confirmed
 
         //re-gen signer othewise fails because it will be disposed during previous commit tx.
         let mut signer = keychain.generate_op_signer();
         //small change to the commit op payload
-        commit_op.burn_fee = 2;
+        commit_op.burn_fee += 10;
+
+        let rbf_tx = btc_controller
+            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op, &mut signer, 0)
+            .expect("Commit tx should be rbf-ed");
+
+        assert_eq!(1, rbf_tx.version);
+        assert_eq!(0, rbf_tx.lock_time);
+        assert_eq!(1, rbf_tx.input.len());
+        assert_eq!(4, rbf_tx.output.len());
+
+        //let ong= btc_controller.ongoing_block_commit.unwrap();
+        //assert_eq!(2, ong.txids.len());
+    }
+
+    #[test]
+    fn test_build_leader_block_commit_tx_ok_rbf_while_prev_not_confirmed() {
+        let keychain = utils::create_keychain();
+        let miner_pubkey = keychain.get_pub_key();
+        let mut signer = keychain.generate_op_signer();
+
+        let mut config = utils::create_config();
+        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+        
+        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let mut btc_controller = BitcoinRegtestController::new(config, None);
+        btc_controller
+            .connect_dbs()
+            .expect("Dbs initialization required!");
+        btc_controller.bootstrap_chain(101);
+
+        let mut commit_op = utils::create_commit_op();
+
+        let first_tx_ok = btc_controller
+            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut signer, 0)
+            .expect("At first, building leader block commit should work");
+
+        let ser = SerializedTx::new(first_tx_ok);
+        btc_controller.send_transaction(ser).expect("Tx should be sent to the burnchain!");
+        btc_controller.build_next_block(1); // Now tx is confirmed
+
+        //re-gen signer othewise fails because it will be disposed during previous commit tx.
+        let mut signer = keychain.generate_op_signer();
+        //small change to the commit op payload
+        commit_op.burn_fee += 10;
 
         let rbf_tx = btc_controller
             .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op, &mut signer, 0)
@@ -3388,4 +3497,6 @@ mod tests {
         assert_eq!(1, rbf_tx.input.len());
         assert_eq!(4, rbf_tx.output.len());
     }
+
+    
 }
