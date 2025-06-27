@@ -105,8 +105,8 @@ use crate::event_dispatcher::{
     EventObserver, MinedNakamotoBlockEvent, TEST_SKIP_BLOCK_ANNOUNCEMENT,
 };
 use crate::nakamoto_node::miner::{
-    TEST_BLOCK_ANNOUNCE_STALL, TEST_BLOCK_PUSH_SKIP, TEST_BROADCAST_PROPOSAL_STALL,
-    TEST_MINE_STALL, TEST_P2P_BROADCAST_STALL,
+    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_MINE_STALL,
+    TEST_P2P_BROADCAST_STALL,
 };
 use crate::nakamoto_node::stackerdb_listener::TEST_IGNORE_SIGNERS;
 use crate::neon::{Counters, RunLoopCounter};
@@ -17373,8 +17373,6 @@ fn bitcoin_reorg_extended_tenure() {
         .unwrap();
 
     miners.wait_for_chains(60);
-
-    thread::sleep(Duration::from_secs(5));
 
     // stall p2p broadcast and signer block announcements
     //  so that we can ensure all the signers approve the proposal
