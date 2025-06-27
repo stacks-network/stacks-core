@@ -23,7 +23,6 @@ use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::Address;
 
 use super::{test_rpc, test_rpc_with_config};
-use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
