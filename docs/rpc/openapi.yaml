@@ -951,6 +951,10 @@ paths:
                   $ref: ./api/contract/post-call-read-only-fn-success.example.json
                 fail:
                   $ref: ./api/contract/post-call-read-only-fn-fail.example.json
+        "400":
+          description: Endpoint not enabled.
+        "401":
+          description: Unauthorized.
       parameters:
         - name: contract_address
           in: path
