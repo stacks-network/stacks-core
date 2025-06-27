@@ -2497,6 +2497,12 @@ impl Relayer {
                 let tx = self.stacker_dbs.tx_begin(config.clone())?;
                 for sync_result in sync_results.into_iter() {
                     for chunk in sync_result.chunks_to_store.into_iter() {
+                        if let Some(event_list) = all_events.get_mut(&sync_result.contract_id) {
+                            event_list.push(chunk.clone());
+                        } else {
+                            all_events.insert(sync_result.contract_id.clone(), vec![chunk.clone()]);
+                        }
+
                         let md = chunk.get_slot_metadata();
                         if let Err(e) = tx.try_replace_chunk(&sc, &md, &chunk.data) {
                             if matches!(e, Error::StaleChunk { .. }) {
@@ -2525,11 +2531,6 @@ impl Relayer {
                             debug!("Stored chunk"; "stackerdb_contract_id" => %sync_result.contract_id, "slot_id" => md.slot_id, "slot_version" => md.slot_version);
                         }
 
-                        if let Some(event_list) = all_events.get_mut(&sync_result.contract_id) {
-                            event_list.push(chunk.clone());
-                        } else {
-                            all_events.insert(sync_result.contract_id.clone(), vec![chunk.clone()]);
-                        }
                         let msg = StacksMessageType::StackerDBPushChunk(StackerDBPushChunkData {
                             contract_id: sc.clone(),
                             rc_consensus_hash: rc_consensus_hash.clone(),
