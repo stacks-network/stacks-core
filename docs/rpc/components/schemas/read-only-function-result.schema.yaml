@@ -1,0 +1,26 @@
+description: The result of a read-only function call.
+oneOf:
+  - type: object
+    description: Successful read-only function call result
+    required:
+      - okay
+      - result
+    properties:
+      okay:
+        type: boolean
+        enum: [true]
+      result:
+        type: string
+        description: Hex-encoded Clarity value of the successful result.
+  - type: object
+    description: Failed read-only function call result
+    required:
+      - okay
+      - cause
+    properties:
+      okay:
+        type: boolean
+        enum: [false]
+      cause:
+        type: string
+        description: A string representing the cause of the error.

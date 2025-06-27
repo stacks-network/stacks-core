@@ -1,0 +1,71 @@
+description: Information about the node's neighbor peers in the network.
+type: object
+required:
+  - bootstrap
+  - sample
+  - inbound
+  - outbound
+properties:
+  bootstrap:
+    type: array
+    description: List of bootstrap peers known to the node.
+    items:
+      $ref: '#/$defs/RPCNeighbor'
+  sample:
+    type: array
+    description: List of a sample of gossiped peers.
+    items:
+      $ref: '#/$defs/RPCNeighbor'
+  inbound:
+    type: array
+    description: List of inbound peer connections.
+    items:
+      $ref: '#/$defs/RPCNeighbor'
+  outbound:
+    type: array
+    description: List of outbound peer connections.
+    items:
+      $ref: '#/$defs/RPCNeighbor'
+
+$defs:
+  RPCNeighbor:
+    type: object
+    description: A peer in the network
+    required:
+      - network_id
+      - peer_version
+      - ip
+      - port
+      - public_key_hash
+      - authenticated
+    properties:
+      network_id:
+        type: integer
+        description: The network ID of the peer.
+      peer_version:
+        type: integer
+        description: The peer version.
+      ip:
+        type: string
+        description: The IP address of the peer.
+        format: ip
+      port:
+        type: integer
+        description: The port number of the peer.
+      public_key_hash:
+        type: string
+        description: The HASH160 of the peer's public key.
+        pattern: "^[0-9a-f]{40}$"
+      authenticated:
+        type: boolean
+        description: Whether the peer connection is authenticated.
+      stackerdbs:
+        type: ["array", "null"]
+        description: List of StackerDBs the peer supports, represented as qualified contract identifiers.
+        items:
+          type: string
+          example: "SP000000000000000000002Q6VF78.my-stacker-db"
+      age:
+        type: ["integer", "null"]
+        format: int64
+        description: The age of the peer connection in seconds.

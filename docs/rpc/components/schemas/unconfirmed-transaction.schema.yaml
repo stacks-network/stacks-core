@@ -1,0 +1,20 @@
+type: object
+properties:
+  tx:
+    type: string
+    description: Hex-encoded transaction data
+  status:
+    oneOf:
+      - type: object
+        properties:
+          Microblock:
+            type: object
+            properties:
+              block_hash:
+                type: string
+                description: Block hash containing the microblock
+              seq:
+                type: integer
+                description: Microblock sequence number
+      - type: string
+        enum: ["Mempool"]

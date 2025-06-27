@@ -1,0 +1,29 @@
+description: Describes a transaction submission error response
+type: object
+required:
+  - error
+  - reason
+  - reason_data
+  - txid
+properties:
+  error:
+    type: string
+    description: The error
+  reason:
+    type: string
+    description: The reason for the error
+  reason_data:
+    type: object
+    description: More details about the reason
+    properties:
+      actual:
+        type: integer
+      expected:
+        type: integer
+      is_origin:
+        type: boolean
+      principal:
+        type: string
+  txid:
+    type: string
+    description: The relevant transaction id

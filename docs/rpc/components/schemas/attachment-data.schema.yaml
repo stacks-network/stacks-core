@@ -1,0 +1,8 @@
+type: object
+properties:
+  attachment:
+    type: string
+    format: byte
+    description: The attachment data, hex-encoded.
+required:
+  - attachment

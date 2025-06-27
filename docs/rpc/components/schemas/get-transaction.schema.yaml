@@ -1,0 +1,16 @@
+type: object
+required:
+  - index_block_hash
+  - tx
+  - result
+properties:
+  index_block_hash:
+    type: string
+    description: Block hash where the transaction was included
+    pattern: "^[0-9a-f]{64}$"
+  tx:
+    type: string
+    description: Hex-encoded transaction
+  result:
+    type: string
+    description: Transaction execution result (Clarity value)

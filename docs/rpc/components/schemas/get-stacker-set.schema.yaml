@@ -1,0 +1,59 @@
+type: object
+properties:
+  stacker_set:
+    type: object
+    required:
+      - rewarded_addresses
+      - start_cycle_state
+    properties:
+      rewarded_addresses:
+        type: array
+        description: Reward addresses that will receive PoX rewards for the cycle.
+        items:
+          type: object
+          description: PoX address object with serialization details (see SIP-007).
+          properties:
+            Standard:
+              type: array
+              description: Standard address representation.
+              items:
+                oneOf:
+                  - type: object
+                    properties:
+                      bytes:
+                        type: string
+                        description: Hex-encoded 20-byte address payload
+                      version:
+                        type: integer
+                        description: Address version byte
+                  - type: string
+                    description: Serialization method (e.g., "SerializeP2PKH")
+          additionalProperties: true
+      signers:
+        type: array
+        description: Optional signer set for PoX-4 reward cycles.
+        items:
+          type: object
+          properties:
+            signing_key:
+              type: string
+              description: Hex-encoded compressed Secp256k1 public key (33 bytes)
+            weight:
+              type: integer
+              description: Signer voting weight (number of slots)
+            stacked_amt:
+              type: integer
+              format: int64
+              description: Amount stacked by signer (in microSTX)
+      start_cycle_state:
+        type: object
+        properties:
+          missed_reward_slots:
+            type: array
+            description: Principals that missed reward slots at cycle start.
+            items:
+              type: object
+      pox_ustx_threshold:
+        type: integer
+        format: int64
+        description: Minimum STX amount required to qualify for stacking (optional)

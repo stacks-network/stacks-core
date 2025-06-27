@@ -1,0 +1,13 @@
+description: Get Response for Block Proposal
+type: object
+additionalProperties: false
+required:
+  - result
+  - message
+properties:
+  result:
+    type: string
+    enum: [Error, Accepted]
+  message:
+    type: string
+    description: A message describing the result or error message.

@@ -1,0 +1,27 @@
+description: GET request for account data
+type: object
+additionalProperties: false
+required:
+  - balance
+  - locked
+  - unlock_height
+  - nonce
+properties:
+  balance:
+    type: string
+  locked:
+    type: string
+  unlock_height:
+    type: integer
+    minimum: 0
+    description: Block height when locked balance unlocks (64-bit unsigned integer)
+  nonce:
+    type: integer
+    minimum: 0
+    description: Account transaction nonce (64-bit unsigned integer)
+  balance_proof:
+    type: string
+    description: Merkle proof for the balance value
+  nonce_proof:
+    type: string
+    description: Merkle proof for the nonce value

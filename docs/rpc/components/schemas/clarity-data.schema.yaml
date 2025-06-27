@@ -1,0 +1,13 @@
+description: Response to a GET request for Clarity Data/MARF/MapEntry value
+type: object
+required:
+  - data
+properties:
+  data:
+    type: string
+    description: Hex-encoded 0x prefixed string of the MARF value
+    pattern: "^0x[0-9a-f]+$"
+  proof:
+    type: string
+    description: Hex-encoded 0x prefixed string of the Merkle proof for the data
+    pattern: "^0x[0-9a-f]+$"

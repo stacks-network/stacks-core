@@ -1,0 +1,22 @@
+type: array
+description: JSON array returned by /v2/headers/{quantity}. Each entry is an ExtendedStacksHeader.
+items:
+  type: object
+  required:
+    - consensus_hash
+    - header
+    - parent_block_id
+  properties:
+    consensus_hash:
+      type: string
+      description: 20-byte burn-chain consensus hash (hex, no 0x prefix)
+      pattern: "^[0-9a-f]{40}$"
+    header:
+      type: string
+      description: Hex-encoded SIP-003 serialization of the Stacks block header
+      pattern: "^[0-9a-f]+$"
+    parent_block_id:
+      type: string
+      description: 32-byte index-block ID of the parent Stacks block (hex)
+      pattern: "^[0-9a-f]{64}$"
+  additionalProperties: false

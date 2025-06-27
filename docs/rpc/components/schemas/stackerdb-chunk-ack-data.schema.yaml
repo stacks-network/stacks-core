@@ -1,0 +1,33 @@
+type: object
+required:
+  - accepted
+properties:
+  accepted:
+    type: boolean
+    description: Whether the chunk was accepted
+  reason:
+    type: ["string", "null"]
+    description: JSON-encoded reason for rejection (only present when accepted is false)
+  metadata:
+    type: ["object", "null"]
+    description: Slot metadata (present on successful acceptance)
+    properties:
+      slot_id:
+        type: integer
+        minimum: 0
+        description: Slot identifier
+      slot_version:
+        type: integer
+        minimum: 0
+        description: Slot version
+      data_hash:
+        type: string
+        description: Hex-encoded SHA512/256 hash of the data
+        pattern: "^[0-9a-f]{64}$"
+      signature:
+        type: string
+        description: Hex-encoded signature
+        pattern: "^[0-9a-f]{130}$"
+  code:
+    type: ["integer", "null"]
+    description: Error code (only present when accepted is false)

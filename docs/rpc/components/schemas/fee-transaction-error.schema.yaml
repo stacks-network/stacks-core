@@ -1,0 +1,28 @@
+type: object
+description: |
+  Returned when the node cannot calculate a fee estimate.
+required:
+  - error
+  - reason
+properties:
+  error:
+    type: string
+    description: Human-readable summary of the failure.
+    example: Estimation could not be performed
+  reason:
+    type: string
+    description: Machine-readable error code.
+    enum:
+      - DatabaseError
+      - NoEstimateAvailable
+  reason_data:
+    type: [object, "null"]
+    description: |
+      Optional structured details specific to `reason`.
+      For the current implementation it contains a `message` field,
+      but additional fields may be added in future.
+    properties:
+      message:
+        type: string
+        example: "SQLite error: table fees does not exist"
+    additionalProperties: true
