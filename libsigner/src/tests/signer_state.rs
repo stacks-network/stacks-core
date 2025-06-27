@@ -18,7 +18,6 @@ use clarity::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
 use clarity::util::hash::Hash160;
-use clarity::util::secp256k1::MessageSignature;
 
 use crate::v0::messages::{
     StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,

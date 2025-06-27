@@ -1,15 +1,17 @@
-use hashbrown::HashMap;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
 
 use crate::vm::ast::ASTRules;
-use crate::vm::errors::CheckErrors;
-use crate::vm::functions::principals::PrincipalConstructErrorCode;
-use crate::vm::types::TypeSignature::PrincipalType;
 use crate::vm::types::{
     ASCIIData, BuffData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
-    ResponseData, SequenceData, StandardPrincipalData, TupleData, TypeSignature, Value, BUFF_1,
-    BUFF_20,
+    SequenceData, StandardPrincipalData, TupleData, Value,
+};
+#[cfg(test)]
+use crate::vm::{
+    errors::CheckErrors,
+    functions::principals::PrincipalConstructErrorCode,
+    types::TypeSignature::PrincipalType,
+    types::{ResponseData, TypeSignature, BUFF_1, BUFF_20},
 };
 use crate::vm::{execute_with_parameters, ClarityVersion};
 

@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(unused_imports)]
 #![allow(dead_code)]
 
 use std::marker::PhantomData;
@@ -24,7 +23,6 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use clarity::codec::StacksMessageCodec;
 use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;
 

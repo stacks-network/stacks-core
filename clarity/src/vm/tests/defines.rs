@@ -18,14 +18,21 @@
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
+#[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::ast::build_ast;
-use crate::vm::ast::errors::{ParseError, ParseErrors};
-use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use crate::vm::errors::{CheckErrors, Error};
 use crate::vm::tests::test_clarity_versions;
-use crate::vm::types::{QualifiedContractIdentifier, TypeSignature, Value};
-use crate::vm::{execute, ClarityVersion};
+#[cfg(test)]
+use crate::vm::{
+    ast::{
+        build_ast,
+        errors::{ParseError, ParseErrors},
+    },
+    errors::RuntimeErrorType,
+    types::{QualifiedContractIdentifier, TypeSignature, Value},
+    {execute, ClarityVersion},
+};
 
 fn assert_eq_err(e1: CheckErrors, e2: Error) {
     let e1: Error = e1.into();
