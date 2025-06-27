@@ -47,10 +47,15 @@ use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 pub struct RPCFastCallReadOnlyRequestHandler {
     pub call_read_only_handler: RPCCallReadOnlyRequestHandler,
     read_only_max_execution_time: Duration,
+    pub auth: Option<String>,
 }
 
 impl RPCFastCallReadOnlyRequestHandler {
-    pub fn new(maximum_call_argument_size: u32, read_only_max_execution_time: Duration) -> Self {
+    pub fn new(
+        maximum_call_argument_size: u32,
+        read_only_max_execution_time: Duration,
+        auth: Option<String>,
+    ) -> Self {
         Self {
             call_read_only_handler: RPCCallReadOnlyRequestHandler::new(
                 maximum_call_argument_size,
@@ -63,6 +68,7 @@ impl RPCFastCallReadOnlyRequestHandler {
                 },
             ),
             read_only_max_execution_time,
+            auth,
         }
     }
 }
@@ -93,6 +99,17 @@ impl HttpRequest for RPCFastCallReadOnlyRequestHandler {
         query: Option<&str>,
         body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
+        // If no authorization is set, then the block proposal endpoint is not enabled
+        let Some(password) = &self.auth else {
+            return Err(Error::Http(400, "Bad Request.".into()));
+        };
+        let Some(auth_header) = preamble.headers.get("authorization") else {
+            return Err(Error::Http(401, "Unauthorized".into()));
+        };
+        if auth_header != password {
+            return Err(Error::Http(401, "Unauthorized".into()));
+        }
+
         let content_len = preamble.get_content_length();
         if !(content_len > 0
             && content_len < self.call_read_only_handler.maximum_call_argument_size)
@@ -336,15 +353,5 @@ impl StacksHttpRequest {
             ),
         )
         .expect("FATAL: failed to construct request from infallible data")
-    }
-}
-
-impl StacksHttpResponse {
-    pub fn decode_fast_call_readonly_response(self) -> Result<CallReadOnlyResponse, NetError> {
-        let contents = self.get_http_payload_ok()?;
-        let contents_json: serde_json::Value = contents.try_into()?;
-        let resp: CallReadOnlyResponse = serde_json::from_value(contents_json)
-            .map_err(|_e| NetError::DeserializeError("Failed to load from JSON".to_string()))?;
-        Ok(resp)
     }
 }

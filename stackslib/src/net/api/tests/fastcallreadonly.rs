@@ -36,7 +36,7 @@ fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
-    let request = StacksHttpRequest::new_fastcallreadonlyfunction(
+    let mut request = StacksHttpRequest::new_fastcallreadonlyfunction(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world-unconfirmed".try_into().unwrap(),
@@ -48,6 +48,10 @@ fn test_try_parse_request() {
         vec![],
         TipRequest::SpecificTip(StacksBlockId([0x22; 32])),
     );
+
+    // add the authorization header
+    request.add_header("authorization".into(), "password".into());
+
     assert_eq!(
         request.contents().tip_request(),
         TipRequest::SpecificTip(StacksBlockId([0x22; 32]))
@@ -58,8 +62,11 @@ fn test_try_parse_request() {
     debug!("Request:\n{}\n", std::str::from_utf8(&bytes).unwrap());
 
     let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
-    let mut handler =
-        fastcallreadonly::RPCFastCallReadOnlyRequestHandler::new(4096, Duration::from_secs(30));
+    let mut handler = fastcallreadonly::RPCFastCallReadOnlyRequestHandler::new(
+        4096,
+        Duration::from_secs(30),
+        Some("password".into()),
+    );
     let mut parsed_request = http
         .handle_try_parse_request(
             &mut handler,
@@ -89,8 +96,9 @@ fn test_try_parse_request() {
     assert_eq!(handler.call_read_only_handler.sponsor, None);
     assert_eq!(handler.call_read_only_handler.arguments, Some(vec![]));
 
-    // parsed request consumes headers that would not be in a constructed reqeuest
+    // parsed request consumes headers that would not be in a constructed request
     parsed_request.clear_headers();
+    parsed_request.add_header("authorization".into(), "password".into());
     let (preamble, contents) = parsed_request.destruct();
 
     assert_eq!(&preamble, request.preamble());
@@ -111,7 +119,7 @@ fn test_try_make_response() {
     let mut requests = vec![];
 
     // query confirmed tip
-    let request = StacksHttpRequest::new_fastcallreadonlyfunction(
+    let mut request = StacksHttpRequest::new_fastcallreadonlyfunction(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world".try_into().unwrap(),
@@ -123,10 +131,12 @@ fn test_try_make_response() {
         vec![],
         TipRequest::UseLatestAnchoredTip,
     );
+    request.add_header("authorization".into(), "password".into());
+
     requests.push(request);
 
     // query unconfirmed tip
-    let request = StacksHttpRequest::new_fastcallreadonlyfunction(
+    let mut request = StacksHttpRequest::new_fastcallreadonlyfunction(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world-unconfirmed".try_into().unwrap(),
@@ -138,10 +148,12 @@ fn test_try_make_response() {
         vec![],
         TipRequest::UseLatestUnconfirmedTip,
     );
+    request.add_header("authorization".into(), "password".into());
+
     requests.push(request);
 
     // query non-existent function
-    let request = StacksHttpRequest::new_fastcallreadonlyfunction(
+    let mut request = StacksHttpRequest::new_fastcallreadonlyfunction(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world-unconfirmed".try_into().unwrap(),
@@ -153,10 +165,12 @@ fn test_try_make_response() {
         vec![],
         TipRequest::UseLatestUnconfirmedTip,
     );
+    request.add_header("authorization".into(), "password".into());
+
     requests.push(request);
 
     // query non-existent contract
-    let request = StacksHttpRequest::new_fastcallreadonlyfunction(
+    let mut request = StacksHttpRequest::new_fastcallreadonlyfunction(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "does-not-exist".try_into().unwrap(),
@@ -168,10 +182,12 @@ fn test_try_make_response() {
         vec![],
         TipRequest::UseLatestUnconfirmedTip,
     );
+    request.add_header("authorization".into(), "password".into());
+
     requests.push(request);
 
     // query non-existent tip
-    let request = StacksHttpRequest::new_fastcallreadonlyfunction(
+    let mut request = StacksHttpRequest::new_fastcallreadonlyfunction(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world".try_into().unwrap(),
@@ -183,6 +199,8 @@ fn test_try_make_response() {
         vec![],
         TipRequest::SpecificTip(StacksBlockId([0x11; 32])),
     );
+    request.add_header("authorization".into(), "password".into());
+
     requests.push(request);
 
     let mut responses = test_rpc(function_name!(), requests);
@@ -280,7 +298,7 @@ fn test_try_make_response_free_cost_tracker() {
     let mut requests = vec![];
 
     // query confirmed tip
-    let request = StacksHttpRequest::new_fastcallreadonlyfunction(
+    let mut request = StacksHttpRequest::new_fastcallreadonlyfunction(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world".try_into().unwrap(),
@@ -292,6 +310,8 @@ fn test_try_make_response_free_cost_tracker() {
         vec![],
         TipRequest::UseLatestAnchoredTip,
     );
+    request.add_header("authorization".into(), "password".into());
+
     requests.push(request);
 
     let mut responses = test_rpc_with_config(
