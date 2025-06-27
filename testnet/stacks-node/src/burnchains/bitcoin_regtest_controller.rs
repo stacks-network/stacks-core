@@ -2823,7 +2823,7 @@ impl BitcoinRPCRequest {
 
 #[cfg(test)]
 mod tests {
-    use std::env::temp_dir;
+    use std::env::{self, temp_dir};
     use std::fs::File;
     use std::io::Write;
 
@@ -2855,7 +2855,7 @@ mod tests {
             // avoiding peer port biding to reduce the number of ports to bind to.
             config.burnchain.peer_port = BURNCHAIN_CONFIG_PEER_PORT_DISABLED;
 
-            //Ask the OS for a free port. Not guaranteed to stay free, 
+            //Ask the OS for a free port. Not guaranteed to stay free,
             //after TcpListner is dropped, but good enough for testing
             //and starting bitcoind right after config is created
             let tmp_listener =
@@ -3102,6 +3102,10 @@ mod tests {
 
     #[test]
     fn test_create_wallet_from_default_empty_name() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
         let config = utils::create_config();
 
         let mut btcd_controller = BitcoinCoreController::new(config.clone());
@@ -3146,6 +3150,10 @@ mod tests {
 
     #[test]
     fn test_get_all_utxos_with_confirmation() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
         let miner_pubkey = utils::create_miner1_pubkey();
 
         let mut config = utils::create_config();
@@ -3181,6 +3189,10 @@ mod tests {
 
     #[test]
     fn test_get_all_utxos_empty_for_other_pubkey() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
         let miner_pubkey = utils::create_miner1_pubkey();
         let other_pubkey = utils::create_miner2_pubkey();
 
@@ -3201,6 +3213,10 @@ mod tests {
 
     #[test]
     fn test_get_utxos_ok() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
         let miner_pubkey = utils::create_miner1_pubkey();
 
         let mut config = utils::create_config();
@@ -3225,6 +3241,10 @@ mod tests {
 
     #[test]
     fn test_get_utxos_none_due_to_filter_total_required() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
         let miner_pubkey = utils::create_miner1_pubkey();
 
         let mut config = utils::create_config();
@@ -3251,6 +3271,10 @@ mod tests {
 
     #[test]
     fn test_get_utxos_none_due_to_filter_pubkey() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
         let miner_pubkey = utils::create_miner1_pubkey();
 
         let mut config = utils::create_config();
@@ -3274,6 +3298,10 @@ mod tests {
 
     #[test]
     fn test_get_utxos_none_due_to_filter_utxo_exclusion() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
         let miner_pubkey = utils::create_miner1_pubkey();
 
         let mut config = utils::create_config();
@@ -3305,6 +3333,10 @@ mod tests {
 
     #[test]
     fn test_build_leader_block_commit_tx_ok_with_new_commit_op() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
         let keychain = utils::create_keychain();
         let miner_pubkey = keychain.get_pub_key();
         let mut signer = keychain.generate_op_signer();
@@ -3336,8 +3368,11 @@ mod tests {
     }
 
     #[test]
-    fn test_build_leader_block_commit_tx_fails_resubmitting_same_commit_op_while_prev_not_confirmed(
-    ) {
+    fn test_build_leader_block_commit_tx_fails_resub_same_commit_op_while_prev_not_confirmed() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
         let keychain = utils::create_keychain();
         let miner_pubkey = keychain.get_pub_key();
         let mut signer = keychain.generate_op_signer();
@@ -3378,8 +3413,11 @@ mod tests {
     }
 
     #[test]
-    fn test_build_leader_block_commit_tx_fails_resubmitting_same_commit_op_while_prev_is_confirmed()
-    {
+    fn test_build_leader_block_commit_tx_fails_resub_same_commit_op_while_prev_is_confirmed() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
         let keychain = utils::create_keychain();
         let miner_pubkey = keychain.get_pub_key();
         let mut signer = keychain.generate_op_signer();
@@ -3427,6 +3465,10 @@ mod tests {
 
     #[test]
     fn test_build_leader_block_commit_tx_ok_rbf_while_prev_is_confirmed() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
         let keychain = utils::create_keychain();
         let miner_pubkey = keychain.get_pub_key();
         let mut signer = keychain.generate_op_signer();
@@ -3474,6 +3516,10 @@ mod tests {
 
     #[test]
     fn test_build_leader_block_commit_tx_ok_rbf_while_prev_not_confirmed() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
         let keychain = utils::create_keychain();
         let miner_pubkey = keychain.get_pub_key();
         let mut signer = keychain.generate_op_signer();
