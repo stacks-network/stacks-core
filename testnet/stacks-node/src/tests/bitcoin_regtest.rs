@@ -70,7 +70,6 @@ impl BitcoinCoreController {
             .arg("-server=1")
             .arg("-listenonion=0")
             .arg("-rpcbind=127.0.0.1")
-            //.arg(format!("-port={}", self.config.burnchain.peer_port))
             .arg(format!("-datadir={}", self.config.get_burnchain_path_str()));
 
         let peer_port = self.config.burnchain.peer_port;
