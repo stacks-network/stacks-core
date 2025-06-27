@@ -14,12 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::time::Duration;
-
 use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::costs::{CostErrors, ExecutionCost, LimitedCostTracker};
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::errors::Error::Unchecked;
 use clarity::vm::errors::{Error as ClarityRuntimeError, InterpreterError};
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
@@ -217,8 +215,6 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                 let mut cost_limit = self.read_only_call_limit.clone();
                 cost_limit.write_length = 0;
                 cost_limit.write_count = 0;
-
-                let mut enforce_max_execution_time = false;
 
                 chainstate.maybe_read_only_clarity_tx(
                     &sortdb.index_handle_at_block(chainstate, &tip)?,

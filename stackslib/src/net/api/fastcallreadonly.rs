@@ -19,11 +19,11 @@ use std::time::Duration;
 use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::costs::{CostErrors, ExecutionCost, LimitedCostTracker};
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
+use clarity::vm::errors::Error as ClarityRuntimeError;
 use clarity::vm::errors::Error::Unchecked;
-use clarity::vm::errors::{Error as ClarityRuntimeError, InterpreterError};
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ContractName, SymbolicExpression, Value};
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksAddress;
@@ -50,15 +50,17 @@ pub struct RPCFastCallReadOnlyRequestHandler {
 }
 
 impl RPCFastCallReadOnlyRequestHandler {
-    pub fn new(
-        maximum_call_argument_size: u32,
-        read_only_call_limit: ExecutionCost,
-        read_only_max_execution_time: Duration,
-    ) -> Self {
+    pub fn new(maximum_call_argument_size: u32, read_only_max_execution_time: Duration) -> Self {
         Self {
             call_read_only_handler: RPCCallReadOnlyRequestHandler::new(
                 maximum_call_argument_size,
-                read_only_call_limit,
+                ExecutionCost {
+                    write_length: 0,
+                    write_count: 0,
+                    read_length: 0,
+                    read_count: 0,
+                    runtime: 0,
+                },
             ),
             read_only_max_execution_time,
         }
@@ -200,14 +202,10 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                 let mainnet = chainstate.mainnet;
                 let chain_id = chainstate.chain_id;
 
-                let mut enforce_max_execution_time = false;
-
                 chainstate.maybe_read_only_clarity_tx(
                     &sortdb.index_handle_at_block(chainstate, &tip)?,
                     &tip,
                     |clarity_tx| {
-                        let epoch = clarity_tx.get_epoch();
-
                         let clarity_version = clarity_tx
                             .with_analysis_db_readonly(|analysis_db| {
                                 analysis_db.get_clarity_version(&contract_identifier)

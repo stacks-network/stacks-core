@@ -59,11 +59,8 @@ fn test_try_parse_request() {
     debug!("Request:\n{}\n", std::str::from_utf8(&bytes).unwrap());
 
     let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
-    let mut handler = fastcallreadonly::RPCFastCallReadOnlyRequestHandler::new(
-        4096,
-        BLOCK_LIMIT_MAINNET_21,
-        Duration::from_secs(30),
-    );
+    let mut handler =
+        fastcallreadonly::RPCFastCallReadOnlyRequestHandler::new(4096, Duration::from_secs(30));
     let mut parsed_request = http
         .handle_try_parse_request(
             &mut handler,
