@@ -17,6 +17,9 @@ use crate::helium::RunLoop;
 use crate::tests::to_addr;
 use crate::Config;
 
+// Value usable as `BurnchainConfig::peer_port` to avoid bitcoind peer port binding
+pub const BURNCHAIN_CONFIG_PEER_PORT_DISABLED: u16 = 0;
+
 #[derive(Debug, thiserror::Error)]
 pub enum BitcoinCoreError {
     #[error("bitcoind spawn failed: {0}")]
@@ -69,8 +72,16 @@ impl BitcoinCoreController {
             .arg("-server=1")
             .arg("-listenonion=0")
             .arg("-rpcbind=127.0.0.1")
-            .arg(format!("-port={}", self.config.burnchain.peer_port))
+            //.arg(format!("-port={}", self.config.burnchain.peer_port))
             .arg(format!("-datadir={}", self.config.get_burnchain_path_str()));
+
+        let peer_port = self.config.burnchain.peer_port;
+        if peer_port == BURNCHAIN_CONFIG_PEER_PORT_DISABLED {
+            info!("Peer Port is disabled. So `-listen=0` flag will be used");
+            command.arg("-listen=0");
+        } else {
+            command.arg(format!("-port={}", peer_port));
+        }
 
         self.add_rpc_cli_args(&mut command);
 
