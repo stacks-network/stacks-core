@@ -92,6 +92,7 @@ rstest_reuse = "0.5.0"
 mutants = "0.0.3"
 rlimit = "0.10.2"
 chrono = "0.4.19"
+tempfile = "3.3"
 
 [features]
 default = []
