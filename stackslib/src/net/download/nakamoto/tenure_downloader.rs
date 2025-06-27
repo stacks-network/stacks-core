@@ -160,12 +160,12 @@ impl NakamotoTenureDownloader {
         }
     }
 
-    /// Follow-on constructor used to instantiate a machine for downloading the highest-confirmed
-    /// tenure.  This supplies the tenure end-block if known in advance.
-    pub fn with_tenure_end_block(mut self, tenure_end_block: NakamotoBlock) -> Self {
-        self.tenure_end_block = Some(tenure_end_block);
-        self
-    }
+    // /// Follow-on constructor used to instantiate a machine for downloading the highest-confirmed
+    // /// tenure.  This supplies the tenure end-block if known in advance.
+    // pub fn with_tenure_end_block(mut self, tenure_end_block: NakamotoBlock) -> Self {
+    //     self.tenure_end_block = Some(tenure_end_block);
+    //     self
+    // }
 
     /// Validate and accept a given tenure-start block.  If accepted, then advance the state.
     /// Returns Ok(()) if the start-block is valid.
@@ -183,7 +183,7 @@ impl NakamotoTenureDownloader {
 
         if self.tenure_start_block_id != tenure_start_block.header.block_id() {
             // not the block we were expecting
-            warn!("Invalid tenure-start block: unexpected"; 
+            warn!("Invalid tenure-start block: unexpected";
                   "tenure_id" => %self.tenure_id_consensus_hash,
                   "tenure_id_start_block" => %self.tenure_start_block_id,
                   "tenure_start_block ID" => %tenure_start_block.header.block_id(),

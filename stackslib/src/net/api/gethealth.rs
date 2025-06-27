@@ -43,13 +43,26 @@ pub struct RPCGetHealthResponse {
     pub node_stacks_tip_height: u64,
 }
 
+const NEIGHBORS_SCOPE_PARAM_NAME: &str = "neighbors";
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NeighborsScope {
+    Initial,
+    All,
+}
+
 #[derive(Clone)]
 /// Empty request handler for the GET /v3/health endpoint
-pub struct RPCGetHealthRequestHandler {}
+pub struct RPCGetHealthRequestHandler {
+    neighbors_scope: Option<NeighborsScope>,
+}
 
 impl RPCGetHealthRequestHandler {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            neighbors_scope: None,
+        }
     }
 }
 
@@ -82,7 +95,14 @@ impl HttpRequest for RPCGetHealthRequestHandler {
             ));
         }
 
-        Ok(HttpRequestContents::new().query_string(query))
+        let req_contents = HttpRequestContents::new().query_string(query);
+        if let Some(scope) = req_contents.get_query_arg(NEIGHBORS_SCOPE_PARAM_NAME) {
+            self.neighbors_scope = Some(serde_json::from_str(scope.as_str()).map_err(|_e| {
+                Error::Http(400, format!("Invalid `neighbors` query parameter: `{}`, allowed values are `initial` or `all`", scope))
+            })?);
+        }
+
+        Ok(req_contents)
     }
 }
 
@@ -97,7 +117,9 @@ fn create_error_response(
 
 impl RPCRequestHandler for RPCGetHealthRequestHandler {
     /// Reset internal state
-    fn restart(&mut self) {}
+    fn restart(&mut self) {
+        self.neighbors_scope = None;
+    }
 
     /// Make the response
     fn try_handle_request(
@@ -106,47 +128,51 @@ impl RPCRequestHandler for RPCGetHealthRequestHandler {
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        let neighbors_scope = self
+            .neighbors_scope
+            .take()
+            .unwrap_or(NeighborsScope::Initial);
+        let use_all_neighbors = neighbors_scope == NeighborsScope::All;
+
         node.with_node_state(|network, _sortdb, _chainstate, _mempool, _rpc_args| {
             let current_epoch = network.get_current_epoch();
 
-            let initial_neighbors = PeerDB::get_valid_initial_neighbors(
-                network.peerdb.conn(),
-                network.local_peer.network_id,
-                current_epoch.network_epoch,
-                network.peer_version,
-                network.chain_view.burn_block_height,
-            )
-            .map_err(NetError::from)?;
-
-            let node_stacks_tip_height = network.stacks_tip.height;
-            let bitcoin_tip_height = network.chain_view.burn_block_height;
-            let bitcoin_last_processed_height = network.burnchain_tip.block_height;
-            // no bootstrap nodes found, unable to determine health.
-            if initial_neighbors.len() == 0 {
-                return StacksHttpResponse::new_error(
-                    &preamble,
-                    &HttpServerError::new(
-                        "No viable bootstrap peers found, unable to determine health".into(),
-                    ),
+            let neighbors_arg = if use_all_neighbors {
+                None
+            } else {
+                let initial_neighbors = PeerDB::get_valid_initial_neighbors(
+                    network.peerdb.conn(),
+                    network.local_peer.network_id,
+                    current_epoch.network_epoch,
+                    network.peer_version,
+                    network.chain_view.burn_block_height,
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
-            }
+                .map_err(NetError::from)?;
 
-            let peer_max_stacks_height_opt  = {
+                if initial_neighbors.is_empty() {
+                    return create_error_response(
+                        &preamble,
+                        "No viable bootstrap peers found, unable to determine health",
+                    );
+                }
+                Some(initial_neighbors)
+            };
+
+            let peer_max_stacks_height_opt = {
                 if current_epoch.epoch_id < StacksEpochId::Epoch30 {
                     // When the node enters Epoch 3.0, ibd is not accurate. In nakamoto it's always set to false.
                     // See the implementation of `RunLoop::start` in `testnet/stacks-node/src/run_loop/nakamoto.rs`,
                     // specifically the section and comment where `let ibd = false`, for details.
                     let ibd = infer_initial_burnchain_block_download(
                         &network.burnchain,
-                        bitcoin_last_processed_height,
-                        bitcoin_tip_height,
+                        network.burnchain_tip.block_height,
+                        network.chain_view.burn_block_height,
                     );
+
                     // get max block height amongst bootstrap nodes
                     match network.inv_state.as_ref() {
                         Some(inv_state) => {
-                            inv_state.get_max_stacks_height_of_neighbors(&initial_neighbors, ibd)
+                            inv_state.get_max_stacks_height_of_neighbors(neighbors_arg.as_deref(), ibd)
                         }
                         None => {
                             return create_error_response(
@@ -156,9 +182,11 @@ impl RPCRequestHandler for RPCGetHealthRequestHandler {
                         }
                     }
                 } else {
-                    let initial_neighbours_addresses: Vec<NeighborAddress> = initial_neighbors.iter().map(NeighborAddress::from_neighbor).collect();
+                    let neighbors_arg: Option<Vec<NeighborAddress>> = neighbors_arg.as_ref().map(|v| v.iter().map(NeighborAddress::from_neighbor).collect());
                     match network.block_downloader_nakamoto.as_ref() {
-                        Some(block_downloader_nakamoto) => block_downloader_nakamoto.get_max_stacks_height_of_neighbors(&initial_neighbours_addresses),
+                        Some(block_downloader_nakamoto) => {
+                            block_downloader_nakamoto.get_max_stacks_height_of_neighbors(neighbors_arg.as_deref())
+                        }
                         None => {
                             return create_error_response(
                                 &preamble,
@@ -169,10 +197,12 @@ impl RPCRequestHandler for RPCGetHealthRequestHandler {
                 }
             };
 
-            match peer_max_stacks_height_opt  {
+            match peer_max_stacks_height_opt {
                 Some(max_stacks_height_of_neighbors) => {
                     // There could be a edge case where our node is ahead of all peers.
-                    let difference_from_max_peer = max_stacks_height_of_neighbors.saturating_sub(node_stacks_tip_height);
+                    let node_stacks_tip_height = network.stacks_tip.height;
+                    let difference_from_max_peer =
+                        max_stacks_height_of_neighbors.saturating_sub(node_stacks_tip_height);
 
                     let preamble = HttpResponsePreamble::ok_json(&preamble);
                     let data = RPCGetHealthResponse {
@@ -206,12 +236,15 @@ impl HttpResponse for RPCGetHealthRequestHandler {
 
 impl StacksHttpRequest {
     /// Make a new get-unconfirmed-tx request
-    pub fn new_gethealth(host: PeerHost) -> StacksHttpRequest {
+    pub fn new_gethealth(host: PeerHost, neighbors_scope: NeighborsScope) -> StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
             format!("/v3/health"),
-            HttpRequestContents::new(),
+            HttpRequestContents::new().query_arg(
+                NEIGHBORS_SCOPE_PARAM_NAME.into(),
+                serde_json::to_string(&neighbors_scope).unwrap(),
+            ),
         )
         .expect("FATAL: failed to construct request from infallible data")
     }
