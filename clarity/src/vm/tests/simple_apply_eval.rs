@@ -36,7 +36,7 @@ use crate::vm::tests::{execute, test_clarity_versions};
 use crate::vm::types::signatures::*;
 use crate::vm::types::{
     ASCIIData, BuffData, CharType, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    StacksAddressExtensions, TypeSignature,
+    TypeSignature,
 };
 use crate::vm::{
     eval, execute as vm_execute, execute_v2 as vm_execute_v2,
