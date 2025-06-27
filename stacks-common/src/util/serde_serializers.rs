@@ -137,7 +137,7 @@ pub mod prefix_string_0x {
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(val: &str, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&format!("0x{}", val))
+        s.serialize_str(&format!("0x{val}"))
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
