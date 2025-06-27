@@ -17,6 +17,7 @@ pub struct ChainVerifyMinerNakaBlockCount {
 #[derive(Debug)]
 enum HeightStrategy {
     AfterBootToEpoch3,
+    #[allow(dead_code)]
     AfterSpecificHeight(u64),
 }
 
@@ -48,6 +49,7 @@ impl ChainVerifyMinerNakaBlockCount {
         )
     }
 
+    #[allow(dead_code)]
     pub fn after_specific_height(
         ctx: Arc<SignerTestContext>,
         miner_index: usize,

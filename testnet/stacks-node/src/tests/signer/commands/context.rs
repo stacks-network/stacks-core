@@ -61,6 +61,7 @@ impl SignerTestContext {
     }
 
     // Getter for num_transfer_txs
+    #[allow(dead_code)]
     pub fn get_num_transfer_txs(&self) -> u64 {
         self.num_transfer_txs
     }
