@@ -81,14 +81,14 @@ impl HttpRequest for RPCFastCallReadOnlyRequestHandler {
 
     fn path_regex(&self) -> Regex {
         Regex::new(&format!(
-            "^/v2/contracts/fast-call-read/(?P<address>{})/(?P<contract>{})/(?P<function>{})$",
+            "^/v3/contracts/fast-call-read/(?P<address>{})/(?P<contract>{})/(?P<function>{})$",
             *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
         ))
         .unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/contracts/fast-call-read/:principal/:contract_name/:func_name"
+        "/v3/contracts/fast-call-read/:principal/:contract_name/:func_name"
     }
 
     /// Try to decode this request.
@@ -340,7 +340,7 @@ impl StacksHttpRequest {
             host,
             "POST".into(),
             format!(
-                "/v2/contracts/fast-call-read/{}/{}/{}",
+                "/v3/contracts/fast-call-read/{}/{}/{}",
                 &contract_addr, &contract_name, &function_name
             ),
             HttpRequestContents::new().for_tip(tip_req).payload_json(

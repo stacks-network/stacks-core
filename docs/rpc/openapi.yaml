@@ -929,7 +929,7 @@ paths:
               example:
                 $ref: ./api/core-node/get-health-error.example.json
 
-  /v2/contracts/fast-call-read/{contract_address}/{contract_name}/{function_name}:
+  /v3/contracts/fast-call-read/{contract_address}/{contract_name}/{function_name}:
     post:
       summary: Call read-only function in fast mode (no cost tracking)
       tags:
