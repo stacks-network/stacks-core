@@ -14,6 +14,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   - `stacks_node_miner_stop_reason_total`: Counts the number of times the miner stopped mining due to various reasons.
   - Always report the number of transactions mined in the last attempt, even if there were 0
 
+- Added a new option `--hex-file <file_path>` to `blockstack-cli contract-call` command, that allows to pass a serialized Clarity value by file.
 - Added a new option `--postcondition-mode [allow, deny]` to `blockstack-cli publish` command, to set the post-condition mode to allow or deny on the transaction (default is deny)
 
 ### Changed

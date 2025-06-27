@@ -49,7 +49,6 @@ use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{
     TransactionEvent, TransactionSuccessEvent, TEST_EXCLUDE_REPLAY_TXS,
-    TEST_MINE_ALLOWED_REPLAY_TXS,
 };
 use stacks::chainstate::stacks::{
     StacksTransaction, TenureChangeCause, TenureChangePayload, TransactionPayload,

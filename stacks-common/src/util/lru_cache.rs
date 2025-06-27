@@ -89,7 +89,7 @@ impl<K: Display, V: Display> Display for LruCache<K, V> {
                 writeln!(f, "  <invalid>")?;
                 break;
             };
-            writeln!(f, "  {}", node)?;
+            writeln!(f, "  {node}")?;
             curr = node.next;
         }
         Ok(())

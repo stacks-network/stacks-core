@@ -77,14 +77,13 @@ impl fmt::Display for Error {
             Error::UnexpectedNetworkMagic {
                 expected: ref e,
                 actual: ref a,
-            } => write!(f, "unexpected network magic: expected {}, actual {}", e, a),
+            } => write!(f, "unexpected network magic: expected {e}, actual {a}"),
             Error::OversizedVectorAllocation {
                 requested: ref r,
                 max: ref m,
             } => write!(
                 f,
-                "allocation of oversized vector requested: requested {}, maximum {}",
-                r, m
+                "allocation of oversized vector requested: requested {r}, maximum {m}"
             ),
             Error::InvalidChecksum {
                 expected: ref e,
@@ -95,18 +94,18 @@ impl fmt::Display for Error {
                 hex_encode(e),
                 hex_encode(a)
             ),
-            Error::UnknownNetworkMagic(ref m) => write!(f, "unknown network magic: {}", m),
-            Error::ParseFailed(ref e) => write!(f, "parse failed: {}", e),
+            Error::UnknownNetworkMagic(ref m) => write!(f, "unknown network magic: {m}"),
+            Error::ParseFailed(ref e) => write!(f, "parse failed: {e}"),
             Error::UnsupportedWitnessVersion(ref wver) => {
-                write!(f, "unsupported witness version: {}", wver)
+                write!(f, "unsupported witness version: {wver}")
             }
             Error::UnsupportedSegwitFlag(ref swflag) => {
-                write!(f, "unsupported segwit version: {}", swflag)
+                write!(f, "unsupported segwit version: {swflag}")
             }
             Error::UnrecognizedNetworkCommand(ref nwcmd) => {
-                write!(f, "unrecognized network command: {}", nwcmd)
+                write!(f, "unrecognized network command: {nwcmd}")
             }
-            Error::UnexpectedHexDigit(ref d) => write!(f, "unexpected hex digit: {}", d),
+            Error::UnexpectedHexDigit(ref d) => write!(f, "unexpected hex digit: {d}"),
         }
     }
 }

@@ -74,7 +74,7 @@ fn main() {
         "pub const GIT_COMMIT: Option<&'static str> = {git_commit:?};\n",
     ));
     if let Some(git_commit) = git_commit {
-        println!("cargo:rustc-env=GIT_COMMIT={}", git_commit);
+        println!("cargo:rustc-env=GIT_COMMIT={git_commit}");
     }
 
     let git_branch = current_git_branch();
@@ -82,15 +82,14 @@ fn main() {
         "pub const GIT_BRANCH: Option<&'static str> = {git_branch:?};\n",
     ));
     if let Some(git_branch) = git_branch {
-        println!("cargo:rustc-env=GIT_BRANCH={}", git_branch);
+        println!("cargo:rustc-env=GIT_BRANCH={git_branch}");
     }
 
     let is_clean = if is_working_tree_clean() { "" } else { "+" };
     rust_code.push_str(&format!(
-        "pub const GIT_TREE_CLEAN: Option<&'static str> = Some(\"{}\");\n",
-        is_clean
+        "pub const GIT_TREE_CLEAN: Option<&'static str> = Some(\"{is_clean}\");\n",
     ));
-    println!("cargo:rustc-env=GIT_TREE_CLEAN={}", is_clean);
+    println!("cargo:rustc-env=GIT_TREE_CLEAN={is_clean}");
 
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("versions.rs");
