@@ -528,16 +528,21 @@ impl BlockMinerThread {
             thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
             return Ok(());
         }
+
+        // Reset the mempool caches if needed. When mock-mining, we always
+        // reset the caches, because the blocks we mine are not actually
+        // processed, so the mempool caches are not valid.
         if self.reset_mempool_caches
             || self.config.miner.mempool_walk_strategy
                 == MemPoolWalkStrategy::NextNonceWithHighestFeeRate
+            || self.config.node.mock_mining
         {
             let mut mem_pool = self
                 .config
                 .connect_mempool_db()
                 .expect("Database failure opening mempool");
 
-            if self.reset_mempool_caches {
+            if self.reset_mempool_caches || self.config.node.mock_mining {
                 mem_pool.reset_mempool_caches()?;
             } else {
                 // Even if the nonce cache is still valid, NextNonceWithHighestFeeRate strategy
@@ -1400,20 +1405,15 @@ impl BlockMinerThread {
             .make_vrf_proof()
             .ok_or_else(|| NakamotoNodeError::BadVrfConstruction)?;
 
-        if self.last_block_mined.is_none() && parent_block_info.parent_tenure.is_none() {
-            warn!("Miner should be starting a new tenure, but failed to load parent tenure info");
-            return Err(NakamotoNodeError::ParentNotFound);
-        };
-
-        // If we're mock mining, we need to manipulate the `last_block_mined`
-        // to match what it should be based on the actual chainstate.
         if self.config.node.mock_mining {
             if let Some((last_block_consensus_hash, _)) = &self.last_block_mined {
-                // If the parent block is in the same tenure, then we should
-                // pretend that we mined it.
+                // If we're mock mining, we need to manipulate the `last_block_mined`
+                // to match what it should be based on the actual chainstate.
                 if last_block_consensus_hash
                     == &parent_block_info.stacks_parent_header.consensus_hash
                 {
+                    // If the parent block is in the same tenure, then we should
+                    // pretend that we mined it.
                     self.last_block_mined = Some((
                         parent_block_info.stacks_parent_header.consensus_hash,
                         parent_block_info
@@ -1428,6 +1428,11 @@ impl BlockMinerThread {
                 }
             }
         }
+
+        if self.last_block_mined.is_none() && parent_block_info.parent_tenure.is_none() {
+            warn!("Miner should be starting a new tenure, but failed to load parent tenure info");
+            return Err(NakamotoNodeError::ParentNotFound);
+        };
 
         // create our coinbase if this is the first block we've mined this tenure
         let tenure_start_info = self.make_tenure_start_info(

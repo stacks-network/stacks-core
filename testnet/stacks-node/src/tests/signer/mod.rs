@@ -41,6 +41,7 @@ use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, In
 use stacks::core::test_util::{
     make_contract_call, make_contract_publish, make_stacks_transfer_serialized,
 };
+use stacks::net::api::getpoxinfo::RPCPoxInfoData;
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
@@ -646,6 +647,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     pub fn submit_contract_deploy(
         &self,
         sender_sk: &StacksPrivateKey,
+        tx_fee: u64,
         contract_code: &str,
         contract_name: &str,
     ) -> Result<(String, u64), String> {
@@ -656,7 +658,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         let contract_tx = make_contract_publish(
             &sender_sk,
             sender_nonce,
-            1000,
+            tx_fee,
             self.running_nodes.conf.burnchain.chain_id,
             contract_name,
             contract_code,
@@ -673,6 +675,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     pub fn submit_contract_call(
         &self,
         sender_sk: &StacksPrivateKey,
+        tx_fee: u64,
         contract_name: &str,
         contract_func: &str,
         contract_args: &[Value],
@@ -683,7 +686,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         let contract_call_tx = make_contract_call(
             &sender_sk,
             sender_nonce,
-            1000,
+            tx_fee,
             self.running_nodes.conf.burnchain.chain_id,
             &sender_addr,
             contract_name,
@@ -716,8 +719,12 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
          (define-public (run-update)
            (ok (var-set local-burn-block-ht burn-block-height)))
         ";
-        let (txid, sender_nonce) =
-            self.submit_contract_deploy(sender_sk, burn_height_contract, "burn-height-local")?;
+        let (txid, sender_nonce) = self.submit_contract_deploy(
+            sender_sk,
+            1000,
+            burn_height_contract,
+            "burn-height-local",
+        )?;
 
         self.wait_for_nonce_increase(&to_addr(&sender_sk), sender_nonce)?;
         Ok(txid)
@@ -730,7 +737,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         sender_sk: &StacksPrivateKey,
     ) -> Result<String, String> {
         let (txid, sender_nonce) =
-            self.submit_contract_call(sender_sk, "burn-height-local", "run-update", &[])?;
+            self.submit_contract_call(sender_sk, 1000, "burn-height-local", "run-update", &[])?;
 
         self.wait_for_nonce_increase(&to_addr(&sender_sk), sender_nonce)?;
         Ok(txid)
@@ -1005,7 +1012,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
     pub fn wait_for_signer_state_check(
         &self,
         timeout: u64,
-        f: impl Fn(&LocalStateMachine) -> Result<bool, String>,
+        mut f: impl FnMut(&LocalStateMachine) -> Result<bool, String>,
     ) -> Result<(), String> {
         wait_for(timeout, || {
             let (signer_states, _) = self.get_burn_updated_states();
@@ -1427,6 +1434,13 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         self.stacks_client
             .get_peer_info()
             .expect("Failed to get peer info")
+    }
+
+    /// Get /v2/pox from the node
+    pub fn get_pox_data(&self) -> RPCPoxInfoData {
+        self.stacks_client
+            .get_pox_data()
+            .expect("Failed to get pox info")
     }
 
     pub fn readonly_stackerdb_client(&self, reward_cycle: u64) -> StackerDB<MessageSlotID> {
