@@ -32,6 +32,7 @@ use libsigner::v0::messages::{
 use libsigner::v0::signer_state::MinerState;
 use libsigner::{BlockProposal, SignerEntries, SignerEventTrait};
 use serde::{Deserialize, Serialize};
+use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::NakamotoBlock;
@@ -191,6 +192,9 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
 
         let (mut naka_conf, _miner_account) =
             naka_neon_integration_conf(snapshot_name.map(|n| n.as_bytes()));
+
+        naka_conf.miner.activated_vrf_key_path =
+            Some(format!("{}/vrf_key", naka_conf.node.working_dir));
 
         node_config_modifier(&mut naka_conf);
 
@@ -1023,6 +1027,20 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         })
     }
 
+    pub fn wait_for_replay_set_eq(&self, timeout: u64, expected_txids: Vec<String>) {
+        self.wait_for_signer_state_check(timeout, |state| {
+            let Some(replay_set) = state.get_tx_replay_set() else {
+                return Ok(false);
+            };
+            let txids = replay_set
+                .iter()
+                .map(|tx| tx.txid().to_hex())
+                .collect::<Vec<_>>();
+            Ok(txids == expected_txids)
+        })
+        .expect("Timed out waiting for replay set to be equal to expected txids");
+    }
+
     /// Replace the test's configured signer st
     pub fn replace_signers(
         &mut self,
@@ -1508,6 +1526,31 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
         stackerdb
             .send_message_with_retry::<SignerMessage>(accepted.into())
             .expect("Failed to send accept signature");
+    }
+
+    /// Get the txid of the parent block commit transaction for the given miner
+    pub fn get_parent_block_commit_txid(&self, miner_pk: &StacksPublicKey) -> Option<Txid> {
+        let Some(confirmed_utxo) = self
+            .running_nodes
+            .btc_regtest_controller
+            .get_all_utxos(&miner_pk)
+            .into_iter()
+            .find(|utxo| utxo.confirmations == 0)
+        else {
+            return None;
+        };
+        let unconfirmed_txid = Txid::from_bitcoin_tx_hash(&confirmed_utxo.txid);
+        let unconfirmed_tx = self
+            .running_nodes
+            .btc_regtest_controller
+            .get_raw_transaction(&unconfirmed_txid);
+        let parent_txid = unconfirmed_tx
+            .input
+            .get(0)
+            .expect("First input should exist")
+            .previous_output
+            .txid;
+        Some(Txid::from_bitcoin_tx_hash(&parent_txid))
     }
 }
 

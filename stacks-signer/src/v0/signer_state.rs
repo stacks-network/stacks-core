@@ -21,6 +21,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
+use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use clarity::types::chainstate::StacksAddress;
 #[cfg(any(test, feature = "testing"))]
@@ -579,9 +580,16 @@ impl LocalStateMachine {
             }
         };
 
-        let peer_info = client.get_peer_info()?;
-        let next_burn_block_height = peer_info.burn_block_height;
-        let next_burn_block_hash = peer_info.pox_consensus;
+        let (next_burn_block_height, next_burn_block_hash) = match expected_burn_block.clone() {
+            Some(expected_burn_block) => (
+                expected_burn_block.burn_block_height,
+                expected_burn_block.consensus_hash,
+            ),
+            None => {
+                let peer_info = client.get_peer_info()?;
+                (peer_info.burn_block_height, peer_info.pox_consensus)
+            }
+        };
         let mut tx_replay_set = prior_state_machine.tx_replay_set.clone();
 
         if let Some(expected_burn_block) = expected_burn_block {
@@ -594,9 +602,11 @@ impl LocalStateMachine {
                 && next_burn_block_hash != expected_burn_block.consensus_hash;
             if node_behind_expected || node_on_equal_fork {
                 let err_msg = format!(
-                    "Node has not processed the next burn block yet. Expected height = {}, Expected consensus hash = {}",
+                    "Node has not processed the next burn block yet. Expected height = {}, Expected consensus hash = {}, Node height = {}, Node consensus hash = {}",
                     expected_burn_block.burn_block_height,
                     expected_burn_block.consensus_hash,
+                    next_burn_block_height,
+                    next_burn_block_hash,
                 );
                 *self = Self::Pending {
                     update: StateMachineUpdate::BurnBlock(expected_burn_block),
@@ -620,7 +630,7 @@ impl LocalStateMachine {
                 client,
                 &expected_burn_block,
                 &prior_state_machine,
-                replay_state,
+                &replay_state,
             )? {
                 match new_replay_state {
                     ReplayState::Unset => {
@@ -632,6 +642,16 @@ impl LocalStateMachine {
                         *tx_replay_scope = Some(new_scope);
                     }
                 }
+            } else if Self::handle_possible_replay_failsafe(
+                &replay_state,
+                &expected_burn_block,
+                proposal_config.reset_replay_set_after_fork_blocks,
+            )? {
+                info!(
+                    "Signer state: replay set is stalled after 2 tenures. Clearing the replay set."
+                );
+                tx_replay_set = ReplayTransactionSet::none();
+                *tx_replay_scope = None;
             }
         }
 
@@ -981,10 +1001,10 @@ impl LocalStateMachine {
         client: &StacksClient,
         expected_burn_block: &NewBurnBlock,
         prior_state_machine: &SignerStateMachine,
-        replay_state: ReplayState,
+        replay_state: &ReplayState,
     ) -> Result<Option<ReplayState>, SignerChainstateError> {
         if expected_burn_block.burn_block_height > prior_state_machine.burn_block_height {
-            // no bitcoin fork, because we're advancing the burn block height
+            // no bitcoin fork, because we're higher than the previous tip
             return Ok(None);
         }
         if expected_burn_block.consensus_hash == prior_state_machine.burn_block {
@@ -1088,7 +1108,7 @@ impl LocalStateMachine {
         client: &StacksClient,
         expected_burn_block: &NewBurnBlock,
         prior_state_machine: &SignerStateMachine,
-        scope: ReplayScope,
+        scope: &ReplayScope,
     ) -> Result<Option<ReplayState>, SignerChainstateError> {
         info!("Tx Replay: detected bitcoin fork while in replay mode. Tryng to handle the fork";
             "expected_burn_block.height" => expected_burn_block.burn_block_height,
@@ -1182,6 +1202,10 @@ impl LocalStateMachine {
             return Ok(None);
         }
 
+        Ok(Some(Self::get_forked_txs_from_fork_info(&fork_info)))
+    }
+
+    fn get_forked_txs_from_fork_info(fork_info: &[TenureForkingInfo]) -> Vec<StacksTransaction> {
         // Collect transactions to be replayed across the forked blocks
         let mut forked_blocks = fork_info
             .iter()
@@ -1201,6 +1225,26 @@ impl LocalStateMachine {
                 ))
             .cloned()
             .collect::<Vec<_>>();
-        Ok(Some(forked_txs))
+        forked_txs
+    }
+
+    /// If it has been 2 burn blocks since the origin of our replay set, and
+    /// we haven't produced any replay blocks since then, we should reset our replay set
+    ///
+    /// Returns a `bool` indicating whether the replay set should be reset.
+    fn handle_possible_replay_failsafe(
+        replay_state: &ReplayState,
+        new_burn_block: &NewBurnBlock,
+        reset_replay_set_after_fork_blocks: u64,
+    ) -> Result<bool, SignerChainstateError> {
+        let ReplayState::InProgress(_, replay_scope) = replay_state else {
+            // Not in replay - skip
+            return Ok(false);
+        };
+
+        let failsafe_height =
+            replay_scope.past_tip.burn_block_height + reset_replay_set_after_fork_blocks;
+
+        Ok(new_burn_block.burn_block_height > failsafe_height)
     }
 }

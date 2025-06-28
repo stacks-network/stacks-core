@@ -49,6 +49,9 @@ const DEFAULT_TENURE_IDLE_TIMEOUT_BUFFER_SECS: u64 = 2;
 ///  cannot determine that our stacks-node has processed the parent
 ///  block
 const DEFAULT_PROPOSAL_WAIT_TIME_FOR_PARENT_SECS: u64 = 15;
+/// Default number of blocks after a fork to reset the replay set,
+/// as a failsafe mechanism
+const DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS: u64 = 2;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -184,6 +187,9 @@ pub struct SignerConfig {
     pub proposal_wait_for_parent_time: Duration,
     /// Whether or not to validate blocks with replay transactions
     pub validate_with_replay_tx: bool,
+    /// How many blocks after a fork should we reset the replay set,
+    /// as a failsafe mechanism?
+    pub reset_replay_set_after_fork_blocks: u64,
 }
 
 /// The parsed configuration for the signer
@@ -237,6 +243,9 @@ pub struct GlobalConfig {
     pub dry_run: bool,
     /// Whether or not to validate blocks with replay transactions
     pub validate_with_replay_tx: bool,
+    /// How many blocks after a fork should we reset the replay set,
+    /// as a failsafe mechanism?
+    pub reset_replay_set_after_fork_blocks: u64,
 }
 
 /// Internal struct for loading up the config file
@@ -288,6 +297,9 @@ struct RawConfigFile {
     pub dry_run: Option<bool>,
     /// Whether or not to validate blocks with replay transactions
     pub validate_with_replay_tx: Option<bool>,
+    /// How many blocks after a fork should we reset the replay set,
+    /// as a failsafe mechanism?
+    pub reset_replay_set_after_fork_blocks: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -413,6 +425,10 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
         // https://github.com/stacks-network/stacks-core/issues/6087
         let validate_with_replay_tx = raw_data.validate_with_replay_tx.unwrap_or(false);
 
+        let reset_replay_set_after_fork_blocks = raw_data
+            .reset_replay_set_after_fork_blocks
+            .unwrap_or(DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS);
+
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
@@ -435,6 +451,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             tenure_idle_timeout_buffer,
             proposal_wait_for_parent_time,
             validate_with_replay_tx,
+            reset_replay_set_after_fork_blocks,
         })
     }
 }
@@ -714,12 +731,14 @@ network = "mainnet"
 auth_password = "abcd"
 db_path = ":memory:"
 validate_with_replay_tx = true
+reset_replay_set_after_fork_blocks = 100
             "#
         );
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
         assert_eq!(config.stacks_address.to_string(), expected_addr);
         assert_eq!(config.to_chain_id(), CHAIN_ID_MAINNET);
         assert!(config.validate_with_replay_tx);
+        assert_eq!(config.reset_replay_set_after_fork_blocks, 100);
     }
 
     #[test]
