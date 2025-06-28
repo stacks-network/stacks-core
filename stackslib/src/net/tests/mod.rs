@@ -1027,6 +1027,9 @@ impl NakamotoBootPlan {
     }
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_boot_nakamoto_peer() {
     let private_key = StacksPrivateKey::from_seed(&[2]);

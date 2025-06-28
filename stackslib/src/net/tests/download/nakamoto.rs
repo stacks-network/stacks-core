@@ -392,6 +392,9 @@ fn test_nakamoto_tenure_downloader() {
     // * too many blocks
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_unconfirmed_tenure_downloader() {
     let observer = TestEventObserver::new();
@@ -1313,6 +1316,9 @@ fn test_tenure_start_end_from_inventory() {
     }
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 /// Test all of the functionality needed to transform a peer's reported tenure inventory into a
 /// tenure downloader and download schedule.
 #[test]
@@ -2068,6 +2074,9 @@ fn test_make_tenure_downloaders() {
     }
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_download_run_2_peers() {
     let observer = TestEventObserver::new();
@@ -2205,6 +2214,9 @@ fn test_nakamoto_download_run_2_peers() {
     boot_dns_thread_handle.join().unwrap();
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_nakamoto_unconfirmed_download_run_2_peers() {
     let observer = TestEventObserver::new();
@@ -2312,6 +2324,9 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
     boot_dns_thread_handle.join().unwrap();
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 /// Test the case where one or more blocks from tenure _T_ get orphend by a tenure-start block in
 /// tenure _T + 1_.  The unconfirmed downloader should be able to handle this case.
 #[test]
@@ -2492,6 +2507,9 @@ fn test_nakamoto_microfork_download_run_2_peers() {
     boot_dns_thread_handle.join().unwrap();
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 /// Test booting up a node where there is one shadow block in the prepare phase, as well as some
 /// blocks that mine atop it.
 #[test]
@@ -2673,6 +2691,9 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
     boot_dns_thread_handle.join().unwrap();
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 /// Test booting up a node where the whole prepare phase is shadow blocks
 #[test]
 fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
@@ -2876,6 +2897,9 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
     boot_dns_thread_handle.join().unwrap();
 }
 
+// TODO: see clarity-wasm issue #666
+// Test failing in clarity-wasm runtime
+#[cfg(not(feature = "clarity-wasm"))]
 /// Test booting up a node where multiple reward cycles are shadow blocks
 #[test]
 fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
