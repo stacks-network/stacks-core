@@ -2841,6 +2841,8 @@ mod tests {
     mod utils {
         use std::net::TcpListener;
 
+        use stacks::burnchains::MagicBytes;
+
         use super::*;
         use crate::tests::bitcoin_regtest::BURNCHAIN_CONFIG_PEER_PORT_DISABLED;
         use crate::util::get_epoch_time_nanos;
@@ -2923,6 +2925,35 @@ mod tests {
                 block_height: 2212,
                 burn_header_hash: BurnchainHeaderHash([0x01; 32]),
             }
+        }
+
+        pub fn txout_opreturn(op: &LeaderBlockCommitOp, magic: &MagicBytes) -> TxOut {
+            let op_bytes = {
+                let mut buffer = vec![];
+                let mut magic_bytes = magic.as_bytes().to_vec();
+                buffer.append(&mut magic_bytes);
+                op.consensus_serialize(&mut buffer)
+                    .expect("FATAL: invalid operation");
+                buffer
+            };
+
+            TxOut {
+                value: op.sunset_burn,
+                script_pubkey: Builder::new()
+                    .push_opcode(opcodes::All::OP_RETURN)
+                    .push_slice(&op_bytes)
+                    .into_script(),
+            }
+        }
+
+        pub fn txout_opdup_commit_to(addr: &PoxAddress, amount: u64) -> TxOut {
+            addr.to_bitcoin_tx_out(amount)
+        }
+
+        pub fn txout_opdup_change_legacy(signer: &mut BurnchainOpSigner, amount: u64) -> TxOut {
+            let public_key = signer.get_public_key();
+            let change_address_hash = Hash160::from_data(&public_key.to_bytes());
+            LegacyBitcoinAddress::to_p2pkh_tx_out(&change_address_hash, amount)
         }
     }
 
@@ -3349,7 +3380,7 @@ mod tests {
             .start_bitcoind()
             .expect("bitcoind should be started!");
 
-        let mut btc_controller = BitcoinRegtestController::new(config, None);
+        let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller
             .connect_dbs()
             .expect("Dbs initialization required!");
@@ -3358,13 +3389,27 @@ mod tests {
         let commit_op = utils::create_commit_op();
 
         let tx = btc_controller
-            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op, &mut signer, 0)
+            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut signer, 0)
             .expect("Build leader block commit should work");
 
         assert_eq!(1, tx.version);
         assert_eq!(0, tx.lock_time);
         assert_eq!(1, tx.input.len());
         assert_eq!(4, tx.output.len());
+
+        //TODO: Try to implement assertion for TxIn
+        //let utxos = btc_controller.get_all_utxos(&miner_pubkey);
+        //let input_0 = utils::txin_utxo_legacy(&utxos[0])
+        //assert_ne!(tx.input[0], tx.input[0]);
+
+        let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes);
+        let op_commit_1 = utils::txout_opdup_commit_to(&commit_op.commit_outs[0], 55_000);
+        let op_commit_2 = utils::txout_opdup_commit_to(&commit_op.commit_outs[1], 55_000);
+        let op_change = utils::txout_opdup_change_legacy(&mut signer, 4_999_865_300);
+        assert_eq!(op_return, tx.output[0]);
+        assert_eq!(op_commit_1, tx.output[1]);
+        assert_eq!(op_commit_2, tx.output[2]);
+        assert_eq!(op_change, tx.output[3]);
     }
 
     #[test]
@@ -3481,7 +3526,7 @@ mod tests {
             .start_bitcoind()
             .expect("bitcoind should be started!");
 
-        let mut btc_controller = BitcoinRegtestController::new(config, None);
+        let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller
             .connect_dbs()
             .expect("Dbs initialization required!");
@@ -3505,13 +3550,22 @@ mod tests {
         commit_op.burn_fee += 10;
 
         let rbf_tx = btc_controller
-            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op, &mut signer, 0)
+            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut signer, 0)
             .expect("Commit tx should be rbf-ed");
 
         assert_eq!(1, rbf_tx.version);
         assert_eq!(0, rbf_tx.lock_time);
         assert_eq!(1, rbf_tx.input.len());
         assert_eq!(4, rbf_tx.output.len());
+
+        let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes);
+        let op_commit_1 = utils::txout_opdup_commit_to(&commit_op.commit_outs[0], 55_005);
+        let op_commit_2 = utils::txout_opdup_commit_to(&commit_op.commit_outs[1], 55_005);
+        let op_change = utils::txout_opdup_change_legacy(&mut signer, 4_999_730_590);
+        assert_eq!(op_return, rbf_tx.output[0]);
+        assert_eq!(op_commit_1, rbf_tx.output[1]);
+        assert_eq!(op_commit_2, rbf_tx.output[2]);
+        assert_eq!(op_change, rbf_tx.output[3]);
     }
 
     #[test]
@@ -3532,7 +3586,7 @@ mod tests {
             .start_bitcoind()
             .expect("bitcoind should be started!");
 
-        let mut btc_controller = BitcoinRegtestController::new(config, None);
+        let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller
             .connect_dbs()
             .expect("Dbs initialization required!");
@@ -3556,12 +3610,21 @@ mod tests {
         commit_op.burn_fee += 10;
 
         let rbf_tx = btc_controller
-            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op, &mut signer, 0)
+            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut signer, 0)
             .expect("Commit tx should be rbf-ed");
 
         assert_eq!(1, rbf_tx.version);
         assert_eq!(0, rbf_tx.lock_time);
         assert_eq!(1, rbf_tx.input.len());
         assert_eq!(4, rbf_tx.output.len());
+
+        let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes);
+        let op_commit_1 = utils::txout_opdup_commit_to(&commit_op.commit_outs[0], 55_005);
+        let op_commit_2 = utils::txout_opdup_commit_to(&commit_op.commit_outs[1], 55_005);
+        let op_change = utils::txout_opdup_change_legacy(&mut signer, 4_999_730_590);
+        assert_eq!(op_return, rbf_tx.output[0]);
+        assert_eq!(op_commit_1, rbf_tx.output[1]);
+        assert_eq!(op_commit_2, rbf_tx.output[2]);
+        assert_eq!(op_change, rbf_tx.output[3]);
     }
 }
