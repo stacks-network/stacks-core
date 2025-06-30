@@ -3982,13 +3982,6 @@ fn tx_replay_simple() {
     let _http_origin = format!("http://{}", &conf.node.rpc_bind);
     let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
 
-    let miner_pk = btc_controller
-        .get_mining_pubkey()
-        .as_deref()
-        .map(Secp256k1PublicKey::from_hex)
-        .unwrap()
-        .unwrap();
-
     if signer_test.bootstrap_snapshot() {
         signer_test.shutdown_and_snapshot();
         return;

@@ -325,7 +325,11 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             let metadata_path = snapshot_path.join("metadata.json");
             if !metadata_path.clone().exists() {
                 warn!("Snapshot metadata file does not exist, not restoring snapshot");
-                return SetupSnapshotResult::NoSnapshot;
+                std::fs::remove_dir_all(snapshot_path.clone()).unwrap();
+                return SetupSnapshotResult::WithSnapshot(SnapshotSetupInfo {
+                    snapshot_path: snapshot_path.clone(),
+                    snapshot_exists: false,
+                });
             }
             let Ok(metadata) = serde_json::from_reader::<_, SnapshotMetadata>(
                 File::open(metadata_path.clone()).unwrap(),
