@@ -33,9 +33,7 @@ use {libsigner_v3_1_00_13, signer_v3_1_00_13, stacks_common_v3_1_00_13, stacks_v
 use super::SpawnedSignerTrait;
 use crate::stacks_common::codec::StacksMessageCodec;
 use crate::tests::nakamoto_integrations::wait_for;
-use crate::tests::neon_integrations::{
-    get_account, get_chain_info, test_observer,
-};
+use crate::tests::neon_integrations::{get_account, get_chain_info, test_observer};
 use crate::tests::signer::SignerTest;
 use crate::tests::{self};
 use crate::Keychain;
@@ -197,7 +195,9 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
     ) -> Option<stacks_signer::runloop::StateInfo> {
         match result {
             ReceiveResult::V310012(signer_result) => {
-                let Ok(signer_v3_1_00_13::runloop::SignerResult::StatusCheck(state_info)) = signer_result else {
+                let Ok(signer_v3_1_00_13::runloop::SignerResult::StatusCheck(state_info)) =
+                    signer_result
+                else {
                     return None;
                 };
                 let signer_v3_1_00_13::runloop::StateInfo {
