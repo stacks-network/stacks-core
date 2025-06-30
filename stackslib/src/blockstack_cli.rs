@@ -22,6 +22,7 @@ extern crate blockstack_lib;
 extern crate clarity;
 extern crate stacks_common;
 
+#[cfg(test)]
 use std::io::prelude::*;
 use std::io::Read;
 use std::{env, fs, io};
