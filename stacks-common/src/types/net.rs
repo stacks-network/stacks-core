@@ -236,7 +236,7 @@ pub enum PeerHost {
 impl fmt::Display for PeerHost {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            PeerHost::DNS(ref s, ref p) => write!(f, "{}:{}", s, p),
+            PeerHost::DNS(ref s, ref p) => write!(f, "{s}:{p}"),
             PeerHost::IP(ref a, ref p) => write!(f, "{}", a.to_socketaddr(*p)),
         }
     }
@@ -245,8 +245,8 @@ impl fmt::Display for PeerHost {
 impl fmt::Debug for PeerHost {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            PeerHost::DNS(ref s, ref p) => write!(f, "PeerHost::DNS({},{})", s, p),
-            PeerHost::IP(ref a, ref p) => write!(f, "PeerHost::IP({:?},{})", a, p),
+            PeerHost::DNS(ref s, ref p) => write!(f, "PeerHost::DNS({s},{p})"),
+            PeerHost::IP(ref a, ref p) => write!(f, "PeerHost::IP({a:?},{p})"),
         }
     }
 }
@@ -282,7 +282,7 @@ impl FromStr for PeerHost {
             )),
             Err(_) => {
                 // maybe missing :port
-                let hostport = format!("{}:80", header);
+                let hostport = format!("{header}:80");
                 match hostport.parse::<SocketAddr>() {
                     Ok(socketaddr) => Ok(PeerHost::IP(
                         PeerAddress::from_socketaddr(&socketaddr),

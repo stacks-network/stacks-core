@@ -54,7 +54,8 @@ use crate::clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
 use crate::core::mempool::*;
 use crate::core::*;
 use crate::monitoring::{
-    set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed,
+    increment_miner_stop_reason, set_last_mined_block_transaction_count,
+    set_last_mined_execution_cost_observed, MinerStopReason,
 };
 use crate::net::relay::Relayer;
 
@@ -81,6 +82,36 @@ fn fault_injection_stall_tx() {}
 #[cfg(any(test, feature = "testing"))]
 /// Test flag to exclude replay txs from the next block
 pub static TEST_EXCLUDE_REPLAY_TXS: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+
+#[cfg(any(test, feature = "testing"))]
+/// Test flag to mine specific txs belonging to the replay set
+pub static TEST_MINE_ALLOWED_REPLAY_TXS: LazyLock<TestFlag<Vec<String>>> =
+    LazyLock::new(TestFlag::default);
+
+#[cfg(any(test, feature = "testing"))]
+/// Given a tx id, check if it is should be skipped
+/// if not listed in `TEST_MINE_ALLOWED_REPLAY_TXS` flag.
+/// If flag is empty means no tx should be skipped
+fn fault_injection_should_skip_replay_tx(tx_id: Txid) -> bool {
+    let minable_txs = TEST_MINE_ALLOWED_REPLAY_TXS.get();
+    let allowed =
+        minable_txs.len() == 0 || minable_txs.iter().any(|tx_ids| *tx_ids == tx_id.to_hex());
+    if !allowed {
+        info!(
+            "Tx skipped due to test flag TEST_MINE_ALLOWED_REPLAY_TXS: {}",
+            tx_id.to_hex()
+        );
+    }
+    !allowed
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+/// Given a tx id, check if it is should be skipped
+/// if not listed in `TEST_MINE_ALLOWED_REPLAY_TXS` flag.
+/// If flag is empty means no tx should be skipped
+fn fault_injection_should_skip_replay_tx(_tx_id: Txid) -> bool {
+    false
+}
 
 /// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
 /// linked to the burnchain and what view(s) the miner had of the burnchain before and after
@@ -2769,6 +2800,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                     (*settings.miner_status.lock().expect("FATAL: mutex poisoned")).is_blocked();
                 if blocked {
                     info!("Miner stopping due to preemption");
+                    increment_miner_stop_reason(MinerStopReason::Preempted);
                     return Ok(None);
                 }
 
@@ -2777,6 +2809,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
 
                 if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
                     info!("Miner stopping due to limit reached");
+                    increment_miner_stop_reason(MinerStopReason::LimitReached);
                     return Ok(None);
                 }
                 let time_now = get_epoch_time_ms();
@@ -2785,6 +2818,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                         "Miner stopping due to mining time exceeded ({} ms)",
                         max_miner_time_ms
                     );
+                    increment_miner_stop_reason(MinerStopReason::DeadlineReached);
                     return Ok(None);
                 }
                 if let Some(time_estimate) = txinfo.metadata.time_estimate_ms {
@@ -2894,6 +2928,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                                 {
                                     info!("Miner stopping due to limit reached");
                                     block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
+                                    increment_miner_stop_reason(MinerStopReason::LimitReached);
                                     return Ok(None);
                                 }
                             }
@@ -2990,6 +3025,10 @@ fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
     debug!("Replay block transaction selection begins (parent height = {tip_height})");
     for replay_tx in replay_transactions {
         fault_injection_stall_tx();
+        if fault_injection_should_skip_replay_tx(replay_tx.txid()) {
+            continue;
+        }
+
         let txid = replay_tx.txid();
         let tx_result = builder.try_mine_tx_with_len(
             epoch_tx,

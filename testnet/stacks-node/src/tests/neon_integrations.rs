@@ -15,7 +15,9 @@ use rusqlite::params;
 use serde::Deserialize;
 use serde_json::json;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
+use stacks::burnchains::bitcoin::spv::SpvClient;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::burnchains::burnchain::TEST_DOWNLOAD_ERROR_ON_REORG;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::{Address, Burnchain, PoxConstants, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -39,7 +41,7 @@ use stacks::clarity_cli::vm_execute as execute;
 use stacks::cli;
 use stacks::codec::StacksMessageCodec;
 use stacks::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
-use stacks::core::mempool::MemPoolWalkTxTypes;
+use stacks::core::mempool::{MemPoolWalkStrategy, MemPoolWalkTxTypes};
 use stacks::core::test_util::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
     make_microblock, make_stacks_transfer_mblock_only, make_stacks_transfer_serialized, to_addr,
@@ -71,6 +73,7 @@ use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
 };
 use stacks_common::address::AddressHashMode;
+use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash as _;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
 };
@@ -3332,6 +3335,133 @@ fn bitcoind_forking_test() {
 
 #[test]
 #[ignore]
+fn download_err_in_btc_reorg() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    *TEST_DOWNLOAD_ERROR_ON_REORG.lock().unwrap() = true;
+
+    let (mut conf, _miner_account) = neon_integration_test_conf();
+    conf.node.mine_microblocks = false;
+    conf.burnchain.pox_reward_length = Some(1000);
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let counters = run_loop.get_counters();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let mut sort_height = channel.get_sortitions_processed();
+    eprintln!("Sort height: {sort_height}");
+
+    while sort_height < 210 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height: {sort_height}");
+    }
+
+    // okay, let's figure out the burn block we want to fork away.
+    let reorg_height = 210;
+    warn!("Will trigger re-org at block {reorg_height}");
+    let burn_header_hash_to_fork = btc_regtest_controller.get_block_hash(reorg_height);
+    btc_regtest_controller.invalidate_block(&burn_header_hash_to_fork);
+
+    btc_regtest_controller.build_next_block(1);
+    thread::sleep(Duration::from_secs(5));
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        &counters.neon_submitted_commits,
+    );
+
+    let stacks_height = get_chain_info(&conf).stacks_tip_height;
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    thread::sleep(Duration::from_secs(5));
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    thread::sleep(Duration::from_secs(5));
+    let next_stacks_height = get_chain_info(&conf).stacks_tip_height;
+    info!("Checking stacks height change"; "before" => stacks_height, "after" => next_stacks_height);
+
+    let burnchain_db = BurnchainDB::open(
+        &btc_regtest_controller
+            .get_burnchain()
+            .get_burnchaindb_path(),
+        false,
+    )
+    .unwrap();
+
+    let spv_client = SpvClient::new(
+        &conf.get_spv_headers_file_path(),
+        0,
+        None,
+        BitcoinNetworkType::Regtest,
+        false,
+        false,
+    )
+    .expect("Unable to open SPV client DB");
+
+    let highest_btc_ht = spv_client
+        .get_highest_header_height()
+        .expect("Failed to query highest header from SPV DB");
+    let highest_stored_block = burnchain_db
+        .get_canonical_chain_tip()
+        .expect("Failed to query canonical burn block");
+    let mut highest_spv_header = spv_client
+        .read_block_header(highest_btc_ht)
+        .unwrap()
+        .unwrap()
+        .header
+        .bitcoin_hash()
+        .0;
+    highest_spv_header.reverse();
+    info!(
+        "Checking btc coherence";
+        "highest_stored_block_hash" => %highest_stored_block.block_hash,
+        "highest_stored_block_height" => highest_stored_block.block_height,
+        "highest_spv_block_hash" => %BurnchainHeaderHash(highest_spv_header),
+        "highest_spv_height" => highest_btc_ht,
+    );
+    for btc_block_ht in reorg_height - 1..=highest_btc_ht {
+        let btc_block_header = spv_client
+            .read_block_header(btc_block_ht)
+            .expect("Failed to read header from SPV DB that it claimed to have")
+            .expect("Failed to read header from SPV DB that it claimed to have");
+        let mut btc_block_hash = btc_block_header.header.bitcoin_hash().0;
+        btc_block_hash.reverse();
+        let btc_block_hash = BurnchainHeaderHash(btc_block_hash);
+        let has_block = burnchain_db
+            .has_burnchain_block(&btc_block_hash)
+            .expect("Failed to query burnchain DB");
+        assert!(has_block, "BurnchainDB should contain block header for BTC block #{btc_block_ht}. burn_hash = {btc_block_hash}");
+    }
+
+    assert!(next_stacks_height > stacks_height);
+}
+
+#[test]
+#[ignore]
 fn should_fix_2771() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -4530,19 +4660,26 @@ fn mining_events_integration_test() {
     channel.stop_chains_coordinator();
 }
 
-/// This test checks that the limit behavior in the miner works as expected for anchored block
-/// building. When we first hit the block limit, the limit behavior switches to
-/// `CONTRACT_LIMIT_HIT`, during which stx transfers are still allowed, and contract related
-/// transactions are skipped.
-/// Note: the test is sensitive to the order in which transactions are mined; it is written
-/// expecting that transactions are traversed in the order tx_1, tx_2, tx_3, and tx_4.
-#[test]
-#[ignore]
-fn block_limit_hit_integration_test() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
+/// Sets up and runs a block limit integration test with the specified mempool walk strategy.
+///
+/// This function creates a controlled test environment to verify how different mempool walking
+/// strategies affect transaction ordering when block limits are hit. It simulates a scenario
+/// where:
+///
+/// - tx1: High-fee (555k) oversize contract from addr1 (nonce 0) - (oversize - causes block limit)
+/// - tx2: High-fee (555k) oversize contract from addr1 (nonce 1) - (oversize - depends on tx1)
+/// - tx3: Lower-fee (150k) medium contract from addr2 (nonce 0) - (medium size)
+/// - tx4: Low-fee (180) STX transfer from addr3 (nonce 0) - (tiny)
+///
+/// The key difference between strategies:
+/// - GlobalFeeRate: Prioritizes by fee rate globally, uses candidate_cache for nonce-invalid transactions
+/// - NextNonceWithHighestFeeRate: Pre-filters to only valid-nonce transactions, then prioritizes by fee within account groups
+///
+/// # Test Environment Setup
+/// - 3 accounts with 10M STX each
+/// - Bitcoin regtest with 201 blocks bootstrapped
+/// - Microblocks enabled with 30s wait time
+fn setup_block_limit_test(strategy: MemPoolWalkStrategy) -> (Vec<serde_json::Value>, [String; 4]) {
     // 700 invocations
     let max_contract_src = format!(
          "(define-private (work) (begin {} 1))
@@ -4591,22 +4728,23 @@ fn block_limit_hit_integration_test() {
     let spender_sk = StacksPrivateKey::random();
     let addr = to_addr(&spender_sk);
     let second_spender_sk = StacksPrivateKey::random();
-    let second_spender_addr: PrincipalData = to_addr(&second_spender_sk).into();
+    let second_spender_addr = to_addr(&second_spender_sk);
     let third_spender_sk = StacksPrivateKey::random();
-    let third_spender_addr: PrincipalData = to_addr(&third_spender_sk).into();
+    let third_spender_addr = to_addr(&third_spender_sk);
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
+    conf.miner.mempool_walk_strategy = strategy;
 
     conf.initial_balances.push(InitialBalance {
         address: addr.into(),
         amount: 10_000_000,
     });
     conf.initial_balances.push(InitialBalance {
-        address: second_spender_addr.clone(),
+        address: second_spender_addr.into(),
         amount: 10_000_000,
     });
     conf.initial_balances.push(InitialBalance {
-        address: third_spender_addr.clone(),
+        address: third_spender_addr.into(),
         amount: 10_000_000,
     });
 
@@ -4705,6 +4843,7 @@ fn block_limit_hit_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     sleep_ms(20_000);
 
+    // Verify nonces
     let res = get_account(&http_origin, &addr);
     assert_eq!(res.nonce, 2);
 
@@ -4717,30 +4856,152 @@ fn block_limit_hit_integration_test() {
     let mined_block_events = test_observer::get_blocks();
     assert_eq!(mined_block_events.len(), 5);
 
-    let tx_third_block = mined_block_events[3]
-        .get("transactions")
-        .unwrap()
-        .as_array()
-        .unwrap();
-    assert_eq!(tx_third_block.len(), 3);
-    let txid_1_exp = tx_third_block[1].get("txid").unwrap().as_str().unwrap();
-    let txid_4_exp = tx_third_block[2].get("txid").unwrap().as_str().unwrap();
-    assert_eq!(format!("0x{txid_1}"), txid_1_exp);
-    assert_eq!(format!("0x{txid_4}"), txid_4_exp);
-
-    let tx_fourth_block = mined_block_events[4]
-        .get("transactions")
-        .unwrap()
-        .as_array()
-        .unwrap();
-    assert_eq!(tx_fourth_block.len(), 3);
-    let txid_2_exp = tx_fourth_block[1].get("txid").unwrap().as_str().unwrap();
-    let txid_3_exp = tx_fourth_block[2].get("txid").unwrap().as_str().unwrap();
-    assert_eq!(format!("0x{txid_2}"), txid_2_exp);
-    assert_eq!(format!("0x{txid_3}"), txid_3_exp);
-
     test_observer::clear();
     channel.stop_chains_coordinator();
+    (mined_block_events, [txid_1, txid_2, txid_3, txid_4])
+}
+
+/// Tests block limit behavior with GlobalFeeRate mempool walk strategy.
+///
+/// This test verifies that when using GlobalFeeRate strategy, transactions are selected
+/// purely based on fee rate without considering nonce dependencies within accounts.
+///
+/// # Expected Behavior with GlobalFeeRate
+/// The miner processes transactions in pure fee-rate order using candidate caching:
+///
+/// **Initial Processing Order:** tx1/tx2 (555k fee) → tx3 (150k fee) → tx4 (180 fee)
+/// **Block 3 Results:**
+/// - tx1 gets mined (highest fee, valid nonce 0)
+/// - tx2 has invalid nonce (1), cached for later retry
+/// - tx3 blocked by contract limit, deferred to next block
+/// - tx4 gets mined (STX transfers allowed after contract limit)
+///
+/// **Block 4 Results:**
+/// - tx2 now valid (addr1 nonce advanced to 1), gets mined
+/// - tx3 gets mined (no contract limit in new block)
+///
+/// **Final Distribution:**
+/// - Block 3: 3 transactions (coinbase + tx1 + tx4)
+/// - Block 4: 3 transactions (coinbase + tx2 + tx3)
+#[test]
+#[ignore]
+fn block_limit_hit_integration_test_global_fee_rate() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (events, [txid_1, txid_2, txid_3, txid_4]) =
+        setup_block_limit_test(MemPoolWalkStrategy::GlobalFeeRate);
+
+    // Block 3: should contain tx1 and tx4 (GlobalFeeRate strategy)
+    let block3_txs = events[3]["transactions"].as_array().unwrap();
+    assert_eq!(
+        block3_txs.len(),
+        3,
+        "Block 3 should have 3 transactions (coinbase + 2 user txs)"
+    );
+
+    let txid_1_exp = block3_txs[1].get("txid").unwrap().as_str().unwrap();
+    let txid_4_exp = block3_txs[2].get("txid").unwrap().as_str().unwrap();
+    assert_eq!(
+        format!("0x{}", txid_1),
+        txid_1_exp,
+        "tx1 should be in block 3"
+    );
+    assert_eq!(
+        format!("0x{}", txid_4),
+        txid_4_exp,
+        "tx4 should be in block 3"
+    );
+
+    // Block 4: should contain tx2 and tx3
+    let block4_txs = events[4]["transactions"].as_array().unwrap();
+    assert_eq!(
+        block4_txs.len(),
+        3,
+        "Block 4 should have 3 transactions (coinbase + 2 user txs)"
+    );
+
+    let txid_2_exp = block4_txs[1].get("txid").unwrap().as_str().unwrap();
+    let txid_3_exp = block4_txs[2].get("txid").unwrap().as_str().unwrap();
+    assert_eq!(
+        format!("0x{}", txid_2),
+        txid_2_exp,
+        "tx2 should be in block 4"
+    );
+    assert_eq!(
+        format!("0x{}", txid_3),
+        txid_3_exp,
+        "tx3 should be in block 4"
+    );
+}
+
+/// Tests block limit behavior with NextNonceWithHighestFeeRate mempool walk strategy.
+///
+/// This test verifies that when using NextNonceWithHighestFeeRate strategy, transactions
+/// are grouped by account and selected based on the next valid nonce, with the strategy
+/// re-querying the mempool after nonce state changes.
+///
+/// # Expected Behavior with NextNonceWithHighestFeeRate
+/// The miner uses a multi-pass approach with nonce-aware querying:
+///
+/// **Pass 1 - Initial Query:** tx1, tx3, tx4 (tx2 filtered out: nonce 1 > expected 0)
+/// **Pass 1 - Processing Order:** tx4 → tx3 → tx1 (account ranking + fee prioritization)
+/// **Pass 1 - Results:**
+/// - tx4 gets mined (STX transfer, low cost)
+/// - tx3 gets mined (medium contract fits remaining budget)
+/// - tx1 gets mined (oversize contract, nearly exhausts block budget)
+/// - Nonce cache updated: addr1 nonce advances to 1
+///
+/// **Pass 2 - Re-query:** tx2 now becomes valid (addr1 nonce = 1)
+/// **Pass 2 - Processing:** tx2 exceeds remaining block budget, skipped to next block
+///
+/// **Block 3 Final:** 4 transactions (coinbase + tx4 + tx3 + tx1)
+/// **Block 4:** 2 transactions (coinbase + tx2)
+#[test]
+#[ignore]
+fn block_limit_hit_integration_test_next_nonce_highest_fee() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (events, [txid_1, txid_2, txid_3, txid_4]) =
+        setup_block_limit_test(MemPoolWalkStrategy::NextNonceWithHighestFeeRate);
+
+    // Block 3: should contain tx1, tx3, and tx4 (NextNonceWithHighestFeeRate strategy)
+    let block3_txs = events[3]["transactions"].as_array().unwrap();
+    assert_eq!(block3_txs.len(), 4, "Block 3 should have 4 transactions");
+
+    // Extract transaction IDs from block 3 (skip coinbase at index 0)
+    let block3_txids: Vec<String> = block3_txs[1..]
+        .iter()
+        .map(|tx| tx.get("txid").unwrap().as_str().unwrap().to_string())
+        .collect();
+
+    // Check that tx1, tx3, and tx4 are in block 3
+    assert!(
+        block3_txids.contains(&format!("0x{}", txid_1)),
+        "tx1 should be in block 3"
+    );
+    assert!(
+        block3_txids.contains(&format!("0x{}", txid_3)),
+        "tx3 should be in block 3"
+    );
+    assert!(
+        block3_txids.contains(&format!("0x{}", txid_4)),
+        "tx4 should be in block 3"
+    );
+
+    // Block 4: should contain tx2 (NextNonceWithHighestFeeRate strategy)
+    let block4_txs = events[4]["transactions"].as_array().unwrap();
+    assert_eq!(block4_txs.len(), 2, "Block 4 should have 2 transactions");
+
+    let txid_2_exp = block4_txs[1].get("txid").unwrap().as_str().unwrap();
+    assert_eq!(
+        format!("0x{}", txid_2),
+        txid_2_exp,
+        "tx2 should be in block 4"
+    );
 }
 
 #[test]

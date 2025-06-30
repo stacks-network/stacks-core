@@ -1130,6 +1130,12 @@ impl BurnchainDB {
         Ok(res.is_some())
     }
 
+    pub fn has_burnchain_block(&self, block: &BurnchainHeaderHash) -> Result<bool, BurnchainError> {
+        let qry = "SELECT 1 FROM burnchain_db_block_headers WHERE block_hash = ?1";
+        let res: Option<i64> = query_row(&self.conn, qry, &[block])?;
+        Ok(res.is_some())
+    }
+
     pub fn get_burnchain_header<B: BurnchainHeaderReader>(
         conn: &DBConn,
         indexer: &B,
