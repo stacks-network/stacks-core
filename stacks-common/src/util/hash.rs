@@ -498,10 +498,7 @@ where
 
         if hash_index % 2 == 0 {
             if hash_index + 1 >= self.nodes[row_index].len() {
-                panic!(
-                    "Corrupt Merkle tree -- colunn {} is the last item in row {}",
-                    hash_index, row_index
-                );
+                panic!("Corrupt Merkle tree -- colunn {hash_index} is the last item in row {row_index}");
             }
 
             // left sibling
@@ -637,7 +634,7 @@ pub fn bin_bytes(s: &str) -> Result<Vec<u8>, HexError> {
 pub fn to_hex(s: &[u8]) -> String {
     let mut r = String::with_capacity(s.len() * 2);
     for b in s.iter() {
-        write!(r, "{:02x}", b).unwrap();
+        write!(r, "{b:02x}").unwrap();
     }
     r
 }
@@ -646,7 +643,7 @@ pub fn to_hex(s: &[u8]) -> String {
 pub fn to_bin(s: &[u8]) -> String {
     let mut r = String::with_capacity(s.len() * 8);
     for b in s.iter() {
-        write!(r, "{:08b}", b).unwrap();
+        write!(r, "{b:08b}").unwrap();
     }
     r
 }

@@ -1,19 +1,14 @@
-use clarity::vm::types::PrincipalData;
-use serde_json::Value;
 use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, VRFSeed,
-};
+use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
 use stacks_common::types::{Address, StacksPublicKeyBuffer};
 use stacks_common::util::hash::Hash160;
-use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, PreStxOp, StackStxOp, TransferStxOp,
     VoteForAggregateKeyOp,
 };
-use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
+use crate::chainstate::stacks::address::PoxAddress;
 
 #[test]
 fn test_serialization_transfer_stx_op() {

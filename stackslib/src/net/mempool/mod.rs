@@ -28,7 +28,6 @@ use crate::core::MemPoolDB;
 use crate::net::chat::ConversationP2P;
 use crate::net::dns::{DNSClient, DNSRequest};
 use crate::net::httpcore::StacksHttpRequest;
-use crate::net::inv::inv2x::*;
 use crate::net::p2p::PeerNetwork;
 use crate::net::{Error as NetError, HttpRequestContents};
 use crate::util_lib::strings::UrlString;

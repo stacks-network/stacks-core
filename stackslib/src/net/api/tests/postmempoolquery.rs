@@ -18,36 +18,29 @@ use std::collections::HashSet;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
-use clarity::vm::{ClarityName, ContractName, Value};
+use clarity::codec::read_next;
+use clarity::vm::types::StacksAddressExtensions;
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey,
 };
-use stacks_common::types::net::PeerHost;
-use stacks_common::types::Address;
 use stacks_common::util::hash::{to_hex, Hash160};
 
 use super::TestRPC;
 use crate::burnchains::Txid;
-use crate::chainstate::stacks::db::blocks::test::*;
 use crate::chainstate::stacks::db::test::{chainstate_path, instantiate_chainstate};
-use crate::chainstate::stacks::db::{ExtendedStacksHeader, StacksChainState};
 use crate::chainstate::stacks::{
-    Error as chainstate_error, StacksTransaction, TokenTransferMemo, TransactionAnchorMode,
-    TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionVersion,
+    StacksTransaction, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
+    TransactionPayload, TransactionPostConditionMode, TransactionVersion,
 };
 use crate::core::mempool::{decode_tx_stream, MemPoolSyncData, TxTag, MAX_BLOOM_COUNTER_TXS};
-use crate::core::{MemPoolDB, BLOCK_LIMIT_MAINNET_21};
+use crate::core::MemPoolDB;
 use crate::net::api::postmempoolquery::StacksMemPoolStream;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::HttpChunkGenerator;
-use crate::net::httpcore::{
-    HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
-};
-use crate::net::{Error as NetError, ProtocolFamily, TipRequest};
-use crate::util_lib::db::DBConn;
+use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
+use crate::net::{Error as NetError, ProtocolFamily};
 
 #[test]
 fn test_try_parse_request() {

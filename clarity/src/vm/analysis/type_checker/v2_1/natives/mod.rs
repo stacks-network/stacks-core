@@ -42,6 +42,7 @@ mod maps;
 mod options;
 mod sequences;
 
+#[allow(clippy::large_enum_variant)]
 pub enum TypedNativeFunction {
     Special(SpecialNativeFunction),
     Simple(SimpleNativeFunction),

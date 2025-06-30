@@ -186,12 +186,9 @@ impl HttpChunkedTransferReaderState {
         assert_eq!(self.parse_step, HttpChunkedTransferParseMode::Chunk);
 
         if self.total_size >= self.max_size && self.chunk_size > 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                ChunkedError::OverflowError(
-                    "HTTP body exceeds maximum expected length".to_string(),
-                ),
-            ));
+            return Err(io::Error::other(ChunkedError::OverflowError(
+                "HTTP body exceeds maximum expected length".to_string(),
+            )));
         }
 
         let remaining = if self.chunk_size - self.chunk_read <= (self.max_size - self.total_size) {
@@ -364,7 +361,7 @@ impl<'a, 'state, W: Write> HttpChunkedTransferWriter<'a, 'state, W> {
             bytes.len()
         };
 
-        fd.write_all(format!("{:x}\r\n", to_send).as_bytes())?;
+        fd.write_all(format!("{to_send:x}\r\n").as_bytes())?;
         fd.write_all(&bytes[0..to_send])?;
         fd.write_all("\r\n".as_bytes())?;
         Ok(to_send)

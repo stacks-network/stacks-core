@@ -16,33 +16,29 @@
 
 //! Subcommands used by `stacks-inspect` binary
 
-use std::any::type_name;
-use std::cell::LazyCell;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
-use std::{env, fs, io, process, thread};
+use std::{fs, process};
 
 use clarity::types::chainstate::SortitionId;
 use db::blocks::DummyEventDispatcher;
 use db::ChainstateTx;
 use regex::Regex;
 use rusqlite::{Connection, OpenFlags};
-use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::db::BurnchainDB;
-use crate::burnchains::{Burnchain, PoxConstants};
+use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::{
-    get_ancestor_sort_id, SortitionDB, SortitionHandle, SortitionHandleContext,
+    get_ancestor_sort_id, SortitionDB, SortitionHandleContext,
 };
-use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
+use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::OnChainRewardSetProvider;
 use crate::chainstate::nakamoto::miner::{BlockMetadata, NakamotoBlockBuilder, NakamotoTenureInfo};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use crate::chainstate::stacks::db::blocks::StagingBlock;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::{Error as ChainstateError, *};
@@ -504,6 +500,7 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
                 settings,
                 None,
                 0,
+                &[],
             )
             .map(
                 |BlockMetadata {

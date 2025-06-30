@@ -5,7 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
+# Unreleased
+
+### Added
+
+- Added a new RPC endpoint `/v3/health` to query the node's health status. The endpoint returns a 200 status code with relevant synchronization information (including the node's current Stacks tip height, the maximum Stacks tip height among its neighbors, and the difference between these two). A user can use the `difference_from_max_peer` value to decide what is a good threshold for them before considering the node out of sync. The endpoint returns a 500 status code if the query cannot retrieve viable data.
+- Improve prometheus metrics to gain more insights into the current state of the mempool
+  - `stacks_node_miner_stop_reason_total`: Counts the number of times the miner stopped mining due to various reasons.
+  - Always report the number of transactions mined in the last attempt, even if there were 0
+
+- Added a new option `--hex-file <file_path>` to `blockstack-cli contract-call` command, that allows to pass a serialized Clarity value by file.
+- Added a new option `--postcondition-mode [allow, deny]` to `blockstack-cli publish` command, to set the post-condition mode to allow or deny on the transaction (default is deny)
+
+### Changed
+
+- Changed default mempool walk strategy to `NextNonceWithHighestFeeRate`
+
+### Fixed
+
+- Fixed an issue that prevented the correct usage of anchor mode options (`--microblock-only`, `--block-only`) when using `blockstack-cli publish` command.
+- Fix several bugs in the mock-miner that caused it to fail to mine blocks in certain conditions
+
+## [3.1.0.0.12]
+
+### Added
+
+- Document missing config structs
+- Document MinerConfig parameters
+- Document BurnchainConfig parameters
+- Document NodeConfig parameters
+
+### Changed
+
+- `get_fresh_random_neighbors` to include allowed neigbors
+- Logging improvements and cleanup
+- Move serde serializers to stacks_common
+- Depend on clarity backing store interface
+- Updated `./docs/event-dispacher.md`
+
+### Fixed
+
+- Handle Bitcoin reorgs during Stacks tenure extend
+
+## [3.1.0.0.11]
+
+- Hotfix for p2p stack misbehavior in mempool syncing conditions
+
+## [3.1.0.0.10]
+
+### Added
+
+- Persisted tracking of StackerDB slot versions for mining. This improves miner p2p performance.
+
+## [3.1.0.0.9]
 
 ### Added
 
@@ -14,6 +66,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Added new `ValidateRejectCode` values to the `/v3/block_proposal` endpoint
 - Added `StateMachineUpdateContent::V1` to support a vector of `StacksTransaction` expected to be replayed in subsequent Stacks blocks
 - Include a reason string in the transaction receipt when a transaction is rolled back due to a post-condition. This should help users in understanding what went wrong.
+- Updated `StackerDBListener` to monitor signer state machine updates and store signer global state information, enabling miners to perform transaction replays.
+- Added a testnet `replay_transactions` flag to the miner configuration to feature-gate transaction replay. When enabled, the miner will construct a replay block if a threshold of signers signals that a transaction set requires replay.
 
 ### Changed
 

@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 
-use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash};
+use stacks_common::types::chainstate::ConsensusHash;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoBlock;
@@ -48,7 +48,6 @@ use crate::net::{
 ///
 /// Transactions are not considered here, but are handled separately with the mempool
 /// synchronization state machine.
-
 impl PeerNetwork {
     #[cfg_attr(test, mutants::skip)]
     /// Check that the sender is authenticated.

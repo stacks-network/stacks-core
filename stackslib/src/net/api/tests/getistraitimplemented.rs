@@ -16,15 +16,12 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
-use clarity::vm::{ClarityName, ContractName};
-use stacks_common::codec::StacksMessageCodec;
+use clarity::types::chainstate::StacksBlockId;
+use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::net::PeerHost;
 use stacks_common::types::Address;
 
 use super::test_rpc;
-use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{

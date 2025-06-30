@@ -14,26 +14,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashSet;
-use std::io::{Read, Write};
-
 use regex::{Captures, Regex};
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::Hash160;
-use url::form_urlencoded;
 
-use crate::net::atlas::{
-    AttachmentPage, GetAttachmentResponse, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST,
-};
+use crate::net::atlas::GetAttachmentResponse;
 use crate::net::http::{
-    parse_json, Error, HttpBadRequest, HttpNotFound, HttpRequest, HttpRequestContents,
-    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
-    HttpResponsePreamble, HttpServerError,
+    parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
+    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
     HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
-use crate::net::p2p::PeerNetwork;
 use crate::net::{Error as NetError, StacksNodeState};
 
 #[derive(Clone)]

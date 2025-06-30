@@ -1260,7 +1260,7 @@ impl RelayerThread {
             parent_tenure_id,
             burn_tip_at_start,
             reason,
-        );
+        )?;
         Ok(miner_thread_state)
     }
 
@@ -1298,9 +1298,14 @@ impl RelayerThread {
         debug!("Relayer: starting new tenure thread");
 
         let rand_id = thread_rng().gen::<u32>();
+        let is_mock = if self.config.node.mock_mining {
+            "mock-"
+        } else {
+            ""
+        };
 
         let new_miner_handle = std::thread::Builder::new()
-            .name(format!("miner.{parent_tenure_start}.{rand_id}",))
+            .name(format!("{is_mock}miner.{parent_tenure_start}.{rand_id}",))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
                 debug!(
@@ -1625,7 +1630,9 @@ impl RelayerThread {
     /// Generate and submit the next block-commit, and record it locally
     fn issue_block_commit(&mut self) -> Result<(), NakamotoNodeError> {
         if self.fault_injection_skip_block_commit() {
-            warn!("Relayer: not submitting block-commit to bitcoin network due to test directive.");
+            debug!(
+                "Relayer: not submitting block-commit to bitcoin network due to test directive."
+            );
             return Ok(());
         }
         let (tip_block_ch, tip_block_bh) = SortitionDB::get_canonical_stacks_chain_tip_hash(
@@ -1686,6 +1693,7 @@ impl RelayerThread {
             last_committed.burn_tip.block_height,
             tip_height,
             last_committed.block_commit.burn_fee,
+            &last_committed.tenure_consensus_hash,
         );
         self.last_committed = Some(last_committed);
 

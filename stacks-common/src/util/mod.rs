@@ -27,6 +27,7 @@ pub mod pair;
 pub mod pipe;
 pub mod retry;
 pub mod secp256k1;
+pub mod serde_serializers;
 pub mod uint;
 pub mod vrf;
 
@@ -93,8 +94,8 @@ pub enum HexError {
 impl fmt::Display for HexError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            HexError::BadLength(n) => write!(f, "bad length {} for hex string", n),
-            HexError::BadCharacter(c) => write!(f, "bad character {} for hex string", c),
+            HexError::BadLength(n) => write!(f, "bad length {n} for hex string"),
+            HexError::BadCharacter(c) => write!(f, "bad character {c} for hex string"),
         }
     }
 }
@@ -109,6 +110,10 @@ impl error::Error for HexError {
             HexError::BadCharacter(_) => "bad hex character",
         }
     }
+}
+
+pub trait HexDeser: Sized {
+    fn try_from_hex(hex: &str) -> Result<Self, HexError>;
 }
 
 /// Write any `serde_json` object directly to a file

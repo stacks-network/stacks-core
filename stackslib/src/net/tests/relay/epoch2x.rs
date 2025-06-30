@@ -18,20 +18,18 @@ use std::collections::HashMap;
 
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::costs::LimitedCostTracker;
-use clarity::vm::database::ClarityDatabase;
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::{ClarityVersion, MAX_CALL_STACK_DEPTH};
-use rand::Rng;
+use rand::{thread_rng, Rng};
 use stacks_common::address::AddressHashMode;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, StacksWorkScore, TrieHash};
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::Address;
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
-use stacks_common::util::sleep_ms;
 use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::tests::TestMiner;
-use crate::chainstate::stacks::db::blocks::{MINIMUM_TX_FEE, MINIMUM_TX_FEE_RATE_PER_BYTE};
+use crate::chainstate::stacks::db::blocks::{MemPoolRejection, MINIMUM_TX_FEE_RATE_PER_BYTE};
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, StacksMicroblockBuilder};
 use crate::chainstate::stacks::test::codec_all_transactions;
 use crate::chainstate::stacks::tests::{
@@ -44,12 +42,9 @@ use crate::core::*;
 use crate::net::api::getinfo::RPCPeerInfoData;
 use crate::net::asn::*;
 use crate::net::chat::*;
-use crate::net::codec::*;
 use crate::net::db::PeerDB;
-use crate::net::download::*;
 use crate::net::http::{HttpRequestContents, HttpRequestPreamble};
 use crate::net::httpcore::StacksHttpMessage;
-use crate::net::inv::inv2x::*;
 use crate::net::p2p::*;
 use crate::net::relay::*;
 use crate::net::test::*;

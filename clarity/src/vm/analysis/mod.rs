@@ -34,13 +34,16 @@ use self::trait_checker::TraitChecker;
 use self::type_checker::v2_05::TypeChecker as TypeChecker2_05;
 use self::type_checker::v2_1::TypeChecker as TypeChecker2_1;
 pub use self::types::{AnalysisPass, ContractAnalysis};
+#[cfg(feature = "rusqlite")]
 use crate::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::vm::costs::LimitedCostTracker;
 #[cfg(feature = "rusqlite")]
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::database::STORE_CONTRACT_SRC_INTERFACE;
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
+use crate::vm::types::QualifiedContractIdentifier;
+#[cfg(feature = "rusqlite")]
+use crate::vm::types::TypeSignature;
 use crate::vm::ClarityVersion;
 
 /// Used by CLI tools like the docs generator. Not used in production

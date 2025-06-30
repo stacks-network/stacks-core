@@ -1,19 +1,15 @@
 use clarity::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksPublicKey, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, VRFSeed,
 };
 use clarity::types::StacksPublicKeyBuffer;
 use clarity::util::vrf::{VRFPrivateKey, VRFPublicKey};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
-use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash::Hash160;
 
-use crate::burnchains::bitcoin::address::{
-    BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
-};
+use crate::burnchains::bitcoin::address::{BitcoinAddress, SegwitBitcoinAddress};
 use crate::burnchains::bitcoin::{
-    BitcoinInputType, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInputStructured,
-    BitcoinTxOutput,
+    BitcoinInputType, BitcoinTransaction, BitcoinTxInputStructured, BitcoinTxOutput,
 };
 use crate::burnchains::{BurnchainBlockHeader, BurnchainSigner, BurnchainTransaction, Txid};
 use crate::chainstate::burn::operations::{

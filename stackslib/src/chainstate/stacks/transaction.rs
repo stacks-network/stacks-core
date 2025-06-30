@@ -14,28 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io;
-use std::io::prelude::*;
+use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 
 use clarity::vm::representations::{ClarityName, ContractName};
-use clarity::vm::types::serialization::SerializationError as clarity_serialization_error;
-use clarity::vm::types::{
-    QualifiedContractIdentifier, SequenceData, SequencedValue, StandardPrincipalData,
-    MAX_TYPE_DEPTH,
-};
-use clarity::vm::{ClarityVersion, SymbolicExpression, SymbolicExpressionType, Value};
+use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
+use clarity::vm::{ClarityVersion, Value};
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::hash::{to_hex, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
+use stacks_common::util::hash::{MerkleHashFunc, MerkleTree};
 use stacks_common::util::retry::BoundReader;
-use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::{TransactionPayloadID, *};
-use crate::codec::Error as CodecError;
-use crate::core::*;
 use crate::net::Error as net_error;
 use crate::util_lib::boot::boot_code_addr;
 
@@ -683,6 +674,14 @@ impl StacksTransaction {
     }
 }
 
+impl Hash for StacksTransaction {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.txid().hash(state);
+    }
+}
+
+impl Eq for StacksTransaction {}
+
 impl StacksMessageCodec for StacksTransaction {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(self.version as u8))?;
@@ -1199,23 +1198,20 @@ impl StacksTransactionSigner {
 
 #[cfg(test)]
 mod test {
-    use std::error::Error;
 
+    use clarity::types::StacksEpochId;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
     use stacks_common::util::hash::*;
-    use stacks_common::util::log;
-    use stacks_common::util::retry::{BoundReader, LogReader};
+    use stacks_common::util::retry::LogReader;
 
     use super::*;
     use crate::chainstate::stacks::test::codec_all_transactions;
     use crate::chainstate::stacks::{
-        StacksPublicKey as PubKey, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-        C32_ADDRESS_VERSION_MAINNET_SINGLESIG, *,
+        C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, *,
     };
+    use crate::core::EMPTY_MICROBLOCK_PARENT_HASH;
     use crate::net::codec::test::check_codec_and_corruption;
-    use crate::net::codec::*;
-    use crate::net::*;
 
     impl StacksTransaction {
         /// Sign a sighash without appending the signature and public key

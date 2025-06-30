@@ -14,23 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
-use std::{cmp, mem};
+use std::collections::HashMap;
 
 use rand::prelude::*;
 use rand::thread_rng;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::{get_epoch_time_secs, log};
+use stacks_common::util::get_epoch_time_secs;
 
-use crate::burnchains::{Address, Burnchain, BurnchainView};
 use crate::net::db::PeerDB;
 use crate::net::neighbors::{NeighborWalkResult, NEIGHBOR_MINIMUM_CONTACT_INTERVAL, NUM_NEIGHBORS};
 use crate::net::p2p::{DropReason, DropSource, PeerNetwork};
 use crate::net::{
     DropNeighbor, Error as net_error, HandshakeAcceptData, HandshakeData, Neighbor,
-    NeighborAddress, NeighborKey, Preamble, StackerDBHandshakeData, StacksMessage,
+    NeighborAddress, NeighborKey, Preamble, StackerDBHandshakeData,
 };
-use crate::util_lib::db::{DBConn, DBTx};
+use crate::util_lib::db::DBConn;
 
 /// Capture replacement state
 #[derive(Debug, Clone, PartialEq)]
@@ -189,6 +186,7 @@ pub trait NeighborWalkDB {
             network.peerdb_conn(),
             network.get_local_peer().network_id,
             cur_epoch.network_epoch,
+            network.peer_version,
             min_age,
             num_neighbors as u32,
             block_height,

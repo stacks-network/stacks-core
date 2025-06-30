@@ -56,15 +56,14 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::InvalidCrockford32 => write!(f, "Invalid crockford 32 string"),
-            Error::InvalidVersion(ref v) => write!(f, "Invalid version {}", v),
+            Error::InvalidVersion(ref v) => write!(f, "Invalid version {v}"),
             Error::EmptyData => f.write_str("Empty data"),
-            Error::BadByte(b) => write!(f, "invalid base58 character 0x{:x}", b),
+            Error::BadByte(b) => write!(f, "invalid base58 character 0x{b:x}"),
             Error::BadChecksum(exp, actual) => write!(
                 f,
-                "base58ck checksum 0x{:x} does not match expected 0x{:x}",
-                actual, exp
+                "base58ck checksum 0x{actual:x} does not match expected 0x{exp:x}"
             ),
-            Error::InvalidLength(ell) => write!(f, "length {} invalid for this base58 type", ell),
+            Error::InvalidLength(ell) => write!(f, "length {ell} invalid for this base58 type"),
             Error::TooShort(_) => write!(f, "base58ck data not even long enough for a checksum"),
             Error::Other(ref s) => f.write_str(s),
         }

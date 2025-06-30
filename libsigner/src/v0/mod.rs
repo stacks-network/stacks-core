@@ -1,4 +1,4 @@
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,3 +15,6 @@
 
 /// Messages for the v0 signer
 pub mod messages;
+
+/// Signer state machine for a v0 signer
+pub mod signer_state;
