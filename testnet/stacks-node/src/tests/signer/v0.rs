@@ -17699,6 +17699,13 @@ fn bitcoin_reorg_extended_tenure() {
     info!("Bitcoin fork triggered"; "ch" => %before_fork, "btc_height" => burn_block_height);
     info!("Chain info before fork: {:?}", get_chain_info(&conf_1));
 
+    // Make sure signers don't perform block broadcast for the next bits:
+    //  we want to ensure that the *miner* is the one broadcast blocks,
+    //  because when we stall p2p broadcast, we don't want to accidentally
+    //  stall the miner in the situation where they produce block A, signers broadcast it,
+    //  we initiate the stall, and then the miner attempts to broadcast A.
+    stacks_signer::v0::tests::TEST_SKIP_BLOCK_BROADCAST.set(true);
+
     let mut after_fork = get_chain_info(&conf_1).pox_consensus;
     wait_for(60, || {
         after_fork = get_chain_info(&conf_1).pox_consensus;
@@ -17721,7 +17728,8 @@ fn bitcoin_reorg_extended_tenure() {
     //  so that we can ensure all the signers approve the proposal
     //  before it gets accepted by stacks-nodes
     TEST_P2P_BROADCAST_STALL.set(true);
-    TEST_SKIP_BLOCK_BROADCAST.set(true);
+
+    info!("Stalled broadcast, submitting a contract call!");
 
     // the signer signature hash is the same as the block header hash.
     // we use the latest_signer_sighash to make sure we're getting block responses for the
@@ -17741,34 +17749,39 @@ fn bitcoin_reorg_extended_tenure() {
         )
         .unwrap();
 
-    // Propogation of stackerdb events between the nodes can be super slow...
-    wait_for(180, || {
-        let mut signatures = HashSet::new();
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
-            let SignerMessage::BlockResponse(BlockResponse::Accepted(BlockAccepted {
-                signer_signature_hash,
-                signature,
-                ..
-            })) = message
-            else {
-                continue;
-            };
-            // Because the propogation is so slow, even with test_observer::clear call above,
-            // we need to make sure we don't inadvertantly include events for the wrong signature
-            if signer_signature_hash == latest_signer_sighash {
-                continue;
-            }
-            signatures.insert(signature);
-            if signatures.len() == num_signers {
-                return Ok(true);
-            };
-        }
-        Ok(false)
+    let rc = miners.signer_test.get_current_reward_cycle();
+    let slot_ids = miners.signer_test.get_signer_indices(rc);
+    let mut block_responses: Vec<_> = vec![];
+
+    wait_for(60, || {
+        block_responses = slot_ids
+            .iter()
+            .filter_map(|slot_id| {
+                let latest_br = miners.signer_test.get_latest_block_response(slot_id.0);
+                info!(
+                    "[{}] Checking response for {}. accepted = {}",
+                    slot_id.0,
+                    latest_br.get_signer_signature_hash(),
+                    latest_br.as_block_accepted().is_some()
+                );
+                if latest_br.get_signer_signature_hash() != latest_signer_sighash {
+                    Some(latest_br)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let Some(sighash) = block_responses
+            .first()
+            .map(BlockResponse::get_signer_signature_hash)
+        else {
+            return Ok(false);
+        };
+        let all_same_block = block_responses
+            .iter()
+            .all(|x| x.get_signer_signature_hash() == sighash);
+        let all_responded = block_responses.len() == num_signers;
+        Ok(all_same_block && all_responded)
     })
     .unwrap();
 

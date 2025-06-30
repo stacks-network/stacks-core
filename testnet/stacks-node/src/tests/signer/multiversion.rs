@@ -1,5 +1,17 @@
-use std::collections::HashSet;
-use std::str::FromStr;
+// Copyright (C) 2025 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::sync::mpsc::TryRecvError;
 use std::thread;
 use std::time::Duration;
@@ -9,13 +21,11 @@ use libsigner::v0::signer_state::{
     MinerState, ReplayTransactionSet, SignerStateMachine, UpdateTime,
 };
 use stacks::chainstate::stacks::StacksTransaction;
-use stacks::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use stacks::util::hash::Hash160;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks_common_v3_1_00_13::codec::StacksMessageCodec as OldStacksMessageCodec;
 use stacks_signer::runloop::{RewardCycleInfo, State, StateInfo};
-use stacks_signer::signerdb::BlockInfo;
 use stacks_signer::v0::signer_state::{LocalStateMachine, SUPPORTED_SIGNER_PROTOCOL_VERSION};
 use stacks_signer::v0::SpawnedSigner;
 use {libsigner_v3_1_00_13, signer_v3_1_00_13, stacks_common_v3_1_00_13, stacks_v3_1_00_13};
@@ -24,7 +34,7 @@ use super::SpawnedSignerTrait;
 use crate::stacks_common::codec::StacksMessageCodec;
 use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{
-    get_account, get_chain_info, get_chain_info_opt, get_sortition_info, test_observer,
+    get_account, get_chain_info, test_observer,
 };
 use crate::tests::signer::SignerTest;
 use crate::tests::{self};
@@ -187,10 +197,9 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
     ) -> Option<stacks_signer::runloop::StateInfo> {
         match result {
             ReceiveResult::V310012(signer_result) => {
-                let Ok(mut result) = signer_result else {
+                let Ok(signer_v3_1_00_13::runloop::SignerResult::StatusCheck(state_info)) = signer_result else {
                     return None;
                 };
-                let signer_v3_1_00_13::runloop::SignerResult::StatusCheck(state_info) = result;
                 let signer_v3_1_00_13::runloop::StateInfo {
                     runloop_state,
                     reward_cycle_info,
@@ -285,7 +294,7 @@ fn with_new_miners<S: SpawnedSignerTrait>() {
     let num_signers = 5;
     // partition the signer set so that ~half are listening and using node 1 for RPC and events,
     //  and the rest are using node 2
-    let mut signer_test: SignerTest<S> = SignerTest::new_with_config_modifications(
+    let signer_test: SignerTest<S> = SignerTest::new_with_config_modifications(
         num_signers,
         initial_balances,
         |_| {},
@@ -309,7 +318,6 @@ fn with_new_miners<S: SpawnedSignerTrait>() {
 
     signer_test.boot_to_epoch_3();
     test_observer::clear();
-    let start_info = get_chain_info(&signer_test.running_nodes.conf);
 
     for i in 0..5 {
         info!(

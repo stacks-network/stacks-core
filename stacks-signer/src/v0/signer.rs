@@ -492,7 +492,7 @@ impl Signer {
                             );
                             #[cfg(any(test, feature = "testing"))]
                             if self.test_skip_block_broadcast(b) {
-                                return;
+                                continue;
                             }
                             self.handle_post_block(stacks_client, b);
                         }
@@ -501,7 +501,7 @@ impl Signer {
                                 Ok(epoch) => epoch,
                                 Err(e) => {
                                     warn!("{self}: Failed to determine node epoch. Cannot mock sign: {e}");
-                                    return;
+                                    continue;
                                 }
                             };
                             info!("{self}: received a mock block proposal.";
