@@ -3378,22 +3378,24 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
     let sender_addr2 = tests::to_addr(&sender_sk2);
     let send_amt = 100;
     let send_fee = 180;
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
-        num_signers,
-        vec![
-            (sender_addr, send_amt + send_fee),
-            (sender_addr2, send_amt + send_fee),
-        ],
-        |c| {
-            c.validate_with_replay_tx = true;
-        },
-        |node_config| {
-            node_config.miner.block_commit_delay = Duration::from_secs(1);
-            node_config.miner.replay_transactions = true;
-        },
-        None,
-        None,
-    );
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new_with_config_modifications_and_snapshot(
+            num_signers,
+            vec![
+                (sender_addr, send_amt + send_fee),
+                (sender_addr2, send_amt + send_fee),
+            ],
+            |c| {
+                c.validate_with_replay_tx = true;
+            },
+            |node_config| {
+                node_config.miner.block_commit_delay = Duration::from_secs(1);
+                node_config.miner.replay_transactions = true;
+            },
+            None,
+            None,
+            Some(function_name!()),
+        );
     let conf = &signer_test.running_nodes.conf;
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
@@ -3979,19 +3981,21 @@ fn tx_replay_solved_by_mempool_txs() {
     let send_amt = 100;
     let send_fee = 180;
     let num_txs = 2;
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
-        num_signers,
-        vec![(sender1_addr, (send_amt + send_fee) * num_txs)],
-        |c| {
-            c.validate_with_replay_tx = true;
-        },
-        |node_config| {
-            node_config.miner.block_commit_delay = Duration::from_secs(1);
-            node_config.miner.replay_transactions = true;
-        },
-        None,
-        None,
-    );
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new_with_config_modifications_and_snapshot(
+            num_signers,
+            vec![(sender1_addr, (send_amt + send_fee) * num_txs)],
+            |c| {
+                c.validate_with_replay_tx = true;
+            },
+            |node_config| {
+                node_config.miner.block_commit_delay = Duration::from_secs(1);
+                node_config.miner.replay_transactions = true;
+            },
+            None,
+            None,
+            Some(function_name!()),
+        );
     let conf = &signer_test.running_nodes.conf;
     let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
     let counters = &signer_test.running_nodes.counters;
@@ -4107,17 +4111,19 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
     let send_amt = 100;
     let send_fee = 180;
     let num_txs = 1;
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
-        num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * num_txs)],
-        |_| {},
-        |node_config| {
-            node_config.miner.block_commit_delay = Duration::from_secs(1);
-            node_config.miner.replay_transactions = true;
-        },
-        None,
-        None,
-    );
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new_with_config_modifications_and_snapshot(
+            num_signers,
+            vec![(sender_addr, (send_amt + send_fee) * num_txs)],
+            |_| {},
+            |node_config| {
+                node_config.miner.block_commit_delay = Duration::from_secs(1);
+                node_config.miner.replay_transactions = true;
+            },
+            None,
+            None,
+            Some(function_name!()),
+        );
     let conf = signer_test.running_nodes.conf.clone();
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
@@ -6098,18 +6104,20 @@ fn tenure_extend_after_idle_signers() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
     let idle_timeout = Duration::from_secs(30);
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
-        num_signers,
-        vec![],
-        |config| {
-            config.tenure_idle_timeout = idle_timeout;
-        },
-        |config| {
-            config.miner.tenure_extend_cost_threshold = 0;
-        },
-        None,
-        None,
-    );
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new_with_config_modifications_and_snapshot(
+            num_signers,
+            vec![],
+            |config| {
+                config.tenure_idle_timeout = idle_timeout;
+            },
+            |config| {
+                config.miner.tenure_extend_cost_threshold = 0;
+            },
+            None,
+            None,
+            Some(function_name!()),
+        );
 
     signer_test.boot_to_epoch_3();
 
@@ -6151,19 +6159,21 @@ fn tenure_extend_with_other_transactions() {
     let send_fee = 180;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let idle_timeout = Duration::from_secs(30);
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
-        num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * 2)],
-        |config| {
-            config.tenure_idle_timeout = idle_timeout;
-            config.tenure_idle_timeout_buffer = Duration::from_secs(1);
-        },
-        |config| {
-            config.miner.tenure_extend_cost_threshold = 0;
-        },
-        None,
-        None,
-    );
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new_with_config_modifications_and_snapshot(
+            num_signers,
+            vec![(sender_addr, (send_amt + send_fee) * 2)],
+            |config| {
+                config.tenure_idle_timeout = idle_timeout;
+                config.tenure_idle_timeout_buffer = Duration::from_secs(1);
+            },
+            |config| {
+                config.miner.tenure_extend_cost_threshold = 0;
+            },
+            None,
+            None,
+            Some(function_name!()),
+        );
     let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
@@ -6321,19 +6331,21 @@ fn tenure_extend_after_idle_miner() {
     let _recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let idle_timeout = Duration::from_secs(30);
     let miner_idle_timeout = idle_timeout + Duration::from_secs(10);
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
-        num_signers,
-        vec![(sender_addr, send_amt + send_fee)],
-        |config| {
-            config.tenure_idle_timeout = idle_timeout;
-        },
-        |config| {
-            config.miner.tenure_timeout = miner_idle_timeout;
-            config.miner.tenure_extend_cost_threshold = 0;
-        },
-        None,
-        None,
-    );
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new_with_config_modifications_and_snapshot(
+            num_signers,
+            vec![(sender_addr, send_amt + send_fee)],
+            |config| {
+                config.tenure_idle_timeout = idle_timeout;
+            },
+            |config| {
+                config.miner.tenure_timeout = miner_idle_timeout;
+                config.miner.tenure_extend_cost_threshold = 0;
+            },
+            None,
+            None,
+            Some(function_name!()),
+        );
     let _http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
     signer_test.boot_to_epoch_3();
