@@ -263,7 +263,6 @@ impl HttpResponse for RPCGetHealthRequestHandler {
 }
 
 impl StacksHttpRequest {
-    /// Make a new get-unconfirmed-tx request
     pub fn new_gethealth(host: PeerHost, neighbors_scope: NeighborsScope) -> StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
