@@ -170,7 +170,7 @@ impl SortitionId {
         } else {
             let mut hasher = Sha512_256::new();
             hasher.update(bhh);
-            write!(hasher, "{}", pox).expect("Failed to deserialize PoX ID into the hasher");
+            write!(hasher, "{pox}").expect("Failed to deserialize PoX ID into the hasher");
             let h = Sha512Trunc256Sum::from_hasher(hasher);
             let s = SortitionId(h.0);
             test_debug!("SortitionId({}) = {} + {}", &s, bhh, pox);

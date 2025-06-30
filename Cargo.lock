@@ -3391,6 +3391,7 @@ dependencies = [
  "stacks-common",
  "stdext",
  "stx-genesis",
+ "tempfile",
  "tikv-jemallocator",
  "time 0.2.27",
  "toml",

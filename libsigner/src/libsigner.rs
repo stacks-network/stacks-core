@@ -21,8 +21,8 @@
 Usage documentation can be found in the [README](https://github.com/stacks-network/stacks-blockchain/libsigner/README.md).
 */
 
-#![allow(unused_imports)]
 #![allow(dead_code)]
+#[allow(unused_imports)]
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 

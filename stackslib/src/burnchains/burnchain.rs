@@ -62,6 +62,19 @@ use crate::core::{
 use crate::monitoring::update_burnchain_height;
 use crate::util_lib::db::Error as db_error;
 
+#[cfg(any(test, feature = "testing"))]
+pub static TEST_DOWNLOAD_ERROR_ON_REORG: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
+
+#[cfg(any(test, feature = "testing"))]
+fn fault_inject_downloader_on_reorg(did_reorg: bool) -> bool {
+    did_reorg && *TEST_DOWNLOAD_ERROR_ON_REORG.lock().unwrap()
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+fn fault_inject_downloader_on_reorg(_did_reorg: bool) -> bool {
+    false
+}
+
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
         BurnchainStateTransitionOps {
@@ -1502,10 +1515,38 @@ impl Burnchain {
             }
         }
 
-        let mut start_block = sync_height;
-        if db_height < start_block {
-            start_block = db_height;
-        }
+        // check if the db has the parent of sync_height, if not,
+        //  start at the highest common ancestor
+        // if it does, then start at the minimum of db_height and sync_height
+        let start_block = if sync_height == 0 {
+            0
+        } else {
+            let Some(sync_header) = indexer.read_burnchain_header(sync_height)? else {
+                warn!("Missing burnchain header not read for sync start height";
+                      "sync_height" => sync_height);
+                return Err(burnchain_error::MissingHeaders);
+            };
+
+            let mut cursor = sync_header;
+            loop {
+                if burnchain_db.has_burnchain_block(&cursor.block_hash)? {
+                    break cursor.block_height;
+                }
+
+                cursor = indexer
+                    .read_burnchain_header(cursor.block_height.checked_sub(1).ok_or_else(
+                        || {
+                            error!("Could not find common ancestor, passed bitcoin genesis");
+                            burnchain_error::MissingHeaders
+                        },
+                    )?)?
+                    .ok_or_else(|| {
+                        warn!("Missing burnchain header not read for parent of indexed header";
+                              "indexed_header" => ?cursor);
+                        burnchain_error::MissingHeaders
+                    })?;
+            }
+        };
 
         debug!(
             "Sync'ed headers from {} to {}. DB at {}",
@@ -1604,6 +1645,17 @@ impl Burnchain {
                             }
                             _ => {}
                         };
+
+                        if fault_inject_downloader_on_reorg(did_reorg) {
+                            warn!("Stalling and yielding an error for the reorg";
+                                  "error_ht" => BurnHeaderIPC::height(&ipc_header),
+                                  "sync_ht" => sync_height,
+                                  "start_ht" => start_block,
+                                  "end_ht" => end_block,
+                            );
+                            thread::sleep(Duration::from_secs(10));
+                            return Err(burnchain_error::UnsupportedBurnchain);
+                        }
 
                         let download_start = get_epoch_time_ms();
                         let ipc_block = downloader.download(&ipc_header)?;

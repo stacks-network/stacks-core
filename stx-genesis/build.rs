@@ -133,7 +133,7 @@ fn sha256_digest<R: Read>(mut reader: R) -> String {
 fn encode_hex(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len() * 2);
     for &b in bytes {
-        write!(&mut s, "{:02x}", b).unwrap();
+        write!(&mut s, "{b:02x}").unwrap();
     }
     s
 }

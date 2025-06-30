@@ -487,6 +487,8 @@ pub struct RelayerThread {
     /// if true, then the last time the miner thread was launched, it was used to mine a Stacks
     /// block (used to alternate between mining microblocks and Stacks blocks that confirm them)
     mined_stacks_block: bool,
+    /// if true, the last time the miner thread was launched, it did not mine.
+    last_attempt_failed: bool,
 }
 
 pub(crate) struct BlockMinerThread {
@@ -1005,7 +1007,7 @@ impl BlockMinerThread {
             registered_key,
             burn_block,
             event_dispatcher: rt.event_dispatcher.clone(),
-            failed_to_submit_last_attempt: false,
+            failed_to_submit_last_attempt: rt.last_attempt_failed,
         }
     }
 
@@ -1131,10 +1133,10 @@ impl BlockMinerThread {
 
     /// Is a given Stacks staging block on the canonical burnchain fork?
     pub(crate) fn is_on_canonical_burnchain_fork(
-        candidate: &StagingBlock,
+        candidate_ch: &ConsensusHash,
+        candidate_bh: &BlockHeaderHash,
         sortdb_tip_handle: &SortitionHandleConn,
     ) -> bool {
-        let candidate_ch = &candidate.consensus_hash;
         let candidate_burn_ht = match SortitionDB::get_block_snapshot_consensus(
             sortdb_tip_handle.conn(),
             candidate_ch,
@@ -1143,13 +1145,13 @@ impl BlockMinerThread {
             Ok(None) => {
                 warn!("Tried to evaluate potential chain tip with an unknown consensus hash";
                       "consensus_hash" => %candidate_ch,
-                      "stacks_block_hash" => %candidate.anchored_block_hash);
+                      "stacks_block_hash" => %candidate_bh);
                 return false;
             }
             Err(e) => {
                 warn!("Error while trying to evaluate potential chain tip with an unknown consensus hash";
                       "consensus_hash" => %candidate_ch,
-                      "stacks_block_hash" => %candidate.anchored_block_hash,
+                      "stacks_block_hash" => %candidate_bh,
                       "err" => ?e);
                 return false;
             }
@@ -1159,13 +1161,13 @@ impl BlockMinerThread {
             Ok(None) => {
                 warn!("Tried to evaluate potential chain tip with a consensus hash ahead of canonical tip";
                       "consensus_hash" => %candidate_ch,
-                      "stacks_block_hash" => %candidate.anchored_block_hash);
+                      "stacks_block_hash" => %candidate_bh);
                 return false;
             }
             Err(e) => {
                 warn!("Error while trying to evaluate potential chain tip with an unknown consensus hash";
                       "consensus_hash" => %candidate_ch,
-                      "stacks_block_hash" => %candidate.anchored_block_hash,
+                      "stacks_block_hash" => %candidate_bh,
                       "err" => ?e);
                 return false;
             }
@@ -1202,7 +1204,13 @@ impl BlockMinerThread {
 
         let stacks_tips: Vec<_> = stacks_tips
             .into_iter()
-            .filter(|candidate| Self::is_on_canonical_burnchain_fork(candidate, &sortdb_tip_handle))
+            .filter(|candidate| {
+                Self::is_on_canonical_burnchain_fork(
+                    &candidate.consensus_hash,
+                    &candidate.anchored_block_hash,
+                    &sortdb_tip_handle,
+                )
+            })
             .collect();
 
         if stacks_tips.is_empty() {
@@ -1233,7 +1241,11 @@ impl BlockMinerThread {
                 .expect("FATAL: could not query chain tips at height")
                 .into_iter()
                 .filter(|candidate| {
-                    Self::is_on_canonical_burnchain_fork(candidate, &sortdb_tip_handle)
+                    Self::is_on_canonical_burnchain_fork(
+                        &candidate.consensus_hash,
+                        &candidate.anchored_block_hash,
+                        &sortdb_tip_handle,
+                    )
                 });
 
             for tip in stacks_tips {
@@ -1311,7 +1323,7 @@ impl BlockMinerThread {
         chain_state: &mut StacksChainState,
         at_stacks_height: Option<u64>,
     ) -> Option<TipCandidate> {
-        info!("Picking best Stacks tip");
+        debug!("Picking best Stacks tip");
         let miner_config = config.get_miner_config();
         let max_depth = miner_config.max_reorg_depth;
 
@@ -1320,10 +1332,18 @@ impl BlockMinerThread {
             Self::load_candidate_tips(burn_db, chain_state, max_depth, at_stacks_height);
 
         let mut previous_best_tips = HashMap::new();
+        let sortdb_tip_handle = burn_db.index_handle_at_tip();
         for tip in stacks_tips.iter() {
             let Some(prev_best_tip) = globals.get_best_tip(tip.stacks_height) else {
                 continue;
             };
+            if !Self::is_on_canonical_burnchain_fork(
+                &prev_best_tip.consensus_hash,
+                &prev_best_tip.anchored_block_hash,
+                &sortdb_tip_handle,
+            ) {
+                continue;
+            }
             previous_best_tips.insert(tip.stacks_height, prev_best_tip);
         }
 
@@ -1332,7 +1352,7 @@ impl BlockMinerThread {
             globals.add_best_tip(best_tip.stacks_height, best_tip.clone(), max_depth);
         } else {
             // no best-tip found; revert to old tie-breaker logic
-            info!("No best-tips found; using old tie-breaking logic");
+            debug!("No best-tips found; using old tie-breaking logic");
             return chain_state
                 .get_stacks_chain_tip(burn_db)
                 .expect("FATAL: could not load chain tip")
@@ -1476,7 +1496,7 @@ impl BlockMinerThread {
                 }
             }
 
-            info!(
+            debug!(
                 "Tip #{i} {}/{} at {}:{} has score {score} ({})",
                 &leaf_tip.consensus_hash,
                 &leaf_tip.anchored_block_hash,
@@ -1505,7 +1525,7 @@ impl BlockMinerThread {
             .get(*best_tip_idx)
             .expect("FATAL: candidates should not be empty");
 
-        info!(
+        debug!(
             "Best tip is #{best_tip_idx} {}/{}",
             &best_tip.consensus_hash, &best_tip.anchored_block_hash
         );
@@ -1617,12 +1637,12 @@ impl BlockMinerThread {
         } else {
             let mut best_attempt = 0;
             let mut max_txs = 0;
-            info!(
+            debug!(
                 "Consider {} in-flight Stacks tip(s)",
                 &last_mined_blocks.len()
             );
             for prev_block in last_mined_blocks.iter() {
-                info!(
+                debug!(
                     "Consider in-flight block {} on Stacks tip {}/{} in {} with {} txs",
                     &prev_block.anchored_block.block_hash(),
                     &prev_block.parent_consensus_hash,
@@ -1632,12 +1652,6 @@ impl BlockMinerThread {
                 );
                 max_txs = cmp::max(max_txs, prev_block.anchored_block.txs.len());
 
-                if prev_block.anchored_block.txs.len() == 1 && prev_block.attempt == 1 {
-                    // Don't let the fact that we've built an empty block during this sortition
-                    // prevent us from trying again.
-                    best_attempt = 1;
-                    continue;
-                }
                 if prev_block.parent_consensus_hash == *parent_consensus_hash
                     && prev_block.burn_hash == self.burn_block.burn_header_hash
                     && prev_block.anchored_block.header.parent_block
@@ -1669,7 +1683,7 @@ impl BlockMinerThread {
                             if !force {
                                 // the chain tip hasn't changed since we attempted to build a block.  Use what we
                                 // already have.
-                                info!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {parent_block_burn_height}, and no new microblocks ({} <= {} + 1)",
+                                debug!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {parent_block_burn_height}, and no new microblocks ({} <= {} + 1)",
                                        &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
                                        prev_block.anchored_block.txs.len(), prev_block.burn_hash, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
 
@@ -1680,7 +1694,7 @@ impl BlockMinerThread {
                             // TODO: only consider rebuilding our anchored block if we (a) have
                             // time, and (b) the new microblocks are worth more than the new BTC
                             // fee minus the old BTC fee
-                            info!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {parent_block_burn_height}, but there are new microblocks ({} > {} + 1)",
+                            debug!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {parent_block_burn_height}, but there are new microblocks ({} > {} + 1)",
                                    &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
                                    prev_block.anchored_block.txs.len(), prev_block.burn_hash, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
 
@@ -1688,7 +1702,7 @@ impl BlockMinerThread {
                         }
                     } else if !force {
                         // no microblock stream to confirm, and the stacks tip hasn't changed
-                        info!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {parent_block_burn_height}, and no microblocks present",
+                        debug!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {parent_block_burn_height}, and no microblocks present",
                                 &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
                                 prev_block.anchored_block.txs.len(), prev_block.burn_hash);
 
@@ -2733,7 +2747,12 @@ impl BlockMinerThread {
 
         let res = bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer, attempt);
         match res {
-            Ok(_) => self.failed_to_submit_last_attempt = false,
+            Ok(_) => {
+                self.failed_to_submit_last_attempt = false;
+                self.globals
+                    .counters
+                    .bump_neon_submitted_commits(self.burn_block.block_height);
+            }
             Err(_) if mock_mining => {
                 debug!("Relayer: Mock-mining enabled; not sending Bitcoin transaction");
                 self.failed_to_submit_last_attempt = true;
@@ -2858,6 +2877,7 @@ impl RelayerThread {
 
             miner_thread: None,
             mined_stacks_block: false,
+            last_attempt_failed: false,
         }
     }
 
@@ -3938,6 +3958,7 @@ impl RelayerThread {
         let last_mined_block_opt = thread_handle
             .join()
             .expect("FATAL: failed to join miner thread");
+        self.last_attempt_failed = false;
         if let Some(miner_result) = last_mined_block_opt {
             match miner_result {
                 MinerThreadResult::Block(
@@ -4066,6 +4087,7 @@ impl RelayerThread {
                 }
             }
         } else {
+            self.last_attempt_failed = true;
             // if we tried and failed to make an anchored block (e.g. because there's nothing to
             // do), then resume microblock mining
             if !self.mined_stacks_block {

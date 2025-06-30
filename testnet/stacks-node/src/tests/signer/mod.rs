@@ -1410,18 +1410,18 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SignerTest<Sp
             SignerSlotID(0), // We are just reading so again, don't care about index.
             SignerDb::new(":memory:").unwrap(),
         );
-        let latest_msgs = StackerDB::get_messages(
+        let mut latest_msgs = StackerDB::get_messages(
             stackerdb
                 .get_session_mut(&MessageSlotID::BlockResponse)
                 .expect("Failed to get BlockResponse stackerdb session"),
             &[slot_id],
         )
         .expect("Failed to get message from stackerdb");
-        let latest_msg = latest_msgs.last().unwrap();
+        let latest_msg = latest_msgs.pop().unwrap();
         let SignerMessage::BlockResponse(block_response) = latest_msg else {
             panic!("Latest message from slot #{slot_id} isn't a block acceptance");
         };
-        block_response.clone()
+        block_response
     }
 
     /// Get the latest block acceptance from the given slot
