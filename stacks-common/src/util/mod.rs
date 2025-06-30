@@ -18,6 +18,7 @@
 pub mod log;
 #[macro_use]
 pub mod macros;
+#[cfg(feature = "http-parser")]
 pub mod chunked_encoding;
 #[cfg(feature = "rusqlite")]
 pub mod db;

@@ -31,20 +31,21 @@ path = "./src/libcommon.rs"
 
 [dependencies]
 rand = { workspace = true }
-serde = { version = "1.0", features = ["derive"] }
-serde_derive = "1"
+serde = { workspace = true , features = ["derive"] }
+serde_derive = { workspace = true }
 sha3 = "0.10.1"
 ripemd = "0.1.1"
-lazy_static = "1.4.0"
-slog = { version = "2.5.2", features = ["max_level_trace"] }
+lazy_static = { workspace = true }
+slog = { workspace = true }
 slog-term = "2.6.0"
 slog-json = { version = "2.3.0", optional = true }
 chrono = "0.4.19"
 hashbrown = { workspace = true }
+regex = { workspace = true }
 rusqlite = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
-nix = "0.23"
+nix = {version = "0.23", optional = true}
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = [
@@ -83,8 +84,10 @@ rand_core = { workspace = true }
 proptest = "1.6.0"
 
 [features]
-default = ["developer-mode"]
+default = ["developer-mode", "ctrlc-handler", "http-parser"]
 developer-mode = []
+ctrlc-handler = ["dep:nix"]
+http-parser = []
 slog_json = ["slog-json"]
 rusqlite = ["dep:rusqlite"]
 testing = []
@@ -93,7 +96,7 @@ bech32_std = []
 bech32_strict = []
 
 [build-dependencies]
-toml = "0.5.6"
+toml = { workspace = true }
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }

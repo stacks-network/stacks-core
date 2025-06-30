@@ -13,7 +13,7 @@ extern crate slog;
 #[macro_use]
 extern crate serde_derive;
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "ctrlc-handler"))]
 extern crate nix;
 
 #[cfg(windows)]
@@ -29,7 +29,17 @@ pub mod types;
 
 pub mod address;
 
-pub mod deps_common;
+pub mod deps_common {
+    pub mod bech32;
+    pub mod bitcoin;
+
+    // These are gated by features.
+    #[cfg(feature = "ctrlc-handler")]
+    pub mod ctrlc;
+
+    #[cfg(feature = "http-parser")]
+    pub mod httparse;
+}
 
 pub mod bitvec;
 

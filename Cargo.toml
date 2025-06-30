@@ -16,11 +16,16 @@ members = [
 [workspace.dependencies]
 ed25519-dalek = { version = "2.1.1", features = ["serde", "rand_core"] }
 hashbrown = { version = "0.15.2", features = ["serde"] }
+lazy_static = "1.4.0"
 rand_core = "0.6.4"
 rand = "0.8"
 rand_chacha = "0.3.1"
-tikv-jemallocator = "0.5.4"
+serde = "1"
+serde_derive = "1"
+slog = { version = "2.5.2", features = [ "max_level_trace" ] }
+regex = "1"
 rusqlite = { version = "0.31.0", features = ["blob", "serde_json", "i128_blob", "bundled", "trace"] }
+tikv-jemallocator = "0.5.4"
 thiserror = "1.0.65"
 toml = "0.5.6"
 
