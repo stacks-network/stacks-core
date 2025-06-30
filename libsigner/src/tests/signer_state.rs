@@ -13,7 +13,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashMap;
-use std::time::SystemTime;
 
 use blockstack_lib::chainstate::stacks::{
     StacksTransaction, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
@@ -23,7 +22,6 @@ use clarity::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
 use clarity::util::hash::Hash160;
-use clarity::util::secp256k1::MessageSignature;
 
 use crate::v0::messages::{
     StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,

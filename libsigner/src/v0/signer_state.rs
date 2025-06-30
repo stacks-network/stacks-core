@@ -15,24 +15,15 @@
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
-use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
-use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use clarity::types::chainstate::StacksAddress;
 use serde::{Deserialize, Serialize};
-use stacks_common::bitvec::BitVec;
-use stacks_common::codec::Error as CodecError;
-use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
-use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::{debug, info, warn};
+use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common::util::hash::Hash160;
 
-use crate::v0::messages::{
-    MessageSlotID, SignerMessage, StateMachineUpdate, StateMachineUpdateContent,
-    StateMachineUpdateMinerState,
-};
+use crate::v0::messages::{StateMachineUpdate, StateMachineUpdateMinerState};
 
 /// A struct used to determine the current global state
 #[derive(Debug)]

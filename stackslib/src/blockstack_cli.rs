@@ -1,4 +1,3 @@
-#![allow(unused_imports)]
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
@@ -23,6 +22,7 @@ extern crate blockstack_lib;
 extern crate clarity;
 extern crate stacks_common;
 
+#[cfg(test)]
 use std::io::prelude::*;
 use std::io::Read;
 use std::{env, fs, io};

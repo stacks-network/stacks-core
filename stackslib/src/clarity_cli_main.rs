@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(unused_imports)]
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -26,7 +25,6 @@ extern crate serde_json;
 use std::{env, process};
 
 use blockstack_lib::clarity_cli as clarity;
-use stacks_common::util::log;
 
 fn main() {
     let argv: Vec<String> = env::args().collect();
