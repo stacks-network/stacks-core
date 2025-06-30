@@ -268,7 +268,7 @@ impl StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
-            format!("/v3/health"),
+            "/v3/health".into(),
             HttpRequestContents::new().query_arg(
                 NEIGHBORS_SCOPE_PARAM_NAME.into(),
                 neighbors_scope.to_string(),

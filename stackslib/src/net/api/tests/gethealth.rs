@@ -290,7 +290,7 @@ fn test_get_health_400_invalid_neighbors_param() {
     let request = StacksHttpRequest::new_for_peer(
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333).into(),
         "GET".into(),
-        format!("/v3/health"),
+        "/v3/health".into(),
         HttpRequestContents::new().query_string(Some("neighbors=invalid")),
     )
     .expect("FATAL: failed to construct request from infallible data");
