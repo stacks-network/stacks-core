@@ -885,11 +885,8 @@ impl SignerDb {
             1,
             FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
             |ctx| {
-                let value = ctx.get::<String>(0)?;
-                let content = serde_json::from_str::<StateMachineUpdate>(&value)
-                    .map_err(|e| SqliteError::UserFunctionError(e.into()))?
-                    .content;
-                Ok(*content.burn_block_view().0)
+                let json_str = ctx.get::<String>(0)?;
+                Self::extract_burn_block_consensus_hash_from_json(&json_str)
             },
         )?;
         Ok(())
@@ -979,6 +976,30 @@ impl SignerDb {
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
             false,
         )
+    }
+
+    /// Extracts the `burn_block` string from a JSON state machine update payload
+    fn extract_burn_block_consensus_hash_from_json(json_str: &str) -> rusqlite::Result<String> {
+        let v: serde_json::Value =
+            serde_json::from_str(json_str).map_err(|e| SqliteError::UserFunctionError(e.into()))?;
+
+        let content = &v["content"];
+        let content_obj = if let Some(v0) = content.get("V0") {
+            v0
+        } else if let Some(v1) = content.get("V1") {
+            v1
+        } else {
+            return Err(SqliteError::UserFunctionError(
+                "Invalid \"content\" struct: Expected one of \"V0\" or \"V1\"".into(),
+            ));
+        };
+
+        let burn_block_hex = content_obj
+            .get("burn_block")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| SqliteError::UserFunctionError("Missing burn_block".into()))?;
+
+        Ok(burn_block_hex.to_string())
     }
 
     /// Get the latest known version from the db for the given slot_id/pk pair
@@ -1798,9 +1819,7 @@ pub mod tests {
     use clarity::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
     use clarity::util::hash::Hash160;
     use clarity::util::secp256k1::MessageSignature;
-    use libsigner::v0::messages::{
-        StateMachineUpdateContent, StateMachineUpdateContentBase, StateMachineUpdateMinerState,
-    };
+    use libsigner::v0::messages::{StateMachineUpdateContent, StateMachineUpdateMinerState};
     use libsigner::{BlockProposal, BlockProposalData};
 
     use super::*;
@@ -2760,16 +2779,14 @@ pub mod tests {
             0,
             3,
             StateMachineUpdateContent::V0 {
-                base: StateMachineUpdateContentBase {
-                    burn_block: ConsensusHash([0x55; 20]),
-                    burn_block_height: 100,
-                    current_miner: StateMachineUpdateMinerState::ActiveMiner {
-                        current_miner_pkh: Hash160([0xab; 20]),
-                        tenure_id: ConsensusHash([0x44; 20]),
-                        parent_tenure_id: ConsensusHash([0x22; 20]),
-                        parent_tenure_last_block: StacksBlockId([0x33; 32]),
-                        parent_tenure_last_block_height: 1,
-                    },
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh: Hash160([0xab; 20]),
+                    tenure_id: ConsensusHash([0x44; 20]),
+                    parent_tenure_id: ConsensusHash([0x22; 20]),
+                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                    parent_tenure_last_block_height: 1,
                 },
             },
         )
@@ -2780,11 +2797,9 @@ pub mod tests {
             0,
             4,
             StateMachineUpdateContent::V0 {
-                base: StateMachineUpdateContentBase {
-                    burn_block: ConsensusHash([0x55; 20]),
-                    burn_block_height: 100,
-                    current_miner: StateMachineUpdateMinerState::NoValidMiner,
-                },
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::NoValidMiner,
             },
         )
         .unwrap();
@@ -2794,11 +2809,9 @@ pub mod tests {
             0,
             2,
             StateMachineUpdateContent::V0 {
-                base: StateMachineUpdateContentBase {
-                    burn_block: ConsensusHash([0x66; 20]),
-                    burn_block_height: 101,
-                    current_miner: StateMachineUpdateMinerState::NoValidMiner,
-                },
+                burn_block: ConsensusHash([0x66; 20]),
+                burn_block_height: 101,
+                current_miner: StateMachineUpdateMinerState::NoValidMiner,
             },
         )
         .unwrap();
@@ -2857,16 +2870,14 @@ pub mod tests {
             0,
             3,
             StateMachineUpdateContent::V0 {
-                base: StateMachineUpdateContentBase {
-                    burn_block: ConsensusHash([0x55; 20]),
-                    burn_block_height: 100,
-                    current_miner: StateMachineUpdateMinerState::ActiveMiner {
-                        current_miner_pkh: Hash160([0xab; 20]),
-                        tenure_id: ConsensusHash([0x44; 20]),
-                        parent_tenure_id: ConsensusHash([0x22; 20]),
-                        parent_tenure_last_block: StacksBlockId([0x33; 32]),
-                        parent_tenure_last_block_height: 1,
-                    },
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh: Hash160([0xab; 20]),
+                    tenure_id: ConsensusHash([0x44; 20]),
+                    parent_tenure_id: ConsensusHash([0x22; 20]),
+                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                    parent_tenure_last_block_height: 1,
                 },
             },
         )
@@ -2878,11 +2889,9 @@ pub mod tests {
             0,
             4,
             StateMachineUpdateContent::V0 {
-                base: StateMachineUpdateContentBase {
-                    burn_block: ConsensusHash([0x55; 20]),
-                    burn_block_height: 100,
-                    current_miner: StateMachineUpdateMinerState::NoValidMiner,
-                },
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::NoValidMiner,
             },
         )
         .unwrap();
@@ -2893,11 +2902,9 @@ pub mod tests {
             0,
             2,
             StateMachineUpdateContent::V0 {
-                base: StateMachineUpdateContentBase {
-                    burn_block: ConsensusHash([0x66; 20]),
-                    burn_block_height: 101,
-                    current_miner: StateMachineUpdateMinerState::NoValidMiner,
-                },
+                burn_block: ConsensusHash([0x66; 20]),
+                burn_block_height: 101,
+                current_miner: StateMachineUpdateMinerState::NoValidMiner,
             },
         )
         .unwrap();
@@ -3066,11 +3073,8 @@ pub mod tests {
             1,
             FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
             |ctx| {
-                let value = ctx.get::<String>(0)?;
-                let content = serde_json::from_str::<StateMachineUpdate>(&value)
-                    .map_err(|e| SqliteError::UserFunctionError(e.into()))?
-                    .content;
-                Ok(*content.burn_block_view().0)
+                let json_str = ctx.get::<String>(0)?;
+                SignerDb::extract_burn_block_consensus_hash_from_json(&json_str)
             },
         )
         .unwrap();
@@ -3095,11 +3099,9 @@ pub mod tests {
                     1,
                     1,
                     StateMachineUpdateContent::V1 {
-                        base: StateMachineUpdateContentBase {
-                            burn_block,
-                            burn_block_height: burn_height.into(),
-                            current_miner: StateMachineUpdateMinerState::NoValidMiner,
-                        },
+                        burn_block,
+                        burn_block_height: burn_height.into(),
+                        current_miner: StateMachineUpdateMinerState::NoValidMiner,
                         replay_transactions: vec![],
                     },
                 )
@@ -3109,18 +3111,19 @@ pub mod tests {
                     0,
                     0,
                     StateMachineUpdateContent::V0 {
-                        base: StateMachineUpdateContentBase {
-                            burn_block,
-                            burn_block_height: burn_height.into(),
-                            current_miner: StateMachineUpdateMinerState::NoValidMiner,
-                        },
+                        burn_block,
+                        burn_block_height: burn_height.into(),
+                        current_miner: StateMachineUpdateMinerState::NoValidMiner,
                     },
                 )
                 .unwrap()
             };
             let address = &addresses[i as usize];
-            let update_str =
-                serde_json::to_string(&update).expect("Unable to serialize state machine update");
+            let update_str = if i == 0 {
+                r#"{"active_signer_protocol_version":0,"local_supported_signer_protocol_version":1,"content":{"V0":{"burn_block":"0000000000000000000000000000000000000000","burn_block_height":896952,"current_miner":{"ActiveMiner":{"current_miner_pkh":"a0fd31044d7542fd81b6d6f8c074a3fd1c1714f6","tenure_id":"11d5b9f05bcb4a1acac21f7a5053d148545728af","parent_tenure_id":"50673996e2ec9ff600ba24ddd820c26ab74007b4","parent_tenure_last_block":"d30fac0a139c3e55f989ea3b62dc5b7d8cd116f1a52216ee957ee8353f4b9be5","parent_tenure_last_block_height":1180772}}}},"no_manual_construct":null}"#.to_string()
+            } else {
+                serde_json::to_string(&update).expect("Unable to serialize state machine update")
+            };
 
             conn.execute("INSERT OR REPLACE INTO signer_state_machine_updates (signer_addr, reward_cycle, state_update, received_time) VALUES (?1, ?2, ?3, ?4)", params![
                 address.to_string(),

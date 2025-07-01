@@ -25,7 +25,7 @@ use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use clarity::util::tests::TestFlag;
 use libsigner::v0::messages::{
     MessageSlotID, SignerMessage, StateMachineUpdate as StateMachineUpdateMessage,
-    StateMachineUpdateContent, StateMachineUpdateContentBase, StateMachineUpdateMinerState,
+    StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
 use libsigner::v0::signer_state::{
     GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine, UpdateTime,
@@ -177,19 +177,22 @@ impl LocalStateMachine {
             MinerState::NoValidMiner => StateMachineUpdateMinerState::NoValidMiner,
         };
 
-        let base = StateMachineUpdateContentBase {
-            burn_block: state_machine.burn_block,
-            burn_block_height: state_machine.burn_block_height,
-            current_miner,
-        };
         let content = match state_machine.active_signer_protocol_version {
-            0 => StateMachineUpdateContent::V0 { base },
+            0 => StateMachineUpdateContent::V0 {
+                burn_block: state_machine.burn_block,
+                burn_block_height: state_machine.burn_block_height,
+                current_miner,
+            },
             1 => StateMachineUpdateContent::V1 {
-                base,
+                burn_block: state_machine.burn_block,
+                burn_block_height: state_machine.burn_block_height,
+                current_miner,
                 replay_transactions: state_machine.tx_replay_set.clone().unwrap_or_default(),
             },
             2 => StateMachineUpdateContent::V2 {
-                base,
+                burn_block: state_machine.burn_block,
+                burn_block_height: state_machine.burn_block_height,
+                current_miner,
                 replay_transactions: state_machine.tx_replay_set.clone().unwrap_or_default(),
             },
             other => {

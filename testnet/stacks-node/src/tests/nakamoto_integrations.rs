@@ -31,7 +31,7 @@ use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
 use libsigner::v0::messages::{
     MessageSlotID, RejectReason, SignerMessage as SignerMessageV0, StateMachineUpdate,
-    StateMachineUpdateContent, StateMachineUpdateContentBase, StateMachineUpdateMinerState,
+    StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
 use libsigner::{SignerSession, StackerDBSession};
 use rand::{thread_rng, Rng};
@@ -12489,11 +12489,9 @@ fn miner_constructs_replay_block() {
         1,
         1,
         StateMachineUpdateContent::V1 {
-            base: StateMachineUpdateContentBase {
-                burn_block: ConsensusHash([0u8; 20]),
-                burn_block_height: 1,
-                current_miner: StateMachineUpdateMinerState::NoValidMiner,
-            },
+            burn_block: ConsensusHash([0u8; 20]),
+            burn_block_height: 1,
+            current_miner: StateMachineUpdateMinerState::NoValidMiner,
             replay_transactions,
         },
     )

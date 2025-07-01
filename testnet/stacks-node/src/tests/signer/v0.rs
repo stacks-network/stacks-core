@@ -24,8 +24,7 @@ use std::{env, thread};
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MinerSlotID, PeerInfo, RejectCode,
-    RejectReason, SignerMessage, StateMachineUpdateContent, StateMachineUpdateContentBase,
-    StateMachineUpdateMinerState,
+    RejectReason, SignerMessage, StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
 use libsigner::{
     BlockProposal, BlockProposalData, SignerSession, StackerDBSession, StacksBlockEvent,
@@ -1567,13 +1566,32 @@ pub fn wait_for_state_machine_update(
                 continue;
             };
             let (burn_block, burn_block_height, current_miner) = match (version, &update.content) {
-                (0, StateMachineUpdateContent::V0 { base })
-                | (1, StateMachineUpdateContent::V1 { base, .. })
-                | (2, StateMachineUpdateContent::V2 { base, .. }) => (
-                    base.burn_block,
-                    base.burn_block_height,
-                    base.current_miner.clone(),
-                ),
+                (
+                    0,
+                    StateMachineUpdateContent::V0 {
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                    },
+                )
+                | (
+                    1,
+                    StateMachineUpdateContent::V1 {
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                        ..
+                    },
+                )
+                | (
+                    2,
+                    StateMachineUpdateContent::V2 {
+                        burn_block,
+                        burn_block_height,
+                        current_miner,
+                        ..
+                    },
+                ) => (burn_block, burn_block_height, current_miner.clone()),
                 (_, _) => continue,
             };
             if burn_block_height != expected_burn_block_height || &burn_block != expected_burn_block
@@ -1639,36 +1657,21 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
                 (
                     0,
                     StateMachineUpdateContent::V0 {
-                        base:
-                            StateMachineUpdateContentBase {
-                                current_miner:
-                                    StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. },
-                                ..
-                            },
+                        current_miner: StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. },
                         ..
                     },
                 )
                 | (
                     1,
                     StateMachineUpdateContent::V1 {
-                        base:
-                            StateMachineUpdateContentBase {
-                                current_miner:
-                                    StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. },
-                                ..
-                            },
+                        current_miner: StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. },
                         ..
                     },
                 )
                 | (
                     2,
                     StateMachineUpdateContent::V2 {
-                        base:
-                            StateMachineUpdateContentBase {
-                                current_miner:
-                                    StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. },
-                                ..
-                            },
+                        current_miner: StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. },
                         ..
                     },
                 ) => {

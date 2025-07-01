@@ -29,7 +29,7 @@ use clarity::util::hash::{Hash160, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use libsigner::v0::messages::{
     StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,
-    StateMachineUpdateContentBase, StateMachineUpdateMinerState,
+    StateMachineUpdateMinerState,
 };
 use libsigner::v0::signer_state::{
     GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine, UpdateTime,
@@ -84,11 +84,9 @@ fn check_capitulate_miner_view() {
         active_signer_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V0 {
-            base: StateMachineUpdateContentBase {
-                burn_block,
-                burn_block_height,
-                current_miner: old_miner.clone(),
-            },
+            burn_block,
+            burn_block_height,
+            current_miner: old_miner.clone(),
         },
     )
     .unwrap();
@@ -112,12 +110,9 @@ fn check_capitulate_miner_view() {
         local_supported_signer_protocol_version,
         content:
             StateMachineUpdateContent::V0 {
-                base:
-                    StateMachineUpdateContentBase {
-                        burn_block,
-                        burn_block_height,
-                        ..
-                    },
+                burn_block,
+                burn_block_height,
+                ..
             },
         ..
     } = local_update.clone()
@@ -136,11 +131,9 @@ fn check_capitulate_miner_view() {
         active_signer_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V0 {
-            base: StateMachineUpdateContentBase {
-                burn_block,
-                burn_block_height,
-                current_miner: new_miner.clone(),
-            },
+            burn_block,
+            burn_block_height,
+            current_miner: new_miner.clone(),
         },
     )
     .unwrap();
