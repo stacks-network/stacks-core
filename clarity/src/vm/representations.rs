@@ -675,3 +675,26 @@ impl Span {
         }
     }
 }
+
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+pub struct FunctionIdentifier {
+    pub(crate) identifier: String,
+}
+
+impl fmt::Display for FunctionIdentifier {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.identifier)
+    }
+}
+
+impl FunctionIdentifier {
+    pub fn new_native_function(name: &str) -> FunctionIdentifier {
+        let identifier = format!("_native_:{}", name);
+        FunctionIdentifier { identifier }
+    }
+
+    pub fn new_user_function(name: &str, context: &str) -> FunctionIdentifier {
+        let identifier = format!("{}:{}", context, name);
+        FunctionIdentifier { identifier }
+    }
+}

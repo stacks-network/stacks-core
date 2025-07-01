@@ -35,6 +35,8 @@ use crate::vm::database::{
     ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
     NonFungibleTokenMetadata,
 };
+// Re-export the for retro-compatibility.
+pub use crate::vm::errors::StackTrace;
 use crate::vm::errors::{
     CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
@@ -247,8 +249,6 @@ pub struct CallStack {
     set: HashSet<FunctionIdentifier>,
     apply_depth: usize,
 }
-
-pub type StackTrace = Vec<FunctionIdentifier>;
 
 pub const TRANSIENT_CONTRACT_NAME: &str = "__transient";
 

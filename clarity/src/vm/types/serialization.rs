@@ -24,8 +24,11 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::BoundReader;
 
 use super::{ListTypeData, TupleTypeSignature};
+#[cfg(feature = "vm")]
 use crate::vm::database::{ClarityDeserializable, ClaritySerializable};
-use crate::vm::errors::{CheckErrors, Error as ClarityError, IncomparableError, InterpreterError};
+#[cfg(feature = "vm")]
+use crate::vm::errors::Error as ClarityError;
+use crate::vm::errors::{CheckErrors, IncomparableError, InterpreterError};
 use crate::vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
 use crate::vm::types::{
     BufferLength, CallableData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
@@ -1327,12 +1330,14 @@ impl Value {
     }
 }
 
+#[cfg(feature = "vm")]
 impl ClaritySerializable for u32 {
     fn serialize(&self) -> String {
         to_hex(&self.to_be_bytes())
     }
 }
 
+#[cfg(feature = "vm")]
 impl ClarityDeserializable<u32> for u32 {
     fn deserialize(input: &str) -> Result<Self, ClarityError> {
         let bytes = hex_bytes(input).map_err(|_| {

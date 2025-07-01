@@ -21,19 +21,20 @@ use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJSONErr;
 use stacks_common::types::chainstate::BlockHeaderHash;
 
-use super::ast::errors::ParseErrors;
 pub use crate::vm::analysis::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors,
 };
-use crate::vm::ast::errors::ParseError;
-use crate::vm::contexts::StackTrace;
+use crate::vm::ast::errors::{ParseError, ParseErrors};
 use crate::vm::costs::CostErrors;
+use crate::vm::representations::FunctionIdentifier;
 use crate::vm::types::Value;
 
 #[derive(Debug)]
 pub struct IncomparableError<T> {
     pub err: T,
 }
+
+pub type StackTrace = Vec<FunctionIdentifier>;
 
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]

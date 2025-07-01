@@ -31,11 +31,12 @@ use crate::vm::errors::{
     CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::representations::{ClarityName, ContractName, SymbolicExpression};
+#[cfg(feature = "vm")]
+pub use crate::vm::types::signatures::parse_name_type_pairs;
 pub use crate::vm::types::signatures::{
-    parse_name_type_pairs, AssetIdentifier, BufferLength, FixedFunction, FunctionArg,
-    FunctionSignature, FunctionType, ListTypeData, SequenceSubtype, StringSubtype,
-    StringUTF8Length, TupleTypeSignature, TypeSignature, BUFF_1, BUFF_20, BUFF_21, BUFF_32,
-    BUFF_33, BUFF_64, BUFF_65,
+    AssetIdentifier, BufferLength, FixedFunction, FunctionArg, FunctionSignature, FunctionType,
+    ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length, TupleTypeSignature,
+    TypeSignature, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
 };
 use crate::vm::ClarityVersion;
 

@@ -25,17 +25,19 @@ use hashbrown::HashSet;
 use lazy_static::lazy_static;
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::costs::{runtime_cost, CostOverflowingMath};
+#[cfg(feature = "vm")]
+use crate::vm::costs::{runtime_cost, ClarityCostFunction, CostOverflowingMath as _, CostTracker};
 use crate::vm::errors::CheckErrors;
-use crate::vm::representations::{
-    ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
-    CONTRACT_MAX_NAME_LENGTH,
-};
+use crate::vm::representations::{ClarityName, ContractName, CONTRACT_MAX_NAME_LENGTH};
+#[cfg(feature = "vm")]
+use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType, TraitDefinition};
 use crate::vm::types::{
     CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, SequencedValue,
     StandardPrincipalData, TraitIdentifier, Value, MAX_TYPE_DEPTH, MAX_VALUE_SIZE,
     WRAPPER_VALUE_SIZE,
 };
+#[cfg(feature = "vm")]
+use crate::vm::ClarityVersion;
 
 type Result<R> = std::result::Result<R, CheckErrors>;
 
@@ -948,6 +950,7 @@ impl TupleTypeSignature {
         Ok(true)
     }
 
+    #[cfg(feature = "vm")]
     pub fn parse_name_type_pair_list<A: CostTracker>(
         epoch: StacksEpochId,
         type_def: &SymbolicExpression,
@@ -966,6 +969,7 @@ impl TupleTypeSignature {
     }
 }
 
+#[cfg(feature = "vm")]
 impl FixedFunction {
     pub fn total_type_size(&self) -> Result<u64> {
         let mut function_type_size = u64::from(self.returns.type_size()?);
@@ -977,6 +981,7 @@ impl FixedFunction {
     }
 }
 
+#[cfg(feature = "vm")]
 impl FunctionSignature {
     pub fn total_type_size(&self) -> Result<u64> {
         let mut function_type_size = u64::from(self.returns.type_size()?);
@@ -1464,6 +1469,7 @@ impl TypeSignature {
     }
 }
 
+#[cfg(feature = "vm")]
 /// Parsing functions.
 impl TypeSignature {
     fn parse_atom_type(typename: &str) -> Result<TypeSignature> {
@@ -1917,10 +1923,7 @@ impl TupleTypeSignature {
     }
 }
 
-use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::CostTracker;
-use crate::vm::ClarityVersion;
-
+#[cfg(feature = "vm")]
 pub fn parse_name_type_pairs<A: CostTracker>(
     epoch: StacksEpochId,
     name_type_pairs: &[SymbolicExpression],

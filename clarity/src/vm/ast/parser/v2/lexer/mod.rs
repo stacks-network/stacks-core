@@ -1425,7 +1425,7 @@ mod tests {
         +-*/    < <=       >
 >=.: ;; comment
    "hello" u"world"     0x0123456789abcdeffedcba9876543210
-	
+
 
    foo-bar_
 "#,

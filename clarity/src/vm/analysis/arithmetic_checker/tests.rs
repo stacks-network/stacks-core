@@ -215,13 +215,13 @@ fn test_functions_clarity1() {
          Err(FunctionNotPermitted(NativeFunctions::SetVar))),
         ("(define-private (foo (a principal)) (ft-get-balance tokaroos a))",
          Err(FunctionNotPermitted(NativeFunctions::GetTokenBalance))),
-        ("(define-private (foo (a principal)) 
+        ("(define-private (foo (a principal))
           (ft-transfer? stackaroo u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))",
          Err(FunctionNotPermitted(NativeFunctions::TransferToken))),
-        ("(define-private (foo (a principal)) 
+        ("(define-private (foo (a principal))
           (ft-mint? stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR))",
          Err(FunctionNotPermitted(NativeFunctions::MintToken))),
-        ("(define-private (foo (a principal)) 
+        ("(define-private (foo (a principal))
            (nft-mint? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR))",
          Err(FunctionNotPermitted(NativeFunctions::MintAsset))),
         ("(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)",
@@ -293,7 +293,7 @@ fn test_functions_clarity1() {
          Ok(())),
         ("(buff-to-uint-be 0x0001)",
          Ok(())),
-        ("(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)", 
+        ("(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)",
          Ok(())),
         ("(principal-destruct? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)",
          Ok(())),
@@ -358,7 +358,7 @@ fn test_functions_clarity2() {
          Err(FunctionNotPermitted(NativeFunctions::IsStandard))),
         ("(principal-destruct? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)",
          Err(FunctionNotPermitted(NativeFunctions::PrincipalDestruct))),
-        ("(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320)", 
+        ("(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320)",
          Err(FunctionNotPermitted(NativeFunctions::PrincipalConstruct))),
         ("(string-to-int? \"-1\")",
          Err(FunctionNotPermitted(NativeFunctions::StringToInt))),
