@@ -3412,7 +3412,7 @@ mod tests {
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller.bootstrap_chain(101); // one utxo exists
 
-        let too_much_required = 1_000_000_000_000_000_000;
+        let too_much_required = 10_000_000_000;
         let utxos = btc_controller.get_utxos(
             StacksEpochId::Epoch31,
             &miner_pubkey,
