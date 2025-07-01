@@ -3271,7 +3271,6 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "time 0.2.27",
  "toml",
  "winapi 0.3.9",
 ]
