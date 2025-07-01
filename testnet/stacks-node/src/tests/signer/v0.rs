@@ -1594,7 +1594,7 @@ pub fn wait_for_state_machine_update(
                 ) => (burn_block, burn_block_height, current_miner.clone()),
                 (_, _) => continue,
             };
-            if burn_block_height != expected_burn_block_height || &burn_block != expected_burn_block
+            if burn_block_height != &expected_burn_block_height || burn_block != expected_burn_block
             {
                 continue;
             }
@@ -15049,7 +15049,7 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
 
     let miner_2_block_n_2 =
         wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_2)
-            .expect("Miner 2's block N+1 was not mined");
+            .expect("Miner 2's block N+2 was not mined");
     let peer_info = miners.get_peer_info();
     assert_eq!(peer_info.stacks_tip, miner_2_block_n_2.header.block_hash());
     assert_eq!(peer_info.stacks_tip_height, stacks_height_before + 1);
@@ -15062,7 +15062,7 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
         &miner_2_block_n_2.header.signer_signature_hash(),
         &all_signers,
     )
-    .expect("Failed to get expected acceptance for Miner 2's block N+1.");
+    .expect("Failed to get expected acceptance for Miner 2's block N+2.");
 
     info!("------------------------- Unpause Miner 1's Block Commits -------------------------");
     miners.submit_commit_miner_1(&sortdb);
