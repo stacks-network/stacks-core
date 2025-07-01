@@ -322,12 +322,7 @@ impl LocalStateMachine {
             client.get_current_and_last_sortition()?;
         let Some(last_sortition) = last_sortition
             .and_then(|val| SortitionData::try_from(val).ok())
-            .map(|data| {
-                SortitionState::new(
-                    version,
-                    data,
-                )
-            })
+            .map(|data| SortitionState::new(version, data))
         else {
             warn!("Signer State: Current miner timed out due to inactivity, but could not find a valid prior miner. Allowing current miner to continue");
             return Ok(());
