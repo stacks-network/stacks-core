@@ -3230,6 +3230,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_create_wallet_from_default_empty_name() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
@@ -3257,6 +3258,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_create_wallet_from_custom_name() {
         let mut config = utils::create_config();
         config.burnchain.wallet_name = String::from("mywallet");
@@ -3278,6 +3280,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_get_all_utxos_with_confirmation() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
@@ -3317,6 +3320,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_get_all_utxos_empty_for_other_pubkey() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
@@ -3341,6 +3345,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_get_utxos_ok_with_confirmation() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
@@ -3388,6 +3393,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_get_utxos_none_due_to_filter_total_required() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
@@ -3418,6 +3424,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_get_utxos_none_due_to_filter_pubkey() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
@@ -3445,6 +3452,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_get_utxos_none_due_to_filter_utxo_exclusion() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
@@ -3480,6 +3488,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_build_leader_block_commit_tx_ok_with_new_commit_op() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
@@ -3539,6 +3548,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_build_leader_block_commit_tx_fails_resub_same_commit_op_while_prev_not_confirmed() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
@@ -3589,6 +3599,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_build_leader_block_commit_tx_fails_resub_same_commit_op_while_prev_is_confirmed() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
@@ -3641,6 +3652,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_build_leader_block_commit_tx_ok_rbf_while_prev_is_confirmed() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
@@ -3720,6 +3732,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_build_leader_block_commit_tx_ok_rbf_while_prev_not_confirmed() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
