@@ -130,12 +130,16 @@ mod platform {
     }
 
     unsafe fn get_stdout() -> io::Result<HANDLE> {
+        use std::ffi::CString;
+
         use winapi::um::fileapi::{CreateFileA, OPEN_EXISTING};
         use winapi::um::handleapi::INVALID_HANDLE_VALUE;
         use winapi::um::winnt::{FILE_SHARE_WRITE, GENERIC_READ, GENERIC_WRITE};
 
+        let conout = CString::new("CONOUT$").expect("CString::new failed");
+
         let stdout = CreateFileA(
-            "CONOUT$\0".as_ptr() as *const CHAR,
+            conout.as_ptr() as *const CHAR,
             GENERIC_READ | GENERIC_WRITE,
             FILE_SHARE_WRITE,
             ptr::null_mut(),

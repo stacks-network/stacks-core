@@ -16,40 +16,35 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{fs, thread};
 
-use stacks_common::address::{public_keys_to_address_hash, AddressHashMode};
+#[cfg(test)]
+use rand::{thread_rng, RngCore};
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
-use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, StacksAddress, TrieHash};
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::vrf::VRFPublicKey;
-use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log, sleep_ms};
+use stacks_common::util::{get_epoch_time_ms, sleep_ms};
 
 use super::EpochList;
 use crate::burnchains::affirmation::update_pox_affirmation_maps;
-use crate::burnchains::bitcoin::address::{
-    to_c32_version_byte, BitcoinAddress, LegacyBitcoinAddressType,
-};
-use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
-use crate::burnchains::bitcoin::{
-    BitcoinInputType, BitcoinNetworkType, BitcoinTxInput, BitcoinTxOutput,
-};
+use crate::burnchains::bitcoin::BitcoinTxOutput;
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
 };
 use crate::burnchains::{
-    Address, Burnchain, BurnchainBlock, BurnchainBlockHeader, BurnchainParameters,
-    BurnchainRecipient, BurnchainSigner, BurnchainStateTransition, BurnchainStateTransitionOps,
-    BurnchainTransaction, Error as burnchain_error, PoxConstants, PublicKey, Txid,
+    Burnchain, BurnchainBlock, BurnchainBlockHeader, BurnchainParameters, BurnchainRecipient,
+    BurnchainSigner, BurnchainStateTransition, BurnchainStateTransitionOps, BurnchainTransaction,
+    Error as burnchain_error, PoxConstants, Txid,
 };
-use crate::chainstate::burn::db::sortdb::{
-    SortitionDB, SortitionHandle, SortitionHandleConn, SortitionHandleTx,
-};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle, SortitionHandleTx};
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
 use crate::chainstate::burn::operations::{
@@ -58,17 +53,27 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
-use crate::chainstate::coordinator::SortitionDBMigrator;
-use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
-use crate::chainstate::stacks::boot::{POX_2_MAINNET_CODE, POX_2_TESTNET_CODE};
+use crate::chainstate::stacks::address::PoxAddress;
+#[cfg(any(test, feature = "testing"))]
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::{
-    StacksEpoch, StacksEpochId, NETWORK_ID_MAINNET, NETWORK_ID_TESTNET, PEER_VERSION_MAINNET,
-    PEER_VERSION_TESTNET, STACKS_2_0_LAST_BLOCK_TO_PROCESS,
+    StacksEpoch, StacksEpochId, NETWORK_ID_MAINNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
-use crate::deps;
 use crate::monitoring::update_burnchain_height;
-use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
+use crate::util_lib::db::Error as db_error;
+
+#[cfg(any(test, feature = "testing"))]
+pub static TEST_DOWNLOAD_ERROR_ON_REORG: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
+
+#[cfg(any(test, feature = "testing"))]
+fn fault_inject_downloader_on_reorg(did_reorg: bool) -> bool {
+    did_reorg && *TEST_DOWNLOAD_ERROR_ON_REORG.lock().unwrap()
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+fn fault_inject_downloader_on_reorg(_did_reorg: bool) -> bool {
+    false
+}
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -637,9 +642,6 @@ impl Burnchain {
         first_block_height: u64,
         first_block_hash: &BurnchainHeaderHash,
     ) -> Burnchain {
-        use rand::rngs::ThreadRng;
-        use rand::{thread_rng, RngCore};
-
         let mut rng = thread_rng();
         let mut byte_tail = [0u8; 16];
         rng.fill_bytes(&mut byte_tail);
@@ -1513,10 +1515,38 @@ impl Burnchain {
             }
         }
 
-        let mut start_block = sync_height;
-        if db_height < start_block {
-            start_block = db_height;
-        }
+        // check if the db has the parent of sync_height, if not,
+        //  start at the highest common ancestor
+        // if it does, then start at the minimum of db_height and sync_height
+        let start_block = if sync_height == 0 {
+            0
+        } else {
+            let Some(sync_header) = indexer.read_burnchain_header(sync_height)? else {
+                warn!("Missing burnchain header not read for sync start height";
+                      "sync_height" => sync_height);
+                return Err(burnchain_error::MissingHeaders);
+            };
+
+            let mut cursor = sync_header;
+            loop {
+                if burnchain_db.has_burnchain_block(&cursor.block_hash)? {
+                    break cursor.block_height;
+                }
+
+                cursor = indexer
+                    .read_burnchain_header(cursor.block_height.checked_sub(1).ok_or_else(
+                        || {
+                            error!("Could not find common ancestor, passed bitcoin genesis");
+                            burnchain_error::MissingHeaders
+                        },
+                    )?)?
+                    .ok_or_else(|| {
+                        warn!("Missing burnchain header not read for parent of indexed header";
+                              "indexed_header" => ?cursor);
+                        burnchain_error::MissingHeaders
+                    })?;
+            }
+        };
 
         debug!(
             "Sync'ed headers from {} to {}. DB at {}",
@@ -1615,6 +1645,17 @@ impl Burnchain {
                             }
                             _ => {}
                         };
+
+                        if fault_inject_downloader_on_reorg(did_reorg) {
+                            warn!("Stalling and yielding an error for the reorg";
+                                  "error_ht" => BurnHeaderIPC::height(&ipc_header),
+                                  "sync_ht" => sync_height,
+                                  "start_ht" => start_block,
+                                  "end_ht" => end_block,
+                            );
+                            thread::sleep(Duration::from_secs(10));
+                            return Err(burnchain_error::UnsupportedBurnchain);
+                        }
 
                         let download_start = get_epoch_time_ms();
                         let ipc_block = downloader.download(&ipc_header)?;

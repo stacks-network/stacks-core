@@ -13,39 +13,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::{fs, io};
-
 use regex::{Captures, Regex};
-use serde::de::Error as de_Error;
-use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId,
+    BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId,
 };
-use stacks_common::types::net::PeerHost;
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::{to_hex, Hash160};
 use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex, prefix_opt_hex_codec};
-use stacks_common::util::HexError;
-use {serde, serde_json};
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NakamotoStagingBlocksConn};
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
-use crate::net::api::getblock_v3::NakamotoBlockStream;
 use crate::net::http::{
-    parse_bytes, parse_json, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType,
-    HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
-    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError, HttpVersion,
+    parse_json, Error, HttpBadRequest, HttpContentType, HttpNotFound, HttpRequest,
+    HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
+    HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{
-    HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
-    StacksHttpResponse,
-};
-use crate::net::{Error as NetError, StacksNodeState, TipRequest, MAX_HEADERS};
-use crate::util_lib::db::{DBConn, Error as DBError};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttpResponse};
+use crate::net::{Error as NetError, StacksNodeState};
 
 pub static RPC_TENURE_FORKING_INFO_PATH: &str = "/v3/tenures/fork_info";
 

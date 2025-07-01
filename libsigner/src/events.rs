@@ -16,7 +16,7 @@
 
 use std::fmt::Debug;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
@@ -26,34 +26,23 @@ use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
-use blockstack_lib::net::api::postblock_proposal::{
-    BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
-};
-use blockstack_lib::net::stackerdb::MINER_SLOT_COUNT;
-use blockstack_lib::util_lib::boot::boot_code_id;
+use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use blockstack_lib::version_string;
 use clarity::types::chainstate::StacksBlockId;
-use clarity::vm::types::serialization::SerializationError;
-use clarity::vm::types::QualifiedContractIdentifier;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use stacks_common::codec::{
-    read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
-    StacksMessageCodec,
+    read_next, read_next_at_most, write_next, Error as CodecError, StacksMessageCodec,
 };
-pub use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksPublicKey,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksPublicKey,
 };
-use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
-use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex};
-use stacks_common::util::HexError;
+use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
+use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex, prefix_string_0x};
 use stacks_common::versions::STACKS_NODE_VERSION;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
 
-use crate::http::{decode_http_body, decode_http_request};
 use crate::v0::messages::BLOCK_RESPONSE_DATA_MAX_SIZE;
 use crate::EventError;
 
@@ -229,6 +218,8 @@ pub enum SignerEvent<T: SignerEventTrait> {
         signer_sighash: Option<Sha512Trunc256Sum>,
         /// The block height for the newly processed stacks block
         block_height: u64,
+        /// The transactions included in the block
+        transactions: Vec<StacksTransaction>,
     },
 }
 
@@ -425,7 +416,7 @@ impl<T: SignerEventTrait> EventReceiver<T> for SignerEventReceiver<T> {
                 event_receiver.stop_signal.store(true, Ordering::SeqCst);
                 Err(EventError::Terminated)
             } else if request.url() == "/new_block" {
-                process_event::<T, BlockEvent>(request)
+                process_event::<T, StacksBlockEvent>(request)
             } else {
                 let url = request.url().to_string();
                 debug!(
@@ -577,18 +568,26 @@ impl<T: SignerEventTrait> TryFrom<BlockValidateResponse> for SignerEvent<T> {
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct BurnBlockEvent {
+/// Burn block JSON payload from the event receiver
+#[derive(Debug, Deserialize, Clone)]
+pub struct BurnBlockEvent {
+    /// The hash of the burn block
     #[serde(with = "prefix_hex")]
-    burn_block_hash: BurnchainHeaderHash,
-    burn_block_height: u64,
-    reward_recipients: Vec<serde_json::Value>,
-    reward_slot_holders: Vec<String>,
-    burn_amount: u64,
+    pub burn_block_hash: BurnchainHeaderHash,
+    /// The height of the burn block
+    pub burn_block_height: u64,
+    /// The reward recipients
+    pub reward_recipients: Vec<serde_json::Value>,
+    /// The reward slot holders
+    pub reward_slot_holders: Vec<String>,
+    /// The amount of burn
+    pub burn_amount: u64,
+    /// The consensus hash of the burn block
     #[serde(with = "prefix_hex")]
-    consensus_hash: ConsensusHash,
+    pub consensus_hash: ConsensusHash,
+    /// The parent burn block hash
     #[serde(with = "prefix_hex")]
-    parent_burn_block_hash: BurnchainHeaderHash,
+    pub parent_burn_block_hash: BurnchainHeaderHash,
 }
 
 impl<T: SignerEventTrait> TryFrom<BurnBlockEvent> for SignerEvent<T> {
@@ -605,8 +604,48 @@ impl<T: SignerEventTrait> TryFrom<BurnBlockEvent> for SignerEvent<T> {
     }
 }
 
+/// A subset of `TransactionEventPayload`, received from the event
+/// dispatcher.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NewBlockTransaction {
+    /// The raw transaction bytes. If this is a burn operation,
+    /// this will be "00".
+    #[serde(with = "prefix_string_0x")]
+    raw_tx: String,
+}
+
+impl NewBlockTransaction {
+    pub fn get_stacks_transaction(&self) -> Result<Option<StacksTransaction>, CodecError> {
+        if self.raw_tx == "00" {
+            Ok(None)
+        } else {
+            let tx_bytes = hex_bytes(&self.raw_tx).map_err(|e| {
+                CodecError::DeserializeError(format!("Failed to deserialize raw tx: {}", e))
+            })?;
+            let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])?;
+            Ok(Some(tx))
+        }
+    }
+}
+
+/// "Special" deserializer to turn `{ tx_raw: "0x..." }` into `StacksTransaction`.
+fn deserialize_raw_tx_hex<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<StacksTransaction>, D::Error> {
+    let tx_objs: Vec<NewBlockTransaction> = serde::Deserialize::deserialize(d)?;
+    Ok(tx_objs
+        .iter()
+        .map(|tx| tx.get_stacks_transaction())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(serde::de::Error::custom)?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>())
+}
+
 #[derive(Debug, Deserialize)]
-struct BlockEvent {
+/// Payload received from the event dispatcher for a new Stacks block
+pub struct StacksBlockEvent {
     #[serde(with = "prefix_hex")]
     index_block_hash: StacksBlockId,
     #[serde(with = "prefix_opt_hex")]
@@ -617,17 +656,21 @@ struct BlockEvent {
     #[serde(with = "prefix_hex")]
     block_hash: BlockHeaderHash,
     block_height: u64,
+    /// The transactions included in the block
+    #[serde(deserialize_with = "deserialize_raw_tx_hex")]
+    pub transactions: Vec<StacksTransaction>,
 }
 
-impl<T: SignerEventTrait> TryFrom<BlockEvent> for SignerEvent<T> {
+impl<T: SignerEventTrait> TryFrom<StacksBlockEvent> for SignerEvent<T> {
     type Error = EventError;
 
-    fn try_from(block_event: BlockEvent) -> Result<Self, Self::Error> {
+    fn try_from(block_event: StacksBlockEvent) -> Result<Self, Self::Error> {
         Ok(SignerEvent::NewBlock {
             signer_sighash: block_event.signer_signature_hash,
             block_id: block_event.index_block_hash,
             consensus_hash: block_event.consensus_hash,
             block_height: block_event.block_height,
+            transactions: block_event.transactions,
         })
     }
 }

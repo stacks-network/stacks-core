@@ -24,23 +24,14 @@
 //! and the `SignerMessage` enum.
 
 use std::fmt::{Debug, Display};
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
-use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Sender;
-use std::sync::Arc;
 
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
-use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
-use blockstack_lib::net::api::postblock_proposal::{
-    BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
-};
-use blockstack_lib::util_lib::boot::boot_code_id;
+use blockstack_lib::net::api::postblock_proposal::{BlockValidateReject, ValidateRejectCode};
 use blockstack_lib::util_lib::signed_structured_data::{
     make_structured_data_domain, structured_data_message_hash,
 };
@@ -50,30 +41,20 @@ use clarity::types::chainstate::{
 };
 use clarity::types::PrivateKey;
 use clarity::util::hash::Sha256Sum;
-use clarity::util::retry::BoundReader;
 use clarity::util::secp256k1::MessageSignature;
-use clarity::vm::types::serialization::SerializationError;
-use clarity::vm::types::{QualifiedContractIdentifier, ResponseData, TupleData};
+use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
 use clarity::vm::Value;
-use hashbrown::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha512_256};
 use stacks_common::codec::{
-    read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
-    StacksMessageCodec,
+    read_next, read_next_at_most, write_next, Error as CodecError, StacksMessageCodec,
 };
-use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
-use tiny_http::{
-    Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
-};
 
-use crate::http::{decode_http_body, decode_http_request};
 use crate::stacks_common::types::PublicKey;
 use crate::{
-    BlockProposal, EventError, MessageSlotID as MessageSlotIDTrait,
-    SignerMessage as SignerMessageTrait, VERSION_STRING,
+    BlockProposal, MessageSlotID as MessageSlotIDTrait, SignerMessage as SignerMessageTrait,
+    VERSION_STRING,
 };
 
 /// Maximum size of the [BlockResponseData] serialized bytes
@@ -1750,26 +1731,15 @@ impl From<StateMachineUpdate> for SignerMessage {
 #[cfg(test)]
 mod test {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
-    use blockstack_lib::chainstate::stacks::{
-        TransactionAnchorMode, TransactionAuth, TransactionContractCall, TransactionPayload,
-        TransactionPostConditionMode, TransactionSmartContract, TransactionSpendingCondition,
-        TransactionVersion,
-    };
-    use blockstack_lib::util_lib::strings::StacksString;
-    use clarity::consts::CHAIN_ID_MAINNET;
-    use clarity::types::chainstate::{ConsensusHash, StacksAddress, StacksBlockId, TrieHash};
-    use clarity::types::PrivateKey;
+    use clarity::consts::{CHAIN_ID_MAINNET, SIGNER_SLOTS_PER_USER};
+    use clarity::types::chainstate::{ConsensusHash, StacksBlockId};
     use clarity::util::hash::{hex_bytes, MerkleTree};
     use clarity::util::secp256k1::MessageSignature;
-    use clarity::vm::{ClarityName, ContractName};
-    use rand::rngs::mock;
     use rand::{thread_rng, Rng, RngCore};
-    use rand_core::OsRng;
-    use stacks_common::bitvec::BitVec;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::StacksPrivateKey;
 
-    use super::{StacksMessageCodecExtensions, *};
+    use super::*;
     use crate::events::BlockProposalData;
 
     #[test]

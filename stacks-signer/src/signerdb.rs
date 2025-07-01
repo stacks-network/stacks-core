@@ -98,7 +98,7 @@ impl FromRow<BurnBlockInfo> for BurnBlockInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
 /// Store extra version-specific info in `BlockInfo`
 pub enum ExtraBlockInfo {
     #[default]
@@ -167,7 +167,7 @@ impl TryFrom<&str> for BlockState {
 }
 
 /// Additional Info about a proposed block
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BlockInfo {
     /// The block we are considering
     pub block: NakamotoBlock,
@@ -601,6 +601,14 @@ static ADD_PARENT_BURN_BLOCK_HASH_INDEX: &str = r#"
 CREATE INDEX IF NOT EXISTS burn_blocks_parent_burn_block_hash_idx on burn_blocks (parent_burn_block_hash);
 "#;
 
+static ADD_BLOCK_VALIDATED_BY_REPLAY_TXS_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS block_validated_by_replay_txs (
+    signer_signature_hash TEXT NOT NULL,
+    replay_tx_hash TEXT NOT NULL,
+    replay_tx_exhausted INTEGER NOT NULL,
+    PRIMARY KEY (signer_signature_hash, replay_tx_hash)
+) STRICT;"#;
+
 static CREATE_STACKERDB_TRACKING: &str = "
 CREATE TABLE stackerdb_tracking(
    public_key TEXT NOT NULL,
@@ -706,6 +714,11 @@ static SCHEMA_14: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (14);",
 ];
 
+static SCHEMA_15: &[&str] = &[
+    ADD_BLOCK_VALIDATED_BY_REPLAY_TXS_TABLE,
+    "INSERT INTO db_config (version) VALUES (15);",
+];
+
 struct Migration {
     version: u32,
     statements: &'static [&'static str],
@@ -768,11 +781,15 @@ static MIGRATIONS: &[Migration] = &[
         version: 14,
         statements: SCHEMA_14,
     },
+    Migration {
+        version: 15,
+        statements: SCHEMA_15,
+    },
 ];
 
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 14;
+    pub const SCHEMA_VERSION: u32 = 15;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -1527,6 +1544,38 @@ impl SignerDb {
             None => Ok(0),
         }
     }
+
+    /// Insert a block validated by a replay tx
+    pub fn insert_block_validated_by_replay_tx(
+        &self,
+        signer_signature_hash: &Sha512Trunc256Sum,
+        replay_tx_hash: u64,
+        replay_tx_exhausted: bool,
+    ) -> Result<(), DBError> {
+        self.db.execute(
+            "INSERT INTO block_validated_by_replay_txs (signer_signature_hash, replay_tx_hash, replay_tx_exhausted) VALUES (?1, ?2, ?3)",
+            params![
+                signer_signature_hash.to_string(),
+                format!("{replay_tx_hash}"),
+                replay_tx_exhausted
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Get the replay tx hash for a block validation
+    pub fn get_was_block_validated_by_replay_tx(
+        &self,
+        signer_signature_hash: &Sha512Trunc256Sum,
+        replay_tx_hash: u64,
+    ) -> Result<Option<BlockValidatedByReplaySet>, DBError> {
+        let query = "SELECT replay_tx_hash, replay_tx_exhausted FROM block_validated_by_replay_txs WHERE signer_signature_hash = ? AND replay_tx_hash = ?";
+        let args = params![
+            signer_signature_hash.to_string(),
+            format!("{replay_tx_hash}")
+        ];
+        query_row(&self.db, query, args)
+    }
 }
 
 fn try_deserialize<T>(s: Option<String>) -> Result<Option<T>, DBError>
@@ -1556,6 +1605,25 @@ impl FromRow<PendingBlockValidation> for PendingBlockValidation {
         Ok(PendingBlockValidation {
             signer_signature_hash,
             added_time,
+        })
+    }
+}
+
+/// A struct used to represent whether a block was validated by a transaction replay set
+pub struct BlockValidatedByReplaySet {
+    /// The hash of the transaction replay set that validated the block
+    pub replay_tx_hash: String,
+    /// Whether the transaction replay set exhausted the set of transactions
+    pub replay_tx_exhausted: bool,
+}
+
+impl FromRow<BlockValidatedByReplaySet> for BlockValidatedByReplaySet {
+    fn from_row(row: &rusqlite::Row) -> Result<Self, DBError> {
+        let replay_tx_hash = row.get_unwrap(0);
+        let replay_tx_exhausted = row.get_unwrap(1);
+        Ok(BlockValidatedByReplaySet {
+            replay_tx_hash,
+            replay_tx_exhausted,
         })
     }
 }
@@ -2798,5 +2866,46 @@ pub mod tests {
             consensus_hash.to_hex(),
             "Expected the surviving row to have the correct consensus_hash"
         );
+    }
+
+    #[test]
+    fn insert_block_validated_by_replay_tx() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let signer_signature_hash = Sha512Trunc256Sum([0; 32]);
+        let replay_tx_hash = 15559610262907183370_u64;
+        let replay_tx_exhausted = true;
+
+        db.insert_block_validated_by_replay_tx(
+            &signer_signature_hash,
+            replay_tx_hash,
+            replay_tx_exhausted,
+        )
+        .expect("Failed to insert block validated by replay tx");
+
+        let result = db
+            .get_was_block_validated_by_replay_tx(&signer_signature_hash, replay_tx_hash)
+            .expect("Failed to get block validated by replay tx")
+            .expect("Expected block validation result to be stored");
+        assert_eq!(result.replay_tx_hash, format!("{replay_tx_hash}"));
+        assert!(result.replay_tx_exhausted);
+
+        let replay_tx_hash = 15559610262907183369_u64;
+        let replay_tx_exhausted = false;
+
+        db.insert_block_validated_by_replay_tx(
+            &signer_signature_hash,
+            replay_tx_hash,
+            replay_tx_exhausted,
+        )
+        .expect("Failed to insert block validated by replay tx");
+
+        let result = db
+            .get_was_block_validated_by_replay_tx(&signer_signature_hash, replay_tx_hash)
+            .expect("Failed to get block validated by replay tx")
+            .expect("Expected block validation result to be stored");
+        assert_eq!(result.replay_tx_hash, format!("{replay_tx_hash}"));
+        assert!(!result.replay_tx_exhausted);
     }
 }

@@ -41,6 +41,7 @@ use stacks::chainstate::stacks::{
     TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionPayload,
     TransactionVersion,
 };
+use stacks::core::mempool::MemPoolWalkStrategy;
 use stacks::net::api::poststackerdbchunk::StackerDBErrorCodes;
 use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
@@ -226,8 +227,8 @@ pub struct BlockMinerThread {
     burn_tip_at_start: ConsensusHash,
     /// flag to indicate an abort driven from the relayer
     abort_flag: Arc<AtomicBool>,
-    /// Should the nonce cache be reset before mining the next block?
-    reset_nonce_cache: bool,
+    /// Should the nonce and considered transactions cache be reset before mining the next block?
+    reset_mempool_caches: bool,
     /// Storage for persisting non-confidential miner information
     miner_db: MinerDB,
 }
@@ -263,7 +264,7 @@ impl BlockMinerThread {
             abort_flag: Arc::new(AtomicBool::new(false)),
             tenure_cost: ExecutionCost::ZERO,
             tenure_budget: ExecutionCost::ZERO,
-            reset_nonce_cache: true,
+            reset_mempool_caches: true,
             miner_db: MinerDB::open_with_config(&rt.config)?,
         })
     }
@@ -528,12 +529,27 @@ impl BlockMinerThread {
             return Ok(());
         }
 
-        if self.reset_nonce_cache {
+        // Reset the mempool caches if needed. When mock-mining, we always
+        // reset the caches, because the blocks we mine are not actually
+        // processed, so the mempool caches are not valid.
+        if self.reset_mempool_caches
+            || self.config.miner.mempool_walk_strategy
+                == MemPoolWalkStrategy::NextNonceWithHighestFeeRate
+            || self.config.node.mock_mining
+        {
             let mut mem_pool = self
                 .config
                 .connect_mempool_db()
                 .expect("Database failure opening mempool");
-            mem_pool.reset_mempool_caches()?;
+
+            if self.reset_mempool_caches || self.config.node.mock_mining {
+                mem_pool.reset_mempool_caches()?;
+            } else {
+                // Even if the nonce cache is still valid, NextNonceWithHighestFeeRate strategy
+                // needs to reset this cache after each block. This prevents skipping transactions
+                // that were previously considered, but not included in previous blocks.
+                mem_pool.reset_considered_txs_cache()?;
+            }
         }
 
         let Some(new_block) = self.mine_block_and_handle_result(coordinator)? else {
@@ -618,7 +634,7 @@ impl BlockMinerThread {
                     "Miner did not find any transactions to mine, sleeping for {:?}",
                     self.config.miner.empty_mempool_sleep_time
                 );
-                self.reset_nonce_cache = false;
+                self.reset_mempool_caches = false;
 
                 // Pause the miner to wait for transactions to arrive
                 let now = Instant::now();
@@ -733,7 +749,7 @@ impl BlockMinerThread {
             );
 
             // We successfully mined, so the mempool caches are valid.
-            self.reset_nonce_cache = false;
+            self.reset_mempool_caches = false;
         }
 
         // update mined-block counters and mined-tenure counters
@@ -1159,17 +1175,15 @@ impl BlockMinerThread {
             })?;
 
         let stacks_tip_block_id = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
-        let tenure_tip_opt = NakamotoChainState::get_highest_known_block_header_in_tenure(
-            &mut chain_state.index_conn(),
-            &self.burn_election_block.consensus_hash,
-        )
-        .map_err(|e| {
-            error!(
+        let tenure_tip_opt = self
+            .find_highest_known_block_in_my_tenure(&burn_db, &chain_state)
+            .map_err(|e| {
+                error!(
                 "Could not query header info for tenure tip {} off of {stacks_tip_block_id}: {e:?}",
                 &self.burn_election_block.consensus_hash
             );
-            NakamotoNodeError::ParentNotFound
-        })?;
+                NakamotoNodeError::ParentNotFound
+            })?;
 
         // The nakamoto miner must always build off of a chain tip that is the highest of:
         // 1. The highest block in the miner's current tenure
@@ -1247,7 +1261,7 @@ impl BlockMinerThread {
             .keychain
             .origin_address(self.config.is_mainnet())
             .unwrap();
-        match ParentStacksBlockInfo::lookup(
+        ParentStacksBlockInfo::lookup(
             chain_state,
             burn_db,
             &self.burn_block,
@@ -1255,14 +1269,12 @@ impl BlockMinerThread {
             &self.parent_tenure_id,
             stacks_tip_header,
             &self.reason,
-        ) {
-            Ok(parent_info) => Ok(parent_info),
-            Err(NakamotoNodeError::BurnchainTipChanged) => {
+        )
+        .inspect_err(|e| {
+            if matches!(e, NakamotoNodeError::BurnchainTipChanged) {
                 self.globals.counters.bump_missed_tenures();
-                Err(NakamotoNodeError::BurnchainTipChanged)
             }
-            Err(e) => Err(e),
-        }
+        })
     }
 
     /// Generate the VRF proof for the block we're going to build.
@@ -1393,20 +1405,15 @@ impl BlockMinerThread {
             .make_vrf_proof()
             .ok_or_else(|| NakamotoNodeError::BadVrfConstruction)?;
 
-        if self.last_block_mined.is_none() && parent_block_info.parent_tenure.is_none() {
-            warn!("Miner should be starting a new tenure, but failed to load parent tenure info");
-            return Err(NakamotoNodeError::ParentNotFound);
-        };
-
-        // If we're mock mining, we need to manipulate the `last_block_mined`
-        // to match what it should be based on the actual chainstate.
         if self.config.node.mock_mining {
             if let Some((last_block_consensus_hash, _)) = &self.last_block_mined {
-                // If the parent block is in the same tenure, then we should
-                // pretend that we mined it.
+                // If we're mock mining, we need to manipulate the `last_block_mined`
+                // to match what it should be based on the actual chainstate.
                 if last_block_consensus_hash
                     == &parent_block_info.stacks_parent_header.consensus_hash
                 {
+                    // If the parent block is in the same tenure, then we should
+                    // pretend that we mined it.
                     self.last_block_mined = Some((
                         parent_block_info.stacks_parent_header.consensus_hash,
                         parent_block_info
@@ -1421,6 +1428,11 @@ impl BlockMinerThread {
                 }
             }
         }
+
+        if self.last_block_mined.is_none() && parent_block_info.parent_tenure.is_none() {
+            warn!("Miner should be starting a new tenure, but failed to load parent tenure info");
+            return Err(NakamotoNodeError::ParentNotFound);
+        };
 
         // create our coinbase if this is the first block we've mined this tenure
         let tenure_start_info = self.make_tenure_start_info(
@@ -1447,7 +1459,7 @@ impl BlockMinerThread {
         // If we attempt to build a block, we should reset the nonce cache.
         // In the special case where no transactions are found, this flag will
         // be reset to false.
-        self.reset_nonce_cache = true;
+        self.reset_mempool_caches = true;
 
         let replay_transactions = if self.config.miner.replay_transactions {
             coordinator
@@ -1458,11 +1470,23 @@ impl BlockMinerThread {
             vec![]
         };
         // build the block itself
+        let mining_burn_handle = burn_db
+            .index_handle_at_ch(&self.burn_block.consensus_hash)
+            .map_err(|_| NakamotoNodeError::UnexpectedChainState)?;
+        if let Some(parent_burn_view) = &parent_block_info.stacks_parent_header.burn_view {
+            if !mining_burn_handle.processed_block(parent_burn_view)? {
+                error!(
+                    "Cannot mine block: calculated parent has burn view which is incompatible with the canonical burn fork";
+                    "parent_burn_view" => %parent_burn_view,
+                    "my_burn_view" => %self.burn_block.consensus_hash,
+                );
+                return Err(NakamotoNodeError::BurnchainTipChanged);
+            }
+        }
+
         let mut block_metadata = NakamotoBlockBuilder::build_nakamoto_block(
             &chain_state,
-            &burn_db
-                .index_handle_at_ch(&self.burn_block.consensus_hash)
-                .map_err(|_| NakamotoNodeError::UnexpectedChainState)?,
+            &mining_burn_handle,
             &mut mem_pool,
             &parent_block_info.stacks_parent_header,
             &self.burn_election_block.consensus_hash,
@@ -1528,6 +1552,19 @@ impl BlockMinerThread {
         // Stacks blocks with heights higher than the canonical tip are processed.
         self.check_burn_tip_changed(&burn_db)?;
         Ok(block_metadata.block)
+    }
+
+    fn find_highest_known_block_in_my_tenure(
+        &self,
+        burn_db: &SortitionDB,
+        chainstate: &StacksChainState,
+    ) -> Result<Option<StacksHeaderInfo>, NakamotoNodeError> {
+        NakamotoChainState::find_highest_known_block_header_in_tenure(
+            chainstate,
+            burn_db,
+            &self.burn_election_block.consensus_hash,
+        )
+        .map_err(NakamotoNodeError::from)
     }
 
     #[cfg_attr(test, mutants::skip)]

@@ -679,11 +679,11 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::MissingSeparator => write!(f, "missing human-readable separator, \"{}\"", SEP),
+            Error::MissingSeparator => write!(f, "missing human-readable separator, \"{SEP}\""),
             Error::InvalidChecksum => write!(f, "invalid checksum"),
             Error::InvalidLength => write!(f, "invalid length"),
-            Error::InvalidChar(n) => write!(f, "invalid character (code={})", n),
-            Error::InvalidData(n) => write!(f, "invalid data point ({})", n),
+            Error::InvalidChar(n) => write!(f, "invalid character (code={n})"),
+            Error::InvalidData(n) => write!(f, "invalid data point ({n})"),
             Error::InvalidPadding => write!(f, "invalid padding"),
             Error::MixedCase => write!(f, "mixed-case strings not allowed"),
         }

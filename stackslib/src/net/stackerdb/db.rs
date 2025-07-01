@@ -13,30 +13,23 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::{fs, io};
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::ContractName;
 use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
-use rusqlite::types::ToSql;
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
-use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
+use rusqlite::{params, OpenFlags, OptionalExtension, Row};
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 
-use super::StackerDBEventDispatcher;
-use crate::chainstate::stacks::address::PoxAddress;
 use crate::net::stackerdb::{StackerDBConfig, StackerDBTx, StackerDBs, STACKERDB_INV_MAX};
-use crate::net::{Error as net_error, StackerDBChunkData, StackerDBHandshakeData};
+use crate::net::{Error as net_error, StackerDBChunkData};
 use crate::util_lib::db::{
-    opt_u64_to_sql, query_row, query_row_panic, query_rows, sql_pragma, sqlite_open,
-    tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn, Error as db_error, FromColumn,
-    FromRow,
+    query_row, query_rows, sqlite_open, tx_begin_immediate, u64_to_sql, DBConn, Error as db_error,
+    FromColumn, FromRow,
 };
 
 const STACKER_DB_SCHEMA: &[&str] = &[
@@ -399,20 +392,6 @@ impl StackerDBTx<'_> {
         ];
 
         stmt.execute(args)?;
-        Ok(())
-    }
-
-    /// Try to upload a chunk to the StackerDB instance, notifying
-    ///  and subscribed listeners via the `dispatcher`
-    pub fn put_chunk<ED: StackerDBEventDispatcher>(
-        self,
-        contract: &QualifiedContractIdentifier,
-        chunk: StackerDBChunkData,
-        dispatcher: &ED,
-    ) -> Result<(), net_error> {
-        self.try_replace_chunk(contract, &chunk.get_slot_metadata(), &chunk.data)?;
-        self.commit()?;
-        dispatcher.new_stackerdb_chunks(contract.clone(), vec![chunk]);
         Ok(())
     }
 

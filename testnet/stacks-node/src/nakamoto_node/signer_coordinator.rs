@@ -28,7 +28,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::boot::{RewardSet, MINERS_NAME};
-use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::codec::StacksMessageCodec;
 use stacks::libstackerdb::StackerDBChunkData;
@@ -420,13 +420,27 @@ impl SignerCoordinator {
 
                     // Check if a new Stacks block has arrived in the parent tenure
                     let highest_in_tenure =
-                        NakamotoChainState::get_highest_known_block_header_in_tenure(
-                            &mut chain_state.index_conn(),
+                        NakamotoChainState::find_highest_known_block_header_in_tenure(
+                            &chain_state,
+                            &sortdb,
                             &parent_tenure_header.consensus_hash,
                         )?
                         .ok_or(NakamotoNodeError::UnexpectedChainState)?;
-                    if highest_in_tenure.index_block_hash() != parent_block_id {
-                        info!("SignCoordinator: Exiting due to new stacks tip");
+                    let highest_stacks_block_id = highest_in_tenure.index_block_hash();
+                    if &highest_stacks_block_id == block_id {
+                        // the block was included in the chainstate since we last checked!
+                        let StacksBlockHeaderTypes::Nakamoto(stored_block) =
+                            highest_in_tenure.anchored_header
+                        else {
+                            error!("Nakamoto miner produced a non-nakamoto block");
+                            return Err(NakamotoNodeError::UnexpectedChainState);
+                        };
+                        return Ok(stored_block.signer_signature);
+                    } else if highest_stacks_block_id != parent_block_id {
+                        info!("SignCoordinator: Exiting due to new stacks tip";
+                              "new_block_hash" => %highest_in_tenure.anchored_header.block_hash(),
+                              "new_block_height" => %highest_in_tenure.anchored_header.height(),
+                        );
                         return Err(NakamotoNodeError::StacksTipChanged);
                     }
 

@@ -103,8 +103,8 @@ pub enum HexError {
 impl fmt::Display for HexError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            HexError::BadLength(n) => write!(f, "bad length {} for hex string", n),
-            HexError::BadCharacter(c) => write!(f, "bad character {} for hex string", c),
+            HexError::BadLength(n) => write!(f, "bad length {n} for hex string"),
+            HexError::BadCharacter(c) => write!(f, "bad character {c} for hex string"),
         }
     }
 }
