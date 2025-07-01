@@ -1272,14 +1272,20 @@ impl LocalStateMachine {
             Some(d) => d,
         };
 
-        let Ok(mut parent_burn_block_info) =
-            db.get_burn_block_by_ch(&new_burn_block.consensus_hash)
-        else {
-            warn!(
-                "Failed to get parent burn block info for {}",
-                new_burn_block.consensus_hash
-            );
-            return Ok(false);
+        let mut parent_burn_block_info = match db
+            .get_burn_block_by_ch(&new_burn_block.consensus_hash)
+            .and_then(|burn_block_info| {
+                db.get_burn_block_by_hash(&burn_block_info.parent_burn_block_hash)
+            }) {
+            Ok(info) => info,
+            Err(e) => {
+                warn!(
+                    "Failed to get parent burn block info for {}",
+                    new_burn_block.consensus_hash;
+                    "error" => ?e,
+                );
+                return Ok(false);
+            }
         };
 
         for _ in 0..height_delta {
