@@ -3679,7 +3679,7 @@ mod tests {
         let mut commit_op = utils::create_templated_commit_op();
         commit_op.sunset_burn = 5_500;
         commit_op.burn_fee = 110_000;
-        
+
         let first_tx_ok = btc_controller
             .build_leader_block_commit_tx(
                 StacksEpochId::Epoch31,
