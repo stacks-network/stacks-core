@@ -5,5 +5,5 @@
   },
   "rust-analyzer.rustfmt.extraArgs": ["+nightly"],
   "files.eol": "\n",
-  "rust-analyzer.cargo.features": ["build-signer-v3-1-00-13"],
+  "rust-analyzer.cargo.features": ["build-signer-v3-1-0-0-13"],
 }

@@ -38,18 +38,17 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::{debug, info, warn};
 
-use crate::chainstate::v1::{
-    SortitionMinerStatus, SortitionState as SortitionStateV1, SortitionsView,
+use crate::chainstate::v1::{SortitionMinerStatus, SortitionsView};
+use crate::chainstate::{
+    ProposalEvalConfig, SignerChainstateError, SortitionData, SortitionState, SortitionStateVersion,
 };
-use crate::chainstate::v2::SortitionState as SortitionStateV2;
-use crate::chainstate::{ProposalEvalConfig, SignerChainstateError, SortitionData, SortitionState};
 use crate::client::{ClientError, CurrentAndLastSortition, StackerDB, StacksClient};
 use crate::signerdb::{BlockValidatedByReplaySet, SignerDb};
 
 /// This is the latest supported protocol version for this signer binary
 pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 2;
 /// The version at which global signer state activates
-pub static GLOBAL_SIGNER_STATE_ACTIVATION_VERSION: u64 = 2;
+pub static GLOBAL_SIGNER_STATE_ACTIVATION_VERSION: u64 = u64::MAX;
 
 /// Vec of pubkeys that should ignore checking for a bitcoin fork
 #[cfg(any(test, feature = "testing"))]
@@ -302,19 +301,17 @@ impl LocalStateMachine {
             return Ok(());
         };
 
-        let is_timed_out = if state_machine.active_signer_protocol_version
-            < GLOBAL_SIGNER_STATE_ACTIVATION_VERSION
-        {
-            SortitionStateV1::is_timed_out(tenure_id, db, proposal_config.block_proposal_timeout)
-        } else {
-            SortitionStateV2::is_timed_out(
-                tenure_id,
-                db,
-                eval,
-                client.get_signer_address(),
-                proposal_config.block_proposal_timeout,
-            )
-        }?;
+        let version = SortitionStateVersion::from_protocol_version(
+            state_machine.active_signer_protocol_version,
+        );
+        let is_timed_out = SortitionState::is_timed_out(
+            &version,
+            tenure_id,
+            db,
+            client.get_signer_address(),
+            proposal_config,
+            eval,
+        )?;
 
         if !is_timed_out {
             return Ok(());
@@ -325,7 +322,12 @@ impl LocalStateMachine {
             client.get_current_and_last_sortition()?;
         let Some(last_sortition) = last_sortition
             .and_then(|val| SortitionData::try_from(val).ok())
-            .map(|data| SortitionState::new(state_machine.active_signer_protocol_version, data))
+            .map(|data| {
+                SortitionState::new(
+                    version,
+                    data,
+                )
+            })
         else {
             warn!("Signer State: Current miner timed out due to inactivity, but could not find a valid prior miner. Allowing current miner to continue");
             return Ok(());
@@ -422,45 +424,13 @@ impl LocalStateMachine {
         let next_current_miner_pkh = sortition_to_set.miner_pkh;
         let next_parent_tenure_id = sortition_to_set.parent_tenure_id;
 
-        let stacks_node_last_block = client
-            .get_tenure_tip(&next_parent_tenure_id)
-            .inspect_err(|e| {
-                warn!(
-                    "Signer State: Failed to fetch last block in parent tenure from stacks-node";
-                    "parent_tenure_id" => %sortition_to_set.parent_tenure_id,
-                    "err" => ?e,
-                )
-            })
-            .ok()
-            .map(|header| {
-                (
-                    header.height(),
-                    StacksBlockId::new(&next_parent_tenure_id, &header.block_hash()),
-                )
-            });
-        let signerdb_last_block = SortitionData::get_tenure_last_block_info(
-            &next_parent_tenure_id,
-            db,
-            tenure_last_block_proposal_timeout,
-        )?
-        .map(|info| (info.block.header.chain_length, info.block.block_id()));
-
         let (parent_tenure_last_block_height, parent_tenure_last_block) =
-            match (stacks_node_last_block, signerdb_last_block) {
-                (Some(stacks_node_info), Some(signerdb_info)) => {
-                    std::cmp::max_by_key(stacks_node_info, signerdb_info, |(chain_length, _)| {
-                        *chain_length
-                    })
-                }
-                (None, Some(signerdb_info)) => signerdb_info,
-                (Some(stacks_node_info), None) => stacks_node_info,
-                (None, None) => {
-                    return Err(SignerChainstateError::NoParentTenureInfo(
-                        next_parent_tenure_id,
-                    ))
-                }
-            };
-
+            Self::get_parent_tenure_last_block(
+                client,
+                db,
+                tenure_last_block_proposal_timeout,
+                &next_parent_tenure_id,
+            )?;
         let miner_state = MinerState::ActiveMiner {
             current_miner_pkh: next_current_miner_pkh,
             tenure_id: sortition_to_set.consensus_hash,
@@ -683,10 +653,10 @@ impl LocalStateMachine {
             last_sortition,
         } = client.get_current_and_last_sortition()?;
 
-        let cur_sortition = SortitionState::new(
+        let version = SortitionStateVersion::from_protocol_version(
             prior_state_machine.active_signer_protocol_version,
-            current_sortition.try_into()?,
         );
+        let cur_sortition = SortitionState::new(version.clone(), current_sortition.try_into()?);
         let is_current_valid = cur_sortition.is_tenure_valid(db, client, proposal_config, eval)?;
 
         let miner_state = if is_current_valid {
@@ -706,10 +676,7 @@ impl LocalStateMachine {
                 })?
                 .try_into()?;
 
-            let last_sortition = SortitionState::new(
-                prior_state_machine.active_signer_protocol_version,
-                last_sortition_data,
-            );
+            let last_sortition = SortitionState::new(version, last_sortition_data);
             let is_last_valid =
                 last_sortition.is_tenure_valid(db, client, proposal_config, eval)?;
 

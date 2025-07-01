@@ -420,6 +420,33 @@ impl SortitionData {
     }
 }
 
+/// The version of the sortition state
+#[derive(Debug, Clone)]
+pub enum SortitionStateVersion {
+    /// Version 1: Local Signer State evaluation only
+    V1,
+    /// Version 2: Global Siner State evaluation
+    V2,
+}
+
+impl SortitionStateVersion {
+    /// Convert the protocol version to a sortition state version
+    pub fn from_protocol_version(version: u64) -> Self {
+        if version < GLOBAL_SIGNER_STATE_ACTIVATION_VERSION {
+            Self::V1
+        } else {
+            Self::V2
+        }
+    }
+    /// Uses global state version
+    pub fn uses_global_state(&self) -> bool {
+        match self {
+            Self::V1 => false,
+            Self::V2 => true,
+        }
+    }
+}
+
 /// The wrapped SortitionState to enable multiple implementations
 pub enum SortitionState {
     /// THe V1 implementation of SortitionState
@@ -430,14 +457,21 @@ pub enum SortitionState {
 
 impl SortitionState {
     /// Create a new SortitionState from the provided active protocol version and data
-    pub fn new(active_version: u64, data: SortitionData) -> Self {
-        if active_version < GLOBAL_SIGNER_STATE_ACTIVATION_VERSION {
-            Self::V1(SortitionStateV1 {
+    pub fn new(version: SortitionStateVersion, data: SortitionData) -> Self {
+        match version {
+            SortitionStateVersion::V1 => Self::V1(SortitionStateV1 {
                 data,
                 miner_status: SortitionMinerStatus::Valid,
-            })
-        } else {
-            Self::V2(SortitionStateV2 { data })
+            }),
+            SortitionStateVersion::V2 => Self::V2(SortitionStateV2 { data }),
+        }
+    }
+
+    /// Get the SorttionState version
+    pub fn version(&self) -> SortitionStateVersion {
+        match self {
+            Self::V1(_) => SortitionStateVersion::V1,
+            Self::V2(_) => SortitionStateVersion::V2,
         }
     }
 
@@ -460,7 +494,9 @@ impl SortitionState {
         if !chose_good_parent {
             return Ok(false);
         }
-        self.is_timed_out(
+        Self::is_timed_out(
+            &self.version(),
+            &data.consensus_hash,
             signer_db,
             client.get_signer_address(),
             proposal_config,
@@ -477,23 +513,23 @@ impl SortitionState {
         }
     }
 
-    /// Check if the sortition identified by the ConsensusHash within SortitionState
-    /// is timed out based on the blocks within the signer db and the block proposal timeout
+    /// Check if the tenure identified by the ConsensusHash is timed out
     pub fn is_timed_out(
-        &self,
+        version: &SortitionStateVersion,
+        consensus_hash: &ConsensusHash,
         signer_db: &SignerDb,
         local_address: &StacksAddress,
         proposal_config: &ProposalEvalConfig,
         eval: &GlobalStateEvaluator,
     ) -> Result<bool, SignerChainstateError> {
-        match self {
-            Self::V1(state) => SortitionStateV1::is_timed_out(
-                &state.data.consensus_hash,
+        match version {
+            SortitionStateVersion::V1 => SortitionStateV1::is_timed_out(
+                consensus_hash,
                 signer_db,
                 proposal_config.block_proposal_timeout,
             ),
-            Self::V2(state) => SortitionStateV2::is_timed_out(
-                &state.data.consensus_hash,
+            SortitionStateVersion::V2 => SortitionStateV2::is_timed_out(
+                consensus_hash,
                 signer_db,
                 eval,
                 local_address,

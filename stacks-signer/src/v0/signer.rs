@@ -49,14 +49,12 @@ use super::signer_state::LocalStateMachine;
 use super::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use crate::chainstate::v1::{SortitionMinerStatus, SortitionsView};
 use crate::chainstate::v2::GlobalStateView;
-use crate::chainstate::{ProposalEvalConfig, SortitionData};
+use crate::chainstate::{ProposalEvalConfig, SortitionData, SortitionStateVersion};
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
-use crate::v0::signer_state::{
-    NewBurnBlock, ReplayScopeOpt, GLOBAL_SIGNER_STATE_ACTIVATION_VERSION,
-};
+use crate::v0::signer_state::{NewBurnBlock, ReplayScopeOpt};
 use crate::Signer as SignerTrait;
 
 /// A global variable that can be used to make signers repeat their proposal
@@ -666,16 +664,18 @@ impl Signer {
             );
             return Some(self.create_block_rejection(RejectReason::NoSignerConsensus, block));
         };
-        if latest_version < GLOBAL_SIGNER_STATE_ACTIVATION_VERSION {
-            self.check_block_against_sortition_state(stacks_client, sortition_state, block)
-        } else {
+        let state_version = SortitionStateVersion::from_protocol_version(latest_version);
+        if state_version.uses_global_state() {
             self.check_block_against_global_state(stacks_client, block)
+        } else {
+            self.check_block_against_local_state(stacks_client, sortition_state, block)
         }
     }
 
-    /// Check if block should be rejected based on sortition state
+    /// Check if block should be rejected based on the local view of the sortition state
     /// Will return a BlockResponse::Rejection if the block is invalid, none otherwise.
-    fn check_block_against_sortition_state(
+    /// This is the pre-global signer state activation path.
+    fn check_block_against_local_state(
         &mut self,
         stacks_client: &StacksClient,
         sortition_state: &mut Option<SortitionsView>,
@@ -735,6 +735,7 @@ impl Signer {
 
     /// Check if block should be rejected based on global signer state
     /// Will return a BlockResponse::Rejection if the block is invalid, none otherwise.
+    /// This is the Post-global signer state activation path
     fn check_block_against_global_state(
         &mut self,
         stacks_client: &StacksClient,

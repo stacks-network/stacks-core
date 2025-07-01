@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 mod commands;
-#[cfg(feature = "build-signer-v3-1-00-13")]
+#[cfg(feature = "build-signer-v3-1-0-0-13")]
 pub mod multiversion;
 pub mod v0;
 

@@ -1817,7 +1817,7 @@ impl std::fmt::Display for RejectReason {
             RejectReason::IrrecoverablePubkeyHash => {
                 write!(
                     f,
-                    "The block has an irreocverable associated miner public key hash."
+                    "The block has an irrecoverable associated miner public key hash."
                 )
             }
             RejectReason::NoSignerConsensus => {
