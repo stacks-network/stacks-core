@@ -292,11 +292,11 @@ impl SignerTest<SpawnedSigner> {
             Ok(self
                 .stacks_client
                 .get_reward_set_signers(reward_cycle)
-                .expect("Failed to check if reward set is calculated")
-                .map(|reward_set| {
+                .and_then(|reward_set| {
                     debug!("Signer set: {reward_set:?}");
+                    Ok(reward_set.is_some())
                 })
-                .is_some())
+                .unwrap_or(false))
         })
         .expect("Timed out waiting for reward set calculation");
         info!("Signer set calculated");
