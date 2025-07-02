@@ -992,15 +992,15 @@ pub fn add_serialized_output(result: &mut serde_json::Value, value: Value) {
 
 /// Returns (process-exit-code, Option<json-output>)
 pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_json::Value>) {
-    invoke_command_with_analysis_db(invoked_by, args, None)
+    invoke_command_with_db(invoked_by, args, None)
 }
 
 /// Returns (process-exit-code, Option<json-output>)
 /// Optionally accepts a shared analysis database for contract dependency resolution
-pub fn invoke_command_with_analysis_db(
+pub fn invoke_command_with_db(
     invoked_by: &str,
     args: &[String],
-    shared_analysis_db: Option<&mut AnalysisDatabase>,
+    analysis_db: Option<&mut AnalysisDatabase>,
 ) -> (i32, Option<serde_json::Value>) {
     if args.is_empty() {
         print_usage(invoked_by);
@@ -1659,9 +1659,7 @@ pub fn invoke_command_with_analysis_db(
             } else {
                 None
             };
-            let (_, _, analysis_result_and_cost) = if let Some(shared_analysis_db) =
-                shared_analysis_db
-            {
+            let (_, _, analysis_result_and_cost) = if let Some(analysis_db) = analysis_db {
                 // Use shared analysis database for contract dependency resolution
                 in_block(header_db, marf_kv, |header_db, mut marf| {
                     let analysis_result =
@@ -1682,7 +1680,7 @@ pub fn invoke_command_with_analysis_db(
                                         &contract_content,
                                         None,
                                         ASTRules::PrecheckSize,
-                                        shared_analysis_db,
+                                        analysis_db,
                                     )
                                 },
                             );
@@ -2078,7 +2076,7 @@ mod test {
         analysis_db.begin();
 
         eprintln!("launch tokens");
-        let invoked = invoke_command_with_analysis_db(
+        let invoked = invoke_command_with_db(
             "test",
             &[
                 "launch".to_string(),
@@ -2167,7 +2165,7 @@ mod test {
         assert!(result["assets"] == json!(null));
 
         eprintln!("launch names with costs and assets");
-        let invoked = invoke_command_with_analysis_db(
+        let invoked = invoke_command_with_db(
             "test",
             &[
                 "launch".to_string(),
