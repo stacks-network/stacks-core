@@ -1722,10 +1722,7 @@ impl SignerDb {
                     error!("Failed to convert received_time to u64: {e}");
                     DBError::Corruption
                 })?;
-                return Ok(Some(std::cmp::max(
-                    received_time,
-                    local_received_time.unwrap_or(0),
-                )));
+                return Ok(Some(received_time));
             }
         }
 
