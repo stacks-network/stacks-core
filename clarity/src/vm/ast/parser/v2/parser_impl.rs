@@ -1115,8 +1115,8 @@ pub fn parse_collect_diagnostics(
 #[cfg(test)]
 #[cfg(feature = "developer-mode")]
 mod tests {
-    use self::lexer::error::LexerError;
     use super::*;
+    use crate::vm::ast::parser::v2::lexer::error::LexerError;
     use crate::vm::diagnostic::Level;
     use crate::vm::representations::PreSymbolicExpressionType;
     use crate::vm::types::{ASCIIData, CharType, PrincipalData, SequenceData};

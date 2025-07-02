@@ -32,6 +32,5 @@ pub use self::structures::{
 pub mod clarity_db;
 pub mod clarity_store;
 mod key_value_wrapper;
-#[cfg(feature = "rusqlite")]
 pub mod sqlite;
 mod structures;
