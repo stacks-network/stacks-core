@@ -2322,6 +2322,12 @@ fn regr_use_block_header_pk() {
                 for event in to_send.iter_mut() {
                     // mutilate the signature
                     event.modified_slots.iter_mut().for_each(|chunk_data| {
+                        if let Ok(SignerMessage::StateMachineUpdate(_)) =
+                            SignerMessage::consensus_deserialize(&mut chunk_data.data.as_slice())
+                        {
+                            // We don't want to mutate the state machine update messages
+                            return;
+                        };
                         let pk = chunk_data.recover_pk().unwrap();
                         assert_ne!(pk, bad_signer_pk);
                         chunk_data.sign(&bad_signer).unwrap();
