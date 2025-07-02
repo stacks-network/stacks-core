@@ -262,6 +262,7 @@ impl PartialEq for SignerStateMachine {
         self.burn_block == other.burn_block
             && self.burn_block_height == other.burn_block_height
             && self.current_miner == other.current_miner
+            && self.active_signer_protocol_version == other.active_signer_protocol_version
             && self.tx_replay_set == other.tx_replay_set
     }
 }
@@ -281,12 +282,12 @@ impl Hash for SignerStateMachine {
 
 #[derive(Debug)]
 /// A wrapped SignerStateMachine that implements a very specific hash that enables properly ignoring the
-/// tx_replay_set when evaluating the global signer state machine
+/// tx_replay_set and update_time when evaluating the global signer state machine
 pub struct SignerStateMachineKey(SignerStateMachine);
 
 impl PartialEq for SignerStateMachineKey {
     fn eq(&self, other: &Self) -> bool {
-        // NOTE: tx_replay_set is intentionally ignored
+        // NOTE: tx_replay_set and update_time are intentionally ignored
         self.0.burn_block == other.0.burn_block
             && self.0.burn_block_height == other.0.burn_block_height
             && self.0.current_miner == other.0.current_miner
@@ -303,7 +304,6 @@ impl Hash for SignerStateMachineKey {
         self.0.burn_block_height.hash(state);
         self.0.current_miner.hash(state);
         self.0.active_signer_protocol_version.hash(state);
-        self.0.update_time.hash(state); // This doesn't actually do anything. But include for completeness sake.
     }
 }
 
