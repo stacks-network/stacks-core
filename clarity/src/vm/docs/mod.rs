@@ -511,8 +511,7 @@ const SQRTI_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "sqrti ${1:expr-1}",
     signature: "(sqrti n)",
-    description:
-        "Returns the largest integer that is less than or equal to the square root of `n`.
+    description: "Returns the largest integer that is less than or equal to the square root of `n`.
 Fails on a negative numbers.
 ",
     example: "(sqrti u11) ;; Returns u3
