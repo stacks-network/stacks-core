@@ -2063,7 +2063,6 @@ impl BitcoinRegtestController {
         epoch_id: StacksEpochId,
         operation: BlockstackOperationType,
         op_signer: &mut BurnchainOpSigner,
-        _attempt: u64,
     ) -> Result<SerializedTx, BurnchainControllerError> {
         let transaction = match operation {
             BlockstackOperationType::LeaderBlockCommit(payload) => {
@@ -2254,9 +2253,9 @@ impl BurnchainController for BitcoinRegtestController {
         epoch_id: StacksEpochId,
         operation: BlockstackOperationType,
         op_signer: &mut BurnchainOpSigner,
-        attempt: u64,
+        _attempt: u64,
     ) -> Result<Txid, BurnchainControllerError> {
-        let transaction = self.make_operation_tx(epoch_id, operation, op_signer, attempt)?;
+        let transaction = self.make_operation_tx(epoch_id, operation, op_signer)?;
         self.send_transaction(transaction)
     }
 
@@ -3058,7 +3057,7 @@ mod tests {
         pub fn create_templated_leader_key_op() -> LeaderKeyRegisterOp {
             LeaderKeyRegisterOp {
                 consensus_hash: ConsensusHash([0u8; 20]),
-                public_key: VRFPublicKey::from_private(&VRFPrivateKey::new()),
+                public_key: VRFPublicKey::from_private(&VRFPrivateKey::from_bytes(&[0u8; 32]).unwrap()),
                 memo: vec![],
                 txid: Txid([3u8; 32]),
                 vtxindex: 0,
@@ -3893,7 +3892,6 @@ mod tests {
                     StacksEpochId::Epoch31,
                     BlockstackOperationType::LeaderBlockCommit(commit_op),
                     &mut op_signer,
-                    0,
                 )
                 .expect("Build leader block commit should work");
 
@@ -3937,14 +3935,13 @@ mod tests {
                     StacksEpochId::Epoch31,
                     BlockstackOperationType::LeaderKeyRegister(leader_key_op),
                     &mut op_signer,
-                    0,
                 )
                 .expect("Build leader block commit should work");
 
             assert!(op_signer.is_disposed());
 
             assert_eq!(
-                "01000000014d9e9dc7d126446e90dd013f023937eba9cb2c88f4d12707400a3ede994a62c5000000008b483045022100f25168ce653d1f40aa7bf48d5dcad97e96ecdeaa8c142f74316bf6e151c918b002201211c493f3add7302d286af9009a18c685f8733504ffda9b80963bd6900819f40141044227d7e5c0997524ce011c126f0464d43e7518872a9b1ad29436ac5142d73eab5fb48d764676900fc2fac56917412114bf7dfafe51f715cf466fe0c1a6c69d11fdffffff020000000000000000396a3754335e0000000000000000000000000000000000000000edb3ebc987bf6911e64048c5637c85687815fb777bf882bce10a4d692dc9631ee0a3052a010000001976a9145e52c53cb96b55f0e3d719adbca21005bc54cb2e88ac00000000",
+                "01000000014d9e9dc7d126446e90dd013f023937eba9cb2c88f4d12707400a3ede994a62c5000000008b483045022100c8694688b4269585ef63bfeb96d017bafae02621ebd0b5012e7564d3efcb71f70220070528674f75ca3503246030f064a85d2010256336372b246100f29ba21bf28b0141044227d7e5c0997524ce011c126f0464d43e7518872a9b1ad29436ac5142d73eab5fb48d764676900fc2fac56917412114bf7dfafe51f715cf466fe0c1a6c69d11fdffffff020000000000000000396a3754335e00000000000000000000000000000000000000003b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29e0a3052a010000001976a9145e52c53cb96b55f0e3d719adbca21005bc54cb2e88ac00000000",
                 tx.to_hex()
             );
         }
