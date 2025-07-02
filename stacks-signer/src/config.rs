@@ -188,7 +188,7 @@ pub struct SignerConfig {
     /// Whether or not to validate blocks with replay transactions
     pub validate_with_replay_tx: bool,
     /// How many blocks after a fork should we reset the replay set,
-    /// as a failsafe mechanism?
+    /// as a failsafe mechanism
     pub reset_replay_set_after_fork_blocks: u64,
 }
 
@@ -244,7 +244,7 @@ pub struct GlobalConfig {
     /// Whether or not to validate blocks with replay transactions
     pub validate_with_replay_tx: bool,
     /// How many blocks after a fork should we reset the replay set,
-    /// as a failsafe mechanism?
+    /// as a failsafe mechanism
     pub reset_replay_set_after_fork_blocks: u64,
 }
 
@@ -298,7 +298,7 @@ struct RawConfigFile {
     /// Whether or not to validate blocks with replay transactions
     pub validate_with_replay_tx: Option<bool>,
     /// How many blocks after a fork should we reset the replay set,
-    /// as a failsafe mechanism?
+    /// as a failsafe mechanism
     pub reset_replay_set_after_fork_blocks: Option<u64>,
 }
 

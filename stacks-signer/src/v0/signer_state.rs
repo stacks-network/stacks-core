@@ -1234,7 +1234,7 @@ impl LocalStateMachine {
         forked_txs
     }
 
-    /// If it has been 2 burn blocks since the origin of our replay set, and
+    /// If it has been `reset_replay_set_after_fork_blocks` burn blocks since the origin of our replay set, and
     /// we haven't produced any replay blocks since then, we should reset our replay set
     ///
     /// Returns a `bool` indicating whether the replay set should be reset.
@@ -1243,15 +1243,17 @@ impl LocalStateMachine {
         new_burn_block: &NewBurnBlock,
         reset_replay_set_after_fork_blocks: u64,
     ) -> Result<bool, SignerChainstateError> {
-        let ReplayState::InProgress(_, replay_scope) = replay_state else {
-            // Not in replay - skip
-            return Ok(false);
-        };
-
-        let failsafe_height =
-            replay_scope.past_tip.burn_block_height + reset_replay_set_after_fork_blocks;
-
-        Ok(new_burn_block.burn_block_height > failsafe_height)
+        match replay_state {
+            ReplayState::Unset => {
+                // not in replay - skip
+                return Ok(false);
+            }
+            ReplayState::InProgress(_, replay_scope) => {
+                let failsafe_height =
+                    replay_scope.past_tip.burn_block_height + reset_replay_set_after_fork_blocks;
+                Ok(new_burn_block.burn_block_height > failsafe_height)
+            }
+        }
     }
 
     /// Check if the new burn block is a fork, by checking if the new burn block
