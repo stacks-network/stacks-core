@@ -14845,13 +14845,13 @@ fn non_blocking_minority_configured_to_favour_incoming_miner() {
 /// Miner 1 proposes a block N with a TenureChangeCause::BlockFound
 /// Signers accept and the stacks tip advances to N
 /// Miner 2 wins the second tenure B.
-/// A minority of signers consider miner 2 invalid.
+/// A minority of signers mark miner 2 as invalid.
 /// Miner 1 proposes block N+1' with a TenureChangeCause::Extended
-/// All signers reject block N+1' because global state dictates it
+/// A majority of signers reject block N+1'
 /// Miner 2 proposes block N+1 with a TenureChangeCause::BlockFound
-/// All signers accept block N+1 because global state dictates it
+/// A majority fo signers accept block N+1.
 /// Miner 2 proposes block N+2 with a transfer tx
-/// All signers should accept block N+2.
+/// A majority of signers should accept block N+2.
 /// Miner 1 wins the third tenure C.
 /// Miner 1 proposes block N+3 with a TenureChangeCause::BlockFound
 /// Signers accept and the stacks tip advances to N+3
@@ -14903,7 +14903,6 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
-    let all_signers = miners.signer_test.signer_test_pks();
 
     let rl1_skip_commit_op = miners
         .signer_test
@@ -14958,6 +14957,7 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 30)
         .expect("Failed to start Tenure B");
     btc_blocks_mined += 1;
+
     assert_eq!(stacks_height_before, miners.get_peer_stacks_tip_height());
 
     // assure we have a successful sortition that miner 2 won
@@ -15005,13 +15005,13 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
     assert_eq!(peer_info.stacks_tip, miner_2_block_n_1.header.block_hash());
     assert_eq!(peer_info.stacks_tip_height, stacks_height_before + 1);
 
-    info!("------------------------- Verify ALL Signers Accept Miner 2's Block N+1 -------------------------");
-    wait_for_block_acceptance_from_signers(
+    info!("------------------------- Verify Minority of Signer's Rejected Miner 2's Block N+1 -------------------------");
+    wait_for_block_rejections(
         30,
-        &miner_2_block_n_1.header.signer_signature_hash(),
-        &all_signers,
+        miner_2_block_n_1.header.signer_signature_hash(),
+        non_block_minority,
     )
-    .expect("Failed to get expected acceptance for Miner 2's block N+1.");
+    .expect("Failed to get expected rejections for Miner 2's block N+1.");
     info!(
         "------------------------- Verify BlockFound in Miner 2's Block N+1 -------------------------"
     );
@@ -15025,20 +15025,20 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
 
     let miner_2_block_n_2 =
         wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_2)
-            .expect("Miner 2's block N+2 was not mined");
+            .expect("Miner 2's block N+1 was not mined");
     let peer_info = miners.get_peer_info();
     assert_eq!(peer_info.stacks_tip, miner_2_block_n_2.header.block_hash());
     assert_eq!(peer_info.stacks_tip_height, stacks_height_before + 1);
 
     info!(
-        "------------------------- Verify Miner 2's Block N+2 is Accepted by ALL Signers -------------------------"
+        "------------------------- Verify Miner 2's Block N+2 is still Rejected by Minority Signers -------------------------"
     );
-    wait_for_block_acceptance_from_signers(
+    wait_for_block_rejections(
         30,
-        &miner_2_block_n_2.header.signer_signature_hash(),
-        &all_signers,
+        miner_2_block_n_2.header.signer_signature_hash(),
+        non_block_minority,
     )
-    .expect("Failed to get expected acceptance for Miner 2's block N+2.");
+    .expect("Failed to get expected rejections for Miner 2's block N+2.");
 
     info!("------------------------- Unpause Miner 1's Block Commits -------------------------");
     miners.submit_commit_miner_1(&sortdb);
