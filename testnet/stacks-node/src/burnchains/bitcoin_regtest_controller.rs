@@ -839,7 +839,6 @@ impl BitcoinRegtestController {
         epoch_id: StacksEpochId,
         payload: LeaderKeyRegisterOp,
         signer: &mut BurnchainOpSigner,
-        _attempt: u64,
     ) -> Result<Transaction, BurnchainControllerError> {
         let public_key = signer.get_public_key();
 
@@ -2064,14 +2063,14 @@ impl BitcoinRegtestController {
         epoch_id: StacksEpochId,
         operation: BlockstackOperationType,
         op_signer: &mut BurnchainOpSigner,
-        attempt: u64,
+        _attempt: u64,
     ) -> Result<SerializedTx, BurnchainControllerError> {
         let transaction = match operation {
             BlockstackOperationType::LeaderBlockCommit(payload) => {
                 self.build_leader_block_commit_tx(epoch_id, payload, op_signer)
             }
             BlockstackOperationType::LeaderKeyRegister(payload) => {
-                self.build_leader_key_register_tx(epoch_id, payload, op_signer, attempt)
+                self.build_leader_key_register_tx(epoch_id, payload, op_signer)
             }
             BlockstackOperationType::PreStx(payload) => {
                 self.build_pre_stacks_tx(epoch_id, payload, op_signer)
@@ -2838,7 +2837,7 @@ mod tests {
     use std::io::Write;
 
     use stacks::burnchains::BurnchainSigner;
-    use stacks::config::DEFAULT_SATS_PER_VB;
+    use stacks::config::{DEFAULT_SATS_PER_VB};
     use stacks_common::deps_common::bitcoin::blockdata::script::Builder;
     use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
     use stacks_common::util::hash::to_hex;
@@ -2852,6 +2851,8 @@ mod tests {
         use std::net::TcpListener;
 
         use stacks::burnchains::MagicBytes;
+        use stacks::chainstate::burn::ConsensusHash;
+        use stacks::util::vrf::{VRFPrivateKey, VRFPublicKey};
 
         use super::*;
         use crate::tests::bitcoin_regtest::BURNCHAIN_CONFIG_PEER_PORT_DISABLED;
@@ -3052,6 +3053,38 @@ mod tests {
 
             tx.input[index].clone()
         }
+
+
+        pub fn create_templated_leader_key_op() -> LeaderKeyRegisterOp {
+            LeaderKeyRegisterOp {
+                consensus_hash: ConsensusHash([0u8; 20]),
+                public_key: VRFPublicKey::from_private(&VRFPrivateKey::new()),
+                memo: vec![],
+                txid: Txid([3u8; 32]),
+                vtxindex: 0,
+                block_height: 1,
+                burn_header_hash: BurnchainHeaderHash([9u8; 32]),
+            }
+        }
+
+        pub fn txout_opreturn_v2<T: StacksMessageCodec>(op: &T, magic: &MagicBytes, value: u64) -> TxOut {
+            let op_bytes = {
+                let mut buffer = vec![];
+                let mut magic_bytes = magic.as_bytes().to_vec();
+                buffer.append(&mut magic_bytes);
+                op.consensus_serialize(&mut buffer)
+                    .expect("FATAL: invalid operation");
+                buffer
+            };
+
+            TxOut {
+                value,
+                script_pubkey: Builder::new()
+                    .push_opcode(opcodes::All::OP_RETURN)
+                    .push_slice(&op_bytes)
+                    .into_script(),
+            }
+        } 
     }
 
     #[test]
@@ -3773,6 +3806,55 @@ mod tests {
         assert_eq!(op_change, rbf_tx.output[3]);
     }
 
+    #[test]
+    #[ignore]
+    fn test_build_leader_key_tx_ok() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let keychain = utils::create_keychain();
+        let miner_pubkey = keychain.get_pub_key();
+        let mut op_signer = keychain.generate_op_signer();
+
+        let mut config = utils::create_config();
+        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller
+            .connect_dbs()
+            .expect("Dbs initialization required!");
+        btc_controller.bootstrap_chain(101); // now, one utxo exists
+
+        let leader_key_op = utils::create_templated_leader_key_op();
+ 
+        let tx = btc_controller
+            .build_leader_key_register_tx(StacksEpochId::Epoch31, leader_key_op.clone(), &mut op_signer)
+            .expect("Build leader key should work");
+
+        assert!(op_signer.is_disposed());
+
+        assert_eq!(1, tx.version);
+        assert_eq!(0, tx.lock_time);
+        assert_eq!(1, tx.input.len());
+        assert_eq!(2, tx.output.len());
+
+        // utxos list contains the only existing utxo
+        let used_utxos = btc_controller.get_all_utxos(&miner_pubkey);
+        let input_0 = utils::txin_at_index(&tx, &op_signer, &used_utxos, 0);
+        assert_eq!(input_0, tx.input[0]);
+
+        let op_return = utils::txout_opreturn_v2(&leader_key_op, &config.burnchain.magic_bytes, 0);
+        let op_change = utils::txout_opdup_change_legacy(&mut op_signer, 4_999_980_000);
+        assert_eq!(op_return, tx.output[0]);
+        assert_eq!(op_change, tx.output[1]);
+    }
+
     /// Tests related to `BitcoinRegtestController::make_operation_tx` 
     mod make_operation {
         use super::*;
@@ -3819,6 +3901,50 @@ mod tests {
 
             assert_eq!(
                 "01000000014d9e9dc7d126446e90dd013f023937eba9cb2c88f4d12707400a3ede994a62c5000000008b483045022100e4f934cf20a42ae5709f96505b73ad4e7ab19f41931940257089bfe6935840780220503af1cafd02e42ed008ad473dd619ee591d6926333413275168cf2697ce91430141044227d7e5c0997524ce011c126f0464d43e7518872a9b1ad29436ac5142d73eab5fb48d764676900fc2fac56917412114bf7dfafe51f715cf466fe0c1a6c69d11fdffffff047c15000000000000536a4c5054335be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015ad8d60000000000001976a914000000000000000000000000000000000000000088acd8d60000000000001976a914000000000000000000000000000000000000000088acd4e3032a010000001976a9145e52c53cb96b55f0e3d719adbca21005bc54cb2e88ac00000000",
+                tx.to_hex()
+            );
+        }
+
+        #[test]
+        #[ignore]
+        fn test_make_operation_leader_key_register_tx_ok() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
+            let keychain = utils::create_keychain();
+            let miner_pubkey = keychain.get_pub_key();
+            let mut op_signer = keychain.generate_op_signer();
+
+            let mut config = utils::create_config();
+            config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
+            btc_controller
+                .connect_dbs()
+                .expect("Dbs initialization required!");
+            btc_controller.bootstrap_chain(101); // now, one utxo exists
+
+            let leader_key_op = utils::create_templated_leader_key_op();
+            
+            let tx = btc_controller
+                .make_operation_tx(
+                    StacksEpochId::Epoch31,
+                    BlockstackOperationType::LeaderKeyRegister(leader_key_op),
+                    &mut op_signer,
+                    0,
+                )
+                .expect("Build leader block commit should work");
+
+            assert!(op_signer.is_disposed());
+
+            assert_eq!(
+                "01000000014d9e9dc7d126446e90dd013f023937eba9cb2c88f4d12707400a3ede994a62c5000000008b483045022100f25168ce653d1f40aa7bf48d5dcad97e96ecdeaa8c142f74316bf6e151c918b002201211c493f3add7302d286af9009a18c685f8733504ffda9b80963bd6900819f40141044227d7e5c0997524ce011c126f0464d43e7518872a9b1ad29436ac5142d73eab5fb48d764676900fc2fac56917412114bf7dfafe51f715cf466fe0c1a6c69d11fdffffff020000000000000000396a3754335e0000000000000000000000000000000000000000edb3ebc987bf6911e64048c5637c85687815fb777bf882bce10a4d692dc9631ee0a3052a010000001976a9145e52c53cb96b55f0e3d719adbca21005bc54cb2e88ac00000000",
                 tx.to_hex()
             );
         }
