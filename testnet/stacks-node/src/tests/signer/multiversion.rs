@@ -14,12 +14,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::sync::mpsc::TryRecvError;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use libsigner::v0::messages::{SignerMessage, StateMachineUpdate};
-use libsigner::v0::signer_state::{
-    MinerState, ReplayTransactionSet, SignerStateMachine, UpdateTime,
-};
+use libsigner::v0::signer_state::{MinerState, ReplayTransactionSet, SignerStateMachine};
 use stacks::chainstate::stacks::StacksTransaction;
 use stacks::util::hash::Hash160;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
@@ -106,7 +104,7 @@ pub fn signer_state_machine_v3_1_00_13_to_current(
                 .map(stacks_transaction_v3_1_00_13_to_current)
                 .collect(),
         ),
-        update_time: UpdateTime::now(),
+        update_time: SystemTime::now(),
     }
 }
 

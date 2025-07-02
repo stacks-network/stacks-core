@@ -32,7 +32,7 @@ use libsigner::v0::messages::{
     StateMachineUpdateMinerState,
 };
 use libsigner::v0::signer_state::{
-    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine, UpdateTime,
+    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
 };
 use stacks_common::bitvec::BitVec;
 use stacks_common::function_name;
@@ -181,7 +181,7 @@ fn check_capitulate_miner_view() {
         current_miner: (&new_miner).into(),
         tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
-        update_time: UpdateTime::now(),
+        update_time: SystemTime::now(),
     };
 
     let mut local_state_machine = LocalStateMachine::Initialized(signer_state_machine.clone());
@@ -392,7 +392,7 @@ fn check_miner_inactivity_timeout() {
         current_miner: inactive_miner,
         active_signer_protocol_version: 0,
         tx_replay_set: ReplayTransactionSet::none(),
-        update_time: UpdateTime::now(),
+        update_time: SystemTime::now(),
     };
     local_state_machine = LocalStateMachine::Initialized(signer_state.clone());
     local_state_machine

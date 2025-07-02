@@ -120,7 +120,7 @@ impl GlobalStateEvaluator {
                 active_signer_protocol_version,
                 // We need to calculate the threshold for the tx_replay_set separately
                 tx_replay_set: ReplayTransactionSet::none(),
-                update_time: UpdateTime::now(),
+                update_time: SystemTime::now(),
             };
             let key = SignerStateMachineKey(state_machine.clone());
             let entry = state_views.entry(key).or_insert_with(|| 0);
@@ -240,7 +240,7 @@ impl Default for ReplayTransactionSet {
 /// A signer state machine view. This struct can
 ///  be used to encode the local signer's view or
 ///  the global view.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignerStateMachine {
     /// The tip burn block (i.e., the latest bitcoin block) seen by this signer
     pub burn_block: ConsensusHash,
@@ -253,30 +253,30 @@ pub struct SignerStateMachine {
     /// Transaction replay set
     pub tx_replay_set: ReplayTransactionSet,
     /// The time when this state machine was last updated
-    pub update_time: UpdateTime,
+    pub update_time: SystemTime,
 }
 
-/// A wrapped SystemTime to enforce equality regardless of the value
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateTime(pub SystemTime);
-
-impl UpdateTime {
-    /// Creates a new UpdateTime with SystemTime::now()
-    pub fn now() -> Self {
-        UpdateTime(SystemTime::now())
+impl PartialEq for SignerStateMachine {
+    fn eq(&self, other: &Self) -> bool {
+        // update_time is intentionally ignored
+        self.burn_block == other.burn_block
+            && self.burn_block_height == other.burn_block_height
+            && self.current_miner == other.current_miner
+            && self.tx_replay_set == other.tx_replay_set
     }
 }
 
-impl PartialEq for UpdateTime {
-    fn eq(&self, _: &Self) -> bool {
-        true
+impl Eq for SignerStateMachine {}
+
+impl Hash for SignerStateMachine {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // update_time is intentionally ignored
+        self.burn_block.hash(state);
+        self.burn_block_height.hash(state);
+        self.current_miner.hash(state);
+        self.active_signer_protocol_version.hash(state);
+        self.tx_replay_set.hash(state);
     }
-}
-
-impl Eq for UpdateTime {}
-
-impl Hash for UpdateTime {
-    fn hash<H: Hasher>(&self, _: &mut H) {}
 }
 
 #[derive(Debug)]
@@ -291,7 +291,6 @@ impl PartialEq for SignerStateMachineKey {
             && self.0.burn_block_height == other.0.burn_block_height
             && self.0.current_miner == other.0.current_miner
             && self.0.active_signer_protocol_version == other.0.active_signer_protocol_version
-            && self.0.update_time == other.0.update_time // This doesn't actually do anything. But include for completeness sake.
     }
 }
 

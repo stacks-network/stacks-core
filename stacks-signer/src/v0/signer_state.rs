@@ -28,7 +28,7 @@ use libsigner::v0::messages::{
     StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
 use libsigner::v0::signer_state::{
-    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine, UpdateTime,
+    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
 };
 use serde::{Deserialize, Serialize};
 use stacks_common::codec::Error as CodecError;
@@ -223,7 +223,7 @@ impl LocalStateMachine {
             current_miner: MinerState::NoValidMiner,
             active_signer_protocol_version: version,
             tx_replay_set: ReplayTransactionSet::none(),
-            update_time: UpdateTime::now(),
+            update_time: SystemTime::now(),
         }
     }
 
@@ -241,7 +241,7 @@ impl LocalStateMachine {
     pub fn get_update_time(&self) -> Option<SystemTime> {
         match self {
             LocalStateMachine::Initialized(update)
-            | LocalStateMachine::Pending { prior: update, .. } => Some(update.update_time.0),
+            | LocalStateMachine::Pending { prior: update, .. } => Some(update.update_time),
             LocalStateMachine::Uninitialized => None,
         }
     }
@@ -359,7 +359,7 @@ impl LocalStateMachine {
             db,
             proposal_config.tenure_last_block_proposal_timeout,
         )?;
-        state_machine.update_time = UpdateTime::now();
+        state_machine.update_time = SystemTime::now();
         info!(
             "Signer State: Current tenure timed out, setting the active miner to the prior tenure";
             "inactive_tenure_ch" => %inactive_tenure_ch,
@@ -497,7 +497,7 @@ impl LocalStateMachine {
                             "signer_signature_hash" => %signer_signature_hash,
                         );
                         prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
-                        prior_state_machine.update_time = UpdateTime::now();
+                        prior_state_machine.update_time = SystemTime::now();
                     }
                 }
                 Ok(None) => {
@@ -505,7 +505,7 @@ impl LocalStateMachine {
                         "txs" => ?txs,
                     );
                     prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
-                    prior_state_machine.update_time = UpdateTime::now()
+                    prior_state_machine.update_time = SystemTime::now()
                 }
                 Err(e) => {
                     warn!("Signer State: Failed to check if block was validated by replay tx";
@@ -549,7 +549,7 @@ impl LocalStateMachine {
 
         *parent_tenure_last_block = *block_id;
         *parent_tenure_last_block_height = height;
-        prior_state_machine.update_time = UpdateTime::now();
+        prior_state_machine.update_time = SystemTime::now();
         *self = LocalStateMachine::Initialized(prior_state_machine);
 
         crate::monitoring::actions::increment_signer_agreement_state_change_reason(
@@ -709,7 +709,7 @@ impl LocalStateMachine {
             current_miner: miner_state,
             active_signer_protocol_version: prior_state_machine.active_signer_protocol_version,
             tx_replay_set,
-            update_time: UpdateTime::now(),
+            update_time: SystemTime::now(),
         });
 
         if prior_state != *self {
@@ -769,7 +769,7 @@ impl LocalStateMachine {
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
                 tx_replay_set,
-                update_time: UpdateTime::now(),
+                update_time: SystemTime::now(),
             });
             // Because we updated our active signer protocol version, update local_update so its included in the subsequent evaluations
             let Ok(update) =
@@ -819,7 +819,7 @@ impl LocalStateMachine {
                 current_miner: (&new_miner).into(),
                 active_signer_protocol_version,
                 tx_replay_set,
-                update_time: UpdateTime::now(),
+                update_time: SystemTime::now(),
             });
 
             match new_miner {
