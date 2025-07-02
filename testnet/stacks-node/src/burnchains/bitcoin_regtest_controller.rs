@@ -1509,7 +1509,6 @@ impl BitcoinRegtestController {
         epoch_id: StacksEpochId,
         payload: LeaderBlockCommitOp,
         signer: &mut BurnchainOpSigner,
-        _attempt: u64,
     ) -> Result<Transaction, BurnchainControllerError> {
         // Are we currently tracking an operation?
         if self.ongoing_block_commit.is_none() || !self.allow_rbf {
@@ -2069,7 +2068,7 @@ impl BitcoinRegtestController {
     ) -> Result<SerializedTx, BurnchainControllerError> {
         let transaction = match operation {
             BlockstackOperationType::LeaderBlockCommit(payload) => {
-                self.build_leader_block_commit_tx(epoch_id, payload, op_signer, attempt)
+                self.build_leader_block_commit_tx(epoch_id, payload, op_signer)
             }
             BlockstackOperationType::LeaderKeyRegister(payload) => {
                 self.build_leader_key_register_tx(epoch_id, payload, op_signer, attempt)
@@ -3517,12 +3516,7 @@ mod tests {
         commit_op.burn_fee = 110_000;
 
         let tx = btc_controller
-            .build_leader_block_commit_tx(
-                StacksEpochId::Epoch31,
-                commit_op.clone(),
-                &mut op_signer,
-                0,
-            )
+            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut op_signer)
             .expect("Build leader block commit should work");
 
         assert!(op_signer.is_disposed());
@@ -3575,12 +3569,7 @@ mod tests {
         let commit_op = utils::create_templated_commit_op();
 
         let _first_tx_ok = btc_controller
-            .build_leader_block_commit_tx(
-                StacksEpochId::Epoch31,
-                commit_op.clone(),
-                &mut op_signer,
-                0,
-            )
+            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut op_signer)
             .expect("At first, building leader block commit should work");
 
         // re-submitting same commit while previous it is not confirmed by the burnchain
@@ -3588,7 +3577,6 @@ mod tests {
             StacksEpochId::Epoch31,
             commit_op,
             &mut op_signer,
-            0,
         );
 
         assert!(resubmit.is_err());
@@ -3626,12 +3614,7 @@ mod tests {
         let commit_op = utils::create_templated_commit_op();
 
         let first_tx_ok = btc_controller
-            .build_leader_block_commit_tx(
-                StacksEpochId::Epoch31,
-                commit_op.clone(),
-                &mut op_signer,
-                0,
-            )
+            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut op_signer)
             .expect("At first, building leader block commit should work");
 
         utils::mine_tx(&btc_controller, first_tx_ok); // Now tx is confirmed
@@ -3641,7 +3624,6 @@ mod tests {
             StacksEpochId::Epoch31,
             commit_op,
             &mut op_signer,
-            0,
         );
 
         assert!(resubmit.is_err());
@@ -3681,12 +3663,7 @@ mod tests {
         commit_op.burn_fee = 110_000;
 
         let first_tx_ok = btc_controller
-            .build_leader_block_commit_tx(
-                StacksEpochId::Epoch31,
-                commit_op.clone(),
-                &mut op_signer,
-                0,
-            )
+            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut op_signer)
             .expect("At first, building leader block commit should work");
 
         let first_txid = first_tx_ok.txid();
@@ -3700,7 +3677,7 @@ mod tests {
         commit_op.burn_fee += 10;
 
         let rbf_tx = btc_controller
-            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut signer, 0)
+            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut signer)
             .expect("Commit tx should be rbf-ed");
 
         assert!(op_signer.is_disposed());
@@ -3761,12 +3738,7 @@ mod tests {
         commit_op.burn_fee = 110_000;
 
         let _first_tx_ok = btc_controller
-            .build_leader_block_commit_tx(
-                StacksEpochId::Epoch31,
-                commit_op.clone(),
-                &mut op_signer,
-                0,
-            )
+            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut op_signer)
             .expect("At first, building leader block commit should work");
 
         //re-gen signer othewise fails because it will be disposed during previous commit tx.
@@ -3775,7 +3747,7 @@ mod tests {
         commit_op.burn_fee += 10;
 
         let rbf_tx = btc_controller
-            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut signer, 0)
+            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut signer)
             .expect("Commit tx should be rbf-ed");
 
         assert!(op_signer.is_disposed());
@@ -3799,5 +3771,56 @@ mod tests {
         assert_eq!(op_commit_1, rbf_tx.output[1]);
         assert_eq!(op_commit_2, rbf_tx.output[2]);
         assert_eq!(op_change, rbf_tx.output[3]);
+    }
+
+    /// Tests related to `BitcoinRegtestController::make_operation_tx` 
+    mod make_operation {
+        use super::*;
+
+        #[test]
+        #[ignore]
+        fn test_make_operation_leader_block_commit_tx_ok() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
+            let keychain = utils::create_keychain();
+            let miner_pubkey = keychain.get_pub_key();
+            let mut op_signer = keychain.generate_op_signer();
+
+            let mut config = utils::create_config();
+            config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
+            btc_controller
+                .connect_dbs()
+                .expect("Dbs initialization required!");
+            btc_controller.bootstrap_chain(101); // now, one utxo exists
+
+            let mut commit_op = utils::create_templated_commit_op();
+            commit_op.sunset_burn = 5_500;
+            commit_op.burn_fee = 110_000;
+
+            let tx = btc_controller
+                .make_operation_tx(
+                    StacksEpochId::Epoch31,
+                    BlockstackOperationType::LeaderBlockCommit(commit_op),
+                    &mut op_signer,
+                    0,
+                )
+                .expect("Build leader block commit should work");
+
+            assert!(op_signer.is_disposed());
+
+            assert_eq!(
+                "01000000014d9e9dc7d126446e90dd013f023937eba9cb2c88f4d12707400a3ede994a62c5000000008b483045022100e4f934cf20a42ae5709f96505b73ad4e7ab19f41931940257089bfe6935840780220503af1cafd02e42ed008ad473dd619ee591d6926333413275168cf2697ce91430141044227d7e5c0997524ce011c126f0464d43e7518872a9b1ad29436ac5142d73eab5fb48d764676900fc2fac56917412114bf7dfafe51f715cf466fe0c1a6c69d11fdffffff047c15000000000000536a4c5054335be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015ad8d60000000000001976a914000000000000000000000000000000000000000088acd8d60000000000001976a914000000000000000000000000000000000000000088acd4e3032a010000001976a9145e52c53cb96b55f0e3d719adbca21005bc54cb2e88ac00000000",
+                tx.to_hex()
+            );
+        }
     }
 }
