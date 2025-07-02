@@ -3489,6 +3489,41 @@ mod tests {
 
     #[test]
     #[ignore]
+    fn test_get_utxos_none_due_to_filter_block_height() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let miner_pubkey = utils::create_miner1_pubkey();
+
+        let mut config = utils::create_config();
+        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller.bootstrap_chain(101); // one utxo exists
+
+        //NOTE: Operation stall if burn block at block_height doesn't exist
+        let future_block_height = 102;
+        let utxos = btc_controller.get_utxos(
+            StacksEpochId::Epoch31,
+            &miner_pubkey,
+            1,
+            None,
+            future_block_height,
+        );
+        assert!(
+            utxos.is_none(),
+            "None because utxos for future block height don't exist"
+        );
+    }
+
+    #[test]
+    #[ignore]
     fn test_build_leader_block_commit_tx_ok_with_new_commit_op() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
