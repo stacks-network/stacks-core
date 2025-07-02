@@ -45,8 +45,6 @@ use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error, info, warn};
 
 use super::signer_state::LocalStateMachine;
-#[cfg(not(any(test, feature = "testing")))]
-use super::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use crate::chainstate::v1::{SortitionMinerStatus, SortitionsView};
 use crate::chainstate::v2::GlobalStateView;
 use crate::chainstate::{ProposalEvalConfig, SortitionData, SortitionStateVersion};
@@ -54,6 +52,8 @@ use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
+#[cfg(not(any(test, feature = "testing")))]
+use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use crate::v0::signer_state::{NewBurnBlock, ReplayScopeOpt};
 use crate::Signer as SignerTrait;
 
@@ -131,6 +131,9 @@ pub struct Signer {
     pub tx_replay_scope: ReplayScopeOpt,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout: Duration,
+    /// The signer supported protocol version. used only in testing
+    #[cfg(any(test, feature = "testing"))]
+    pub supported_signer_protocol_version: u64,
 }
 
 impl std::fmt::Display for SignerMode {
@@ -223,11 +226,16 @@ impl SignerTrait<SignerMessage> for Signer {
             updates,
             signer_config.signer_entries.signer_addr_to_weight.clone(),
         );
+        #[cfg(any(test, feature = "testing"))]
+        let version = signer_config.supported_signer_protocol_version;
+        #[cfg(not(any(test, feature = "testing")))]
+        let version = SUPPORTED_SIGNER_PROTOCOL_VERSION;
         let signer_state = LocalStateMachine::new(
             &signer_db,
             stacks_client,
             &proposal_config,
             &global_state_evaluator,
+            version,
         )
         .unwrap_or_else(|e| {
             warn!("Failed to initialize local state machine for signer: {e:?}");
@@ -254,6 +262,8 @@ impl SignerTrait<SignerMessage> for Signer {
             validate_with_replay_tx: signer_config.validate_with_replay_tx,
             tx_replay_scope: None,
             capitulate_miner_view_timeout: signer_config.capitulate_miner_view_timeout,
+            #[cfg(any(test, feature = "testing"))]
+            supported_signer_protocol_version: signer_config.supported_signer_protocol_version,
         }
     }
 
@@ -275,19 +285,19 @@ impl SignerTrait<SignerMessage> for Signer {
         self.check_pending_block_validations(stacks_client);
 
         let mut prior_state = self.local_state_machine.clone();
+        let local_signer_protocol_version = self.get_signer_protocol_version();
         if self.reward_cycle <= current_reward_cycle {
             self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client,
                 &self.proposal_config,
-                &mut self.tx_replay_scope, &self.global_state_evaluator)
+                &mut self.tx_replay_scope, &self.global_state_evaluator, local_signer_protocol_version)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
         }
         // See if we should capitulate our viewpoint...
-        let version = self.get_signer_protocol_version();
         self.local_state_machine.capitulate_viewpoint(
             stacks_client,
             &mut self.signer_db,
             &mut self.global_state_evaluator,
-            version,
+            local_signer_protocol_version,
             self.reward_cycle,
             sortition_state,
             self.capitulate_miner_view_timeout,
@@ -546,13 +556,14 @@ impl Signer {
                         panic!("{self} Failed to write burn block event to signerdb: {e}");
                     });
 
+                let active_signer_protocol_version = self.get_signer_protocol_version();
                 self.local_state_machine
                     .bitcoin_block_arrival(&self.signer_db, stacks_client, &self.proposal_config, Some(NewBurnBlock {
                         burn_block_height: *burn_height,
                         consensus_hash: *consensus_hash,
                     }),
                     &mut self.tx_replay_scope
-                , &self.global_state_evaluator)
+                , &self.global_state_evaluator, active_signer_protocol_version)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
                 *sortition_state = None;
             }
@@ -1809,12 +1820,20 @@ impl Signer {
 
     #[cfg(not(any(test, feature = "testing")))]
     fn get_signer_protocol_version(&self) -> u64 {
-        SUPPORTED_SIGNER_PROTOCOL_VERSION
+        crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION
     }
 
     #[cfg(any(test, feature = "testing"))]
     fn get_signer_protocol_version(&self) -> u64 {
-        self.test_get_signer_protocol_version()
+        use crate::v0::tests::TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION;
+        let public_keys = TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.get();
+        if let Some(version) = public_keys.get(
+            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
+        ) {
+            warn!("{self}: signer version is pinned to {version}");
+            return *version;
+        }
+        self.supported_signer_protocol_version
     }
 }
 

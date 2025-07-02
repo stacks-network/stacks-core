@@ -33,6 +33,8 @@ use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPu
 use stacks_common::util::hash::Hash160;
 
 use crate::client::SignerSlotID;
+#[cfg(any(test, feature = "testing"))]
+use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
 const BLOCK_PROPOSAL_TIMEOUT_MS: u64 = 120_000;
@@ -189,6 +191,9 @@ pub struct SignerConfig {
     pub validate_with_replay_tx: bool,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout: Duration,
+    #[cfg(any(test, feature = "testing"))]
+    /// Only used for testing purposes to enable overriding the signer version
+    pub supported_signer_protocol_version: u64,
 }
 
 /// The parsed configuration for the signer
@@ -244,6 +249,9 @@ pub struct GlobalConfig {
     pub validate_with_replay_tx: bool,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout: Duration,
+    #[cfg(any(test, feature = "testing"))]
+    /// Only used for testing to enable specific signer protocol versions
+    pub supported_signer_protocol_version: u64,
 }
 
 /// Internal struct for loading up the config file
@@ -297,6 +305,9 @@ struct RawConfigFile {
     pub validate_with_replay_tx: Option<bool>,
     /// Time to wait (in secs) between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout_secs: Option<u64>,
+    #[cfg(any(test, feature = "testing"))]
+    /// Only used for testing to enable specific signer protocol versions
+    pub supported_signer_protocol_version: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -428,6 +439,11 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(DEFAULT_CAPITULATE_MINER_VIEW_SECS),
         );
 
+        #[cfg(any(test, feature = "testing"))]
+        let supported_signer_protocol_version = raw_data
+            .supported_signer_protocol_version
+            .unwrap_or(SUPPORTED_SIGNER_PROTOCOL_VERSION);
+
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
@@ -451,6 +467,8 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             proposal_wait_for_parent_time,
             validate_with_replay_tx,
             capitulate_miner_view_timeout,
+            #[cfg(any(test, feature = "testing"))]
+            supported_signer_protocol_version,
         })
     }
 }

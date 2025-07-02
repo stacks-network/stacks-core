@@ -330,6 +330,8 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             proposal_wait_for_parent_time: self.config.proposal_wait_for_parent_time,
             validate_with_replay_tx: self.config.validate_with_replay_tx,
             capitulate_miner_view_timeout: self.config.capitulate_miner_view_timeout,
+            #[cfg(any(test, feature = "testing"))]
+            supported_signer_protocol_version: self.config.supported_signer_protocol_version,
         }))
     }
 

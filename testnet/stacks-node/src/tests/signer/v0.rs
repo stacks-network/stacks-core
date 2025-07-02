@@ -12,7 +12,6 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 use std::collections::{HashMap, HashSet};
 use std::ops::Add;
 use std::str::FromStr;
@@ -187,8 +186,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let res = wait_for_state_machine_update_by_miner_tenure_id(
             30,
             &info.pox_consensus,
-            &self.signer_test_pks(),
-            SUPPORTED_SIGNER_PROTOCOL_VERSION,
+            &self.signer_addresses_versions(),
         );
         if res.is_err() {
             warn!("Signer updates failed to update but attempting to continue test anyway");
@@ -817,8 +815,7 @@ impl MultipleMinerTest {
             &peer_after.pox_consensus,
             peer_after.burn_block_height,
             None,
-            &self.signer_test.signer_test_pks(),
-            SUPPORTED_SIGNER_PROTOCOL_VERSION,
+            &self.signer_test.signer_addresses_versions(),
         )
     }
 
@@ -1542,14 +1539,8 @@ pub fn wait_for_state_machine_update(
     expected_burn_block: &ConsensusHash,
     expected_burn_block_height: u64,
     expected_miner_info: Option<(Hash160, u64)>,
-    signer_keys: &[StacksPublicKey],
-    version: u64,
+    signer_addresses: &[(StacksAddress, u64)],
 ) -> Result<(), String> {
-    let addresses: Vec<_> = signer_keys
-        .iter()
-        .map(|key| StacksAddress::p2pkh(false, &key))
-        .collect();
-
     wait_for(timeout_secs, || {
         let mut found_updates = HashSet::new();
         let stackerdb_events = test_observer::get_stackerdb_chunks();
@@ -1562,7 +1553,10 @@ pub fn wait_for_state_machine_update(
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
-            let Some(address) = addresses.iter().find(|addr| chunk.verify(addr).unwrap()) else {
+            let Some((address, version)) = signer_addresses
+                .iter()
+                .find(|(addr, _)| chunk.verify(addr).unwrap())
+            else {
                 continue;
             };
             let (burn_block, burn_block_height, current_miner) = match (version, &update.content) {
@@ -1622,7 +1616,7 @@ pub fn wait_for_state_machine_update(
             // We only need one update to match our conditions
             found_updates.insert(address);
         }
-        Ok(found_updates.len() > signer_keys.len() * 7 / 10)
+        Ok(found_updates.len() > signer_addresses.len() * 7 / 10)
     })
 }
 
@@ -1630,14 +1624,8 @@ pub fn wait_for_state_machine_update(
 pub fn wait_for_state_machine_update_by_miner_tenure_id(
     timeout_secs: u64,
     expected_tenure_id: &ConsensusHash,
-    signer_keys: &[StacksPublicKey],
-    version: u64,
+    signer_addresses: &[(StacksAddress, u64)],
 ) -> Result<(), String> {
-    let addresses: Vec<_> = signer_keys
-        .iter()
-        .map(|key| StacksAddress::p2pkh(false, &key))
-        .collect();
-
     wait_for(timeout_secs, || {
         let mut found_updates = HashSet::new();
         let stackerdb_events = test_observer::get_stackerdb_chunks();
@@ -1650,7 +1638,10 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
-            let Some(address) = addresses.iter().find(|addr| chunk.verify(addr).unwrap()) else {
+            let Some((address, version)) = signer_addresses
+                .iter()
+                .find(|(addr, _)| chunk.verify(addr).unwrap())
+            else {
                 continue;
             };
             match (version, &update.content) {
@@ -1682,7 +1673,7 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
                 (_, _) => {}
             };
         }
-        Ok(found_updates.len() > signer_keys.len() * 7 / 10)
+        Ok(found_updates.len() > signer_addresses.len() * 7 / 10)
     })
 }
 
@@ -1861,8 +1852,7 @@ fn miner_gather_signatures() {
         &info_after.pox_consensus,
         info_after.burn_block_height,
         Some((miner_pkh, info_before.stacks_tip_height)),
-        &signer_test.signer_test_pks(),
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &signer_test.signer_addresses_versions(),
     )
     .expect("Failed to update state machine");
     TEST_MINE_SKIP.set(false);
@@ -3981,7 +3971,6 @@ fn tx_replay_disagreement() {
     info!("Pausing miner 2's block commit submissions");
     skip_commit_op_rl2.set(true);
     miners.boot_to_epoch_3();
-    let all_signers = miners.signer_test.signer_test_pks();
     let btc_controller = &miners.signer_test.running_nodes.btc_regtest_controller;
 
     let pre_fork_tenures = 10;
@@ -4013,8 +4002,7 @@ fn tx_replay_disagreement() {
     wait_for_state_machine_update_by_miner_tenure_id(
         30,
         &tip.pox_consensus,
-        &all_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &miners.signer_test.signer_addresses_versions(),
     )
     .expect("Failed to update signers state machines");
     // Make a transfer tx (this will get forked)
@@ -9122,8 +9110,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     wait_for_state_machine_update_by_miner_tenure_id(
         30,
         &chain_after.pox_consensus,
-        &all_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &signer_test.signer_addresses_versions(),
     )
     .expect("Timed out waiting for the signers to update their state");
     info!(
@@ -9544,8 +9531,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     wait_for_state_machine_update_by_miner_tenure_id(
         30,
         &info_after.pox_consensus,
-        &all_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &signer_test.signer_addresses_versions(),
     )
     .expect("Timed out waiting for signer state to update");
 
@@ -10807,8 +10793,7 @@ fn new_tenure_while_validating_previous_scenario() {
     wait_for_state_machine_update_by_miner_tenure_id(
         30,
         &info.pox_consensus,
-        &signer_test.signer_test_pks(),
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &signer_test.signer_addresses_versions(),
     )
     .expect("Failed to update signer states");
     info!("----- Attempting to Mine a Sister Block -----");
@@ -10973,8 +10958,7 @@ fn tenure_extend_after_failed_miner() {
         &info_before.pox_consensus,
         info_before.burn_block_height,
         Some((miner_pkh_1, starting_peer_height)),
-        &miners.signer_test.signer_test_pks(),
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &miners.signer_test.signer_addresses_versions(),
     )
     .expect("Failed to update signer state");
     // Re-enable block mining, for both miners.
@@ -11565,8 +11549,7 @@ fn global_acceptance_depends_on_block_announcement() {
         &info.pox_consensus,
         info.burn_block_height,
         Some((miner_pkh, info_before.stacks_tip_height)),
-        &all_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &signer_test.signer_addresses_versions(),
     )
     .expect("Timed out waiting for the signers to update their state");
     TEST_SKIP_BLOCK_ANNOUNCEMENT.set(false);
@@ -12624,7 +12607,6 @@ fn reorg_attempts_count_towards_miner_validity() {
 
     signer_test.boot_to_epoch_3();
 
-    let all_signers = signer_test.signer_test_pks();
     let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
 
@@ -12671,8 +12653,7 @@ fn reorg_attempts_count_towards_miner_validity() {
     wait_for_state_machine_update_by_miner_tenure_id(
         30,
         &chain_after.pox_consensus,
-        &all_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &signer_test.signer_addresses_versions(),
     )
     .expect("Failed to update signer states to expected miner tenure id");
     TEST_MINE_SKIP.set(false);
@@ -12701,8 +12682,7 @@ fn reorg_attempts_count_towards_miner_validity() {
     wait_for_state_machine_update_by_miner_tenure_id(
         30,
         &chain_after.pox_consensus,
-        &all_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &signer_test.signer_addresses_versions(),
     )
     .expect("Failed to update signer state to expected miner tenure id");
     info!("------------------------- Wait for Block N' Rejection -------------------------");
@@ -12808,7 +12788,6 @@ fn reorg_attempts_activity_timeout_exceeded() {
 
     let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
-    let all_signers = signer_test.signer_test_pks();
     signer_test.boot_to_epoch_3();
 
     info!("------------------------- Test Mine Block N -------------------------");
@@ -12852,8 +12831,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
     wait_for_state_machine_update_by_miner_tenure_id(
         30,
         &chain_after.pox_consensus,
-        &all_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &signer_test.signer_addresses_versions(),
     )
     .expect("Failed to update to Tenure B");
 
@@ -12886,8 +12864,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
     wait_for_state_machine_update_by_miner_tenure_id(
         30,
         &chain_start.pox_consensus,
-        &all_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &signer_test.signer_addresses_versions(),
     )
     .expect("Failed to revert back to prior miner's tenure");
     assert_ne!(block_proposal_n, block_proposal_n_prime);
@@ -13289,7 +13266,6 @@ fn block_proposal_timeout() {
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     let miner_pkh = Hash160::from_node_public_key(&miner_pk);
 
-    let all_signers = signer_test.signer_test_pks();
     signer_test.boot_to_epoch_3();
 
     // Pause the miner's block proposals
@@ -13328,8 +13304,7 @@ fn block_proposal_timeout() {
     wait_for_state_machine_update_by_miner_tenure_id(
         block_proposal_timeout.as_secs() + 30,
         &reverted_tenure_id,
-        &all_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &signer_test.signer_addresses_versions(),
     )
     .expect("Timed out waiting for signers state to revert to old miner");
 
@@ -14217,15 +14192,13 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
     );
     let stacks_height_before = miners.get_peer_stacks_tip_height();
     let chain_before = get_chain_info(&miners.signer_test.running_nodes.conf);
-    let all_signers = miners.signer_test.signer_test_pks();
     // Make sure that miner 2 gets marked invalid by not proposing a block BEFORE block_proposal_timeout
     wait_for_state_machine_update(
         block_proposal_timeout.as_secs() + 30,
         &chain_before.pox_consensus,
         chain_before.burn_block_height,
         Some((miner_pkh_1, stacks_height_before.saturating_sub(1))),
-        &all_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &miners.signer_test.signer_addresses_versions(),
     )
     .expect("Timed out waiting for Miner 2 be marked Invalid");
 
@@ -16491,13 +16464,6 @@ fn signers_send_state_message_updates() {
         },
     );
 
-    let all_signers: Vec<_> = miners
-        .signer_test
-        .signer_stacks_private_keys
-        .iter()
-        .map(StacksPublicKey::from_private)
-        .collect();
-
     let rl1_skip_commit_op = miners
         .signer_test
         .running_nodes
@@ -16554,8 +16520,7 @@ fn signers_send_state_message_updates() {
         &get_burn_consensus_hash(),
         starting_burn_height + 1,
         Some((miner_pkh_1, starting_peer_height)),
-        &all_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &miners.signer_test.signer_addresses_versions(),
     )
     .expect("Timed out waiting for signers to send a state update");
 
@@ -16584,8 +16549,7 @@ fn signers_send_state_message_updates() {
         &get_burn_consensus_hash(),
         starting_burn_height + 2,
         Some((miner_pkh_2, starting_peer_height + 1)),
-        &all_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &miners.signer_test.signer_addresses_versions(),
     )
     .expect("Timed out waiting for signers to send their state update");
 
@@ -16604,8 +16568,7 @@ fn signers_send_state_message_updates() {
         &get_burn_consensus_hash(),
         starting_burn_height + 2,
         Some((miner_pkh_1, starting_peer_height)),
-        &all_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &miners.signer_test.signer_addresses_versions(),
     )
     .expect("Timed out waiting for signers to send their state update");
 
@@ -17051,8 +17014,9 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
     let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
 
-    let all_signers = miners.signer_test.signer_test_pks();
-    let allow_reorg_signers: Vec<_> = all_signers
+    let allow_reorg_signers: Vec<_> = miners
+        .signer_test
+        .signer_addresses_versions()
         .iter()
         .enumerate()
         .filter_map(|(i, key)| if i % 2 == 0 { None } else { Some(*key) })
@@ -17197,13 +17161,8 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     assert_eq!(tip_c.block_height, burn_height_before + 1);
 
     info!("--------------- Waiting for {} Signers to Capitulate to Miner {miner_pkh_1} with tenure id {} ----------------",  allow_reorg_signers.len(), info.pox_consensus);
-    wait_for_state_machine_update_by_miner_tenure_id(
-        30,
-        &info.pox_consensus,
-        &allow_reorg_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
-    )
-    .expect("Failed to update signer state machines");
+    wait_for_state_machine_update_by_miner_tenure_id(30, &info.pox_consensus, &allow_reorg_signers)
+        .expect("Failed to update signer state machines");
     info!("--------------- Miner 1 Extends Tenure B over Tenure C ---------------");
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
     let _tenure_extend_block =
@@ -17270,8 +17229,7 @@ fn rollover_signer_protocol_version() {
         &burn_consensus_hash,
         burn_height,
         None,
-        &all_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &signer_test.signer_addresses_versions(),
     )
     .expect("Timed out waiting for signers to send a state update for block N");
 
@@ -17302,8 +17260,7 @@ fn rollover_signer_protocol_version() {
         &burn_consensus_hash,
         burn_height,
         None,
-        &all_signers,
-        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        &signer_test.signer_addresses_versions(),
     )
     .expect("Timed out waiting for signers to send their downgraded state update for block N+1");
 
@@ -17327,13 +17284,17 @@ fn rollover_signer_protocol_version() {
     let burn_consensus_hash = tip.consensus_hash;
     let burn_height = tip.block_height;
     // Confirm ALL signers downgrade their supported version and then send a corresponding message in that version message
+    let downgraded_versions: Vec<_> = signer_test
+        .signer_addresses_versions()
+        .into_iter()
+        .map(|(address, _)| (address, downgraded_version))
+        .collect();
     wait_for_state_machine_update(
         60,
         &burn_consensus_hash,
         burn_height,
         None,
-        &all_signers,
-        downgraded_version,
+        &downgraded_versions,
     )
     .expect("Timed out waiting for signers to send their state update for block N+2");
 

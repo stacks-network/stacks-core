@@ -26,7 +26,7 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks_common_v3_1_00_13::codec::StacksMessageCodec as OldStacksMessageCodec;
 use stacks_signer::runloop::{RewardCycleInfo, State, StateInfo};
-use stacks_signer::v0::signer_state::{LocalStateMachine, SUPPORTED_SIGNER_PROTOCOL_VERSION};
+use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::v0::SpawnedSigner;
 use {libsigner_v3_1_0_0_13, signer_v3_1_0_0_13, stacks_common_v3_1_00_13, stacks_v3_1_00_13};
 
@@ -271,10 +271,10 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
 #[test]
 #[ignore]
 fn with_new_miner_and_old_signers() {
-    with_new_miners::<MultiverSpawnedSigner>();
+    with_new_miners::<MultiverSpawnedSigner>(2);
 }
 
-fn with_new_miners<S: SpawnedSignerTrait>() {
+fn with_new_miners<S: SpawnedSignerTrait>(supported_signer_protocol_version: u64) {
     let sender_sk = Secp256k1PrivateKey::from_seed(&[0xde, 0xad, 0xbe, 0xef, 0xaa, 0xbb]);
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 1000;
@@ -297,7 +297,9 @@ fn with_new_miners<S: SpawnedSignerTrait>() {
     let signer_test: SignerTest<S> = SignerTest::new_with_config_modifications(
         num_signers,
         initial_balances,
-        |_| {},
+        |signer_config| {
+            signer_config.supported_signer_protocol_version = supported_signer_protocol_version;
+        },
         |config| {
             config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
             config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
@@ -375,7 +377,7 @@ fn with_new_miners<S: SpawnedSignerTrait>() {
             else {
                 return false;
             };
-            local_supported_signer_protocol_version == SUPPORTED_SIGNER_PROTOCOL_VERSION
+            local_supported_signer_protocol_version == supported_signer_protocol_version
         })
         .count();
 

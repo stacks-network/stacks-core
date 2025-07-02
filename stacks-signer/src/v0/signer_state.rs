@@ -46,7 +46,7 @@ use crate::client::{ClientError, CurrentAndLastSortition, StackerDB, StacksClien
 use crate::signerdb::{BlockValidatedByReplaySet, SignerDb};
 
 /// This is the latest supported protocol version for this signer binary
-pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 2;
+pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 1;
 /// The version at which global signer state activates
 pub static GLOBAL_SIGNER_STATE_ACTIVATION_VERSION: u64 = u64::MAX;
 
@@ -141,9 +141,18 @@ impl LocalStateMachine {
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         eval: &GlobalStateEvaluator,
+        active_signer_protocol_version: u64,
     ) -> Result<Self, SignerChainstateError> {
         let mut instance = Self::Uninitialized;
-        instance.bitcoin_block_arrival(db, client, proposal_config, None, &mut None, eval)?;
+        instance.bitcoin_block_arrival(
+            db,
+            client,
+            proposal_config,
+            None,
+            &mut None,
+            eval,
+            active_signer_protocol_version,
+        )?;
 
         Ok(instance)
     }
@@ -207,12 +216,12 @@ impl LocalStateMachine {
         )
     }
 
-    fn place_holder() -> SignerStateMachine {
+    fn place_holder(version: u64) -> SignerStateMachine {
         SignerStateMachine {
             burn_block: ConsensusHash::empty(),
             burn_block_height: 0,
             current_miner: MinerState::NoValidMiner,
-            active_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
+            active_signer_protocol_version: version,
             tx_replay_set: ReplayTransactionSet::none(),
             update_time: UpdateTime::now(),
         }
@@ -266,6 +275,7 @@ impl LocalStateMachine {
         proposal_config: &ProposalEvalConfig,
         tx_replay_scope: &mut ReplayScopeOpt,
         eval: &GlobalStateEvaluator,
+        local_signer_protocol_version: u64,
     ) -> Result<(), SignerChainstateError> {
         let LocalStateMachine::Pending { update, .. } = self else {
             return self.check_miner_inactivity(db, client, proposal_config, eval);
@@ -278,6 +288,7 @@ impl LocalStateMachine {
                 Some(expected_burn_height),
                 tx_replay_scope,
                 eval,
+                local_signer_protocol_version,
             ),
         }
     }
@@ -549,6 +560,7 @@ impl LocalStateMachine {
     }
 
     /// Handle a new bitcoin block arrival
+    #[allow(clippy::too_many_arguments)]
     pub fn bitcoin_block_arrival(
         &mut self,
         db: &SignerDb,
@@ -557,13 +569,14 @@ impl LocalStateMachine {
         mut expected_burn_block: Option<NewBurnBlock>,
         tx_replay_scope: &mut ReplayScopeOpt,
         eval: &GlobalStateEvaluator,
+        local_signer_protocol_version: u64,
     ) -> Result<(), SignerChainstateError> {
         // set self to uninitialized so that if this function errors,
         //  self is left as uninitialized.
         let prior_state = std::mem::replace(self, Self::Uninitialized);
         let prior_state_machine = match prior_state.clone() {
             // if the local state machine was uninitialized, just initialize it
-            LocalStateMachine::Uninitialized => Self::place_holder(),
+            LocalStateMachine::Uninitialized => Self::place_holder(local_signer_protocol_version),
             LocalStateMachine::Initialized(signer_state_machine) => signer_state_machine,
             LocalStateMachine::Pending { update, prior } => {
                 // This works as long as the pending updates are only burn blocks,

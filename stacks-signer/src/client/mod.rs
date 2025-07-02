@@ -156,6 +156,8 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::config::{GlobalConfig, SignerConfig, SignerConfigMode};
+    #[cfg(any(test, feature = "testing"))]
+    use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 
     pub struct MockServerClient {
         pub server: TcpListener,
@@ -433,6 +435,8 @@ pub(crate) mod tests {
             proposal_wait_for_parent_time: config.proposal_wait_for_parent_time,
             validate_with_replay_tx: config.validate_with_replay_tx,
             capitulate_miner_view_timeout: config.capitulate_miner_view_timeout,
+            #[cfg(any(test, feature = "testing"))]
+            supported_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
         }
     }
 

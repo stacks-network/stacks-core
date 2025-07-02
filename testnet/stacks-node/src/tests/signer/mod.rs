@@ -1343,6 +1343,20 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .collect()
     }
 
+    /// Get the signer addresses and corresponding versions
+    pub fn signer_addresses_versions(&self) -> Vec<(StacksAddress, u64)> {
+        self.signer_stacks_private_keys
+            .iter()
+            .zip(self.signer_configs.clone())
+            .map(|(privk, config)| {
+                (
+                    StacksAddress::p2pkh(false, &StacksPublicKey::from_private(privk)),
+                    config.supported_signer_protocol_version,
+                )
+            })
+            .collect()
+    }
+
     /// Get the signer public keys for the given reward cycle
     fn get_signer_public_keys(&self, reward_cycle: u64) -> Vec<StacksPublicKey> {
         let entries = self.get_reward_set_signers(reward_cycle);
