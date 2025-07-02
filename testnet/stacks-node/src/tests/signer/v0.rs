@@ -1782,10 +1782,7 @@ fn block_proposal_rejection() {
                 if signer_signature_hash == block_signer_signature_hash_1 {
                     found_signer_signature_hash_1 = true;
                     assert_eq!(reason_code, RejectCode::SortitionViewMismatch,);
-                    assert!(matches!(
-                        response_data.reject_reason,
-                        RejectReason::ConsensusHashMismatch { .. }
-                    ));
+                    assert_eq!(response_data.reject_reason, RejectReason::InvalidBitvec);
                 } else if signer_signature_hash == block_signer_signature_hash_2 {
                     found_signer_signature_hash_2 = true;
                     assert!(matches!(
@@ -7125,7 +7122,7 @@ fn empty_tenure_delayed() {
             })) = latest_msg
             {
                 assert_eq!(reason_code, RejectCode::SortitionViewMismatch);
-                assert!(matches!(response_data.reject_reason, RejectReason::ConsensusHashMismatch {..} ));
+                assert_eq!(response_data.reject_reason, RejectReason::InvalidMiner);
                 assert_eq!(metadata.server_version, VERSION_STRING.to_string());
                 found_rejections.push(*slot_id);
             } else {
