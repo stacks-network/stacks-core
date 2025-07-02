@@ -2058,7 +2058,7 @@ impl BitcoinRegtestController {
 
     // TODO: add tests from mutation testing results #4866
     #[cfg_attr(test, mutants::skip)]
-    pub fn make_operation_tx(
+    fn make_operation_tx(
         &mut self,
         epoch_id: StacksEpochId,
         operation: BlockstackOperationType,
