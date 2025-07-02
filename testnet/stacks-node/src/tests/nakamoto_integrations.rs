@@ -3489,7 +3489,6 @@ fn vote_for_aggregate_key_burn_op() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::PreStx(pre_stx_op),
                 &mut miner_signer,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -3559,7 +3558,6 @@ fn vote_for_aggregate_key_burn_op() {
                 StacksEpochId::Epoch30,
                 vote_for_aggregate_key_op,
                 &mut signer_burnop_signer,
-                1
             )
             .is_ok(),
         "Vote for aggregate key operation should submit successfully"
@@ -4593,7 +4591,6 @@ fn burn_ops_integration_test() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::PreStx(pre_stx_op),
                 &mut miner_signer_1,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -4617,7 +4614,6 @@ fn burn_ops_integration_test() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::PreStx(pre_stx_op_2),
                 &mut miner_signer_2,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -4638,7 +4634,6 @@ fn burn_ops_integration_test() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::PreStx(pre_stx_op_3),
                 &mut miner_signer_3,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -4659,7 +4654,6 @@ fn burn_ops_integration_test() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::PreStx(pre_stx_op_4),
                 &mut miner_signer_4,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -4790,7 +4784,6 @@ fn burn_ops_integration_test() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::TransferStx(transfer_stx_op),
                 &mut stacker_burnop_signer_1,
-                1
             )
             .is_ok(),
         "Transfer STX operation should submit successfully"
@@ -4816,7 +4809,6 @@ fn burn_ops_integration_test() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::DelegateStx(del_stx_op),
                 &mut stacker_burnop_signer_2,
-                1
             )
             .is_ok(),
         "Delegate STX operation should submit successfully"
@@ -4846,7 +4838,6 @@ fn burn_ops_integration_test() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::StackStx(stack_stx_op_with_some_signer_key),
                 &mut signer_burnop_signer_1,
-                1
             )
             .is_ok(),
         "Stack STX operation should submit successfully"
@@ -4873,7 +4864,6 @@ fn burn_ops_integration_test() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::StackStx(stack_stx_op_with_no_signer_key),
                 &mut signer_burnop_signer_2,
-                1
             )
             .is_ok(),
         "Stack STX operation should submit successfully"

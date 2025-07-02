@@ -2253,7 +2253,6 @@ impl BurnchainController for BitcoinRegtestController {
         epoch_id: StacksEpochId,
         operation: BlockstackOperationType,
         op_signer: &mut BurnchainOpSigner,
-        _attempt: u64,
     ) -> Result<Txid, BurnchainControllerError> {
         let transaction = self.make_operation_tx(epoch_id, operation, op_signer)?;
         self.send_transaction(transaction)
@@ -2836,7 +2835,7 @@ mod tests {
     use std::io::Write;
 
     use stacks::burnchains::BurnchainSigner;
-    use stacks::config::{DEFAULT_SATS_PER_VB};
+    use stacks::config::DEFAULT_SATS_PER_VB;
     use stacks_common::deps_common::bitcoin::blockdata::script::Builder;
     use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
     use stacks_common::util::hash::to_hex;
@@ -3053,11 +3052,12 @@ mod tests {
             tx.input[index].clone()
         }
 
-
         pub fn create_templated_leader_key_op() -> LeaderKeyRegisterOp {
             LeaderKeyRegisterOp {
                 consensus_hash: ConsensusHash([0u8; 20]),
-                public_key: VRFPublicKey::from_private(&VRFPrivateKey::from_bytes(&[0u8; 32]).unwrap()),
+                public_key: VRFPublicKey::from_private(
+                    &VRFPrivateKey::from_bytes(&[0u8; 32]).unwrap(),
+                ),
                 memo: vec![],
                 txid: Txid([3u8; 32]),
                 vtxindex: 0,
@@ -3066,7 +3066,11 @@ mod tests {
             }
         }
 
-        pub fn txout_opreturn_v2<T: StacksMessageCodec>(op: &T, magic: &MagicBytes, value: u64) -> TxOut {
+        pub fn txout_opreturn_v2<T: StacksMessageCodec>(
+            op: &T,
+            magic: &MagicBytes,
+            value: u64,
+        ) -> TxOut {
             let op_bytes = {
                 let mut buffer = vec![];
                 let mut magic_bytes = magic.as_bytes().to_vec();
@@ -3083,7 +3087,7 @@ mod tests {
                     .push_slice(&op_bytes)
                     .into_script(),
             }
-        } 
+        }
     }
 
     #[test]
@@ -3831,9 +3835,13 @@ mod tests {
         btc_controller.bootstrap_chain(101); // now, one utxo exists
 
         let leader_key_op = utils::create_templated_leader_key_op();
- 
+
         let tx = btc_controller
-            .build_leader_key_register_tx(StacksEpochId::Epoch31, leader_key_op.clone(), &mut op_signer)
+            .build_leader_key_register_tx(
+                StacksEpochId::Epoch31,
+                leader_key_op.clone(),
+                &mut op_signer,
+            )
             .expect("Build leader key should work");
 
         assert!(op_signer.is_disposed());
@@ -3854,7 +3862,7 @@ mod tests {
         assert_eq!(op_change, tx.output[1]);
     }
 
-    /// Tests related to `BitcoinRegtestController::make_operation_tx` 
+    /// Tests related to `BitcoinRegtestController::make_operation_tx`
     mod make_operation {
         use super::*;
 
@@ -3929,7 +3937,7 @@ mod tests {
             btc_controller.bootstrap_chain(101); // now, one utxo exists
 
             let leader_key_op = utils::create_templated_leader_key_op();
-            
+
             let ser_tx = btc_controller
                 .make_operation_tx(
                     StacksEpochId::Epoch31,
@@ -3947,7 +3955,7 @@ mod tests {
         }
     }
 
-    /// Tests related to `BitcoinRegtestController::submit_operation` 
+    /// Tests related to `BitcoinRegtestController::submit_operation`
     mod submit_operation {
         use super::*;
 
@@ -3985,7 +3993,6 @@ mod tests {
                     StacksEpochId::Epoch31,
                     BlockstackOperationType::LeaderBlockCommit(commit_op),
                     &mut op_signer,
-                    0,
                 )
                 .expect("Build leader block commit should work");
 
@@ -4023,13 +4030,12 @@ mod tests {
             btc_controller.bootstrap_chain(101); // now, one utxo exists
 
             let leader_key_op = utils::create_templated_leader_key_op();
-            
+
             let tx_id = btc_controller
                 .submit_operation(
                     StacksEpochId::Epoch31,
                     BlockstackOperationType::LeaderKeyRegister(leader_key_op),
                     &mut op_signer,
-                    0
                 )
                 .expect("Build leader block commit should work");
 
