@@ -134,7 +134,12 @@ impl NakamotoTenureDownloaderSet {
             &downloader.tenure_id_consensus_hash
         );
         if let Some(idx) = self.peers.get(&naddr) {
-            self.downloaders[*idx] = Some(downloader);
+            if let Some(downloader_slot) = self.downloaders.get_mut(*idx) {
+                *downloader_slot = Some(downloader);
+            } else {
+                error!("TenureDownloader had a mistaken peer pointer while setting the downloader");
+                return;
+            }
         } else {
             self.downloaders.push(Some(downloader));
             self.peers.insert(naddr, self.downloaders.len() - 1);
@@ -157,7 +162,11 @@ impl NakamotoTenureDownloaderSet {
         let Some(index) = self.peers.remove(naddr) else {
             return;
         };
-        self.downloaders[index] = None;
+        if let Some(downloader) = self.downloaders.get_mut(index) {
+            *downloader = None;
+        } else {
+            error!("TenureDownloader had a mistaken peer pointer while clearing the downloader");
+        }
     }
 
     /// How many downloaders are there?

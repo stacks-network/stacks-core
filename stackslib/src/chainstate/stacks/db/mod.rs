@@ -1515,7 +1515,7 @@ impl StacksChainState {
                                 assert_eq!(components.len(), 2);
 
                                 let namespace = {
-                                    let namespace_str = components[1];
+                                    let namespace_str = components.get(1).unwrap();
                                     if !BNS_CHARS_REGEX.is_match(namespace_str) {
                                         panic!("Invalid namespace characters");
                                     }
@@ -1524,7 +1524,7 @@ impl StacksChainState {
                                 };
 
                                 let name = {
-                                    let name_str = components[0].to_string();
+                                    let name_str = components.get(0).unwrap().to_string();
                                     if !BNS_CHARS_REGEX.is_match(&name_str) {
                                         panic!("Invalid name characters");
                                     }

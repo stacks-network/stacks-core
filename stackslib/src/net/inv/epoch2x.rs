@@ -105,10 +105,9 @@ impl PeerBlocksInv {
         let idx = (sortition_height / 8) as usize;
         let bit = sortition_height % 8;
 
-        if idx >= self.block_inv.len() {
-            false
-        } else {
-            (self.block_inv[idx] & (1 << bit)) != 0
+        match self.block_inv.get(idx) {
+            None => false,
+            Some(bitvec_entry) => (bitvec_entry & (1 << bit)) != 0,
         }
     }
 
@@ -123,10 +122,9 @@ impl PeerBlocksInv {
         let idx = (sortition_height / 8) as usize;
         let bit = sortition_height % 8;
 
-        if idx >= self.microblocks_inv.len() {
-            false
-        } else {
-            (self.microblocks_inv[idx] & (1 << bit)) != 0
+        match self.microblocks_inv.get(idx) {
+            None => false,
+            Some(bitvec_entry) => (bitvec_entry & (1 << bit)) != 0,
         }
     }
 
@@ -140,10 +138,9 @@ impl PeerBlocksInv {
         let idx = (reward_cycle / 8) as usize;
         let bit = reward_cycle % 8;
 
-        if idx >= self.pox_inv.len() {
-            false
-        } else {
-            (self.pox_inv[idx] & (1 << bit)) != 0
+        match self.pox_inv.get(idx) {
+            None => false,
+            Some(bitvec_entry) => (*bitvec_entry & (1 << bit)) != 0,
         }
     }
 
@@ -152,6 +149,7 @@ impl PeerBlocksInv {
     /// bitlen = number of sortitions represented by this inv.
     /// If clear_bits is true, then any 0-bits in the given bitvecs will be set as well as 1-bits.
     /// returns the number of bits set in each bitvec
+    #[allow(clippy::indexing_slicing)]
     pub fn merge_blocks_inv(
         &mut self,
         block_height: u64,
@@ -297,6 +295,7 @@ impl PeerBlocksInv {
     /// If we flip a 0 to a 1, then invalidate the block/microblock bits for that reward cycle _and
     /// all subsequent reward cycles_.
     /// Returns the lowest reward cycle number that changed from a 0 to a 1, if such a flip happens
+    #[allow(clippy::indexing_slicing)]
     pub fn merge_pox_inv(
         &mut self,
         burnchain: &Burnchain,
@@ -2494,12 +2493,10 @@ impl PeerNetwork {
                 if !ibd {
                     // not in initial-block download, so we can add random neighbors as well
                     let num_good_peers = good_sync_peers_set.len();
-                    for i in 0..cmp::min(
-                        random_sync_peers_list.len(),
-                        (network.connection_opts.num_neighbors as usize)
-                            .saturating_sub(num_good_peers),
-                    ) {
-                        good_sync_peers_set.insert(random_sync_peers_list[i].clone());
+                    let max_sample = (network.connection_opts.num_neighbors as usize)
+                        .saturating_sub(num_good_peers);
+                    for random_peer in random_sync_peers_list.iter().take(max_sample) {
+                        good_sync_peers_set.insert(random_peer.clone());
                     }
                 } else {
                     // make *sure* this list isn't empty
