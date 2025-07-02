@@ -45,6 +45,14 @@ pub use stacks_common::{
     impl_byte_array_serde, types, util,
 };
 
+// Re-export serialization functionality
+pub use clarity_serialization::{
+    ClaritySerializable, ClarityDeserializable, SerializationError,
+    Value as ClarityValue, TypeSignature as ClarityTypeSignature,
+    PrincipalData as ClarityPrincipalData, ClarityName, ContractName, 
+    QualifiedContractIdentifier,
+};
+
 #[macro_use]
 /// The Clarity virtual machine
 pub mod vm;

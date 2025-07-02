@@ -5,6 +5,7 @@ members = [
     "stacks-common",
     "pox-locking",
     "clarity",
+    "clarity-serialization",
     "stx-genesis",
     "libstackerdb",
     "contrib/tools/relay-server",

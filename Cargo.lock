@@ -641,6 +641,7 @@ name = "clarity"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff 1.1.0",
+ "clarity-serialization",
  "hashbrown 0.15.2",
  "integer-sqrt",
  "lazy_static",
@@ -656,6 +657,24 @@ dependencies = [
  "serde_json",
  "serde_stacker",
  "slog",
+ "stacks-common",
+ "time 0.2.27",
+]
+
+[[package]]
+name = "clarity-serialization"
+version = "0.0.1"
+dependencies = [
+ "hashbrown 0.15.2",
+ "integer-sqrt",
+ "lazy_static",
+ "regex",
+ "rstest",
+ "rstest_reuse",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_stacker",
  "stacks-common",
  "time 0.2.27",
 ]
