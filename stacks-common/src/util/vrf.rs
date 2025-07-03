@@ -108,7 +108,7 @@ impl Default for VRFPrivateKey {
 impl VRFPrivateKey {
     #[cfg(any(test, feature = "testing"))]
     pub fn new() -> VRFPrivateKey {
-        use rand::RngCore;
+        use rand::RngCore as _;
         let mut rng = rand::thread_rng();
         let mut sk_bytes = [0u8; 32];
         rng.fill_bytes(&mut sk_bytes);
