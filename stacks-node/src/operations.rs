@@ -96,4 +96,24 @@ mod tests {
         let op_signer = BurnchainOpSigner::new(secp_k, false);
         assert_eq!(expected_wif, &op_signer.get_sk_as_wif());
     }
+
+    #[test]
+    fn test_get_secret_key_as_hex() {
+        let priv_key_hex = "0c28fca386c7a227600b2fe50b7cae11ec86d3bf1fbe471be89827e19d72aa1d";
+        let expected_hex = priv_key_hex;
+
+        let secp_k = Secp256k1PrivateKey::from_hex(priv_key_hex).unwrap();
+        let op_signer = BurnchainOpSigner::new(secp_k, false);
+        assert_eq!(expected_hex, op_signer.get_sk_as_hex());
+    }
+
+    #[test]
+    fn test_get_public_key() {
+        let priv_key_hex = "0c28fca386c7a227600b2fe50b7cae11ec86d3bf1fbe471be89827e19d72aa1d";
+        let expected_hex = "04d0de0aaeaefad02b8bdc8a01a1b8b11c696bd3d66a2c5f10780d95b7df42645cd85228a6fb29940e858e7e55842ae2bd115d1ed7cc0e82d934e929c97648cb0a";
+
+        let secp_k = Secp256k1PrivateKey::from_hex(priv_key_hex).unwrap();
+        let mut op_signer = BurnchainOpSigner::new(secp_k, false);
+        assert_eq!(expected_hex, op_signer.get_public_key().to_hex());
+    }
 }
