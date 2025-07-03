@@ -992,7 +992,11 @@ pub fn add_serialized_output(result: &mut serde_json::Value, value: Value) {
 
 /// Returns (process-exit-code, Option<json-output>)
 pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_json::Value>) {
-    invoke_command_with_db(invoked_by, args, None)
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
+    invoke_command_with_db(invoked_by, args, &mut analysis_db)
 }
 
 /// Returns (process-exit-code, Option<json-output>)
@@ -1000,7 +1004,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 pub fn invoke_command_with_db(
     invoked_by: &str,
     args: &[String],
-    analysis_db: Option<&mut AnalysisDatabase>,
+    analysis_db: &mut AnalysisDatabase,
 ) -> (i32, Option<serde_json::Value>) {
     if args.is_empty() {
         print_usage(invoked_by);
@@ -1659,8 +1663,7 @@ pub fn invoke_command_with_db(
             } else {
                 None
             };
-            let (_, _, analysis_result_and_cost) = if let Some(analysis_db) = analysis_db {
-                // Use shared analysis database for contract dependency resolution
+            let (_, _, analysis_result_and_cost) =
                 in_block(header_db, marf_kv, |header_db, mut marf| {
                     let analysis_result =
                         run_analysis(&contract_identifier, &mut ast, &header_db, &mut marf, true);
@@ -1688,36 +1691,7 @@ pub fn invoke_command_with_db(
                             (header_db, marf, Ok((contract_analysis, (result, cost))))
                         }
                     }
-                })
-            } else {
-                // Original behavior without shared analysis database
-                in_block(header_db, marf_kv, |header_db, mut marf| {
-                    let analysis_result =
-                        run_analysis(&contract_identifier, &mut ast, &header_db, &mut marf, true);
-                    match analysis_result {
-                        Err(e) => (header_db, marf, Err(e)),
-                        Ok(contract_analysis) => {
-                            let result_and_cost = with_env_costs(
-                                mainnet,
-                                &header_db,
-                                &mut marf,
-                                coverage.as_mut(),
-                                |vm_env| {
-                                    vm_env.initialize_versioned_contract(
-                                        contract_identifier,
-                                        ClarityVersion::Clarity2,
-                                        &contract_content,
-                                        None,
-                                        ASTRules::PrecheckSize,
-                                    )
-                                },
-                            );
-                            let (result, cost) = result_and_cost;
-                            (header_db, marf, Ok((contract_analysis, (result, cost))))
-                        }
-                    }
-                })
-            };
+                });
 
             match analysis_result_and_cost {
                 Ok((contract_analysis, (Ok((_x, asset_map, events)), cost))) => {
@@ -2084,7 +2058,7 @@ mod test {
                 cargo_workspace_as_string("sample/contracts/tokens.clar"),
                 db_name.clone(),
             ],
-            Some(&mut analysis_db),
+            &mut analysis_db,
         );
 
         let exit = invoked.0;
@@ -2175,7 +2149,7 @@ mod test {
                 "--assets".to_string(),
                 db_name.clone(),
             ],
-            Some(&mut analysis_db),
+            &mut analysis_db,
         );
 
         let exit = invoked.0;
