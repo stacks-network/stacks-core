@@ -3088,6 +3088,16 @@ mod tests {
                     .into_script(),
             }
         }
+
+        pub fn create_templated_pre_stx_op() -> PreStxOp {
+            PreStxOp {
+                output: StacksAddress::p2pkh_from_hash(false, Hash160::from_data(&[2u8; 20])),
+                txid: Txid([0u8; 32]),
+                vtxindex: 0,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            }
+        }
     }
 
     #[test]
@@ -3848,7 +3858,7 @@ mod tests {
                     BlockstackOperationType::LeaderBlockCommit(commit_op),
                     &mut op_signer,
                 )
-                .expect("Build leader block commit should work");
+                .expect("Make op should work");
 
             assert!(op_signer.is_disposed());
 
@@ -4025,7 +4035,7 @@ mod tests {
                     BlockstackOperationType::LeaderKeyRegister(leader_key_op),
                     &mut op_signer,
                 )
-                .expect("Build leader block commit should work");
+                .expect("Make op should work");
 
             assert!(op_signer.is_disposed());
 
@@ -4071,6 +4081,173 @@ mod tests {
 
             assert_eq!(
                 "4ecd7ba71bebd1aaed49dd63747ee424473f1c571bb9a576361607a669191024",
+                tx_id.to_hex()
+            );
+        }
+    }
+
+    /// Tests related to Pre Stacks operation
+    mod pre_stx_op {
+        use super::*;
+
+        #[test]
+        #[ignore]
+        fn test_build_pre_stx_tx_ok() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
+            let keychain = utils::create_keychain();
+            let miner_pubkey = keychain.get_pub_key();
+            let mut op_signer = keychain.generate_op_signer();
+
+            let mut config = utils::create_config();
+            config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
+            btc_controller.bootstrap_chain(101); // now, one utxo exists
+
+            let mut pre_stx_op = utils::create_templated_pre_stx_op();
+            pre_stx_op.output = keychain.get_address(false);
+
+            let tx = btc_controller
+                .build_pre_stacks_tx(StacksEpochId::Epoch31, pre_stx_op.clone(), &mut op_signer)
+                .expect("Build leader key should work");
+
+            assert!(op_signer.is_disposed());
+
+            assert_eq!(1, tx.version);
+            assert_eq!(0, tx.lock_time);
+            assert_eq!(1, tx.input.len());
+            assert_eq!(3, tx.output.len());
+
+            // utxos list contains the only existing utxo
+            let used_utxos = btc_controller.get_all_utxos(&miner_pubkey);
+            let input_0 = utils::txin_at_index(&tx, &op_signer, &used_utxos, 0);
+            assert_eq!(input_0, tx.input[0]);
+
+            let op_return = utils::txout_opreturn_v2(&pre_stx_op, &config.burnchain.magic_bytes, 0);
+            let op_change = utils::txout_opdup_change_legacy(&mut op_signer, 24_500);
+            assert_eq!(op_return, tx.output[0]);
+            assert_eq!(op_change, tx.output[1]);
+        }
+
+        #[test]
+        #[ignore]
+        fn test_build_pre_stx_tx_fails_due_to_no_utxos() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
+            let keychain = utils::create_keychain();
+            let miner_pubkey = keychain.get_pub_key();
+            let mut op_signer = keychain.generate_op_signer();
+
+            let mut config = utils::create_config();
+            config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
+            btc_controller.bootstrap_chain(100); // no utxo exists
+
+            let mut pre_stx_op = utils::create_templated_pre_stx_op();
+            pre_stx_op.output = keychain.get_address(false);
+
+            let error = btc_controller
+                .build_pre_stacks_tx(StacksEpochId::Epoch31, pre_stx_op.clone(), &mut op_signer)
+                .expect_err("Leader key build should fail!");
+
+            assert!(!op_signer.is_disposed());
+            assert_eq!(BurnchainControllerError::NoUTXOs, error);
+        }
+
+        #[test]
+        #[ignore]
+        fn test_make_operation_pre_stx_tx_ok() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
+            let keychain = utils::create_keychain();
+            let miner_pubkey = keychain.get_pub_key();
+            let mut op_signer = keychain.generate_op_signer();
+
+            let mut config = utils::create_config();
+            config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
+            btc_controller.bootstrap_chain(101); // now, one utxo exists
+
+            let mut pre_stx_op = utils::create_templated_pre_stx_op();
+            pre_stx_op.output = keychain.get_address(false);
+
+            let ser_tx = btc_controller
+                .make_operation_tx(
+                    StacksEpochId::Epoch31,
+                    BlockstackOperationType::PreStx(pre_stx_op),
+                    &mut op_signer,
+                )
+                .expect("Make op should work");
+
+            assert!(op_signer.is_disposed());
+
+            assert_eq!(
+                "01000000014d9e9dc7d126446e90dd013f023937eba9cb2c88f4d12707400a3ede994a62c5000000008a47304402203351a9351e887f4b66023893f55e308c3c345aec6f50dd3bd11fc90b7049703102200fbbf08747e4961ec8e0a5f5e991fa5f709cac9083d22772cd48e9325a48bba30141044227d7e5c0997524ce011c126f0464d43e7518872a9b1ad29436ac5142d73eab5fb48d764676900fc2fac56917412114bf7dfafe51f715cf466fe0c1a6c69d11fdffffff030000000000000000056a03543370b45f0000000000001976a9145e52c53cb96b55f0e3d719adbca21005bc54cb2e88ac9c5b052a010000001976a9145e52c53cb96b55f0e3d719adbca21005bc54cb2e88ac00000000",
+                ser_tx.to_hex()
+            );
+        }
+
+        #[test]
+        #[ignore]
+        fn test_submit_operation_pre_stx_tx_ok() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
+            let keychain = utils::create_keychain();
+            let miner_pubkey = keychain.get_pub_key();
+            let mut op_signer = keychain.generate_op_signer();
+
+            let mut config = utils::create_config();
+            config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
+            btc_controller.bootstrap_chain(101); // now, one utxo exists
+
+            let mut pre_stx_op = utils::create_templated_pre_stx_op();
+            pre_stx_op.output = keychain.get_address(false);
+
+            let tx_id = btc_controller
+                .submit_operation(
+                    StacksEpochId::Epoch31,
+                    BlockstackOperationType::PreStx(pre_stx_op),
+                    &mut op_signer,
+                )
+                .expect("submit op should work");
+
+            assert!(op_signer.is_disposed());
+
+            assert_eq!(
+                "2d061c42c6f13a62fd9d80dc9fdcd19bdb4f9e4a07f786e42530c64c52ed9d1d",
                 tx_id.to_hex()
             );
         }
