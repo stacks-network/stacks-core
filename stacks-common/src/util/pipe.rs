@@ -317,8 +317,7 @@ mod test {
     use std::io::{Read, Write};
     use std::{io, thread};
 
-    use rand;
-    use rand::RngCore;
+    use rand::RngCore as _;
 
     use super::*;
 

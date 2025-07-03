@@ -21,7 +21,6 @@ use ::libsecp256k1::{
     RecoveryId as LibSecp256k1RecoveryId, SecretKey as LibSecp256k1PrivateKey,
     Signature as LibSecp256k1Signature,
 };
-use rand::RngCore;
 use serde::de::{Deserialize, Error as de_Error};
 use serde::Serialize;
 
@@ -123,7 +122,10 @@ impl Secp256k1PublicKey {
 }
 
 impl Secp256k1PrivateKey {
+    #[cfg(feature = "rand")]
     pub fn new() -> Secp256k1PrivateKey {
+        use rand::RngCore as _;
+
         let mut rng = rand::thread_rng();
         loop {
             // keep trying to generate valid bytes

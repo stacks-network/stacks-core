@@ -16,7 +16,7 @@ extern crate serde_derive;
 #[cfg(all(unix, feature = "ctrlc-handler"))]
 extern crate nix;
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "ctrlc-handler"))]
 extern crate winapi;
 
 #[macro_use]
@@ -33,8 +33,7 @@ pub mod deps_common {
     pub mod bech32;
     pub mod bitcoin;
 
-    // These are gated by features.
-    #[cfg(feature = "ctrlc-handler")]
+    #[cfg(all(not(target_family = "wasm"), feature = "ctrlc-handler"))]
     pub mod ctrlc;
 
     #[cfg(feature = "http-parser")]

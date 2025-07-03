@@ -35,7 +35,7 @@ curve25519-dalek = { version = "4.1.3", features = ["serde"] }
 ed25519-dalek = { workspace = true }
 hashbrown = { workspace = true }
 lazy_static = { workspace = true }
-rand = { workspace = true }
+rand = { workspace = true, optional = true }
 ripemd = "0.1.1"
 serde = { workspace = true , features = ["derive"] }
 serde_derive = { workspace = true }
@@ -45,7 +45,6 @@ slog = { workspace = true }
 slog-term = "2.6.0"
 
 # Optional dependencies
-rusqlite = { workspace = true, optional = true }
 slog-json = { version = "2.3.0", optional = true }
 
 [target.'cfg(unix)'.dependencies]
@@ -57,16 +56,15 @@ winapi = { version = "0.3", features = [
     "handleapi",
     "synchapi",
     "winbase",
-] }
-
-[target.'cfg(windows)'.dev-dependencies]
-winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
+], optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 secp256k1 = { version = "0.24.3", features = ["serde", "recovery"] }
+rusqlite = { workspace = true, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-libsecp256k1 = { version = "0.7.0" }
+libsecp256k1 = { version = "0.7.0", default-features = false, features = ["hmac", "static-context"] }
+getrandom = { version = "0.2.12", features = ["js"], optional = true }
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }
@@ -75,23 +73,28 @@ sha2 = { version = "0.10", features = ["asm"] }
 sha2 = { version = "0.10" }
 
 [dev-dependencies]
-rand_core = { workspace = true }
 proptest = "1.6.0"
+
+[target.'cfg(windows)'.dev-dependencies]
+winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
 
 [build-dependencies]
 toml = { workspace = true }
 
 [features]
-default = ["developer-mode", "ctrlc-handler", "http-parser"]
+default = ["developer-mode", "ctrlc-handler", "http-parser", "rand"]
 developer-mode = []
-# Enables graceful shutdown handling for Ctrl+C (SIGINT) signals on Unix-like systems.
-# This pulls in the `nix` dependency.
-ctrlc-handler = ["dep:nix"]
+# Enables graceful shutdown handling for Ctrl+C (SIGINT) signals.
+# This pulls in the `nix` or `winapi` dependency.
+ctrlc-handler = ["dep:nix", "dep:winapi"]
 # Enables a lightweight, internal HTTP/1.x parser.
 http-parser = []
 slog_json = ["slog-json"]
-rusqlite = ["dep:rusqlite"]
-testing = []
+rusqlite = ["dep:rusqlite", "rand"]
+# Enables the rand module. This flag must be off on deterministic
+# platforms such as CosmWasm
+rand = ["dep:rand", "dep:getrandom"]
 serde = []
+testing = ["rand"]
 bech32_std = []
 bech32_strict = []
