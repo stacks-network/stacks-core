@@ -1142,7 +1142,7 @@ impl InvState {
     ///
     /// # Arguments
     ///
-    /// * `neighbors` - A slice of `Neighbor` structs to check.
+    /// * `neighbors` - Optional slice of `Neighbor` structs to check. If `None`, all neighbors are considered.
     /// * `ibd` - A boolean indicating if the node is in Initial Block Download (IBD) mode.
     ///
     /// # Returns
@@ -1151,36 +1151,34 @@ impl InvState {
     /// * `None` if no tip heights are found.
     pub fn get_max_stacks_height_of_neighbors(
         &self,
-        neighbors: &[Neighbor],
+        neighbors: Option<&[Neighbor]>,
         ibd: bool,
     ) -> Option<u64> {
-        let mut max_height: u64 = 1;
-        let mut stats_obtained = false;
-        for neighbor in neighbors {
-            let nk = &neighbor.addr;
-            match self.block_stats.get(nk) {
-                Some(stats) => {
-                    // When a node is in IBD, it occasionally might think a remote peer has diverged from it (for
-                    // example, if it starts processing reward cycle N+1 before obtaining the anchor block for
-                    // reward cycle N).
-                    if (ibd
-                        && (stats.status == NodeStatus::Online
-                            || stats.status == NodeStatus::Diverged))
-                        || (!ibd && stats.status == NodeStatus::Online)
-                    {
-                        let height = stats.inv.get_block_height();
-                        max_height = max_height.max(height);
-                        stats_obtained = true;
-                    }
-                }
-                None => {}
-            }
-        }
+        let filter_and_extract = |stats: &NeighborBlockStats| -> Option<u64> {
+            let status_valid = if ibd {
+                stats.status == NodeStatus::Online || stats.status == NodeStatus::Diverged
+            } else {
+                stats.status == NodeStatus::Online
+            };
 
-        if stats_obtained {
-            Some(max_height)
-        } else {
-            None
+            if status_valid {
+                Some(stats.inv.get_block_height())
+            } else {
+                None
+            }
+        };
+
+        match neighbors {
+            Some(n) => n
+                .iter()
+                .filter_map(|neighbor| self.block_stats.get(&neighbor.addr))
+                .filter_map(filter_and_extract)
+                .max(),
+            None => self
+                .block_stats
+                .values()
+                .filter_map(filter_and_extract)
+                .max(),
         }
     }
 
