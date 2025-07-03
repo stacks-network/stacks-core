@@ -139,3 +139,5 @@ where
     let reader = BufReader::new(file);
     serde_json::from_reader::<_, J>(reader).map_err(std::io::Error::from)
 }
+#[cfg(all(feature = "rusqlite", target_family = "wasm"))]
+compile_error!("The `rusqlite` feature is not supported for wasm targets");
