@@ -82,21 +82,18 @@ impl BurnchainOpSigner {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 
     use super::BurnchainOpSigner;
 
     #[test]
-    fn test_wif() {
-        let examples = [(
-            "0C28FCA386C7A227600B2FE50B7CAE11EC86D3BF1FBE471BE89827E19D72AA1D",
-            "5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ",
-        )];
-        for (secret_key, expected_wif) in examples.iter() {
-            let secp_k = Secp256k1PrivateKey::from_hex(secret_key).unwrap();
-            let op_signer = BurnchainOpSigner::new(secp_k, false);
-            assert_eq!(expected_wif, &op_signer.get_sk_as_wif());
-        }
+    fn test_get_secret_key_as_wif() {
+        let priv_key_hex = "0c28fca386c7a227600b2fe50b7cae11ec86d3bf1fbe471be89827e19d72aa1d";
+        let expected_wif = "5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ";
+
+        let secp_k = Secp256k1PrivateKey::from_hex(priv_key_hex).unwrap();
+        let op_signer = BurnchainOpSigner::new(secp_k, false);
+        assert_eq!(expected_wif, &op_signer.get_sk_as_wif());
     }
 }
