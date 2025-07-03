@@ -1669,7 +1669,7 @@ pub fn invoke_command_with_db(
                         run_analysis(&contract_identifier, &mut ast, &header_db, &mut marf, true);
                     match analysis_result {
                         Err(e) => (header_db, marf, Err(e)),
-                        Ok(contract_analysis) => {
+                        Ok(analysis) => {
                             let result_and_cost = with_env_costs(
                                 mainnet,
                                 &header_db,
@@ -1688,7 +1688,7 @@ pub fn invoke_command_with_db(
                                 },
                             );
                             let (result, cost) = result_and_cost;
-                            (header_db, marf, Ok((contract_analysis, (result, cost))))
+                            (header_db, marf, Ok((analysis, (result, cost))))
                         }
                     }
                 });
