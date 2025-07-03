@@ -273,7 +273,7 @@ impl BitcoinBlockParser {
             return None;
         }
 
-        match (&script_pieces[0], &script_pieces[1]) {
+        match (script_pieces.get(0)?, script_pieces.get(1)?) {
             (Instruction::Op(ref opcode), Instruction::PushBytes(data)) => {
                 if *opcode != btc_opcodes::OP_RETURN {
                     test_debug!("Data output does not use a standard OP_RETURN");
@@ -287,8 +287,9 @@ impl BitcoinBlockParser {
                     return None;
                 }
 
-                let opcode = data[MAGIC_BYTES_LENGTH];
-                Some((opcode, data[MAGIC_BYTES_LENGTH + 1..data.len()].to_vec()))
+                let opcode = *data.get(MAGIC_BYTES_LENGTH)?;
+                let data = data.get(MAGIC_BYTES_LENGTH + 1..)?.to_vec();
+                Some((opcode, data))
             }
             (_, _) => {
                 test_debug!("Data output is not OP_RETURN <data>");
@@ -301,20 +302,24 @@ impl BitcoinBlockParser {
     /// * an OP_RETURN output at output 0
     /// * only p2pkh or p2sh outputs for outputs 1...n
     fn maybe_burnchain_tx(&self, tx: &Transaction, epoch_id: StacksEpochId) -> bool {
-        if self.parse_data(&tx.output[0].script_pubkey).is_none() {
+        let Some(output_0) = tx.output.get(0) else {
+            return false;
+        };
+        if self.parse_data(&output_0.script_pubkey).is_none() {
             test_debug!("Tx {:?} has no valid OP_RETURN", tx.txid());
             return false;
         }
 
-        for i in 1..tx.output.len() {
+        for (j, tx_output) in tx.output.iter().skip(1).enumerate() {
+            let _i = j.saturating_add(1);
             if epoch_id < StacksEpochId::Epoch21 {
                 // only support legacy addresses pre-2.1
-                if !tx.output[i].script_pubkey.is_p2pkh() && !tx.output[i].script_pubkey.is_p2sh() {
+                if !tx_output.script_pubkey.is_p2pkh() && !tx_output.script_pubkey.is_p2sh() {
                     // unrecognized output type
                     test_debug!(
                         "Tx {:?} has unrecognized output type in output {}",
                         tx.txid(),
-                        i
+                        _i
                     );
                     return false;
                 }
@@ -322,14 +327,14 @@ impl BitcoinBlockParser {
                 // in 2.1 and later, support it if the output decodes
                 if BitcoinAddress::from_scriptpubkey(
                     BitcoinNetworkType::Mainnet,
-                    &tx.output[i].script_pubkey.to_bytes(),
+                    &tx_output.script_pubkey.to_bytes(),
                 )
                 .is_none()
                 {
                     test_debug!(
                         "Tx {:?} has unrecognized output type in output {}",
                         tx.txid(),
-                        i
+                        _i
                     );
                     return false;
                 }
@@ -380,7 +385,7 @@ impl BitcoinBlockParser {
         }
 
         let mut ret = vec![];
-        for outp in &tx.output[1..tx.output.len()] {
+        for outp in tx.output.iter().skip(1) {
             let out_opt = if BitcoinBlockParser::allow_segwit_outputs(epoch_id) {
                 BitcoinTxOutput::from_bitcoin_txout(self.network_id, outp)
             } else {
@@ -414,13 +419,13 @@ impl BitcoinBlockParser {
             return None;
         }
 
-        let data_opt = self.parse_data(&tx.output[0].script_pubkey);
+        let data_opt = self.parse_data(&tx.output.get(0)?.script_pubkey);
         if data_opt.is_none() {
             test_debug!("No OP_RETURN script");
             return None;
         }
 
-        let data_amt = tx.output[0].value;
+        let data_amt = tx.output.get(0)?.value;
 
         let (opcode, data) = data_opt.unwrap();
         let inputs_opt = if BitcoinBlockParser::allow_raw_inputs(epoch_id) {
@@ -459,8 +464,7 @@ impl BitcoinBlockParser {
         epoch_id: StacksEpochId,
     ) -> BitcoinBlock {
         let mut accepted_txs = vec![];
-        for i in 0..block.txdata.len() {
-            let tx = &block.txdata[i];
+        for (i, tx) in block.txdata.iter().enumerate() {
             match self.parse_tx(tx, i, epoch_id) {
                 Some(bitcoin_tx) => {
                     accepted_txs.push(bitcoin_tx);

@@ -376,13 +376,18 @@ impl PeerNetwork {
         };
 
         let inv = chainstate.get_blocks_inventory(&[(consensus_hash.clone(), block_hash_opt)])?;
-        if is_microblock {
+        let bitvec_entry = if is_microblock {
             // checking for microblock absence
-            Ok(inv.microblocks_bitvec[0] == 0)
+            inv.microblocks_bitvec.first()
         } else {
             // checking for block absence
-            Ok(inv.block_bitvec[0] == 0)
+            inv.block_bitvec.first()
         }
+        .ok_or_else(|| {
+            error!("Returned empty block inventory");
+            NetError::InvalidState
+        })?;
+        Ok(*bitvec_entry == 0)
     }
 
     /// Handle unsolicited BlocksAvailable.  If it is valid, and it represents a block that this
@@ -803,11 +808,10 @@ impl PeerNetwork {
     ) -> bool {
         let Some(rc_data) = self.current_reward_sets.get(&reward_cycle) else {
             info!(
-                "{:?}: Failed to validate Nakamoto block {}/{}: no reward set for cycle {}",
+                "{:?}: Failed to validate Nakamoto block {}/{}: no reward set for cycle {reward_cycle}",
                 self.get_local_peer(),
                 &nakamoto_block.header.consensus_hash,
                 &nakamoto_block.header.block_hash(),
-                reward_cycle,
             );
             return false;
         };

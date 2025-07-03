@@ -81,8 +81,8 @@ impl TransferStxOp {
             return None;
         }
 
-        let transfered_ustx = parse_u128_from_be(&data[0..16]).unwrap();
-        let memo = Vec::from(&data[16..]);
+        let transfered_ustx = parse_u128_from_be(data.get(0..16)?).unwrap();
+        let memo = Vec::from(data.get(16..)?);
 
         Some(ParsedData {
             transfered_ustx,
@@ -163,7 +163,12 @@ impl TransferStxOp {
         let outputs = tx.get_recipients();
         assert!(!outputs.is_empty());
 
-        let output = outputs[0]
+        let output = outputs
+            .get(0)
+            .ok_or_else(|| {
+                warn!("Invalid tx: No first output");
+                op_error::InvalidInput
+            })?
             .as_ref()
             .ok_or_else(|| {
                 warn!("Invalid tx: could not decode the first output");
