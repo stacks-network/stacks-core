@@ -3895,7 +3895,7 @@ mod tests {
                     BlockstackOperationType::LeaderBlockCommit(commit_op),
                     &mut op_signer,
                 )
-                .expect("Build leader block commit should work");
+                .expect("Submit op should work");
 
             assert!(op_signer.is_disposed());
 
@@ -4067,7 +4067,7 @@ mod tests {
                     BlockstackOperationType::LeaderKeyRegister(leader_key_op),
                     &mut op_signer,
                 )
-                .expect("Build leader block commit should work");
+                .expect("Submit op should work");
 
             assert!(op_signer.is_disposed());
 
