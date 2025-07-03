@@ -51,7 +51,7 @@ const DEFAULT_TENURE_IDLE_TIMEOUT_BUFFER_SECS: u64 = 2;
 const DEFAULT_PROPOSAL_WAIT_TIME_FOR_PARENT_SECS: u64 = 15;
 /// Default number of blocks after a fork to reset the replay set,
 /// as a failsafe mechanism
-const DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS: u64 = 2;
+pub const DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS: u64 = 2;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration

@@ -144,7 +144,7 @@ pub struct ProposalEvalConfig {
     /// Time to wait before submitting a block proposal to the stacks-node
     pub proposal_wait_for_parent_time: Duration,
     /// How many blocks after a fork should we reset the replay set,
-    /// as a failsafe mechanism?
+    /// as a failsafe mechanism
     pub reset_replay_set_after_fork_blocks: u64,
 }
 

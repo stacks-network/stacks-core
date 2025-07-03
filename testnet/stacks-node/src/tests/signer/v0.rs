@@ -4219,7 +4219,6 @@ fn tx_replay_disagreement() {
 /// The test flow is:
 ///
 /// - Boot to Epoch 3
-/// - Mine 3 tenures
 /// - Submit 2 STX Transfer txs (Tx1, Tx2) in the last tenure
 /// - Trigger a Bitcoin fork (3 blocks)
 /// - Verify that signers move into tx replay state [Tx1, Tx2]
@@ -4937,7 +4936,6 @@ fn tx_replay_with_fork_causing_replay_to_be_cleared_due_to_cycle() {
 /// The test flow is:
 ///
 /// - Boot to Epoch 3
-/// - Mine 10 tenures (to handle multiple fork in Cycle 12)
 /// - Deploy 1 Big Contract and mine 2 tenures (to escape fork)
 /// - Submit 2 Contract Call txs (Tx1, Tx2) in the last tenure,
 ///   requiring Tenure Extend due to Tenure Budget exceeded
@@ -5102,7 +5100,6 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
 /// The test flow is:
 ///
 /// - Boot to Epoch 3
-/// - Mine 10 tenures (to handle multiple fork in Cycle 12)
 /// - Deploy 1 Big Contract and mine 2 tenures (to escape fork)
 /// - Submit 2 Contract Call txs (Tx1, Tx2) in the last tenure,
 ///   requiring Tenure Extend due to Tenure Budget exceeded

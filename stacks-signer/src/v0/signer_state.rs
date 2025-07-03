@@ -641,7 +641,8 @@ impl LocalStateMachine {
                 proposal_config.reset_replay_set_after_fork_blocks,
             )? {
                 info!(
-                    "Signer state: replay set is stalled after 2 tenures. Clearing the replay set."
+                    "Signer state: replay set is stalled after {} tenures. Clearing the replay set.",
+                    proposal_config.reset_replay_set_after_fork_blocks
                 );
                 tx_replay_set = ReplayTransactionSet::none();
                 *tx_replay_scope = None;
@@ -1246,7 +1247,7 @@ impl LocalStateMachine {
         match replay_state {
             ReplayState::Unset => {
                 // not in replay - skip
-                return Ok(false);
+                Ok(false)
             }
             ReplayState::InProgress(_, replay_scope) => {
                 let failsafe_height =
