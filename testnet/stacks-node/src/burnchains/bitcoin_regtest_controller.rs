@@ -101,7 +101,6 @@ pub struct BitcoinRegtestController {
     burnchain_config: Option<Burnchain>,
     ongoing_block_commit: Option<OngoingBlockCommit>,
     should_keep_running: Option<Arc<AtomicBool>>,
-    allow_rbf: bool,
 }
 
 #[derive(Clone)]
@@ -357,7 +356,6 @@ impl BitcoinRegtestController {
             burnchain_config: burnchain,
             ongoing_block_commit: None,
             should_keep_running,
-            allow_rbf: true,
         }
     }
 
@@ -403,7 +401,6 @@ impl BitcoinRegtestController {
             burnchain_config: None,
             ongoing_block_commit: None,
             should_keep_running: None,
-            allow_rbf: true,
         }
     }
 
@@ -748,19 +745,14 @@ impl BitcoinRegtestController {
 
         // Configure UTXO filter
         let address = self.get_miner_address(epoch_id, &pubk);
-        test_debug!(
-            "Get UTXOs for {} ({}) rbf={}",
-            pubk.to_hex(),
-            addr2str(&address),
-            self.allow_rbf
-        );
+        test_debug!("Get UTXOs for {} ({})", pubk.to_hex(), addr2str(&address),);
         let filter_addresses = vec![addr2str(&address)];
 
         let mut utxos = loop {
             let result = BitcoinRPCRequest::list_unspent(
                 &self.config,
                 filter_addresses.clone(),
-                !self.allow_rbf, // if RBF is disabled, then we can use 0-conf txs
+                false,
                 total_required,
                 &utxos_to_exclude,
                 block_height,
@@ -794,7 +786,7 @@ impl BitcoinRegtestController {
                 let result = BitcoinRPCRequest::list_unspent(
                     &self.config,
                     filter_addresses.clone(),
-                    !self.allow_rbf, // if RBF is disabled, then we can use 0-conf txs
+                    false,
                     total_required,
                     &utxos_to_exclude,
                     block_height,
@@ -1510,7 +1502,7 @@ impl BitcoinRegtestController {
         signer: &mut BurnchainOpSigner,
     ) -> Result<Transaction, BurnchainControllerError> {
         // Are we currently tracking an operation?
-        if self.ongoing_block_commit.is_none() || !self.allow_rbf {
+        if self.ongoing_block_commit.is_none() {
             // Good to go, let's build the transaction and send it.
             let res =
                 self.send_block_commit_operation(epoch_id, payload, signer, None, None, None, &[]);
