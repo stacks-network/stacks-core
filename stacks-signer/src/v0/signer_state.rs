@@ -639,7 +639,7 @@ impl LocalStateMachine {
                 &replay_state,
                 &expected_burn_block,
                 proposal_config.reset_replay_set_after_fork_blocks,
-            )? {
+            ) {
                 info!(
                     "Signer state: replay set is stalled after {} tenures. Clearing the replay set.",
                     proposal_config.reset_replay_set_after_fork_blocks
@@ -1243,16 +1243,16 @@ impl LocalStateMachine {
         replay_state: &ReplayState,
         new_burn_block: &NewBurnBlock,
         reset_replay_set_after_fork_blocks: u64,
-    ) -> Result<bool, SignerChainstateError> {
+    ) -> bool {
         match replay_state {
             ReplayState::Unset => {
                 // not in replay - skip
-                Ok(false)
+                false
             }
             ReplayState::InProgress(_, replay_scope) => {
                 let failsafe_height =
                     replay_scope.past_tip.burn_block_height + reset_replay_set_after_fork_blocks;
-                Ok(new_burn_block.burn_block_height > failsafe_height)
+                new_burn_block.burn_block_height > failsafe_height
             }
         }
     }
