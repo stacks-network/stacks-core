@@ -14,21 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp::Ordering;
-use std::io::prelude::*;
-use std::io::{Read, Write};
-use std::{fmt, io};
-
-use clarity::vm::types::{PrincipalData, SequenceData, StandardPrincipalData, TupleData, Value};
+use clarity::vm::types::{SequenceData, TupleData, Value};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use stacks_common::address::c32::{c32_address, c32_address_decode};
-use stacks_common::address::{b58, public_keys_to_address_hash, AddressHashMode};
-use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::deps_common::bitcoin::blockdata::opcodes::All as BtcOp;
-use stacks_common::deps_common::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
+use stacks_common::address::{b58, AddressHashMode};
 use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut;
-use stacks_common::types::chainstate::{StacksAddress, STACKS_ADDRESS_ENCODED_SIZE};
-use stacks_common::util::hash::{to_hex, Hash160, HASH160_ENCODED_SIZE};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::hash::{to_hex, Hash160};
 
 use crate::burnchains::bitcoin::address::{
     legacy_address_type_to_version_byte, legacy_version_byte_to_address_type, to_b58_version_byte,
@@ -36,12 +27,7 @@ use crate::burnchains::bitcoin::address::{
     SegwitBitcoinAddress,
 };
 use crate::burnchains::bitcoin::BitcoinTxOutput;
-use crate::burnchains::{Address, PublicKey};
-use crate::chainstate::stacks::{
-    StacksPublicKey, C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
-use crate::net::Error as net_error;
+use crate::burnchains::Address;
 use crate::util_lib::boot::boot_code_addr;
 
 pub trait StacksAddressExtensions {
@@ -546,8 +532,6 @@ mod test {
     use crate::burnchains::bitcoin::BitcoinNetworkType;
     use crate::chainstate::stacks::*;
     use crate::net::codec::test::check_codec_and_corruption;
-    use crate::net::codec::*;
-    use crate::net::*;
 
     #[test]
     fn tx_stacks_address_codec() {

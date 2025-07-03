@@ -15,16 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::hash::Hash;
-use std::io::{Seek, SeekFrom};
-use std::{error, fmt, io, ptr};
+use std::{error, fmt, io};
 
 use sha2::{Digest, Sha512_256 as TrieHasher};
+#[cfg(test)]
+use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId, TrieHash,
-    TRIEHASH_ENCODED_SIZE,
+    BurnchainHeaderHash, SortitionId, StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE,
 };
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
 
 use crate::util_lib::db::Error as db_error;
 

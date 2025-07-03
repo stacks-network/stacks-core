@@ -13,18 +13,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
 
 use clarity::types::chainstate::StacksAddress;
-use clarity::util::lru_cache::{FlushError, LruCache, LruCacheCorrupted};
+use clarity::util::lru_cache::{FlushError, LruCache};
 use clarity::vm::clarity::ClarityConnection;
 use rand::Rng;
 use rusqlite::params;
 
-use super::mempool::MemPoolTx;
-use super::MemPoolDB;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::util_lib::db::{query_row, u64_to_sql, DBConn, Error as db_error};
 
@@ -231,6 +228,7 @@ mod tests {
     use crate::chainstate::stacks::index::ClarityMarfTrieId;
     use crate::clarity_vm::clarity::ClarityInstance;
     use crate::clarity_vm::database::marf::MarfedKV;
+    use crate::core::MemPoolDB;
 
     #[test]
     fn test_nonce_cache() {

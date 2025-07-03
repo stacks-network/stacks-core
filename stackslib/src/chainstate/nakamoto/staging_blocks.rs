@@ -18,24 +18,20 @@ use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::{fmt, fs};
 
-use lazy_static::lazy_static;
 use rusqlite::blob::Blob;
-use rusqlite::types::{FromSql, FromSqlError, ToSql};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId};
 use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::util::{get_epoch_time_secs, sleep_ms};
+use stacks_common::util::get_epoch_time_secs;
 
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
-use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::marf::MarfConnection;
-use crate::chainstate::stacks::{Error as ChainstateError, StacksBlock, StacksBlockHeader};
+use crate::chainstate::stacks::Error as ChainstateError;
 use crate::stacks_common::codec::StacksMessageCodec;
 use crate::util_lib::db::{
-    query_int, query_row, query_row_columns, query_row_panic, query_rows, sqlite_open,
-    table_exists, tx_begin_immediate, u64_to_sql, DBConn, Error as DBError, FromRow,
+    query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
+    Error as DBError,
 };
 
 /// The means by which a block is obtained.

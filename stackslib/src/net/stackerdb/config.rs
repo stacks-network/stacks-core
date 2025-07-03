@@ -36,16 +36,12 @@
 ///         uint))
 /// )
 /// ```
-use std::collections::{HashMap, HashSet};
-use std::mem;
-
 use clarity::vm::analysis::ContractAnalysis;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::types::{
-    BufferLength, FixedFunction, FunctionType, ListTypeData, PrincipalData,
-    QualifiedContractIdentifier, SequenceData, SequenceSubtype, StandardPrincipalData,
-    TupleTypeSignature, TypeSignature, Value as ClarityValue,
+    BufferLength, FunctionType, ListTypeData, PrincipalData, QualifiedContractIdentifier,
+    SequenceSubtype, TupleTypeSignature, TypeSignature, Value as ClarityValue,
 };
 use clarity::vm::ClarityName;
 use lazy_static::lazy_static;
@@ -54,15 +50,12 @@ use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Hash160;
 
-use super::{STACKERDB_MAX_PAGE_COUNT, STACKERDB_PAGE_LIST_MAX, STACKERDB_SLOTS_FUNCTION};
+use super::{STACKERDB_PAGE_LIST_MAX, STACKERDB_SLOTS_FUNCTION};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::Error as chainstate_error;
-use crate::clarity_vm::clarity::{ClarityReadOnlyConnection, Error as clarity_error};
 use crate::net::stackerdb::{
-    StackerDBConfig, StackerDBs, STACKERDB_CONFIG_FUNCTION, STACKERDB_INV_MAX,
-    STACKERDB_MAX_CHUNK_SIZE,
+    StackerDBConfig, STACKERDB_CONFIG_FUNCTION, STACKERDB_INV_MAX, STACKERDB_MAX_CHUNK_SIZE,
 };
 use crate::net::{Error as NetError, NeighborAddress};
 

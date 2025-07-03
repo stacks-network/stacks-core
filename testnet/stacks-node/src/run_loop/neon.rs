@@ -122,6 +122,10 @@ pub struct Counters {
     pub sortitions_processed: RunLoopCounter,
 
     pub naka_submitted_vrfs: RunLoopCounter,
+    /// the number of submitted commits
+    pub neon_submitted_commits: RunLoopCounter,
+    /// the burn block height when the last commit was submitted
+    pub neon_submitted_commit_last_burn_height: RunLoopCounter,
     pub naka_submitted_commits: RunLoopCounter,
     /// the burn block height when the last commit was submitted
     pub naka_submitted_commit_last_burn_height: RunLoopCounter,
@@ -194,6 +198,14 @@ impl Counters {
 
     pub fn bump_cancelled_commits(&self) {
         Counters::inc(&self.cancelled_commits);
+    }
+
+    pub fn bump_neon_submitted_commits(&self, committed_burn_height: u64) {
+        Counters::inc(&self.neon_submitted_commits);
+        Counters::set(
+            &self.neon_submitted_commit_last_burn_height,
+            committed_burn_height,
+        );
     }
 
     pub fn bump_naka_submitted_vrfs(&self) {

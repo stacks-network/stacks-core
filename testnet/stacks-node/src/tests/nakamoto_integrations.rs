@@ -109,7 +109,7 @@ use stacks_signer::v0::SpawnedSigner;
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::nakamoto_node::miner::{
     TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_MINE_STALL,
-    TEST_P2P_BROADCAST_SKIP,
+    TEST_P2P_BROADCAST_SKIP, TEST_P2P_BROADCAST_STALL,
 };
 use crate::nakamoto_node::relayer::TEST_MINER_THREAD_STALL;
 use crate::neon::Counters;
@@ -8901,24 +8901,6 @@ fn mock_mining() {
         &mut btc_regtest_controller,
     );
 
-    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
-
-    let burnchain = naka_conf.get_burnchain();
-    let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
-        naka_conf.is_mainnet(),
-        naka_conf.burnchain.chain_id,
-        &naka_conf.get_chainstate_path_str(),
-        None,
-    )
-    .unwrap();
-
-    let block_height_pre_3_0 =
-        NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-            .unwrap()
-            .unwrap()
-            .stacks_block_height;
-
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, &counters);
 
@@ -8953,11 +8935,9 @@ fn mock_mining() {
     let follower_coord_channel = follower_run_loop.coordinator_channels();
 
     let Counters {
-        naka_mined_blocks: follower_naka_mined_blocks,
+        naka_mined_blocks: follower_mined_blocks,
         ..
     } = follower_run_loop.counters();
-
-    let mock_mining_blocks_start = follower_naka_mined_blocks.load(Ordering::SeqCst);
 
     debug!(
         "Booting follower-thread ({},{})",
@@ -8993,21 +8973,43 @@ fn mock_mining() {
 
     // Mine `tenure_count` nakamoto tenures
     for tenure_ix in 0..tenure_count {
-        let follower_naka_mined_blocks_before = follower_naka_mined_blocks.load(Ordering::SeqCst);
-
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-            .unwrap();
+        info!("Mining tenure {tenure_ix}");
 
-        let mut last_tip = BlockHeaderHash([0x00; 32]);
-        let mut last_tip_height = 0;
+        let height_before = get_chain_info(&naka_conf).stacks_tip_height;
+        let follower_mined_before = follower_mined_blocks.load(Ordering::SeqCst);
+        let follower_height_before = get_chain_info(&follower_conf).stacks_tip_height;
+
+        // Stall p2p broadcast so that the mock miner mines a block before
+        // seeing the block from the real miner.
+        TEST_P2P_BROADCAST_STALL.set(true);
+        info!("Waiting for the tenure {tenure_ix} start block to be mock-mined");
+        next_block_and(&mut btc_regtest_controller, 60, || {
+            Ok(follower_mined_blocks.load(Ordering::SeqCst) > follower_mined_before)
+        })
+        .expect("Failed to start a new tenure");
+
+        // Unstall p2p broadcast so that miner broadcasts the block and both
+        // nodes can process it.
+        TEST_P2P_BROADCAST_STALL.set(false);
+        wait_for(30, || {
+            Ok(get_chain_info(&naka_conf).stacks_tip_height > height_before
+                && get_chain_info(&follower_conf).stacks_tip_height > follower_height_before)
+        })
+        .expect("Failed to advanced to the tenure start block");
 
         // mine the interim blocks
         for interim_block_ix in 0..inter_blocks_per_tenure {
-            let blocks_processed_before = coord_channel
-                .lock()
-                .expect("Mutex poisoned")
-                .get_stacks_blocks_processed();
+            let height_before = get_chain_info(&naka_conf).stacks_tip_height;
+            let follower_mined_before = follower_mined_blocks.load(Ordering::SeqCst);
+            let follower_height_before = get_chain_info(&follower_conf).stacks_tip_height;
+
+            // Stall p2p broadcast so that the mock miner mines a block before
+            // seeing the block from the real miner.
+            TEST_P2P_BROADCAST_STALL.set(true);
+
+            info!("Sending transfer tx for interim block {interim_block_ix} of tenure {tenure_ix}");
+
             // submit a tx so that the miner will mine an extra block
             let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
             let transfer_tx = make_stacks_transfer_serialized(
@@ -9020,94 +9022,27 @@ fn mock_mining() {
             );
             submit_tx(&http_origin, &transfer_tx);
 
-            loop {
-                let blocks_processed = coord_channel
-                    .lock()
-                    .expect("Mutex poisoned")
-                    .get_stacks_blocks_processed();
-                if blocks_processed > blocks_processed_before {
-                    break;
-                }
-                thread::sleep(Duration::from_millis(100));
-            }
+            // Wait for the interim block to be mock-mined
+            info!("Waiting for the interim block {interim_block_ix} of tenure {tenure_ix} to be mock-mined");
+            wait_for(30, || {
+                Ok(follower_mined_blocks.load(Ordering::SeqCst) > follower_mined_before)
+            })
+            .expect("Failed to process the submitted transfer tx in a new nakamoto block");
 
-            let info = get_chain_info_result(&naka_conf).unwrap();
-            assert_ne!(info.stacks_tip, last_tip);
-            assert_ne!(info.stacks_tip_height, last_tip_height);
-
-            last_tip = info.stacks_tip;
-            last_tip_height = info.stacks_tip_height;
+            // Unstall p2p broadcast so that miner broadcasts the block and both
+            // nodes can process it.
+            TEST_P2P_BROADCAST_STALL.set(false);
+            wait_for(30, || {
+                Ok(get_chain_info(&naka_conf).stacks_tip_height > height_before
+                    && get_chain_info(&follower_conf).stacks_tip_height > follower_height_before)
+            })
+            .expect("Failed to advanced to the interim block");
         }
-
-        let miner_node_info = get_chain_info(&naka_conf);
-        let follower_node_info = get_chain_info(&follower_conf);
-        info!("Node heights"; "miner" => miner_node_info.stacks_tip_height, "follower" => follower_node_info.stacks_tip_height);
-
-        // Wait for at least 2 blocks to be mined by the mock-miner
-        // This is to ensure that the mock miner has mined the tenure change
-        // block and at least one interim block.
-        wait_for(60, || {
-            Ok(follower_naka_mined_blocks.load(Ordering::SeqCst)
-                > follower_naka_mined_blocks_before + 1)
-        })
-        .unwrap_or_else(|_| {
-            panic!(
-                "Timed out waiting for mock miner block {}",
-                follower_naka_mined_blocks_before + 2
-            )
-        });
 
         wait_for(20, || {
             Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
         })
-        .unwrap_or_else(|_| {
-            panic!(
-                "Timed out waiting for mock miner block {}",
-                follower_naka_mined_blocks_before + 1
-            )
-        });
-    }
-
-    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
-    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-        .unwrap()
-        .unwrap();
-    info!(
-        "Latest tip";
-        "height" => tip.stacks_block_height,
-        "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
-    );
-
-    let expected_blocks_mined = (inter_blocks_per_tenure + 1) * tenure_count;
-    let expected_tip_height = block_height_pre_3_0 + expected_blocks_mined;
-    assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
-    assert_eq!(
-        tip.stacks_block_height, expected_tip_height,
-        "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
-    );
-
-    // Check follower's mock miner
-    let mock_mining_blocks_end = follower_naka_mined_blocks.load(Ordering::SeqCst);
-    let blocks_mock_mined = mock_mining_blocks_end - mock_mining_blocks_start;
-    assert!(
-        blocks_mock_mined >= tenure_count,
-        "Should have mock mined at least `tenure_count` nakamoto blocks. Mined = {blocks_mock_mined}. Expected = {tenure_count}"
-    );
-
-    // wait for follower to reach the chain tip
-    loop {
-        sleep_ms(1000);
-        let follower_node_info = get_chain_info(&follower_conf);
-
-        info!(
-            "Follower tip is now {}/{}",
-            &follower_node_info.stacks_tip_consensus_hash, &follower_node_info.stacks_tip
-        );
-        if follower_node_info.stacks_tip_consensus_hash == tip.consensus_hash
-            && follower_node_info.stacks_tip == tip.anchored_header.block_hash()
-        {
-            break;
-        }
+        .expect("Timed out waiting for the block commit to be submitted");
     }
 
     coord_channel
@@ -10636,25 +10571,11 @@ fn consensus_hash_event_dispatcher() {
     let burn_blocks = test_observer::get_burn_blocks();
     let parent_burn_block = burn_blocks.get(burn_blocks.len() - 2).unwrap();
     let burn_block = burn_blocks.last().unwrap();
-    assert_eq!(
-        burn_block.get("consensus_hash").unwrap().as_str().unwrap(),
-        expected_consensus_hash
-    );
+    assert_eq!(burn_block.consensus_hash, tip.consensus_hash);
 
-    let parent_burn_block_hash = parent_burn_block
-        .get("burn_block_hash")
-        .unwrap()
-        .as_str()
-        .unwrap();
+    let parent_burn_block_hash = parent_burn_block.burn_block_hash;
 
-    assert_eq!(
-        burn_block
-            .get("parent_burn_block_hash")
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        parent_burn_block_hash
-    );
+    assert_eq!(burn_block.parent_burn_block_hash, parent_burn_block_hash);
 
     let stacks_blocks = test_observer::get_blocks();
     for block in stacks_blocks.iter() {
@@ -11225,15 +11146,12 @@ fn reload_miner_config() {
     info!("Burn block: {:?}", &burn_block);
 
     let reward_amount = burn_block
-        .get("reward_recipients")
-        .unwrap()
-        .as_array()
-        .unwrap()
+        .reward_recipients
         .iter()
         .map(|r| r.get("amt").unwrap().as_u64().unwrap())
         .sum::<u64>();
 
-    let burn_amount = burn_block.get("burn_amount").unwrap().as_u64().unwrap();
+    let burn_amount = burn_block.burn_amount;
 
     assert_eq!(reward_amount + burn_amount, old_burn_fee_cap);
 
@@ -11253,15 +11171,12 @@ fn reload_miner_config() {
     info!("Burn block: {:?}", &burn_block);
 
     let reward_amount = burn_block
-        .get("reward_recipients")
-        .unwrap()
-        .as_array()
-        .unwrap()
+        .reward_recipients
         .iter()
         .map(|r| r.get("amt").unwrap().as_u64().unwrap())
         .sum::<u64>();
 
-    let burn_amount = burn_block.get("burn_amount").unwrap().as_u64().unwrap();
+    let burn_amount = burn_block.burn_amount;
 
     assert_eq!(reward_amount + burn_amount, new_amount);
 

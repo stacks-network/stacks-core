@@ -14,49 +14,40 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::char::from_digit;
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::hash::{Hash, Hasher};
-use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
-use std::marker::PhantomData;
+#[cfg(test)]
+use std::collections::HashMap;
+use std::collections::VecDeque;
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::ops::{Deref, DerefMut};
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
-use std::{cmp, env, error, fmt, fs, io, os};
+use std::path::Path;
+use std::{fmt, fs, io};
 
-use rusqlite::types::{FromSql, ToSql};
-use rusqlite::{
-    Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OpenFlags, OptionalExtension,
-    Transaction,
-};
+use rusqlite::{Connection, OpenFlags, Transaction};
 use sha2::Digest;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
+    TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
 };
-use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
 
 use crate::chainstate::stacks::index::bits::{
-    get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes, read_node_hash_bytes,
-    read_nodetype, read_root_hash, write_nodetype_bytes,
+    get_node_byte_len, read_hash_bytes, read_nodetype, read_root_hash, write_nodetype_bytes,
 };
 use crate::chainstate::stacks::index::cache::*;
 use crate::chainstate::stacks::index::file::{TrieFile, TrieFileNodeHashReader};
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
+#[cfg(test)]
+use crate::chainstate::stacks::index::node::set_backptr;
 use crate::chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
-    TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
+    is_backptr, TrieNode, TrieNodeID, TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::profile::TrieBenchmark;
 use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{
-    trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfTrieId, TrieHasher, TrieLeaf,
+    trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfTrieId, TrieHasher,
 };
 use crate::util_lib::db::{
-    sql_pragma, sqlite_open, tx_begin_immediate, tx_busy_handler, Error as db_error,
-    SQLITE_MARF_PAGE_SIZE, SQLITE_MMAP_SIZE,
+    sql_pragma, sqlite_open, tx_begin_immediate, Error as db_error, SQLITE_MARF_PAGE_SIZE,
+    SQLITE_MMAP_SIZE,
 };
 
 /// A trait for reading the hash of a node into a given Write impl, given the pointer to a node in

@@ -16,23 +16,23 @@
 
 #[cfg(any(test, feature = "testing"))]
 use rstest::rstest;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::StacksEpochId;
+#[cfg(test)]
+use stacks_common::types::{chainstate::BlockHeaderHash, StacksEpochId};
 
-use crate::vm::ast::errors::ParseErrors;
-use crate::vm::ast::ASTRules;
 use crate::vm::contexts::Environment;
-use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use crate::vm::tests::{
-    env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
-    test_clarity_versions, test_epochs, tl_env_factory, MemoryEnvironmentGenerator,
-    TopLevelMemoryEnvironmentGenerator,
+use crate::vm::tests::{test_clarity_versions, test_epochs};
+use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
+#[cfg(test)]
+use crate::vm::{
+    ast::{errors::ParseErrors, ASTRules},
+    errors::{CheckErrors, Error, RuntimeErrorType},
+    tests::{
+        env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
+        tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
+    },
+    types::{OptionalData, ResponseData, TypeSignature},
+    {execute as vm_execute, ClarityVersion, ContractContext},
 };
-use crate::vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
-    TypeSignature, Value,
-};
-use crate::vm::{execute as vm_execute, ClarityVersion, ContractContext};
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
          (define-private (init-factorial (id int) (factorial int))

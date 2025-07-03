@@ -14,11 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
 use std::net::TcpStream;
 use std::sync::mpsc::sync_channel;
 use std::thread;
-use std::thread::JoinHandle;
 
 use clarity::vm::types::PrincipalData;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
@@ -29,7 +27,6 @@ use stacks_common::types::StacksEpoch;
 use stacks_common::util::hash::Hash160;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::nakamoto::coordinator::tests::{
     simple_nakamoto_coordinator_10_extended_tenures_10_sortitions,
     simple_nakamoto_coordinator_10_tenures_10_sortitions,
@@ -37,7 +34,6 @@ use crate::chainstate::nakamoto::coordinator::tests::{
 };
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
     TransactionAuth, TransactionPayload, TransactionVersion,
@@ -46,15 +42,13 @@ use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::test_util::to_addr;
 use crate::core::StacksEpochExtension;
 use crate::net::inv::nakamoto::{InvGenerator, NakamotoInvStateMachine, NakamotoTenureInv};
-use crate::net::neighbors::comms::NeighborComms;
 use crate::net::test::{TestEventObserver, TestPeer};
 use crate::net::tests::{NakamotoBootPlan, NakamotoBootStep, NakamotoBootTenure};
 use crate::net::{
-    Error as NetError, GetNakamotoInvData, HandshakeData, NakamotoInvData, NeighborAddress,
-    PeerNetworkComms, StacksMessage, StacksMessageType,
+    GetNakamotoInvData, HandshakeData, NakamotoInvData, NeighborAddress, PeerNetworkComms,
+    StacksMessage, StacksMessageType,
 };
 use crate::stacks_common::types::Address;
-use crate::util_lib::db::Error as DBError;
 
 /// Handshake with and get the reward cycle inventories for a range of reward cycles
 pub fn peer_get_nakamoto_invs<'a>(

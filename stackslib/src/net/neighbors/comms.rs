@@ -15,25 +15,16 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::{cmp, mem};
+use std::mem;
 
-use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::util::hash::Hash160;
-use stacks_common::util::log;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
-use crate::burnchains::{Address, PublicKey};
-use crate::core::PEER_VERSION_TESTNET;
-use crate::net::connection::{ConnectionOptions, ReplyHandleP2P};
-use crate::net::db::{LocalPeer, PeerDB};
-use crate::net::neighbors::{
-    NeighborWalk, NeighborWalkDB, NeighborWalkResult, MAX_NEIGHBOR_BLOCK_DELAY,
-    NEIGHBOR_MINIMUM_CONTACT_INTERVAL,
-};
+use crate::net::connection::ReplyHandleP2P;
+use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::p2p::PeerNetwork;
 use crate::net::{
-    DropNeighbor, DropReason, DropSource, Error as net_error, HandshakeData, Neighbor,
-    NeighborAddress, NeighborKey, PeerAddress, StacksMessage, StacksMessageType, NUM_NEIGHBORS,
+    DropNeighbor, DropReason, DropSource, Error as net_error, HandshakeData, NeighborAddress,
+    NeighborKey, StacksMessage, StacksMessageType,
 };
 
 /// A trait for representing session state for a set of connected neighbors, for the purposes of executing some P2P

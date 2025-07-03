@@ -14,62 +14,50 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::cmp;
+use std::collections::HashSet;
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 use std::time::Instant;
-use std::{cmp, fs, mem};
 
-use clarity::vm::analysis::{CheckError, CheckErrors};
 use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::Error as InterpreterError;
-use clarity::vm::types::TypeSignature;
 use serde::Deserialize;
-use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksWorkScore, TrieHash,
+    BlockHeaderHash, BurnchainHeaderHash, StacksBlockId, StacksWorkScore, TrieHash,
 };
-use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 #[cfg(any(test, feature = "testing"))]
 use stacks_common::util::tests::TestFlag;
 use stacks_common::util::vrf::*;
 
-use crate::burnchains::{Burnchain, PrivateKey, PublicKey};
-use crate::chainstate::burn::db::sortdb::{
-    SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
-};
-use crate::chainstate::burn::operations::*;
+use crate::burnchains::Burnchain;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::*;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::chainstate::stacks::db::blocks::{MemPoolRejection, SetupBlockResult};
+use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::db::transactions::{
     handle_clarity_runtime_error, ClarityRuntimeTxError,
 };
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
-use crate::chainstate::stacks::db::{
-    ChainstateTx, ClarityTx, MinerRewardInfo, StacksChainState, MINER_REWARD_MATURITY,
-};
-use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
+use crate::chainstate::stacks::db::{ChainstateTx, ClarityTx, StacksChainState};
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::{Error, StacksBlockHeader, StacksMicroblockHeader, *};
-use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance, Error as clarity_error};
+use crate::clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
 use crate::core::mempool::*;
 use crate::core::*;
-use crate::cost_estimates::metrics::CostMetric;
-use crate::cost_estimates::CostEstimator;
 use crate::monitoring::{
-    set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed,
+    increment_miner_stop_reason, set_last_mined_block_transaction_count,
+    set_last_mined_execution_cost_observed, MinerStopReason,
 };
 use crate::net::relay::Relayer;
-use crate::net::Error as net_error;
 
 #[cfg(any(test, feature = "testing"))]
 /// Test flag to stall transaction execution
@@ -90,6 +78,40 @@ fn fault_injection_stall_tx() {
 
 #[cfg(not(any(test, feature = "testing")))]
 fn fault_injection_stall_tx() {}
+
+#[cfg(any(test, feature = "testing"))]
+/// Test flag to exclude replay txs from the next block
+pub static TEST_EXCLUDE_REPLAY_TXS: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+
+#[cfg(any(test, feature = "testing"))]
+/// Test flag to mine specific txs belonging to the replay set
+pub static TEST_MINE_ALLOWED_REPLAY_TXS: LazyLock<TestFlag<Vec<String>>> =
+    LazyLock::new(TestFlag::default);
+
+#[cfg(any(test, feature = "testing"))]
+/// Given a tx id, check if it is should be skipped
+/// if not listed in `TEST_MINE_ALLOWED_REPLAY_TXS` flag.
+/// If flag is empty means no tx should be skipped
+fn fault_injection_should_skip_replay_tx(tx_id: Txid) -> bool {
+    let minable_txs = TEST_MINE_ALLOWED_REPLAY_TXS.get();
+    let allowed =
+        minable_txs.len() == 0 || minable_txs.iter().any(|tx_ids| *tx_ids == tx_id.to_hex());
+    if !allowed {
+        info!(
+            "Tx skipped due to test flag TEST_MINE_ALLOWED_REPLAY_TXS: {}",
+            tx_id.to_hex()
+        );
+    }
+    !allowed
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+/// Given a tx id, check if it is should be skipped
+/// if not listed in `TEST_MINE_ALLOWED_REPLAY_TXS` flag.
+/// If flag is empty means no tx should be skipped
+fn fault_injection_should_skip_replay_tx(_tx_id: Txid) -> bool {
+    false
+}
 
 /// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
 /// linked to the burnchain and what view(s) the miner had of the burnchain before and after
@@ -2311,7 +2333,12 @@ impl StacksBlockBuilder {
             }
         }
 
-        let result = if replay_transactions.is_empty() {
+        #[cfg(any(test, feature = "testing"))]
+        let use_mempool_txs = replay_transactions.is_empty() || TEST_EXCLUDE_REPLAY_TXS.get();
+        #[cfg(not(any(test, feature = "testing")))]
+        let use_mempool_txs = replay_transactions.is_empty();
+
+        let result = if use_mempool_txs {
             select_and_apply_transactions_from_mempool(
                 epoch_tx,
                 builder,
@@ -2322,6 +2349,7 @@ impl StacksBlockBuilder {
                 ast_rules,
             )
         } else {
+            info!("Miner: constructing block with replay transactions");
             let txs = select_and_apply_transactions_from_vec(
                 epoch_tx,
                 builder,
@@ -2774,6 +2802,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                     (*settings.miner_status.lock().expect("FATAL: mutex poisoned")).is_blocked();
                 if blocked {
                     info!("Miner stopping due to preemption");
+                    increment_miner_stop_reason(MinerStopReason::Preempted);
                     return Ok(None);
                 }
 
@@ -2782,6 +2811,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
 
                 if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
                     info!("Miner stopping due to limit reached");
+                    increment_miner_stop_reason(MinerStopReason::LimitReached);
                     return Ok(None);
                 }
                 let time_now = get_epoch_time_ms();
@@ -2790,6 +2820,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                         "Miner stopping due to mining time exceeded ({} ms)",
                         max_miner_time_ms
                     );
+                    increment_miner_stop_reason(MinerStopReason::DeadlineReached);
                     return Ok(None);
                 }
                 if let Some(time_estimate) = txinfo.metadata.time_estimate_ms {
@@ -2899,6 +2930,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                                 {
                                     info!("Miner stopping due to limit reached");
                                     block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
+                                    increment_miner_stop_reason(MinerStopReason::LimitReached);
                                     return Ok(None);
                                 }
                             }
@@ -2995,6 +3027,10 @@ fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
     debug!("Replay block transaction selection begins (parent height = {tip_height})");
     for replay_tx in replay_transactions {
         fault_injection_stall_tx();
+        if fault_injection_should_skip_replay_tx(replay_tx.txid()) {
+            continue;
+        }
+
         let txid = replay_tx.txid();
         let tx_result = builder.try_mine_tx_with_len(
             epoch_tx,

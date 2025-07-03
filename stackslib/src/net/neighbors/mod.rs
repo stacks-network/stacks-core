@@ -14,22 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
-use std::{cmp, mem};
-
 use rand::prelude::*;
 use rand::thread_rng;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
-use stacks_common::util::{get_epoch_time_secs, log};
+use stacks_common::util::get_epoch_time_secs;
 
-use crate::burnchains::{Address, Burnchain, BurnchainView, PublicKey};
-use crate::net::codec::*;
-use crate::net::connection::{ConnectionOptions, ReplyHandleP2P};
-use crate::net::db::{LocalPeer, PeerDB};
+#[cfg(test)]
+use crate::net::db::PeerDB;
 use crate::net::p2p::PeerNetwork;
-use crate::net::{Error as net_error, Neighbor, NeighborKey, PeerAddress, *};
-use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
+use crate::net::{Error as net_error, *};
 
 pub mod comms;
 pub mod db;

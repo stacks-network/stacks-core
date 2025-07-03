@@ -22,7 +22,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use crate::burnchains::PoxConstants;
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -31,7 +31,7 @@ use crate::net::neighbors::comms::PeerNetworkComms;
 use crate::net::p2p::{DropSource, PeerNetwork};
 use crate::net::{
     DropNeighbor, DropReason, Error as NetError, GetNakamotoInvData, NackErrorCodes,
-    NakamotoInvData, NeighborAddress, NeighborComms, NeighborKey, StacksMessage, StacksMessageType,
+    NeighborAddress, NeighborComms, StacksMessage, StacksMessageType,
 };
 use crate::util_lib::db::Error as DBError;
 

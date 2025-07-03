@@ -14,10 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::io::{Read, Write};
-use std::ops::Deref;
 use std::time::SystemTime;
 
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
@@ -32,7 +31,7 @@ use {serde, serde_json};
 use crate::net::http::common::{
     HttpReservedHeader, HTTP_PREAMBLE_MAX_ENCODED_SIZE, HTTP_PREAMBLE_MAX_NUM_HEADERS,
 };
-use crate::net::http::request::{HttpRequestContents, HttpRequestPreamble};
+use crate::net::http::request::HttpRequestPreamble;
 use crate::net::http::stream::HttpChunkGenerator;
 use crate::net::http::{http_reason, write_headers, Error, HttpContentType, HttpVersion};
 
