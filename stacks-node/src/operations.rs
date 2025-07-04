@@ -2,19 +2,42 @@ use stacks::burnchains::PrivateKey;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 
+/// A signer used for burnchain operations, which manages a private key and provides
+/// functionality to derive public keys, sign messages, and export keys in different formats.
+///
+/// The signer can be "disposed" to prevent further use of the private key (e.g., for security
+/// or lifecycle management).
 pub struct BurnchainOpSigner {
+    /// The Secp256k1 private key used for signing operations.
     secret_key: Secp256k1PrivateKey,
+    /// Indicates whether the signer has been disposed and can no longer be used for signing.
     is_disposed: bool,
 }
 
 impl BurnchainOpSigner {
-    pub fn new(secret_key: Secp256k1PrivateKey) -> BurnchainOpSigner {
+    /// Creates a new `BurnchainOpSigner` from the given private key.
+    ///
+    /// # Arguments
+    ///
+    /// * `secret_key` - A Secp256k1 private key used for signing.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `BurnchainOpSigner`.
+    pub fn new(secret_key: Secp256k1PrivateKey) -> Self {
         BurnchainOpSigner {
             secret_key,
             is_disposed: false,
         }
     }
 
+    /// Returns the private key encoded as a Wallet Import Format (WIF) string.
+    ///
+    /// This format is commonly used for exporting private keys in Bitcoin-related systems.
+    ///
+    /// # Returns
+    ///
+    /// A WIF-encoded string representation of the private key.
     pub fn get_sk_as_wif(&self) -> String {
         let hex_encoded = self.secret_key.to_hex();
         let mut as_bytes = hex_bytes(&hex_encoded).unwrap();
@@ -22,14 +45,36 @@ impl BurnchainOpSigner {
         stacks_common::address::b58::check_encode_slice(&as_bytes)
     }
 
+    /// Returns the private key encoded as a hexadecimal string.
+    ///
+    /// # Returns
+    ///
+    /// A hex-encoded string representation of the private key.
     pub fn get_sk_as_hex(&self) -> String {
         self.secret_key.to_hex()
     }
 
+    /// Derives and returns the public key associated with the private key.
+    ///
+    /// # Returns
+    ///
+    /// A `Secp256k1PublicKey` corresponding to the private key.
     pub fn get_public_key(&mut self) -> Secp256k1PublicKey {
         Secp256k1PublicKey::from_private(&self.secret_key)
     }
 
+    /// Signs the given message hash using the private key.
+    ///
+    /// If the signer has been disposed, no signature will be produced.
+    ///
+    /// # Arguments
+    ///
+    /// * `hash` - A byte slice representing the hash of the message to sign.
+    ///            This must be exactly **32 bytes** long, as required by the Secp256k1 signing algorithm.
+    /// # Returns
+    ///
+    /// `Some(MessageSignature)` if signing was successful, or `None` if the signer
+    /// is disposed or signing failed.
     pub fn sign_message(&mut self, hash: &[u8]) -> Option<MessageSignature> {
         if self.is_disposed {
             debug!("Signer is disposed");
@@ -47,6 +92,9 @@ impl BurnchainOpSigner {
         Some(signature)
     }
 
+    /// Marks the signer as disposed, preventing any further signing operations.
+    ///
+    /// Once disposed, the private key can no longer be used to sign messages.
     pub fn dispose(&mut self) {
         self.is_disposed = true;
     }
@@ -74,9 +122,7 @@ impl BurnchainOpSigner {
 
 #[cfg(test)]
 mod tests {
-    use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-
-    use super::BurnchainOpSigner;
+    use super::*;
 
     #[test]
     fn test_get_secret_key_as_wif() {
