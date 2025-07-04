@@ -14,12 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
-use std::{cmp, fmt, fs, io};
+use std::{fs, io};
 
-use rusqlite::types::ToSql;
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
+use rusqlite::{params, Connection, OpenFlags, Row, Transaction};
 use serde_json;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::sqlite::NO_PARAMS;
@@ -30,11 +29,11 @@ use crate::burnchains::{
 };
 use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId};
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::core::StacksEpochId;
 use crate::util_lib::db::{
-    opt_u64_to_sql, query_row, query_row_panic, query_rows, sql_pragma, sqlite_open,
-    tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn, Error as DBError, FromColumn, FromRow,
+    opt_u64_to_sql, query_row, query_row_panic, query_rows, sqlite_open, tx_begin_immediate,
+    u64_to_sql, DBConn, Error as DBError, FromColumn, FromRow,
 };
 
 pub struct BurnchainDB {
@@ -155,16 +154,17 @@ pub(crate) fn apply_blockstack_txs_safety_checks(
     blockstack_txs.sort_by(|a, b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
 
     // safety -- no duplicate vtxindex (shouldn't happen but crash if so)
-    if blockstack_txs.len() > 1 {
-        for i in 0..blockstack_txs.len() - 1 {
-            if blockstack_txs[i].vtxindex() == blockstack_txs[i + 1].vtxindex() {
-                panic!(
-                    "FATAL: BUG: duplicate vtxindex {} in block {}",
-                    blockstack_txs[i].vtxindex(),
-                    blockstack_txs[i].block_height()
-                );
-            }
+    let mut prior_vtxindex = None;
+    for tx in blockstack_txs.iter() {
+        let current_vtxindex = Some(tx.vtxindex());
+        if current_vtxindex == prior_vtxindex {
+            panic!(
+                "FATAL: BUG: duplicate vtxindex {} in block {}",
+                tx.vtxindex(),
+                tx.block_height()
+            );
         }
+        prior_vtxindex = current_vtxindex;
     }
 
     // safety -- block heights all match
@@ -1127,6 +1127,12 @@ impl BurnchainDB {
         let qry = "SELECT 1 FROM burnchain_db_block_headers WHERE block_height = ?1";
         let args = params![u64_to_sql(height)?];
         let res: Option<i64> = query_row(conn, qry, args)?;
+        Ok(res.is_some())
+    }
+
+    pub fn has_burnchain_block(&self, block: &BurnchainHeaderHash) -> Result<bool, BurnchainError> {
+        let qry = "SELECT 1 FROM burnchain_db_block_headers WHERE block_hash = ?1";
+        let res: Option<i64> = query_row(&self.conn, qry, &[block])?;
         Ok(res.is_some())
     }
 

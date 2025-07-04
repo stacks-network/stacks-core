@@ -14,38 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::fs::OpenOptions;
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::{fs, io};
-
-use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::representations::{
-    CONTRACT_NAME_REGEX_STRING, PRINCIPAL_DATA_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING,
-};
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
-use clarity::vm::{ClarityName, ContractName};
+use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
+use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::SlotMetadata;
 use regex::{Captures, Regex};
-use serde::de::Error as de_Error;
-use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
-use stacks_common::types::chainstate::StacksBlockId;
+use serde_json;
 use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::to_hex;
-use {serde, serde_json};
 
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::{Error as ChainError, StacksBlock};
 use crate::net::http::{
-    parse_json, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType, HttpNotFound,
-    HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
-    HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+    parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
+    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
-    request, HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp,
-    StacksHttpRequest, StacksHttpResponse,
+    request, HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
-use crate::net::{Error as NetError, StacksNodeState, TipRequest, MAX_HEADERS};
-use crate::util_lib::db::{DBConn, Error as DBError};
+use crate::net::{Error as NetError, StacksNodeState};
 
 #[derive(Clone)]
 pub struct RPCGetStackerDBMetadataRequestHandler {

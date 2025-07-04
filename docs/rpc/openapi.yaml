@@ -895,3 +895,56 @@ paths:
           description: Transaction indexing not enabled
           content:
             application/text-plain: {}
+
+  /v3/health:
+    get:
+      summary: Query the health of the node.
+      description: |
+        Get node health information.
+        A node is considered healthy if its Stacks tip height matches the maximum Stacks tip height observed among its connected peers.
+        This endpoint returns:
+        - `difference_from_max_peer`: The difference in Stacks height between this node and its most advanced peer.
+        - `max_stacks_height_of_neighbors`: The maximum Stacks height observed among the node's connected peers.
+        - `node_stacks_tip_height`: The current Stacks tip height of this node.
+      tags:
+        - Info
+      operationId: get_health
+      parameters:
+        - in: query
+          name: neighbors
+          description: "Specifies the set of peers to use for health checks.
+            - `initial` (default): Use only the initial bootstrap peers.
+            - `all`: Use all connected peers."
+          required: false
+          schema:
+            type: string
+            enum:
+              - initial
+              - all
+            default: initial
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-health.schema.json
+              example:
+                $ref: ./api/core-node/get-health.example.json
+        400:
+          description: Bad request, such as an invalid `neighbors` query parameter.
+          content:
+            application/json:
+              schema:
+                type: string
+              example: "Invalid `neighbors` query parameter: allowed values are `initial` or `all`"
+        500:
+          description: |
+            Failed to query for health (e.g., no data or no valid peers to query from).
+            Only the `error` field will be set in this case, providing a message about the failure.
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-health-error.schema.json
+              example:
+                $ref: ./api/core-node/get-health-error.example.json

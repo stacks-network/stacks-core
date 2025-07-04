@@ -13,31 +13,23 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::ops::DerefMut;
-use std::path::PathBuf;
-use std::{error, fmt, fs, io};
 
 use rusqlite::{Connection, Transaction};
-use sha2::Digest;
-use stacks_common::types::chainstate::{BlockHeaderHash, TrieHash, TRIEHASH_ENCODED_SIZE};
+use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_common::util::log;
 
 use super::storage::ReopenedTrieStorageConnection;
-use crate::chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash, read_root_hash};
+use crate::chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash};
 use crate::chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, CursorError, TrieCursor, TrieNode, TrieNode16,
-    TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePtr, TRIEPTR_SIZE,
+    clear_backptr, is_backptr, set_backptr, CursorError, TrieCursor, TrieNode256, TrieNodeID,
+    TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::storage::{
     TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection, TrieStorageTransaction,
 };
 use crate::chainstate::stacks::index::trie::Trie;
-use crate::chainstate::stacks::index::{
-    ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof,
-};
+use crate::chainstate::stacks::index::{Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof};
 use crate::util_lib::db::Error as db_error;
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
@@ -1337,40 +1329,41 @@ impl<T: MarfTrieId> MARF<T> {
     ) -> Result<(), Error> {
         assert_eq!(keys.len(), values.len());
 
-        if keys.is_empty() {
+        let (Some(last_key), Some(last_value)) = (keys.last(), values.last()) else {
+            // if empty, nothing to do
             return Ok(());
-        }
+        };
 
         let (cur_block_hash, cur_block_id) = conn.get_cur_block_and_id();
 
         let last = keys.len() - 1;
         let mut progress = 0;
         let eta_enabled = keys.len() > 10_000;
-        let mut result = keys[0..last]
-            .iter()
-            .enumerate()
-            .zip(values[0..last].iter())
-            .try_for_each(|((index, key), value)| {
-                let marf_leaf = TrieLeaf::from_value(&[], value.clone());
-                let path = TrieHash::from_key(key);
+        let mut result =
+            keys.iter()
+                .enumerate()
+                .zip(values.iter())
+                .try_for_each(|((index, key), value)| {
+                    let marf_leaf = TrieLeaf::from_value(&[], value.clone());
+                    let path = TrieHash::from_key(key);
 
-                if eta_enabled {
-                    let updated_progress = 100 * index / last;
-                    if updated_progress > progress {
-                        progress = updated_progress;
-                        info!(
-                            "Batching insertions in MARF: {}% ({} out of {})",
-                            progress, index, last
-                        );
+                    if eta_enabled {
+                        let updated_progress = 100 * index / last;
+                        if updated_progress > progress {
+                            progress = updated_progress;
+                            info!(
+                                "Batching insertions in MARF: {}% ({} out of {})",
+                                progress, index, last
+                            );
+                        }
                     }
-                }
-                MARF::insert_leaf_in_batch(conn, block_hash, &path, &marf_leaf)
-            });
+                    MARF::insert_leaf_in_batch(conn, block_hash, &path, &marf_leaf)
+                });
 
         if result.is_ok() {
             // last insert updates the root with the skiplist hash
-            let marf_leaf = TrieLeaf::from_value(&[], values[last].clone());
-            let path = TrieHash::from_key(&keys[last]);
+            let marf_leaf = TrieLeaf::from_value(&[], last_value.clone());
+            let path = TrieHash::from_key(last_key);
             result = MARF::insert_leaf(conn, block_hash, &path, &marf_leaf);
         }
 

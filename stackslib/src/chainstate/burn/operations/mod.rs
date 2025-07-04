@@ -14,32 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{error, fmt, fs, io};
+use std::{error, fmt};
 
 use clarity::vm::types::PrincipalData;
 use serde::de::Error as DeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::json;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, TrieHash, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed,
 };
 use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::vrf::VRFPublicKey;
 
 use self::leader_block_commit::Treatment;
-use crate::burnchains::{
-    Address, Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainSigner,
-    BurnchainTransaction, Error as BurnchainError, PublicKey, Txid,
-};
-use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
-use crate::chainstate::burn::operations::leader_block_commit::{
-    MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
-};
+use crate::burnchains::{BurnchainSigner, Txid};
+use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
+use crate::util_lib::db::Error as db_error;
 
 pub mod delegate_stx;
 pub mod leader_block_commit;
@@ -668,11 +661,15 @@ impl BlockstackOperationType {
         normalize_common_fields::<D>(map)?;
         if let Some(serde_json::Value::Array(arr)) = map.get("reward_addr") {
             if arr.len() == 2 {
-                let index = arr[0]
+                let index = arr
+                    .get(0)
+                    .unwrap()
                     .as_u64()
                     .ok_or_else(|| DeError::custom("Expected u64 index"))?
                     as u32;
-                let b58_str = arr[1]
+                let b58_str = arr
+                    .get(1)
+                    .unwrap()
                     .as_str()
                     .ok_or_else(|| DeError::custom("Expected base58 string"))?;
                 let addr = PoxAddress::from_b58(b58_str)

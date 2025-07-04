@@ -4,12 +4,9 @@ use std::path::Path;
 
 use clarity::types::sqlite::NO_PARAMS;
 use clarity::vm::costs::ExecutionCost;
-use rusqlite::types::{FromSql, FromSqlError, ToSql};
 use rusqlite::{
-    params, AndThenRows, Connection, Error as SqliteError, OpenFlags, OptionalExtension,
-    Transaction as SqlTransaction,
+    params, Connection, Error as SqliteError, OpenFlags, Transaction as SqlTransaction,
 };
-use serde_json::Value as JsonValue;
 
 use super::metrics::{CostMetric, PROPORTION_RESOLUTION};
 use super::{EstimatorError, FeeEstimator, FeeRateEstimate};
@@ -17,9 +14,7 @@ use crate::chainstate::stacks::db::StacksEpochReceipt;
 use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::TransactionPayload;
 use crate::cost_estimates::StacksTransactionReceipt;
-use crate::util_lib::db::{
-    sql_pragma, sqlite_open, table_exists, tx_begin_immediate_sqlite, u64_to_sql,
-};
+use crate::util_lib::db::{sqlite_open, table_exists, tx_begin_immediate_sqlite};
 
 const CREATE_TABLE: &str = "
 CREATE TABLE median_fee_estimator (
@@ -128,13 +123,18 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
             return Err(EstimatorError::NoEstimateAvailable);
         }
 
-        fn median(len: usize, l: Vec<f64>) -> f64 {
-            if len % 2 == 1 {
-                l[len / 2]
+        fn median(l: Vec<f64>) -> Result<f64, EstimatorError> {
+            let med_index = l.len() / 2;
+            let med_value = l
+                .get(med_index)
+                .ok_or_else(|| EstimatorError::NoEstimateAvailable)?;
+            if l.len() % 2 == 1 {
+                Ok(*med_value)
             } else {
-                // note, measures_len / 2 - 1 >= 0, because
-                //  len % 2 == 0 and emptiness is checked above
-                (l[len / 2] + l[len / 2 - 1]) / 2f64
+                let med_prior_value = l
+                    .get(med_index - 1)
+                    .ok_or_else(|| EstimatorError::NoEstimateAvailable)?;
+                Ok((med_prior_value + med_value) / 2f64)
             }
         }
 
@@ -145,9 +145,9 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
         lows.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
 
         Ok(FeeRateEstimate {
-            high: median(highs.len(), highs),
-            middle: median(mids.len(), mids),
-            low: median(lows.len(), lows),
+            high: median(highs)?,
+            middle: median(mids)?,
+            low: median(lows)?,
         })
     }
 
@@ -209,7 +209,11 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
             });
 
             // Compute the estimate and update.
-            let block_estimate = fee_rate_estimate_from_sorted_weighted_fees(&working_fee_rates);
+            let Some(block_estimate) =
+                fee_rate_estimate_from_sorted_weighted_fees(&working_fee_rates)
+            else {
+                return Err(EstimatorError::NoEstimateAvailable);
+            };
             self.update_estimate(block_estimate);
         }
 
@@ -229,7 +233,7 @@ impl<M: CostMetric> FeeEstimator for WeightedMedianFeeRateEstimator<M> {
 /// `sorted_fee_rates` must be non-empty.
 pub fn fee_rate_estimate_from_sorted_weighted_fees(
     sorted_fee_rates: &[FeeRateAndWeight],
-) -> FeeRateEstimate {
+) -> Option<FeeRateEstimate> {
     assert!(!sorted_fee_rates.is_empty());
 
     let mut total_weight = 0f64;
@@ -249,33 +253,36 @@ pub fn fee_rate_estimate_from_sorted_weighted_fees(
     }
     assert_eq!(percentiles.len(), sorted_fee_rates.len());
 
-    let target_percentiles = vec![0.05, 0.5, 0.95];
+    let target_percentiles = [0.05, 0.5, 0.95];
     let mut fees_index = 0; // index into `sorted_fee_rates`
-    let mut values_at_target_percentiles = Vec::new();
+    let mut values_at_target_percentiles = Vec::with_capacity(target_percentiles.len());
     for target_percentile in target_percentiles {
-        while fees_index < percentiles.len() && percentiles[fees_index] < target_percentile {
+        while let Some(percentile) = percentiles.get(fees_index) {
+            if *percentile >= target_percentile {
+                break;
+            }
             fees_index += 1;
         }
         let v = if fees_index == 0 {
-            sorted_fee_rates[0].fee_rate
+            sorted_fee_rates.get(0)?.fee_rate
         } else if fees_index == percentiles.len() {
-            sorted_fee_rates.last().unwrap().fee_rate
+            sorted_fee_rates.last()?.fee_rate
         } else {
             // Notation mimics https://en.wikipedia.org/wiki/Percentile#Weighted_percentile
-            let vk = sorted_fee_rates[fees_index - 1].fee_rate;
-            let vk1 = sorted_fee_rates[fees_index].fee_rate;
-            let pk = percentiles[fees_index - 1];
-            let pk1 = percentiles[fees_index];
+            let vk = sorted_fee_rates.get(fees_index - 1)?.fee_rate;
+            let vk1 = sorted_fee_rates.get(fees_index)?.fee_rate;
+            let pk = percentiles.get(fees_index - 1)?;
+            let pk1 = percentiles.get(fees_index)?;
             vk + (target_percentile - pk) / (pk1 - pk) * (vk1 - vk)
         };
         values_at_target_percentiles.push(v);
     }
 
-    FeeRateEstimate {
-        high: values_at_target_percentiles[2],
-        middle: values_at_target_percentiles[1],
-        low: values_at_target_percentiles[0],
-    }
+    Some(FeeRateEstimate {
+        high: *values_at_target_percentiles.get(2)?,
+        middle: *values_at_target_percentiles.get(1)?,
+        low: *values_at_target_percentiles.get(0)?,
+    })
 }
 
 /// If the weights in `working_rates` do not add up to `full_block_weight`, add a new entry **in

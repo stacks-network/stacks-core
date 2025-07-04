@@ -15,35 +15,41 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::VecDeque;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Condvar, Mutex};
 
+use clarity::codec::StacksMessageCodec;
 use clarity::consts::CHAIN_ID_TESTNET;
-use clarity::types::chainstate::StacksPrivateKey;
+use clarity::types::chainstate::{BlockHeaderHash, StacksBlockId, StacksPrivateKey};
 use clarity::vm::ast::ASTRules;
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StandardPrincipalData;
-use mempool::{MemPoolDB, MemPoolEventDispatcher, ProposalCallbackReceiver};
 use postblock_proposal::{NakamotoBlockProposal, ValidateRejectCode};
 use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::StacksEpochId;
 
 use super::TestRPC;
+use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction};
 use crate::chainstate::stacks::test::make_codec_test_nakamoto_block;
+use crate::chainstate::stacks::{StacksMicroblock, StacksTransaction};
+use crate::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher, ProposalCallbackReceiver};
 use crate::core::test_util::{
     make_big_read_count_contract, make_contract_call, make_contract_publish,
     make_stacks_transfer_tx, to_addr,
 };
-use crate::core::BLOCK_LIMIT_MAINNET_21;
+use crate::core::{MemPoolDB, BLOCK_LIMIT_MAINNET_21};
 use crate::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, TEST_REPLAY_TRANSACTIONS,
 };
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
+use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
 use crate::net::relay::Relayer;
 use crate::net::test::{TestEventObserver, TestPeer};
@@ -178,7 +184,7 @@ impl ProposalCallbackReceiver for Arc<Mutex<ProposalObserver>> {
 }
 
 impl MemPoolEventDispatcher for ProposalTestObserver {
-    fn get_proposal_callback_receiver(&self) -> Option<Box<dyn mempool::ProposalCallbackReceiver>> {
+    fn get_proposal_callback_receiver(&self) -> Option<Box<dyn ProposalCallbackReceiver>> {
         Some(Box::new(Arc::clone(&self.proposal_observer)))
     }
 
@@ -186,7 +192,7 @@ impl MemPoolEventDispatcher for ProposalTestObserver {
         &self,
         txids: Vec<Txid>,
         new_txid: Option<Txid>,
-        reason: mempool::MemPoolDropReason,
+        reason: MemPoolDropReason,
     ) {
     }
 
@@ -440,6 +446,8 @@ fn test_try_make_response() {
             cost,
             size,
             validation_time_ms,
+            replay_tx_hash,
+            replay_tx_exhausted,
         }) => {
             assert_eq!(
                 signer_signature_hash,
@@ -448,6 +456,8 @@ fn test_try_make_response() {
             assert_eq!(cost, ExecutionCost::ZERO);
             assert_eq!(size, 180);
             assert!(validation_time_ms > 0 && validation_time_ms < 60000);
+            assert!(replay_tx_hash.is_none());
+            assert!(!replay_tx_exhausted);
         }
         _ => panic!("expected ok"),
     }
@@ -487,6 +497,7 @@ fn replay_validation_test(
     let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
 
     let (expected_replay_txs, block_txs) = setup_fn(&mut rpc_test);
+
     let mut requests = vec![];
 
     let (stacks_tip_ch, stacks_tip_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(
@@ -575,7 +586,7 @@ fn replay_validation_test(
         !peer_1.network.is_proposal_thread_running() && !peer_2.network.is_proposal_thread_running()
     };
 
-    info!("Run request with observer for replay mismatch test");
+    info!("Run request with observer for validation with replay set test");
     let responses = rpc_test.run_with_observer(requests, Some(&observer), wait_for);
 
     // Expect 202 Accepted initially
@@ -584,7 +595,7 @@ fn replay_validation_test(
     // Wait for the asynchronous validation result
     let start = std::time::Instant::now();
     loop {
-        info!("Wait for replay mismatch result to be non-empty");
+        info!("Wait for validation result to be non-empty");
         if proposal_observer
             .lock()
             .unwrap()
@@ -600,7 +611,7 @@ fn replay_validation_test(
         std::thread::sleep(std::time::Duration::from_secs(1));
         assert!(
             start.elapsed().as_secs() < 60,
-            "Timed out waiting for replay mismatch result"
+            "Timed out waiting for validation result"
         );
     }
 
@@ -698,6 +709,7 @@ fn replay_validation_test_transaction_unmineable_match() {
 /// Replay set has [mineable, unmineable, mineable]
 /// The block has [mineable, mineable]
 fn replay_validation_test_transaction_unmineable_match_2() {
+    let mut replay_set = vec![];
     let result = replay_validation_test(|rpc_test| {
         let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
         // Unmineable tx
@@ -728,15 +740,19 @@ fn replay_validation_test_transaction_unmineable_match_2() {
             123,
         );
 
-        (
-            vec![unmineable_tx, mineable_tx.clone(), mineable_tx_2.clone()].into(),
-            vec![mineable_tx, mineable_tx_2],
-        )
+        replay_set = vec![unmineable_tx, mineable_tx.clone(), mineable_tx_2.clone()];
+
+        (replay_set.clone().into(), vec![mineable_tx, mineable_tx_2])
     });
 
     match result {
-        Ok(_) => {
-            // pass
+        Ok(block_validate_ok) => {
+            let mut hasher = DefaultHasher::new();
+            replay_set.hash(&mut hasher);
+            let replay_hash = hasher.finish();
+
+            assert_eq!(block_validate_ok.replay_tx_hash, Some(replay_hash));
+            assert!(block_validate_ok.replay_tx_exhausted);
         }
         Err(rejection) => {
             panic!("Expected validation to be OK, but got {:?}", rejection);
@@ -953,6 +969,88 @@ fn replay_validation_test_budget_exceeded() {
             assert_eq!(
                 rejection.reason_code,
                 ValidateRejectCode::InvalidTransactionReplay
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore]
+/// Replay set has [deploy, big_a, big_b]
+/// The block has [deploy, big_a]
+///
+/// The block is valid, but the replay set is _not_ exhausted.
+fn replay_validation_test_budget_exhausted() {
+    let mut replay_set = vec![];
+    let result = replay_validation_test(|rpc_test| {
+        let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
+        let miner_addr = to_addr(miner_privk);
+
+        let contract_code = make_big_read_count_contract(BLOCK_LIMIT_MAINNET_21, 50);
+
+        let deploy_tx_bytes = make_contract_publish(
+            miner_privk,
+            36,
+            1000,
+            CHAIN_ID_TESTNET,
+            &"big-contract",
+            &contract_code,
+        );
+
+        let big_a_bytes = make_contract_call(
+            miner_privk,
+            37,
+            1000,
+            CHAIN_ID_TESTNET,
+            &miner_addr,
+            &"big-contract",
+            "big-tx",
+            &vec![],
+        );
+
+        let big_b_bytes = make_contract_call(
+            miner_privk,
+            38,
+            1000,
+            CHAIN_ID_TESTNET,
+            &miner_addr,
+            &"big-contract",
+            "big-tx",
+            &vec![],
+        );
+
+        let deploy_tx =
+            StacksTransaction::consensus_deserialize(&mut deploy_tx_bytes.as_slice()).unwrap();
+        let big_a = StacksTransaction::consensus_deserialize(&mut big_a_bytes.as_slice()).unwrap();
+        let big_b = StacksTransaction::consensus_deserialize(&mut big_b_bytes.as_slice()).unwrap();
+
+        let transfer_tx = make_stacks_transfer_tx(
+            miner_privk,
+            38,
+            1000,
+            CHAIN_ID_TESTNET,
+            &StandardPrincipalData::transient().into(),
+            100,
+        );
+
+        replay_set = vec![deploy_tx.clone(), big_a.clone(), big_b.clone()];
+
+        (replay_set.clone().into(), vec![deploy_tx, big_a])
+    });
+
+    match result {
+        Ok(block_validate_ok) => {
+            let mut hasher = DefaultHasher::new();
+            replay_set.hash(&mut hasher);
+            let replay_hash = hasher.finish();
+
+            assert_eq!(block_validate_ok.replay_tx_hash, Some(replay_hash));
+            assert!(!block_validate_ok.replay_tx_exhausted);
+        }
+        Err(rejection) => {
+            panic!(
+                "Expected validation to be rejected, but got {:?}",
+                rejection
             );
         }
     }

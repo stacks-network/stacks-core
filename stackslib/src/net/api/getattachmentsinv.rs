@@ -15,10 +15,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashSet;
-use std::io::{Read, Write};
 
 use regex::{Captures, Regex};
-use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
 use url::form_urlencoded;
 
@@ -28,12 +27,11 @@ use crate::net::atlas::{
 use crate::net::http::{
     parse_json, Error, HttpBadRequest, HttpNotFound, HttpRequest, HttpRequestContents,
     HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
-    HttpResponsePreamble, HttpServerError,
+    HttpResponsePreamble,
 };
 use crate::net::httpcore::{
     HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
-use crate::net::p2p::PeerNetwork;
 use crate::net::{Error as NetError, StacksNodeState};
 
 #[derive(Clone)]

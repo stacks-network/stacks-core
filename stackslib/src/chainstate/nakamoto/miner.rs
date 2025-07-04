@@ -14,76 +14,36 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
-use std::io::{Read, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread::ThreadId;
-use std::{cmp, fs, mem};
-
-use clarity::vm::analysis::{CheckError, CheckErrors};
-use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::costs::{ExecutionCost, LimitedCostTracker, TrackerData};
-use clarity::vm::database::BurnStateDB;
-use clarity::vm::errors::Error as InterpreterError;
-use clarity::vm::types::{
-    QualifiedContractIdentifier, StacksAddressExtensions as ClarityStacksAddressExtensions,
-    TypeSignature,
-};
-use libstackerdb::StackerDBChunkData;
-use serde::Deserialize;
-use stacks_common::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
+use clarity::vm::costs::ExecutionCost;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, TrieHash,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId,
 };
-use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::hash::{hex_bytes, Hash160, MerkleTree, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
-use stacks_common::util::vrf::VRFProof;
+use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 
-use crate::burnchains::{PrivateKey, PublicKey};
-use crate::chainstate::burn::db::sortdb::{
-    SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
-};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::operations::*;
-use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::OnChainRewardSetProvider;
 use crate::chainstate::nakamoto::{
     MaturedMinerRewards, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::chainstate::stacks::boot::MINERS_NAME;
-use crate::chainstate::stacks::db::accounts::MinerReward;
-use crate::chainstate::stacks::db::blocks::{DummyEventDispatcher, MemPoolRejection};
-use crate::chainstate::stacks::db::transactions::{
-    handle_clarity_runtime_error, ClarityRuntimeTxError,
-};
+use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use crate::chainstate::stacks::db::{
-    ChainstateTx, ClarityTx, MinerRewardInfo, StacksAccount, StacksBlockHeaderTypes,
-    StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
+    ChainstateTx, ClarityTx, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
-use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
 use crate::chainstate::stacks::miner::{
-    BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionError, TransactionEvent,
-    TransactionProblematic, TransactionResult, TransactionSkipped,
+    BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionEvent, TransactionResult,
 };
 use crate::chainstate::stacks::{Error, StacksBlockHeader, *};
-use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
+use crate::clarity_vm::clarity::ClarityInstance;
 use crate::core::mempool::*;
 use crate::core::*;
-use crate::cost_estimates::metrics::CostMetric;
-use crate::cost_estimates::CostEstimator;
 use crate::monitoring::{
     set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed,
 };
 use crate::net::relay::Relayer;
-use crate::net::stackerdb::StackerDBs;
-use crate::net::Error as net_error;
-use crate::util_lib::boot::boot_code_id;
-use crate::util_lib::db::Error as DBError;
 
 /// Nakamaoto tenure information
 #[derive(Debug, Default)]
@@ -642,6 +602,7 @@ impl NakamotoBlockBuilder {
         }
 
         if builder.txs.is_empty() {
+            set_last_mined_block_transaction_count(0);
             return Err(Error::NoTransactionsToMine);
         }
 

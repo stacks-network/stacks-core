@@ -15,33 +15,27 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::VecDeque;
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::ops::Deref;
 use std::{cmp, fs};
 
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, Transaction};
+use rusqlite::{params, OpenFlags, OptionalExtension, Row, Transaction};
 use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
 use stacks_common::deps_common::bitcoin::blockdata::constants::genesis_block;
 use stacks_common::deps_common::bitcoin::network::constants::Network;
 use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
 use stacks_common::deps_common::bitcoin::network::message as btc_message;
-use stacks_common::deps_common::bitcoin::network::serialize::{
-    deserialize, serialize, BitcoinHash,
-};
+use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::uint::Uint256;
-use stacks_common::util::{get_epoch_time_secs, log};
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
 use crate::burnchains::bitcoin::{BitcoinNetworkType, Error as btc_error, PeerMessage};
 use crate::util_lib::db::{
-    query_int, query_row, query_rows, sqlite_open, tx_begin_immediate, tx_busy_handler, u64_to_sql,
-    DBConn, DBTx, Error as db_error, FromColumn, FromRow,
+    query_row, sqlite_open, tx_begin_immediate, u64_to_sql, DBConn, DBTx, Error as db_error,
+    FromColumn, FromRow,
 };
 
 const BLOCK_HEADER_SIZE: u64 = 81;
@@ -532,30 +526,32 @@ impl SpvClient {
         }
 
         if check_txcount {
-            for i in 0..headers.len() {
-                if headers[i].tx_count != VarInt(0) {
+            for (i, header) in headers.iter().enumerate() {
+                if header.tx_count != VarInt(0) {
                     warn!(
                         "Non-zero tx count on header offset {}: {:?}",
-                        i, &headers[i].tx_count
+                        i, &header.tx_count
                     );
                     return Err(btc_error::InvalidReply);
                 }
             }
         }
 
-        for i in 1..headers.len() {
-            let prev_header = &headers[i - 1];
-            let cur_header = &headers[i];
-
-            if cur_header.header.prev_blockhash != prev_header.header.bitcoin_hash() {
-                warn!(
-                    "Bad SPV header for block {}: header prev_blockhash {} != prev_header hash {}",
-                    start_height + (i as u64),
-                    cur_header.header.prev_blockhash,
-                    prev_header.header.bitcoin_hash()
-                );
-                return Err(btc_error::NoncontiguousHeader);
+        let mut prev_header = None;
+        for (i, cur_header) in headers.iter().enumerate() {
+            if let Some(prev_header_hash) = prev_header {
+                if cur_header.header.prev_blockhash != prev_header_hash {
+                    warn!(
+                        "Bad SPV header for block {}: header prev_blockhash {} != prev_header hash {}",
+                        start_height + (i as u64),
+                        cur_header.header.prev_blockhash,
+                        prev_header_hash
+                    );
+                    return Err(btc_error::NoncontiguousHeader);
+                }
             }
+
+            prev_header = Some(cur_header.header.bitcoin_hash());
         }
 
         return Ok(());
@@ -595,11 +591,14 @@ impl SpvClient {
                     let mut past_timestamps: Vec<u32> =
                         past_11_headers.iter().map(|hdr| hdr.header.time).collect();
                     past_timestamps.sort();
+                    let median_timestamp = past_timestamps
+                        .get(5)
+                        .ok_or_else(|| btc_error::InvalidPoW)?;
 
-                    if header_i.time <= past_timestamps[5] {
+                    if header_i.time <= *median_timestamp {
                         error!(
                             "Block {} timestamp {} <= {} (median of {:?})",
-                            block_height, header_i.time, past_timestamps[5], &past_timestamps
+                            block_height, header_i.time, median_timestamp, &past_timestamps
                         );
                         return Err(btc_error::InvalidPoW);
                     }
@@ -819,13 +818,15 @@ impl SpvClient {
         assert!(self.readwrite, "SPV header DB is open read-only");
 
         let num_headers = block_headers.len();
-        if num_headers == 0 {
+
+        let Some(first_header_hash) = block_headers.first().map(|h| h.header.bitcoin_hash()) else {
             // nothing to do
             return Ok(());
-        }
-
-        let first_header_hash = block_headers[0].header.bitcoin_hash();
-        let last_header_hash = block_headers[block_headers.len() - 1].header.bitcoin_hash();
+        };
+        let Some(last_header_hash) = block_headers.last().map(|h| h.header.bitcoin_hash()) else {
+            // nothing to do
+            return Ok(());
+        };
         let total_work_before = self.update_chain_work()?;
 
         if !self.reverse_order {
@@ -925,10 +926,10 @@ impl SpvClient {
     ) -> Result<(), btc_error> {
         assert!(self.readwrite, "SPV header DB is open read-only");
 
-        if block_headers.is_empty() {
-            // no-op
+        let Some(first_header) = block_headers.first() else {
+            // no-op on empty block_headers list
             return Ok(());
-        }
+        };
 
         debug!(
             "Insert {} headers to {} after block {}",
@@ -951,9 +952,9 @@ impl SpvClient {
         };
 
         // contiguous?
-        if block_headers[0].header.prev_blockhash != parent_header.header.bitcoin_hash() {
+        if first_header.header.prev_blockhash != parent_header.header.bitcoin_hash() {
             warn!("Received discontiguous headers at height {}: we have parent {:?} ({}), but were given {:?} ({})",
-                  start_height, &parent_header.header, parent_header.header.bitcoin_hash(), &block_headers[0].header, &block_headers[0].header.bitcoin_hash());
+                  start_height, &parent_header.header, parent_header.header.bitcoin_hash(), &first_header.header, &first_header.header.bitcoin_hash());
             return Err(btc_error::NoncontiguousHeader);
         }
 
@@ -970,10 +971,11 @@ impl SpvClient {
         block_headers: Vec<LoneBlockHeader>,
     ) -> Result<(), btc_error> {
         assert!(self.readwrite, "SPV header DB is open read-only");
-        if block_headers.is_empty() {
-            // no-op
+
+        let Some(last_block_header) = block_headers.last() else {
+            // no-op on empty block headers list
             return Ok(());
-        }
+        };
 
         let end_height = start_height + (block_headers.len() as u64);
 
@@ -991,10 +993,9 @@ impl SpvClient {
         match self.read_block_header(end_height)? {
             Some(child_header) => {
                 // contiguous?
-                let last = block_headers.len() - 1;
-                if block_headers[last].header.bitcoin_hash() != child_header.header.prev_blockhash {
+                if last_block_header.header.bitcoin_hash() != child_header.header.prev_blockhash {
                     warn!("Received discontiguous headers at height {}: we have child {:?} ({}), but were given {:?} ({})", 
-                          end_height, &child_header, child_header.header.bitcoin_hash(), &block_headers[last], &block_headers[last].header.bitcoin_hash());
+                          end_height, &child_header, child_header.header.bitcoin_hash(), &last_block_header, &last_block_header.header.bitcoin_hash());
                     return Err(btc_error::NoncontiguousHeader);
                 }
             }
@@ -1277,14 +1278,12 @@ impl BitcoinMessageHandler for SpvClient {
 mod test {
 
     use std::env;
-    use std::fs::*;
 
     use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
     use stacks_common::deps_common::bitcoin::network::serialize::{
         deserialize, serialize, BitcoinHash,
     };
     use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
-    use stacks_common::util::log;
 
     use super::*;
     use crate::burnchains::bitcoin::{Error as btc_error, *};

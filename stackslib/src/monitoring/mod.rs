@@ -16,30 +16,25 @@
 
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
 use std::{fmt, fs};
 
 use clarity::vm::costs::ExecutionCost;
-use lazy_static::lazy_static;
 use rusqlite::{OpenFlags, OptionalExtension};
 use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::uint::{Uint256, Uint512};
 
 use crate::burnchains::{BurnchainSigner, Txid};
-use crate::core::MemPoolDB;
-use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
+use crate::net::httpcore::StacksHttpRequest;
 use crate::net::rpc::ConversationHttp;
 use crate::net::Error as net_error;
-use crate::util_lib::db::{sqlite_open, tx_busy_handler, DBConn, Error as DatabaseError};
+use crate::util_lib::db::{sqlite_open, DBConn, Error as DatabaseError};
 
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;
 
 #[cfg(feature = "monitoring_prom")]
-lazy_static! {
-    static ref GLOBAL_BURNCHAIN_SIGNER: Mutex<Option<BurnchainSigner>> = Mutex::new(None);
+lazy_static::lazy_static! {
+    static ref GLOBAL_BURNCHAIN_SIGNER: std::sync::Mutex<Option<BurnchainSigner>> = std::sync::Mutex::new(None);
 }
 
 pub fn increment_rpc_calls_counter() {
@@ -254,11 +249,11 @@ pub fn log_transaction_processed(
 ) -> Result<(), DatabaseError> {
     #[cfg(feature = "monitoring_prom")]
     {
-        let mempool_db_path = MemPoolDB::db_path(chainstate_root_path)?;
+        let mempool_db_path = crate::core::MemPoolDB::db_path(chainstate_root_path)?;
         let mempool_conn = sqlite_open(&mempool_db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let tracking_db = txid_tracking_db(chainstate_root_path)?;
 
-        let tx = match MemPoolDB::get_tx(&mempool_conn, txid)? {
+        let tx = match crate::core::MemPoolDB::get_tx(&mempool_conn, txid)? {
             Some(tx) => tx,
             None => {
                 debug!("Could not log transaction receive to process time, txid not found in mempool"; "txid" => %txid);
@@ -272,7 +267,7 @@ pub fn log_transaction_processed(
         }
 
         let mempool_accept_time = tx.metadata.accept_time;
-        let time_now = get_epoch_time_secs();
+        let time_now = clarity::util::get_epoch_time_secs();
 
         let time_to_process = time_now - mempool_accept_time;
 
@@ -465,6 +460,22 @@ pub fn get_burnchain_signer() -> Option<BurnchainSigner> {
         return GLOBAL_BURNCHAIN_SIGNER.lock().unwrap().clone();
     }
     None
+}
+
+define_named_enum!(MinerStopReason {
+    NoTransactions("no_transactions"),
+    Preempted("preempted"),
+    LimitReached("limit_reached"),
+    DeadlineReached("deadline_reached"),
+});
+
+// Increment the counter for the given miner stop reason.
+#[allow(unused_variables)]
+pub fn increment_miner_stop_reason(reason: MinerStopReason) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::MINER_STOP_REASON_TOTAL
+        .with_label_values(&[reason.get_name_str()])
+        .inc();
 }
 
 #[derive(Debug)]

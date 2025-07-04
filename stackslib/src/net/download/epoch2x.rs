@@ -15,47 +15,28 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::hash::{Hash, Hasher};
-use std::io::{Read, Write};
+use std::hash::Hash;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::mpsc::{
-    sync_channel, Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError,
-};
 
 use p2p::DropSource;
 use rand::seq::SliceRandom;
-use rand::{thread_rng, RngCore};
-use stacks_common::types::chainstate::{BlockHeaderHash, PoxId, SortitionId, StacksBlockId};
-use stacks_common::types::net::{PeerAddress, PeerHost};
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
+use rand::thread_rng;
+use stacks_common::types::chainstate::{BlockHeaderHash, PoxId, StacksBlockId};
+use stacks_common::types::net::PeerHost;
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
-use crate::burnchains::{Burnchain, BurnchainView};
-use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB, SortitionDBConn};
-use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{Error as chainstate_error, StacksBlockHeader};
-use crate::core::{
-    EMPTY_MICROBLOCK_PARENT_HASH, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
-};
-use crate::net::asn::ASEntry4;
+use crate::core::EMPTY_MICROBLOCK_PARENT_HASH;
 use crate::net::atlas::AttachmentsDownloader;
-use crate::net::codec::*;
-use crate::net::connection::{ConnectionOptions, ReplyHandleHttp};
 use crate::net::db::{PeerDB, *};
-use crate::net::dns::*;
 use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::inv::epoch2x::InvState;
-use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::p2p::PeerNetwork;
-use crate::net::rpc::*;
-use crate::net::server::HttpPeer;
-use crate::net::{
-    Error as net_error, GetBlocksInv, Neighbor, NeighborKey, StacksMessage, StacksP2P, *,
-};
-use crate::util_lib::db::{DBConn, Error as db_error};
+use crate::net::{Error as net_error, NeighborKey, *};
+use crate::util_lib::db::Error as db_error;
 
 #[cfg(not(test))]
 pub const BLOCK_DOWNLOAD_INTERVAL: u64 = 180;
@@ -644,7 +625,17 @@ impl BlockDownloader {
                             Some(http_response) => {
                                 match StacksHttpResponse::decode_microblocks(http_response) {
                                     Ok(microblocks) => {
-                                        if microblocks.is_empty() {
+                                        if let Some(first_mblock) = microblocks.first() {
+                                            // have microblocks (but we don't know yet if they're well-formed)
+                                            debug!(
+                                                "Got (tentative) microblocks {}: {}/{}-{}",
+                                                block_key.sortition_height,
+                                                &block_key.consensus_hash,
+                                                &block_key.index_block_hash,
+                                                first_mblock.block_hash()
+                                            );
+                                            self.microblocks.insert(block_key, microblocks);
+                                        } else {
                                             // we wouldn't have asked for a 0-length stream
                                             info!("Got unexpected zero-length microblock stream from {:?} ({:?})", &block_key.neighbor, &block_key.data_url;
                                                 "consensus_hash" => %block_key.consensus_hash
@@ -655,17 +646,7 @@ impl BlockDownloader {
                                                 reason: DropReason::BrokenConnection("Remote neighbor sent an unexpected zero-length microblock stream".into()),
                                                 source: DropSource::BlockDownloaderGetMicroblocks
                                             });
-                                        } else {
-                                            // have microblocks (but we don't know yet if they're well-formed)
-                                            debug!(
-                                                "Got (tentative) microblocks {}: {}/{}-{}",
-                                                block_key.sortition_height,
-                                                &block_key.consensus_hash,
-                                                &block_key.index_block_hash,
-                                                microblocks[0].block_hash()
-                                            );
-                                            self.microblocks.insert(block_key, microblocks);
-                                        }
+                                        };
                                     }
                                     Err(net_error::NotFoundError) => {
                                         // remote peer didn't have the microblock, even though their blockinv said

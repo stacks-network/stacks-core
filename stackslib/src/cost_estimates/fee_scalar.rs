@@ -4,21 +4,17 @@ use std::path::Path;
 use clarity::types::sqlite::NO_PARAMS;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::{ClaritySerializable, STXBalance};
-use rusqlite::types::{FromSql, FromSqlError, ToSql};
 use rusqlite::{
     params, Connection, Error as SqliteError, OpenFlags, OptionalExtension,
     Transaction as SqlTransaction,
 };
-use serde_json::Value as JsonValue;
 
 use super::metrics::CostMetric;
 use super::{EstimatorError, FeeEstimator, FeeRateEstimate};
 use crate::chainstate::stacks::db::StacksEpochReceipt;
 use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::TransactionPayload;
-use crate::util_lib::db::{
-    sql_pragma, sqlite_open, table_exists, tx_begin_immediate_sqlite, u64_to_sql,
-};
+use crate::util_lib::db::{sqlite_open, table_exists, tx_begin_immediate_sqlite};
 
 const SINGLETON_ROW_ID: i64 = 1;
 const CREATE_TABLE: &str = "
@@ -226,9 +222,15 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
             let median_index = measures_len / 2;
             let lowest_index = measures_len / 20;
             let block_estimate = FeeRateEstimate {
-                high: all_fee_rates[highest_index],
-                middle: all_fee_rates[median_index],
-                low: all_fee_rates[lowest_index],
+                high: *all_fee_rates
+                    .get(highest_index)
+                    .ok_or_else(|| EstimatorError::NoEstimateAvailable)?,
+                middle: *all_fee_rates
+                    .get(median_index)
+                    .ok_or_else(|| EstimatorError::NoEstimateAvailable)?,
+                low: *all_fee_rates
+                    .get(lowest_index)
+                    .ok_or_else(|| EstimatorError::NoEstimateAvailable)?,
             };
 
             self.update_estimate(block_estimate);

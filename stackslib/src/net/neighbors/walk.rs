@@ -15,27 +15,22 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::{cmp, mem};
+use std::mem;
 
 use rand::prelude::*;
 use rand::thread_rng;
 use stacks_common::types::chainstate::StacksPublicKey;
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
-use stacks_common::util::{get_epoch_time_secs, log};
 
-use crate::burnchains::{Address, Burnchain, BurnchainView, PublicKey};
-use crate::net::connection::{ConnectionOptions, ReplyHandleP2P};
-use crate::net::db::{LocalPeer, PeerDB};
-use crate::net::neighbors::{
-    NeighborComms, NeighborReplacements, NeighborWalkDB, ToNeighborKey, MAX_NEIGHBOR_BLOCK_DELAY,
-    NEIGHBOR_MINIMUM_CONTACT_INTERVAL,
-};
+use crate::net::connection::ConnectionOptions;
+use crate::net::db::LocalPeer;
+use crate::net::neighbors::{NeighborComms, NeighborReplacements, NeighborWalkDB, ToNeighborKey};
 use crate::net::p2p::{DropReason, DropSource, PeerNetwork};
 use crate::net::{
     DropNeighbor, Error as net_error, HandshakeAcceptData, HandshakeData, MessageSequence,
-    Neighbor, NeighborAddress, NeighborKey, PeerAddress, Preamble, StackerDBHandshakeData,
-    StacksMessage, StacksMessageType, NUM_NEIGHBORS,
+    Neighbor, NeighborAddress, NeighborKey, Preamble, StackerDBHandshakeData, StacksMessageType,
 };
 
 /// This struct records information from an inbound peer that has authenticated to this node.  As
@@ -368,11 +363,14 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
 
         // find an inbound connection
         for _ in 0..event_ids.len() {
-            let event_id = event_ids[idx];
+            let event_id = event_ids.get(idx).ok_or_else(|| {
+                error!("Event ID index out of bounds");
+                net_error::InvalidState
+            })?;
             idx = (idx + 1) % event_ids.len();
 
             let convo = network
-                .get_p2p_convo(*event_id)
+                .get_p2p_convo(**event_id)
                 .expect("BUG: no conversation for event ID key");
 
             if convo.is_outbound() || !convo.is_authenticated() {

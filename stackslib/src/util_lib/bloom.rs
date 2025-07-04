@@ -15,15 +15,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
-use std::collections::HashMap;
 use std::hash::Hasher;
 use std::io::{Read, Seek, SeekFrom, Write};
 
 use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::blob::Blob;
-use rusqlite::types::ToSql;
-use rusqlite::{params, Error as sqlite_error, Row};
+use rusqlite::{params, Error as sqlite_error};
 use siphasher::sip::SipHasher; // this is SipHash-2-4
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::sqlite::NO_PARAMS;
@@ -45,13 +43,15 @@ impl BitField {
         self.1
     }
 
+    #[allow(clippy::indexing_slicing)]
     pub fn test(&self, bit: u32) -> bool {
         if bit >= self.1 {
-            panic!("Attempted to read beyind end of bitfield");
+            panic!("Attempted to read beyond end of bitfield");
         }
         self.0[(bit / 8) as usize] & (1u8 << ((bit % 8) as u8)) != 0
     }
 
+    #[allow(clippy::indexing_slicing)]
     pub fn set(&mut self, bit: u32) {
         if bit >= self.1 {
             panic!("Attempted to write beyond end of bitfield");
@@ -59,6 +59,7 @@ impl BitField {
         self.0[(bit / 8) as usize] |= 1u8 << ((bit % 8) as u8);
     }
 
+    #[allow(clippy::indexing_slicing)]
     pub fn clear(&mut self, bit: u32) {
         if bit >= self.1 {
             panic!("Attempted to write beyond end of bitfield");
@@ -116,14 +117,11 @@ fn decode_bitfield<R: Read>(fd: &mut R) -> Result<Vec<u8>, codec_error> {
             let mut ret = vec![0u8; vec_len as usize];
             for _ in 0..num_filled {
                 let idx: u32 = read_next(fd)?;
-                if idx >= vec_len {
-                    return Err(codec_error::DeserializeError(format!(
-                        "Index overflow: {} >= {}",
-                        idx, vec_len
-                    )));
-                }
+                let slot = ret.get_mut(idx as usize).ok_or_else(|| {
+                    codec_error::DeserializeError(format!("Index overflow: {idx} >= {vec_len}"))
+                })?;
                 let value: u8 = read_next(fd)?;
-                ret[idx as usize] = value;
+                *slot = value;
             }
 
             Ok(ret)
@@ -539,12 +537,8 @@ impl<H: BloomHash + Clone + StacksMessageCodec> BloomCounter<H> {
 
         fd.read_exact(&mut counts_blob).map_err(db_error::IOError)?;
 
-        for i in 0..(self.num_bins as usize) {
-            if counts_blob[4 * i] > 0
-                || counts_blob[4 * i + 1] > 0
-                || counts_blob[4 * i + 2] > 0
-                || counts_blob[4 * i + 3] > 0
-            {
+        for (i, counts_chunk) in counts_blob.chunks_exact(4).enumerate() {
+            if counts_chunk.iter().any(|x| *x > 0) {
                 bf.set(i as u32);
             }
         }
@@ -601,7 +595,7 @@ pub mod test {
     use rusqlite::OpenFlags;
 
     use super::*;
-    use crate::util_lib::db::{sql_pragma, tx_begin_immediate, tx_busy_handler, DBConn, DBTx};
+    use crate::util_lib::db::{sql_pragma, tx_begin_immediate, tx_busy_handler, DBConn};
 
     pub fn setup_bloom_counter(db_name: &str) -> DBConn {
         let db_path = format!("/tmp/test_bloom_filter_{}.db", db_name);

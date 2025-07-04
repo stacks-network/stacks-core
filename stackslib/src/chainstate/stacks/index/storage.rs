@@ -14,49 +14,40 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::char::from_digit;
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::hash::{Hash, Hasher};
-use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
-use std::marker::PhantomData;
+#[cfg(test)]
+use std::collections::HashMap;
+use std::collections::VecDeque;
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::ops::{Deref, DerefMut};
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
-use std::{cmp, env, error, fmt, fs, io, os};
+use std::path::Path;
+use std::{fmt, fs, io};
 
-use rusqlite::types::{FromSql, ToSql};
-use rusqlite::{
-    Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OpenFlags, OptionalExtension,
-    Transaction,
-};
+use rusqlite::{Connection, OpenFlags, Transaction};
 use sha2::Digest;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
+    TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
 };
-use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
 
 use crate::chainstate::stacks::index::bits::{
-    get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes, read_node_hash_bytes,
-    read_nodetype, read_root_hash, write_nodetype_bytes,
+    get_node_byte_len, read_hash_bytes, read_nodetype, read_root_hash, write_nodetype_bytes,
 };
 use crate::chainstate::stacks::index::cache::*;
 use crate::chainstate::stacks::index::file::{TrieFile, TrieFileNodeHashReader};
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
+#[cfg(test)]
+use crate::chainstate::stacks::index::node::set_backptr;
 use crate::chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
-    TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
+    is_backptr, TrieNode, TrieNodeID, TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::profile::TrieBenchmark;
 use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{
-    trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfTrieId, TrieHasher, TrieLeaf,
+    trie_sql, BlockMap, ClarityMarfTrieId, Error, MarfTrieId, TrieHasher,
 };
 use crate::util_lib::db::{
-    sql_pragma, sqlite_open, tx_begin_immediate, tx_busy_handler, Error as db_error,
-    SQLITE_MARF_PAGE_SIZE, SQLITE_MMAP_SIZE,
+    sql_pragma, sqlite_open, tx_begin_immediate, Error as db_error, SQLITE_MARF_PAGE_SIZE,
+    SQLITE_MMAP_SIZE,
 };
 
 /// A trait for reading the hash of a node into a given Write impl, given the pointer to a node in
@@ -578,14 +569,16 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
         for (ix, indirect) in node_data_order.iter().enumerate() {
             // dump the node to storage
-            write_nodetype_bytes(
-                f,
-                &node_data[*indirect as usize].0,
-                node_data[*indirect as usize].1,
-            )?;
+            let node = node_data
+                .get(*indirect as usize)
+                .ok_or_else(|| Error::CorruptionError("node_data_order pointer invalid".into()))?;
+            write_nodetype_bytes(f, &node.0, node.1)?;
 
             // next node
-            f.seek(SeekFrom::Start(offsets[ix] as u64))?;
+            let next_offset = *offsets.get(ix).ok_or_else(|| {
+                Error::CorruptionError("node_data_order.len() != offsets.len()".into())
+            })?;
+            f.seek(SeekFrom::Start(next_offset.into()))?;
         }
 
         Ok(())
@@ -711,7 +704,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             // count get_nodetype load time for write_children_hashes_same_block benchmark, but
             // only if that code path will be exercised.
             for ptr in node.ptrs().iter() {
-                if !is_backptr(ptr.id()) && ptr.id() != TrieNodeID::Empty as u8 {
+                if !is_backptr(ptr.id()) && !ptr.is_empty() {
                     if let Some(start_node_time) = start_node_time.take() {
                         // count the time taken to load the root node in this case,
                         // but only do so once.
@@ -726,7 +719,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             // calculate the hashes of this node's children, and store them if they're in the
             // same trie.
             for ptr in node.ptrs().iter() {
-                if ptr.id() == TrieNodeID::Empty as u8 {
+                if ptr.is_empty() {
                     // hash of empty string
                     let start_time = storage_tx.bench.write_children_hashes_empty_start();
 
@@ -826,11 +819,9 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
             // queue each child
             if !node.is_leaf() {
-                let ptrs = node.ptrs();
-                let num_children = ptrs.len();
-                for i in 0..num_children {
-                    if ptrs[i].id != TrieNodeID::Empty as u8 && !is_backptr(ptrs[i].id) {
-                        frontier.push_back(ptrs[i].ptr());
+                for ptr in node.ptrs().iter() {
+                    if !ptr.is_empty() && !is_backptr(ptr.id) {
+                        frontier.push_back(ptr.ptr());
                     }
                 }
             }
@@ -843,14 +834,19 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
         // step 2: update ptrs in all nodes
         let mut i = 0;
-        for j in 0..node_data.len() {
-            let next_node = &mut self.data[node_data[j] as usize].0;
+        for node_data_ptr in node_data.iter() {
+            let next_node = &mut self
+                .data
+                .get_mut(*node_data_ptr as usize)
+                .ok_or_else(|| Error::CorruptionError("Miscalculated dump_consume pointer".into()))?
+                .0;
             if !next_node.is_leaf() {
                 let ptrs = next_node.ptrs_mut();
-                let num_children = ptrs.len();
-                for k in 0..num_children {
-                    if ptrs[k].id != TrieNodeID::Empty as u8 && !is_backptr(ptrs[k].id) {
-                        ptrs[k].ptr = offsets[i];
+                for ptr in ptrs.iter_mut() {
+                    if !ptr.is_empty() && !is_backptr(ptr.id) {
+                        ptr.ptr = *offsets.get(i).ok_or_else(|| {
+                            Error::CorruptionError("Miscalculated dump_consume offsets".into())
+                        })?;
                         i += 1;
                     }
                 }
@@ -1007,7 +1003,9 @@ impl<T: MarfTrieId> TrieRAM<T> {
             self.read_node_count += 1;
         }
 
-        if (ptr.ptr() as u64) >= (self.data.len() as u64) {
+        if let Some(node) = self.data.get(ptr.ptr() as usize) {
+            Ok(node.clone())
+        } else {
             error!(
                 "TrieRAM read_nodetype({:?}): Failed to read node {:?}: {} >= {}",
                 &self.block_header,
@@ -1016,8 +1014,6 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 self.data.len()
             );
             Err(Error::NotFoundError)
-        } else {
-            Ok(self.data[ptr.ptr() as usize].clone())
         }
     }
 
@@ -1051,8 +1047,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
             }
         }
 
-        if node_array_ptr < (self.data.len() as u32) {
-            self.data[node_array_ptr as usize] = (node.clone(), hash);
+        if let Some(existing_node) = self.data.get_mut(node_array_ptr as usize) {
+            *existing_node = (node.clone(), hash);
             Ok(())
         } else if node_array_ptr == (self.data.len() as u32) {
             self.data.push((node.clone(), hash));
@@ -1079,8 +1075,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
         );
 
         // can only set the hash of an existing node
-        if node_array_ptr < (self.data.len() as u32) {
-            self.data[node_array_ptr as usize].1 = hash;
+        if let Some(existing_node) = self.data.get_mut(node_array_ptr as usize) {
+            existing_node.1 = hash;
             Ok(())
         } else {
             error!("Failed to write node hash bytes: off the end of the buffer");

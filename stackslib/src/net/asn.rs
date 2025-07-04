@@ -17,9 +17,7 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-use regex::{Captures, Regex};
-use stacks_common::types::net::PeerAddress;
-use stacks_common::util::log;
+use regex::Regex;
 
 use crate::net::Error as net_error;
 
@@ -164,25 +162,15 @@ impl ASEntry4 {
             ));
         }
 
-        let mut prefix_octets: Vec<u8> = vec![];
-        for octet_str in &prefix_octets_strs {
-            let octet_opt = octet_str.parse::<u8>();
-            if octet_opt.is_err() {
-                debug!(
-                    "Failed to parse octet \"{}\" in \"{}\"",
-                    &octet_str, &prefix_octets_str
-                );
-                return Err(net_error::DeserializeError(
-                    "Failed to parse octet".to_string(),
-                ));
-            }
-            prefix_octets.push(octet_opt.unwrap());
+        let mut prefix_octets = [0u8; 4];
+        for (octet_str, prefix_slot) in prefix_octets_strs.iter().zip(prefix_octets.iter_mut()) {
+            *prefix_slot = octet_str.parse().map_err(|_| {
+                debug!("Failed to parse octet \"{octet_str}\" in \"{prefix_octets_str}\"");
+                net_error::DeserializeError("Failed to parse octet".to_string())
+            })?;
         }
 
-        let prefix = ((prefix_octets[0] as u32) << 24)
-            | ((prefix_octets[1] as u32) << 16)
-            | ((prefix_octets[2] as u32) << 8)
-            | (prefix_octets[3] as u32);
+        let prefix = u32::from_be_bytes(prefix_octets);
 
         let mask_opt = prefix_mask_str.parse::<u8>();
         if mask_opt.is_err() {
@@ -221,9 +209,6 @@ impl ASEntry4 {
 #[cfg(test)]
 mod test {
     use std::io;
-    use std::io::BufRead;
-
-    use stacks_common::util::log;
 
     use super::*;
 

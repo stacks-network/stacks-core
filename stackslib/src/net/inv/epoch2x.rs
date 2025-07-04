@@ -15,37 +15,24 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::io::{Read, Write};
-use std::net::SocketAddr;
+use std::collections::{HashMap, HashSet};
 
 use p2p::DropSource;
 use rand;
 use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng};
-use stacks_common::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
+use rand::thread_rng;
+use stacks_common::types::chainstate::{BlockHeaderHash, PoxId};
+use stacks_common::util::get_epoch_time_secs;
 
 use crate::burnchains::{Burnchain, BurnchainView};
-use crate::chainstate::burn::db::sortdb::{
-    BlockHeaderCache, SortitionDB, SortitionDBConn, SortitionHandleConn,
-};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHashExtensions};
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::net::asn::ASEntry4;
 use crate::net::chat::ConversationP2P;
-use crate::net::codec::*;
-use crate::net::connection::{ConnectionOptions, ConnectionP2P, ReplyHandleP2P};
-use crate::net::db::{PeerDB, *};
-use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use crate::net::connection::ReplyHandleP2P;
+use crate::net::db::PeerDB;
 use crate::net::p2p::{DropReason, PeerNetwork, PeerNetworkWorkState};
-use crate::net::{
-    Error as net_error, GetBlocksInv, Neighbor, NeighborKey, PeerAddress, StacksMessage, StacksP2P,
-    *,
-};
-use crate::util_lib::db::{DBConn, Error as db_error};
+use crate::net::{Error as net_error, GetBlocksInv, NeighborKey, *};
 
 /// This module is responsible for synchronizing block inventories with other peers
 #[cfg(not(test))]
@@ -118,10 +105,9 @@ impl PeerBlocksInv {
         let idx = (sortition_height / 8) as usize;
         let bit = sortition_height % 8;
 
-        if idx >= self.block_inv.len() {
-            false
-        } else {
-            (self.block_inv[idx] & (1 << bit)) != 0
+        match self.block_inv.get(idx) {
+            None => false,
+            Some(bitvec_entry) => (bitvec_entry & (1 << bit)) != 0,
         }
     }
 
@@ -136,10 +122,9 @@ impl PeerBlocksInv {
         let idx = (sortition_height / 8) as usize;
         let bit = sortition_height % 8;
 
-        if idx >= self.microblocks_inv.len() {
-            false
-        } else {
-            (self.microblocks_inv[idx] & (1 << bit)) != 0
+        match self.microblocks_inv.get(idx) {
+            None => false,
+            Some(bitvec_entry) => (bitvec_entry & (1 << bit)) != 0,
         }
     }
 
@@ -153,10 +138,9 @@ impl PeerBlocksInv {
         let idx = (reward_cycle / 8) as usize;
         let bit = reward_cycle % 8;
 
-        if idx >= self.pox_inv.len() {
-            false
-        } else {
-            (self.pox_inv[idx] & (1 << bit)) != 0
+        match self.pox_inv.get(idx) {
+            None => false,
+            Some(bitvec_entry) => (*bitvec_entry & (1 << bit)) != 0,
         }
     }
 
@@ -165,6 +149,7 @@ impl PeerBlocksInv {
     /// bitlen = number of sortitions represented by this inv.
     /// If clear_bits is true, then any 0-bits in the given bitvecs will be set as well as 1-bits.
     /// returns the number of bits set in each bitvec
+    #[allow(clippy::indexing_slicing)]
     pub fn merge_blocks_inv(
         &mut self,
         block_height: u64,
@@ -310,6 +295,7 @@ impl PeerBlocksInv {
     /// If we flip a 0 to a 1, then invalidate the block/microblock bits for that reward cycle _and
     /// all subsequent reward cycles_.
     /// Returns the lowest reward cycle number that changed from a 0 to a 1, if such a flip happens
+    #[allow(clippy::indexing_slicing)]
     pub fn merge_pox_inv(
         &mut self,
         burnchain: &Burnchain,
@@ -1146,6 +1132,54 @@ impl InvState {
             }
         }
         list
+    }
+
+    /// Returns the highest Stacks tip height reported by the given neighbors.
+    ///
+    /// This function iterates through the provided neighbors, checks their block stats,
+    /// and determines the maximum block height. The status of the neighbor (Online or Diverged during IBD,
+    /// or Online when not in IBD) is considered.
+    ///
+    /// # Arguments
+    ///
+    /// * `neighbors` - Optional slice of `Neighbor` structs to check. If `None`, all neighbors are considered.
+    /// * `ibd` - A boolean indicating if the node is in Initial Block Download (IBD) mode.
+    ///
+    /// # Returns
+    ///
+    /// * `Some(u64)` if at least one neighbor has a tip height according to its status.
+    /// * `None` if no tip heights are found.
+    pub fn get_max_stacks_height_of_neighbors(
+        &self,
+        neighbors: Option<&[Neighbor]>,
+        ibd: bool,
+    ) -> Option<u64> {
+        let filter_and_extract = |stats: &NeighborBlockStats| -> Option<u64> {
+            let status_valid = if ibd {
+                stats.status == NodeStatus::Online || stats.status == NodeStatus::Diverged
+            } else {
+                stats.status == NodeStatus::Online
+            };
+
+            if status_valid {
+                Some(stats.inv.get_block_height())
+            } else {
+                None
+            }
+        };
+
+        match neighbors {
+            Some(n) => n
+                .iter()
+                .filter_map(|neighbor| self.block_stats.get(&neighbor.addr))
+                .filter_map(filter_and_extract)
+                .max(),
+            None => self
+                .block_stats
+                .values()
+                .filter_map(filter_and_extract)
+                .max(),
+        }
     }
 
     /// Get the list of dead
@@ -2457,12 +2491,10 @@ impl PeerNetwork {
                 if !ibd {
                     // not in initial-block download, so we can add random neighbors as well
                     let num_good_peers = good_sync_peers_set.len();
-                    for i in 0..cmp::min(
-                        random_sync_peers_list.len(),
-                        (network.connection_opts.num_neighbors as usize)
-                            .saturating_sub(num_good_peers),
-                    ) {
-                        good_sync_peers_set.insert(random_sync_peers_list[i].clone());
+                    let max_sample = (network.connection_opts.num_neighbors as usize)
+                        .saturating_sub(num_good_peers);
+                    for random_peer in random_sync_peers_list.iter().take(max_sample) {
+                        good_sync_peers_set.insert(random_peer.clone());
                     }
                 } else {
                     // make *sure* this list isn't empty
@@ -2773,7 +2805,7 @@ impl PeerNetwork {
     }
 
     /// Do an inventory state machine pass for epoch 2.x.
-    /// Returns the new work state  
+    /// Returns the new work state
     pub fn work_inv_sync_epoch2x(
         &mut self,
         sortdb: &SortitionDB,

@@ -15,23 +15,17 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 /// This file contains low-level methods for reading and manipulating Trie node data.
-use std::fmt;
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
-use std::{error, io};
 
 use sha2::{Digest, Sha512_256 as TrieHasher};
-use stacks_common::types::chainstate::{
-    TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
-};
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-use stacks_common::util::macros::is_trace;
 
 use crate::chainstate::stacks::index::node::{
     clear_backptr, ConsensusSerializable, TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48,
     TrieNodeID, TrieNodeType, TriePtr, TRIEPTR_SIZE,
 };
-use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
+use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::{BlockMap, Error, MarfTrieId, TrieLeaf};
 
 /// Get the size of a Trie path (note that a Trie path is 32 bytes long, and can definitely _not_
@@ -136,22 +130,28 @@ pub fn ptrs_from_bytes<R: Read>(
     })?;
 
     // verify the id is correct
-    let nid = bytes[0];
-    if clear_backptr(nid) != clear_backptr(node_id) {
+    let nid = bytes
+        .first()
+        .ok_or_else(|| Error::CorruptionError("Failed to read 1 byte from bytes array".into()))?;
+    if clear_backptr(*nid) != clear_backptr(node_id) {
         trace!("Bad idbuf: {:x} != {:x}", nid, node_id);
         return Err(Error::CorruptionError(
             "Failed to read expected node ID".to_string(),
         ));
     }
 
-    let ptr_bytes = &bytes[1..];
-
-    let mut i = 0;
-    while i < num_ptrs {
-        ptrs_buf[i] = TriePtr::from_bytes(&ptr_bytes[i * TRIEPTR_SIZE..(i + 1) * TRIEPTR_SIZE]);
-        i += 1;
+    let ptr_bytes = bytes
+        .get(1..)
+        .ok_or_else(|| Error::CorruptionError("Failed to read >1 bytes from bytes array".into()))?;
+    // iterate over the read-in bytes in chunks of TRIEPTR_SIZE and store them
+    //   to `ptrs_buf`
+    let reading_ptrs = ptr_bytes
+        .chunks_exact(TRIEPTR_SIZE)
+        .zip(ptrs_buf.iter_mut());
+    for (next_ptr_bytes, ptr_slot) in reading_ptrs {
+        *ptr_slot = TriePtr::from_bytes(next_ptr_bytes);
     }
-    Ok(nid)
+    Ok(*nid)
 }
 
 /// Calculate the hash of a TrieNode, given its childrens' hashes.
@@ -169,9 +169,7 @@ pub fn get_node_hash<M, T: ConsensusSerializable<M> + std::fmt::Debug>(
         hasher.update(child_hash.as_ref());
     }
 
-    let mut res = [0u8; 32];
-    res.copy_from_slice(hasher.finalize().as_slice());
-
+    let res = hasher.finalize().into();
     let ret = TrieHash(res);
 
     trace!(
@@ -189,9 +187,7 @@ pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
     node.write_bytes(&mut hasher)
         .expect("IO Failure pushing to hasher.");
 
-    let mut res = [0u8; 32];
-    res.copy_from_slice(hasher.finalize().as_slice());
-
+    let res = hasher.finalize().into();
     let ret = TrieHash(res);
 
     trace!("get_leaf_hash: hash {:?} = {:?} + []", &ret, node);
@@ -268,8 +264,8 @@ pub fn read_root_hash<T: MarfTrieId>(s: &mut TrieStorageConnection<T>) -> Result
 /// count the number of allocated children in a list of a node's children pointers.
 pub fn count_children(children: &[TriePtr]) -> usize {
     let mut cnt = 0;
-    for i in 0..children.len() {
-        if children[i].id() != TrieNodeID::Empty as u8 {
+    for child in children.iter() {
+        if child.id() != TrieNodeID::Empty as u8 {
             cnt += 1;
         }
     }

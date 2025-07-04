@@ -22,29 +22,23 @@ use std::{cmp, mem};
 use clarity::vm::types::QualifiedContractIdentifier;
 use rand;
 use rand::{thread_rng, Rng};
-use stacks_common::types::chainstate::PoxId;
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
-use crate::burnchains::{Burnchain, BurnchainView, PublicKey};
-use crate::chainstate::burn::db::sortdb;
-use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
+use crate::burnchains::{Burnchain, BurnchainView};
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::{EpochList, StacksEpoch, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3};
 use crate::monitoring;
-use crate::net::asn::ASEntry4;
-use crate::net::codec::*;
 use crate::net::connection::{ConnectionOptions, ConnectionP2P, ReplyHandleP2P};
 use crate::net::db::{PeerDB, *};
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::p2p::PeerNetwork;
-use crate::net::relay::*;
-use crate::net::stackerdb::StackerDBs;
 use crate::net::{
     Error as net_error, GetBlocksInv, GetPoxInv, Neighbor, NeighborKey, StacksMessage, StacksP2P,
     GETPOXINV_MAX_BITLEN, *,
@@ -1425,6 +1419,7 @@ impl ConversationP2P {
             peer_dbconn,
             self.network_id,
             epoch.network_epoch,
+            self.peer_version,
             get_epoch_time_secs().saturating_sub(self.connection.options.max_neighbor_age),
             MAX_NEIGHBORS_DATA_LEN,
             chain_view.burn_block_height,
@@ -1672,11 +1667,11 @@ impl ConversationP2P {
                     "{:?}: Disable inv chat -- pretend like we have nothing",
                     network.get_local_peer()
                 );
-                for i in 0..blocks_inv_data.block_bitvec.len() {
-                    blocks_inv_data.block_bitvec[i] = 0;
+                for entry in blocks_inv_data.block_bitvec.iter_mut() {
+                    *entry = 0;
                 }
-                for i in 0..blocks_inv_data.microblocks_bitvec.len() {
-                    blocks_inv_data.microblocks_bitvec[i] = 0;
+                for entry in blocks_inv_data.microblocks_bitvec.iter_mut() {
+                    *entry = 0;
                 }
             }
         }
@@ -3039,12 +3034,8 @@ impl ConversationP2P {
 #[cfg(test)]
 mod test {
     use std::fs;
-    use std::io::prelude::*;
-    use std::io::{Read, Write};
-    use std::net::{SocketAddr, SocketAddrV4};
-    use std::path::PathBuf;
+    use std::net::{Ipv4Addr, SocketAddr};
 
-    use clarity::vm::costs::ExecutionCost;
     use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
     use stacks_common::util::pipe::*;
     use stacks_common::util::secp256k1::*;
@@ -3052,20 +3043,17 @@ mod test {
     use stacks_common::util::uint::*;
 
     use super::*;
-    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
-    use crate::burnchains::burnchain::*;
     use crate::burnchains::db::BurnchainDB;
     use crate::burnchains::*;
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::*;
     use crate::chainstate::stacks::db::ChainStateBootData;
-    use crate::chainstate::*;
     use crate::core::*;
+    use crate::net::asn::ASEntry4;
     use crate::net::atlas::{AtlasConfig, AtlasDB};
     use crate::net::connection::*;
     use crate::net::db::*;
-    use crate::net::p2p::*;
-    use crate::net::test::*;
+    use crate::net::stackerdb::StackerDBs;
     use crate::net::*;
     use crate::util_lib::test::*;
 

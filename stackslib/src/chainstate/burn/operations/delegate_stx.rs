@@ -5,11 +5,9 @@ use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
 
 use crate::burnchains::{BurnchainBlockHeader, BurnchainTransaction, Txid};
 use crate::chainstate::burn::operations::{
-    parse_u128_from_be, parse_u32_from_be, parse_u64_from_be, BlockstackOperationType,
-    DelegateStxOp, Error as op_error, PreStxOp,
+    parse_u128_from_be, parse_u32_from_be, parse_u64_from_be, DelegateStxOp, Error as op_error,
 };
 use crate::chainstate::burn::Opcodes;
-use crate::chainstate::stacks::address::PoxAddress;
 
 struct ParsedData {
     delegated_ustx: u128,
@@ -58,16 +56,17 @@ impl DelegateStxOp {
             return None;
         }
 
-        let delegated_ustx = parse_u128_from_be(&data[0..16]).unwrap();
+        let delegated_ustx = parse_u128_from_be(data.get(0..16)?).unwrap();
 
         // `reward_addr_index` is type Option<u32>.
         // The first byte of it marks whether it is none or some (0 = none, 1 = some)
         // If the first byte is 1, then the next 4 bytes are parsed as a u32
+        let reward_addr_indicator = data.get(16)?;
         let reward_addr_index = {
-            if data[16] == 1 {
-                let index = parse_u32_from_be(&data[17..21]).unwrap();
+            if *reward_addr_indicator == 1 {
+                let index = parse_u32_from_be(data.get(17..21)?).unwrap();
                 Some(index)
-            } else if data[16] == 0 {
+            } else if *reward_addr_indicator == 0 {
                 None
             } else {
                 warn!("DELEGATE_STX payload is malformed (invalid byte value for reward_addr_index option flag)");
@@ -78,16 +77,17 @@ impl DelegateStxOp {
         // `until_burn_height` is type Option<u64>.
         // The first byte of it marks whether it is none or some (0 = none, 1 = some)
         // If the first byte is 1, then the next 8 bytes are parsed
+        let until_burn_height_indicator = data.get(21)?;
         let until_burn_height = {
-            if data[21] == 1 {
+            if *until_burn_height_indicator == 1 {
                 if data.len() < 30 {
                     // too short to have required data
                     warn!("DELEGATE_STX payload is malformed ({} bytes)", data.len());
                     return None;
                 }
-                let burn_height = parse_u64_from_be(&data[22..30]).unwrap();
+                let burn_height = parse_u64_from_be(data.get(22..30)?).unwrap();
                 Some(burn_height)
-            } else if data[21] == 0 {
+            } else if *until_burn_height_indicator == 0 {
                 None
             } else {
                 warn!("DELEGATE_STX payload is malformed (invalid byte value for until_burn_height option flag)");
@@ -265,12 +265,10 @@ mod tests {
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
     use stacks_common::util::hash::*;
 
-    use crate::burnchains::bitcoin::address::{
-        BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType,
-    };
+    use crate::burnchains::bitcoin::address::{LegacyBitcoinAddress, LegacyBitcoinAddressType};
     use crate::burnchains::bitcoin::{
-        BitcoinInputType, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInput,
-        BitcoinTxInputStructured, BitcoinTxOutput,
+        BitcoinInputType, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInputStructured,
+        BitcoinTxOutput,
     };
     use crate::burnchains::{BurnchainTransaction, Txid};
     use crate::chainstate::burn::operations::{DelegateStxOp, Error as op_error};

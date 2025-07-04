@@ -361,7 +361,7 @@ impl<'a, 'state, W: Write> HttpChunkedTransferWriter<'a, 'state, W> {
             bytes.len()
         };
 
-        fd.write_all(format!("{:x}\r\n", to_send).as_bytes())?;
+        fd.write_all(format!("{to_send:x}\r\n").as_bytes())?;
         fd.write_all(&bytes[0..to_send])?;
         fd.write_all("\r\n".as_bytes())?;
         Ok(to_send)

@@ -15,14 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use stacks_common::address::b58 as base58;
-use stacks_common::address::c32::c32_address;
 use stacks_common::deps_common::bech32;
 use stacks_common::deps_common::bech32::{u5, FromBase32, ToBase32};
 use stacks_common::deps_common::bitcoin::blockdata::opcodes::All as BtcOp;
 use stacks_common::deps_common::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
-use stacks_common::util::log;
+#[cfg(test)]
+use stacks_common::util::hash::hex_bytes;
+use stacks_common::util::hash::Hash160;
 
 use crate::burnchains::bitcoin::{BitcoinNetworkType, Error as btc_error};
 use crate::burnchains::Address;
@@ -172,9 +172,7 @@ impl LegacyBitcoinAddress {
         let version_byte = legacy_address_type_to_version_byte(addrtype, network_id);
 
         ret[0] = version_byte;
-        for i in 0..20 {
-            ret[i + 1] = self.bytes[i];
-        }
+        ret[1..21].copy_from_slice(&self.bytes.0[0..20]);
         return ret;
     }
 
@@ -219,24 +217,25 @@ impl LegacyBitcoinAddress {
             return Err(btc_error::InvalidByteSequence);
         }
 
-        let version = bytes[0];
-
-        let (addrtype, network_id) = match legacy_version_byte_to_address_type(version) {
-            Some(x) => x,
-            None => {
-                test_debug!("Invalid address: unrecognized version {}", version);
-                return Err(btc_error::InvalidByteSequence);
-            }
+        let Some(version) = bytes.get(0) else {
+            return Err(btc_error::InvalidByteSequence);
         };
 
-        let mut payload_bytes = [0; 20];
-        let b = &bytes[1..21];
-        payload_bytes.copy_from_slice(b);
+        let Some((addrtype, network_id)) = legacy_version_byte_to_address_type(*version) else {
+            test_debug!("Invalid address: unrecognized version {}", version);
+            return Err(btc_error::InvalidByteSequence);
+        };
+
+        let payload_bytes: &[u8; 20] = bytes
+            .get(1..21)
+            .ok_or_else(|| btc_error::InvalidByteSequence)?
+            .try_into()
+            .map_err(|_| btc_error::InvalidByteSequence)?;
 
         Ok(LegacyBitcoinAddress {
             network_id,
             addrtype,
-            bytes: Hash160(payload_bytes),
+            bytes: Hash160(payload_bytes.clone()),
         })
     }
 }
@@ -321,9 +320,9 @@ impl SegwitBitcoinAddress {
             return None;
         }
 
-        let version: u8 = quintets[0].into();
+        let version = u8::from(*quintets.get(0)?);
         let mut prog = Vec::with_capacity(quintets.len());
-        prog.append(&mut quintets[1..].to_vec());
+        prog.append(&mut quintets.get(1..)?.to_vec());
 
         let bytes = Vec::from_base32(&prog)
             .inspect_err(|_e| {
@@ -333,18 +332,15 @@ impl SegwitBitcoinAddress {
 
         match (variant, version, bytes.len()) {
             (bech32::Variant::Bech32, SEGWIT_V0, 20) => {
-                let mut bytes_20 = [0u8; 20];
-                bytes_20.copy_from_slice(&bytes[0..20]);
+                let bytes_20 = bytes.try_into().ok()?;
                 Some(SegwitBitcoinAddress::P2WPKH(mainnet, bytes_20))
             }
             (bech32::Variant::Bech32, SEGWIT_V0, 32) => {
-                let mut bytes_32 = [0u8; 32];
-                bytes_32.copy_from_slice(&bytes[0..32]);
+                let bytes_32 = bytes.try_into().ok()?;
                 Some(SegwitBitcoinAddress::P2WSH(mainnet, bytes_32))
             }
             (bech32::Variant::Bech32m, SEGWIT_V1, 32) => {
-                let mut bytes_32 = [0u8; 32];
-                bytes_32.copy_from_slice(&bytes[0..32]);
+                let bytes_32 = bytes.try_into().ok()?;
                 Some(SegwitBitcoinAddress::P2TR(mainnet, bytes_32))
             }
             (_, _, _) => {
@@ -417,14 +413,14 @@ impl BitcoinAddress {
             return Err(btc_error::InvalidByteSequence);
         }
 
-        let mut my_bytes = [0; 20];
-        let b = &bytes[..bytes.len()];
-        my_bytes.copy_from_slice(b);
+        let my_bytes: &[u8; 20] = bytes
+            .try_into()
+            .map_err(|_| btc_error::InvalidByteSequence)?;
 
         Ok(BitcoinAddress::Legacy(LegacyBitcoinAddress {
             network_id,
             addrtype,
-            bytes: Hash160(my_bytes),
+            bytes: Hash160(*my_bytes),
         }))
     }
 
@@ -437,13 +433,13 @@ impl BitcoinAddress {
             return Err(btc_error::InvalidByteSequence);
         }
 
-        let mut my_bytes = [0; 20];
-        let b = &bytes[..bytes.len()];
-        my_bytes.copy_from_slice(b);
+        let my_bytes: &[u8; 20] = bytes
+            .try_into()
+            .map_err(|_| btc_error::InvalidByteSequence)?;
 
         let mainnet = network_id == BitcoinNetworkType::Mainnet;
         Ok(BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WPKH(
-            mainnet, my_bytes,
+            mainnet, *my_bytes,
         )))
     }
 
@@ -455,68 +451,61 @@ impl BitcoinAddress {
         scriptpubkey: &[u8],
     ) -> Option<BitcoinAddress> {
         if scriptpubkey.len() == 25
-            && scriptpubkey[0..3] == [0x76, 0xa9, 0x14]
-            && scriptpubkey[23..25] == [0x88, 0xac]
+            && scriptpubkey.get(0..3)? == &[0x76, 0xa9, 0x14]
+            && scriptpubkey.get(23..25)? == &[0x88, 0xac]
         {
             // p2pkh
-            let mut my_bytes = [0; 20];
-            let b = &scriptpubkey[3..23];
-            my_bytes.copy_from_slice(b);
+            let my_bytes: &[u8; 20] = scriptpubkey.get(3..23)?.try_into().ok()?;
 
             Some(BitcoinAddress::Legacy(LegacyBitcoinAddress {
                 network_id,
                 addrtype: LegacyBitcoinAddressType::PublicKeyHash,
-                bytes: Hash160(my_bytes),
+                bytes: Hash160(*my_bytes),
             }))
         } else if scriptpubkey.len() == 23
-            && scriptpubkey[0..2] == [0xa9, 0x14]
-            && scriptpubkey[22] == 0x87
+            && scriptpubkey.get(0..2)? == &[0xa9, 0x14]
+            && *scriptpubkey.get(22)? == 0x87
         {
             // p2sh (or maybe segwit-p2sh)
-            let mut my_bytes = [0; 20];
-            let b = &scriptpubkey[2..22];
-            my_bytes.copy_from_slice(b);
+            let my_bytes: &[u8; 20] = scriptpubkey.get(2..22)?.try_into().ok()?;
 
             Some(BitcoinAddress::Legacy(LegacyBitcoinAddress {
                 network_id,
                 addrtype: LegacyBitcoinAddressType::ScriptHash,
-                bytes: Hash160(my_bytes),
+                bytes: Hash160(*my_bytes),
             }))
         } else if scriptpubkey.len() == 22
-            && scriptpubkey[0..2] == [BtcOp::OP_PUSHBYTES_0 as u8, 0x14]
+            && scriptpubkey.get(0..2)? == &[BtcOp::OP_PUSHBYTES_0 as u8, 0x14]
         {
             // segwit p2wpkh
-            let mut witness_program = [0u8; 20];
-            witness_program.copy_from_slice(&scriptpubkey[2..22]);
+            let witness_program: &[u8; 20] = scriptpubkey.get(2..22)?.try_into().ok()?;
 
             let mainnet = network_id == BitcoinNetworkType::Mainnet;
             Some(BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WPKH(
                 mainnet,
-                witness_program,
+                *witness_program,
             )))
         } else if scriptpubkey.len() == 34
-            && scriptpubkey[0..2] == [BtcOp::OP_PUSHBYTES_0 as u8, 0x20]
+            && scriptpubkey.get(0..2)? == &[BtcOp::OP_PUSHBYTES_0 as u8, 0x20]
         {
             // segwit p2wsh
-            let mut witness_program = [0u8; 32];
-            witness_program.copy_from_slice(&scriptpubkey[2..34]);
+            let witness_program: &[u8; 32] = scriptpubkey.get(2..34)?.try_into().ok()?;
 
             let mainnet = network_id == BitcoinNetworkType::Mainnet;
             Some(BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WSH(
                 mainnet,
-                witness_program,
+                *witness_program,
             )))
         } else if scriptpubkey.len() == 34
-            && scriptpubkey[0..2] == [BtcOp::OP_PUSHNUM_1 as u8, 0x20]
+            && scriptpubkey.get(0..2)? == &[BtcOp::OP_PUSHNUM_1 as u8, 0x20]
         {
             // segwit p2tr
-            let mut witness_program = [0u8; 32];
-            witness_program.copy_from_slice(&scriptpubkey[2..34]);
+            let witness_program: &[u8; 32] = scriptpubkey.get(2..34)?.try_into().ok()?;
 
             let mainnet = network_id == BitcoinNetworkType::Mainnet;
             Some(BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(
                 mainnet,
-                witness_program,
+                *witness_program,
             )))
         } else {
             None
@@ -686,7 +675,6 @@ impl Address for BitcoinAddress {
 mod tests {
     use stacks_common::types::Address;
     use stacks_common::util::hash::{hex_bytes, Hash160};
-    use stacks_common::util::log;
 
     use super::{
         BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,

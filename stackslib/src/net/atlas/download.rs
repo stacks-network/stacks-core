@@ -23,22 +23,19 @@ use std::{cmp, fmt};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use rand::{thread_rng, Rng};
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::{Hash160, MerkleHashFunc};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use super::{AtlasDB, Attachment, AttachmentInstance, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
-use crate::chainstate::burn::ConsensusHash;
-use crate::net::atlas::{GetAttachmentResponse, GetAttachmentsInvResponse, MAX_RETRY_DELAY};
+use crate::net::atlas::{GetAttachmentsInvResponse, MAX_RETRY_DELAY};
 use crate::net::connection::ConnectionOptions;
 use crate::net::dns::*;
 use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::p2p::PeerNetwork;
-use crate::net::server::HttpPeer;
-use crate::net::{Error as net_error, NeighborKey, PeerHost, Requestable};
+use crate::net::{Error as net_error, PeerHost, Requestable};
 use crate::util_lib::db::Error as DBError;
-use crate::util_lib::strings;
 use crate::util_lib::strings::UrlString;
 
 #[derive(Debug)]
@@ -437,13 +434,12 @@ impl AttachmentsBatchStateContext {
                 for (peer_url, response) in peers_responses.iter() {
                     // Considering the response, look for the page with the index
                     // we're looking for.
-                    let index = response
-                        .pages
-                        .iter()
-                        .position(|page| page.index == page_index);
+                    let search_page = response.pages.iter().find(|page| page.index == page_index);
 
-                    let has_attachment = index
-                        .and_then(|i| response.pages[i].inventory.get(position_in_page as usize))
+                    let has_attachment = search_page
+                        .and_then(|search_page| {
+                            search_page.inventory.get(position_in_page as usize)
+                        })
                         .map(|result| *result == 1)
                         .unwrap_or(false);
 

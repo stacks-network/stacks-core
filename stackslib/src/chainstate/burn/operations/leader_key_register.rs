@@ -16,26 +16,19 @@
 
 use std::io::{Read, Write};
 
+#[cfg(test)]
+use clarity::util::vrf::VRFPrivateKey;
+#[cfg(test)]
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, TrieHash,
-};
-use stacks_common::util::hash::{DoubleSha256, Hash160};
-use stacks_common::util::log;
-use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::vrf::VRFPublicKey;
 
-use crate::burnchains::{
-    Address, Burnchain, BurnchainBlockHeader, BurnchainTransaction, PublicKey, Txid,
-};
+use crate::burnchains::{Burnchain, BurnchainBlockHeader, BurnchainTransaction};
 use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
-use crate::chainstate::burn::operations::{
-    BlockstackOperationType, Error as op_error, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-};
+use crate::chainstate::burn::operations::{Error as op_error, LeaderKeyRegisterOp};
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
-use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
-use crate::net::Error as net_error;
-use crate::util_lib::db::{DBConn, DBTx};
 
 pub struct ParsedData {
     pub consensus_hash: ConsensusHash,
@@ -46,6 +39,8 @@ pub struct ParsedData {
 impl LeaderKeyRegisterOp {
     #[cfg(test)]
     pub fn new(public_key: &VRFPublicKey) -> LeaderKeyRegisterOp {
+        use crate::burnchains::Txid;
+
         LeaderKeyRegisterOp {
             public_key: public_key.clone(),
             memo: vec![],
@@ -79,10 +74,16 @@ impl LeaderKeyRegisterOp {
     pub fn set_nakamoto_signing_key(&mut self, pubkey_hash160: &Hash160) {
         if self.memo.len() < 20 {
             let mut new_memo = vec![0; 20];
-            new_memo[0..self.memo.len()].copy_from_slice(&self.memo);
+            new_memo
+                .get_mut(0..self.memo.len())
+                .expect("FATAL: improper handling of key_register op memo")
+                .copy_from_slice(&self.memo);
             self.memo = new_memo;
         }
-        self.memo[0..20].copy_from_slice(&pubkey_hash160.0);
+        self.memo
+            .get_mut(0..20)
+            .expect("FATAL: improper handling of key_register op memo")
+            .copy_from_slice(&pubkey_hash160.0);
     }
 
     fn parse_data(data: &[u8]) -> Option<ParsedData> {
@@ -107,9 +108,9 @@ impl LeaderKeyRegisterOp {
             return None;
         }
 
-        let consensus_hash = ConsensusHash::from_bytes(&data[0..20])
+        let consensus_hash = ConsensusHash::from_bytes(data.get(0..20)?)
             .expect("FATAL: invalid byte slice for consensus hash");
-        let pubkey = match VRFPublicKey::from_bytes(&data[20..52]) {
+        let pubkey = match VRFPublicKey::from_bytes(data.get(20..52)?) {
             Some(pubk) => pubk,
             None => {
                 warn!("Invalid VRF public key");
@@ -117,7 +118,7 @@ impl LeaderKeyRegisterOp {
             }
         };
 
-        let memo = &data[52..];
+        let memo = data.get(52..)?;
 
         Some(ParsedData {
             consensus_hash,
@@ -186,11 +187,11 @@ impl StacksMessageCodec for LeaderKeyRegisterOp {
         write_next(fd, &self.consensus_hash)?;
         fd.write_all(&self.public_key.as_bytes()[..])
             .map_err(codec_error::WriteError)?;
-
         let memo = match self.memo.len() {
-            l if l <= 25 => self.memo[0..].to_vec(),
-            _ => self.memo[0..25].to_vec(),
-        };
+            l if l <= 25 => self.memo.get(0..),
+            _ => self.memo.get(0..25),
+        }
+        .expect("FATAL: improper memo serialization");
         fd.write_all(&memo).map_err(codec_error::WriteError)?;
         Ok(())
     }
@@ -235,24 +236,20 @@ impl LeaderKeyRegisterOp {
 
 #[cfg(test)]
 pub mod tests {
+    use clarity::types::chainstate::{BlockHeaderHash, TrieHash};
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
     use stacks_common::types::chainstate::SortitionId;
+    use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::{hex_bytes, to_hex};
-    use stacks_common::util::{get_epoch_time_secs, log};
 
     use super::*;
-    use crate::burnchains::bitcoin::address::BitcoinAddress;
     use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::bitcoin::BitcoinNetworkType;
     use crate::burnchains::*;
     use crate::chainstate::burn::db::sortdb::*;
-    use crate::chainstate::burn::operations::{
-        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-    };
+    use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderKeyRegisterOp};
     use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
-    use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::core::StacksEpochId;
 
     pub struct OpFixture {

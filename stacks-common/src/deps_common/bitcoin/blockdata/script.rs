@@ -111,14 +111,14 @@ impl fmt::Debug for Script {
             if opcode == opcodes::All::OP_PUSHBYTES_0 {
                 f.write_str("OP_0")?;
             } else {
-                write!(f, "{:?}", opcode)?;
+                write!(f, "{opcode:?}")?;
             }
             // Write any pushdata
             if data_len > 0 {
                 f.write_str(" ")?;
                 if index + data_len <= self.0.len() {
                     for ch in &self.0[index..index + data_len] {
-                        write!(f, "{:02x}", ch)?;
+                        write!(f, "{ch:02x}")?;
                     }
                     index += data_len;
                 } else {
@@ -140,7 +140,7 @@ impl fmt::Display for Script {
 impl fmt::LowerHex for Script {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for &ch in self.0.iter() {
-            write!(f, "{:02x}", ch)?;
+            write!(f, "{ch:02x}")?;
         }
         Ok(())
     }
@@ -149,7 +149,7 @@ impl fmt::LowerHex for Script {
 impl fmt::UpperHex for Script {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for &ch in self.0.iter() {
-            write!(f, "{:02X}", ch)?;
+            write!(f, "{ch:02X}")?;
         }
         Ok(())
     }
@@ -677,7 +677,7 @@ impl serde::Serialize for Script {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&format!("{:x}", self))
+        serializer.serialize_str(&format!("{self:x}"))
     }
 }
 

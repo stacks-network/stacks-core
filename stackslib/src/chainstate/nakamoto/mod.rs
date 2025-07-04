@@ -15,40 +15,30 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::ops::{Deref, DerefMut, Range};
-use std::path::PathBuf;
 
 use clarity::util::secp256k1::Secp256k1PublicKey;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::database::{BurnStateDB, ClarityDatabase};
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::StacksTransactionEvent;
-use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
-use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
-use lazy_static::{__Deref, lazy_static};
-use rusqlite::blob::Blob;
+use clarity::vm::types::PrincipalData;
+use clarity::vm::{ClarityVersion, Value};
+use lazy_static::lazy_static;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput};
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
-use sha2::digest::typenum::Integer;
+use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
     read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
     MAX_PAYLOAD_LEN,
 };
-use stacks_common::consts::{
-    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
-};
+use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
     StacksPrivateKey, StacksPublicKey, TrieHash, VRFSeed,
 };
-use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::{PrivateKey, StacksEpochId};
-use stacks_common::util::hash::{
-    hex_bytes, to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum,
-};
+use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
@@ -56,32 +46,27 @@ use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 
 use self::signer_set::SignerCalculation;
 use super::burn::db::sortdb::{
-    get_ancestor_sort_id, get_ancestor_sort_id_tx, get_block_commit_by_txid, SortitionHandle,
-    SortitionHandleConn, SortitionHandleTx,
+    get_ancestor_sort_id, get_block_commit_by_txid, SortitionHandle, SortitionHandleConn,
 };
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp, VoteForAggregateKeyOp};
 use super::stacks::boot::{
-    NakamotoSignerEntry, PoxVersions, RawRewardSetEntry, RewardSet, RewardSetData,
-    BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, SIGNERS_MAX_LIST_SIZE,
-    SIGNERS_NAME, SIGNERS_PK_LEN,
+    RewardSet, RewardSetData, BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME,
 };
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::{
-    ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerPaymentTxFees, MinerRewardInfo,
-    StacksBlockHeaderTypes, StacksEpochReceipt, StacksHeaderInfo,
+    ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerRewardInfo, StacksBlockHeaderTypes,
+    StacksEpochReceipt, StacksHeaderInfo,
 };
-use super::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
+use super::stacks::events::StacksTransactionReceipt;
 use super::stacks::{
-    Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
-    TenureChangeError, TenureChangePayload, TokenTransferMemo, TransactionPayload,
-    TransactionVersion,
+    Error as ChainstateError, StacksBlock, StacksTransaction, TenureChangePayload,
+    TokenTransferMemo, TransactionPayload, TransactionVersion,
 };
-use crate::burnchains::{Burnchain, PoxConstants, Txid};
+use crate::burnchains::{PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
+use crate::chainstate::burn::operations::LeaderBlockCommitOp;
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
-use crate::chainstate::coordinator::{BlockEventDispatcher, Error, OnChainRewardSetProvider};
-use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
+use crate::chainstate::coordinator::{BlockEventDispatcher, OnChainRewardSetProvider};
 use crate::chainstate::nakamoto::keys as nakamoto_keys;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
@@ -89,32 +74,27 @@ use crate::chainstate::nakamoto::tenure::{
     NakamotoTenureEventId, NAKAMOTO_TENURES_SCHEMA_1, NAKAMOTO_TENURES_SCHEMA_2,
     NAKAMOTO_TENURES_SCHEMA_3,
 };
-use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::{POX_4_NAME, SIGNERS_UPDATE_STATE};
 use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use crate::chainstate::stacks::db::{
     DBConfig as ChainstateConfig, StacksChainState, StacksDBConn, StacksDBTx,
 };
-use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::{
     TenureChangeCause, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
-use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
-use crate::clarity_vm::clarity::{
-    ClarityInstance, ClarityTransactionConnection, Error as ClarityError, PreCommitClarityBlock,
-};
+use crate::clarity::vm::clarity::TransactionConnection;
+use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::core::{
     BOOT_BLOCK_HASH, BURNCHAIN_TX_SEARCH_WINDOW, NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD,
 };
+use crate::monitoring;
 use crate::net::stackerdb::{StackerDBConfig, MINER_SLOT_COUNT};
 use crate::net::Error as net_error;
-use crate::util_lib::boot::{self, boot_code_addr, boot_code_id, boot_code_tx_auth};
+use crate::util_lib::boot::{boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::{
-    query_int, query_row, query_row_columns, query_row_panic, query_rows, sqlite_open,
-    tx_begin_immediate, u64_to_sql, DBConn, Error as DBError, FromRow,
+    query_row, query_row_columns, query_row_panic, query_rows, u64_to_sql, Error as DBError,
+    FromRow,
 };
-use crate::{chainstate, monitoring};
 
 pub mod coordinator;
 pub mod keys;
@@ -234,44 +214,45 @@ lazy_static! {
     UPDATE db_config SET version = "4";
     "#.into(),
     ];
+}
 
-    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_2: Vec<String> = vec![
-    NAKAMOTO_TENURES_SCHEMA_2.into(),
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_2: &[&str] = &[
+    NAKAMOTO_TENURES_SCHEMA_2,
     r#"
     ALTER TABLE nakamoto_block_headers
       ADD COLUMN timestamp INTEGER NOT NULL;
-    "#.into(),
+    "#,
     r#"
     UPDATE db_config SET version = "5";
-    "#.into(),
-        // make burn_view NULLable. We could use a default value, but NULL should be safer (because it will error).
-        // there should be no entries in nakamoto_block_headers with a NULL entry when this column is added, because
-        // nakamoto blocks have not been produced yet.
+    "#,
+    // make burn_view NULLable. We could use a default value, but NULL should be safer (because it will error).
+    // there should be no entries in nakamoto_block_headers with a NULL entry when this column is added, because
+    // nakamoto blocks have not been produced yet.
     r#"
     ALTER TABLE nakamoto_block_headers
     ADD COLUMN burn_view TEXT;
-    "#.into(),
-    ];
+    "#,
+];
 
-    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_3: Vec<String> = vec![
-    NAKAMOTO_TENURES_SCHEMA_3.into(),
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_3: &[&str] = &[
+    NAKAMOTO_TENURES_SCHEMA_3,
     r#"
     UPDATE db_config SET version = "6";
-    "#.into(),
-        // Add a `height_in_tenure` field to the block header row, so we know how high this block is
-        // within its tenure.  This is needed to process malleablized Nakamoto blocks with the same
-        // height, as well as accidental forks that can arise from slow miners.
-        //
-        //
-        //
-        // No default value is needed because at the time of this writing, this table is actually empty.
+    "#,
+    // Add a `height_in_tenure` field to the block header row, so we know how high this block is
+    // within its tenure.  This is needed to process malleablized Nakamoto blocks with the same
+    // height, as well as accidental forks that can arise from slow miners.
+    //
+    //
+    //
+    // No default value is needed because at the time of this writing, this table is actually empty.
     r#"
     ALTER TABLE nakamoto_block_headers
     ADD COLUMN height_in_tenure;
-    "#.into(),
-    ];
+    "#,
+];
 
-    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_4: [&'static str; 2] = [
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_4: &[&str] = &[
     r#"
         UPDATE db_config SET version = "7";
     "#,
@@ -289,16 +270,22 @@ lazy_static! {
             PRIMARY KEY(public_key,reward_cycle)
         );
     "#,
-    ];
+];
 
-    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_5: [&'static str; 2] = [
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_5: &[&str] = &[
     r#"
         UPDATE db_config SET version = "8";
     "#,
     // Add an index for index block hash in nakamoto block headers
     "CREATE INDEX IF NOT EXISTS index_block_hash ON nakamoto_block_headers(index_block_hash);",
-    ];
-}
+];
+
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_6: &[&str] = &[
+    // schema change is JUST a new index, but the index is on a table
+    //  created by a migration, so don't add the index to the CHAINSTATE_INDEXES
+    r#"UPDATE db_config SET version = "10";"#,
+    "CREATE INDEX IF NOT EXISTS nakamoto_block_headers_by_ch_bv ON nakamoto_block_headers(consensus_hash, burn_view);"
+];
 
 #[cfg(test)]
 mod fault_injection {
@@ -1089,10 +1076,7 @@ impl NakamotoBlock {
     /// Return Some(tenure-change-payload) if it's a tenure change
     /// Return None if not
     pub fn try_get_tenure_change_payload(&self) -> Option<&TenureChangePayload> {
-        if self.txs.is_empty() {
-            return None;
-        }
-        if let TransactionPayload::TenureChange(ref tc) = &self.txs[0].payload {
+        if let TransactionPayload::TenureChange(ref tc) = &self.txs.get(0)?.payload {
             Some(tc)
         } else {
             None
@@ -1255,7 +1239,10 @@ impl NakamotoBlock {
             return Err(());
         }
 
-        if coinbase_positions.len() == 1 && tenure_change_positions.is_empty() {
+        let coinbase_position = coinbase_positions.first().copied();
+        let tenure_change_position = tenure_change_positions.first().copied();
+
+        if coinbase_position.is_some() && tenure_change_position.is_none() {
             // coinbase unaccompanied by a tenure change
             warn!("Invalid block -- have coinbase without tenure change";
                 "consensus_hash" => %self.header.consensus_hash,
@@ -1265,10 +1252,10 @@ impl NakamotoBlock {
             return Err(());
         }
 
-        if coinbase_positions.is_empty() && tenure_change_positions.len() == 1 {
+        if let (None, Some(tenure_change_position)) = (coinbase_position, tenure_change_position) {
             // this is possibly a block with a tenure-extend transaction.
             // It must be the first tx
-            if tenure_change_positions[0] != 0 {
+            if tenure_change_position != 0 {
                 // wrong position
                 warn!(
                     "Invalid block -- tenure change positions = {:?}, expected [0]",
@@ -1281,7 +1268,9 @@ impl NakamotoBlock {
             }
 
             // must be a non-sortition-triggered tenure change
-            let TransactionPayload::TenureChange(tc_payload) = &self.txs[0].payload else {
+            let Some(TransactionPayload::TenureChange(tc_payload)) =
+                self.txs.get(0).map(|x| &x.payload)
+            else {
                 // this transaction is not a tenure change
                 // (should be unreachable)
                 warn!("Invalid block -- first transaction is not a tenure change";
@@ -1309,7 +1298,7 @@ impl NakamotoBlock {
         // have both a coinbase and a tenure-change
         let coinbase_idx = 1;
         let tc_idx = 0;
-        if coinbase_positions[0] != coinbase_idx && tenure_change_positions[0] != tc_idx {
+        if coinbase_position != Some(coinbase_idx) && tenure_change_position != Some(tc_idx) {
             // invalid -- expect exactly one sortition-induced tenure change and exactly one coinbase expected,
             // and the tenure change must be the first transaction and the coinbase must be the second transaction
             warn!("Invalid block -- coinbase and/or tenure change txs are in the wrong position -- ({:?}, {:?}) != [{}], [{}]", &coinbase_positions, &tenure_change_positions, coinbase_idx, tc_idx;
@@ -1350,7 +1339,8 @@ impl NakamotoBlock {
         }
 
         // must be a Nakamoto coinbase
-        let TransactionPayload::Coinbase(_, _, vrf_proof_opt) = &self.txs[coinbase_idx].payload
+        let Some(TransactionPayload::Coinbase(_, _, vrf_proof_opt)) =
+            self.txs.get(coinbase_idx).map(|x| &x.payload)
         else {
             // this transaction is not a coinbase (but this should be unreachable)
             warn!(
@@ -2867,24 +2857,70 @@ impl NakamotoChainState {
     /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
     /// tenure.
     ///
-    /// Get the highest block in a given tenure (identified by its consensus hash).
-    /// Ties will be broken by timestamp.
-    ///
-    /// Used to verify that a signer-submitted block proposal builds atop the highest known block
-    /// in the given tenure, regardless of which fork it's on.
-    pub fn get_highest_known_block_header_in_tenure(
-        db: &Connection,
-        consensus_hash: &ConsensusHash,
+    /// Get the highest block in a given tenure (identified by its consensus hash) with a canonical
+    ///  burn_view (i.e., burn_view on the canonical sortition fork)
+    pub fn find_highest_known_block_header_in_tenure(
+        chainstate: &StacksChainState,
+        sort_db: &SortitionDB,
+        tenure_id: &ConsensusHash,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
+        let chainstate_db_conn = chainstate.db();
+
+        let candidates = Self::get_highest_known_block_header_in_tenure_at_each_burnview(
+            chainstate_db_conn,
+            tenure_id,
+        )?;
+
+        let canonical_sortition_handle = sort_db.index_handle_at_tip();
+        for candidate in candidates.into_iter() {
+            let Some(ref candidate_ch) = candidate.burn_view else {
+                // this is an epoch 2.x header, no burn view to check
+                return Ok(Some(candidate));
+            };
+            let in_canonical_fork = canonical_sortition_handle.processed_block(&candidate_ch)?;
+            if in_canonical_fork {
+                return Ok(Some(candidate));
+            }
+        }
+
+        // did not find any blocks in the tenure
+        Ok(None)
+    }
+
+    /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
+    /// tenure.
+    ///
+    /// Get the highest blocks in a given tenure (identified by its consensus hash) at each burn view
+    ///  active in that tenure. If there are ties at a given burn view, they will both be returned
+    fn get_highest_known_block_header_in_tenure_at_each_burnview(
+        db: &Connection,
+        tenure_id: &ConsensusHash,
+    ) -> Result<Vec<StacksHeaderInfo>, ChainstateError> {
         // see if we have a nakamoto block in this tenure
-        let qry = "SELECT * FROM nakamoto_block_headers WHERE consensus_hash = ?1 ORDER BY block_height DESC, timestamp DESC LIMIT 1";
-        let args = params![consensus_hash];
-        if let Some(header) = query_row(db, qry, args)? {
-            return Ok(Some(header));
+        let qry = "
+        SELECT h.*
+        FROM nakamoto_block_headers h
+        JOIN (
+            SELECT burn_view, MAX(block_height) AS max_height
+            FROM nakamoto_block_headers
+            WHERE consensus_hash = ?1
+            GROUP BY burn_view
+        ) maxed
+        ON h.burn_view = maxed.burn_view
+        AND h.block_height = maxed.max_height
+        WHERE h.consensus_hash = ?1
+        ORDER BY h.block_height DESC, h.timestamp
+        ";
+        let args = params![tenure_id];
+        let out = query_rows(db, qry, args)?;
+        if !out.is_empty() {
+            return Ok(out);
         }
 
         // see if this is an epoch2 header. If it exists, then there will only be one.
-        Ok(StacksChainState::get_stacks_block_header_info_by_consensus_hash(db, consensus_hash)?)
+        let epoch2_x =
+            StacksChainState::get_stacks_block_header_info_by_consensus_hash(db, tenure_id)?;
+        Ok(Vec::from_iter(epoch2_x))
     }
 
     /// Get the VRF proof for a Stacks block.
@@ -4975,9 +5011,11 @@ impl NakamotoChainState {
         // they will always have the same txid. In this case we use the block height in the memo. This also
         // happens to give some indication of the purpose of this phantom tx, for anyone looking.
         let memo = TokenTransferMemo({
-            let str = format!("Block {} token unlocks", stacks_block_height);
+            let memo_bytes = format!("Block {stacks_block_height} token unlocks").into_bytes();
             let mut buf = [0u8; 34];
-            buf[..str.len().min(34)].copy_from_slice(&str.as_bytes()[..]);
+            let memo_len = memo_bytes.len().min(34);
+            buf.get_mut(..memo_len)?
+                .copy_from_slice(memo_bytes.get(..memo_len)?);
             buf
         });
         let boot_code_address = boot_code_addr(config.mainnet);

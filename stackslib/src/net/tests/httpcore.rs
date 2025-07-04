@@ -15,18 +15,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::TcpListener;
 use std::sync::mpsc::{channel, Receiver};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{str, thread};
 
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
 use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::chunked_encoding::{
-    HttpChunkedTransferWriter, HttpChunkedTransferWriterState,
-};
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 
 use crate::burnchains::Txid;
@@ -39,9 +36,8 @@ use crate::chainstate::stacks::{
 use crate::net::api::getneighbors::{RPCNeighbor, RPCNeighborsInfo};
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::{
-    http_error_from_code_and_text, http_reason, HttpContentType, HttpErrorResponse,
-    HttpRequestContents, HttpRequestPreamble, HttpReservedHeader, HttpResponsePayload,
-    HttpResponsePreamble, HttpVersion, HTTP_PREAMBLE_MAX_NUM_HEADERS,
+    http_error_from_code_and_text, http_reason, HttpContentType, HttpRequestContents,
+    HttpRequestPreamble, HttpResponsePayload, HttpResponsePreamble, HttpVersion,
 };
 use crate::net::httpcore::{
     send_http_request, HttpPreambleExtensions, HttpRequestContentsExtensions, StacksHttp,

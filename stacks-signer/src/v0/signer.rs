@@ -52,7 +52,7 @@ use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
-use crate::v0::signer_state::NewBurnBlock;
+use crate::v0::signer_state::{NewBurnBlock, ReplayScopeOpt};
 use crate::Signer as SignerTrait;
 
 /// A global variable that can be used to make signers repeat their proposal
@@ -123,6 +123,10 @@ pub struct Signer {
     recently_processed: RecentlyProcessedBlocks<100>,
     /// The signer's global state evaluator
     pub global_state_evaluator: GlobalStateEvaluator,
+    /// Whether to validate blocks with replay transactions
+    pub validate_with_replay_tx: bool,
+    /// Scope of Tx Replay in terms of Burn block boundaries
+    pub tx_replay_scope: ReplayScopeOpt,
 }
 
 impl std::fmt::Display for SignerMode {
@@ -238,6 +242,8 @@ impl SignerTrait<SignerMessage> for Signer {
             local_state_machine: signer_state,
             recently_processed: RecentlyProcessedBlocks::new(),
             global_state_evaluator,
+            validate_with_replay_tx: signer_config.validate_with_replay_tx,
+            tx_replay_scope: None,
         }
     }
 
@@ -255,6 +261,24 @@ impl SignerTrait<SignerMessage> for Signer {
         _res: &Sender<SignerResult>,
         current_reward_cycle: u64,
     ) {
+        self.check_submitted_block_proposal();
+        self.check_pending_block_validations(stacks_client);
+
+        let mut prior_state = self.local_state_machine.clone();
+        if self.reward_cycle <= current_reward_cycle {
+            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client,
+                &self.proposal_config,
+                &mut self.tx_replay_scope)
+                .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
+        }
+
+        if prior_state != self.local_state_machine {
+            let version = self.get_signer_protocol_version();
+            self.local_state_machine
+                .send_signer_update_message(&mut self.stackerdb, version);
+            prior_state = self.local_state_machine.clone();
+        }
+
         let event_parity = match event {
             // Block proposal events do have reward cycles, but each proposal has its own cycle,
             //  and the vec could be heterogeneous, so, don't differentiate.
@@ -272,8 +296,6 @@ impl SignerTrait<SignerMessage> for Signer {
         if event_parity == Some(other_signer_parity) {
             return;
         }
-        self.check_submitted_block_proposal();
-        self.check_pending_block_validations(stacks_client);
         debug!("{self}: Processing event: {event:?}");
         let Some(event) = event else {
             // No event. Do nothing.
@@ -290,12 +312,6 @@ impl SignerTrait<SignerMessage> for Signer {
             // Do not process any events other than status checks or new burn blocks
             debug!("{self}: Signer reward cycle has not yet started. Ignoring event.");
             return;
-        }
-
-        let prior_state = self.local_state_machine.clone();
-        if self.reward_cycle <= current_reward_cycle {
-            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client, &self.proposal_config)
-                .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
         }
 
         self.handle_event_match(stacks_client, sortition_state, event, current_reward_cycle);
@@ -335,6 +351,14 @@ impl SignerTrait<SignerMessage> for Signer {
             .get_all_pending_block_validations()
             .map(|results| u64::try_from(results.len()).unwrap())
             .unwrap_or(0)
+    }
+
+    fn get_canonical_tip(&self) -> Option<BlockInfo> {
+        self.signer_db
+            .get_canonical_tip()
+            .inspect_err(|e| error!("{self}: Failed to check for canonical tip: {e:?}"))
+            .ok()
+            .flatten()
     }
 }
 
@@ -411,7 +435,12 @@ impl Signer {
                             sortition_state,
                         ),
                         SignerMessage::StateMachineUpdate(update) => self
-                            .handle_state_machine_update(signer_public_key, update, received_time),
+                            .handle_state_machine_update(
+                                signer_public_key,
+                                update,
+                                received_time,
+                                sortition_state,
+                            ),
                         _ => {}
                     }
                 }
@@ -453,7 +482,7 @@ impl Signer {
                             );
                             #[cfg(any(test, feature = "testing"))]
                             if self.test_skip_block_broadcast(b) {
-                                return;
+                                continue;
                             }
                             self.handle_post_block(stacks_client, b);
                         }
@@ -462,7 +491,7 @@ impl Signer {
                                 Ok(epoch) => epoch,
                                 Err(e) => {
                                     warn!("{self}: Failed to determine node epoch. Cannot mock sign: {e}");
-                                    return;
+                                    continue;
                                 }
                             };
                             info!("{self}: received a mock block proposal.";
@@ -508,11 +537,14 @@ impl Signer {
                         );
                         panic!("{self} Failed to write burn block event to signerdb: {e}");
                     });
+
                 self.local_state_machine
                     .bitcoin_block_arrival(&self.signer_db, stacks_client, &self.proposal_config, Some(NewBurnBlock {
                         burn_block_height: *burn_height,
                         consensus_hash: *consensus_hash,
-                    }))
+                    }),
+                    &mut self.tx_replay_scope
+                )
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
                 *sortition_state = None;
             }
@@ -521,6 +553,7 @@ impl Signer {
                 block_id,
                 consensus_hash,
                 signer_sighash,
+                transactions,
             } => {
                 let Some(signer_sighash) = signer_sighash else {
                     debug!("{self}: received a new block event for a pre-nakamoto block, no processing necessary");
@@ -532,10 +565,11 @@ impl Signer {
                     "block_id" => %block_id,
                     "signer_signature_hash" => %signer_sighash,
                     "consensus_hash" => %consensus_hash,
-                    "block_height" => block_height
+                    "block_height" => block_height,
+                    "total_txs" => transactions.len()
                 );
                 self.local_state_machine
-                    .stacks_block_arrival(consensus_hash, *block_height, block_id)
+                    .stacks_block_arrival(consensus_hash, *block_height, block_id, signer_sighash, &self.signer_db, transactions)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest stacks block arrival"; "err" => ?e));
 
                 if let Ok(Some(mut block_info)) = self
@@ -740,6 +774,7 @@ impl Signer {
         signer_public_key: &Secp256k1PublicKey,
         update: &StateMachineUpdate,
         received_time: &SystemTime,
+        sortition_state: &mut Option<SortitionsView>,
     ) {
         let address = StacksAddress::p2pkh(self.mainnet, signer_public_key);
         // Store the state machine update so we can reload it if we crash
@@ -762,6 +797,7 @@ impl Signer {
             self.stacks_address,
             version,
             self.reward_cycle,
+            sortition_state,
         );
     }
 
@@ -945,7 +981,6 @@ impl Signer {
         proposed_block: &NakamotoBlock,
     ) -> Option<BlockResponse> {
         let signer_signature_hash = proposed_block.header.signer_signature_hash();
-        let proposed_block_consensus_hash = proposed_block.header.consensus_hash;
         // If this is a tenure change block, ensure that it confirms the correct number of blocks from the parent tenure.
         if let Some(tenure_change) = proposed_block.get_tenure_change_tx_payload() {
             // Ensure that the tenure change block confirms the expected parent block
@@ -957,7 +992,7 @@ impl Signer {
                 self.proposal_config.tenure_last_block_proposal_timeout,
                 self.proposal_config.reorg_attempts_activity_timeout,
             ) {
-                Ok(true) => {}
+                Ok(true) => return None,
                 Ok(false) => {
                     return Some(self.create_block_rejection(
                         RejectReason::SortitionViewMismatch,
@@ -980,40 +1015,43 @@ impl Signer {
         }
 
         // Ensure that the block is the last block in the chain of its current tenure.
-        match self
-            .signer_db
-            .get_last_accepted_block(&proposed_block_consensus_hash)
-        {
-            Ok(Some(last_block_info)) => {
-                if proposed_block.header.chain_length <= last_block_info.block.header.chain_length {
+        match SortitionsView::check_latest_block_in_tenure(
+            &proposed_block.header.consensus_hash,
+            proposed_block,
+            &mut self.signer_db,
+            stacks_client,
+            self.proposal_config.tenure_last_block_proposal_timeout,
+            self.proposal_config.reorg_attempts_activity_timeout,
+        ) {
+            Ok(is_latest) => {
+                if !is_latest {
                     warn!(
                         "Miner's block proposal does not confirm as many blocks as we expect";
-                        "proposed_block_consensus_hash" => %proposed_block_consensus_hash,
+                        "proposed_block_consensus_hash" => %proposed_block.header.consensus_hash,
                         "proposed_block_signer_signature_hash" => %signer_signature_hash,
                         "proposed_chain_length" => proposed_block.header.chain_length,
-                        "expected_at_least" => last_block_info.block.header.chain_length + 1,
                     );
-                    return Some(self.create_block_rejection(
+                    Some(self.create_block_rejection(
                         RejectReason::SortitionViewMismatch,
                         proposed_block,
-                    ));
+                    ))
+                } else {
+                    None
                 }
             }
-            Ok(_) => {}
             Err(e) => {
                 warn!("{self}: Failed to check block against signer db: {e}";
                     "signer_signature_hash" => %signer_signature_hash,
                     "block_id" => %proposed_block.block_id()
                 );
-                return Some(self.create_block_rejection(
+                Some(self.create_block_rejection(
                     RejectReason::ConnectivityIssues(
                         "failed to check block against signer db".to_string(),
                     ),
                     proposed_block,
-                ));
+                ))
             }
         }
-        None
     }
 
     /// Handle the block validate ok response. Returns our block response if we have one
@@ -1030,6 +1068,21 @@ impl Signer {
             .unwrap_or(false)
         {
             self.submitted_block_proposal = None;
+        }
+        if let Some(replay_tx_hash) = block_validate_ok.replay_tx_hash {
+            info!("Inserting block validated by replay tx";
+                "signer_signature_hash" => %signer_signature_hash,
+                "replay_tx_hash" => replay_tx_hash
+            );
+            self.signer_db
+                .insert_block_validated_by_replay_tx(
+                    &signer_signature_hash,
+                    replay_tx_hash,
+                    block_validate_ok.replay_tx_exhausted,
+                )
+                .unwrap_or_else(|e| {
+                    warn!("{self}: Failed to insert block validated by replay tx: {e:?}")
+                });
         }
         // For mutability reasons, we need to take the block_info out of the map and add it back after processing
         let Some(mut block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) else {
@@ -1374,7 +1427,7 @@ impl Signer {
             // Not enough rejection signatures to make a decision
             return;
         }
-        debug!("{self}: {total_reject_weight}/{total_weight} signers voted to reject the block {block_hash}");
+        info!("{self}: {total_reject_weight}/{total_weight} signers voted to reject the block {block_hash}");
         if let Err(e) = self.signer_db.mark_block_globally_rejected(&mut block_info) {
             warn!("{self}: Failed to mark block as globally rejected: {e:?}",);
         }
@@ -1597,7 +1650,17 @@ impl Signer {
                 debug!("{self}: Cannot confirm that we have processed parent, but we've waited proposal_wait_for_parent_time, will submit proposal");
             }
         }
-        match stacks_client.submit_block_for_validation(block.clone()) {
+        match stacks_client.submit_block_for_validation(
+            block.clone(),
+            if self.validate_with_replay_tx {
+                self.global_state_evaluator
+                    .get_global_tx_replay_set()
+                    .unwrap_or_default()
+                    .clone_as_optional()
+            } else {
+                None
+            },
+        ) {
             Ok(_) => {
                 self.submitted_block_proposal = Some((signer_signature_hash, Instant::now()));
             }

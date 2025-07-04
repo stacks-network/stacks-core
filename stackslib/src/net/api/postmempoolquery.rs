@@ -14,36 +14,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::fs::OpenOptions;
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::{fs, io};
-
 use rand::{thread_rng, Rng};
 use regex::{Captures, Regex};
-use serde::de::Error as de_Error;
 use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
-use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::to_hex;
 use url::form_urlencoded;
-use {serde, serde_json};
 
 use crate::burnchains::Txid;
-use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::{Error as ChainError, StacksTransaction};
+use crate::chainstate::stacks::StacksTransaction;
 use crate::core::mempool::{decode_tx_stream, MemPoolDB, MemPoolSyncData};
 use crate::net::http::{
-    parse_bytes, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType, HttpNotFound,
-    HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
-    HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+    parse_bytes, Error, HttpChunkGenerator, HttpContentType, HttpRequest, HttpRequestContents,
+    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
+    HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{
-    HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
-    StacksHttpResponse,
-};
-use crate::net::{Error as NetError, StacksNodeState, TipRequest, MAX_HEADERS};
-use crate::util_lib::db::{DBConn, Error as DBError};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
+use crate::net::{Error as NetError, StacksNodeState};
+use crate::util_lib::db::DBConn;
 
 #[derive(Clone)]
 pub struct RPCMempoolQueryRequestHandler {
@@ -177,9 +164,9 @@ impl HttpChunkGenerator for StacksMemPoolStream {
             "max_txs" => self.max_txs
         );
 
-        if !next_txs.is_empty() {
+        if let Some(next_tx) = next_txs.first() {
             // have another tx to send
-            let chunk = next_txs[0].serialize_to_vec();
+            let chunk = next_tx.serialize_to_vec();
             if u64::try_from(chunk.len())
                 .unwrap()
                 .saturating_add(self.num_bytes)

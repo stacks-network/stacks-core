@@ -14,26 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::fmt;
 use std::io::Write;
 
-use rand::seq::index::sample;
 use rand::Rng;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use ripemd::Ripemd160;
-use rusqlite::{Connection, Transaction};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 pub use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, TrieHash, VRFSeed,
 };
-use stacks_common::util::hash::{to_hex, Hash160, Hash32, Sha512Trunc256Sum};
-use stacks_common::util::log;
+use stacks_common::util::hash::Hash160;
 use stacks_common::util::uint::Uint256;
-use stacks_common::util::vrf::VRFProof;
 
-use crate::burnchains::{Address, PublicKey, Txid};
+use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
 use crate::core::SYSTEM_FORK_SET_VERSION;
 use crate::util_lib::db::Error as db_error;
@@ -125,7 +120,6 @@ impl SortitionHash {
 
     /// Mix in a burn blockchain header to make a new sortition hash
     pub fn mix_burn_header(&self, burn_header_hash: &BurnchainHeaderHash) -> SortitionHash {
-        use sha2::Digest;
         let mut sha2 = Sha256::new();
         sha2.update(self.as_bytes());
         sha2.update(burn_header_hash.as_bytes());
@@ -136,7 +130,6 @@ impl SortitionHash {
 
     /// Mix in a new VRF seed to make a new sortition hash.
     pub fn mix_VRF_seed(&self, VRF_seed: &VRFSeed) -> SortitionHash {
-        use sha2::Digest;
         let mut sha2 = Sha256::new();
         sha2.update(self.as_bytes());
         sha2.update(VRF_seed.as_bytes());
@@ -165,20 +158,18 @@ impl SortitionHash {
 
     /// Convert a SortitionHash into a (little-endian) uint256
     pub fn to_uint256(&self) -> Uint256 {
-        let mut tmp = [0u64; 4];
-        for i in 0..4 {
-            let b = (self.0[8 * i] as u64)
-                + ((self.0[8 * i + 1] as u64) << 8)
-                + ((self.0[8 * i + 2] as u64) << 16)
-                + ((self.0[8 * i + 3] as u64) << 24)
-                + ((self.0[8 * i + 4] as u64) << 32)
-                + ((self.0[8 * i + 5] as u64) << 40)
-                + ((self.0[8 * i + 6] as u64) << 48)
-                + ((self.0[8 * i + 7] as u64) << 56);
+        let (u64_chunks, []) = self.0.as_chunks::<8>() else {
+            panic!("SortitionHash was not evenly divisible by 8")
+        };
 
-            tmp[i] = b;
-        }
-        Uint256(tmp)
+        let tmp: Vec<u64> = u64_chunks
+            .iter()
+            .map(|chunk| u64::from_le_bytes(*chunk))
+            .collect();
+        Uint256(
+            tmp.try_into()
+                .expect("SortitionHash should have 4 chunks of 8 bytes"),
+        )
     }
 }
 
@@ -229,7 +220,6 @@ impl OpsHash {
         // from a hash-chain of txids.  There is no weird serialization
         // of operations, and we don't construct a merkle tree over
         // operations anymore (it's needlessly complex).
-        use sha2::Digest;
         let mut hasher = Sha256::new();
         for txid in txids {
             hasher.update(txid.as_bytes());
@@ -305,7 +295,6 @@ impl ConsensusHashExtensions for ConsensusHash {
         let burn_bytes = total_burn.to_be_bytes();
         let result;
         {
-            use sha2::Digest;
             let mut hasher = Sha256::new();
 
             // fork-set version...
@@ -405,7 +394,6 @@ impl ConsensusHashExtensions for ConsensusHash {
     /// raw consensus hash
     fn from_data(bytes: &[u8]) -> ConsensusHash {
         let result = {
-            use sha2::Digest;
             let mut hasher = Sha256::new();
             hasher.update(bytes);
             hasher.finalize()
@@ -423,16 +411,11 @@ impl ConsensusHashExtensions for ConsensusHash {
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::Connection;
     use stacks_common::types::chainstate::BurnchainHeaderHash;
-    use stacks_common::util::hash::{hex_bytes, Hash160};
-    use stacks_common::util::{get_epoch_time_secs, log};
+    use stacks_common::util::get_epoch_time_secs;
 
     use super::*;
-    use crate::burnchains::bitcoin::address::BitcoinAddress;
-    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::chainstate::burn::db::sortdb::*;
-    use crate::util_lib::db::Error as db_error;
 
     #[test]
     fn get_prev_consensus_hashes() {
