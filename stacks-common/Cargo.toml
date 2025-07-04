@@ -46,6 +46,7 @@ slog-term = "2.6.0"
 
 # Optional dependencies
 slog-json = { version = "2.3.0", optional = true }
+getrandom = { version = "0.2", default-features = false, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = {version = "0.23", optional = true}
@@ -63,8 +64,7 @@ secp256k1 = { version = "0.24.3", features = ["serde", "recovery"] }
 rusqlite = { workspace = true, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-libsecp256k1 = { version = "0.7.0", default-features = false, features = ["hmac", "static-context"] }
-getrandom = { version = "0.2.12", features = ["js"], optional = true }
+libsecp256k1 = { version = "0.7.0", default-features = false, features = ["hmac"] }
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }
@@ -93,8 +93,12 @@ slog_json = ["slog-json"]
 rusqlite = ["dep:rusqlite", "rand"]
 # Enables the rand module. This flag must be off on deterministic
 # platforms such as CosmWasm
-rand = ["dep:rand", "dep:getrandom"]
+rand = ["dep:rand"]
 serde = []
 testing = ["rand"]
 bech32_std = []
 bech32_strict = []
+
+# Wasm-specific features for easier configuration
+wasm-web = ["rand", "getrandom/js", "libsecp256k1/static-context"]
+wasm-deterministic = ["getrandom/custom"]
