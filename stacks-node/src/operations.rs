@@ -38,7 +38,7 @@ impl BurnchainOpSigner {
     /// # Returns
     ///
     /// A WIF-encoded string representation of the private key.
-    pub fn get_sk_as_wif(&self) -> String {
+    pub fn get_secret_key_as_wif(&self) -> String {
         let hex_encoded = self.secret_key.to_hex();
         let mut as_bytes = hex_bytes(&hex_encoded).unwrap();
         as_bytes.insert(0, 0x80);
@@ -50,7 +50,7 @@ impl BurnchainOpSigner {
     /// # Returns
     ///
     /// A hex-encoded string representation of the private key.
-    pub fn get_sk_as_hex(&self) -> String {
+    pub fn get_secret_key_as_hex(&self) -> String {
         self.secret_key.to_hex()
     }
 
@@ -131,7 +131,7 @@ mod tests {
 
         let secp_k = Secp256k1PrivateKey::from_hex(priv_key_hex).unwrap();
         let op_signer = BurnchainOpSigner::new(secp_k);
-        assert_eq!(expected_wif, &op_signer.get_sk_as_wif());
+        assert_eq!(expected_wif, &op_signer.get_secret_key_as_wif());
     }
 
     #[test]
@@ -141,7 +141,7 @@ mod tests {
 
         let secp_k = Secp256k1PrivateKey::from_hex(priv_key_hex).unwrap();
         let op_signer = BurnchainOpSigner::new(secp_k);
-        assert_eq!(expected_hex, op_signer.get_sk_as_hex());
+        assert_eq!(expected_hex, op_signer.get_secret_key_as_hex());
     }
 
     #[test]
