@@ -931,7 +931,7 @@ paths:
 
   /v3/contracts/fast-call-read/{contract_address}/{contract_name}/{function_name}:
     post:
-      summary: Call read-only function in fast mode (no cost tracking)
+      summary: Call read-only function in fast mode (no cost and memory tracking)
       tags:
         - Smart Contracts
       operationId: fast_call_read_only_function
