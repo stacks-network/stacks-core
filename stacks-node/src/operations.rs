@@ -129,8 +129,8 @@ mod tests {
         let priv_key_hex = "0c28fca386c7a227600b2fe50b7cae11ec86d3bf1fbe471be89827e19d72aa1d";
         let expected_wif = "5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ";
 
-        let secp_k = Secp256k1PrivateKey::from_hex(priv_key_hex).unwrap();
-        let op_signer = BurnchainOpSigner::new(secp_k);
+        let secret = Secp256k1PrivateKey::from_hex(priv_key_hex).unwrap();
+        let op_signer = BurnchainOpSigner::new(secret);
         assert_eq!(expected_wif, &op_signer.get_secret_key_as_wif());
     }
 
@@ -159,11 +159,12 @@ mod tests {
         let priv_key_hex = "0c28fca386c7a227600b2fe50b7cae11ec86d3bf1fbe471be89827e19d72aa1d";
         let message = &[0u8; 32];
         let expected_msg_sig = "00b911e6cf9c49b738c4a0f5e33c003fa5b74a00ddc68e574e9f1c3504f6ba7e84275fd62773978cc8165f345cc3f691cf68be274213d552e79af39998df61273f";
-       
+
         let secp_k = Secp256k1PrivateKey::from_hex(priv_key_hex).unwrap();
         let mut op_signer = BurnchainOpSigner::new(secp_k);
 
-        let msg_sig = op_signer.sign_message(message)
+        let msg_sig = op_signer
+            .sign_message(message)
             .expect("Message should be signed!");
 
         assert_eq!(expected_msg_sig, msg_sig.to_hex());
@@ -173,7 +174,7 @@ mod tests {
     fn test_sign_message_fails_due_to_hash_length() {
         let priv_key_hex = "0c28fca386c7a227600b2fe50b7cae11ec86d3bf1fbe471be89827e19d72aa1d";
         let message = &[0u8; 20];
-       
+
         let secp_k = Secp256k1PrivateKey::from_hex(priv_key_hex).unwrap();
         let mut op_signer = BurnchainOpSigner::new(secp_k);
 
@@ -185,7 +186,7 @@ mod tests {
     fn test_sign_message_fails_due_to_disposal() {
         let priv_key_hex = "0c28fca386c7a227600b2fe50b7cae11ec86d3bf1fbe471be89827e19d72aa1d";
         let message = &[0u8; 32];
-       
+
         let secp_k = Secp256k1PrivateKey::from_hex(priv_key_hex).unwrap();
         let mut op_signer = BurnchainOpSigner::new(secp_k);
 
