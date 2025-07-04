@@ -110,23 +110,6 @@ pub mod versions {
     include!(concat!(env!("OUT_DIR"), "/versions.rs"));
 }
 
-#[cfg(all(feature = "wasm-deterministic", target_family = "wasm"))]
-mod getrandom {
-    use core::num::NonZeroU32;
-
-    use getrandom::Error;
-
-    pub const NO_RANDOMNESS_ERROR_CODE: u32 = Error::CUSTOM_START;
-    pub fn always_fail(_buf: &mut [u8]) -> Result<(), Error> {
-        let code = NonZeroU32::new(NO_RANDOMNESS_ERROR_CODE).unwrap();
-        Err(Error::from(code))
-    }
-    pub use getrandom::register_custom_getrandom;
-}
-
-#[cfg(all(feature = "wasm-deterministic", target_family = "wasm"))]
-getrandom::register_custom_getrandom!(getrandom::always_fail);
-
 /// This test asserts that the constant above doesn't change.
 /// This exists because the constant above is used by Epoch 2.5 instantiation code.
 ///
