@@ -3731,7 +3731,7 @@ fn tx_replay_btc_on_stx_invalidation() {
     let num_signers = 5;
     let sender_sk = Secp256k1PrivateKey::from_seed("sender_1".as_bytes());
     let sender_addr = tests::to_addr(&sender_sk);
-    let mut sender_burnop_signer = BurnchainOpSigner::new(sender_sk, false);
+    let mut sender_burnop_signer = BurnchainOpSigner::new(sender_sk);
     let send_amt = 100;
     let send_fee = 180;
     let recipient_sk = Secp256k1PrivateKey::from_seed("recipient_1".as_bytes());

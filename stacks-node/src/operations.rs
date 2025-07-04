@@ -4,17 +4,13 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp
 
 pub struct BurnchainOpSigner {
     secret_key: Secp256k1PrivateKey,
-    is_one_off: bool,
     is_disposed: bool,
-    usages: u8,
 }
 
 impl BurnchainOpSigner {
-    pub fn new(secret_key: Secp256k1PrivateKey, is_one_off: bool) -> BurnchainOpSigner {
+    pub fn new(secret_key: Secp256k1PrivateKey) -> BurnchainOpSigner {
         BurnchainOpSigner {
             secret_key,
-            usages: 0,
-            is_one_off,
             is_disposed: false,
         }
     }
@@ -47,11 +43,6 @@ impl BurnchainOpSigner {
                 return None;
             }
         };
-        self.usages += 1;
-
-        if self.is_one_off && self.usages == 1 {
-            self.is_disposed = true;
-        }
 
         Some(signature)
     }
@@ -93,7 +84,7 @@ mod tests {
         let expected_wif = "5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ";
 
         let secp_k = Secp256k1PrivateKey::from_hex(priv_key_hex).unwrap();
-        let op_signer = BurnchainOpSigner::new(secp_k, false);
+        let op_signer = BurnchainOpSigner::new(secp_k);
         assert_eq!(expected_wif, &op_signer.get_sk_as_wif());
     }
 
@@ -103,7 +94,7 @@ mod tests {
         let expected_hex = priv_key_hex;
 
         let secp_k = Secp256k1PrivateKey::from_hex(priv_key_hex).unwrap();
-        let op_signer = BurnchainOpSigner::new(secp_k, false);
+        let op_signer = BurnchainOpSigner::new(secp_k);
         assert_eq!(expected_hex, op_signer.get_sk_as_hex());
     }
 
@@ -113,7 +104,7 @@ mod tests {
         let expected_hex = "04d0de0aaeaefad02b8bdc8a01a1b8b11c696bd3d66a2c5f10780d95b7df42645cd85228a6fb29940e858e7e55842ae2bd115d1ed7cc0e82d934e929c97648cb0a";
 
         let secp_k = Secp256k1PrivateKey::from_hex(priv_key_hex).unwrap();
-        let mut op_signer = BurnchainOpSigner::new(secp_k, false);
+        let mut op_signer = BurnchainOpSigner::new(secp_k);
         assert_eq!(expected_hex, op_signer.get_public_key().to_hex());
     }
 
@@ -124,7 +115,7 @@ mod tests {
         let expected_msg_sig = "00b911e6cf9c49b738c4a0f5e33c003fa5b74a00ddc68e574e9f1c3504f6ba7e84275fd62773978cc8165f345cc3f691cf68be274213d552e79af39998df61273f";
        
         let secp_k = Secp256k1PrivateKey::from_hex(priv_key_hex).unwrap();
-        let mut op_signer = BurnchainOpSigner::new(secp_k, false);
+        let mut op_signer = BurnchainOpSigner::new(secp_k);
 
         let msg_sig = op_signer.sign_message(message)
             .expect("Message should be signed!");
@@ -138,7 +129,7 @@ mod tests {
         let message = &[0u8; 20];
        
         let secp_k = Secp256k1PrivateKey::from_hex(priv_key_hex).unwrap();
-        let mut op_signer = BurnchainOpSigner::new(secp_k, false);
+        let mut op_signer = BurnchainOpSigner::new(secp_k);
 
         let result = op_signer.sign_message(message);
         assert!(result.is_none());
@@ -150,7 +141,7 @@ mod tests {
         let message = &[0u8; 32];
        
         let secp_k = Secp256k1PrivateKey::from_hex(priv_key_hex).unwrap();
-        let mut op_signer = BurnchainOpSigner::new(secp_k, false);
+        let mut op_signer = BurnchainOpSigner::new(secp_k);
 
         op_signer.dispose();
 
