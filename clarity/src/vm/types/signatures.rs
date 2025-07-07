@@ -1154,7 +1154,7 @@ impl TypeSignature {
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31 
+            | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => Self::least_supertype_v2_1(a, b),
             StacksEpochId::Epoch10 => Err(CheckErrors::Expects("epoch 1.0 not supported".into())),
         }
