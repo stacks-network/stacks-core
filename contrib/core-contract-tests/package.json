@@ -11,6 +11,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@clarigen/cli": "file:../../../../Library/pnpm/global/5/node_modules/@clarigen/cli",
+    "@clarigen/core": "^2.1.2",
+    "@clarigen/test": "^2.1.2",
     "@hirosystems/clarinet-sdk": "^2.4.1",
     "@stacks/clarunit": "0.0.1",
     "@stacks/stacking": "^6.13.2",
@@ -21,5 +24,8 @@
     "vite": "^5.1.6",
     "vitest": "^1.3.1",
     "vitest-environment-clarinet": "^2.0.0"
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2"
   }
 }

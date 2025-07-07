@@ -85,3 +85,11 @@ plan:
             path: "../../stackslib/src/chainstate/stacks/boot/signers-voting.clar"
             clarity-version: 2
       epoch: "2.4"
+    - id: 1
+      transactions:
+        - emulated-contract-publish:
+            contract-name: sip-031
+            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
+            path: "../../stackslib/src/chainstate/stacks/boot/sip-031.clar"
+            clarity-version: 3
+      epoch: "3.0"
