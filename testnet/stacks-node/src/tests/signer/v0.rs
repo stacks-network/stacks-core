@@ -3918,22 +3918,22 @@ fn tx_replay_failsafe() {
 
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
-    signer_test
-        .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_some()))
-        .expect("Expected replay set to still be set");
-
     wait_for(30, || {
         let tip = get_chain_info(&conf);
         Ok(tip.stacks_tip_height > tip_after_fork.stacks_tip_height + 1)
     })
     .expect("Timed out waiting for a TenureChange block to be mined");
 
+    signer_test
+        .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_some()))
+        .expect("Expected replay set to still be set");
+
     info!("---- Mining a third tenure ----");
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     wait_for(30, || {
         let tip = get_chain_info(&conf);
-        Ok(tip.stacks_tip_height > tip_after_fork.stacks_tip_height + 1)
+        Ok(tip.stacks_tip_height > tip_after_fork.stacks_tip_height + 2)
     })
     .expect("Timed out waiting for a TenureChange block to be mined");
 
