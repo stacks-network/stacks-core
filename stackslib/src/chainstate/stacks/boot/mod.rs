@@ -63,6 +63,7 @@ pub const POX_4_NAME: &str = "pox-4";
 pub const SIGNERS_NAME: &str = "signers";
 pub const SIGNERS_VOTING_NAME: &str = "signers-voting";
 pub const SIGNERS_VOTING_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
+pub const SIP_031_NAME: &str = "sip-031";
 /// This is the name of a variable in the `.signers` contract which tracks the most recently updated
 /// reward cycle number.
 pub const SIGNERS_UPDATE_STATE: &str = "last-set-cycle";
@@ -76,6 +77,7 @@ pub const SIGNERS_BODY: &str = std::include_str!("signers.clar");
 pub const SIGNERS_DB_0_BODY: &str = std::include_str!("signers-0-xxx.clar");
 pub const SIGNERS_DB_1_BODY: &str = std::include_str!("signers-1-xxx.clar");
 pub const SIGNERS_VOTING_BODY: &str = std::include_str!("signers-voting.clar");
+pub const SIP_031_BODY: &str = std::include_str!("sip-031.clar");
 
 pub const COSTS_1_NAME: &str = "costs";
 pub const COSTS_2_NAME: &str = "costs-2";

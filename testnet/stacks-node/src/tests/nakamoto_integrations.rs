@@ -128,6 +128,10 @@ use crate::{tests, BitcoinRegtestController, BurnchainController, Config, Config
 pub static POX_4_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
 pub static POX_4_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
 
+use clarity::vm::database::STXBalance;
+use stacks::chainstate::stacks::boot::SIP_031_NAME;
+use stacks::clarity_vm::clarity::SIP_031_INITIAL_MINT;
+
 use crate::clarity::vm::clarity::ClarityConnection;
 
 lazy_static! {
@@ -12801,6 +12805,44 @@ fn test_sip_031_activation() {
     );
 
     assert_eq!(epoch_version, Some(StacksEpochId::Epoch32));
+
+    // check if sip-031 boot contract has been deployed
+    let sip_031_boot_contract_exists = chainstate.with_read_only_clarity_tx(
+        &sortdb
+            .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+            .unwrap(),
+        &latest_stacks_block_id,
+        |conn| {
+            conn.with_clarity_db_readonly(|db| {
+                db.has_contract(&boot_code_id(SIP_031_NAME, naka_conf.is_mainnet()))
+            })
+        },
+    );
+
+    assert_eq!(sip_031_boot_contract_exists, Some(true));
+
+    // check if sip-031 boot contract has a balance of 200_000_000 STX
+    let sip_031_boot_contract_balance = chainstate.with_read_only_clarity_tx(
+        &sortdb
+            .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+            .unwrap(),
+        &latest_stacks_block_id,
+        |conn| {
+            conn.with_clarity_db_readonly(|db| {
+                db.get_account_stx_balance(&PrincipalData::Contract(boot_code_id(
+                    SIP_031_NAME,
+                    naka_conf.is_mainnet(),
+                )))
+            })
+        },
+    );
+
+    assert_eq!(
+        sip_031_boot_contract_balance,
+        Some(Ok(STXBalance::Unlocked {
+            amount: SIP_031_INITIAL_MINT
+        }))
+    );
 
     coord_channel
         .lock()
