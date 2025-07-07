@@ -36,8 +36,8 @@ use crate::core::NETWORK_P2P_PORT;
 use crate::net::asn::ASEntry4;
 use crate::net::{Neighbor, NeighborAddress, NeighborKey, ServiceFlags};
 use crate::util_lib::db::{
-    query_count, query_row, query_rows, sqlite_open, tx_begin_immediate, u64_to_sql, DBConn,
-    Error as db_error, FromColumn, FromRow,
+    query_count, query_row, query_row_panic, query_rows, sqlite_open, tx_begin_immediate,
+    u64_to_sql, DBConn, Error as db_error, FromColumn, FromRow,
 };
 use crate::util_lib::strings::UrlString;
 
@@ -57,15 +57,12 @@ impl FromColumn<PeerAddress> for PeerAddress {
             db_error::ParseError
         })?;
 
-        if addrbytes.len() != 16 {
-            error!("Peer address has {} bytes; expected 16", addrbytes.len());
-            return Err(db_error::ParseError);
-        }
+        let addrbytes_slice: [u8; 16] = addrbytes.try_into().map_err(|e: Vec<u8>| {
+            error!("Peer address has {} bytes; expected 16", e.len());
+            db_error::ParseError
+        })?;
 
-        let mut addrbytes_buf = [0u8; 16];
-        addrbytes_buf.copy_from_slice(&addrbytes[0..16]);
-
-        Ok(PeerAddress(addrbytes_buf))
+        Ok(PeerAddress(addrbytes_slice))
     }
 }
 
@@ -200,17 +197,15 @@ impl FromRow<LocalPeer> for LocalPeer {
         let stackerdbs_json: Option<String> = row.get_unwrap("stacker_dbs");
 
         let nonce_bytes = hex_bytes(&nonce_hex).map_err(|_e| {
-            error!("Unparseable local peer nonce {}", &nonce_hex);
+            error!("Unparseable local peer nonce {nonce_hex}");
             db_error::ParseError
         })?;
 
-        if nonce_bytes.len() != 32 {
-            error!("Peer nonce has {} bytes: {}", nonce_bytes.len(), nonce_hex);
+        let nonce_bytes_len = nonce_bytes.len();
+        let Ok(nonce) = nonce_bytes.try_into() else {
+            error!("Peer nonce has {nonce_bytes_len} bytes: {nonce_hex}");
             return Err(db_error::ParseError);
-        }
-
-        let mut nonce_buf = [0u8; 32];
-        nonce_buf.copy_from_slice(&nonce_bytes[0..32]);
+        };
 
         let data_url = UrlString::try_from(data_url_str).map_err(|_e| db_error::ParseError)?;
         let stacker_dbs: Vec<QualifiedContractIdentifier> =
@@ -224,7 +219,7 @@ impl FromRow<LocalPeer> for LocalPeer {
             network_id,
             parent_network_id,
             private_key: privkey,
-            nonce: nonce_buf,
+            nonce,
             private_key_expire: privkey_expire,
             addrbytes,
             port,
@@ -808,15 +803,11 @@ impl PeerDB {
     /// Read the local peer record
     pub fn get_local_peer(conn: &DBConn) -> Result<LocalPeer, db_error> {
         let qry = "SELECT * FROM local_peer LIMIT 1";
-        let rows = query_rows::<LocalPeer, _>(conn, qry, NO_PARAMS)?;
+        let local_peer_opt = query_row_panic(conn, qry, NO_PARAMS, || {
+            "Got multiple LocalPeer rows".into()
+        })?;
 
-        match rows.len() {
-            1 => Ok(rows[0].clone()),
-            _ => {
-                // only one item here
-                panic!("Got multiple LocalPeer rows, or 0");
-            }
-        }
+        Ok(local_peer_opt.expect("Got 0 LocalPeer rows"))
     }
 
     /// Set the local IP address and port
@@ -1705,9 +1696,9 @@ impl PeerDB {
 
             if allow_rows.len() >= (count as usize) {
                 // return a random subset
-                let allow_slice = allow_rows.as_mut_slice();
-                allow_slice.shuffle(&mut thread_rng());
-                return Ok(allow_slice[0..(count as usize)].to_vec());
+                allow_rows.shuffle(&mut thread_rng());
+                allow_rows.truncate(count as usize);
+                return Ok(allow_rows);
             }
 
             ret.append(&mut allow_rows);
@@ -1869,11 +1860,7 @@ impl PeerDB {
 
         let qry = "SELECT * FROM asn4 WHERE prefix = (?1 & ~((1 << (32 - mask)) - 1)) ORDER BY prefix DESC LIMIT 1";
         let args = params![addr_u32];
-        let rows = query_rows::<ASEntry4, _>(conn, qry, args)?;
-        match rows.len() {
-            0 => Ok(None),
-            _ => Ok(Some(rows[0].asn)),
-        }
+        Ok(query_row::<ASEntry4, _>(conn, qry, args)?.map(|entry| entry.asn))
     }
 
     /// Classify an IP address to its AS number

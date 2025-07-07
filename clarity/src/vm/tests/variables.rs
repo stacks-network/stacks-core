@@ -16,17 +16,20 @@
 
 #[cfg(any(test, feature = "testing"))]
 use rstest::rstest;
+#[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
+use crate::vm::tests::test_clarity_versions;
 #[cfg(test)]
-use crate::vm::analysis::type_checker::v2_1::tests::contracts::type_check_version;
-use crate::vm::analysis::{run_analysis, CheckError};
-use crate::vm::ast::{parse, ASTRules};
-use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::{CheckErrors, Error};
-use crate::vm::tests::{test_clarity_versions, tl_env_factory, TopLevelMemoryEnvironmentGenerator};
-use crate::vm::types::{QualifiedContractIdentifier, Value};
-use crate::vm::{ClarityVersion, ContractContext};
+use crate::vm::{
+    analysis::type_checker::v2_1::tests::contracts::type_check_version,
+    ast::{parse, ASTRules},
+    database::MemoryBackingStore,
+    errors::{CheckErrors, Error},
+    tests::{tl_env_factory, TopLevelMemoryEnvironmentGenerator},
+    types::{QualifiedContractIdentifier, Value},
+    ClarityVersion, ContractContext,
+};
 
 #[apply(test_clarity_versions)]
 fn test_block_height(

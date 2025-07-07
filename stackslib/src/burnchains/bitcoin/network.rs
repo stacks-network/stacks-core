@@ -368,8 +368,14 @@ impl BitcoinIndexer {
         self.runtime.last_getdata_send_time = get_epoch_time_secs();
         debug!(
             "Send GetData {}-{} to {}:{}",
-            block_hashes[0].be_hex_string(),
-            block_hashes[block_hashes.len() - 1].be_hex_string(),
+            block_hashes
+                .first()
+                .map(Sha256dHash::be_hex_string)
+                .unwrap_or_else(|| "<empty-hash>".into()),
+            block_hashes
+                .last()
+                .map(Sha256dHash::be_hex_string)
+                .unwrap_or_else(|| "<empty-hash>".into()),
             self.config.peer_host,
             self.config.peer_port
         );
