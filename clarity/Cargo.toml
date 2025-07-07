@@ -57,3 +57,7 @@ rusqlite = ["vm", "stacks_common/rusqlite", "dep:rusqlite"]
 slog_json = ["stacks_common/slog_json"]
 rollback_value_check = ["vm"]
 disable-costs = ["vm"]
+
+# Wasm-specific features for easier configuration
+wasm-web = ["stacks_common/wasm-web"]
+wasm-deterministic = ["stacks_common/wasm-deterministic"]
