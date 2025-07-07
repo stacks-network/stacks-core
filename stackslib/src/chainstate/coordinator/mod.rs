@@ -994,14 +994,14 @@ fn consolidate_affirmation_maps(
 ) -> AffirmationMap {
     let mut am_entries = vec![];
     for i in 0..last_2_05_rc {
-        if i < sort_am.affirmations.len() {
-            am_entries.push(sort_am.affirmations[i]);
+        if let Some(am_entry) = sort_am.affirmations.get(i) {
+            am_entries.push(*am_entry);
         } else {
             return AffirmationMap::new(am_entries);
         }
     }
-    for i in last_2_05_rc..given_am.len() {
-        am_entries.push(given_am.affirmations[i]);
+    for am_entry in given_am.affirmations.iter().skip(last_2_05_rc) {
+        am_entries.push(*am_entry);
     }
 
     AffirmationMap::new(am_entries)
@@ -2388,12 +2388,9 @@ impl<
     pub fn handle_new_burnchain_block(&mut self) -> Result<NewBurnchainBlockStatus, Error> {
         let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip()?;
         let epochs = SortitionDB::get_stacks_epochs(self.sortition_db.conn())?;
-        let target_epoch_index =
-            StacksEpoch::find_epoch(&epochs, canonical_burnchain_tip.block_height)
-                .expect("FATAL: epoch not defined for burnchain height");
         let target_epoch = epochs
-            .get(target_epoch_index)
-            .expect("FATAL: StacksEpoch::find_epoch() returned an invalid index");
+            .epoch_at_height(canonical_burnchain_tip.block_height)
+            .expect("FATAL: epoch not defined for burnchain height");
         if target_epoch.epoch_id < StacksEpochId::Epoch30 {
             // burnchain has not yet advanced to epoch 3.0
             return self
@@ -2418,11 +2415,9 @@ impl<
                 }),
             None => SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?,
         };
-        let target_epoch_index = StacksEpoch::find_epoch(&epochs, canonical_snapshot.block_height)
-            .expect("FATAL: epoch not defined for BlockSnapshot height");
         let target_epoch = epochs
-            .get(target_epoch_index)
-            .expect("FATAL: StacksEpoch::find_epoch() returned an invalid index");
+            .epoch_at_height(canonical_snapshot.block_height)
+            .expect("FATAL: epoch not defined for BlockSnapshot height");
 
         if target_epoch.epoch_id < StacksEpochId::Epoch30 {
             // need to catch the sortition DB up
@@ -3483,7 +3478,10 @@ pub fn check_chainstate_db_versions(
             .expect("FATAL: could not query sortition DB for maximum block height");
         let cur_epoch_idx = StacksEpoch::find_epoch(epochs, max_height)
             .unwrap_or_else(|| panic!("FATAL: no epoch defined for burn height {max_height}"));
-        let cur_epoch = epochs[cur_epoch_idx].epoch_id;
+        let cur_epoch = epochs
+            .get(cur_epoch_idx)
+            .expect("FATAL: failed to index epochs list")
+            .epoch_id;
 
         // save for later
         cur_epoch_opt = Some(cur_epoch.clone());

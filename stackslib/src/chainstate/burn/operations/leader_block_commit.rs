@@ -219,14 +219,14 @@ impl LeaderBlockCommitOp {
             return None;
         }
 
-        let block_header_hash = BlockHeaderHash::from_bytes(&data[0..32]).unwrap();
-        let new_seed = VRFSeed::from_bytes(&data[32..64]).unwrap();
-        let parent_block_ptr = parse_u32_from_be(&data[64..68]).unwrap();
-        let parent_vtxindex = parse_u16_from_be(&data[68..70]).unwrap();
-        let key_block_ptr = parse_u32_from_be(&data[70..74]).unwrap();
-        let key_vtxindex = parse_u16_from_be(&data[74..76]).unwrap();
+        let block_header_hash = BlockHeaderHash::from_bytes(data.get(0..32)?).unwrap();
+        let new_seed = VRFSeed::from_bytes(data.get(32..64)?).unwrap();
+        let parent_block_ptr = parse_u32_from_be(data.get(64..68)?).unwrap();
+        let parent_vtxindex = parse_u16_from_be(data.get(68..70)?).unwrap();
+        let key_block_ptr = parse_u32_from_be(data.get(70..74)?).unwrap();
+        let key_vtxindex = parse_u16_from_be(data.get(74..76)?).unwrap();
 
-        let burn_parent_modulus_and_memo_byte = data[76];
+        let burn_parent_modulus_and_memo_byte = *data.get(76)?;
 
         let burn_parent_modulus = u8::try_from(
             u64::from(burn_parent_modulus_and_memo_byte & 0b111) % BURN_BLOCK_MINED_AT_MODULUS,
@@ -286,14 +286,14 @@ impl LeaderBlockCommitOp {
             return Err(op_error::InvalidInput);
         }
 
-        if outputs.is_empty() {
+        let Some(output_0) = outputs.first() else {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
                 tx.num_signers(),
                 outputs.len()
             );
             return Err(op_error::InvalidInput);
-        }
+        };
 
         if tx.opcode() != Opcodes::LeaderBlockCommit as u8 {
             warn!("Invalid tx: invalid opcode {}", tx.opcode());
@@ -343,7 +343,7 @@ impl LeaderBlockCommitOp {
             // PoX is disabled by sunset (not possible in epoch 2.1 or later), OR,
             // we're in the prepare phase.
             // should be only one burn output.
-            let output_0 = outputs[0].clone().ok_or_else(|| {
+            let output_0 = output_0.clone().ok_or_else(|| {
                 warn!("Invalid commit tx: unrecognized output 0");
                 op_error::InvalidInput
             })?;
@@ -803,7 +803,11 @@ impl LeaderBlockCommitOp {
             warn!("Invalid prepare-phase block commit, should have 1 commit out");
             return Err(op_error::BlockCommitBadOutputs);
         }
-        if !self.commit_outs[0].is_burn() {
+        let commit_out = self.commit_outs.first().ok_or_else(|| {
+            warn!("Invalid prepare-phase block commit, should have 1 commit out");
+            op_error::BlockCommitBadOutputs
+        })?;
+        if !commit_out.is_burn() {
             warn!("Invalid prepare-phase block commit, should have burn address output");
             return Err(op_error::BlockCommitBadOutputs);
         }
@@ -821,18 +825,18 @@ impl LeaderBlockCommitOp {
     /// Check the epoch marker in a block-commit to make sure it matches the right epoch.
     /// Valid in Stacks 2.05+
     fn check_epoch_commit_marker(&self, marker: u8) -> Result<(), op_error> {
-        if self.memo.is_empty() {
+        let Some(memo_0) = self.memo.first() else {
             debug!(
                 "Invalid block commit";
                 "reason" => "no epoch marker byte given",
             );
             return Err(op_error::BlockCommitBadEpoch);
-        }
-        if self.memo[0] < marker {
+        };
+        if *memo_0 < marker {
             debug!(
                 "Invalid block commit";
                 "reason" => "invalid epoch marker byte",
-                "marker_byte" => self.memo[0],
+                "marker_byte" => memo_0,
                 "expected_marker_byte" => marker,
             );
             return Err(op_error::BlockCommitBadEpoch);
@@ -849,16 +853,18 @@ impl LeaderBlockCommitOp {
             }
             StacksEpochId::Epoch20 => {
                 // no-op, but log for helping node operators watch for old nodes
-                if self.memo.is_empty() {
+                let Some(memo_0) = self.memo.first() else {
                     debug!(
                         "Soon-to-be-invalid block commit";
                         "reason" => "no epoch marker byte given",
                     );
-                } else if self.memo[0] < STACKS_EPOCH_2_05_MARKER {
+                    return Ok(());
+                };
+                if *memo_0 < STACKS_EPOCH_2_05_MARKER {
                     debug!(
                         "Soon-to-be-invalid block commit";
                         "reason" => "invalid epoch marker byte",
-                        "marker_byte" => self.memo[0],
+                        "marker_byte" => memo_0,
                     );
                 }
                 Ok(())
