@@ -23,6 +23,7 @@ use crate::vm::types::{FixedFunction, FunctionType};
 use crate::vm::variables::NativeVariables;
 use crate::vm::ClarityVersion;
 
+#[cfg(feature = "rusqlite")]
 pub mod contracts;
 
 #[derive(Serialize)]

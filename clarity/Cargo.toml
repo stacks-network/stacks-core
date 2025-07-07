@@ -34,7 +34,7 @@ rstest = { version = "0.17.0", optional = true }
 rstest_reuse = { version = "0.5.0", optional = true }
 wasmtime = { version = "15.0.0", optional = true }
 hashbrown = { workspace = true, features = ["serde"] }
-getrandom = { version = "0.2", features = ["js"], optional = true}
+getrandom = { version = "0.2", features = ["js"], optional = true }
 
 [dependencies.serde_json]
 version = "1.0"

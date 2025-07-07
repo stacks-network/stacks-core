@@ -31,7 +31,6 @@ use super::analysis::{self, ContractAnalysis};
 #[cfg(feature = "clarity-wasm")]
 use super::clarity_wasm::call_function;
 use super::EvalHook;
-use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
@@ -39,7 +38,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostErrors, CostTracker, ExecutionCost, LimitedCostTracker};
 use crate::vm::database::{
     ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
-    MemoryBackingStore, NonFungibleTokenMetadata,
+    NonFungibleTokenMetadata,
 };
 use crate::vm::errors::{
     CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
@@ -660,7 +659,7 @@ impl<'a> OwnedEnvironment<'a> {
         sponsor: Option<PrincipalData>,
         ast_rules: ASTRules,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
-        let mut store = MemoryBackingStore::new();
+        let mut store = crate::vm::database::MemoryBackingStore::new();
         let mut analysis_db = store.as_analysis_db();
         analysis_db.begin();
 
@@ -696,7 +695,7 @@ impl<'a> OwnedEnvironment<'a> {
         contract_content: &str,
         sponsor: Option<PrincipalData>,
         ast_rules: ASTRules,
-        analysis_db: &mut AnalysisDatabase,
+        analysis_db: &mut analysis::AnalysisDatabase,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
@@ -760,7 +759,7 @@ impl<'a> OwnedEnvironment<'a> {
         contract_content: &str,
         sponsor: Option<PrincipalData>,
         ast_rules: ASTRules,
-        analysis_db: &mut AnalysisDatabase,
+        analysis_db: &mut analysis::AnalysisDatabase,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
@@ -1430,7 +1429,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         contract_content: &str,
         ast_rules: ASTRules,
     ) -> Result<()> {
-        let mut store = MemoryBackingStore::new();
+        let mut store = crate::vm::database::MemoryBackingStore::new();
         let mut analysis_db = store.as_analysis_db();
         analysis_db.begin();
 
@@ -1468,7 +1467,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
         ast_rules: ASTRules,
-        analysis_db: &mut AnalysisDatabase,
+        analysis_db: &mut analysis::AnalysisDatabase,
     ) -> Result<()> {
         let clarity_version = self.contract_context.clarity_version;
 
