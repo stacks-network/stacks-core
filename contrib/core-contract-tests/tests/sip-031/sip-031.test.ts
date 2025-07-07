@@ -6,6 +6,7 @@ import { test, expect } from 'vitest';
 const contracts = projectFactory(project, 'simnet');
 const contract = contracts.sip031;
 const constants = contract.constants;
+const indirectContract = contracts.sip031Indirect;
 
 test('initial recipient should be the deployer', () => {
   const value = rov(contract.getRecipient());
@@ -31,4 +32,9 @@ test('updated recipient can re-update the recipient', () => {
 
   txOk(contract.updateRecipient(accounts.wallet_2.address), accounts.wallet_1.address)
   expect(rov(contract.getRecipient())).toBe(accounts.wallet_2.address);
+});
+
+test('recipient cannot be updated from an indirect contract', () => {
+  const receipt = txErr(indirectContract.updateRecipient(accounts.wallet_1.address), accounts.deployer.address)
+  expect(receipt.value).toBe(constants.ERR_NOT_ALLOWED);
 });

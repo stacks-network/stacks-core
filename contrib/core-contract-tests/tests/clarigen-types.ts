@@ -4601,6 +4601,27 @@ export const contracts = {
     clarity_version: "Clarity3",
     contractName: "sip-031",
   },
+  sip031Indirect: {
+    functions: {
+      updateRecipient: {
+        name: "update-recipient",
+        access: "public",
+        args: [{ name: "new-recipient", type: "principal" }],
+        outputs: { type: { response: { ok: "bool", error: "int128" } } },
+      } as TypedAbiFunction<
+        [newRecipient: TypedAbiArg<string, "newRecipient">],
+        Response<boolean, bigint>
+      >,
+    },
+    maps: {},
+    variables: {},
+    constants: {},
+    non_fungible_tokens: [],
+    fungible_tokens: [],
+    epoch: "Epoch30",
+    clarity_version: "Clarity3",
+    contractName: "sip-031-indirect",
+  },
 } as const;
 
 export const accounts = {
@@ -4654,6 +4675,7 @@ export const identifiers = {
   signers: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.signers",
   signersVoting: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.signers-voting",
   sip031: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sip-031",
+  sip031Indirect: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sip-031-indirect",
 } as const;
 
 export const simnet = {
@@ -4702,6 +4724,12 @@ export const deployments = {
   sip031: {
     devnet: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sip-031",
     simnet: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sip-031",
+    testnet: null,
+    mainnet: null,
+  },
+  sip031Indirect: {
+    devnet: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sip-031-indirect",
+    simnet: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sip-031-indirect",
     testnet: null,
     mainnet: null,
   },
