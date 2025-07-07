@@ -1596,6 +1596,34 @@ impl<'a> ClarityBlockConnection<'a, '_> {
         })
     }
 
+    pub fn initialize_epoch_3_2(&mut self) -> Result<Vec<StacksTransactionReceipt>, Error> {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*.
+            // NOTE: this also means that cost functions won't be evaluated.
+            self.cost_track.replace(LimitedCostTracker::new_free());
+            self.epoch = StacksEpochId::Epoch32;
+            self.as_transaction(|tx_conn| {
+                // bump the epoch in the Clarity DB
+                tx_conn
+                    .with_clarity_db(|db| {
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch32)?;
+                        Ok(())
+                    })
+                    .unwrap();
+
+                // require 3.2 rules henceforth in this connection as well
+                tx_conn.epoch = StacksEpochId::Epoch32;
+            });
+
+            // TODO: SIP-031 setup (minting and transfer to the boot contract)
+
+            debug!("Epoch 3.2 initialized");
+            (old_cost_tracker, Ok(vec![]))
+        })
+    }
+
     pub fn start_transaction_processing(&mut self) -> ClarityTransactionConnection {
         ClarityTransactionConnection::new(
             &mut self.datastore,

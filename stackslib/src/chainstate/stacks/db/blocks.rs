@@ -4092,6 +4092,10 @@ impl StacksChainState {
                         current_epoch = StacksEpochId::Epoch31;
                     }
                     StacksEpochId::Epoch31 => {
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_3_2()?);
+                        current_epoch = StacksEpochId::Epoch32;
+                    }
+                    StacksEpochId::Epoch32 => {
                         panic!("No defined transition from Epoch31 forward")
                     }
                 }
@@ -4921,7 +4925,10 @@ impl StacksChainState {
                     )?;
                 Ok((stack_ops, transfer_ops, delegate_ops, vec![]))
             }
-            StacksEpochId::Epoch25 | StacksEpochId::Epoch30 | StacksEpochId::Epoch31 => {
+            StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => {
                 StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                     chainstate_tx,
                     parent_index_hash,
@@ -5011,13 +5018,14 @@ impl StacksChainState {
                     pox_reward_cycle,
                     pox_start_cycle_info,
                 ),
-                StacksEpochId::Epoch25 | StacksEpochId::Epoch30 | StacksEpochId::Epoch31 => {
-                    Self::handle_pox_cycle_start_pox_4(
-                        clarity_tx,
-                        pox_reward_cycle,
-                        pox_start_cycle_info,
-                    )
-                }
+                StacksEpochId::Epoch25
+                | StacksEpochId::Epoch30
+                | StacksEpochId::Epoch31
+                | StacksEpochId::Epoch32 => Self::handle_pox_cycle_start_pox_4(
+                    clarity_tx,
+                    pox_reward_cycle,
+                    pox_start_cycle_info,
+                ),
             }
         })?;
         debug!("check_and_handle_reward_start: handled pox cycle start");
