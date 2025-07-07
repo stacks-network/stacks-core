@@ -245,6 +245,11 @@ fn test_epoch_coinbase_reward() {
         62_500_000
     );
 
+    assert_eq!(
+        StacksEpochId::Epoch32.coinbase_reward(true, 666050, 666050),
+        1_000_000_000
+    );
+
     // old coinbase schedule
     for epoch in [
         StacksEpochId::Epoch20,

@@ -125,6 +125,7 @@ epochs_template! {
     Epoch25,
     Epoch30,
     Epoch31,
+    Epoch32,
 }
 
 clarity_template! {
@@ -146,6 +147,9 @@ clarity_template! {
     (Epoch31, Clarity1),
     (Epoch31, Clarity2),
     (Epoch31, Clarity3),
+    (Epoch32, Clarity1),
+    (Epoch32, Clarity2),
+    (Epoch32, Clarity3),
 }
 
 #[cfg(test)]
