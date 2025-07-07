@@ -3953,7 +3953,7 @@ fn tx_replay_failsafe() {
 /// exits.
 #[ignore]
 #[test]
-fn tx_replay_simple() {
+fn tx_replay_starts_correctly() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
