@@ -256,7 +256,7 @@ impl CoinbaseInterval {
 
 impl StacksEpochId {
     pub fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch31
+        StacksEpochId::Epoch32
     }
 
     /// In this epoch, how should the mempool perform garbage collection?
@@ -584,6 +584,7 @@ impl TryFrom<u32> for StacksEpochId {
             x if x == StacksEpochId::Epoch25 as u32 => Ok(StacksEpochId::Epoch25),
             x if x == StacksEpochId::Epoch30 as u32 => Ok(StacksEpochId::Epoch30),
             x if x == StacksEpochId::Epoch31 as u32 => Ok(StacksEpochId::Epoch31),
+            x if x == StacksEpochId::Epoch32 as u32 => Ok(StacksEpochId::Epoch32),
             _ => Err("Invalid epoch"),
         }
     }
