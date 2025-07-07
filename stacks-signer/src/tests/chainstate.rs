@@ -44,6 +44,7 @@ use stacks_common::util::secp256k1::MessageSignature;
 use crate::chainstate::{ProposalEvalConfig, SortitionMinerStatus, SortitionState, SortitionsView};
 use crate::client::tests::MockServerClient;
 use crate::client::StacksClient;
+use crate::config::DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS;
 use crate::signerdb::{BlockInfo, SignerDb};
 
 fn setup_test_environment(
@@ -92,7 +93,7 @@ fn setup_test_environment(
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(3),
             proposal_wait_for_parent_time: Duration::from_secs(0),
-            reset_replay_set_after_fork_blocks: 2,
+            reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         },
     };
 
