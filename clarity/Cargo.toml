@@ -29,7 +29,6 @@ stacks_common = { package = "stacks-common", path = "../stacks-common", default-
 
 # Optional dependencies for vm functionality
 rand = { workspace = true, optional = true }
-rand_chacha = { workspace = true , optional = true }
 serde_stacker = { version = "0.1", optional = true }
 integer-sqrt = { version = "0.1.3", optional = true }
 rusqlite = { workspace = true, optional = true }
@@ -50,7 +49,7 @@ default = ["vm", "rusqlite"]
 # cost-checking system, and execution engine. It transitively enables all necessary
 # dependencies for running smart contracts. This feature is required for any on-chain
 # contract execution or local contract testing.
-vm = ["dep:rand", "dep:rand_chacha", "dep:serde_stacker", "dep:integer-sqrt"]
+vm = ["dep:rand", "dep:serde_stacker", "dep:integer-sqrt"]
 developer-mode = ["vm", "stacks_common/developer-mode"]
 devtools = ["vm"]
 testing = ["vm", "dep:rstest", "dep:rstest_reuse", "rusqlite"]
