@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## Unreleased
+
+### Added
+
+- When a transaction replay set has been active for a configurable number of burn blocks (which defaults to `2`), and the replay set still hasn't been cleared, the replay set is automatically cleared. This is provided as a "failsafe" to ensure chain liveness as transaction replay is rolled out.
+
 ## [3.1.0.0.13.0]
 
 ### Changed
