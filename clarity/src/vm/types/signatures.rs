@@ -794,7 +794,7 @@ impl TypeSignature {
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31 
+            | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => self.canonicalize_v2_1(),
         }
     }
