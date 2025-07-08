@@ -109,7 +109,7 @@ jobs:
           cache-key: cargo-hack-wasm-${{ matrix.name }}-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install cargo-hack
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@2383334cf567d78771fc7d89b6b3802ef1412cf6 # v2.56.8
         with:
           tool: cargo-hack
 
