@@ -25,7 +25,7 @@ jobs:
         id: toolchain
         run: echo "rust-toolchain=$(cat ./rust-toolchain)" >> $GITHUB_OUTPUT
 
-  # Native targets (Windows/Linux) - now just one job
+  # Native targets (Windows/Linux)
   native-targets:
     name: All Crates (Windows/Linux)
     runs-on: ubuntu-latest
@@ -42,7 +42,7 @@ jobs:
           cache-key: cargo-hack-native-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install cargo-hack
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@2383334cf567d78771fc7d89b6b3802ef1412cf6  # v2.56.8
         with:
           tool: cargo-hack
 
@@ -118,19 +118,3 @@ jobs:
 
       - name: Run cargo hack check
         run: ${{ matrix.command }}
-
-  # Summary job
-  check-results:
-    name: Check Results
-    runs-on: ubuntu-latest
-    if: always()
-    needs: [native-targets, wasm-targets]
-    steps:
-      - name: Check Results
-        run: |
-          if [[ "${{ needs.native-targets.result }}" == "failure" || "${{ needs.wasm-targets.result }}" == "failure" ]]; then
-            echo "❌ Some cargo hack checks failed"
-            exit 1
-          else
-            echo "✅ All cargo hack checks passed"
-          fi
