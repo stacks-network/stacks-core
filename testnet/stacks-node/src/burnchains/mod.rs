@@ -1,6 +1,7 @@
 pub mod bitcoin_regtest_controller;
-pub mod mocknet_controller;
 pub mod bitcoin_rpc_client;
+pub mod mocknet_controller;
+pub mod rpc_transport;
 
 use std::time::Instant;
 

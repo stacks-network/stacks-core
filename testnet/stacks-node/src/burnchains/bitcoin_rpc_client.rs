@@ -1,124 +1,14 @@
-use std::time::Duration;
+use serde_json::{json, Value};
 
-use serde::Deserialize;
-use serde_json::Value;
-use serde_json::json;
-use reqwest::blocking::Client;
-
-use base64::encode;
-
+use crate::burnchains::rpc_transport::{RpcResult, RpcTransport};
 use crate::burnchains::bitcoin_regtest_controller::{ParsedUTXO, UTXO};
 
-const RCP_CLIENT_ID: &str = "stacks";
-const RCP_VERSION: &str = "2.0";
-
-#[derive(Serialize)]
-struct JsonRpcRequest {
-    jsonrpc: String,
-    id: String,
-    method: String,
-    params: serde_json::Value,
-}
-
-#[derive(Deserialize, Debug)]
-struct JsonRpcResponse<T> {
-    result: Option<T>,
-    error: Option<Value>,
-    //id: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub enum RpcError {
-    Network(String),
-    Parsing(String),
-    Bitcoind(String),
-}
-
-pub type RpcResult<T> = Result<T, RpcError>;
-
-/*
-impl From<io::Error> for RPCError {
-    fn from(ioe: io::Error) -> Self {
-        Self::Network(format!("IO Error: {ioe:?}"))
-    }
-}
-
-impl From<NetError> for RPCError {
-    fn from(ne: NetError) -> Self {
-        Self::Network(format!("Net Error: {ne:?}"))
-    }
-}
- */
-
-struct RpcTransport {
-    host: String,
-    port: u16,
-    ssl: bool,
-    username: String,
-    password: String,
-}
-
-impl RpcTransport { 
-    pub fn send<T: for<'de> Deserialize<'de>>(
-        &self,
-        method: &str,
-        params: Vec<Value>,
-        wallet: Option<&str>,
-    ) -> RpcResult<T> {
-        let request = JsonRpcRequest {
-            jsonrpc: RCP_VERSION.to_string(),
-            id: RCP_CLIENT_ID.to_string(),
-            method: method.to_string(),
-            params: Value::Array(params),
-        };
-
-        let client = Client::builder()
-            .timeout(Duration::from_secs(15))
-            .build()
-            .unwrap();
-
-        let response = 
-            //self.client
-            client
-            .post(&self.build_url(wallet))
-            .header("Authorization", self.auth_header())
-            .json(&request)
-            .send()
-            .map_err(|err| RpcError::Network(err.to_string()))?;
-
-        let parsed: JsonRpcResponse<T> = response.json().map_err(|e| {
-            RpcError::Parsing(format!("Failed to parse RPC response: {}", e))
-        })?;
-
-        match (parsed.result, parsed.error) {
-            (Some(result), None) => Ok(result),
-            (_, Some(err)) => Err(RpcError::Bitcoind(format!("{:#}", err))),
-            _ => Err(RpcError::Parsing("Missing both result and error".into())),
-        }
-    }
-
-    fn build_url(&self, wallet_opt: Option<&str>) -> String {
-        let protocol = if self.ssl { "https" } else { "http" };
-        let mut url = format!("{}://{}:{}", protocol, self.host, self.port);
-        if let Some(wallet) = wallet_opt {
-            url.push_str(&format!("/wallet/{}", wallet));
-        }
-        url
-    }
-
-    fn auth_header(&self) -> String {
-        let credentials = format!("{}:{}", self.username, self.password);
-        format!("Basic {}", encode(credentials))
-    }
-
-}
-
 pub struct BitcoinRpcClient {
-    transport: RpcTransport
+    transport: RpcTransport,
 }
 
 impl BitcoinRpcClient {
-     pub fn from_params(
+    pub fn from_params(
         host: String,
         port: u16,
         ssl: bool,
@@ -138,40 +28,44 @@ impl BitcoinRpcClient {
 
     pub fn create_wallet(&self, wallet_name: &str) -> RpcResult<()> {
         let disable_private_keys = true;
-        
+
         self.transport.send::<Value>(
-            "createwallet", 
+            "createwallet",
             vec![wallet_name.into(), disable_private_keys.into()],
-            None)?;
+            None,
+        )?;
         Ok(())
     }
 
     pub fn list_wallets(&self) -> RpcResult<Vec<String>> {
-        self.transport.send(
-            "listwallets", 
-            vec![], 
-            None)
+        self.transport.send("listwallets", vec![], None)
     }
 
-    pub fn list_unspent(&self, addresses: Vec<String>, include_unsafe: bool, minimum_amount: u64, maximum_count: u64) -> RpcResult<Vec<UTXO>> {
+    pub fn list_unspent(
+        &self,
+        addresses: Vec<String>,
+        include_unsafe: bool,
+        minimum_amount: u64,
+        maximum_count: u64,
+    ) -> RpcResult<Vec<UTXO>> {
         let min_conf = 0i64;
         let max_conf = 9999999i64;
         let minimum_amount = ParsedUTXO::sat_to_serialized_btc(minimum_amount);
         let maximum_count = maximum_count;
 
         let raw_utxos: Vec<ParsedUTXO> = self.transport.send(
-            "listunspent", 
+            "listunspent",
             vec![
-                min_conf.into(), 
-                max_conf.into(), 
-                addresses.into(), 
+                min_conf.into(),
+                max_conf.into(),
+                addresses.into(),
                 include_unsafe.into(),
                 json!({
                     "minimumAmount": minimum_amount,
                     "maximumCount": maximum_count
                 }),
             ],
-            None
+            None,
         )?;
 
         let mut result = vec![];
@@ -202,7 +96,7 @@ impl BitcoinRpcClient {
                 confirmations: raw_utxo.confirmations,
             });
         }
-        
+
         Ok(result)
     }
 }
@@ -233,7 +127,7 @@ mod unit_tests {
     }
 
     #[test]
-    fn test_create_wallet() {
+    fn test_create_wallet_ok() {
         let expected_request = json!({
             "jsonrpc": "2.0",
             "id": "stacks",
@@ -242,7 +136,8 @@ mod unit_tests {
         });
 
         let mut server: mockito::ServerGuard = mockito::Server::new();
-        let _m = server.mock("POST", "/")
+        let _m = server
+            .mock("POST", "/")
             .match_header("authorization", "Basic dXNlcjpwYXNz")
             .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
             .with_status(200)
@@ -256,7 +151,7 @@ mod unit_tests {
     }
 
     #[test]
-    fn test_list_wallets() {
+    fn test_list_wallets_ok() {
         let expected_request = json!({
             "jsonrpc": "2.0",
             "id": "stacks",
@@ -265,8 +160,9 @@ mod unit_tests {
         });
 
         let mut server = mockito::Server::new();
-        let _m = server.mock("POST", "/")
-            .match_header("authorization", "Basic dXNlcjpwYXNz") 
+        let _m = server
+            .mock("POST", "/")
+            .match_header("authorization", "Basic dXNlcjpwYXNz")
             .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
             .with_status(200)
             .with_header("Content-Type", "application/json")
@@ -282,7 +178,7 @@ mod unit_tests {
     }
 
     #[test]
-    fn test_list_unspent() { 
+    fn test_list_unspent_ok() {
         let expected_request = json!({
             "jsonrpc": "2.0",
             "id": "stacks",
@@ -322,25 +218,27 @@ mod unit_tests {
 
         let client = utils::setup_client(&server);
 
-        let result = client.list_unspent(
-            vec!["BTC_ADDRESS_1".into()],
-            true,
-            1000, // 1000 sats = 0.00001000 BTC
-            100,
-        ).expect("Should parse unspent outputs");
+        let result = client
+            .list_unspent(
+                vec!["BTC_ADDRESS_1".into()],
+                true,
+                1000, // 1000 sats = 0.00001000 BTC
+                100,
+            )
+            .expect("Should parse unspent outputs");
 
-        assert_eq!(result.len(), 1);
+        assert_eq!(1, result.len());
         let utxo = &result[0];
-        assert_eq!(utxo.amount, 1000);
-        assert_eq!(utxo.vout, 0);
-        assert_eq!(utxo.confirmations, 6);
+        assert_eq!(1000, utxo.amount);
+        assert_eq!(0, utxo.vout);
+        assert_eq!(6, utxo.confirmations);
         assert_eq!(
+            "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
             utxo.txid.to_string(),
-            "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
         );
         assert_eq!(
+            "76a91489abcdefabbaabbaabbaabbaabbaabbaabbaabba88ac",
             to_hex(&utxo.script_pub_key.to_bytes()),
-            "76a91489abcdefabbaabbaabbaabbaabbaabbaabbaabba88ac"
         );
     }
 }
