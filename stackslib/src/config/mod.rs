@@ -650,12 +650,12 @@ impl Config {
         // sanity check: epochs must be contiguous and ordered
         // (this panics if it's not the case)
         test_debug!("Validate epochs: {:#?}", epochs);
-        let _ = StacksEpoch::validate_epochs(epochs);
+        let validated = StacksEpoch::validate_epochs(epochs);
 
         // sanity check: v1_unlock_height must happen after pox-2 instantiation
-        let epoch21_index = StacksEpoch::find_epoch_by_id(epochs, StacksEpochId::Epoch21)
+        let epoch21 = validated
+            .get(StacksEpochId::Epoch21)
             .expect("FATAL: no epoch 2.1 defined");
-        let epoch21 = &epochs[epoch21_index];
         let v1_unlock_height = burnchain.pox_constants.v1_unlock_height as u64;
 
         assert!(
@@ -692,8 +692,8 @@ impl Config {
             BitcoinNetworkType::Mainnet => {
                 Err("Cannot configure epochs in mainnet mode".to_string())
             }
-            BitcoinNetworkType::Testnet => Ok(STACKS_EPOCHS_TESTNET.to_vec()),
-            BitcoinNetworkType::Regtest => Ok(STACKS_EPOCHS_REGTEST.to_vec()),
+            BitcoinNetworkType::Testnet => Ok(STACKS_EPOCHS_TESTNET.clone().to_vec()),
+            BitcoinNetworkType::Regtest => Ok(STACKS_EPOCHS_REGTEST.clone().to_vec()),
         }?;
         let mut matched_epochs = vec![];
         for configured_epoch in conf_epochs.iter() {
@@ -756,33 +756,42 @@ impl Config {
         }
 
         // Stacks 1.0 must start at 0
-        if matched_epochs[0].1 != 0 {
+        if matched_epochs
+            .first()
+            .ok_or_else(|| "Must configure at least 1 epoch")?
+            .1
+            != 0
+        {
             return Err("Stacks 1.0 must start at height = 0".into());
         }
 
-        if matched_epochs.len() > default_epochs.len() {
-            return Err(format!(
+        let mut out_epochs = default_epochs
+            .get(..matched_epochs.len())
+            .ok_or_else(|| {
+                format!(
                 "Cannot configure more epochs than support by this node. Supported epoch count: {}",
                 default_epochs.len()
-            ));
-        }
-        let mut out_epochs = default_epochs[..matched_epochs.len()].to_vec();
+            )
+            })?
+            .to_vec();
 
-        for (i, (epoch_id, start_height)) in matched_epochs.iter().enumerate() {
-            if epoch_id != &out_epochs[i].epoch_id {
+        for (i, ((epoch_id, start_height), out_epoch)) in
+            matched_epochs.iter().zip(out_epochs.iter_mut()).enumerate()
+        {
+            if epoch_id != &out_epoch.epoch_id {
                 return Err(
                     format!("Unmatched epochs in configuration and node implementation. Implemented = {epoch_id}, Configured = {}",
-                            &out_epochs[i].epoch_id));
+                            &out_epoch.epoch_id));
             }
             // end_height = next epoch's start height || i64::max if last epoch
-            let end_height = if i + 1 < matched_epochs.len() {
-                matched_epochs[i + 1].1
+            let end_height = if let Some(next_epoch) = matched_epochs.get(i + 1) {
+                next_epoch.1
             } else {
                 i64::MAX
             };
-            out_epochs[i].start_height = u64::try_from(*start_height)
+            out_epoch.start_height = u64::try_from(*start_height)
                 .map_err(|_| "Start height must be a non-negative integer")?;
-            out_epochs[i].end_height = u64::try_from(end_height)
+            out_epoch.end_height = u64::try_from(end_height)
                 .map_err(|_| "End height must be a non-negative integer")?;
         }
 
@@ -1771,6 +1780,7 @@ impl BurnchainConfigFile {
     /// The Xenon Testnet Stacks 2.4 activation height occurred before the finalized SIP-024 updates and release of the stacks-node versioned 2.4.0.0.0.
     /// This caused the Stacks Xenon testnet to undergo a deep reorg when 2.4.0.0.0 was finalized. This deep reorg meant that 3 reward cycles were
     /// invalidated, which requires overrides in the affirmation map to continue correct operation. Those overrides are required for cycles 413, 414, and 415.
+    #[allow(clippy::indexing_slicing)] // bad affirmation map override should panic
     pub fn add_affirmation_overrides_xenon(&mut self) {
         let mut default_overrides = vec![
         AffirmationOverride {
@@ -2644,9 +2654,9 @@ impl NodeConfig {
 
     pub fn add_bootstrap_node(&mut self, bootstrap_node: &str, chain_id: u32, peer_version: u32) {
         let parts: Vec<&str> = bootstrap_node.split('@').collect();
-        if parts.len() != 2 {
+        let Ok(parts) = TryInto::<&[_; 2]>::try_into(parts.as_slice()) else {
             panic!("Invalid bootstrap node '{bootstrap_node}': expected PUBKEY@IP:PORT");
-        }
+        };
         let (pubkey_str, hostport) = (parts[0], parts[1]);
         let pubkey = Secp256k1PublicKey::from_hex(pubkey_str)
             .unwrap_or_else(|_| panic!("Invalid public key '{pubkey_str}'"));
@@ -4554,11 +4564,11 @@ impl EventKeyType {
         }
 
         let comps: Vec<_> = raw_key.split("::").collect();
-        if comps.len() == 1 {
-            let split: Vec<_> = comps[0].split('.').collect();
-            if split.len() != 3 {
+        if let Ok(comps) = TryInto::<&[_; 1]>::try_into(comps.as_slice()) {
+            let split_vec: Vec<_> = comps[0].split('.').collect();
+            let Ok(split) = TryInto::<&[_; 3]>::try_into(split_vec.as_slice()) else {
                 return None;
-            }
+            };
             let components = (
                 PrincipalData::parse_standard_principal(split[0]),
                 split[1].to_string().try_into(),
@@ -4575,7 +4585,7 @@ impl EventKeyType {
                 }
                 (_, _, _) => None,
             }
-        } else if comps.len() == 2 {
+        } else if let Ok(comps) = TryInto::<&[_; 2]>::try_into(comps.as_slice()) {
             if let Ok(contract_identifier) = QualifiedContractIdentifier::parse(comps[0]) {
                 Some(EventKeyType::SmartContractEvent((
                     contract_identifier,

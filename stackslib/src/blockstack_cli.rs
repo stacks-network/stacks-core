@@ -1,4 +1,3 @@
-#![allow(unused_imports)]
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
@@ -23,6 +22,7 @@ extern crate blockstack_lib;
 extern crate clarity;
 extern crate stacks_common;
 
+#[cfg(test)]
 use std::io::prelude::*;
 use std::io::Read;
 use std::{env, fs, io};
@@ -112,8 +112,9 @@ Arguments are supplied in one of two ways: through script evaluation or via hex 
 of the value serialization format. The method for supplying arguments is chosen by
 prefacing each argument with a flag:
 
-  -e  indicates the argument should be _evaluated_
-  -x  indicates the argument that a serialized Clarity value is being passed (hex-serialized)
+  -e                     indicates the argument should be _evaluated_
+  -x                     indicates the argument that a serialized Clarity value is being passed (hex-serialized)
+ --hex-file <file_path>  same as `-x`, but reads the serialized Clarity value from a file
 
 e.g.,
 
@@ -121,7 +122,8 @@ e.g.,
       transfer-fookens -e \\'SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4 \\
                        -e \"(+ 1 2)\" \\
                        -x 0000000000000000000000000000000001 \\
-                       -x 050011deadbeef11ababffff11deadbeef11ababffff
+                       -x 050011deadbeef11ababffff11deadbeef11ababffff \\
+                       --hex-file /path/to/value.hex
 ";
 
 const TOKEN_TRANSFER_USAGE: &str = "blockstack-cli (options) token-transfer [origin-secret-key-hex] [fee-rate] [nonce] [recipient-address] [amount] [memo] [args...]
@@ -518,6 +520,7 @@ fn parse_postcondition_mode(
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn handle_contract_publish(
     args_slice: &[String],
     version: TransactionVersion,
@@ -578,6 +581,7 @@ fn handle_contract_publish(
     Ok(to_hex(&signed_tx_bytes))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn handle_contract_call(
     args_slice: &[String],
     version: TransactionVersion,
@@ -606,7 +610,7 @@ fn handle_contract_call(
 
     if val_args.len() % 2 != 0 {
         return Err(
-            "contract-call arguments must be supplied as a list of `-e ...` or `-x 0000...` pairs"
+            "contract-call arguments must be supplied as a list of `-e ...` or `-x 0000...` or `--hex-file <file_path>` pairs"
                 .into(),
         );
     }
@@ -624,8 +628,16 @@ fn handle_contract_call(
                 vm_execute(input, clarity_version)?
                     .ok_or("Supplied argument did not evaluate to a Value")?
             },
+            "--hex-file" => {
+                let content = fs::read_to_string(input)
+                    .map_err(|e| {
+                        let err_msg = format!("Cannot read file: {input}. Reason: {e}");
+                        CliError::Message(err_msg)
+                    })?;
+                Value::try_deserialize_hex_untyped(&content)?
+            }
             _ => {
-                return Err("contract-call arguments must be supplied as a list of `-e ...` or `-x 0000...` pairs".into())
+                return Err("contract-call arguments must be supplied as a list of `-e ...` or `-x 0000...` or `--hex-file <file_path>` pairs".into())
             }
         };
 
@@ -664,6 +676,7 @@ fn handle_contract_call(
     Ok(to_hex(&signed_tx_bytes))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn handle_token_transfer(
     args_slice: &[String],
     version: TransactionVersion,
@@ -726,6 +739,7 @@ fn handle_token_transfer(
     Ok(to_hex(&signed_tx_bytes))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
     if !args.is_empty() && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", GENERATE_USAGE)));
@@ -757,6 +771,7 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<S
     ))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!("USAGE:\n {}", ADDRESSES_USAGE)));
@@ -796,6 +811,7 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
     ))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -834,6 +850,7 @@ fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<S
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -873,6 +890,7 @@ fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -910,6 +928,7 @@ fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String,
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -949,6 +968,7 @@ fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<St
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_microblocks(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -1053,6 +1073,7 @@ mod test {
 
     use blockstack_lib::chainstate::stacks::TransactionPostCondition;
     use stacks_common::util::cargo_workspace;
+    use tempfile::NamedTempFile;
 
     use super::*;
 
@@ -1572,6 +1593,106 @@ mod test {
             format!("{}", main_handler(to_string_vec(&cc_args)).unwrap_err())
                 .contains("deserialize")
         );
+    }
+
+    #[test]
+    fn test_contract_call_with_serialized_arg_from_file_ok() {
+        let mut file = NamedTempFile::new().expect("Cannot create tempfile!");
+        write!(file, "0000000000000000000000000000000001").expect("Cannot Write to temp file");
+
+        let file_path = file.path().to_str().unwrap();
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "--hex-file",
+            file_path,
+        ];
+
+        let result = main_handler(to_string_vec(&cc_args));
+        assert!(result.is_ok(), "Result should be ok!");
+
+        let expected_tx = "0000000001040021a3c334fc0ee50359353799e8b2605ac6be1fe400000000000000000000000000000001010011db0868db0cd44c463b3a8a8b3b428ddaad15661e7b7d8c92c814c142c526e30abffe74e1e098f517037a1ee74969f4db27630407f4c958cb0d6e1d7485fe06030200000000021625a2a51cf0712a9d228e2788e2fe7acf8917ec810c666f6f2d636f6e7472616374107472616e736665722d666f6f6b656e73000000010000000000000000000000000000000001";
+        assert_eq!(expected_tx, result.unwrap());
+    }
+
+    #[test]
+    fn test_contract_call_with_serialized_arg_from_file_fails_due_to_file() {
+        let file_path = "/tmp/this-file-not-exists";
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "--hex-file",
+            file_path,
+        ];
+
+        let result = main_handler(to_string_vec(&cc_args));
+        assert!(result.is_err(), "Result should be err!");
+
+        let expected_msg = format!("Cannot read file: {}. Reason: ", file_path);
+        assert!(result.unwrap_err().to_string().starts_with(&expected_msg));
+    }
+
+    #[test]
+    fn test_contract_call_with_serialized_arg_from_file_fails_due_to_bad_hex() {
+        let mut file = NamedTempFile::new().expect("Cannot create tempfile!");
+        // Bad hex string but (good except for the \n)
+        write!(file, "0000000000000000000000000000000001\n").expect("Cannot Write to temp file");
+        let file_path = file.path().to_str().unwrap();
+
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "--hex-file",
+            &file_path,
+        ];
+
+        let result = main_handler(to_string_vec(&cc_args));
+        assert!(result.is_err(), "Result should be err!");
+
+        let expected_msg = "Failed to deserialize: Deserialization error: Bad hex string";
+        assert_eq!(expected_msg, result.unwrap_err().to_string());
+    }
+
+    #[test]
+    fn test_contract_call_with_serialized_arg_from_file_fails_due_to_short_buffer() {
+        let mut file = NamedTempFile::new().expect("Cannot create tempfile!");
+        // hex buffer is short
+        write!(file, "0101").expect("Cannot Write to temp file");
+        let file_path = file.path().to_str().unwrap();
+
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "--hex-file",
+            &file_path,
+        ];
+
+        let result = main_handler(to_string_vec(&cc_args));
+        assert!(result.is_err(), "Result should be err!");
+
+        let expected_msg =
+            "Failed to deserialize: Serialization error caused by IO: failed to fill whole buffer";
+        assert_eq!(expected_msg, result.unwrap_err().to_string());
     }
 
     #[test]

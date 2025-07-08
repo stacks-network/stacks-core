@@ -5,7 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-# Unreleased
+## Unreleased
+
+### Changed
+
+- When a previous block commit is unable to be RBFed, the miner will now just wait for it to be confirmed instead of submitting a new block commit which breaks the miner's UTXO chain.
+
+## [3.1.0.0.13]
 
 ### Added
 
@@ -14,6 +20,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   - `stacks_node_miner_stop_reason_total`: Counts the number of times the miner stopped mining due to various reasons.
   - Always report the number of transactions mined in the last attempt, even if there were 0
 
+- Added a new option `--hex-file <file_path>` to `blockstack-cli contract-call` command, that allows to pass a serialized Clarity value by file.
 - Added a new option `--postcondition-mode [allow, deny]` to `blockstack-cli publish` command, to set the post-condition mode to allow or deny on the transaction (default is deny)
 
 ### Changed

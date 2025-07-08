@@ -172,9 +172,8 @@ const MERKLE_PATH_NODE_TAG: u8 = 0x01;
 impl Hash160 {
     pub fn from_sha256(sha256_hash: &[u8; 32]) -> Hash160 {
         let mut rmd = Ripemd160::new();
-        let mut ret = [0u8; 20];
         rmd.update(sha256_hash);
-        ret.copy_from_slice(rmd.finalize().as_slice());
+        let ret = rmd.finalize().into();
         Hash160(ret)
     }
 
@@ -183,7 +182,7 @@ impl Hash160 {
     pub fn from_data(data: &[u8]) -> Hash160 {
         let sha2_result = Sha256::digest(data);
         let ripe_160_result = Ripemd160::digest(sha2_result.as_slice());
-        Hash160::from(ripe_160_result.as_slice())
+        Hash160(ripe_160_result.into())
     }
 
     pub fn from_node_public_key(pubkey: &Secp256k1PublicKey) -> Hash160 {
@@ -197,16 +196,16 @@ impl Hash160 {
 
 impl Sha512Sum {
     pub fn from_data(data: &[u8]) -> Sha512Sum {
-        Sha512Sum::from(Sha512::digest(data).as_slice())
+        Sha512Sum(Sha512::digest(data).into())
     }
 }
 
 impl Sha512Trunc256Sum {
     pub fn from_data(data: &[u8]) -> Sha512Trunc256Sum {
-        Sha512Trunc256Sum::from(Sha512_256::digest(data).as_slice())
+        Sha512Trunc256Sum(Sha512_256::digest(data).into())
     }
     pub fn from_hasher(hasher: Sha512_256) -> Sha512Trunc256Sum {
-        Sha512Trunc256Sum::from(hasher.finalize().as_slice())
+        Sha512Trunc256Sum(hasher.finalize().into())
     }
 }
 
@@ -216,12 +215,11 @@ impl MerkleHashFunc for Hash160 {
     }
 
     fn from_tagged_data(tag: u8, data: &[u8]) -> Hash160 {
-        let mut tmp = [0u8; 32];
         let mut sha2 = Sha256::new();
         sha2.update([tag]);
         sha2.update(data);
-        tmp.copy_from_slice(sha2.finalize().as_slice());
-        Hash160::from_sha256(&tmp)
+        let sha2_bytes = sha2.finalize().into();
+        Hash160::from_sha256(&sha2_bytes)
     }
 
     fn bits(&self) -> &[u8] {
@@ -235,14 +233,12 @@ impl MerkleHashFunc for Sha256Sum {
     }
 
     fn from_tagged_data(tag: u8, data: &[u8]) -> Sha256Sum {
-        let mut tmp = [0u8; 32];
-
         let mut sha2 = Sha256::new();
         sha2.update([tag]);
         sha2.update(data);
-        tmp.copy_from_slice(sha2.finalize().as_slice());
+        let out = sha2.finalize().into();
 
-        Sha256Sum(tmp)
+        Sha256Sum(out)
     }
 
     fn bits(&self) -> &[u8] {
@@ -256,19 +252,15 @@ impl MerkleHashFunc for DoubleSha256 {
     }
 
     fn from_tagged_data(tag: u8, data: &[u8]) -> DoubleSha256 {
-        let mut tmp = [0u8; 32];
-        let mut tmp2 = [0u8; 32];
-
         let mut sha2_1 = Sha256::new();
         sha2_1.update([tag]);
         sha2_1.update(data);
-        tmp.copy_from_slice(sha2_1.finalize().as_slice());
 
         let mut sha2_2 = Sha256::new();
-        sha2_2.update(tmp);
-        tmp2.copy_from_slice(sha2_2.finalize().as_slice());
+        sha2_2.update(sha2_1.finalize().as_slice());
+        let ret = sha2_2.finalize().into();
 
-        DoubleSha256(tmp2)
+        DoubleSha256(ret)
     }
 
     fn bits(&self) -> &[u8] {
@@ -282,15 +274,12 @@ impl MerkleHashFunc for Sha512Trunc256Sum {
     }
 
     fn from_tagged_data(tag: u8, data: &[u8]) -> Sha512Trunc256Sum {
-        use sha2::Digest;
-        let mut tmp = [0u8; 32];
-
         let mut sha2 = Sha512_256::new();
         sha2.update([tag]);
         sha2.update(data);
-        tmp.copy_from_slice(sha2.finalize().as_slice());
+        let ret = sha2.finalize().into();
 
-        Sha512Trunc256Sum(tmp)
+        Sha512Trunc256Sum(ret)
     }
 
     fn bits(&self) -> &[u8] {
@@ -498,10 +487,7 @@ where
 
         if hash_index % 2 == 0 {
             if hash_index + 1 >= self.nodes[row_index].len() {
-                panic!(
-                    "Corrupt Merkle tree -- colunn {} is the last item in row {}",
-                    hash_index, row_index
-                );
+                panic!("Corrupt Merkle tree -- colunn {hash_index} is the last item in row {row_index}");
             }
 
             // left sibling
@@ -591,7 +577,7 @@ where
 // borrowed from Andrew Poelstra's rust-bitcoin library
 /// Convert a hexadecimal-encoded string to its corresponding bytes
 pub fn hex_bytes(s: &str) -> Result<Vec<u8>, HexError> {
-    let mut v = vec![];
+    let mut v = Vec::with_capacity(s.len() / 2);
     let mut iter = s.chars().pair();
     // Do the parsing
     iter.by_ref()
@@ -637,7 +623,7 @@ pub fn bin_bytes(s: &str) -> Result<Vec<u8>, HexError> {
 pub fn to_hex(s: &[u8]) -> String {
     let mut r = String::with_capacity(s.len() * 2);
     for b in s.iter() {
-        write!(r, "{:02x}", b).unwrap();
+        write!(r, "{b:02x}").unwrap();
     }
     r
 }
@@ -646,7 +632,7 @@ pub fn to_hex(s: &[u8]) -> String {
 pub fn to_bin(s: &[u8]) -> String {
     let mut r = String::with_capacity(s.len() * 8);
     for b in s.iter() {
-        write!(r, "{:08b}", b).unwrap();
+        write!(r, "{b:08b}").unwrap();
     }
     r
 }

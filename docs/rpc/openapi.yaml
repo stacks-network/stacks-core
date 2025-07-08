@@ -909,6 +909,19 @@ paths:
       tags:
         - Info
       operationId: get_health
+      parameters:
+        - in: query
+          name: neighbors
+          description: "Specifies the set of peers to use for health checks.
+            - `initial` (default): Use only the initial bootstrap peers.
+            - `all`: Use all connected peers."
+          required: false
+          schema:
+            type: string
+            enum:
+              - initial
+              - all
+            default: initial
       responses:
         200:
           description: Success
@@ -918,6 +931,13 @@ paths:
                 $ref: ./api/core-node/get-health.schema.json
               example:
                 $ref: ./api/core-node/get-health.example.json
+        400:
+          description: Bad request, such as an invalid `neighbors` query parameter.
+          content:
+            application/json:
+              schema:
+                type: string
+              example: "Invalid `neighbors` query parameter: allowed values are `initial` or `all`"
         500:
           description: |
             Failed to query for health (e.g., no data or no valid peers to query from).

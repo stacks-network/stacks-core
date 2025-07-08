@@ -105,10 +105,9 @@ impl PeerBlocksInv {
         let idx = (sortition_height / 8) as usize;
         let bit = sortition_height % 8;
 
-        if idx >= self.block_inv.len() {
-            false
-        } else {
-            (self.block_inv[idx] & (1 << bit)) != 0
+        match self.block_inv.get(idx) {
+            None => false,
+            Some(bitvec_entry) => (bitvec_entry & (1 << bit)) != 0,
         }
     }
 
@@ -123,10 +122,9 @@ impl PeerBlocksInv {
         let idx = (sortition_height / 8) as usize;
         let bit = sortition_height % 8;
 
-        if idx >= self.microblocks_inv.len() {
-            false
-        } else {
-            (self.microblocks_inv[idx] & (1 << bit)) != 0
+        match self.microblocks_inv.get(idx) {
+            None => false,
+            Some(bitvec_entry) => (bitvec_entry & (1 << bit)) != 0,
         }
     }
 
@@ -140,10 +138,9 @@ impl PeerBlocksInv {
         let idx = (reward_cycle / 8) as usize;
         let bit = reward_cycle % 8;
 
-        if idx >= self.pox_inv.len() {
-            false
-        } else {
-            (self.pox_inv[idx] & (1 << bit)) != 0
+        match self.pox_inv.get(idx) {
+            None => false,
+            Some(bitvec_entry) => (*bitvec_entry & (1 << bit)) != 0,
         }
     }
 
@@ -152,6 +149,7 @@ impl PeerBlocksInv {
     /// bitlen = number of sortitions represented by this inv.
     /// If clear_bits is true, then any 0-bits in the given bitvecs will be set as well as 1-bits.
     /// returns the number of bits set in each bitvec
+    #[allow(clippy::indexing_slicing)]
     pub fn merge_blocks_inv(
         &mut self,
         block_height: u64,
@@ -297,6 +295,7 @@ impl PeerBlocksInv {
     /// If we flip a 0 to a 1, then invalidate the block/microblock bits for that reward cycle _and
     /// all subsequent reward cycles_.
     /// Returns the lowest reward cycle number that changed from a 0 to a 1, if such a flip happens
+    #[allow(clippy::indexing_slicing)]
     pub fn merge_pox_inv(
         &mut self,
         burnchain: &Burnchain,
@@ -1143,7 +1142,7 @@ impl InvState {
     ///
     /// # Arguments
     ///
-    /// * `neighbors` - A slice of `Neighbor` structs to check.
+    /// * `neighbors` - Optional slice of `Neighbor` structs to check. If `None`, all neighbors are considered.
     /// * `ibd` - A boolean indicating if the node is in Initial Block Download (IBD) mode.
     ///
     /// # Returns
@@ -1152,36 +1151,34 @@ impl InvState {
     /// * `None` if no tip heights are found.
     pub fn get_max_stacks_height_of_neighbors(
         &self,
-        neighbors: &[Neighbor],
+        neighbors: Option<&[Neighbor]>,
         ibd: bool,
     ) -> Option<u64> {
-        let mut max_height: u64 = 1;
-        let mut stats_obtained = false;
-        for neighbor in neighbors {
-            let nk = &neighbor.addr;
-            match self.block_stats.get(nk) {
-                Some(stats) => {
-                    // When a node is in IBD, it occasionally might think a remote peer has diverged from it (for
-                    // example, if it starts processing reward cycle N+1 before obtaining the anchor block for
-                    // reward cycle N).
-                    if (ibd
-                        && (stats.status == NodeStatus::Online
-                            || stats.status == NodeStatus::Diverged))
-                        || (!ibd && stats.status == NodeStatus::Online)
-                    {
-                        let height = stats.inv.get_block_height();
-                        max_height = max_height.max(height);
-                        stats_obtained = true;
-                    }
-                }
-                None => {}
-            }
-        }
+        let filter_and_extract = |stats: &NeighborBlockStats| -> Option<u64> {
+            let status_valid = if ibd {
+                stats.status == NodeStatus::Online || stats.status == NodeStatus::Diverged
+            } else {
+                stats.status == NodeStatus::Online
+            };
 
-        if stats_obtained {
-            Some(max_height)
-        } else {
-            None
+            if status_valid {
+                Some(stats.inv.get_block_height())
+            } else {
+                None
+            }
+        };
+
+        match neighbors {
+            Some(n) => n
+                .iter()
+                .filter_map(|neighbor| self.block_stats.get(&neighbor.addr))
+                .filter_map(filter_and_extract)
+                .max(),
+            None => self
+                .block_stats
+                .values()
+                .filter_map(filter_and_extract)
+                .max(),
         }
     }
 
@@ -2494,12 +2491,10 @@ impl PeerNetwork {
                 if !ibd {
                     // not in initial-block download, so we can add random neighbors as well
                     let num_good_peers = good_sync_peers_set.len();
-                    for i in 0..cmp::min(
-                        random_sync_peers_list.len(),
-                        (network.connection_opts.num_neighbors as usize)
-                            .saturating_sub(num_good_peers),
-                    ) {
-                        good_sync_peers_set.insert(random_sync_peers_list[i].clone());
+                    let max_sample = (network.connection_opts.num_neighbors as usize)
+                        .saturating_sub(num_good_peers);
+                    for random_peer in random_sync_peers_list.iter().take(max_sample) {
+                        good_sync_peers_set.insert(random_peer.clone());
                     }
                 } else {
                     // make *sure* this list isn't empty

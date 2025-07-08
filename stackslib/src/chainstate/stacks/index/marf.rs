@@ -1329,40 +1329,41 @@ impl<T: MarfTrieId> MARF<T> {
     ) -> Result<(), Error> {
         assert_eq!(keys.len(), values.len());
 
-        if keys.is_empty() {
+        let (Some(last_key), Some(last_value)) = (keys.last(), values.last()) else {
+            // if empty, nothing to do
             return Ok(());
-        }
+        };
 
         let (cur_block_hash, cur_block_id) = conn.get_cur_block_and_id();
 
         let last = keys.len() - 1;
         let mut progress = 0;
         let eta_enabled = keys.len() > 10_000;
-        let mut result = keys[0..last]
-            .iter()
-            .enumerate()
-            .zip(values[0..last].iter())
-            .try_for_each(|((index, key), value)| {
-                let marf_leaf = TrieLeaf::from_value(&[], value.clone());
-                let path = TrieHash::from_key(key);
+        let mut result =
+            keys.iter()
+                .enumerate()
+                .zip(values.iter())
+                .try_for_each(|((index, key), value)| {
+                    let marf_leaf = TrieLeaf::from_value(&[], value.clone());
+                    let path = TrieHash::from_key(key);
 
-                if eta_enabled {
-                    let updated_progress = 100 * index / last;
-                    if updated_progress > progress {
-                        progress = updated_progress;
-                        info!(
-                            "Batching insertions in MARF: {}% ({} out of {})",
-                            progress, index, last
-                        );
+                    if eta_enabled {
+                        let updated_progress = 100 * index / last;
+                        if updated_progress > progress {
+                            progress = updated_progress;
+                            info!(
+                                "Batching insertions in MARF: {}% ({} out of {})",
+                                progress, index, last
+                            );
+                        }
                     }
-                }
-                MARF::insert_leaf_in_batch(conn, block_hash, &path, &marf_leaf)
-            });
+                    MARF::insert_leaf_in_batch(conn, block_hash, &path, &marf_leaf)
+                });
 
         if result.is_ok() {
             // last insert updates the root with the skiplist hash
-            let marf_leaf = TrieLeaf::from_value(&[], values[last].clone());
-            let path = TrieHash::from_key(&keys[last]);
+            let marf_leaf = TrieLeaf::from_value(&[], last_value.clone());
+            let path = TrieHash::from_key(last_key);
             result = MARF::insert_leaf(conn, block_hash, &path, &marf_leaf);
         }
 
