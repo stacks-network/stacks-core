@@ -2936,7 +2936,11 @@ mod tests {
             }
         }
 
-        pub fn txout_opreturn(op: &LeaderBlockCommitOp, magic: &MagicBytes) -> TxOut {
+        pub fn txout_opreturn<T: StacksMessageCodec>(
+            op: &T,
+            magic: &MagicBytes,
+            value: u64,
+        ) -> TxOut {
             let op_bytes = {
                 let mut buffer = vec![];
                 let mut magic_bytes = magic.as_bytes().to_vec();
@@ -2947,7 +2951,7 @@ mod tests {
             };
 
             TxOut {
-                value: op.sunset_burn,
+                value,
                 script_pubkey: Builder::new()
                     .push_opcode(opcodes::All::OP_RETURN)
                     .push_slice(&op_bytes)
@@ -3055,29 +3059,6 @@ mod tests {
                 vtxindex: 0,
                 block_height: 1,
                 burn_header_hash: BurnchainHeaderHash([9u8; 32]),
-            }
-        }
-
-        pub fn txout_opreturn_v2<T: StacksMessageCodec>(
-            op: &T,
-            magic: &MagicBytes,
-            value: u64,
-        ) -> TxOut {
-            let op_bytes = {
-                let mut buffer = vec![];
-                let mut magic_bytes = magic.as_bytes().to_vec();
-                buffer.append(&mut magic_bytes);
-                op.consensus_serialize(&mut buffer)
-                    .expect("FATAL: invalid operation");
-                buffer
-            };
-
-            TxOut {
-                value,
-                script_pubkey: Builder::new()
-                    .push_opcode(opcodes::All::OP_RETURN)
-                    .push_slice(&op_bytes)
-                    .into_script(),
             }
         }
 
@@ -3569,7 +3550,7 @@ mod tests {
         let input_0 = utils::txin_at_index(&tx, &op_signer, &used_utxos, 0);
         assert_eq!(input_0, tx.input[0]);
 
-        let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes);
+        let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes, 5_500);
         let op_commit_1 = utils::txout_opdup_commit_to(&commit_op.commit_outs[0], 55_000);
         let op_commit_2 = utils::txout_opdup_commit_to(&commit_op.commit_outs[1], 55_000);
         let op_change = utils::txout_opdup_change_legacy(&mut op_signer, 4_999_865_300);
@@ -3736,7 +3717,7 @@ mod tests {
         let input_0 = utils::txin_at_index(&rbf_tx, &op_signer, &used_utxos, 0);
         assert_eq!(input_0, rbf_tx.input[0]);
 
-        let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes);
+        let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes, 5_500);
         let op_commit_1 = utils::txout_opdup_commit_to(&commit_op.commit_outs[0], 55_005);
         let op_commit_2 = utils::txout_opdup_commit_to(&commit_op.commit_outs[1], 55_005);
         let op_change = utils::txout_opdup_change_legacy(&mut signer, 4_999_730_590);
@@ -3801,7 +3782,7 @@ mod tests {
         let input_0 = utils::txin_at_index(&rbf_tx, &op_signer, &used_utxos, 0);
         assert_eq!(input_0, rbf_tx.input[0]);
 
-        let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes);
+        let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes, 5_500);
         let op_commit_1 = utils::txout_opdup_commit_to(&commit_op.commit_outs[0], 55_005);
         let op_commit_2 = utils::txout_opdup_commit_to(&commit_op.commit_outs[1], 55_005);
         let op_change = utils::txout_opdup_change_legacy(&mut signer, 4_999_862_985);
@@ -3955,7 +3936,7 @@ mod tests {
             assert_eq!(input_0, tx.input[0]);
 
             let op_return =
-                utils::txout_opreturn_v2(&leader_key_op, &config.burnchain.magic_bytes, 0);
+                utils::txout_opreturn(&leader_key_op, &config.burnchain.magic_bytes, 0);
             let op_change = utils::txout_opdup_change_legacy(&mut op_signer, 4_999_980_000);
             assert_eq!(op_return, tx.output[0]);
             assert_eq!(op_change, tx.output[1]);
@@ -4123,7 +4104,7 @@ mod tests {
             let input_0 = utils::txin_at_index(&tx, &op_signer, &used_utxos, 0);
             assert_eq!(input_0, tx.input[0]);
 
-            let op_return = utils::txout_opreturn_v2(&pre_stx_op, &config.burnchain.magic_bytes, 0);
+            let op_return = utils::txout_opreturn(&pre_stx_op, &config.burnchain.magic_bytes, 0);
             let op_change = utils::txout_opdup_change_legacy(&mut op_signer, 24_500);
             assert_eq!(op_return, tx.output[0]);
             assert_eq!(op_change, tx.output[1]);
