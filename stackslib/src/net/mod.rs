@@ -4663,9 +4663,7 @@ pub mod test {
 
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
             let epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
-            let epoch_3_idx =
-                StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap();
-            let epoch_3 = epochs[epoch_3_idx].clone();
+            let epoch_3 = epochs.get(StacksEpochId::Epoch30).unwrap().clone();
 
             let mut all_chain_tips = sortdb.get_all_stacks_chain_tips().unwrap();
             let mut all_preprocessed_reward_sets =

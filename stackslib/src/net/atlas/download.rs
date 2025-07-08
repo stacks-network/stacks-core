@@ -434,13 +434,12 @@ impl AttachmentsBatchStateContext {
                 for (peer_url, response) in peers_responses.iter() {
                     // Considering the response, look for the page with the index
                     // we're looking for.
-                    let index = response
-                        .pages
-                        .iter()
-                        .position(|page| page.index == page_index);
+                    let search_page = response.pages.iter().find(|page| page.index == page_index);
 
-                    let has_attachment = index
-                        .and_then(|i| response.pages[i].inventory.get(position_in_page as usize))
+                    let has_attachment = search_page
+                        .and_then(|search_page| {
+                            search_page.inventory.get(position_in_page as usize)
+                        })
                         .map(|result| *result == 1)
                         .unwrap_or(false);
 

@@ -77,6 +77,15 @@ pub fn get_epoch_time_ms() -> u128 {
     since_the_epoch.as_millis()
 }
 
+#[cfg(any(test, feature = "testing"))]
+pub fn get_epoch_time_nanos() -> u128 {
+    let start = SystemTime::now();
+    let since_the_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards");
+    since_the_epoch.as_nanos()
+}
+
 pub fn sleep_ms(millis: u64) {
     let t = time::Duration::from_millis(millis);
     thread::sleep(t);
@@ -94,8 +103,8 @@ pub enum HexError {
 impl fmt::Display for HexError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            HexError::BadLength(n) => write!(f, "bad length {} for hex string", n),
-            HexError::BadCharacter(c) => write!(f, "bad character {} for hex string", c),
+            HexError::BadLength(n) => write!(f, "bad length {n} for hex string"),
+            HexError::BadCharacter(c) => write!(f, "bad character {c} for hex string"),
         }
     }
 }

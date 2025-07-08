@@ -139,15 +139,13 @@ fn read_next_vec<T: StacksMessageCodec + Sized, R: Read>(
         if len > max_items {
             // too many items
             return Err(Error::DeserializeError(format!(
-                "Array has too many items ({} > {}",
-                len, max_items
+                "Array has too many items ({len} > {max_items})"
             )));
         }
     } else if len != num_items {
         // inexact item count
         return Err(Error::DeserializeError(format!(
-            "Array has incorrect number of items ({} != {})",
-            len, num_items
+            "Array has incorrect number of items ({len} != {num_items})"
         )));
     }
 

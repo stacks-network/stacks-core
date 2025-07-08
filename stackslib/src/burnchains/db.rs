@@ -154,16 +154,17 @@ pub(crate) fn apply_blockstack_txs_safety_checks(
     blockstack_txs.sort_by(|a, b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
 
     // safety -- no duplicate vtxindex (shouldn't happen but crash if so)
-    if blockstack_txs.len() > 1 {
-        for i in 0..blockstack_txs.len() - 1 {
-            if blockstack_txs[i].vtxindex() == blockstack_txs[i + 1].vtxindex() {
-                panic!(
-                    "FATAL: BUG: duplicate vtxindex {} in block {}",
-                    blockstack_txs[i].vtxindex(),
-                    blockstack_txs[i].block_height()
-                );
-            }
+    let mut prior_vtxindex = None;
+    for tx in blockstack_txs.iter() {
+        let current_vtxindex = Some(tx.vtxindex());
+        if current_vtxindex == prior_vtxindex {
+            panic!(
+                "FATAL: BUG: duplicate vtxindex {} in block {}",
+                tx.vtxindex(),
+                tx.block_height()
+            );
         }
+        prior_vtxindex = current_vtxindex;
     }
 
     // safety -- block heights all match
@@ -1126,6 +1127,12 @@ impl BurnchainDB {
         let qry = "SELECT 1 FROM burnchain_db_block_headers WHERE block_height = ?1";
         let args = params![u64_to_sql(height)?];
         let res: Option<i64> = query_row(conn, qry, args)?;
+        Ok(res.is_some())
+    }
+
+    pub fn has_burnchain_block(&self, block: &BurnchainHeaderHash) -> Result<bool, BurnchainError> {
+        let qry = "SELECT 1 FROM burnchain_db_block_headers WHERE block_hash = ?1";
+        let res: Option<i64> = query_row(&self.conn, qry, &[block])?;
         Ok(res.is_some())
     }
 

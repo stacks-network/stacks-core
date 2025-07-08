@@ -420,8 +420,9 @@ impl SignerCoordinator {
 
                     // Check if a new Stacks block has arrived in the parent tenure
                     let highest_in_tenure =
-                        NakamotoChainState::get_highest_known_block_header_in_tenure(
-                            &mut chain_state.index_conn(),
+                        NakamotoChainState::find_highest_known_block_header_in_tenure(
+                            &chain_state,
+                            &sortdb,
                             &parent_tenure_header.consensus_hash,
                         )?
                         .ok_or(NakamotoNodeError::UnexpectedChainState)?;
@@ -436,7 +437,10 @@ impl SignerCoordinator {
                         };
                         return Ok(stored_block.signer_signature);
                     } else if highest_stacks_block_id != parent_block_id {
-                        info!("SignCoordinator: Exiting due to new stacks tip");
+                        info!("SignCoordinator: Exiting due to new stacks tip";
+                              "new_block_hash" => %highest_in_tenure.anchored_header.block_hash(),
+                              "new_block_height" => %highest_in_tenure.anchored_header.height(),
+                        );
                         return Err(NakamotoNodeError::StacksTipChanged);
                     }
 

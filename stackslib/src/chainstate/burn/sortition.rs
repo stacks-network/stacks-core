@@ -134,11 +134,11 @@ impl BlockSnapshot {
         }
 
         let index = sortition_hash.mix_VRF_seed(VRF_seed).to_uint256();
-        for i in 0..dist.len() {
-            if (dist[i].range_start <= index) && (index < dist[i].range_end) {
+        for (i, dist_elem) in dist.iter().enumerate() {
+            if (dist_elem.range_start <= index) && (index < dist_elem.range_end) {
                 debug!(
                     "Sampled {}: i = {}, sortition index = {}",
-                    dist[i].candidate.block_header_hash, i, &index
+                    dist_elem.candidate.block_header_hash, i, &index
                 );
                 return Some(i);
             }
@@ -207,7 +207,14 @@ impl BlockSnapshot {
             }
             Some(win_idx) => {
                 // winner!
-                Ok(Some((burn_dist[win_idx].candidate.clone(), win_idx)))
+                Ok(Some((
+                    burn_dist
+                        .get(win_idx)
+                        .expect("FATAL: the block winner index must be in the burn distribution")
+                        .candidate
+                        .clone(),
+                    win_idx,
+                )))
             }
         }
     }
@@ -646,11 +653,16 @@ impl BlockSnapshot {
         // sortition.  This happens if the assumed total commit with carry-over is sufficiently low.
         let mut reject_winner_reason = None;
         if epoch_id >= StacksEpochId::Epoch30 {
+            let winner_frequency = state_transition
+                .burn_dist
+                .get(winning_block_burn_dist_index)
+                .expect("FATAL: the winner index must be in the burn distribution")
+                .frequency;
             if !Self::check_miner_is_active(
                 epoch_id,
                 state_transition.windowed_block_commits.len(),
                 &winning_block.apparent_sender,
-                state_transition.burn_dist[winning_block_burn_dist_index].frequency,
+                winner_frequency,
             ) {
                 reject_winner_reason = Some("Miner did not mine often enough to win".to_string());
             }

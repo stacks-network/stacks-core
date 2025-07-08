@@ -664,13 +664,16 @@ impl StacksChainState {
             child_block_id,
         )?;
         if ret.len() == 2 {
-            let reward = if ret[0].is_child() {
-                ret[0]
-                    .try_add_parent(&ret[1])
+            // unwrap, because we do a len check above.
+            let ret_0 = ret.get(0).unwrap();
+            let ret_1 = ret.get(1).unwrap();
+            let reward = if ret_0.is_child() {
+                ret_0
+                    .try_add_parent(ret_1)
                     .expect("FATAL: got two child rewards")
-            } else if ret[1].is_child() {
-                ret[1]
-                    .try_add_parent(&ret[0])
+            } else if ret_1.is_child() {
+                ret_1
+                    .try_add_parent(ret_0)
                     .expect("FATAL: got two child rewards")
             } else {
                 panic!("FATAL: got two parent rewards");
@@ -995,9 +998,11 @@ impl StacksChainState {
 
         let reward_height = tip_stacks_height - MINER_REWARD_MATURITY;
 
-        assert!(!latest_matured_miners.is_empty());
-        assert!(latest_matured_miners[0].vtxindex == 0);
-        assert!(latest_matured_miners[0].miner);
+        let latest_matured_miners_head = latest_matured_miners
+            .first()
+            .expect("latest_matured_miners should not be empty");
+        assert!(latest_matured_miners_head.vtxindex == 0);
+        assert!(latest_matured_miners_head.miner);
 
         let users = latest_matured_miners.split_off(1);
         let miner = latest_matured_miners

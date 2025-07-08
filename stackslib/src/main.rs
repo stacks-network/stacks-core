@@ -299,6 +299,7 @@ fn check_shadow_network(network: &str) {
 }
 
 #[cfg_attr(test, mutants::skip)]
+#[allow(clippy::indexing_slicing)]
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
     if argv.len() < 2 {
@@ -1634,6 +1635,7 @@ pub fn dump_consts() {
 }
 
 #[cfg_attr(test, mutants::skip)]
+#[allow(clippy::indexing_slicing)]
 pub fn tip_mine() {
     let argv: Vec<String> = env::args().collect();
     if argv.len() < 6 {
@@ -1873,6 +1875,7 @@ simulating a miner.
 /// Perform an analysis of the anti-MEV algorithm in epoch 3.0, vis-a-vis the status quo.
 /// Results are printed to stdout.
 /// Exits with 0 on success, and 1 on failure.
+#[allow(clippy::indexing_slicing)]
 fn analyze_sortition_mev(argv: Vec<String>) {
     if argv.len() < 7 || (argv.len() >= 7 && argv.len() % 2 != 1) {
         eprintln!(

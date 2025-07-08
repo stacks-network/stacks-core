@@ -72,12 +72,12 @@ impl VoteForAggregateKeyOp {
         }
 
         let signer_index =
-            parse_u16_from_be(&data[0..2]).expect("Failed to parse signer index from tx");
-        let aggregate_key = StacksPublicKeyBuffer::from(&data[2..35]);
+            parse_u16_from_be(data.get(0..2)?).expect("Failed to parse signer index from tx");
+        let aggregate_key = StacksPublicKeyBuffer::from(data.get(2..35)?);
 
-        let round = parse_u32_from_be(&data[35..39]).expect("Failed to parse round from tx");
+        let round = parse_u32_from_be(data.get(35..39)?).expect("Failed to parse round from tx");
         let reward_cycle =
-            parse_u64_from_be(&data[39..47]).expect("Failed to parse reward cycle from tx");
+            parse_u64_from_be(data.get(39..47)?).expect("Failed to parse reward cycle from tx");
 
         Some(ParsedData {
             signer_index,

@@ -1228,6 +1228,20 @@ paths:
         - Info
       security: []
       operationId: getNodeHealth
+      parameters:
+        - in: query
+          name: neighbors
+          description: |
+            Specifies the set of peers to use for health checks.
+            - `initial` (default): Use only the initial bootstrap peers.
+            - `all`: Use all connected peers.
+          required: false
+          schema:
+            type: string
+            enum:
+              - initial
+              - all
+            default: initial
       responses:
         "200":
           description: Success
@@ -1237,15 +1251,13 @@ paths:
                 $ref: "#/components/schemas/GetHealth"
               example:
                 $ref: "./components/examples/node-health.example.json"
+        "400":
+          description: Bad request, such as an invalid `neighbors` query parameter.
+          $ref: "#/components/responses/BadRequest"
         "500":
           description: |
             Failed to query for health (e.g., no data or no valid peers to query from).
-            Returns a plain text error message instead of JSON.
-          content:
-            text/plain:
-              schema:
-                type: string
-              example: "Failed to get peer info"
+          $ref: "#/components/responses/InternalServerError"
 
   /v2/attachments/{hash}:
     get:
