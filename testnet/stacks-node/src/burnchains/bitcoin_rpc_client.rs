@@ -2,9 +2,12 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::Value;
+use serde_json::json;
 use reqwest::blocking::Client;
 
 use base64::encode;
+
+use crate::burnchains::bitcoin_regtest_controller::{ParsedUTXO, UTXO};
 
 const RCP_CLIENT_ID: &str = "stacks";
 const RCP_VERSION: &str = "2.0";
@@ -47,9 +50,7 @@ impl From<NetError> for RPCError {
 }
  */
 
-
-
-pub struct BitcoinRpcClient {
+struct RpcTransport {
     host: String,
     port: u16,
     ssl: bool,
@@ -57,48 +58,8 @@ pub struct BitcoinRpcClient {
     password: String,
 }
 
-impl BitcoinRpcClient {
-     pub fn new(
-        host: String,
-        port: u16,
-        ssl: bool,
-        username: String,
-        password: String,
-    ) -> Self {
-        /*
-        let client = Client::builder()
-            .timeout(Duration::from_secs(15))
-            .build()
-            .unwrap();
-        */
-        Self {
-            host,
-            port,
-            ssl,
-            username,
-            password,
-            //client,
-        }
-    }
-
-    pub fn create_wallet(&self, wallet_name: &str) -> RpcResult<()> {
-        let disable_private_keys = true;
-        
-        self.call::<Value>(
-            "createwallet", 
-            vec![wallet_name.into(), disable_private_keys.into()],
-            None)?;
-        Ok(())
-    }
-
-    pub fn list_wallets(&self) -> RpcResult<Vec<String>> {
-        self.call(
-            "listwallets", 
-            vec![], 
-            None)
-    }
-
-    fn call<T: for<'de> Deserialize<'de>>(
+impl RpcTransport { 
+    pub fn send<T: for<'de> Deserialize<'de>>(
         &self,
         method: &str,
         params: Vec<Value>,
@@ -149,6 +110,69 @@ impl BitcoinRpcClient {
         let credentials = format!("{}:{}", self.username, self.password);
         format!("Basic {}", encode(credentials))
     }
+
+}
+
+pub struct BitcoinRpcClient {
+    transport: RpcTransport
+}
+
+impl BitcoinRpcClient {
+     pub fn from_params(
+        host: String,
+        port: u16,
+        ssl: bool,
+        username: String,
+        password: String,
+    ) -> Self {
+        Self {
+            transport: RpcTransport {
+                host,
+                port,
+                ssl,
+                username,
+                password,
+            },
+        }
+    }
+
+    pub fn create_wallet(&self, wallet_name: &str) -> RpcResult<()> {
+        let disable_private_keys = true;
+        
+        self.transport.send::<Value>(
+            "createwallet", 
+            vec![wallet_name.into(), disable_private_keys.into()],
+            None)?;
+        Ok(())
+    }
+
+    pub fn list_wallets(&self) -> RpcResult<Vec<String>> {
+        self.transport.send(
+            "listwallets", 
+            vec![], 
+            None)
+    }
+
+    pub fn list_unspent(&self, addresses: Vec<String>, include_unsafe: bool, minimum_amount: u64, maximum_count: u64) -> RpcResult<Vec<UTXO>> {
+        let min_conf = 0i64;
+        let max_conf = 9999999i64;
+        let minimum_amount = ParsedUTXO::sat_to_serialized_btc(minimum_amount);
+        let maximum_count = maximum_count;
+
+        let raw_utxos: Vec<ParsedUTXO> = self.transport.send(
+            "listunspent", 
+            vec![
+                min_conf.into(), max_conf.into(), addresses.into(), include_unsafe.into(),
+                json!({
+                    "minimumAmount": minimum_amount,
+                    "maximumCount": maximum_count
+                }),
+            ],
+            None
+        )?;
+
+        
+    }
 }
 
 #[cfg(test)]
@@ -165,13 +189,13 @@ mod unit_tests {
             let url = server.url();
             let parsed = url::Url::parse(&url).unwrap();
 
-            BitcoinRpcClient {
-                host: parsed.host_str().unwrap().to_string(),
-                port: parsed.port_or_known_default().unwrap(),
-                ssl: parsed.scheme() == "https",
-                username: "user".into(),
-                password: "pass".into(),
-            }
+            BitcoinRpcClient::from_params(
+                parsed.host_str().unwrap().to_string(),
+                parsed.port_or_known_default().unwrap(),
+                parsed.scheme() == "https",
+                "user".into(),
+                "pass".into(),
+            )
         }
     }
 
