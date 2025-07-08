@@ -977,6 +977,8 @@ paths:
           description: Endpoint not enabled.
         "401":
           description: Unauthorized.
+        "408":
+          description: ExecutionTime expired.
       parameters:
         - name: contract_address
           in: path
