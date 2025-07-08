@@ -938,6 +938,8 @@ paths:
       description: |
         Call a read-only public function on a given smart contract without cost tracking.
 
+        **This API endpoint requires a basic Authorization header.**
+
         The smart contract and function are specified using the URL path. The arguments and the simulated tx-sender are supplied via the POST body in the following JSON format:
       responses:
         "200":
