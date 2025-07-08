@@ -3505,296 +3505,324 @@ mod tests {
         );
     }
 
-    #[test]
-    #[ignore]
-    fn test_build_leader_block_commit_tx_ok_with_new_commit_op() {
-        if env::var("BITCOIND_TEST") != Ok("1".into()) {
-            return;
-        }
-
-        let keychain = utils::create_keychain();
-        let miner_pubkey = keychain.get_pub_key();
-        let mut op_signer = keychain.generate_op_signer();
-
-        let mut config = utils::create_config();
-        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
-
-        let mut btcd_controller = BitcoinCoreController::new(config.clone());
-        btcd_controller
-            .start_bitcoind()
-            .expect("bitcoind should be started!");
-
-        let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
-        btc_controller
-            .connect_dbs()
-            .expect("Dbs initialization required!");
-        btc_controller.bootstrap_chain(101); // now, one utxo exists
-
-        let mut commit_op = utils::create_templated_commit_op();
-        commit_op.sunset_burn = 5_500;
-        commit_op.burn_fee = 110_000;
-
-        let tx = btc_controller
-            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut op_signer)
-            .expect("Build leader block commit should work");
-
-        assert!(op_signer.is_disposed());
-
-        assert_eq!(1, tx.version);
-        assert_eq!(0, tx.lock_time);
-        assert_eq!(1, tx.input.len());
-        assert_eq!(4, tx.output.len());
-
-        // utxos list contains the only existing utxo
-        let used_utxos = btc_controller.get_all_utxos(&miner_pubkey);
-        let input_0 = utils::txin_at_index(&tx, &op_signer, &used_utxos, 0);
-        assert_eq!(input_0, tx.input[0]);
-
-        let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes, 5_500);
-        let op_commit_1 = utils::txout_opdup_commit_to(&commit_op.commit_outs[0], 55_000);
-        let op_commit_2 = utils::txout_opdup_commit_to(&commit_op.commit_outs[1], 55_000);
-        let op_change = utils::txout_opdup_change_legacy(&mut op_signer, 4_999_865_300);
-        assert_eq!(op_return, tx.output[0]);
-        assert_eq!(op_commit_1, tx.output[1]);
-        assert_eq!(op_commit_2, tx.output[2]);
-        assert_eq!(op_change, tx.output[3]);
-    }
-
-    #[test]
-    #[ignore]
-    fn test_build_leader_block_commit_tx_fails_resub_same_commit_op_while_prev_not_confirmed() {
-        if env::var("BITCOIND_TEST") != Ok("1".into()) {
-            return;
-        }
-
-        let keychain = utils::create_keychain();
-        let miner_pubkey = keychain.get_pub_key();
-        let mut op_signer = keychain.generate_op_signer();
-
-        let mut config = utils::create_config();
-        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
-
-        let mut btcd_controller = BitcoinCoreController::new(config.clone());
-        btcd_controller
-            .start_bitcoind()
-            .expect("bitcoind should be started!");
-
-        let mut btc_controller = BitcoinRegtestController::new(config, None);
-        btc_controller
-            .connect_dbs()
-            .expect("Dbs initialization required!");
-        btc_controller.bootstrap_chain(101); // now, one utxo exists
-
-        let commit_op = utils::create_templated_commit_op();
-
-        let _first_tx_ok = btc_controller
-            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut op_signer)
-            .expect("At first, building leader block commit should work");
-
-        // re-submitting same commit while previous it is not confirmed by the burnchain
-        let resubmit = btc_controller.build_leader_block_commit_tx(
-            StacksEpochId::Epoch31,
-            commit_op,
-            &mut op_signer,
-        );
-
-        assert!(resubmit.is_err());
-        assert_eq!(
-            BurnchainControllerError::IdenticalOperation,
-            resubmit.unwrap_err()
-        );
-    }
-
-    #[test]
-    #[ignore]
-    fn test_build_leader_block_commit_tx_fails_resub_same_commit_op_while_prev_is_confirmed() {
-        if env::var("BITCOIND_TEST") != Ok("1".into()) {
-            return;
-        }
-
-        let keychain = utils::create_keychain();
-        let miner_pubkey = keychain.get_pub_key();
-        let mut op_signer = keychain.generate_op_signer();
-
-        let mut config = utils::create_config();
-        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
-
-        let mut btcd_controller = BitcoinCoreController::new(config.clone());
-        btcd_controller
-            .start_bitcoind()
-            .expect("bitcoind should be started!");
-
-        let mut btc_controller = BitcoinRegtestController::new(config, None);
-        btc_controller
-            .connect_dbs()
-            .expect("Dbs initialization required!");
-        btc_controller.bootstrap_chain(101); // now, one utxo exists
-
-        let commit_op = utils::create_templated_commit_op();
-
-        let first_tx_ok = btc_controller
-            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut op_signer)
-            .expect("At first, building leader block commit should work");
-
-        utils::mine_tx(&btc_controller, first_tx_ok); // Now tx is confirmed
-
-        // re-submitting same commit while previous it is confirmed by the burnchain
-        let resubmit = btc_controller.build_leader_block_commit_tx(
-            StacksEpochId::Epoch31,
-            commit_op,
-            &mut op_signer,
-        );
-
-        assert!(resubmit.is_err());
-        assert_eq!(
-            BurnchainControllerError::IdenticalOperation,
-            resubmit.unwrap_err()
-        );
-    }
-
-    #[test]
-    #[ignore]
-    fn test_build_leader_block_commit_tx_ok_rbf_while_prev_is_confirmed() {
-        if env::var("BITCOIND_TEST") != Ok("1".into()) {
-            return;
-        }
-
-        let keychain = utils::create_keychain();
-        let miner_pubkey = keychain.get_pub_key();
-        let mut op_signer = keychain.generate_op_signer();
-
-        let mut config = utils::create_config();
-        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
-
-        let mut btcd_controller = BitcoinCoreController::new(config.clone());
-        btcd_controller
-            .start_bitcoind()
-            .expect("bitcoind should be started!");
-
-        let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
-        btc_controller
-            .connect_dbs()
-            .expect("Dbs initialization required!");
-        btc_controller.bootstrap_chain(101); // now, one utxo exists
-
-        let mut commit_op = utils::create_templated_commit_op();
-        commit_op.sunset_burn = 5_500;
-        commit_op.burn_fee = 110_000;
-
-        let first_tx_ok = btc_controller
-            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut op_signer)
-            .expect("At first, building leader block commit should work");
-
-        let first_txid = first_tx_ok.txid();
-
-        // Now tx is confirmed: prev utxo is updated and one more utxo is generated
-        utils::mine_tx(&btc_controller, first_tx_ok);
-
-        //re-gen signer othewise fails because it will be disposed during previous commit tx.
-        let mut signer = keychain.generate_op_signer();
-        //small change to the commit op payload
-        commit_op.burn_fee += 10;
-
-        let rbf_tx = btc_controller
-            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut signer)
-            .expect("Commit tx should be rbf-ed");
-
-        assert!(op_signer.is_disposed());
-
-        assert_eq!(1, rbf_tx.version);
-        assert_eq!(0, rbf_tx.lock_time);
-        assert_eq!(1, rbf_tx.input.len());
-        assert_eq!(4, rbf_tx.output.len());
-
-        // utxos list contains the sole utxo used by prev commit operation
-        // because has enough amount to cover the rfb commit
-        let used_utxos: Vec<UTXO> = btc_controller
-            .get_all_utxos(&miner_pubkey)
-            .into_iter()
-            .filter(|utxo| utxo.txid == first_txid)
-            .collect();
-
-        let input_0 = utils::txin_at_index(&rbf_tx, &op_signer, &used_utxos, 0);
-        assert_eq!(input_0, rbf_tx.input[0]);
-
-        let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes, 5_500);
-        let op_commit_1 = utils::txout_opdup_commit_to(&commit_op.commit_outs[0], 55_005);
-        let op_commit_2 = utils::txout_opdup_commit_to(&commit_op.commit_outs[1], 55_005);
-        let op_change = utils::txout_opdup_change_legacy(&mut signer, 4_999_730_590);
-        assert_eq!(op_return, rbf_tx.output[0]);
-        assert_eq!(op_commit_1, rbf_tx.output[1]);
-        assert_eq!(op_commit_2, rbf_tx.output[2]);
-        assert_eq!(op_change, rbf_tx.output[3]);
-    }
-
-    #[test]
-    #[ignore]
-    fn test_build_leader_block_commit_tx_ok_rbf_while_prev_not_confirmed() {
-        if env::var("BITCOIND_TEST") != Ok("1".into()) {
-            return;
-        }
-
-        let keychain = utils::create_keychain();
-        let miner_pubkey = keychain.get_pub_key();
-        let mut op_signer = keychain.generate_op_signer();
-
-        let mut config = utils::create_config();
-        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
-
-        let mut btcd_controller = BitcoinCoreController::new(config.clone());
-        btcd_controller
-            .start_bitcoind()
-            .expect("bitcoind should be started!");
-
-        let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
-        btc_controller
-            .connect_dbs()
-            .expect("Dbs initialization required!");
-        btc_controller.bootstrap_chain(101); // Now, one utxo exists
-
-        let mut commit_op = utils::create_templated_commit_op();
-        commit_op.sunset_burn = 5_500;
-        commit_op.burn_fee = 110_000;
-
-        let _first_tx_ok = btc_controller
-            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut op_signer)
-            .expect("At first, building leader block commit should work");
-
-        //re-gen signer othewise fails because it will be disposed during previous commit tx.
-        let mut signer = keychain.generate_op_signer();
-        //small change to the commit op payload
-        commit_op.burn_fee += 10;
-
-        let rbf_tx = btc_controller
-            .build_leader_block_commit_tx(StacksEpochId::Epoch31, commit_op.clone(), &mut signer)
-            .expect("Commit tx should be rbf-ed");
-
-        assert!(op_signer.is_disposed());
-
-        assert_eq!(1, rbf_tx.version);
-        assert_eq!(0, rbf_tx.lock_time);
-        assert_eq!(1, rbf_tx.input.len());
-        assert_eq!(4, rbf_tx.output.len());
-
-        // utxos list contains the only existing utxo
-        let used_utxos = btc_controller.get_all_utxos(&miner_pubkey);
-
-        let input_0 = utils::txin_at_index(&rbf_tx, &op_signer, &used_utxos, 0);
-        assert_eq!(input_0, rbf_tx.input[0]);
-
-        let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes, 5_500);
-        let op_commit_1 = utils::txout_opdup_commit_to(&commit_op.commit_outs[0], 55_005);
-        let op_commit_2 = utils::txout_opdup_commit_to(&commit_op.commit_outs[1], 55_005);
-        let op_change = utils::txout_opdup_change_legacy(&mut signer, 4_999_862_985);
-        assert_eq!(op_return, rbf_tx.output[0]);
-        assert_eq!(op_commit_1, rbf_tx.output[1]);
-        assert_eq!(op_commit_2, rbf_tx.output[2]);
-        assert_eq!(op_change, rbf_tx.output[3]);
-    }
-
     /// Tests related to Leader Block Commit operation
     mod leader_commit_op {
         use super::*;
+
+        #[test]
+        #[ignore]
+        fn test_build_leader_block_commit_tx_ok_with_new_commit_op() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
+            let keychain = utils::create_keychain();
+            let miner_pubkey = keychain.get_pub_key();
+            let mut op_signer = keychain.generate_op_signer();
+
+            let mut config = utils::create_config();
+            config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
+            btc_controller
+                .connect_dbs()
+                .expect("Dbs initialization required!");
+            btc_controller.bootstrap_chain(101); // now, one utxo exists
+
+            let mut commit_op = utils::create_templated_commit_op();
+            commit_op.sunset_burn = 5_500;
+            commit_op.burn_fee = 110_000;
+
+            let tx = btc_controller
+                .build_leader_block_commit_tx(
+                    StacksEpochId::Epoch31,
+                    commit_op.clone(),
+                    &mut op_signer,
+                )
+                .expect("Build leader block commit should work");
+
+            assert!(op_signer.is_disposed());
+
+            assert_eq!(1, tx.version);
+            assert_eq!(0, tx.lock_time);
+            assert_eq!(1, tx.input.len());
+            assert_eq!(4, tx.output.len());
+
+            // utxos list contains the only existing utxo
+            let used_utxos = btc_controller.get_all_utxos(&miner_pubkey);
+            let input_0 = utils::txin_at_index(&tx, &op_signer, &used_utxos, 0);
+            assert_eq!(input_0, tx.input[0]);
+
+            let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes, 5_500);
+            let op_commit_1 = utils::txout_opdup_commit_to(&commit_op.commit_outs[0], 55_000);
+            let op_commit_2 = utils::txout_opdup_commit_to(&commit_op.commit_outs[1], 55_000);
+            let op_change = utils::txout_opdup_change_legacy(&mut op_signer, 4_999_865_300);
+            assert_eq!(op_return, tx.output[0]);
+            assert_eq!(op_commit_1, tx.output[1]);
+            assert_eq!(op_commit_2, tx.output[2]);
+            assert_eq!(op_change, tx.output[3]);
+        }
+
+        #[test]
+        #[ignore]
+        fn test_build_leader_block_commit_tx_fails_resub_same_commit_op_while_prev_not_confirmed() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
+            let keychain = utils::create_keychain();
+            let miner_pubkey = keychain.get_pub_key();
+            let mut op_signer = keychain.generate_op_signer();
+
+            let mut config = utils::create_config();
+            config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let mut btc_controller = BitcoinRegtestController::new(config, None);
+            btc_controller
+                .connect_dbs()
+                .expect("Dbs initialization required!");
+            btc_controller.bootstrap_chain(101); // now, one utxo exists
+
+            let commit_op = utils::create_templated_commit_op();
+
+            let _first_tx_ok = btc_controller
+                .build_leader_block_commit_tx(
+                    StacksEpochId::Epoch31,
+                    commit_op.clone(),
+                    &mut op_signer,
+                )
+                .expect("At first, building leader block commit should work");
+
+            // re-submitting same commit while previous it is not confirmed by the burnchain
+            let resubmit = btc_controller.build_leader_block_commit_tx(
+                StacksEpochId::Epoch31,
+                commit_op,
+                &mut op_signer,
+            );
+
+            assert!(resubmit.is_err());
+            assert_eq!(
+                BurnchainControllerError::IdenticalOperation,
+                resubmit.unwrap_err()
+            );
+        }
+
+        #[test]
+        #[ignore]
+        fn test_build_leader_block_commit_tx_fails_resub_same_commit_op_while_prev_is_confirmed() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
+            let keychain = utils::create_keychain();
+            let miner_pubkey = keychain.get_pub_key();
+            let mut op_signer = keychain.generate_op_signer();
+
+            let mut config = utils::create_config();
+            config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let mut btc_controller = BitcoinRegtestController::new(config, None);
+            btc_controller
+                .connect_dbs()
+                .expect("Dbs initialization required!");
+            btc_controller.bootstrap_chain(101); // now, one utxo exists
+
+            let commit_op = utils::create_templated_commit_op();
+
+            let first_tx_ok = btc_controller
+                .build_leader_block_commit_tx(
+                    StacksEpochId::Epoch31,
+                    commit_op.clone(),
+                    &mut op_signer,
+                )
+                .expect("At first, building leader block commit should work");
+
+            utils::mine_tx(&btc_controller, first_tx_ok); // Now tx is confirmed
+
+            // re-submitting same commit while previous it is confirmed by the burnchain
+            let resubmit = btc_controller.build_leader_block_commit_tx(
+                StacksEpochId::Epoch31,
+                commit_op,
+                &mut op_signer,
+            );
+
+            assert!(resubmit.is_err());
+            assert_eq!(
+                BurnchainControllerError::IdenticalOperation,
+                resubmit.unwrap_err()
+            );
+        }
+
+        #[test]
+        #[ignore]
+        fn test_build_leader_block_commit_tx_ok_rbf_while_prev_is_confirmed() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
+            let keychain = utils::create_keychain();
+            let miner_pubkey = keychain.get_pub_key();
+            let mut op_signer = keychain.generate_op_signer();
+
+            let mut config = utils::create_config();
+            config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
+            btc_controller
+                .connect_dbs()
+                .expect("Dbs initialization required!");
+            btc_controller.bootstrap_chain(101); // now, one utxo exists
+
+            let mut commit_op = utils::create_templated_commit_op();
+            commit_op.sunset_burn = 5_500;
+            commit_op.burn_fee = 110_000;
+
+            let first_tx_ok = btc_controller
+                .build_leader_block_commit_tx(
+                    StacksEpochId::Epoch31,
+                    commit_op.clone(),
+                    &mut op_signer,
+                )
+                .expect("At first, building leader block commit should work");
+
+            let first_txid = first_tx_ok.txid();
+
+            // Now tx is confirmed: prev utxo is updated and one more utxo is generated
+            utils::mine_tx(&btc_controller, first_tx_ok);
+
+            //re-gen signer othewise fails because it will be disposed during previous commit tx.
+            let mut signer = keychain.generate_op_signer();
+            //small change to the commit op payload
+            commit_op.burn_fee += 10;
+
+            let rbf_tx = btc_controller
+                .build_leader_block_commit_tx(
+                    StacksEpochId::Epoch31,
+                    commit_op.clone(),
+                    &mut signer,
+                )
+                .expect("Commit tx should be rbf-ed");
+
+            assert!(op_signer.is_disposed());
+
+            assert_eq!(1, rbf_tx.version);
+            assert_eq!(0, rbf_tx.lock_time);
+            assert_eq!(1, rbf_tx.input.len());
+            assert_eq!(4, rbf_tx.output.len());
+
+            // utxos list contains the sole utxo used by prev commit operation
+            // because has enough amount to cover the rfb commit
+            let used_utxos: Vec<UTXO> = btc_controller
+                .get_all_utxos(&miner_pubkey)
+                .into_iter()
+                .filter(|utxo| utxo.txid == first_txid)
+                .collect();
+
+            let input_0 = utils::txin_at_index(&rbf_tx, &op_signer, &used_utxos, 0);
+            assert_eq!(input_0, rbf_tx.input[0]);
+
+            let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes, 5_500);
+            let op_commit_1 = utils::txout_opdup_commit_to(&commit_op.commit_outs[0], 55_005);
+            let op_commit_2 = utils::txout_opdup_commit_to(&commit_op.commit_outs[1], 55_005);
+            let op_change = utils::txout_opdup_change_legacy(&mut signer, 4_999_730_590);
+            assert_eq!(op_return, rbf_tx.output[0]);
+            assert_eq!(op_commit_1, rbf_tx.output[1]);
+            assert_eq!(op_commit_2, rbf_tx.output[2]);
+            assert_eq!(op_change, rbf_tx.output[3]);
+        }
+
+        #[test]
+        #[ignore]
+        fn test_build_leader_block_commit_tx_ok_rbf_while_prev_not_confirmed() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
+            let keychain = utils::create_keychain();
+            let miner_pubkey = keychain.get_pub_key();
+            let mut op_signer = keychain.generate_op_signer();
+
+            let mut config = utils::create_config();
+            config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
+            btc_controller
+                .connect_dbs()
+                .expect("Dbs initialization required!");
+            btc_controller.bootstrap_chain(101); // Now, one utxo exists
+
+            let mut commit_op = utils::create_templated_commit_op();
+            commit_op.sunset_burn = 5_500;
+            commit_op.burn_fee = 110_000;
+
+            let _first_tx_ok = btc_controller
+                .build_leader_block_commit_tx(
+                    StacksEpochId::Epoch31,
+                    commit_op.clone(),
+                    &mut op_signer,
+                )
+                .expect("At first, building leader block commit should work");
+
+            //re-gen signer othewise fails because it will be disposed during previous commit tx.
+            let mut signer = keychain.generate_op_signer();
+            //small change to the commit op payload
+            commit_op.burn_fee += 10;
+
+            let rbf_tx = btc_controller
+                .build_leader_block_commit_tx(
+                    StacksEpochId::Epoch31,
+                    commit_op.clone(),
+                    &mut signer,
+                )
+                .expect("Commit tx should be rbf-ed");
+
+            assert!(op_signer.is_disposed());
+
+            assert_eq!(1, rbf_tx.version);
+            assert_eq!(0, rbf_tx.lock_time);
+            assert_eq!(1, rbf_tx.input.len());
+            assert_eq!(4, rbf_tx.output.len());
+
+            // utxos list contains the only existing utxo
+            let used_utxos = btc_controller.get_all_utxos(&miner_pubkey);
+
+            let input_0 = utils::txin_at_index(&rbf_tx, &op_signer, &used_utxos, 0);
+            assert_eq!(input_0, rbf_tx.input[0]);
+
+            let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes, 5_500);
+            let op_commit_1 = utils::txout_opdup_commit_to(&commit_op.commit_outs[0], 55_005);
+            let op_commit_2 = utils::txout_opdup_commit_to(&commit_op.commit_outs[1], 55_005);
+            let op_change = utils::txout_opdup_change_legacy(&mut signer, 4_999_862_985);
+            assert_eq!(op_return, rbf_tx.output[0]);
+            assert_eq!(op_commit_1, rbf_tx.output[1]);
+            assert_eq!(op_commit_2, rbf_tx.output[2]);
+            assert_eq!(op_change, rbf_tx.output[3]);
+        }
 
         #[test]
         #[ignore]
@@ -3935,8 +3963,7 @@ mod tests {
             let input_0 = utils::txin_at_index(&tx, &op_signer, &used_utxos, 0);
             assert_eq!(input_0, tx.input[0]);
 
-            let op_return =
-                utils::txout_opreturn(&leader_key_op, &config.burnchain.magic_bytes, 0);
+            let op_return = utils::txout_opreturn(&leader_key_op, &config.burnchain.magic_bytes, 0);
             let op_change = utils::txout_opdup_change_legacy(&mut op_signer, 4_999_980_000);
             assert_eq!(op_return, tx.output[0]);
             assert_eq!(op_change, tx.output[1]);
