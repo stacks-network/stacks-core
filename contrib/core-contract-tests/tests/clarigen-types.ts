@@ -4556,17 +4556,23 @@ export const contracts = {
   },
   sip031: {
     functions: {
+      validateCaller: {
+        name: "validate-caller",
+        access: "private",
+        args: [],
+        outputs: { type: { response: { ok: "bool", error: "uint128" } } },
+      } as TypedAbiFunction<[], Response<boolean, bigint>>,
       claim: {
         name: "claim",
         access: "public",
         args: [],
-        outputs: { type: { response: { ok: "bool", error: "none" } } },
-      } as TypedAbiFunction<[], Response<boolean, null>>,
+        outputs: { type: { response: { ok: "uint128", error: "uint128" } } },
+      } as TypedAbiFunction<[], Response<bigint, bigint>>,
       updateRecipient: {
         name: "update-recipient",
         access: "public",
         args: [{ name: "new-recipient", type: "principal" }],
-        outputs: { type: { response: { ok: "bool", error: "int128" } } },
+        outputs: { type: { response: { ok: "bool", error: "uint128" } } },
       } as TypedAbiFunction<
         [newRecipient: TypedAbiArg<string, "newRecipient">],
         Response<boolean, bigint>
@@ -4582,7 +4588,7 @@ export const contracts = {
     variables: {
       ERR_NOT_ALLOWED: {
         name: "ERR_NOT_ALLOWED",
-        type: "int128",
+        type: "uint128",
         access: "constant",
       } as TypedAbiVariable<bigint>,
       recipient: {
@@ -4603,15 +4609,36 @@ export const contracts = {
   },
   sip031Indirect: {
     functions: {
+      transferStx: {
+        name: "transfer-stx",
+        access: "public",
+        args: [
+          { name: "amount", type: "uint128" },
+          { name: "recipient", type: "principal" },
+        ],
+        outputs: { type: { response: { ok: "bool", error: "uint128" } } },
+      } as TypedAbiFunction<
+        [
+          amount: TypedAbiArg<number | bigint, "amount">,
+          recipient: TypedAbiArg<string, "recipient">,
+        ],
+        Response<boolean, bigint>
+      >,
       updateRecipient: {
         name: "update-recipient",
         access: "public",
         args: [{ name: "new-recipient", type: "principal" }],
-        outputs: { type: { response: { ok: "bool", error: "int128" } } },
+        outputs: { type: { response: { ok: "bool", error: "uint128" } } },
       } as TypedAbiFunction<
         [newRecipient: TypedAbiArg<string, "newRecipient">],
         Response<boolean, bigint>
       >,
+      getBalance: {
+        name: "get-balance",
+        access: "read_only",
+        args: [{ name: "addr", type: "principal" }],
+        outputs: { type: "uint128" },
+      } as TypedAbiFunction<[addr: TypedAbiArg<string, "addr">], bigint>,
     },
     maps: {},
     variables: {},
