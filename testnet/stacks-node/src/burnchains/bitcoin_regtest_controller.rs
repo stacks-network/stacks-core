@@ -2332,10 +2332,10 @@ impl SerializedTx {
 #[allow(dead_code)]
 pub struct ParsedUTXO {
     txid: String,
-    vout: u32,
+    pub vout: u32,
     script_pub_key: String,
     amount: Box<RawValue>,
-    confirmations: u32,
+    pub confirmations: u32,
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -162,7 +162,10 @@ impl BitcoinRpcClient {
         let raw_utxos: Vec<ParsedUTXO> = self.transport.send(
             "listunspent", 
             vec![
-                min_conf.into(), max_conf.into(), addresses.into(), include_unsafe.into(),
+                min_conf.into(), 
+                max_conf.into(), 
+                addresses.into(), 
+                include_unsafe.into(),
                 json!({
                     "minimumAmount": minimum_amount,
                     "maximumCount": maximum_count
@@ -171,7 +174,36 @@ impl BitcoinRpcClient {
             None
         )?;
 
+        let mut result = vec![];
+        for raw_utxo in raw_utxos.iter() {
+            let txid = match raw_utxo.get_txid() {
+                Some(hash) => hash,
+                None => continue,
+            };
+
+            let script_pub_key = match raw_utxo.get_script_pub_key() {
+                Some(script_pub_key) => script_pub_key,
+                None => {
+                    //TODO: add warn log?
+                    continue;
+                }
+            };
+
+            let amount = match raw_utxo.get_sat_amount() {
+                Some(amount) => amount,
+                None => continue, //TODO: add warn log?
+            };
+
+            result.push(UTXO {
+                txid,
+                vout: raw_utxo.vout,
+                script_pub_key,
+                amount,
+                confirmations: raw_utxo.confirmations,
+            });
+        }
         
+        Ok(result)
     }
 }
 
@@ -179,6 +211,7 @@ impl BitcoinRpcClient {
 mod unit_tests {
 
     use serde_json::json;
+    use stacks::util::hash::to_hex;
 
     use super::*;
 
@@ -246,5 +279,68 @@ mod unit_tests {
         assert_eq!(2, result.len());
         assert_eq!("wallet1", result[0]);
         assert_eq!("wallet2", result[1]);
+    }
+
+    #[test]
+    fn test_list_unspent() { 
+        let expected_request = json!({
+            "jsonrpc": "2.0",
+            "id": "stacks",
+            "method": "listunspent",
+            "params": [
+                0,
+                9999999,
+                ["BTC_ADDRESS_1"],
+                true,
+                {
+                    "minimumAmount": "0.00001000",
+                    "maximumCount": 100
+                }
+            ]
+        });
+
+        let response_body = json!({
+            "result": [{
+                "txid": "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
+                "vout": 0,
+                "scriptPubKey": "76a91489abcdefabbaabbaabbaabbaabbaabbaabbaabba88ac",
+                "amount": 0.00001,
+                "confirmations": 6
+            }],
+            "error": null
+        });
+
+        let mut server = mockito::Server::new();
+        let _m = server
+            .mock("POST", "/")
+            .match_header("authorization", "Basic dXNlcjpwYXNz")
+            .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
+            .with_status(200)
+            .with_header("Content-Type", "application/json")
+            .with_body(response_body.to_string())
+            .create();
+
+        let client = utils::setup_client(&server);
+
+        let result = client.list_unspent(
+            vec!["BTC_ADDRESS_1".into()],
+            true,
+            1000, // 1000 sats = 0.00001000 BTC
+            100,
+        ).expect("Should parse unspent outputs");
+
+        assert_eq!(result.len(), 1);
+        let utxo = &result[0];
+        assert_eq!(utxo.amount, 1000);
+        assert_eq!(utxo.vout, 0);
+        assert_eq!(utxo.confirmations, 6);
+        assert_eq!(
+            utxo.txid.to_string(),
+            "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
+        );
+        assert_eq!(
+            to_hex(&utxo.script_pub_key.to_bytes()),
+            "76a91489abcdefabbaabbaabbaabbaabbaabbaabbaabba88ac"
+        );
     }
 }
