@@ -81,6 +81,37 @@ jobs:
           tag: ${{ github.ref_name }}
 
   ######################################################################################
+  ## Generate and upload openapi html artifact
+  ##
+  ## Runs when:
+  ##   - it is a node or signer-only release run
+  ##   or any of:
+  ##     - this workflow is called manually
+  ##     - PR is opened
+  ##     - PR added to merge queue
+  open-api-validation:
+    if: |
+      needs.check-release.outputs.is_node_release == 'true' ||
+      needs.check-release.outputs.is_signer_release == 'true' ||
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
+      github.event_name == 'merge_group'
+    name: OpenAPI Validation
+    needs:
+      - rustfmt
+      - check-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate OpenAPI documentation
+        uses: stacks-network/actions/openapi@main
+        with:
+          input: "./docs/rpc/openapi.yaml"
+          output: "./openapi-docs.html"
+          config: "./docs/rpc/redocly.yaml"
+          validate: "true"
+          redocly-version: "1.34"
+
+  ######################################################################################
   ## Create a tagged github release
   ##
   ## Runs when:
@@ -93,7 +124,7 @@ jobs:
     needs:
       - rustfmt
       - check-release
-    secrets: inherit 
+    secrets: inherit
     uses: ./.github/workflows/github-release.yml
     with:
       node_tag: ${{ needs.check-release.outputs.node_tag }}
