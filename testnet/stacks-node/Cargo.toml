@@ -69,7 +69,7 @@ monitoring_prom = ["stacks/monitoring_prom", "async-h1", "async-std", "http-type
 slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []
-testing = []
+testing = ["stacks-common/testing"]
 
 [package.metadata.pinny]
 allowed = ["bitcoind", "flaky", "slow"]
