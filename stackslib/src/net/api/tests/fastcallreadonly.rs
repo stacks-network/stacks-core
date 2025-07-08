@@ -328,23 +328,72 @@ fn test_try_make_response_free_cost_tracker() {
         },
     );
 
-    // confirmed tip
     let response = responses.remove(0);
-    debug!(
-        "Response:\n{}\n",
-        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    let (preamble, contents) = response.destruct();
+
+    assert_eq!(preamble.status_code, 408);
+
+    let body: String = contents.try_into().unwrap();
+    assert_eq!(body, "ExecutionTime expired");
+}
+
+#[test]
+fn test_wrong_auth() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+
+    let mut requests = vec![];
+
+    // query confirmed tip
+    let mut request = StacksHttpRequest::new_fastcallreadonlyfunction(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+            .unwrap()
+            .to_account_principal(),
+        None,
+        "ro-confirmed".try_into().unwrap(),
+        vec![],
+        TipRequest::UseLatestAnchoredTip,
+    );
+    request.add_header("authorization".into(), "wrong".into());
+
+    requests.push(request);
+
+    let mut responses = test_rpc(function_name!(), requests);
+
+    let response = responses.remove(0);
+    let (preamble, contents) = response.destruct();
+
+    assert_eq!(preamble.status_code, 401);
+}
+
+#[test]
+fn test_missing_auth() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+
+    let mut requests = vec![];
+
+    // query confirmed tip
+    let request = StacksHttpRequest::new_fastcallreadonlyfunction(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+            .unwrap()
+            .to_account_principal(),
+        None,
+        "ro-confirmed".try_into().unwrap(),
+        vec![],
+        TipRequest::UseLatestAnchoredTip,
     );
 
-    assert_eq!(
-        response.preamble().get_canonical_stacks_tip_height(),
-        Some(1)
-    );
+    requests.push(request);
 
-    let resp = response.decode_call_readonly_response().unwrap();
+    let mut responses = test_rpc(function_name!(), requests);
 
-    assert!(!resp.okay);
-    assert!(resp.result.is_none());
-    assert!(resp.cause.is_some());
+    let response = responses.remove(0);
+    let (preamble, contents) = response.destruct();
 
-    assert_eq!(resp.cause.unwrap(), "Unchecked(ExecutionTimeExpired)");
+    assert_eq!(preamble.status_code, 401);
 }

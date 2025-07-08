@@ -33,8 +33,8 @@ use crate::net::api::callreadonly::{
 };
 use crate::net::http::{
     parse_json, Error, HttpContentType, HttpNotFound, HttpRequest, HttpRequestContents,
-    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
-    HttpResponsePreamble,
+    HttpRequestPreamble, HttpRequestTimeout, HttpResponse, HttpResponseContents,
+    HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
     request, HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler,
@@ -287,6 +287,14 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                         result: None,
                         cause: Some("NotReadOnly".to_string()),
                     }
+                }
+                Unchecked(CheckErrors::ExecutionTimeExpired) => {
+                    return StacksHttpResponse::new_error(
+                        &preamble,
+                        &HttpRequestTimeout::new("ExecutionTime expired".to_string()),
+                    )
+                    .try_into_contents()
+                    .map_err(NetError::from)
                 }
                 _ => CallReadOnlyResponse {
                     okay: false,
