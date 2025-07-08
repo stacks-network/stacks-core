@@ -106,7 +106,7 @@ jobs:
         with:
           toolchain: ${{ needs.setup.outputs.rust-toolchain }}
           cache: true
-          cache-key: cargo-hack-wasm-${{ hashFiles('**/Cargo.lock') }}
+          cache-key: cargo-hack-wasm-${{ matrix.name }}-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install cargo-hack
         uses: taiki-e/install-action@v2
