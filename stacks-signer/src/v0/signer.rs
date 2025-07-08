@@ -1425,9 +1425,11 @@ impl Signer {
             });
         if total_reject_weight.saturating_add(min_weight) <= total_weight {
             // Not enough rejection signatures to make a decision
+            let reject_threshold = total_weight.saturating_sub(min_weight).saturating_add(1);
+            info!("{self}: Received rejection for block {block_hash}, but have not reached rejection threshold yet (have {total_reject_weight}, need at least {min_weight}/{reject_threshold})");
             return;
         }
-        info!("{self}: {total_reject_weight}/{total_weight} signers voted to reject the block {block_hash}");
+        info!("{self}: Received rejection for block {block_hash} and have reached the rejection threshold with {total_reject_weight}/{total_weight} rejections");
         if let Err(e) = self.signer_db.mark_block_globally_rejected(&mut block_info) {
             warn!("{self}: Failed to mark block as globally rejected: {e:?}",);
         }
@@ -1544,12 +1546,10 @@ impl Signer {
             });
 
         if min_weight > signature_weight {
-            debug!(
-                "{self}: Not enough signatures on block {} (have {}, need at least {}/{})",
-                block_hash, signature_weight, min_weight, total_weight
-            );
+            info!("{self}: Received block acceptance for block {block_hash}, but have not reached threshold yet (have {signature_weight}, need at least {min_weight}/{total_weight})");
             return;
         }
+        info!("{self}: Received block acceptance for block {block_hash} and have reached threshold with {signature_weight}/{total_weight} signatures");
 
         // have enough signatures to broadcast!
         // move block to LOCALLY accepted state.
