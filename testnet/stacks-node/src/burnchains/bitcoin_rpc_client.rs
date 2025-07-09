@@ -5,12 +5,12 @@ use crate::burnchains::rpc_transport::{RpcResult, RpcTransport};
 use crate::burnchains::bitcoin_regtest_controller::{ParsedUTXO, UTXO};
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct TransactionInfo {
+pub struct TransactionInfoResult {
     pub confirmations: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct DescriptorInfo {
+pub struct DescriptorInfoResult {
     pub checksum: String,
 }
 
@@ -139,7 +139,7 @@ impl BitcoinRpcClient {
         Ok(())
     }
 
-    pub fn get_transaction(&self, txid: &str) -> RpcResult<TransactionInfo> {
+    pub fn get_transaction(&self, txid: &str) -> RpcResult<TransactionInfoResult> {
         self.wallet_ep.send(
             "gettransaction", 
             vec![txid.into()], 
@@ -180,14 +180,26 @@ impl BitcoinRpcClient {
         )
     }
 
-    /// Get descriptor info by address
-    /// Wraps the descriptor in `addr(...)` before sending.
-    pub fn get_descriptor_info(&self, address: &str) -> RpcResult<DescriptorInfo> {
-        let addr = format!("addr({})", address);
+    pub fn get_descriptor_info(&self, descriptor: &str) -> RpcResult<DescriptorInfoResult> {
         self.global_ep.send(
             "getdescriptorinfo",
-            vec![addr.into()]
+            vec![descriptor.into()]
         )
+    }
+
+    //TODO: Improve with descriptor_list
+    pub fn import_descriptor(&self, descriptor: &str) -> RpcResult<()> {
+        //let addr = format!("addr({})", address);
+        let timestamp = 0;
+        let internal = true;
+
+        self.global_ep.send::<Value>(
+            "importdescriptors",
+            vec![
+                        json!([{ "desc": descriptor, "timestamp": timestamp, "internal": internal }]),
+                    ]
+        )?;
+        Ok(())
     }
 
     //TODO REMOVE:
@@ -564,13 +576,14 @@ mod tests {
         #[test]
         fn test_get_descriptor_info_ok() {
             let address = "bc1_address";
+            let descriptor = format!("addr({address})");
             let expected_checksum = "mychecksum";
 
             let expected_request = json!({
                 "jsonrpc": "2.0",
                 "id": "stacks",
                 "method": "getdescriptorinfo",
-                "params": [format!("addr({address})")]
+                "params": [descriptor]
             });
 
             let mock_response = json!({
@@ -591,8 +604,48 @@ mod tests {
                 .create();
 
             let client = utils::setup_client(&server);
-            let info = client.get_descriptor_info(address).expect("Should work!");
+            let info = client.get_descriptor_info(&descriptor).expect("Should work!");
             assert_eq!(expected_checksum, info.checksum);
+        }
+
+        #[test]
+        fn test_import_descriptor_ok() {
+            let descriptor = "addr(1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa)#checksum";
+            
+            let expected_request = json!({
+                "jsonrpc": "2.0",
+                "id": "stacks",
+                "method": "importdescriptors",
+                "params": [
+                    [{
+                        "desc": descriptor,
+                        "timestamp": 0,
+                        "internal": true
+                    }]
+                ]
+            });
+
+            let mock_response = json!({
+                "result": [{
+                    "success": true,
+                    "warnings": []
+                }],
+                "error": null
+            });
+
+            let mut server = mockito::Server::new();
+            let _m = server.mock("POST", "/")
+                .match_header("authorization", "Basic dXNlcjpwYXNz")
+                .match_body(mockito::Matcher::PartialJson(expected_request))
+                .with_status(200)
+                .with_header("Content-Type", "application/json")
+                .with_body(mock_response.to_string())
+                .create();
+
+            let client = utils::setup_client(&server);
+            let result = client.import_descriptor(&descriptor);
+            assert!(result.is_ok());
+            
         }
     }
 
