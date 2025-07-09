@@ -1425,11 +1425,10 @@ impl Signer {
             });
         if total_reject_weight.saturating_add(min_weight) <= total_weight {
             // Not enough rejection signatures to make a decision
-            let reject_threshold = total_weight.saturating_sub(min_weight).saturating_add(1);
             info!("{self}: Received block rejection";
-                "signer_pubkey" => public_key,
-                "signer_signature_hash" => block_hash,
-                "consensus_hash" => block_info.block.header.consensus_hash,
+                "signer_pubkey" => public_key.to_hex(),
+                "signer_signature_hash" => %block_hash,
+                "consensus_hash" => %block_info.block.header.consensus_hash,
                 "block_height" => block_info.block.header.chain_length,
                 "reject_reason" => ?rejection.response_data.reject_reason,
                 "total_weight_rejected" => total_reject_weight,
@@ -1439,9 +1438,9 @@ impl Signer {
             return;
         }
         info!("{self}: Received block rejection and have reached the rejection threshold";
-            "signer_pubkey" => public_key,
-            "signer_signature_hash" => block_hash,
-            "consensus_hash" => block_info.block.header.consensus_hash,
+            "signer_pubkey" => public_key.to_hex(),
+            "signer_signature_hash" => %block_hash,
+            "consensus_hash" => %block_info.block.header.consensus_hash,
             "block_height" => block_info.block.header.chain_length,
             "reject_reason" => ?rejection.response_data.reject_reason,
             "total_weight_rejected" => total_reject_weight,
@@ -1565,24 +1564,24 @@ impl Signer {
 
         if min_weight > signature_weight {
             info!("{self}: Received block acceptance";
-                "signer_pubkey" => public_key,
-                "signer_signature_hash" => block_hash,
-                "consensus_hash" => block_info.block.header.consensus_hash,
+                "signer_pubkey" => public_key.to_hex(),
+                "signer_signature_hash" => %block_hash,
+                "consensus_hash" => %block_info.block.header.consensus_hash,
                 "block_height" => block_info.block.header.chain_length,
-                "total_weight_approved" => total_weight_approved,
+                "total_weight_approved" => signature_weight,
                 "total_weight" => total_weight,
-                "percent_approved" => (total_weight_approved as f64 / total_weight as f64 * 100.0),
+                "percent_approved" => (signature_weight as f64 / total_weight as f64 * 100.0),
             );
             return;
         }
         info!("{self}: Received block acceptance and have reached the threshold";
-            "signer_pubkey" => public_key,
-            "signer_signature_hash" => block_hash,
-            "consensus_hash" => block_info.block.header.consensus_hash,
+            "signer_pubkey" => public_key.to_hex(),
+            "signer_signature_hash" => %block_hash,
+            "consensus_hash" => %block_info.block.header.consensus_hash,
             "block_height" => block_info.block.header.chain_length,
-            "total_weight_approved" => total_weight_approved,
+            "total_weight_approved" => signature_weight,
             "total_weight" => total_weight,
-            "percent_approved" => (total_weight_approved as f64 / total_weight as f64 * 100.0),
+            "percent_approved" => (signature_weight as f64 / total_weight as f64 * 100.0),
         );
 
         // have enough signatures to broadcast!
