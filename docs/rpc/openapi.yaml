@@ -73,6 +73,13 @@ components:
           schema:
             type: string
           example: "Internal Server Error"
+    Timeout:
+      description: Timeout
+      content:
+        text/plain:
+          schema:
+            type: string
+          example: "Timeout"
   schemas:
     NodeInfo:
       $ref: ./components/schemas/node-info.schema.yaml
@@ -104,6 +111,8 @@ components:
       $ref: ./components/schemas/read-only-function-args.schema.yaml
     ReadOnlyFunctionResult:
       $ref: ./components/schemas/read-only-function-result.schema.yaml
+    ClarityName:
+      $ref: ./components/schemas/clarity-name.schema.yaml
     ClarityMetadata:
       $ref: ./components/schemas/clarity-metadata.schema.yaml
     ConstantValue:
@@ -267,9 +276,8 @@ paths:
         - name: map_name
           in: path
           required: true
-          description: Map name
           schema:
-            type: string
+            $ref: "#/components/schemas/ClarityName"
         - $ref: ./components/parameters/proof.yaml
         - $ref: ./components/parameters/tip.yaml
       x-codegen-request-body-name: key
@@ -333,9 +341,13 @@ paths:
       description: |
         Call a read-only public function on a given contract.
 
-        The contract is identified with [Stacks Address] and [Contract Name] in the URL path. The function is identified with [Function Name].
+        The contract is identified with [Stacks Address] and [Contract Name] in the URL path.
+        The function is identified with [Function Name].
 
-        The arguments to the function are supplied via the POST body. This should be a JSON object with two main properties, `sender` which should be a standard Stacks address and `arguments` which should be an array of hex-encoded Clarity values.
+        The arguments to the function are supplied via the POST body.
+        This should be a JSON object with two main properties:
+        - `sender` which should be a standard Stacks address
+        - `arguments` which should be an array of hex-encoded Clarity values.
       tags:
         - Smart Contracts
       security: []
@@ -345,10 +357,9 @@ paths:
         - $ref: ./components/parameters/contract-name.yaml
         - name: function_name
           in: path
-          description: Function name
           required: true
           schema:
-            type: string
+            $ref: "#/components/schemas/ClarityName"
         - $ref: ./components/parameters/tip.yaml
       requestBody:
         required: true
@@ -374,6 +385,70 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v3/contracts/fast-call-read/{contract_address}/{contract_name}/{function_name}:
+    post:
+      summary: Call read-only function in fast mode (no cost and memory tracking)
+      description: |
+        Call a read-only public function on a given smart contract without cost tracking.
+
+        The contract is identified with [Stacks Address] and [Contract Name] in the URL path.
+        The function is identified with [Function Name].
+
+        The arguments to the function are supplied via the POST body.
+        This should be a JSON object with two main properties:
+        - `sender` which should be a standard Stacks address
+        - `arguments` which should be an array of hex-encoded Clarity values.
+
+        **This API endpoint requires a basic Authorization header.**
+      tags:
+        - Smart Contracts
+      security:
+        - rpcAuth: []
+      operationId: fastCallReadOnlyFunction
+      parameters:
+        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/contract-name.yaml
+        - name: function_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/ClarityName"
+        - $ref: ./components/parameters/tip.yaml
+      requestBody:
+        description: map of arguments and the simulated tx-sender where sender is either a Contract identifier or a normal Stacks address, and arguments is an array of hex serialized Clarity values.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReadOnlyFunctionArgs"
+              example:
+                sender: "SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info"
+                arguments:
+                  - "0x0011..."
+                  - "0x00231..."
+      responses:
+        "200":
+          description: Function executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadOnlyFunctionResult"
+              examples:
+                success:
+                  summary: Successful function call
+                  externalValue: "./components/examples/read-only-function-success.example.json"
+                failure:
+                  summary: Failed function call
+                  externalValue: "./components/examples/read-only-function-failure.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "408":
+          $ref: "#/components/responses/Timeout"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -609,12 +684,9 @@ paths:
         - name: trait_name
           in: path
           required: true
-          description: Trait name, must conform to Clarity naming rules.
           schema:
-            type: string
-            pattern: "^([a-zA-Z0-9_]|[-!?+<>=/*]){1,128}$"
-            minLength: 1
-            maxLength: 128
+            $ref: "#/components/schemas/ClarityName"
+          example: "some-trait"
         - $ref: ./components/parameters/tip.yaml
       responses:
         "200":
@@ -739,9 +811,8 @@ paths:
         - name: constant_name
           in: path
           required: true
-          description: Constant name
           schema:
-            type: string
+            $ref: "#/components/schemas/ClarityName"
         - $ref: ./components/parameters/tip.yaml
 
   /v3/block_proposal:
