@@ -99,7 +99,7 @@ components:
     ContractInterface:
       $ref: ./components/schemas/contract-interface.schema.yaml
     ContractSource:
-      $ref: ./components/schemas/contract-source.schema.yaml
+      $ref: ./components/schemas/contract-source.schemma.yaml
     ReadOnlyFunctionArgs:
       $ref: ./components/schemas/read-only-function-args.schema.yaml
     ReadOnlyFunctionResult:
