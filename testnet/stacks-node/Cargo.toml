@@ -33,11 +33,10 @@ http-types = { version = "2.12", optional = true }
 thiserror = { workspace = true }
 
 # This dependency is used for the multiversion integration tests which live behind the build-v3-1-0-0-13 feature flag
-# TODO: update the rev commit to the tagged master commit once v3_1_00_13 is released.
-signer_v3_1_0_0_13 = { package = "stacks-signer", git = "https://github.com/stacks-network/stacks-core.git", rev="0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532", optional = true, features = ["testing", "default"]}
-libsigner_v3_1_0_0_13 = { package = "libsigner", git = "https://github.com/stacks-network/stacks-core.git", rev="0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532", optional = true}
-stacks_v3_1_00_13 = { package = "stackslib", git = "https://github.com/stacks-network/stacks-core.git", rev="0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532", optional = true, features = ["testing", "default"]}
-stacks_common_v3_1_00_13 = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core.git", rev="0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532", optional = true, features = ["testing", "default"]}
+signer_v3_1_0_0_13 = { package = "stacks-signer", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
+libsigner_v3_1_0_0_13 = { package = "libsigner", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true}
+stacks_v3_1_00_13 = { package = "stackslib", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
+stacks_common_v3_1_00_13 = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
 [target.'cfg(not(any(target_os = "macos", target_os="windows", target_arch = "arm")))'.dependencies]
 tikv-jemallocator = {workspace = true}
 

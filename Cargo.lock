@@ -690,7 +690,7 @@ dependencies = [
 [[package]]
 name = "clarity"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532#0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2#8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2"
 dependencies = [
  "hashbrown 0.15.2",
  "integer-sqrt",
@@ -706,7 +706,7 @@ dependencies = [
  "serde_json",
  "serde_stacker",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "time 0.2.27",
 ]
 
@@ -1913,19 +1913,19 @@ dependencies = [
 [[package]]
 name = "libsigner"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532#0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2#8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2"
 dependencies = [
- "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "hashbrown 0.15.2",
  "lazy_static",
  "libc",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "serde",
  "serde_json",
  "sha2 0.10.8",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "thiserror",
  "tiny_http",
 ]
@@ -1955,13 +1955,13 @@ dependencies = [
 [[package]]
 name = "libstackerdb"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532#0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2#8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2"
 dependencies = [
- "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "secp256k1",
  "serde",
  "sha2 0.10.8",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
 ]
 
 [[package]]
@@ -2410,11 +2410,11 @@ dependencies = [
 [[package]]
 name = "pox-locking"
 version = "2.4.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532#0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2#8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2"
 dependencies = [
- "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
 ]
 
 [[package]]
@@ -3344,7 +3344,7 @@ dependencies = [
 [[package]]
 name = "stacks-common"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532#0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2#8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2"
 dependencies = [
  "chrono",
  "curve25519-dalek",
@@ -3384,7 +3384,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "libsigner 0.0.1",
- "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "madhouse",
  "mockito",
  "mutants",
@@ -3401,11 +3401,11 @@ dependencies = [
  "serial_test",
  "slog",
  "stacks-common 0.0.1",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "stacks-signer 0.0.1",
- "stacks-signer 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "stacks-signer 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "stackslib 0.0.1",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "stdext",
  "stx-genesis",
  "tempfile",
@@ -3456,15 +3456,15 @@ dependencies = [
 [[package]]
 name = "stacks-signer"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532#0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2#8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2"
 dependencies = [
  "backoff",
  "clap",
- "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "hashbrown 0.15.2",
  "lazy_static",
- "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "rand 0.8.5",
  "rand_core 0.6.4",
  "reqwest",
@@ -3474,8 +3474,8 @@ dependencies = [
  "serde_json",
  "slog",
  "slog-term",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "thiserror",
  "toml",
  "tracing",
@@ -3530,18 +3530,18 @@ dependencies = [
 [[package]]
 name = "stackslib"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532#0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2#8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2"
 dependencies = [
  "chrono",
- "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "ed25519-dalek",
  "hashbrown 0.15.2",
  "lazy_static",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "mio 0.6.23",
  "nix",
  "percent-encoding",
- "pox-locking 2.4.0 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "pox-locking 2.4.0 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "rand_core 0.6.4",
@@ -3555,7 +3555,7 @@ dependencies = [
  "sha2 0.10.8",
  "siphasher",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=0fa1ff3ba65d4ee5c54d398f7086bcaf9e6ae532)",
+ "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "tikv-jemallocator",
  "time 0.2.27",
  "toml",

@@ -425,7 +425,7 @@ impl SortitionData {
 pub enum SortitionStateVersion {
     /// Version 1: Local Signer State evaluation only
     V1,
-    /// Version 2: Global Siner State evaluation
+    /// Version 2: Global Signer State evaluation
     V2,
 }
 
