@@ -609,6 +609,7 @@ mod tests {
             let key = Secp256k1PublicKey::from_hex(fixture.public_key).unwrap();
             let signature = MessageSignature::from_raw(&hex_bytes(fixture.signature).unwrap());
             let ver_res = key.verify(&hex_bytes(fixture.data).unwrap(), &signature);
+            #[allow(clippy::assertions_on_constants)]
             match (ver_res, fixture.result) {
                 (Ok(true), Ok(true)) => {}
                 (Ok(false), Ok(false)) => {}
