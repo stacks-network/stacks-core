@@ -103,7 +103,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Generate OpenAPI documentation
-        uses: stacks-network/actions/openapi@feat/upgrade-redocly-action
+        uses: stacks-network/actions/openapi@main
         with:
           input: "./docs/rpc/openapi.yaml"
           output: "./openapi-docs.html"
