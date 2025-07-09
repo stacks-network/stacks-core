@@ -18,7 +18,6 @@
 pub mod log;
 #[macro_use]
 pub mod macros;
-#[cfg(feature = "http-parser")]
 pub mod chunked_encoding;
 #[cfg(feature = "rusqlite")]
 pub mod db;
@@ -76,6 +75,15 @@ pub fn get_epoch_time_ms() -> u128 {
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards");
     since_the_epoch.as_millis()
+}
+
+#[cfg(any(test, feature = "testing"))]
+pub fn get_epoch_time_nanos() -> u128 {
+    let start = SystemTime::now();
+    let since_the_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards");
+    since_the_epoch.as_nanos()
 }
 
 pub fn sleep_ms(millis: u64) {

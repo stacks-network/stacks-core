@@ -82,13 +82,11 @@ winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
 toml = { workspace = true }
 
 [features]
-default = ["developer-mode", "ctrlc-handler", "http-parser", "rand"]
+default = ["developer-mode", "ctrlc-handler", "rand"]
 developer-mode = []
 # Enables graceful shutdown handling for Ctrl+C (SIGINT) signals.
 # This pulls in the `nix` or `winapi` dependency.
 ctrlc-handler = ["dep:nix", "dep:winapi"]
-# Enables a lightweight, internal HTTP/1.x parser.
-http-parser = []
 slog_json = ["slog-json"]
 rusqlite = ["dep:rusqlite", "rand"]
 # Enables the rand module. This flag must be off on deterministic

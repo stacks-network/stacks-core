@@ -32,12 +32,10 @@ pub mod address;
 pub mod deps_common {
     pub mod bech32;
     pub mod bitcoin;
+    pub mod httparse;
 
     #[cfg(all(not(target_family = "wasm"), feature = "ctrlc-handler"))]
     pub mod ctrlc;
-
-    #[cfg(feature = "http-parser")]
-    pub mod httparse;
 }
 
 pub mod bitvec;
