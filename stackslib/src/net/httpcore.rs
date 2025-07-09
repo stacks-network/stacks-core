@@ -942,6 +942,8 @@ pub struct StacksHttp {
     pub auth_token: Option<String>,
     /// Allow arbitrary responses to be handled in addition to request handlers
     allow_arbitrary_response: bool,
+    /// Maximum execution time of a read-only call when in zero cost-tracking mode
+    pub read_only_max_execution_time: Duration,
 }
 
 impl StacksHttp {
@@ -961,6 +963,9 @@ impl StacksHttp {
             read_only_call_limit: conn_opts.read_only_call_limit.clone(),
             auth_token: conn_opts.auth_token.clone(),
             allow_arbitrary_response: false,
+            read_only_max_execution_time: Duration::from_secs(
+                conn_opts.read_only_max_execution_time_secs,
+            ),
         };
         http.register_rpc_methods();
         http
@@ -982,6 +987,9 @@ impl StacksHttp {
             read_only_call_limit: conn_opts.read_only_call_limit.clone(),
             auth_token: conn_opts.auth_token.clone(),
             allow_arbitrary_response: true,
+            read_only_max_execution_time: Duration::from_secs(
+                conn_opts.read_only_max_execution_time_secs,
+            ),
         }
     }
 
