@@ -25,7 +25,6 @@ use stacks_common::util::tests::TestFlag;
 use stacks_common::{info, warn};
 
 use super::signer::Signer;
-use super::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use crate::signerdb::BlockInfo;
 
 /// A global variable that can be used to pin a signer's highest supported protocol version if the signer's public key is in the provided list
@@ -180,17 +179,5 @@ impl Signer {
             }
             warn!("{self}: Block validation submission is no longer stalled due to testing directive. Continuing...");
         }
-    }
-
-    /// Get the pinned signer version for the signer
-    pub fn test_get_signer_protocol_version(&self) -> u64 {
-        let public_keys = TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.get();
-        if let Some(version) = public_keys.get(
-            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
-        ) {
-            warn!("{self}: signer version is pinned to {version}");
-            return *version;
-        }
-        SUPPORTED_SIGNER_PROTOCOL_VERSION
     }
 }

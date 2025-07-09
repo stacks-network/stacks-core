@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased]
+
+### Added
+
+- Introduced `capitulate_miner_view_timeout_secs`: the duration (in seconds) for the signer to wait between updating the local state machine viewpoint and capitulating to other signers' miner views.
+- Added codepath to enable signers to evaluate block proposals and miner activity against global signer state for improved consistency and correctness. Currently feature gated behind the `SUPPORTED_SIGNER_PROTOCOL_VERSION`
+
 ## [3.1.0.0.13.0]
 
 ### Changed
