@@ -48,19 +48,20 @@ impl From<NetError> for RPCError {
  */
 
 pub struct RpcTransport {
-    pub host: String,
-    pub port: u16,
-    pub ssl: bool,
+    pub url: String,
     pub username: String,
     pub password: String,
 }
 
 impl RpcTransport {
+    pub fn new(url: String, username: String, password: String) -> Self {
+        RpcTransport { url, username, password }
+    }
+
     pub fn send<T: for<'de> Deserialize<'de>>(
         &self,
         method: &str,
         params: Vec<Value>,
-        wallet: Option<&str>,
     ) -> RpcResult<T> {
         let request = JsonRpcRequest {
             jsonrpc: RCP_VERSION.to_string(),
@@ -76,7 +77,7 @@ impl RpcTransport {
 
         //self.client
         let response = client
-            .post(&self.build_url(wallet))
+            .post(&self.url)
             .header("Authorization", self.auth_header())
             .json(&request)
             .send()
@@ -91,15 +92,6 @@ impl RpcTransport {
             (_, Some(err)) => Err(RpcError::Service(format!("{:#}", err))),
             _ => Err(RpcError::Parsing("Missing both result and error".into())),
         }
-    }
-
-    fn build_url(&self, wallet_opt: Option<&str>) -> String {
-        let protocol = if self.ssl { "https" } else { "http" };
-        let mut url = format!("{}://{}:{}", protocol, self.host, self.port);
-        if let Some(wallet) = wallet_opt {
-            url.push_str(&format!("/wallet/{}", wallet));
-        }
-        url
     }
 
     fn auth_header(&self) -> String {
@@ -118,12 +110,8 @@ mod tests {
         use super::*;
 
         pub fn setup_transport(server: &mockito::ServerGuard) -> RpcTransport {
-            let url = server.url();
-            let parsed = url::Url::parse(&url).unwrap();
             RpcTransport {
-                host: parsed.host_str().unwrap().to_string(),
-                port: parsed.port_or_known_default().unwrap(),
-                ssl: parsed.scheme() == "https",
+                url: server.url(),
                 username: "user".into(),
                 password: "pass".into(),
             }
@@ -156,21 +144,19 @@ mod tests {
 
         let transport = utils::setup_transport(&server);
 
-        let result: RpcResult<String> = transport.send("some_method", vec!["param1".into()], None);
+        let result: RpcResult<String> = transport.send("some_method", vec!["param1".into()]);
         assert_eq!(result.unwrap(), "some_result");
     }
 
     #[test]
     fn test_send_fails_with_network_error() {
-        let transport = RpcTransport {
-            host: "127.0.0.1".into(),
-            port: 65535, // assuming nothing is listening here
-            ssl: false,
-            username: "user".into(),
-            password: "pass".into(),
-        };
+        let transport = RpcTransport::new(
+            "http://127.0.0.1:65535".to_string(),
+            "user".to_string(),
+            "pass".to_string(),
+        );
 
-        let result: RpcResult<Value> = transport.send("dummy_method", vec![], None);
+        let result: RpcResult<Value> = transport.send("dummy_method", vec![]);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), RpcError::Network(_)));
     }
@@ -185,7 +171,7 @@ mod tests {
             .create();
 
         let transport = utils::setup_transport(&server);
-        let result: RpcResult<Value> = transport.send("dummy", vec![], None);
+        let result: RpcResult<Value> = transport.send("dummy", vec![]);
 
         assert!(result.is_err());
         match result {
@@ -207,7 +193,7 @@ mod tests {
             .create();
 
         let transport = utils::setup_transport(&server);
-        let result: RpcResult<Value> = transport.send("dummy", vec![], None);
+        let result: RpcResult<Value> = transport.send("dummy", vec![]);
 
         assert!(result.is_err());
         match result {
@@ -229,7 +215,7 @@ mod tests {
             .create();
 
         let transport = utils::setup_transport(&server);
-        let result: RpcResult<Value> = transport.send("dummy", vec![], None);
+        let result: RpcResult<Value> = transport.send("dummy", vec![]);
 
         match result {
             Err(RpcError::Parsing(msg)) => assert_eq!("Missing both result and error", msg),
@@ -256,7 +242,7 @@ mod tests {
             .create();
 
         let transport = utils::setup_transport(&server);
-        let result: RpcResult<Value> = transport.send("unknown_method", vec![], None);
+        let result: RpcResult<Value> = transport.send("unknown_method", vec![]);
 
         match result {
             Err(RpcError::Service(msg)) => assert_eq!(
