@@ -1825,15 +1825,7 @@ impl Signer {
 
     #[cfg(any(test, feature = "testing"))]
     fn get_signer_protocol_version(&self) -> u64 {
-        use crate::v0::tests::TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION;
-        let public_keys = TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.get();
-        if let Some(version) = public_keys.get(
-            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
-        ) {
-            warn!("{self}: signer version is pinned to {version}");
-            return *version;
-        }
-        self.supported_signer_protocol_version
+        self.test_get_signer_protocol_version()
     }
 }
 
