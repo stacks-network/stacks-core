@@ -17,7 +17,6 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::io::{Read, Write};
-use std::time::SystemTime;
 
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::deps_common::httparse;
@@ -348,8 +347,10 @@ impl HttpResponsePreamble {
 
 /// Get an RFC 7231 date that represents the current time
 fn rfc7231_now() -> String {
-    let now = time::PrimitiveDateTime::from(SystemTime::now());
-    now.format("%a, %b %-d %-Y %-H:%M:%S GMT")
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc2822)
+        .unwrap()
+        .replace("+0000", "GMT")
 }
 
 /// Read from a stream until we see '\r\n\r\n', with the purpose of reading an HTTP preamble.
