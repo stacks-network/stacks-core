@@ -417,6 +417,12 @@ pub enum CostErrors {
     ExecutionTimeExpired,
 }
 
+impl fmt::Display for CostErrors {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl CostErrors {
     fn rejectable(&self) -> bool {
         matches!(self, CostErrors::InterpreterFailure | CostErrors::Expect(_))
