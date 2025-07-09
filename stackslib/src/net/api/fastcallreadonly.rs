@@ -1,5 +1,4 @@
-// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,23 +13,28 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::Duration;
+
 use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
+use clarity::vm::errors::Error as ClarityRuntimeError;
 use clarity::vm::errors::Error::Unchecked;
-use clarity::vm::errors::{Error as ClarityRuntimeError, InterpreterError};
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ContractName, SymbolicExpression, Value};
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
 
+use crate::net::api::callreadonly::{
+    CallReadOnlyRequestBody, CallReadOnlyResponse, RPCCallReadOnlyRequestHandler,
+};
 use crate::net::http::{
     parse_json, Error, HttpContentType, HttpNotFound, HttpRequest, HttpRequestContents,
-    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
-    HttpResponsePreamble,
+    HttpRequestPreamble, HttpRequestTimeout, HttpResponse, HttpResponseContents,
+    HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
     request, HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler,
@@ -38,68 +42,52 @@ use crate::net::httpcore::{
 };
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct CallReadOnlyRequestBody {
-    pub sender: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sponsor: Option<String>,
-    pub arguments: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CallReadOnlyResponse {
-    pub okay: bool,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<String>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cause: Option<String>,
-}
-
 #[derive(Clone)]
-pub struct RPCCallReadOnlyRequestHandler {
-    pub maximum_call_argument_size: u32,
-    read_only_call_limit: ExecutionCost,
-
-    /// Runtime fields
-    pub contract_identifier: Option<QualifiedContractIdentifier>,
-    pub function: Option<ClarityName>,
-    pub sender: Option<PrincipalData>,
-    pub sponsor: Option<PrincipalData>,
-    pub arguments: Option<Vec<Value>>,
+pub struct RPCFastCallReadOnlyRequestHandler {
+    pub call_read_only_handler: RPCCallReadOnlyRequestHandler,
+    read_only_max_execution_time: Duration,
+    pub auth: Option<String>,
 }
 
-impl RPCCallReadOnlyRequestHandler {
-    pub fn new(maximum_call_argument_size: u32, read_only_call_limit: ExecutionCost) -> Self {
+impl RPCFastCallReadOnlyRequestHandler {
+    pub fn new(
+        maximum_call_argument_size: u32,
+        read_only_max_execution_time: Duration,
+        auth: Option<String>,
+    ) -> Self {
         Self {
-            maximum_call_argument_size,
-            read_only_call_limit,
-            contract_identifier: None,
-            function: None,
-            sender: None,
-            sponsor: None,
-            arguments: None,
+            call_read_only_handler: RPCCallReadOnlyRequestHandler::new(
+                maximum_call_argument_size,
+                ExecutionCost {
+                    write_length: 0,
+                    write_count: 0,
+                    read_length: 0,
+                    read_count: 0,
+                    runtime: 0,
+                },
+            ),
+            read_only_max_execution_time,
+            auth,
         }
     }
 }
 
 /// Decode the HTTP request
-impl HttpRequest for RPCCallReadOnlyRequestHandler {
+impl HttpRequest for RPCFastCallReadOnlyRequestHandler {
     fn verb(&self) -> &'static str {
         "POST"
     }
 
     fn path_regex(&self) -> Regex {
         Regex::new(&format!(
-            "^/v2/contracts/call-read/(?P<address>{})/(?P<contract>{})/(?P<function>{})$",
+            "^/v3/contracts/fast-call-read/(?P<address>{})/(?P<contract>{})/(?P<function>{})$",
             *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
         ))
         .unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/contracts/call-read/:principal/:contract_name/:func_name"
+        "/v3/contracts/fast-call-read/:principal/:contract_name/:func_name"
     }
 
     /// Try to decode this request.
@@ -110,10 +98,23 @@ impl HttpRequest for RPCCallReadOnlyRequestHandler {
         query: Option<&str>,
         body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
+        // If no authorization is set, then the block proposal endpoint is not enabled
+        let Some(password) = &self.auth else {
+            return Err(Error::Http(400, "Bad Request.".into()));
+        };
+        let Some(auth_header) = preamble.headers.get("authorization") else {
+            return Err(Error::Http(401, "Unauthorized".into()));
+        };
+        if auth_header != password {
+            return Err(Error::Http(401, "Unauthorized".into()));
+        }
+
         let content_len = preamble.get_content_length();
-        if !(content_len > 0 && content_len < self.maximum_call_argument_size) {
+        if !(content_len > 0
+            && content_len < self.call_read_only_handler.maximum_call_argument_size)
+        {
             return Err(Error::DecodeError(format!(
-                "Invalid Http request: invalid body length for CallReadOnly ({})",
+                "Invalid Http request: invalid body length for FastCallReadOnly ({})",
                 content_len
             )));
         }
@@ -149,25 +150,25 @@ impl HttpRequest for RPCCallReadOnlyRequestHandler {
             .collect::<Option<Vec<Value>>>()
             .ok_or_else(|| Error::DecodeError("Failed to deserialize argument value".into()))?;
 
-        self.contract_identifier = Some(contract_identifier);
-        self.function = Some(function);
-        self.sender = Some(sender);
-        self.sponsor = sponsor;
-        self.arguments = Some(arguments);
+        self.call_read_only_handler.contract_identifier = Some(contract_identifier);
+        self.call_read_only_handler.function = Some(function);
+        self.call_read_only_handler.sender = Some(sender);
+        self.call_read_only_handler.sponsor = sponsor;
+        self.call_read_only_handler.arguments = Some(arguments);
 
         Ok(HttpRequestContents::new().query_string(query))
     }
 }
 
 /// Handle the HTTP request
-impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
+impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
-        self.contract_identifier = None;
-        self.function = None;
-        self.sender = None;
-        self.sponsor = None;
-        self.arguments = None;
+        self.call_read_only_handler.contract_identifier = None;
+        self.call_read_only_handler.function = None;
+        self.call_read_only_handler.sender = None;
+        self.call_read_only_handler.sponsor = None;
+        self.call_read_only_handler.arguments = None;
     }
 
     /// Make the response
@@ -185,19 +186,23 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
         };
 
         let contract_identifier = self
+            .call_read_only_handler
             .contract_identifier
             .take()
             .ok_or(NetError::SendError("Missing `contract_identifier`".into()))?;
         let function = self
+            .call_read_only_handler
             .function
             .take()
             .ok_or(NetError::SendError("Missing `function`".into()))?;
         let sender = self
+            .call_read_only_handler
             .sender
             .take()
             .ok_or(NetError::SendError("Missing `sender`".into()))?;
-        let sponsor = self.sponsor.clone();
+        let sponsor = self.call_read_only_handler.sponsor.clone();
         let arguments = self
+            .call_read_only_handler
             .arguments
             .take()
             .ok_or(NetError::SendError("Missing `arguments`".into()))?;
@@ -212,25 +217,11 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
 
                 let mainnet = chainstate.mainnet;
                 let chain_id = chainstate.chain_id;
-                let mut cost_limit = self.read_only_call_limit.clone();
-                cost_limit.write_length = 0;
-                cost_limit.write_count = 0;
 
                 chainstate.maybe_read_only_clarity_tx(
                     &sortdb.index_handle_at_block(chainstate, &tip)?,
                     &tip,
                     |clarity_tx| {
-                        let epoch = clarity_tx.get_epoch();
-                        let cost_track = clarity_tx
-                            .with_clarity_db_readonly(|clarity_db| {
-                                LimitedCostTracker::new_mid_block(
-                                    mainnet, chain_id, cost_limit, clarity_db, epoch,
-                                )
-                            })
-                            .map_err(|_| {
-                                ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
-                            })?;
-
                         let clarity_version = clarity_tx
                             .with_analysis_db_readonly(|analysis_db| {
                                 analysis_db.get_clarity_version(&contract_identifier)
@@ -248,8 +239,14 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                             clarity_version,
                             sender,
                             sponsor,
-                            cost_track,
+                            LimitedCostTracker::new_free(),
                             |env| {
+                                // cost tracking in read only calls is meamingful mainly from a security point of view
+                                // for this reason we enforce max_execution_time when cost tracking is disabled/free
+
+                                env.global_context
+                                    .set_max_execution_time(self.read_only_max_execution_time);
+
                                 // we want to execute any function as long as no actual writes are made as
                                 // opposed to be limited to purely calling `define-read-only` functions,
                                 // so use `read_only = false`.  This broadens the number of functions that
@@ -291,6 +288,14 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                         cause: Some("NotReadOnly".to_string()),
                     }
                 }
+                Unchecked(CheckErrors::ExecutionTimeExpired) => {
+                    return StacksHttpResponse::new_error(
+                        &preamble,
+                        &HttpRequestTimeout::new("ExecutionTime expired".to_string()),
+                    )
+                    .try_into_contents()
+                    .map_err(NetError::from)
+                }
                 _ => CallReadOnlyResponse {
                     okay: false,
                     result: None,
@@ -315,7 +320,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
 }
 
 /// Decode the HTTP response
-impl HttpResponse for RPCCallReadOnlyRequestHandler {
+impl HttpResponse for RPCFastCallReadOnlyRequestHandler {
     fn try_parse_response(
         &self,
         preamble: &HttpResponsePreamble,
@@ -328,7 +333,7 @@ impl HttpResponse for RPCCallReadOnlyRequestHandler {
 
 impl StacksHttpRequest {
     /// Make a new request to run a read-only function
-    pub fn new_callreadonlyfunction(
+    pub fn new_fastcallreadonlyfunction(
         host: PeerHost,
         contract_addr: StacksAddress,
         contract_name: ContractName,
@@ -342,7 +347,7 @@ impl StacksHttpRequest {
             host,
             "POST".into(),
             format!(
-                "/v2/contracts/call-read/{}/{}/{}",
+                "/v3/contracts/fast-call-read/{}/{}/{}",
                 &contract_addr, &contract_name, &function_name
             ),
             HttpRequestContents::new().for_tip(tip_req).payload_json(
@@ -355,15 +360,5 @@ impl StacksHttpRequest {
             ),
         )
         .expect("FATAL: failed to construct request from infallible data")
-    }
-}
-
-impl StacksHttpResponse {
-    pub fn decode_call_readonly_response(self) -> Result<CallReadOnlyResponse, NetError> {
-        let contents = self.get_http_payload_ok()?;
-        let contents_json: serde_json::Value = contents.try_into()?;
-        let resp: CallReadOnlyResponse = serde_json::from_value(contents_json)
-            .map_err(|_e| NetError::DeserializeError("Failed to load from JSON".to_string()))?;
-        Ok(resp)
     }
 }
