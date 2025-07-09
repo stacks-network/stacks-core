@@ -16,7 +16,6 @@
 
 use std::io;
 use std::io::{Read, Write};
-use std::net::SocketAddr;
 
 use hashbrown::HashMap;
 use stacks_common::codec::MAX_MESSAGE_LEN;

@@ -272,6 +272,7 @@ impl BlocksInvData {
         }
     }
 
+    #[allow(clippy::indexing_slicing)]
     pub fn compress_bools(bits: &[bool]) -> Vec<u8> {
         let bvl: u16 = bits
             .len()
@@ -293,7 +294,10 @@ impl BlocksInvData {
 
         let idx = block_index / 8;
         let bit = block_index % 8;
-        (self.block_bitvec[idx as usize] & (1 << bit)) != 0
+        let Some(bitvec_entry) = self.block_bitvec.get(idx as usize) else {
+            return false;
+        };
+        (bitvec_entry & (1 << bit)) != 0
     }
 
     pub fn has_ith_microblock_stream(&self, block_index: u16) -> bool {
@@ -303,7 +307,10 @@ impl BlocksInvData {
 
         let idx = block_index / 8;
         let bit = block_index % 8;
-        (self.microblocks_bitvec[idx as usize] & (1 << bit)) != 0
+        let Some(bitvec_entry) = self.microblocks_bitvec.get(idx as usize) else {
+            return false;
+        };
+        bitvec_entry & (1 << bit) != 0
     }
 }
 
@@ -411,7 +418,10 @@ impl PoxInvData {
 
         let idx = index / 8;
         let bit = index % 8;
-        (self.pox_bitvec[idx as usize] & (1 << bit)) != 0
+        let Some(bitvec_entry) = self.pox_bitvec.get(idx as usize) else {
+            return false;
+        };
+        bitvec_entry & (1 << bit) != 0
     }
 }
 
@@ -1527,13 +1537,11 @@ impl ProtocolFamily for StacksP2P {
 
     /// StacksP2P deals with Preambles
     fn read_preamble(&mut self, buf: &[u8]) -> Result<(Preamble, usize), net_error> {
-        if buf.len() < PREAMBLE_ENCODED_SIZE as usize {
-            return Err(net_error::UnderflowError(
-                "Not enough bytes to form a P2P preamble".to_string(),
-            ));
-        }
+        let mut preamble_bytes = buf.get(..PREAMBLE_ENCODED_SIZE as usize).ok_or_else(|| {
+            Error::UnderflowError("Not enough bytes to form a P2P preamble".to_string())
+        })?;
 
-        let preamble: Preamble = read_next(&mut &buf[0..(PREAMBLE_ENCODED_SIZE as usize)])?;
+        let preamble: Preamble = read_next(&mut preamble_bytes)?;
         Ok((preamble, PREAMBLE_ENCODED_SIZE as usize))
     }
 
@@ -1555,13 +1563,11 @@ impl ProtocolFamily for StacksP2P {
         preamble: &Preamble,
         bytes: &[u8],
     ) -> Result<(StacksMessage, usize), net_error> {
-        if bytes.len() < preamble.payload_len as usize {
-            return Err(net_error::UnderflowError(
-                "Not enough bytes to form a StacksMessage".to_string(),
-            ));
-        }
+        let preamble_bytes = bytes.get(..preamble.payload_len as usize).ok_or_else(|| {
+            Error::UnderflowError("Not enough bytes to form a StacksMessage".to_string())
+        })?;
 
-        let mut cursor = io::Cursor::new(&bytes[0..(preamble.payload_len as usize)]);
+        let mut cursor = io::Cursor::new(preamble_bytes);
         let (relayers, payload) = StacksMessage::deserialize_body(&mut cursor)?;
         let message = StacksMessage {
             preamble: preamble.clone(),
@@ -1577,10 +1583,10 @@ impl ProtocolFamily for StacksP2P {
         preamble: &Preamble,
         bytes: &[u8],
     ) -> Result<(), Error> {
-        preamble
-            .clone()
-            .verify(&bytes[0..(preamble.payload_len as usize)], key)
-            .map(|_m| ())
+        let preamble_bytes = bytes.get(..preamble.payload_len as usize).ok_or_else(|| {
+            Error::UnderflowError("Not enough bytes to form a StacksMessage".to_string())
+        })?;
+        preamble.clone().verify(preamble_bytes, key).map(|_m| ())
     }
 
     fn write_message<W: Write>(

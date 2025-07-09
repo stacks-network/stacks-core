@@ -1667,11 +1667,11 @@ impl ConversationP2P {
                     "{:?}: Disable inv chat -- pretend like we have nothing",
                     network.get_local_peer()
                 );
-                for i in 0..blocks_inv_data.block_bitvec.len() {
-                    blocks_inv_data.block_bitvec[i] = 0;
+                for entry in blocks_inv_data.block_bitvec.iter_mut() {
+                    *entry = 0;
                 }
-                for i in 0..blocks_inv_data.microblocks_bitvec.len() {
-                    blocks_inv_data.microblocks_bitvec[i] = 0;
+                for entry in blocks_inv_data.microblocks_bitvec.iter_mut() {
+                    *entry = 0;
                 }
             }
         }

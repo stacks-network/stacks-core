@@ -1,4 +1,3 @@
-#![allow(unused_imports)]
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
@@ -23,6 +22,7 @@ extern crate blockstack_lib;
 extern crate clarity;
 extern crate stacks_common;
 
+#[cfg(test)]
 use std::io::prelude::*;
 use std::io::Read;
 use std::{env, fs, io};
@@ -520,6 +520,7 @@ fn parse_postcondition_mode(
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn handle_contract_publish(
     args_slice: &[String],
     version: TransactionVersion,
@@ -580,6 +581,7 @@ fn handle_contract_publish(
     Ok(to_hex(&signed_tx_bytes))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn handle_contract_call(
     args_slice: &[String],
     version: TransactionVersion,
@@ -674,6 +676,7 @@ fn handle_contract_call(
     Ok(to_hex(&signed_tx_bytes))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn handle_token_transfer(
     args_slice: &[String],
     version: TransactionVersion,
@@ -736,6 +739,7 @@ fn handle_token_transfer(
     Ok(to_hex(&signed_tx_bytes))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
     if !args.is_empty() && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", GENERATE_USAGE)));
@@ -767,6 +771,7 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<S
     ))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!("USAGE:\n {}", ADDRESSES_USAGE)));
@@ -806,6 +811,7 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
     ))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -844,6 +850,7 @@ fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<S
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -883,6 +890,7 @@ fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -920,6 +928,7 @@ fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String,
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -959,6 +968,7 @@ fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<St
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_microblocks(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(

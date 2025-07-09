@@ -106,7 +106,12 @@ impl PreStxOp {
         let outputs = tx.get_recipients();
         assert!(!outputs.is_empty());
 
-        let output = outputs[0]
+        let output = outputs
+            .get(0)
+            .ok_or_else(|| {
+                warn!("Invalid tx: first output not found");
+                op_error::InvalidInput
+            })?
             .as_ref()
             .ok_or_else(|| {
                 warn!("Invalid tx: first output cannot be decoded");
@@ -192,24 +197,24 @@ impl StackStxOp {
             return None;
         }
 
-        let stacked_ustx = parse_u128_from_be(&data[0..16]).unwrap();
-        let num_cycles = data[16];
+        let stacked_ustx = parse_u128_from_be(data.get(0..16)?).unwrap();
+        let num_cycles = *data.get(16)?;
 
         let mut signer_key: Option<StacksPublicKeyBuffer> = None;
         let mut max_amount: Option<u128> = None;
         let mut auth_id: Option<u32> = None;
 
         if data.len() >= 50 {
-            signer_key = Some(StacksPublicKeyBuffer::from(&data[17..50]));
+            signer_key = Some(StacksPublicKeyBuffer::from(data.get(17..50)?));
         }
         if data.len() >= 66 {
-            let Some(amt) = parse_u128_from_be(&data[50..66]) else {
+            let Some(amt) = parse_u128_from_be(data.get(50..66)?) else {
                 return None;
             };
             max_amount = Some(amt);
         }
         if data.len() >= 70 {
-            let Some(id) = parse_u32_from_be(&data[66..70]) else {
+            let Some(id) = parse_u32_from_be(data.get(66..70)?) else {
                 return None;
             };
             auth_id = Some(id);
@@ -304,10 +309,17 @@ impl StackStxOp {
         let outputs = tx.get_recipients();
         assert!(!outputs.is_empty());
 
-        let first_output = outputs[0].as_ref().ok_or_else(|| {
-            warn!("Invalid tx: failed to decode first output");
-            op_error::InvalidInput
-        })?;
+        let first_output = outputs
+            .get(0)
+            .ok_or_else(|| {
+                warn!("Invalid tx: no first output");
+                op_error::InvalidInput
+            })?
+            .as_ref()
+            .ok_or_else(|| {
+                warn!("Invalid tx: failed to decode first output");
+                op_error::InvalidInput
+            })?;
 
         // coerce a hash mode for this address if need be, since we'll need it when we feed this
         // address into the .pox contract
