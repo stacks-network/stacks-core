@@ -61,6 +61,26 @@ impl BurnchainOpSigner {
     }
 }
 
+/// Test-only utilities for `BurnchainOpSigner`
+#[cfg(any(test, feature = "testing"))]
+impl BurnchainOpSigner {
+    /// Returns `true` if the signer has been disposed.
+    ///
+    /// This is useful in tests to assert that disposal behavior is working as expected.
+    pub fn is_disposed(&self) -> bool {
+        self.is_disposed
+    }
+
+    /// Returns a new `BurnchainOpSigner` instance using the same secret key,
+    /// but with `is_disposed` set to `false` and `is_one_off` set to `false`.
+    ///
+    /// This is useful in testing scenarios where you need a fresh, undisposed copy
+    /// of a signer without recreating the private key.
+    pub fn undisposed(&self) -> Self {
+        Self::new(self.secret_key, false)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use stacks_common::util::secp256k1::Secp256k1PrivateKey;

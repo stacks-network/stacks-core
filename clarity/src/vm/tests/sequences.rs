@@ -16,16 +16,25 @@
 
 use rstest::rstest;
 use rstest_reuse::{self, *};
+#[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::tests::test_clarity_versions;
-use crate::vm::types::signatures::SequenceSubtype;
-use crate::vm::types::signatures::SequenceSubtype::{BufferType, StringType};
-use crate::vm::types::signatures::StringSubtype::ASCII;
-use crate::vm::types::TypeSignature::{BoolType, IntType, SequenceType, UIntType};
-use crate::vm::types::{BufferLength, StringSubtype, StringUTF8Length, TypeSignature, Value};
-use crate::vm::{execute, execute_v2, ClarityVersion};
+#[cfg(test)]
+use crate::vm::{
+    errors::{CheckErrors, Error, RuntimeErrorType},
+    execute, execute_v2,
+    types::{
+        signatures::{
+            SequenceSubtype::{self, BufferType, StringType},
+            StringSubtype::ASCII,
+        },
+        BufferLength, StringSubtype, StringUTF8Length,
+        TypeSignature::{self, BoolType, IntType, SequenceType, UIntType},
+        Value,
+    },
+    ClarityVersion,
+};
 
 #[test]
 fn test_simple_list_admission() {

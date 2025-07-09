@@ -762,6 +762,12 @@ impl<L: PartialEq + Eq> Ord for StacksEpoch<L> {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
 pub struct EpochList<L: Clone>(Vec<StacksEpoch<L>>);
 
+impl<L: Clone> From<Vec<StacksEpoch<L>>> for EpochList<L> {
+    fn from(value: Vec<StacksEpoch<L>>) -> Self {
+        Self(value)
+    }
+}
+
 impl<L: Clone> EpochList<L> {
     pub fn new(epochs: &[StacksEpoch<L>]) -> EpochList<L> {
         EpochList(epochs.to_vec())
@@ -804,8 +810,8 @@ impl<L: Clone> EpochList<L> {
         self.0.push(epoch);
     }
 
-    pub fn to_vec(&self) -> Vec<StacksEpoch<L>> {
-        self.0.clone()
+    pub fn to_vec(self) -> Vec<StacksEpoch<L>> {
+        self.0
     }
 }
 
