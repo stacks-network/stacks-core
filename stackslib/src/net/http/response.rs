@@ -346,11 +346,11 @@ impl HttpResponsePreamble {
 }
 
 /// Get an RFC 7231 date that represents the current time
-fn rfc7231_now() -> String {
+fn rfc7231_now() -> Result<String, CodecError> {
     time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc2822)
-        .unwrap()
-        .replace("+0000", "GMT")
+        .map(|date| date.replace("+0000", "GMT"))
+        .map_err(|e| CodecError::GenericError(format!("Failed to format RFC 7231 date: {:?}", e)))
 }
 
 /// Read from a stream until we see '\r\n\r\n', with the purpose of reading an HTTP preamble.
@@ -388,7 +388,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
         if !self.headers.contains_key("date") {
             fd.write_all("Date: ".as_bytes())
                 .map_err(CodecError::WriteError)?;
-            fd.write_all(rfc7231_now().as_bytes())
+            fd.write_all(rfc7231_now()?.as_bytes())
                 .map_err(CodecError::WriteError)?;
             fd.write_all("\r\n".as_bytes())
                 .map_err(CodecError::WriteError)?;

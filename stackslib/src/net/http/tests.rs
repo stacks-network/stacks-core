@@ -393,16 +393,13 @@ fn test_http_response_preamble_headers() {
     );
     assert!(txt.find("Date: ").is_some(), "Date header is missing");
 
-    // old format
-    // let date_regex = regex::Regex::new(
-    //     r"Date: [A-Za-z]{3}, [A-Za-z]{3} \d{1,2} \d{4} \d{2}:\d{2}:\d{2} GMT\r\n",
-    // )
-    // .unwrap();
-    // new format rfc7231
-    let date_regex =
+    let rfc7231_date_regex =
         regex::Regex::new(r"Date: [A-Za-z]{3}, \d{2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2} GMT\r\n")
             .unwrap();
-    assert!(date_regex.is_match(&txt), "Date header format is incorrect");
+    assert!(
+        rfc7231_date_regex.is_match(&txt),
+        "Date header format is incorrect"
+    );
     assert!(txt.find("foo: bar\r\n").is_some(), "foo header is missing");
     assert!(
         txt.find("Access-Control-Allow-Origin: *\r\n").is_some(),
