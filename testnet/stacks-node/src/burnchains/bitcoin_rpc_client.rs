@@ -228,6 +228,24 @@ impl BitcoinRpcClient {
         )?;
         Ok(())
     }
+
+    /// Gracefully shuts down the Bitcoin Core node.
+    ///
+    /// Sends the `"stop"` RPC command using the global endpoint to request that `bitcoind` shuts down
+    /// cleanly. This includes flushing the mempool, writing state to disk, and terminating the process.
+    ///
+    /// # Returns
+    /// On success, returns the string:
+    /// `"Bitcoin Core stopping"`
+    ///
+    /// # Errors
+    /// Returns an error if the RPC command fails (e.g., connection issue or insufficient permissions).
+    pub fn stop(&self) -> RpcResult<String> {
+        self.global_ep.send(
+            "stop", 
+            vec![],
+        )
+    }
 }
 
 #[cfg(test)]
@@ -644,8 +662,35 @@ mod tests {
 
             let client = utils::setup_client(&server);
             let result = client.import_descriptor(&descriptor);
-            assert!(result.is_ok());
-            
+            assert!(result.is_ok()); 
+        }
+        
+        #[test]
+        fn test_stop_ok() {
+            let expected_request = json!({
+                "jsonrpc": "2.0",
+                "id": "stacks",
+                "method": "stop",
+                "params": []
+            });
+
+            let mock_response = json!({
+                "result": "Bitcoin Core stopping",
+                "error": null
+            });
+
+            let mut server = mockito::Server::new();
+            let _m = server.mock("POST", "/")
+                .match_header("authorization", "Basic dXNlcjpwYXNz")
+                .match_body(mockito::Matcher::PartialJson(expected_request))
+                .with_status(200)
+                .with_header("Content-Type", "application/json")
+                .with_body(mock_response.to_string())
+                .create();
+
+            let client = utils::setup_client(&server);
+            let result = client.stop().expect("Should work!");
+            assert_eq!("Bitcoin Core stopping", result); 
         }
     }
 
@@ -716,7 +761,6 @@ mod tests {
             assert_eq!("mywallet2", wallets[1]);
         }
 
-        
         #[test]
         fn test_generate_to_address_and_list_unspent_ok() {
             let config = utils::create_config();
@@ -735,5 +779,18 @@ mod tests {
             client.get_blockchaininfo().expect("Boh");
         }
         
+        #[test]
+        fn test_stop_bitcoind_ok() {
+            let config = utils::create_config();
+
+            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let client = BitcoinRpcClient::from_stx_config(&config);
+            let msg = client.stop().expect("Should shutdown!");
+            assert_eq!("Bitcoin Core stopping", msg);
+        }
     }
 }
