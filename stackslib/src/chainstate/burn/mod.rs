@@ -158,17 +158,9 @@ impl SortitionHash {
 
     /// Convert a SortitionHash into a (little-endian) uint256
     pub fn to_uint256(&self) -> Uint256 {
-        let chunks = self.0.chunks_exact(8);
-        let remainder = chunks.remainder();
-
-        let u64_chunks: Vec<[u8; 8]> = chunks
-            .map(|chunk| chunk.try_into().expect("chunk size should be 8"))
-            .collect();
-
-        assert!(
-            remainder.is_empty(),
-            "SortitionHash was not evenly divisible by 8"
-        );
+        let (u64_chunks, []) = self.0.as_chunks::<8>() else {
+            panic!("SortitionHash was not evenly divisible by 8")
+        };
 
         let tmp: Vec<u64> = u64_chunks
             .iter()
