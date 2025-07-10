@@ -123,7 +123,7 @@ impl slog::Value for BlockHeaderHash {
         key: slog::Key,
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
-        serializer.emit_arguments(key, &format_args!("{}", *self))
+        serializer.emit_arguments(key, &format_args!("{self}"))
     }
 }
 
@@ -168,7 +168,7 @@ impl SortitionId {
             write!(hasher, "{pox}").expect("Failed to deserialize PoX ID into the hasher");
             let h = Sha512Trunc256Sum::from_hasher(hasher);
             let s = SortitionId(h.0);
-            test_debug!("SortitionId({}) = {} + {}", &s, bhh, pox);
+            test_debug!("SortitionId({s}) = {bhh} + {pox}");
             s
         }
     }
