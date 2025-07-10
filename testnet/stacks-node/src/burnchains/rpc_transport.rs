@@ -55,7 +55,11 @@ pub struct RpcTransport {
 
 impl RpcTransport {
     pub fn new(url: String, username: String, password: String) -> Self {
-        RpcTransport { url, username, password }
+        RpcTransport {
+            url,
+            username,
+            password,
+        }
     }
 
     pub fn send<T: for<'de> Deserialize<'de>>(

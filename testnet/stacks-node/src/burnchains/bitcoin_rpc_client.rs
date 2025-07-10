@@ -1,17 +1,22 @@
 use serde_json::{json, Value};
 use stacks::config::Config;
 
-use crate::burnchains::rpc_transport::{RpcResult, RpcTransport};
 use crate::burnchains::bitcoin_regtest_controller::{ParsedUTXO, UTXO};
+use crate::burnchains::rpc_transport::{RpcResult, RpcTransport};
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct TransactionInfoResult {
+pub struct TransactionInfoResponse {
     pub confirmations: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct DescriptorInfoResult {
+pub struct DescriptorInfoResponse {
     pub checksum: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct GenerateBlockResponse {
+    hash: String,
 }
 
 pub struct BitcoinRpcClient {
@@ -28,11 +33,10 @@ impl BitcoinRpcClient {
         password: String,
         wallet_name: String,
     ) -> Self {
-        
         let protocol = if ssl { "https" } else { "http" };
         let global_path = format!("{protocol}://{host}:{port}");
         let wallet_path = format!("{global_path}/wallet/{wallet_name}");
-        
+
         Self {
             global_ep: RpcTransport::new(global_path, username.clone(), password.clone()),
             wallet_ep: RpcTransport::new(wallet_path, username, password),
@@ -47,19 +51,23 @@ impl BitcoinRpcClient {
         let username = config.burnchain.username.clone().unwrap();
         let password = config.burnchain.password.clone().unwrap();
         let wallet_name = config.burnchain.wallet_name.clone();
-        
+
         let protocol = if ssl { "https" } else { "http" };
         let global_path = format!("{protocol}://{host}:{port}");
         let wallet_path = format!("{global_path}/wallet/{wallet_name}");
-        
+
         Self {
             global_ep: RpcTransport::new(global_path, username.clone(), password.clone()),
             wallet_ep: RpcTransport::new(wallet_path, username, password),
         }
     }
 
-    pub fn create_wallet(&self, wallet_name: &str) -> RpcResult<()> {
-        let disable_private_keys = true;
+    pub fn create_wallet(
+        &self,
+        wallet_name: &str,
+        disable_private_keys: Option<bool>,
+    ) -> RpcResult<()> {
+        let disable_private_keys = disable_private_keys.unwrap_or(false);
 
         self.global_ep.send::<Value>(
             "createwallet",
@@ -96,7 +104,7 @@ impl BitcoinRpcClient {
                     "minimumAmount": minimum_amount,
                     "maximumCount": maximum_count
                 }),
-            ]
+            ],
         )?;
 
         let mut result = vec![];
@@ -131,19 +139,13 @@ impl BitcoinRpcClient {
         Ok(result)
     }
 
-    pub fn generate_to_address(&self, num_block: u64, address: &str) -> RpcResult<()> {
-        self.global_ep.send::<Value>(
-            "generatetoaddress",
-            vec![num_block.into(), address.into()],
-        )?;
-        Ok(())
+    pub fn generate_to_address(&self, num_block: u64, address: &str) -> RpcResult<Vec<String>> {
+        self.global_ep
+            .send("generatetoaddress", vec![num_block.into(), address.into()])
     }
 
-    pub fn get_transaction(&self, txid: &str) -> RpcResult<TransactionInfoResult> {
-        self.wallet_ep.send(
-            "gettransaction", 
-            vec![txid.into()], 
-        )
+    pub fn get_transaction(&self, txid: &str) -> RpcResult<TransactionInfoResponse> {
+        self.wallet_ep.send("gettransaction", vec![txid.into()])
     }
 
     /// Broadcasts a raw transaction to the Bitcoin network.
@@ -170,21 +172,24 @@ impl BitcoinRpcClient {
     ///
     /// Returns an `RpcError` if the RPC call fails, the transaction is invalid,
     /// or if fee or burn limits are exceeded.
-    pub fn send_raw_transaction(&self, tx: &str, max_fee_rate: Option<f64>, max_burn_amount: Option<u64>) -> RpcResult<String> {        
+    pub fn send_raw_transaction(
+        &self,
+        tx: &str,
+        max_fee_rate: Option<f64>,
+        max_burn_amount: Option<u64>,
+    ) -> RpcResult<String> {
         let max_fee_rate = max_fee_rate.unwrap_or(0.10);
         let max_burn_amount = max_burn_amount.unwrap_or(0);
 
         self.global_ep.send(
-        "sendrawtransaction", 
-        vec![tx.into(), max_fee_rate.into(), max_burn_amount.into()],
+            "sendrawtransaction",
+            vec![tx.into(), max_fee_rate.into(), max_burn_amount.into()],
         )
     }
 
-    pub fn get_descriptor_info(&self, descriptor: &str) -> RpcResult<DescriptorInfoResult> {
-        self.global_ep.send(
-            "getdescriptorinfo",
-            vec![descriptor.into()]
-        )
+    pub fn get_descriptor_info(&self, descriptor: &str) -> RpcResult<DescriptorInfoResponse> {
+        self.global_ep
+            .send("getdescriptorinfo", vec![descriptor.into()])
     }
 
     //TODO: Improve with descriptor_list
@@ -195,19 +200,14 @@ impl BitcoinRpcClient {
 
         self.global_ep.send::<Value>(
             "importdescriptors",
-            vec![
-                        json!([{ "desc": descriptor, "timestamp": timestamp, "internal": internal }]),
-                    ]
+            vec![json!([{ "desc": descriptor, "timestamp": timestamp, "internal": internal }])],
         )?;
         Ok(())
     }
 
     //TODO REMOVE:
     pub fn get_blockchaininfo(&self) -> RpcResult<()> {
-        self.global_ep.send::<Value>(
-            "getblockchaininfo", 
-            vec![],
-        )?;
+        self.global_ep.send::<Value>("getblockchaininfo", vec![])?;
         Ok(())
     }
 }
@@ -215,18 +215,14 @@ impl BitcoinRpcClient {
 #[cfg(test)]
 impl BitcoinRpcClient {
     pub fn get_raw_transaction(&self, txid: &str) -> RpcResult<String> {
-        self.global_ep.send(
-            "getrawtransaction",
-            vec![txid.into()],
-        )
+        self.global_ep.send("getrawtransaction", vec![txid.into()])
     }
 
-    pub fn generate_block(&self, address: &str, tx_ids: Vec<String>) -> RpcResult<()> {
-        self.global_ep.send::<Value>(
-            "generateblock", 
-            vec![address.into(), tx_ids.into()],
-        )?;
-        Ok(())
+    pub fn generate_block(&self, address: &str, tx_ids: Vec<String>) -> RpcResult<String> {
+        let response = self
+            .global_ep
+            .send::<GenerateBlockResponse>("generateblock", vec![address.into(), tx_ids.into()])?;
+        Ok(response.hash)
     }
 
     /// Gracefully shuts down the Bitcoin Core node.
@@ -241,10 +237,19 @@ impl BitcoinRpcClient {
     /// # Errors
     /// Returns an error if the RPC command fails (e.g., connection issue or insufficient permissions).
     pub fn stop(&self) -> RpcResult<String> {
-        self.global_ep.send(
-            "stop", 
-            vec![],
-        )
+        self.global_ep.send("stop", vec![])
+    }
+
+    pub fn get_new_address(
+        &self,
+        label: Option<&str>,
+        address_type: Option<&str>,
+    ) -> RpcResult<String> {
+        let label = label.unwrap_or("");
+        let address_type = address_type.unwrap_or("legacy"); //default NULL (serde_json::Value::Null)
+
+        self.global_ep
+            .send("getnewaddress", vec![label.into(), address_type.into()])
     }
 }
 
@@ -272,7 +277,7 @@ mod tests {
                     parsed.scheme() == "https",
                     "user".into(),
                     "pass".into(),
-                    "mywallet".into()
+                    "mywallet".into(),
                 )
             }
         }
@@ -297,7 +302,7 @@ mod tests {
                 .create();
 
             let client = utils::setup_client(&server);
-            let result = client.create_wallet("testwallet");
+            let result = client.create_wallet("testwallet", Some(false));
             result.expect("Should work");
         }
 
@@ -406,20 +411,32 @@ mod tests {
                 "params": [num_blocks, address],
             });
 
+            let mock_response = json!({
+                "result": [
+                    "block_hash1",
+                    "block_hash2",
+                ],
+                "error": null
+            });
+
             let mut server = mockito::Server::new();
             let _m = server
                 .mock("POST", "/")
-                .match_header("authorization", "Basic dXNlcjpwYXNz") 
+                .match_header("authorization", "Basic dXNlcjpwYXNz")
                 .match_body(mockito::Matcher::PartialJson(expected_request))
                 .with_status(200)
                 .with_header("Content-Type", "application/json")
-                .with_body(r#"{"result": true, "error": null}"#)
+                .with_body(mock_response.to_string())
                 .create();
 
             let client = utils::setup_client(&server);
 
-            let result = client.generate_to_address(num_blocks, address);
-            assert!(result.is_ok());
+            let result = client
+                .generate_to_address(num_blocks, address)
+                .expect("Should work!");
+            assert_eq!(2, result.len());
+            assert_eq!("block_hash1", result[0]);
+            assert_eq!("block_hash2", result[1]);
         }
 
         #[test]
@@ -525,10 +542,12 @@ mod tests {
 
             let client = utils::setup_client(&server);
 
-            client.generate_block(addr, vec![txid1.to_string(), txid2.to_string()]).expect("Should be ok!");
-            //assert_eq!(expected_ser_tx, ser_tx);
+            let result = client
+                .generate_block(addr, vec![txid1.to_string(), txid2.to_string()])
+                .expect("Should be ok!");
+            assert_eq!(expected_block_hash, result);
         }
-    
+
         #[test]
         fn test_send_raw_transaction_ok_with_defaults() {
             let raw_tx = "raw_tx_hex";
@@ -547,7 +566,8 @@ mod tests {
             });
 
             let mut server = mockito::Server::new();
-            let _m = server.mock("POST", "/")
+            let _m = server
+                .mock("POST", "/")
                 .match_header("authorization", "Basic dXNlcjpwYXNz")
                 .match_body(mockito::Matcher::PartialJson(expected_request))
                 .with_status(200)
@@ -556,7 +576,9 @@ mod tests {
                 .create();
 
             let client = utils::setup_client(&server);
-            let txid = client.send_raw_transaction(raw_tx, None, None).expect("Should work!");
+            let txid = client
+                .send_raw_transaction(raw_tx, None, None)
+                .expect("Should work!");
             assert_eq!(txid, expected_txid);
         }
 
@@ -578,7 +600,8 @@ mod tests {
             });
 
             let mut server = mockito::Server::new();
-            let _m = server.mock("POST", "/")
+            let _m = server
+                .mock("POST", "/")
                 .match_header("authorization", "Basic dXNlcjpwYXNz")
                 .match_body(mockito::Matcher::PartialJson(expected_request))
                 .with_status(200)
@@ -587,7 +610,9 @@ mod tests {
                 .create();
 
             let client = utils::setup_client(&server);
-            let txid = client.send_raw_transaction(raw_tx, Some(0.0), Some(5_000)).expect("Should work!");
+            let txid = client
+                .send_raw_transaction(raw_tx, Some(0.0), Some(5_000))
+                .expect("Should work!");
             assert_eq!(txid, expected_txid);
         }
 
@@ -613,7 +638,8 @@ mod tests {
             });
 
             let mut server = mockito::Server::new();
-            let _m = server.mock("POST", "/")
+            let _m = server
+                .mock("POST", "/")
                 .match_header("authorization", "Basic dXNlcjpwYXNz")
                 .match_body(mockito::Matcher::PartialJson(expected_request))
                 .with_status(200)
@@ -622,14 +648,16 @@ mod tests {
                 .create();
 
             let client = utils::setup_client(&server);
-            let info = client.get_descriptor_info(&descriptor).expect("Should work!");
+            let info = client
+                .get_descriptor_info(&descriptor)
+                .expect("Should work!");
             assert_eq!(expected_checksum, info.checksum);
         }
 
         #[test]
         fn test_import_descriptor_ok() {
             let descriptor = "addr(1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa)#checksum";
-            
+
             let expected_request = json!({
                 "jsonrpc": "2.0",
                 "id": "stacks",
@@ -652,7 +680,8 @@ mod tests {
             });
 
             let mut server = mockito::Server::new();
-            let _m = server.mock("POST", "/")
+            let _m = server
+                .mock("POST", "/")
                 .match_header("authorization", "Basic dXNlcjpwYXNz")
                 .match_body(mockito::Matcher::PartialJson(expected_request))
                 .with_status(200)
@@ -662,9 +691,9 @@ mod tests {
 
             let client = utils::setup_client(&server);
             let result = client.import_descriptor(&descriptor);
-            assert!(result.is_ok()); 
+            assert!(result.is_ok());
         }
-        
+
         #[test]
         fn test_stop_ok() {
             let expected_request = json!({
@@ -680,7 +709,8 @@ mod tests {
             });
 
             let mut server = mockito::Server::new();
-            let _m = server.mock("POST", "/")
+            let _m = server
+                .mock("POST", "/")
                 .match_header("authorization", "Basic dXNlcjpwYXNz")
                 .match_body(mockito::Matcher::PartialJson(expected_request))
                 .with_status(200)
@@ -690,18 +720,18 @@ mod tests {
 
             let client = utils::setup_client(&server);
             let result = client.stop().expect("Should work!");
-            assert_eq!("Bitcoin Core stopping", result); 
+            assert_eq!("Bitcoin Core stopping", result);
         }
     }
 
     #[cfg(test)]
     mod inte {
         use super::*;
-
         use crate::tests::bitcoin_regtest::BitcoinCoreController;
 
         mod utils {
             use std::net::TcpListener;
+
             use stacks::config::Config;
 
             use crate::util::get_epoch_time_ms;
@@ -747,13 +777,13 @@ mod tests {
             let wallets = client.list_wallets().unwrap();
             assert_eq!(0, wallets.len());
 
-            client.create_wallet("mywallet1").unwrap();
+            client.create_wallet("mywallet1", Some(false)).unwrap();
 
             let wallets = client.list_wallets().unwrap();
             assert_eq!(1, wallets.len());
             assert_eq!("mywallet1", wallets[0]);
 
-            client.create_wallet("mywallet2").unwrap();
+            client.create_wallet("mywallet2", Some(false)).unwrap();
 
             let wallets = client.list_wallets().unwrap();
             assert_eq!(2, wallets.len());
@@ -763,8 +793,8 @@ mod tests {
 
         #[test]
         fn test_generate_to_address_and_list_unspent_ok() {
-            let config = utils::create_config();
-            //let miner_pub_key = config.burnchain.local_mining_public_key.clone().unwrap();
+            let mut config = utils::create_config();
+            config.burnchain.wallet_name = "my_wallet".to_string();
 
             let mut btcd_controller = BitcoinCoreController::new(config.clone());
             btcd_controller
@@ -772,13 +802,58 @@ mod tests {
                 .expect("bitcoind should be started!");
 
             let client = BitcoinRpcClient::from_stx_config(&config);
-            client.create_wallet("hello1").expect("OK");
+            client.create_wallet("my_wallet", Some(false)).expect("OK");
+            let address = client.get_new_address(None, None).expect("Should work!");
+
+            let utxos = client
+                .list_unspent(vec![], false, 1, 10)
+                .expect("list_unspent should be ok!");
+            assert_eq!(0, utxos.len());
+
+            let blocks = client.generate_to_address(102, &address).expect("OK");
+            assert_eq!(102, blocks.len());
+
+            let utxos = client
+                .list_unspent(vec![], false, 1, 10)
+                .expect("list_unspent should be ok!");
+            assert_eq!(2, utxos.len());
+
+            let utxos = client
+                .list_unspent(vec![], false, 1, 1)
+                .expect("list_unspent should be ok!");
+            assert_eq!(1, utxos.len());
+
+            //client.create_wallet("hello1").expect("OK");
             //client.create_wallet("hello2").expect("OK");
             //client.generate_to_address(64, address)
             //client.get_transaction("1", "hello1").expect("Boh");
-            client.get_blockchaininfo().expect("Boh");
+            //client.get_blockchaininfo().expect("Boh");
         }
-        
+
+        #[test]
+        fn test_generate_block_ok() {
+            let mut config = utils::create_config();
+            config.burnchain.wallet_name = "my_wallet".to_string();
+
+            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let client = BitcoinRpcClient::from_stx_config(&config);
+            client.create_wallet("my_wallet", Some(false)).expect("OK");
+            let address = client.get_new_address(None, None).expect("Should work!");
+
+            let block_hash = client.generate_block(&address, vec![]).expect("OK");
+            assert_eq!(64, block_hash.len());
+
+            //client.create_wallet("hello1").expect("OK");
+            //client.create_wallet("hello2").expect("OK");
+            //client.generate_to_address(64, address)
+            //client.get_transaction("1", "hello1").expect("Boh");
+            //client.get_blockchaininfo().expect("Boh");
+        }
+
         #[test]
         fn test_stop_bitcoind_ok() {
             let config = utils::create_config();
