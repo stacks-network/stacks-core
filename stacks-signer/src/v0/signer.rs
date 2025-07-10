@@ -1625,9 +1625,28 @@ impl Signer {
             });
         if total_reject_weight.saturating_add(min_weight) <= total_weight {
             // Not enough rejection signatures to make a decision
+            info!("{self}: Received block rejection";
+                "signer_pubkey" => public_key.to_hex(),
+                "signer_signature_hash" => %block_hash,
+                "consensus_hash" => %block_info.block.header.consensus_hash,
+                "block_height" => block_info.block.header.chain_length,
+                "reject_reason" => ?rejection.response_data.reject_reason,
+                "total_weight_rejected" => total_reject_weight,
+                "total_weight" => total_weight,
+                "percent_rejected" => (total_reject_weight as f64 / total_weight as f64 * 100.0),
+            );
             return;
         }
-        info!("{self}: {total_reject_weight}/{total_weight} signers voted to reject the block {block_hash}");
+        info!("{self}: Received block rejection and have reached the rejection threshold";
+            "signer_pubkey" => public_key.to_hex(),
+            "signer_signature_hash" => %block_hash,
+            "consensus_hash" => %block_info.block.header.consensus_hash,
+            "block_height" => block_info.block.header.chain_length,
+            "reject_reason" => ?rejection.response_data.reject_reason,
+            "total_weight_rejected" => total_reject_weight,
+            "total_weight" => total_weight,
+            "percent_rejected" => (total_reject_weight as f64 / total_weight as f64 * 100.0),
+        );
         if let Err(e) = self.signer_db.mark_block_globally_rejected(&mut block_info) {
             warn!("{self}: Failed to mark block as globally rejected: {e:?}",);
         }
@@ -1747,12 +1766,26 @@ impl Signer {
             });
 
         if min_weight > signature_weight {
-            debug!(
-                "{self}: Not enough signatures on block {} (have {}, need at least {}/{})",
-                block_hash, signature_weight, min_weight, total_weight
+            info!("{self}: Received block acceptance";
+                "signer_pubkey" => public_key.to_hex(),
+                "signer_signature_hash" => %block_hash,
+                "consensus_hash" => %block_info.block.header.consensus_hash,
+                "block_height" => block_info.block.header.chain_length,
+                "total_weight_approved" => signature_weight,
+                "total_weight" => total_weight,
+                "percent_approved" => (signature_weight as f64 / total_weight as f64 * 100.0),
             );
             return;
         }
+        info!("{self}: Received block acceptance and have reached the threshold";
+            "signer_pubkey" => public_key.to_hex(),
+            "signer_signature_hash" => %block_hash,
+            "consensus_hash" => %block_info.block.header.consensus_hash,
+            "block_height" => block_info.block.header.chain_length,
+            "total_weight_approved" => signature_weight,
+            "total_weight" => total_weight,
+            "percent_approved" => (signature_weight as f64 / total_weight as f64 * 100.0),
+        );
 
         // have enough signatures to broadcast!
         // move block to LOCALLY accepted state.
@@ -1933,15 +1966,7 @@ impl Signer {
 
     #[cfg(any(test, feature = "testing"))]
     fn get_signer_protocol_version(&self) -> u64 {
-        use crate::v0::tests::TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION;
-        let public_keys = TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.get();
-        if let Some(version) = public_keys.get(
-            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
-        ) {
-            warn!("{self}: signer version is pinned to {version}");
-            return *version;
-        }
-        self.supported_signer_protocol_version
+        self.test_get_signer_protocol_version()
     }
 }
 
