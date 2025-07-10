@@ -1511,8 +1511,8 @@ pub fn wait_for_block_pre_commits_from_signers(
                 let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                     .expect("Failed to deserialize SignerMessage");
 
-                if let SignerMessage::BlockPreCommit(block_pre_commit) = message {
-                    if block_pre_commit.signer_signature_hash == *signer_signature_hash {
+                if let SignerMessage::BlockPreCommit(hash) = message {
+                    if hash == *signer_signature_hash {
                         return Some(pk);
                     }
                 }

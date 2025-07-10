@@ -34,8 +34,8 @@ use clarity::util::sleep_ms;
 #[cfg(any(test, feature = "testing"))]
 use clarity::util::tests::TestFlag;
 use libsigner::v0::messages::{
-    BlockAccepted, BlockPreCommit, BlockRejection, BlockResponse, MessageSlotID, MockProposal,
-    MockSignature, RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate,
+    BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
+    RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate,
 };
 use libsigner::v0::signer_state::GlobalStateEvaluator;
 use libsigner::{BlockProposal, SignerEvent};
@@ -468,16 +468,15 @@ impl Signer {
                         ),
                         SignerMessage::StateMachineUpdate(update) => self
                             .handle_state_machine_update(signer_public_key, update, received_time),
-                        SignerMessage::BlockPreCommit(block_pre_commit) => {
-                            if let Ok(pubkey) = block_pre_commit.recover_public_key(self.mainnet).inspect_err(|e| warn!("Unable to recover public key from block pre commit {block_pre_commit:?}: {e}")) {
-                                let stacker_address = StacksAddress::p2pkh(self.mainnet, &pubkey);
-                                self.handle_block_pre_commit(
-                                    stacks_client,
-                                    &stacker_address,
-                                    &block_pre_commit.signer_signature_hash
-                                )
-                            }
-                        },
+                        SignerMessage::BlockPreCommit(signer_signature_hash) => {
+                            let stacker_address =
+                                StacksAddress::p2pkh(self.mainnet, signer_public_key);
+                            self.handle_block_pre_commit(
+                                stacks_client,
+                                &stacker_address,
+                                signer_signature_hash,
+                            )
+                        }
                         _ => {}
                     }
                 }
@@ -879,13 +878,13 @@ impl Signer {
     }
 
     /// Send a pre block commit message to signers to indicate that we will be signing the proposed block
-    fn send_block_pre_commit(&mut self, block_pre_commit: BlockPreCommit) {
+    fn send_block_pre_commit(&mut self, signer_signature_hash: Sha512Trunc256Sum) {
         info!(
-            "{self}: Broadcasting a block pre-commit to stacks node: {block_pre_commit:?}";
+            "{self}: Broadcasting a block pre-commit to stacks node for {signer_signature_hash}";
         );
         match self
             .stackerdb
-            .send_message_with_retry::<SignerMessage>(block_pre_commit.into())
+            .send_message_with_retry(SignerMessage::BlockPreCommit(signer_signature_hash))
         {
             Ok(ack) => {
                 if !ack.accepted {
@@ -1327,16 +1326,7 @@ impl Signer {
             self.signer_db
                 .insert_block(&block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
-            if let Ok(block_pre_commit) = BlockPreCommit::new_signed(
-                signer_signature_hash,
-                &self.private_key,
-                self.mainnet,
-            )
-            .inspect_err(|e| {
-                warn!("Unable to create signed block pre-commit for {signer_signature_hash}: {e}")
-            }) {
-                self.send_block_pre_commit(block_pre_commit);
-            };
+            self.send_block_pre_commit(signer_signature_hash);
             // have to save the signature _after_ the block info
             let address = self.stacks_address;
             self.handle_block_pre_commit(stacks_client, &address, &signer_signature_hash);

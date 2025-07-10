@@ -188,7 +188,7 @@ pub enum SignerMessage {
     /// A state machine update
     StateMachineUpdate(StateMachineUpdate),
     /// The pre commit message from signers for other signers to observe
-    BlockPreCommit(BlockPreCommit),
+    BlockPreCommit(Sha512Trunc256Sum),
 }
 
 impl SignerMessage {
@@ -854,93 +854,6 @@ impl StacksMessageCodec for StateMachineUpdate {
             local_supported_signer_protocol_version,
             content,
         )
-    }
-}
-
-/// A block pre commit message
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BlockPreCommit {
-    /// The signer signature hash of the block being committed to
-    pub signer_signature_hash: Sha512Trunc256Sum,
-    /// The miner's signature across the BlockPreCommit message
-    pub signature: MessageSignature,
-}
-
-impl BlockPreCommit {
-    /// create a new unsigned block pre commit message
-    pub fn new_unsigned(signer_signature_hash: Sha512Trunc256Sum) -> Self {
-        Self {
-            signer_signature_hash,
-            signature: MessageSignature::empty(),
-        }
-    }
-
-    /// Create a new signed block pre commit message using the provided private key
-    pub fn new_signed(
-        signer_signature_hash: Sha512Trunc256Sum,
-        private_key: &StacksPrivateKey,
-        mainnet: bool,
-    ) -> Result<Self, String> {
-        let mut pre_commit = Self::new_unsigned(signer_signature_hash);
-        pre_commit.sign(private_key, mainnet)?;
-        Ok(pre_commit)
-    }
-
-    /// Create a hash across the BlockPreCommit data. Note it cannot simply sign the signer_signature_hash directly
-    /// as this could be added prematurely to a NakamotoBlock
-    pub fn hash(&self, mainnet: bool) -> Sha256Sum {
-        let chain_id = if mainnet {
-            CHAIN_ID_MAINNET
-        } else {
-            CHAIN_ID_TESTNET
-        };
-        let domain_tuple = make_structured_data_domain("block-pre-commit", "1.0.0", chain_id);
-        let data = Value::buff_from(self.signer_signature_hash.as_bytes().into()).unwrap();
-        structured_data_message_hash(data, domain_tuple)
-    }
-
-    /// Sign the BlockPreCommit and set the internal signature field
-    pub fn sign(&mut self, private_key: &StacksPrivateKey, mainnet: bool) -> Result<(), String> {
-        let signature_hash = self.hash(mainnet);
-        self.signature = private_key.sign(signature_hash.as_bytes())?;
-        Ok(())
-    }
-
-    /// Verify the block pre commit against the provided public key
-    pub fn verify(&self, public_key: &StacksPublicKey, mainnet: bool) -> Result<bool, String> {
-        if self.signature == MessageSignature::empty() {
-            return Ok(false);
-        }
-        let signature_hash = self.hash(mainnet);
-        public_key
-            .verify(&signature_hash.0, &self.signature)
-            .map_err(|e| e.to_string())
-    }
-
-    /// Recover the public key from the BlockPreCommit
-    pub fn recover_public_key(&self, mainnet: bool) -> Result<StacksPublicKey, &'static str> {
-        if self.signature == MessageSignature::empty() {
-            return Err("No signature to recover public key from");
-        }
-        let signature_hash = self.hash(mainnet);
-        StacksPublicKey::recover_to_pubkey(signature_hash.as_bytes(), &self.signature)
-    }
-}
-
-impl StacksMessageCodec for BlockPreCommit {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        self.signer_signature_hash.consensus_serialize(fd)?;
-        self.signature.consensus_serialize(fd)?;
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let signer_signature_hash = Sha512Trunc256Sum::consensus_deserialize(fd)?;
-        let signature = MessageSignature::consensus_deserialize(fd)?;
-        Ok(Self {
-            signer_signature_hash,
-            signature,
-        })
     }
 }
 
@@ -1953,12 +1866,6 @@ impl From<StateMachineUpdate> for SignerMessage {
     }
 }
 
-impl From<BlockPreCommit> for SignerMessage {
-    fn from(block_pre_commit: BlockPreCommit) -> Self {
-        Self::BlockPreCommit(block_pre_commit)
-    }
-}
-
 #[cfg(test)]
 mod test {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
@@ -2716,14 +2623,11 @@ mod test {
     }
 
     #[test]
-    fn serde_block_pre_commit() {
-        let mut pre_commit = BlockPreCommit::new_unsigned(Sha512Trunc256Sum([0u8; 32]));
-        pre_commit
-            .sign(&StacksPrivateKey::random(), false)
-            .expect("Failed to sign pre-commit");
+    fn serde_block_signer_message_pre_commit() {
+        let pre_commit = SignerMessage::BlockPreCommit(Sha512Trunc256Sum([0u8; 32]));
         let serialized_pre_commit = pre_commit.serialize_to_vec();
         let deserialized_pre_commit =
-            read_next::<BlockPreCommit, _>(&mut &serialized_pre_commit[..])
+            read_next::<SignerMessage, _>(&mut &serialized_pre_commit[..])
                 .expect("Failed to deserialize pre-commit");
         assert_eq!(pre_commit, deserialized_pre_commit);
     }
