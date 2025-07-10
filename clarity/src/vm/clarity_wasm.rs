@@ -428,28 +428,11 @@ pub fn initialize_contract(
         results.push(placeholder_for_type(result_ty));
     }
 
-    let top_level_result = top_level.call(&mut store, &[], results.as_mut_slice());
-    match top_level_result {
-        Ok(_) => {}
-        Err(e) => {
-            // Before propagating the error, attempt to roll back the function context.
-            // If the rollback fails, immediately return a rollback-specific error.
-            if store.data_mut().global_context.roll_back().is_err() {
-                return Err(Error::Wasm(WasmError::Expect(
-                    "Expected entry to rollback".into(),
-                )));
-            }
-
-            // Rollback succeeded, so resolve and return the original runtime error.
-            return Err(error_mapping::resolve_error(
-                e,
-                instance,
-                &mut store,
-                &epoch,
-                &clarity_version,
-            ));
-        }
-    }
+    top_level
+        .call(&mut store, &[], results.as_mut_slice())
+        .map_err(|e| {
+            error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version)
+        })?;
 
     // Save the compiled Wasm module into the contract context
     store.data_mut().contract_context_mut()?.set_wasm_module(
