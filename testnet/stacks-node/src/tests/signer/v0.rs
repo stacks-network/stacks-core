@@ -8462,18 +8462,12 @@ fn signer_multinode_rollover() {
     let new_reward_cycle = miners.signer_test.get_current_reward_cycle();
     assert_eq!(new_reward_cycle, reward_cycle.saturating_add(1));
 
-    //    miners.wait_for_chains(120);
-
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 120)
         .unwrap();
 
-    //miners.wait_for_chains(120);
-
     miners.send_and_mine_transfer_tx(60).unwrap();
-    //miners.wait_for_chains(120);
     miners.send_and_mine_transfer_tx(60).unwrap();
-    //miners.wait_for_chains(120);
     miners.send_and_mine_transfer_tx(60).unwrap();
     miners.wait_for_chains(120);
 
