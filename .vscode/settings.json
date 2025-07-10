@@ -4,5 +4,5 @@
     "BITCOIND_TEST": "1"
   },
   "rust-analyzer.rustfmt.extraArgs": ["+nightly"],
-  "files.eol": "\n"
+  "files.eol": "\n",
 }
