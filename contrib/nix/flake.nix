@@ -15,27 +15,15 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    crane = {
-      url = "github:ipetkov/crane";
-    };
+    crane = { url = "github:ipetkov/crane"; };
 
   };
 
-  outputs =
-    {
-      nixpkgs,
-      flake-utils,
-      rust-overlay,
-      crane,
-      ...
-    }:
-    flake-utils.lib.eachDefaultSystem (
-      system:
+  outputs = { nixpkgs, flake-utils, rust-overlay, crane, ... }:
+    flake-utils.lib.eachDefaultSystem (system:
       let
         overlays = [ (import rust-overlay) ];
-        pkgs = import nixpkgs {
-          inherit system overlays;
-        };
+        pkgs = import nixpkgs { inherit system overlays; };
 
         inherit (pkgs) lib;
 
@@ -51,26 +39,21 @@
         commonArgs = {
           strictDeps = true;
 
-          buildInputs =
-            [
-              # Add additional build inputs here
-            ]
-            ++ lib.optionals pkgs.stdenv.isDarwin [
-              # Darwin specific inputs
-              pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
-            ];
+          buildInputs = [
+            # Add additional build inputs here
+          ] ++ lib.optionals pkgs.stdenv.isDarwin [
+            # Darwin specific inputs
+            pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
+          ];
         };
 
         # Build *just* the cargo dependencies, so we can reuse
         # all of that work (e.g. via cachix) when running in CI
-        cargoArtifacts = craneLib.buildDepsOnly (
-          commonArgs
-          // {
-            inherit version;
-            pname = name;
-            src = fileSetForCrate ../..;
-          }
-        );
+        cargoArtifacts = craneLib.buildDepsOnly (commonArgs // {
+          inherit version;
+          pname = name;
+          src = fileSetForCrate ../..;
+        });
 
         individualCrateArgs = commonArgs // {
           inherit cargoArtifacts;
@@ -80,8 +63,7 @@
         };
 
         # TODO: Return minimum fileSets per each crate
-        fileSetForCrate =
-          crate:
+        fileSetForCrate = crate:
           lib.fileset.toSource {
             root = ../..;
             fileset = lib.fileset.unions [
@@ -111,36 +93,30 @@
               (craneLib.fileset.commonCargoSources ../../stackslib)
               (craneLib.fileset.commonCargoSources ../../stx-genesis)
               (craneLib.fileset.commonCargoSources ../../testnet/stacks-node)
+              (craneLib.fileset.commonCargoSources
+                ../tools/config-docs-generator)
             ];
           };
 
-        stacks-signer = craneLib.buildPackage (
-          individualCrateArgs
-          // rec {
-            version = versions.stacks_signer_version;
-            pname = "stacks-signer";
-            cargoFeatures = "--features monitoring_prom";
-            cargoExtraArgs = "${cargoFeatures} -p ${pname}";
-            src = fileSetForCrate ../../stacks-signer;
-          }
-        );
+        stacks-signer = craneLib.buildPackage (individualCrateArgs // rec {
+          version = versions.stacks_signer_version;
+          pname = "stacks-signer";
+          cargoFeatures = "--features monitoring_prom";
+          cargoExtraArgs = "${cargoFeatures} -p ${pname}";
+          src = fileSetForCrate ../../stacks-signer;
+        });
 
         # Build the actual crate itself, reusing the dependency
         # artifacts from above.
-        stacks-core = craneLib.buildPackage (
-          commonArgs
-          // rec {
-            inherit version cargoArtifacts;
-            doCheck = false;
-            pname = name;
-            cargoFeatures = "--features monitoring_prom,slog_json";
-            cargoExtraArgs = "${cargoFeatures}";
-            src = fileSetForCrate ../..;
-          }
-        );
-      in
-      with pkgs;
-      {
+        stacks-core = craneLib.buildPackage (commonArgs // rec {
+          inherit version cargoArtifacts;
+          doCheck = false;
+          pname = name;
+          cargoFeatures = "--features monitoring_prom,slog_json";
+          cargoExtraArgs = "${cargoFeatures}";
+          src = fileSetForCrate ../..;
+        });
+      in with pkgs; {
         packages = {
           inherit stacks-signer;
           default = stacks-core;
@@ -158,9 +134,7 @@
           default = stacks-node;
         };
 
-        checks = {
-          inherit stacks-core;
-        };
+        checks = { inherit stacks-core; };
 
         devShells.default = craneLib.devShell {
           RUSTFMT = "${toolchain}/bin/rustfmt";
@@ -174,16 +148,11 @@
             set +x
           '';
 
-          packages =
-            [
-              rust-analyzer
-              bitcoind
-            ]
+          packages = [ rust-analyzer bitcoind ]
             ++ lib.optionals pkgs.stdenv.isDarwin [
               pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
               pkgs.darwin.apple_sdk.frameworks.CoreServices
             ];
         };
-      }
-    );
+      });
 }
