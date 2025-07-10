@@ -44,14 +44,14 @@ fn sqlite_put(conn: &Connection, key: &str, value: &str) -> Result<()> {
     match conn.execute("REPLACE INTO data_table (key, value) VALUES (?, ?)", params) {
         Ok(_) => Ok(()),
         Err(e) => {
-            error!("Failed to insert/replace ({},{}): {:?}", key, value, &e);
+            error!("Failed to insert/replace ({key},{value}): {e:?}");
             Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
         }
     }
 }
 
 fn sqlite_get(conn: &Connection, key: &str) -> Result<Option<String>> {
-    trace!("sqlite_get {}", key);
+    trace!("sqlite_get {key}");
     let params = params![key];
     let res = match conn
         .query_row(
@@ -63,12 +63,12 @@ fn sqlite_get(conn: &Connection, key: &str) -> Result<Option<String>> {
     {
         Ok(x) => Ok(x),
         Err(e) => {
-            error!("Failed to query '{}': {:?}", key, &e);
+            error!("Failed to query '{key}': {e:?}");
             Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
         }
     };
 
-    trace!("sqlite_get {}: {:?}", key, &res);
+    trace!("sqlite_get {key}: {res:?}");
     res
 }
 
@@ -148,7 +148,7 @@ impl SqliteConnection {
         key: &str,
         value: &str,
     ) -> Result<()> {
-        let key = format!("clr-meta::{}::{}", contract_hash, key);
+        let key = format!("clr-meta::{contract_hash}::{key}");
         let params = params![bhh, key, value];
 
         if let Err(e) = conn.execute(
@@ -156,11 +156,8 @@ impl SqliteConnection {
             params,
         ) {
             error!(
-                "Failed to insert ({},{},{}): {:?}",
-                &bhh,
-                &key,
-                &value.to_string(),
-                &e
+                "Failed to insert ({bhh},{key},{}): {e:?}",
+                &value.to_string()
             );
             return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
@@ -177,7 +174,7 @@ impl SqliteConnection {
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
             params,
         ) {
-            error!("Failed to update {} to {}: {:?}", &from, &to, &e);
+            error!("Failed to update {from} to {to}: {e:?}");
             return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
         Ok(())
@@ -188,7 +185,7 @@ impl SqliteConnection {
             "DELETE FROM metadata_table WHERE blockhash = ?",
             params![from],
         ) {
-            error!("Failed to drop metadata from {}: {:?}", &from, &e);
+            error!("Failed to drop metadata from {from}: {e:?}");
             return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
         Ok(())
@@ -200,7 +197,7 @@ impl SqliteConnection {
         contract_hash: &str,
         key: &str,
     ) -> Result<Option<String>> {
-        let key = format!("clr-meta::{}::{}", contract_hash, key);
+        let key = format!("clr-meta::{contract_hash}::{key}");
         let params = params![bhh, key];
 
         match conn
@@ -213,7 +210,7 @@ impl SqliteConnection {
         {
             Ok(x) => Ok(x),
             Err(e) => {
-                error!("Failed to query ({},{}): {:?}", &bhh, &key, &e);
+                error!("Failed to query ({bhh},{key}): {e:?}");
                 Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
             }
         }
