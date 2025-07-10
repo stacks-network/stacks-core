@@ -4556,6 +4556,15 @@ export const contracts = {
   },
   sip031: {
     functions: {
+      calcTotalVested: {
+        name: "calc-total-vested",
+        access: "private",
+        args: [{ name: "burn-height", type: "uint128" }],
+        outputs: { type: "uint128" },
+      } as TypedAbiFunction<
+        [burnHeight: TypedAbiArg<number | bigint, "burnHeight">],
+        bigint
+      >,
       validateCaller: {
         name: "validate-caller",
         access: "private",
@@ -4592,12 +4601,6 @@ export const contracts = {
         args: [],
         outputs: { type: "uint128" },
       } as TypedAbiFunction<[], bigint>,
-      getLastVestingClaimBlock: {
-        name: "get-last-vesting-claim-block",
-        access: "read_only",
-        args: [],
-        outputs: { type: { optional: "uint128" } },
-      } as TypedAbiFunction<[], bigint | null>,
       getRecipient: {
         name: "get-recipient",
         access: "read_only",
@@ -4613,6 +4616,11 @@ export const contracts = {
     },
     maps: {},
     variables: {
+      ERR_NOTHING_TO_CLAIM: {
+        name: "ERR_NOTHING_TO_CLAIM",
+        type: "uint128",
+        access: "constant",
+      } as TypedAbiVariable<bigint>,
       ERR_NOT_ALLOWED: {
         name: "ERR_NOT_ALLOWED",
         type: "uint128",
@@ -4648,13 +4656,6 @@ export const contracts = {
         type: "uint128",
         access: "variable",
       } as TypedAbiVariable<bigint>,
-      lastVestingClaimBlock: {
-        name: "last-vesting-claim-block",
-        type: {
-          optional: "uint128",
-        },
-        access: "variable",
-      } as TypedAbiVariable<bigint | null>,
       recipient: {
         name: "recipient",
         type: "principal",
@@ -4667,6 +4668,7 @@ export const contracts = {
       } as TypedAbiVariable<bigint>,
     },
     constants: {
+      ERR_NOTHING_TO_CLAIM: 102n,
       ERR_NOT_ALLOWED: 101n,
       INITIAL_MINT_AMOUNT: 200_000_000_000_000n,
       INITIAL_MINT_IMMEDIATE_AMOUNT: 100_000_000_000_000n,
@@ -4674,7 +4676,6 @@ export const contracts = {
       INITIAL_MINT_VESTING_ITERATIONS: 24n,
       INITIAL_MINT_VESTING_ITERATION_BLOCKS: 4_383n,
       deployBlockHeight: 3n,
-      lastVestingClaimBlock: null,
       recipient: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
       vestedClaimedAmount: 0n,
     },
