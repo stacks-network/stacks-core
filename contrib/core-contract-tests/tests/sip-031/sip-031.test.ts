@@ -1,6 +1,6 @@
 import { project, accounts } from '../clarigen-types'; // where your [types.output] was specified
 import { CoreNodeEventType, projectFactory } from '@clarigen/core';
-import { filterEvents, rov, txErr, txOk } from '@clarigen/test';
+import { filterEvents, rov, rovOk, txErr, txOk } from '@clarigen/test';
 import { test, expect } from 'vitest';
 
 const contracts = projectFactory(project, 'simnet');
@@ -72,4 +72,53 @@ test('updated recipient can claim', () => {
   expect(event.data.amount).toBe(`${100000000n}`);
   expect(event.data.recipient).toBe(accounts.wallet_1.address);
   expect(event.data.sender).toBe(contract.identifier);
+});
+
+test('calculating vested amounts at a block height', () => {
+  const deployBlockHeight = rov(contract.getDeployBlockHeight());
+
+  const initialMintAmount = 200_000_000n * 1000000n; // 200,000,000 STX
+  const immediateAmount = 100_000_000n * 1000000n; // 100,000,000 STX
+  const vestingAmount = initialMintAmount - immediateAmount;
+
+  function expectedAmount(burnHeight: bigint) {
+    const diff = burnHeight - deployBlockHeight;
+    const iterations = diff / 4383n;
+    const stxPerIteration = (initialMintAmount - immediateAmount) / 24n;
+    const vestingAmount = stxPerIteration * iterations;
+    return immediateAmount + vestingAmount;
+  }
+
+  expect(rovOk(contract.calcVestedAmount(deployBlockHeight))).toBe(immediateAmount);
+
+  function expectAmount(month: bigint) {
+    const burnHeight = deployBlockHeight + month * 4383n;
+    expect(rovOk(contract.calcVestedAmount(burnHeight))).toBe(expectedAmount(burnHeight));
+  }
+  expectAmount(1n);
+  expectAmount(2n);
+  expectAmount(3n);
+  expectAmount(4n);
+  expectAmount(5n);
+  expectAmount(6n);
+  expectAmount(7n);
+  expectAmount(8n);
+  expectAmount(9n);
+  expectAmount(10n);
+  expectAmount(11n);
+  expectAmount(12n);
+  expectAmount(13n);
+  expectAmount(14n);
+  expectAmount(15n);
+  expectAmount(16n);
+  expectAmount(17n);
+  expectAmount(18n);
+  expectAmount(19n);
+  expectAmount(20n);
+  expectAmount(21n);
+  expectAmount(22n);
+  expectAmount(23n);
+  expectAmount(24n);
+
+  expect(rovOk(contract.calcVestedAmount(deployBlockHeight + 25n * 4383n))).toBe(initialMintAmount);
 });

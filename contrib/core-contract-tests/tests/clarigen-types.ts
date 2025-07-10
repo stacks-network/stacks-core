@@ -4577,12 +4577,39 @@ export const contracts = {
         [newRecipient: TypedAbiArg<string, "newRecipient">],
         Response<boolean, bigint>
       >,
+      calcVestedAmount: {
+        name: "calc-vested-amount",
+        access: "read_only",
+        args: [{ name: "burn-height", type: "uint128" }],
+        outputs: { type: { response: { ok: "uint128", error: "none" } } },
+      } as TypedAbiFunction<
+        [burnHeight: TypedAbiArg<number | bigint, "burnHeight">],
+        Response<bigint, null>
+      >,
+      getDeployBlockHeight: {
+        name: "get-deploy-block-height",
+        access: "read_only",
+        args: [],
+        outputs: { type: "uint128" },
+      } as TypedAbiFunction<[], bigint>,
+      getLastVestingClaimBlock: {
+        name: "get-last-vesting-claim-block",
+        access: "read_only",
+        args: [],
+        outputs: { type: { optional: "uint128" } },
+      } as TypedAbiFunction<[], bigint | null>,
       getRecipient: {
         name: "get-recipient",
         access: "read_only",
         args: [],
         outputs: { type: "principal" },
       } as TypedAbiFunction<[], string>,
+      getVestedClaimedAmount: {
+        name: "get-vested-claimed-amount",
+        access: "read_only",
+        args: [],
+        outputs: { type: "uint128" },
+      } as TypedAbiFunction<[], bigint>,
     },
     maps: {},
     variables: {
@@ -4591,15 +4618,65 @@ export const contracts = {
         type: "uint128",
         access: "constant",
       } as TypedAbiVariable<bigint>,
+      INITIAL_MINT_AMOUNT: {
+        name: "INITIAL_MINT_AMOUNT",
+        type: "uint128",
+        access: "constant",
+      } as TypedAbiVariable<bigint>,
+      INITIAL_MINT_IMMEDIATE_AMOUNT: {
+        name: "INITIAL_MINT_IMMEDIATE_AMOUNT",
+        type: "uint128",
+        access: "constant",
+      } as TypedAbiVariable<bigint>,
+      INITIAL_MINT_VESTING_AMOUNT: {
+        name: "INITIAL_MINT_VESTING_AMOUNT",
+        type: "uint128",
+        access: "constant",
+      } as TypedAbiVariable<bigint>,
+      INITIAL_MINT_VESTING_ITERATIONS: {
+        name: "INITIAL_MINT_VESTING_ITERATIONS",
+        type: "uint128",
+        access: "constant",
+      } as TypedAbiVariable<bigint>,
+      INITIAL_MINT_VESTING_ITERATION_BLOCKS: {
+        name: "INITIAL_MINT_VESTING_ITERATION_BLOCKS",
+        type: "uint128",
+        access: "constant",
+      } as TypedAbiVariable<bigint>,
+      deployBlockHeight: {
+        name: "deploy-block-height",
+        type: "uint128",
+        access: "variable",
+      } as TypedAbiVariable<bigint>,
+      lastVestingClaimBlock: {
+        name: "last-vesting-claim-block",
+        type: {
+          optional: "uint128",
+        },
+        access: "variable",
+      } as TypedAbiVariable<bigint | null>,
       recipient: {
         name: "recipient",
         type: "principal",
         access: "variable",
       } as TypedAbiVariable<string>,
+      vestedClaimedAmount: {
+        name: "vested-claimed-amount",
+        type: "uint128",
+        access: "variable",
+      } as TypedAbiVariable<bigint>,
     },
     constants: {
       ERR_NOT_ALLOWED: 101n,
+      INITIAL_MINT_AMOUNT: 200_000_000_000_000n,
+      INITIAL_MINT_IMMEDIATE_AMOUNT: 100_000_000_000_000n,
+      INITIAL_MINT_VESTING_AMOUNT: 100_000_000_000_000n,
+      INITIAL_MINT_VESTING_ITERATIONS: 24n,
+      INITIAL_MINT_VESTING_ITERATION_BLOCKS: 4_383n,
+      deployBlockHeight: 3n,
+      lastVestingClaimBlock: null,
       recipient: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
+      vestedClaimedAmount: 0n,
     },
     non_fungible_tokens: [],
     fungible_tokens: [],

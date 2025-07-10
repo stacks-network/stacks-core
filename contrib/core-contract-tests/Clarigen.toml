@@ -5,7 +5,7 @@ clarinet = "./Clarinet.toml"
 output = "tests/clarigen-types.ts"
 
 # `types.after` - script to run after TypeScript types are generated.
-after = "npx -y prettier -w ./tests/clarigen-types.ts"
+after = "npx prettier -w ./tests/clarigen-types.ts"
 
 watch_folders = [
   "../../stackslib/src/chainstate/stacks/boot"
