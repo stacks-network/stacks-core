@@ -317,7 +317,7 @@ impl SortitionData {
 
         if let Some(info) = last_block_info {
             // N.B. this block might not be the last globally accepted block across the network;
-            // it's just the highest one in this tenure that we knnge: &TenureChangePow about.  If this given block is
+            // it's just the highest one in this tenure that we know about. If this given block is
             // no higher than it, then it's definitely no higher than the last globally accepted
             // block across the network, so we can do an early rejection here.
             if block.header.chain_length <= info.block.header.chain_length {

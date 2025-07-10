@@ -989,16 +989,12 @@ impl Signer {
             );
             return;
         }
-        if block_info.signed_self.is_some() {
-            debug!("{self}: Already pre-committed and signed block {block_hash}. Will not broadcast again");
-            // We already marked the block as locally accepted and signed over it. No need to sign again.
-            return;
-        }
         // It is only considered globally accepted IFF we receive a new block event confirming it OR see the chain tip of the node advance to it.
         if let Err(e) = block_info.mark_locally_accepted(false) {
             if !block_info.has_reached_consensus() {
                 warn!("{self}: Failed to mark block as locally accepted: {e:?}",);
             }
+            block_info.signed_self.get_or_insert(get_epoch_time_secs());
         }
 
         self.signer_db
@@ -1315,7 +1311,13 @@ impl Signer {
                 .insert_block(&block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
         } else {
-            block_info.valid = Some(true);
+            if let Err(e) = block_info.mark_locally_accepted(false) {
+                if !block_info.has_reached_consensus() {
+                    warn!("{self}: Failed to mark block as locally accepted: {e:?}",);
+                    return;
+                }
+                block_info.signed_self.get_or_insert(get_epoch_time_secs());
+            }
             // Record the block validation time but do not consider stx transfers or boot contract calls
             block_info.validation_time_ms = if block_validate_ok.cost.is_zero() {
                 Some(0)
