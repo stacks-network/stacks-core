@@ -1519,9 +1519,28 @@ impl Signer {
             });
         if total_reject_weight.saturating_add(min_weight) <= total_weight {
             // Not enough rejection signatures to make a decision
+            info!("{self}: Received block rejection";
+                "signer_pubkey" => public_key.to_hex(),
+                "signer_signature_hash" => %block_hash,
+                "consensus_hash" => %block_info.block.header.consensus_hash,
+                "block_height" => block_info.block.header.chain_length,
+                "reject_reason" => ?rejection.response_data.reject_reason,
+                "total_weight_rejected" => total_reject_weight,
+                "total_weight" => total_weight,
+                "percent_rejected" => (total_reject_weight as f64 / total_weight as f64 * 100.0),
+            );
             return;
         }
-        info!("{self}: {total_reject_weight}/{total_weight} signers voted to reject the block {block_hash}");
+        info!("{self}: Received block rejection and have reached the rejection threshold";
+            "signer_pubkey" => public_key.to_hex(),
+            "signer_signature_hash" => %block_hash,
+            "consensus_hash" => %block_info.block.header.consensus_hash,
+            "block_height" => block_info.block.header.chain_length,
+            "reject_reason" => ?rejection.response_data.reject_reason,
+            "total_weight_rejected" => total_reject_weight,
+            "total_weight" => total_weight,
+            "percent_rejected" => (total_reject_weight as f64 / total_weight as f64 * 100.0),
+        );
         if let Err(e) = self.signer_db.mark_block_globally_rejected(&mut block_info) {
             warn!("{self}: Failed to mark block as globally rejected: {e:?}",);
         }
@@ -1639,12 +1658,26 @@ impl Signer {
             });
 
         if min_weight > signature_weight {
-            debug!(
-                "{self}: Not enough signatures on block {} (have {}, need at least {}/{})",
-                block_hash, signature_weight, min_weight, total_weight
+            info!("{self}: Received block acceptance";
+                "signer_pubkey" => public_key.to_hex(),
+                "signer_signature_hash" => %block_hash,
+                "consensus_hash" => %block_info.block.header.consensus_hash,
+                "block_height" => block_info.block.header.chain_length,
+                "total_weight_approved" => signature_weight,
+                "total_weight" => total_weight,
+                "percent_approved" => (signature_weight as f64 / total_weight as f64 * 100.0),
             );
             return;
         }
+        info!("{self}: Received block acceptance and have reached the threshold";
+            "signer_pubkey" => public_key.to_hex(),
+            "signer_signature_hash" => %block_hash,
+            "consensus_hash" => %block_info.block.header.consensus_hash,
+            "block_height" => block_info.block.header.chain_length,
+            "total_weight_approved" => signature_weight,
+            "total_weight" => total_weight,
+            "percent_approved" => (signature_weight as f64 / total_weight as f64 * 100.0),
+        );
 
         // have enough signatures to broadcast!
         // move block to LOCALLY accepted state.
