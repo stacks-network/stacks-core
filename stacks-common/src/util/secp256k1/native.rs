@@ -609,22 +609,19 @@ mod tests {
             let key = Secp256k1PublicKey::from_hex(fixture.public_key).unwrap();
             let signature = MessageSignature::from_raw(&hex_bytes(fixture.signature).unwrap());
             let ver_res = key.verify(&hex_bytes(fixture.data).unwrap(), &signature);
-            #[allow(clippy::assertions_on_constants)]
             match (ver_res, fixture.result) {
                 (Ok(true), Ok(true)) => {}
                 (Ok(false), Ok(false)) => {}
                 (Err(e1), Err(e2)) => assert_eq!(e1, e2),
                 (Err(e1), _) => {
                     test_debug!("Failed to verify signature: {}", e1);
-                    assert!(
-                        false,
+                    panic!(
                         "failed fixture (verification: {:?}): {:#?}",
                         &ver_res, &fixture
                     );
                 }
                 (_, _) => {
-                    assert!(
-                        false,
+                    panic!(
                         "failed fixture (verification: {:?}): {:#?}",
                         &ver_res, &fixture
                     );
