@@ -14,6 +14,6 @@ RUN cd / && tar -xvzf bitcoin-25.0-x86_64-linux-gnu.tar.gz
 RUN ln -s /bitcoin-25.0/bin/bitcoind /bin/
 
 ENV BITCOIND_TEST 1
-WORKDIR /src/testnet/stacks-node
+WORKDIR /src/stacks-node
 RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::atlas_integration_test
 RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::atlas_stress_integration_test
