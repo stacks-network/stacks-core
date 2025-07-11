@@ -12,17 +12,17 @@ pico-args = "0.5.0"
 serde = "1"
 serde_derive = "1"
 serde_json = { version = "1.0", features = ["arbitrary_precision", "raw_value"] }
-stacks = { package = "stackslib", path = "../../stackslib" }
-stx-genesis = { path = "../../stx-genesis"}
+stacks = { package = "stackslib", path = "../stackslib" }
+stx-genesis = { path = "../stx-genesis"}
 base64 = "0.12.0"
 backtrace = "0.3.50"
 libc = "0.2.151"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
-clarity = { path = "../../clarity" }
-stacks-common = { path = "../../stacks-common" }
+clarity = { path = "../clarity" }
+stacks-common = { path = "../stacks-common" }
 chrono = "0.4.19"
 regex = "1"
-libsigner = { path = "../../libsigner" }
+libsigner = { path = "../libsigner" }
 url = "2.1.0"
 rand = { workspace = true }
 hashbrown = { workspace = true }
@@ -44,10 +44,10 @@ tikv-jemallocator = {workspace = true}
 warp = "0.3.5"
 tokio = "1.15"
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls", "rustls-tls"] }
-clarity = { path = "../../clarity", features = ["default", "testing"]}
-stacks-common = { path = "../../stacks-common", features = ["default", "testing"] }
-stacks = { package = "stackslib", path = "../../stackslib", features = ["default", "testing"] }
-stacks-signer = { path = "../../stacks-signer", features = ["testing"] }
+clarity = { path = "../clarity", features = ["default", "testing"]}
+stacks-common = { path = "../stacks-common", features = ["default", "testing"] }
+stacks = { package = "stackslib", path = "../stackslib", features = ["default", "testing"] }
+stacks-signer = { path = "../stacks-signer", features = ["testing"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 mutants = "0.0.3"
