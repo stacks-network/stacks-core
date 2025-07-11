@@ -79,7 +79,7 @@ rand_core = { workspace = true }
 proptest = "1.6.0"
 
 [features]
-default = ["rusqlite", "developer-mode"]
+default = ["developer-mode"]
 developer-mode = []
 slog_json = ["slog-json"]
 rusqlite = ["dep:rusqlite"]
