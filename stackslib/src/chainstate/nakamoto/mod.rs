@@ -4237,62 +4237,6 @@ impl NakamotoChainState {
                     );
                     e
                 })?;
-
-            let mainnet = clarity_tx.config.mainnet;
-
-            if evaluated_epoch.includes_sip_031() {
-                println!(
-                    "\n\nNEW TENURE {} {} (parent: {}) {:?} {}\n\n",
-                    coinbase_height,
-                    burn_header_height,
-                    parent_burn_height,
-                    evaluated_epoch,
-                    tx_receipts.len()
-                );
-
-                let sip_031_mint_and_transfer_amount =
-                    SIP031EmissionInterval::get_sip_031_emission_at_height(
-                        u64::from(burn_header_height),
-                        mainnet,
-                    );
-
-                if sip_031_mint_and_transfer_amount > 0 {
-                    let boot_code_address = boot_code_addr(mainnet);
-                    let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
-
-                    let recipient = PrincipalData::Contract(boot_code_id(SIP_031_NAME, mainnet));
-
-                    let mint_and_account_receipt =
-                        clarity_tx.connection().as_transaction(|tx_conn| {
-                            tx_conn
-                                .with_clarity_db(|db| {
-                                    db.increment_ustx_liquid_supply(
-                                        sip_031_mint_and_transfer_amount,
-                                    )
-                                    .map_err(|e| e.into())
-                                })
-                                .expect("FATAL: `SIP-031 mint` overflowed");
-                            StacksChainState::account_credit(
-                                tx_conn,
-                                &recipient,
-                                u64::try_from(sip_031_mint_and_transfer_amount)
-                                    .expect("FATAL: transferred more STX than exist"),
-                            );
-                        });
-
-                    let event = STXEventType::STXMintEvent(STXMintEventData {
-                        recipient,
-                        amount: sip_031_mint_and_transfer_amount,
-                    });
-
-                    /*
-                        .events
-                        .push(StacksTransactionEvent::STXEvent(event));
-
-                    tx_receipts.push(sip_031_initialization_receipt);
-                    */
-                }
-            }
         }
 
         let auto_unlock_events = if evaluated_epoch >= StacksEpochId::Epoch21 {
@@ -4877,6 +4821,49 @@ impl NakamotoChainState {
                 }
             } else {
                 warn!("Unable to attach auto unlock events, block's first transaction is not a coinbase transaction")
+            }
+        }
+
+        if new_tenure {
+            if evaluated_epoch.includes_sip_031() {
+                let mainnet = clarity_tx.config.mainnet;
+
+                let sip_031_mint_and_transfer_amount =
+                    SIP031EmissionInterval::get_sip_031_emission_at_height(
+                        chain_tip_burn_header_height.into(),
+                        mainnet,
+                    );
+
+                if sip_031_mint_and_transfer_amount > 0 {
+                    let recipient = PrincipalData::Contract(boot_code_id(SIP_031_NAME, mainnet));
+
+                    clarity_tx.connection().as_transaction(|tx_conn| {
+                        tx_conn
+                            .with_clarity_db(|db| {
+                                db.increment_ustx_liquid_supply(sip_031_mint_and_transfer_amount)
+                                    .map_err(|e| e.into())
+                            })
+                            .expect("FATAL: `SIP-031 mint` overflowed");
+                        StacksChainState::account_credit(
+                            tx_conn,
+                            &recipient,
+                            u64::try_from(sip_031_mint_and_transfer_amount)
+                                .expect("FATAL: transferred more STX than exist"),
+                        );
+                    });
+
+                    if let Some(receipt) = tx_receipts.get_mut(0) {
+                        if receipt.is_coinbase_tx() {
+                            let event = STXEventType::STXMintEvent(STXMintEventData {
+                                recipient,
+                                amount: sip_031_mint_and_transfer_amount,
+                            });
+                            receipt.events.push(StacksTransactionEvent::STXEvent(event));
+                        }
+                    } else {
+                        warn!("Unable to attach SIP-031 mint events, block's first transaction is not a coinbase transaction")
+                    }
+                }
             }
         }
 
