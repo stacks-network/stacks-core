@@ -17,7 +17,6 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::io::{Read, Write};
-use std::time::SystemTime;
 
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::deps_common::httparse;
@@ -347,9 +346,11 @@ impl HttpResponsePreamble {
 }
 
 /// Get an RFC 7231 date that represents the current time
-fn rfc7231_now() -> String {
-    let now = time::PrimitiveDateTime::from(SystemTime::now());
-    now.format("%a, %b %-d %-Y %-H:%M:%S GMT")
+fn rfc7231_now() -> Result<String, CodecError> {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc2822)
+        .map(|date| date.replace("+0000", "GMT"))
+        .map_err(|e| CodecError::GenericError(format!("Failed to format RFC 7231 date: {:?}", e)))
 }
 
 /// Read from a stream until we see '\r\n\r\n', with the purpose of reading an HTTP preamble.
@@ -387,7 +388,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
         if !self.headers.contains_key("date") {
             fd.write_all("Date: ".as_bytes())
                 .map_err(CodecError::WriteError)?;
-            fd.write_all(rfc7231_now().as_bytes())
+            fd.write_all(rfc7231_now()?.as_bytes())
                 .map_err(CodecError::WriteError)?;
             fd.write_all("\r\n".as_bytes())
                 .map_err(CodecError::WriteError)?;
