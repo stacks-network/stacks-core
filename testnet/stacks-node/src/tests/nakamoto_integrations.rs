@@ -12693,6 +12693,11 @@ fn test_sip_031_activation() {
         return;
     }
 
+    // skip the test til we move to epoch 3.2
+    if StacksEpochId::latest() != StacksEpochId::Epoch32 {
+        return;
+    }
+
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
