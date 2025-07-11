@@ -238,7 +238,7 @@ impl NakamotoDownloadStateMachine {
         // we want tenures that are *confirmable* from the current sortition tip.
         //  any miner commitment chosen in the sortition tip confirms a tenure with a lower
         //  block height, so only consider the reward cycle at height - 1.
-        // *Note: its possible that a the second or later sortition of a RC also confirms a tenure
+        // *Note: it's possible that the second or later sortition of a RC also confirms a tenure
         //   in the previous RC, but for the purposes of the wanted tenures calculations, we only
         //   are loading up wanted tenures in the current RC.
         let tip_rc = Self::get_confirmable_reward_cycle(
