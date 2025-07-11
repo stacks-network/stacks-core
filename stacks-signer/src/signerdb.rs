@@ -1767,6 +1767,29 @@ impl SignerDb {
         Ok(())
     }
 
+    /// Check if the given address has already committed to sign the block identified by block_sighash
+    pub fn has_committed(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+        address: &StacksAddress,
+    ) -> Result<bool, DBError> {
+        let qry_check = "
+            SELECT 1 FROM block_pre_commits
+            WHERE signer_signature_hash = ?1 AND signer_addr = ?2
+            LIMIT 1;";
+
+        let exists: Option<u8> = self
+            .db
+            .query_row(
+                qry_check,
+                params![block_sighash, address.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        Ok(exists.is_some())
+    }
+
     /// Get all pre committers for a block
     pub fn get_block_pre_committers(
         &self,
@@ -3254,5 +3277,12 @@ pub mod tests {
         let commits = db.get_block_pre_committers(&block_sighash2).unwrap();
         assert_eq!(commits.len(), 1);
         assert!(commits.contains(&address3));
+
+        assert!(db.has_committed(&block_sighash1, &address1).unwrap());
+        assert!(db.has_committed(&block_sighash1, &address2).unwrap());
+        assert!(!db.has_committed(&block_sighash1, &address3).unwrap());
+        assert!(!db.has_committed(&block_sighash2, &address1).unwrap());
+        assert!(!db.has_committed(&block_sighash2, &address2).unwrap());
+        assert!(db.has_committed(&block_sighash2, &address3).unwrap());
     }
 }

@@ -954,6 +954,10 @@ impl Signer {
             return;
         }
 
+        if self.signer_db.has_committed(block_hash, stacker_address).inspect_err(|e| warn!("Failed to check if pre-commit message already considered for {stacker_address:?} for {block_hash}: {e}")).unwrap_or(false) {
+            debug!("{self}: Already considered pre-commit message from {stacker_address:?} for {block_hash}. Ignoring...");
+            return;
+        }
         // commit message is from a valid sender! store it
         self.signer_db
             .add_block_pre_commit(block_hash, stacker_address)
