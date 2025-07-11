@@ -5,7 +5,7 @@ use crate::burnchains::bitcoin_regtest_controller::{ParsedUTXO, UTXO};
 use crate::burnchains::rpc_transport::{RpcResult, RpcTransport};
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct TransactionInfoResponse {
+pub struct GetTransactionResponse {
     pub confirmations: u32,
 }
 
@@ -144,7 +144,7 @@ impl BitcoinRpcClient {
             .send("generatetoaddress", vec![num_block.into(), address.into()])
     }
 
-    pub fn get_transaction(&self, txid: &str) -> RpcResult<TransactionInfoResponse> {
+    pub fn get_transaction(&self, txid: &str) -> RpcResult<GetTransactionResponse> {
         self.wallet_ep.send("gettransaction", vec![txid.into()])
     }
 
@@ -240,16 +240,48 @@ impl BitcoinRpcClient {
         self.global_ep.send("stop", vec![])
     }
 
+    /// Get a new Bitcoin address from the wallet.
+    ///
+    /// # Arguments
+    ///
+    /// * `label` - Optional label to associate with the address.
+    /// * `address_type` - Optional address type ("legacy", "p2sh-segwit", "bech32", "bech32m").
+    ///
+    /// # Returns
+    ///
+    /// A string representing the new Bitcoin address.
     pub fn get_new_address(
         &self,
         label: Option<&str>,
         address_type: Option<&str>,
     ) -> RpcResult<String> {
+        let mut params = vec![];
+
         let label = label.unwrap_or("");
-        let address_type = address_type.unwrap_or("legacy"); //default NULL (serde_json::Value::Null)
+        params.push(label.into());
+
+         if let Some(at) = address_type {
+            params.push(at.into());
+        }
 
         self.global_ep
-            .send("getnewaddress", vec![label.into(), address_type.into()])
+            .send("getnewaddress", params)
+    }
+
+    /// Sends a specified amount of BTC to a given address.
+    /// 
+    /// # Arguments
+    /// * `address` - The destination Bitcoin address.
+    /// * `amount` - Amount to send in BTC (not in satoshis).
+    /// 
+    /// # Returns
+    /// The transaction ID as hex string
+    pub fn send_to_address(
+        &self,
+        address: &str,
+        amount: f64,
+    ) -> RpcResult<String> {
+        self.wallet_ep.send("sendtoaddress", vec![address.into(), amount.into()])
     }
 }
 
@@ -302,7 +334,7 @@ mod tests {
                 .create();
 
             let client = utils::setup_client(&server);
-            let result = client.create_wallet("testwallet", Some(false));
+            let result = client.create_wallet("testwallet", Some(true));
             result.expect("Should work");
         }
 
@@ -399,7 +431,7 @@ mod tests {
         }
 
         #[test]
-        fn test_generate_to_address() {
+        fn test_generate_to_address_ok() {
             // Arrange
             let num_blocks = 3;
             let address = "00000000000000000000000000000000000000000000000000000";
@@ -722,6 +754,74 @@ mod tests {
             let result = client.stop().expect("Should work!");
             assert_eq!("Bitcoin Core stopping", result);
         }
+
+        #[test]
+        fn test_get_new_address_ok() {
+            let expected_address = "btc_addr_1";
+
+            let expected_request = json!({
+                "jsonrpc": "2.0",
+                "id": "stacks",
+                "method": "getnewaddress",
+                "params": [""]
+            });
+
+            let mock_response = json!({
+                "result": expected_address,
+                "error": null,
+                //"id": "stacks"
+            });
+
+            let mut server = mockito::Server::new();
+            let _m = server
+                .mock("POST", "/")
+                .match_header("authorization", "Basic dXNlcjpwYXNz")
+                .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
+                .with_status(200)
+                .with_header("Content-Type", "application/json")
+                .with_body(mock_response.to_string())
+                .create();
+
+            let client = utils::setup_client(&server);
+
+            let address = client.get_new_address(None, None).expect("Should be ok!");
+            assert_eq!(expected_address, address);
+        }
+
+        #[test]
+        fn test_send_to_address_ok() {
+            let address = "btc_addr_1";
+            let amount = 0.5;
+            let expected_txid = "txid_1";
+
+            let expected_request = json!({
+                "jsonrpc": "2.0",
+                "id": "stacks",
+                "method": "sendtoaddress",
+                "params": [address, amount]
+            });
+
+            let mock_response = json!({
+                "result": expected_txid,
+                "error": null,
+                //"id": "stacks"
+            });
+
+            let mut server = mockito::Server::new();
+            let _m = server
+                .mock("POST", "/wallet/mywallet")
+                .match_header("authorization", "Basic dXNlcjpwYXNz")
+                .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
+                .with_status(200)
+                .with_header("Content-Type", "application/json")
+                .with_body(mock_response.to_string())
+                .create();
+
+            let client = utils::setup_client(&server);
+
+            let txid = client.send_to_address(address, amount).expect("Should be ok!");
+            assert_eq!(expected_txid, txid);
+        }
     }
 
     #[cfg(test)]
@@ -846,13 +946,35 @@ mod tests {
 
             let block_hash = client.generate_block(&address, vec![]).expect("OK");
             assert_eq!(64, block_hash.len());
-
-            //client.create_wallet("hello1").expect("OK");
-            //client.create_wallet("hello2").expect("OK");
-            //client.generate_to_address(64, address)
-            //client.get_transaction("1", "hello1").expect("Boh");
-            //client.get_blockchaininfo().expect("Boh");
         }
+
+        #[test]
+        fn test_get_raw_transaction_ok() {
+            let mut config = utils::create_config();
+            config.burnchain.wallet_name = "my_wallet".to_string();
+
+            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let client = BitcoinRpcClient::from_stx_config(&config);
+            client.create_wallet("my_wallet", Some(false)).expect("create wallet ok!");
+            let address = client.get_new_address(None, None).expect("get new address ok!");
+
+            //Create 1 UTXO
+            _ = client.generate_to_address(101, &address).expect("generate to address ok!");
+
+            //Need .arg("-fallbackfee=0.0002")
+            let txid = client.send_to_address(&address, 2.0).expect("send to address ok!");
+
+            let raw_tx = client.get_raw_transaction(&txid).expect("get raw transaction ok!");
+            assert_ne!("", raw_tx);
+
+            let resp = client.get_transaction(&txid).expect("get raw transaction ok!");
+            assert_eq!(0, resp.confirmations);
+        }
+
 
         #[test]
         fn test_stop_bitcoind_ok() {
