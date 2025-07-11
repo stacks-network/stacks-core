@@ -52,6 +52,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 
 use crate::stacks_common::types::PublicKey;
+use crate::v0::signer_state::ReplayTransactionSet;
 use crate::{
     BlockProposal, MessageSlotID as MessageSlotIDTrait, SignerMessage as SignerMessageTrait,
     VERSION_STRING,
@@ -563,6 +564,18 @@ pub enum StateMachineUpdateContent {
         /// The replay transactions
         replay_transactions: Vec<StacksTransaction>,
     },
+    /// Version 2 is exactly the same as Version 1, but is used to indicate this signer is
+    /// compatible with global state machine processing
+    V2 {
+        /// The tip burn block (i.e., the latest bitcoin block) seen by this signer
+        burn_block: ConsensusHash,
+        /// The tip burn block height (i.e., the latest bitcoin block) seen by this signer
+        burn_block_height: u64,
+        /// The signer's view of who the current miner should be (and their tenure building info)
+        current_miner: StateMachineUpdateMinerState,
+        /// The replay transactions
+        replay_transactions: Vec<StacksTransaction>,
+    },
 }
 
 /// Message for update the Signer State infos
@@ -669,6 +682,52 @@ impl StateMachineUpdateContent {
         match self {
             Self::V0 { .. } => version == 0,
             Self::V1 { .. } => version == 1,
+            Self::V2 { .. } => version == 2,
+        }
+    }
+
+    /// Get the burn block view
+    pub fn burn_block_view(&self) -> (&ConsensusHash, u64) {
+        match self {
+            Self::V0 {
+                burn_block,
+                burn_block_height,
+                ..
+            }
+            | Self::V1 {
+                burn_block,
+                burn_block_height,
+                ..
+            }
+            | Self::V2 {
+                burn_block,
+                burn_block_height,
+                ..
+            } => (burn_block, *burn_block_height),
+        }
+    }
+
+    /// Get the current miner
+    pub fn current_miner(&self) -> &StateMachineUpdateMinerState {
+        match self {
+            Self::V0 { current_miner, .. }
+            | Self::V1 { current_miner, .. }
+            | Self::V2 { current_miner, .. } => current_miner,
+        }
+    }
+
+    /// Get the tx replay set
+    pub fn tx_replay_set(&self) -> ReplayTransactionSet {
+        match self {
+            Self::V0 { .. } => ReplayTransactionSet::none(),
+            Self::V1 {
+                replay_transactions,
+                ..
+            }
+            | Self::V2 {
+                replay_transactions,
+                ..
+            } => ReplayTransactionSet::new(replay_transactions.clone()),
         }
     }
 
@@ -688,6 +747,12 @@ impl StateMachineUpdateContent {
                 burn_block_height,
                 current_miner,
                 replay_transactions,
+            }
+            | Self::V2 {
+                burn_block,
+                burn_block_height,
+                current_miner,
+                replay_transactions,
             } => {
                 burn_block.consensus_serialize(fd)?;
                 burn_block_height.consensus_serialize(fd)?;
@@ -698,23 +763,27 @@ impl StateMachineUpdateContent {
         Ok(())
     }
     fn deserialize<R: Read>(fd: &mut R, version: u64) -> Result<Self, CodecError> {
+        let burn_block = read_next(fd)?;
+        let burn_block_height = read_next(fd)?;
+        let current_miner = read_next(fd)?;
         match version {
-            0 => {
-                let burn_block = read_next(fd)?;
-                let burn_block_height = read_next(fd)?;
-                let current_miner = read_next(fd)?;
-                Ok(Self::V0 {
+            0 => Ok(Self::V0 {
+                burn_block,
+                burn_block_height,
+                current_miner,
+            }),
+            1 => {
+                let replay_transactions = read_next(fd)?;
+                Ok(Self::V1 {
                     burn_block,
                     burn_block_height,
                     current_miner,
+                    replay_transactions,
                 })
             }
-            1 => {
-                let burn_block = read_next(fd)?;
-                let burn_block_height = read_next(fd)?;
-                let current_miner = read_next(fd)?;
+            2 => {
                 let replay_transactions = read_next(fd)?;
-                Ok(Self::V1 {
+                Ok(Self::V2 {
                     burn_block,
                     burn_block_height,
                     current_miner,
@@ -829,6 +898,9 @@ impl From<&RejectReason> for RejectReasonPrefix {
             RejectReason::InvalidParentBlock => RejectReasonPrefix::InvalidParentBlock,
             RejectReason::DuplicateBlockFound => RejectReasonPrefix::DuplicateBlockFound,
             RejectReason::InvalidTenureExtend => RejectReasonPrefix::InvalidTenureExtend,
+            RejectReason::IrrecoverablePubkeyHash => RejectReasonPrefix::IrrecoverablePubkeyHash,
+            RejectReason::NoSignerConsensus => RejectReasonPrefix::NoSignerConsensus,
+            RejectReason::ConsensusHashMismatch { .. } => RejectReasonPrefix::ConsensusHashMismatch,
             RejectReason::Unknown(_) => RejectReasonPrefix::Unknown,
             RejectReason::NotRejected => RejectReasonPrefix::NotRejected,
         }
@@ -903,6 +975,17 @@ pub enum RejectReason {
     /// The block attempted a tenure extend but the burn view has not changed
     /// and not enough time has passed for a time-based tenure extend
     InvalidTenureExtend,
+    /// The block has an irrecoverable pubkey hash
+    IrrecoverablePubkeyHash,
+    /// No signer consensus reached
+    NoSignerConsensus,
+    /// The block consensus hash does not match the active miner's tenure id
+    ConsensusHashMismatch {
+        /// The expected active miner's tenure id
+        expected: ConsensusHash,
+        /// The block proposal's corresponding miner's tenure id
+        actual: ConsensusHash,
+    },
     /// The block was approved, no rejection details needed
     NotRejected,
     /// Handle unknown codes gracefully
@@ -944,6 +1027,12 @@ pub enum RejectReasonPrefix {
     /// The block attempted a tenure extend but the burn view has not changed
     /// and not enough time has passed for a time-based tenure extend
     InvalidTenureExtend = 13,
+    /// The block has an irrecoverable pubkey hash
+    IrrecoverablePubkeyHash = 14,
+    /// The block could not be validated as no consensus among signers
+    NoSignerConsensus = 15,
+    /// The block consensus hash does not match the active miner's tenure id
+    ConsensusHashMismatch = 16,
     /// Unknown reject code, for forward compatibility
     Unknown = 254,
     /// The block was approved, no rejection details needed
@@ -968,6 +1057,9 @@ impl RejectReasonPrefix {
             Self::InvalidParentBlock => 11,
             Self::DuplicateBlockFound => 12,
             Self::InvalidTenureExtend => 13,
+            Self::IrrecoverablePubkeyHash => 14,
+            Self::NoSignerConsensus => 15,
+            Self::ConsensusHashMismatch => 16,
             Self::Unknown => 254,
             Self::NotRejected => 255,
         }
@@ -991,6 +1083,9 @@ impl From<u8> for RejectReasonPrefix {
             11 => Self::InvalidParentBlock,
             12 => Self::DuplicateBlockFound,
             13 => Self::InvalidTenureExtend,
+            14 => Self::IrrecoverablePubkeyHash,
+            15 => Self::NoSignerConsensus,
+            16 => Self::ConsensusHashMismatch,
             255 => Self::NotRejected,
             // For forward compatibility, all other values are unknown
             _ => Self::Unknown,
@@ -1556,6 +1651,10 @@ impl StacksMessageCodec for RejectReason {
         // Do not do a single match here as we may add other variants in the future and don't want to miss adding it
         match self {
             RejectReason::ValidationFailed(code) => write_next(fd, &(*code as u8))?,
+            RejectReason::ConsensusHashMismatch { expected, actual } => {
+                write_next(fd, expected)?;
+                write_next(fd, actual)?;
+            }
             RejectReason::ConnectivityIssues(_)
             | RejectReason::RejectedInPriorRound
             | RejectReason::NoSortitionView
@@ -1569,6 +1668,8 @@ impl StacksMessageCodec for RejectReason {
             | RejectReason::InvalidParentBlock
             | RejectReason::DuplicateBlockFound
             | RejectReason::InvalidTenureExtend
+            | RejectReason::IrrecoverablePubkeyHash
+            | RejectReason::NoSignerConsensus
             | RejectReason::Unknown(_)
             | RejectReason::NotRejected => {
                 // No additional data to serialize / deserialize
@@ -1606,6 +1707,13 @@ impl StacksMessageCodec for RejectReason {
             RejectReasonPrefix::InvalidParentBlock => RejectReason::InvalidParentBlock,
             RejectReasonPrefix::DuplicateBlockFound => RejectReason::DuplicateBlockFound,
             RejectReasonPrefix::InvalidTenureExtend => RejectReason::InvalidTenureExtend,
+            RejectReasonPrefix::IrrecoverablePubkeyHash => RejectReason::IrrecoverablePubkeyHash,
+            RejectReasonPrefix::NoSignerConsensus => RejectReason::NoSignerConsensus,
+            RejectReasonPrefix::ConsensusHashMismatch => {
+                let expected = read_next::<ConsensusHash, _>(fd)?;
+                let actual = read_next::<ConsensusHash, _>(fd)?;
+                RejectReason::ConsensusHashMismatch { expected, actual }
+            }
             RejectReasonPrefix::Unknown => RejectReason::Unknown(type_prefix_byte),
             RejectReasonPrefix::NotRejected => RejectReason::NotRejected,
         };
@@ -1704,6 +1812,21 @@ impl std::fmt::Display for RejectReason {
                 write!(
                     f,
                     "The block attempted a tenure extend but the burn view has not changed and not enough time has passed for a time-based tenure extend."
+                )
+            }
+            RejectReason::IrrecoverablePubkeyHash => {
+                write!(
+                    f,
+                    "The block has an irrecoverable associated miner public key hash."
+                )
+            }
+            RejectReason::NoSignerConsensus => {
+                write!(f, "No signer consensus reached.")
+            }
+            RejectReason::ConsensusHashMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "The block's consensus hash ({expected}) does not match the active miner's tenure id ({actual})",
                 )
             }
             RejectReason::Unknown(code) => {
@@ -2388,6 +2511,86 @@ mod test {
         // check for raw content for avoiding regressions when structure changes
         let raw_signer_message: Vec<&[u8]> = vec![
             /* active_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 1],
+            /* local_supported_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 4],
+            /* content_len*/ &[0, 0, 0, 33],
+            /* burn_block*/ &[0x55; 20],
+            /* burn_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 100],
+            /* current_miner_variant */ &[0x00],
+            /* replay_transactions */ &[0, 0, 0, 0],
+        ];
+
+        assert_eq!(bytes, raw_signer_message.concat());
+
+        let signer_message_deserialized =
+            StateMachineUpdate::consensus_deserialize(&mut &bytes[..]).unwrap();
+
+        assert_eq!(signer_message, signer_message_deserialized);
+    }
+
+    #[test]
+    fn deserialize_state_machine_update_v2() {
+        let signer_message = StateMachineUpdate::new(
+            2,
+            3,
+            StateMachineUpdateContent::V2 {
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh: Hash160([0xab; 20]),
+                    tenure_id: ConsensusHash([0x44; 20]),
+                    parent_tenure_id: ConsensusHash([0x22; 20]),
+                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                    parent_tenure_last_block_height: 1,
+                },
+                replay_transactions: vec![],
+            },
+        )
+        .unwrap();
+
+        let mut bytes = vec![];
+        signer_message.consensus_serialize(&mut bytes).unwrap();
+
+        // check for raw content for avoiding regressions when structure changes
+        let raw_signer_message: Vec<&[u8]> = vec![
+            /* active_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 2],
+            /* local_supported_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 3],
+            /* content_len*/ &[0, 0, 0, 133],
+            /* burn_block*/ &[0x55; 20],
+            /* burn_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 100],
+            /* current_miner_variant */ &[0x01],
+            /* current_miner_pkh */ &[0xab; 20],
+            /* tenure_id*/ &[0x44; 20],
+            /* parent_tenure_id*/ &[0x22; 20],
+            /* parent_tenure_last_block */ &[0x33; 32],
+            /* parent_tenure_last_block_height*/ &[0, 0, 0, 0, 0, 0, 0, 1],
+            /* replay_transactions */ &[0, 0, 0, 0],
+        ];
+
+        assert_eq!(bytes, raw_signer_message.concat());
+
+        let signer_message_deserialized =
+            StateMachineUpdate::consensus_deserialize(&mut &bytes[..]).unwrap();
+
+        assert_eq!(signer_message, signer_message_deserialized);
+
+        let signer_message = StateMachineUpdate::new(
+            2,
+            4,
+            StateMachineUpdateContent::V2 {
+                burn_block: ConsensusHash([0x55; 20]),
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::NoValidMiner,
+                replay_transactions: vec![],
+            },
+        )
+        .unwrap();
+
+        let mut bytes = vec![];
+        signer_message.consensus_serialize(&mut bytes).unwrap();
+
+        // check for raw content for avoiding regressions when structure changes
+        let raw_signer_message: Vec<&[u8]> = vec![
+            /* active_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 2],
             /* local_supported_signer_protocol_version*/ &[0, 0, 0, 0, 0, 0, 0, 4],
             /* content_len*/ &[0, 0, 0, 33],
             /* burn_block*/ &[0x55; 20],
