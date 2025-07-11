@@ -953,9 +953,10 @@ mod tests {
             let mut config = utils::create_config();
             config.burnchain.wallet_name = "my_wallet".to_string();
 
-            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(config.clone());
             btcd_controller
-                .start_bitcoind()
+                .add_arg("-fallbackfee=0.0002")
+                .start_bitcoind_v2()
                 .expect("bitcoind should be started!");
 
             let client = BitcoinRpcClient::from_stx_config(&config);
@@ -965,7 +966,7 @@ mod tests {
             //Create 1 UTXO
             _ = client.generate_to_address(101, &address).expect("generate to address ok!");
 
-            //Need .arg("-fallbackfee=0.0002")
+            //Need `fallbackfee` arg
             let txid = client.send_to_address(&address, 2.0).expect("send to address ok!");
 
             let raw_tx = client.get_raw_transaction(&txid).expect("get raw transaction ok!");
@@ -974,7 +975,6 @@ mod tests {
             let resp = client.get_transaction(&txid).expect("get raw transaction ok!");
             assert_eq!(0, resp.confirmations);
         }
-
 
         #[test]
         fn test_stop_bitcoind_ok() {
