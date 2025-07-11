@@ -155,10 +155,7 @@ impl SqliteConnection {
             "INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)",
             params,
         ) {
-            error!(
-                "Failed to insert ({bhh},{key},{}): {e:?}",
-                &value.to_string()
-            );
+            error!("Failed to insert ({bhh},{key},{value}): {e:?}");
             return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
         Ok(())

@@ -969,10 +969,9 @@ fn test_sequence_comparisons_clarity2() {
     // Note: Execute against Clarity2.
     success_tests.iter().for_each(|(program, expectation)| {
         assert_eq!(
-            expectation.clone(),
-            vm_execute_v2(program).unwrap().unwrap(),
-            "{program:?}, {:?}",
-            expectation.clone()
+            expectation,
+            &vm_execute_v2(program).unwrap().unwrap(),
+            "{program:?}, {expectation:?}"
         )
     });
 }

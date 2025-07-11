@@ -1491,7 +1491,7 @@ impl fmt::Display for PrincipalData {
 impl fmt::Display for CallableData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if let Some(trait_identifier) = &self.trait_identifier {
-            write!(f, "({} as <{trait_identifier}>)", self.contract_identifier,)
+            write!(f, "({} as <{trait_identifier}>)", self.contract_identifier)
         } else {
             write!(f, "{}", self.contract_identifier,)
         }
