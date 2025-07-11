@@ -49,7 +49,7 @@ mod tests;
 use std::fmt::{Debug, Display};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
-use chainstate::SortitionsView;
+use chainstate::v1::SortitionsView;
 use config::GlobalConfig;
 use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait, VERSION_STRING};
 use runloop::SignerResult;
