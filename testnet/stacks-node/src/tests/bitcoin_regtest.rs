@@ -33,7 +33,7 @@ type BitcoinResult<T> = Result<T, BitcoinCoreError>;
 pub struct BitcoinCoreController {
     bitcoind_process: Option<Child>,
     pub config: Config,
-    args: Vec<String>
+    args: Vec<String>,
 }
 
 impl BitcoinCoreController {
@@ -42,7 +42,7 @@ impl BitcoinCoreController {
         BitcoinCoreController {
             bitcoind_process: None,
             config,
-            args: vec![]
+            args: vec![],
         }
     }
 
@@ -50,7 +50,7 @@ impl BitcoinCoreController {
         let mut result = BitcoinCoreController {
             bitcoind_process: None,
             config,
-            args: vec![]
+            args: vec![],
         };
 
         //TODO: Remove this once verified if `pub config` is really needed or not.
@@ -78,14 +78,12 @@ impl BitcoinCoreController {
 
         result.add_arg(format!("-rpcport={}", config.burnchain.rpc_port));
 
-        if let (Some(username), Some(password)) = (
-            &config.burnchain.username,
-            &config.burnchain.password,
-        ) {
+        if let (Some(username), Some(password)) =
+            (&config.burnchain.username, &config.burnchain.password)
+        {
             result.add_arg(format!("-rpcuser={username}"));
             result.add_arg(format!("-rpcpassword={password}"));
         }
-
 
         result
     }
@@ -100,8 +98,7 @@ impl BitcoinCoreController {
         std::fs::create_dir_all(self.config.get_burnchain_path_str()).unwrap();
 
         let mut command = Command::new("bitcoind");
-        command
-            .stdout(Stdio::piped());
+        command.stdout(Stdio::piped());
 
         command.args(self.args.clone());
 

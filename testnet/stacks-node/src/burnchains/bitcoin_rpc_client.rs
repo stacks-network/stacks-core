@@ -260,28 +260,24 @@ impl BitcoinRpcClient {
         let label = label.unwrap_or("");
         params.push(label.into());
 
-         if let Some(at) = address_type {
+        if let Some(at) = address_type {
             params.push(at.into());
         }
 
-        self.global_ep
-            .send("getnewaddress", params)
+        self.global_ep.send("getnewaddress", params)
     }
 
     /// Sends a specified amount of BTC to a given address.
-    /// 
+    ///
     /// # Arguments
     /// * `address` - The destination Bitcoin address.
     /// * `amount` - Amount to send in BTC (not in satoshis).
-    /// 
+    ///
     /// # Returns
     /// The transaction ID as hex string
-    pub fn send_to_address(
-        &self,
-        address: &str,
-        amount: f64,
-    ) -> RpcResult<String> {
-        self.wallet_ep.send("sendtoaddress", vec![address.into(), amount.into()])
+    pub fn send_to_address(&self, address: &str, amount: f64) -> RpcResult<String> {
+        self.wallet_ep
+            .send("sendtoaddress", vec![address.into(), amount.into()])
     }
 }
 
@@ -819,7 +815,9 @@ mod tests {
 
             let client = utils::setup_client(&server);
 
-            let txid = client.send_to_address(address, amount).expect("Should be ok!");
+            let txid = client
+                .send_to_address(address, amount)
+                .expect("Should be ok!");
             assert_eq!(expected_txid, txid);
         }
     }
@@ -960,19 +958,59 @@ mod tests {
                 .expect("bitcoind should be started!");
 
             let client = BitcoinRpcClient::from_stx_config(&config);
-            client.create_wallet("my_wallet", Some(false)).expect("create wallet ok!");
-            let address = client.get_new_address(None, None).expect("get new address ok!");
+            client
+                .create_wallet("my_wallet", Some(false))
+                .expect("create wallet ok!");
+            let address = client
+                .get_new_address(None, None)
+                .expect("get new address ok!");
 
             //Create 1 UTXO
-            _ = client.generate_to_address(101, &address).expect("generate to address ok!");
+            _ = client
+                .generate_to_address(101, &address)
+                .expect("generate to address ok!");
 
             //Need `fallbackfee` arg
-            let txid = client.send_to_address(&address, 2.0).expect("send to address ok!");
+            let txid = client
+                .send_to_address(&address, 2.0)
+                .expect("send to address ok!");
 
-            let raw_tx = client.get_raw_transaction(&txid).expect("get raw transaction ok!");
+            let raw_tx = client
+                .get_raw_transaction(&txid)
+                .expect("get raw transaction ok!");
             assert_ne!("", raw_tx);
+        }
 
-            let resp = client.get_transaction(&txid).expect("get raw transaction ok!");
+        #[test]
+        fn test_get_transaction_ok() {
+            let mut config = utils::create_config();
+            config.burnchain.wallet_name = "my_wallet".to_string();
+
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(config.clone());
+            btcd_controller
+                .add_arg("-fallbackfee=0.0002")
+                .start_bitcoind_v2()
+                .expect("bitcoind should be started!");
+
+            let client = BitcoinRpcClient::from_stx_config(&config);
+            client
+                .create_wallet("my_wallet", Some(false))
+                .expect("create wallet ok!");
+            let address = client
+                .get_new_address(None, None)
+                .expect("get new address ok!");
+
+            //Create 1 UTXO
+            _ = client
+                .generate_to_address(101, &address)
+                .expect("generate to address ok!");
+
+            //Need `fallbackfee` arg
+            let txid = client
+                .send_to_address(&address, 2.0)
+                .expect("send to address ok!");
+
+            let resp = client.get_transaction(&txid).expect("get transaction ok!");
             assert_eq!(0, resp.confirmations);
         }
 
