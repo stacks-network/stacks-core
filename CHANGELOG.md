@@ -8,6 +8,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## Unreleased
 
 - The HTTP `Date` header in responses now strictly follows RFC7231.
+- Added `/v3/contracts/fast-call-read` api endpoint. It allows to run read-only calls faster by disabling the cost and memory trackers. This endpoint requires authentication.
 
 ### Changed
 
