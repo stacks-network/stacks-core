@@ -42,6 +42,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@11df97af8e8102fd60b60a77dfbf58d40cd843b8 # v1.10.1
         with:
           toolchain: ${{ needs.setup.outputs.rust-toolchain }}
+          target: x86_64-pc-windows-gnu,x86_64-unknown-linux-gnu
           cache: true
           cache-key: cargo-hack-native-${{ needs.setup.outputs.rust-toolchain }}-${{ hashFiles('**/Cargo.lock') }}
 
@@ -49,11 +50,6 @@ jobs:
         uses: taiki-e/install-action@2383334cf567d78771fc7d89b6b3802ef1412cf6  # v2.56.8
         with:
           tool: cargo-hack
-
-      - name: Add native targets
-        run: |
-          rustup target add x86_64-pc-windows-gnu
-          rustup target add x86_64-unknown-linux-gnu
 
       - name: Install Windows cross-compilation tools
         run: |
@@ -87,8 +83,7 @@ jobs:
                 --each-feature \
                 --no-dev-deps \
                 --exclude-features=default,rusqlite,testing,wasm-deterministic \
-                --features=wasm-web \
-                --target wasm32-unknown-unknown
+                --features=wasm-web
 
           - name: "Clarity & Stacks-Common WASM Deterministic"
             command: |
@@ -98,8 +93,7 @@ jobs:
                 --each-feature \
                 --no-dev-deps \
                 --include-features=wasm-deterministic,slog_json \
-                --features=wasm-deterministic \
-                --target wasm32-unknown-unknown
+                --features=wasm-deterministic
 
     steps:
       - name: Checkout
@@ -111,6 +105,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@11df97af8e8102fd60b60a77dfbf58d40cd843b8 # v1.10.1
         with:
           toolchain: ${{ needs.setup.outputs.rust-toolchain }}
+          target: wasm32-unknown-unknown
           cache: true
           cache-key: cargo-hack-wasm-${{ matrix.name }}-${{ needs.setup.outputs.rust-toolchain }}-${{ hashFiles('**/Cargo.lock') }}
 
@@ -118,9 +113,6 @@ jobs:
         uses: taiki-e/install-action@2383334cf567d78771fc7d89b6b3802ef1412cf6 # v2.56.8
         with:
           tool: cargo-hack
-
-      - name: Add WASM target
-        run: rustup target add wasm32-unknown-unknown
 
       - name: Run cargo hack check
         run: ${{ matrix.command }}
