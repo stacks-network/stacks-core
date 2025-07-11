@@ -35,7 +35,9 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectSortitionWinner 
             self.miner_index
         );
 
-        let sortdb = self.ctx.get_sortition_db(self.miner_index);
+        // We should only use the first miner's sortition as it is what we use to confirm the bitcoin block was mined
+        // Otherwise we will have a race condition as we do not know if the other miner's sortdb has been updated yet
+        let sortdb = self.ctx.get_sortition_db(1);
         let miner_pkh = self.ctx.get_miner_public_key_hash(self.miner_index);
 
         verify_sortition_winner(&sortdb, &miner_pkh);
