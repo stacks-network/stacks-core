@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 use stacks::config::Config;
 
 use crate::burnchains::bitcoin_regtest_controller::{ParsedUTXO, UTXO};
-use crate::burnchains::rpc_transport::{RpcResult, RpcTransport};
+use crate::burnchains::rpc_transport::{RpcError, RpcResult, RpcTransport};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct GetTransactionResponse {
@@ -15,8 +15,22 @@ pub struct DescriptorInfoResponse {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct GenerateBlockResponse {
+pub struct GenerateBlockResponse {
     hash: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RpcErrorResponse {
+    pub code: i64,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ImportDescriptorsResponse {
+    pub success: bool,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    pub error: Option<RpcErrorResponse>
 }
 
 pub struct BitcoinRpcClient {
@@ -193,16 +207,19 @@ impl BitcoinRpcClient {
     }
 
     //TODO: Improve with descriptor_list
-    pub fn import_descriptor(&self, descriptor: &str) -> RpcResult<()> {
-        //let addr = format!("addr({})", address);
+    pub fn import_descriptor(&self, descriptor: &str) -> RpcResult<ImportDescriptorsResponse> {
         let timestamp = 0;
         let internal = true;
 
-        self.global_ep.send::<Value>(
+        let result = self.global_ep.send::<Vec<ImportDescriptorsResponse>>(
             "importdescriptors",
             vec![json!([{ "desc": descriptor, "timestamp": timestamp, "internal": internal }])],
         )?;
-        Ok(())
+
+        result
+            .into_iter()
+            .next()
+            .ok_or_else(|| RpcError::Service("empty importdescriptors response".to_string()))
     }
 
     //TODO REMOVE:
@@ -246,6 +263,8 @@ impl BitcoinRpcClient {
     ///
     /// * `label` - Optional label to associate with the address.
     /// * `address_type` - Optional address type ("legacy", "p2sh-segwit", "bech32", "bech32m").
+    ///   If `None`, the address type is determined by the `-addresstype` setting in `bitcoind`.
+    ///   If `-addresstype` is also unset, the default behavior is `bech32` (for v0.20+).
     ///
     /// # Returns
     ///
@@ -646,8 +665,7 @@ mod tests {
 
         #[test]
         fn test_get_descriptor_info_ok() {
-            let address = "bc1_address";
-            let descriptor = format!("addr({address})");
+            let descriptor = format!("addr(bc1_address)");
             let expected_checksum = "mychecksum";
 
             let expected_request = json!({
@@ -961,6 +979,7 @@ mod tests {
             client
                 .create_wallet("my_wallet", Some(false))
                 .expect("create wallet ok!");
+            
             let address = client
                 .get_new_address(None, None)
                 .expect("get new address ok!");
@@ -1012,6 +1031,54 @@ mod tests {
 
             let resp = client.get_transaction(&txid).expect("get transaction ok!");
             assert_eq!(0, resp.confirmations);
+        }
+
+        #[test]
+        fn test_get_descriptor_ok() {
+            let mut config = utils::create_config();
+            config.burnchain.wallet_name = "my_wallet".to_string();
+
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(config.clone());
+            btcd_controller
+                .start_bitcoind_v2()
+                .expect("bitcoind should be started!");
+
+            let client = BitcoinRpcClient::from_stx_config(&config);
+            client
+                .create_wallet("my_wallet", None)
+                .expect("create wallet ok!");
+
+            let address = "mqqxPdP1dsGk75S7ta2nwyU8ujDnB2Yxvu";
+            let checksum = "spfcmvsn";
+
+            let descriptor = format!("addr({address})");
+            let info = client.get_descriptor_info(&descriptor)
+                .expect("get descriptor ok!");
+            assert_eq!(checksum, info.checksum);
+        }
+
+        #[test]
+        fn test_import_descriptor_ok() {
+            let mut config = utils::create_config();
+            config.burnchain.wallet_name = "my_wallet".to_string();
+
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(config.clone());
+            btcd_controller
+                .start_bitcoind_v2()
+                .expect("bitcoind should be started!");
+
+            let client = BitcoinRpcClient::from_stx_config(&config);
+            client
+                .create_wallet("my_wallet", Some(true))
+                .expect("create wallet ok!");
+
+            let address = "mqqxPdP1dsGk75S7ta2nwyU8ujDnB2Yxvu";
+            let checksum = "spfcmvsn";
+
+            let descriptor = format!("addr({address})#{checksum}");
+            let import = client.import_descriptor(&descriptor)
+                .expect("import descriptor ok!");
+            assert!(import.success);            
         }
 
         #[test]
