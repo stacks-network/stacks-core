@@ -9,11 +9,11 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
-- The HTTP `Date` header in responses now strictly follows RFC7231.
 - Added `/v3/contracts/fast-call-read/:principal/:contract_name/:func_name` api endpoint. It allows to run read-only calls faster by disabling the cost and memory trackers. This endpoint requires authentication.
 
 ### Changed
 
+- The HTTP `Date` header in responses now strictly follows RFC7231.
 - When a previous block commit is unable to be RBFed, the miner will now just wait for it to be confirmed instead of submitting a new block commit which breaks the miner's UTXO chain.
 
 ## [3.1.0.0.13]
