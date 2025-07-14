@@ -16,6 +16,9 @@
 ;; The amount of STX that is vested over the 24 months
 (define-constant INITIAL_MINT_VESTING_AMOUNT (- INITIAL_MINT_AMOUNT INITIAL_MINT_IMMEDIATE_AMOUNT))
 
+;; The amount of STX that is vested per iteration
+(define-constant STX_PER_ITERATION (/ INITIAL_MINT_VESTING_AMOUNT INITIAL_MINT_VESTING_ITERATIONS))
+
 (define-data-var recipient principal tx-sender)
 
 (define-data-var deploy-block-height uint burn-block-height)
@@ -44,12 +47,9 @@
 (define-public (claim)
     (let
         (
-            (balance        (stx-get-balance (as-contract tx-sender)))
-            (burn-height    burn-block-height)
-            (total-vested   (calc-total-vested burn-height))
+            (balance (stx-get-balance (as-contract tx-sender)))
+            (total-vested (calc-total-vested burn-block-height))
             (vested-claimed (var-get vested-claimed-amount))
-            ;; Vested that has not yet been claimed
-            (available-vested (- total-vested vested-claimed))
             ;; Portion of the initial mint that is *still* locked (not yet vested)
             (reserved (- INITIAL_MINT_AMOUNT total-vested))
             ;; Free balance = everything the caller may withdraw right now
@@ -57,16 +57,14 @@
                 (if (> balance reserved)
                     (- balance reserved)
                     u0))
-            (vested-to-claim (if (> available-vested claimable) claimable available-vested))
-            (extra-to-claim  (- claimable vested-to-claim))
         )
         (try! (validate-caller))
         (asserts! (> claimable u0) (err ERR_NOTHING_TO_CLAIM))
-        (var-set vested-claimed-amount (+ vested-claimed vested-to-claim))
+        (var-set vested-claimed-amount (+ vested-claimed total-vested))
 
         (try! (as-contract (stx-transfer? claimable tx-sender (var-get recipient))))
         (ok claimable)
-        )
+    )
 )
 
 (define-private (validate-caller)
@@ -79,28 +77,28 @@
     (let
       (
         (diff (- burn-height (var-get deploy-block-height)))
+        ;; Note: this rounds down
         (iterations (/ diff INITIAL_MINT_VESTING_ITERATION_BLOCKS))
-        (stx-per-iteration (/ INITIAL_MINT_VESTING_AMOUNT INITIAL_MINT_VESTING_ITERATIONS))
-        (vesting-multiple (* stx-per-iteration iterations))
+        (vested-multiple (* STX_PER_ITERATION iterations))
 
         ;; If we have completed (or exceeded) the scheduled number of iterations,
         ;; consider the *entire* vesting bucket unlocked.  This avoids leaving a
         ;; tiny remainder caused by integer-division truncation.
-        (vesting-amount (if (>= iterations INITIAL_MINT_VESTING_ITERATIONS)
+        (vested-amount (if (>= iterations INITIAL_MINT_VESTING_ITERATIONS)
                             INITIAL_MINT_VESTING_AMOUNT
-                            vesting-multiple))
-        (total-amount (+ INITIAL_MINT_IMMEDIATE_AMOUNT vesting-amount))
+                            vested-multiple))
+        (total-amount (+ INITIAL_MINT_IMMEDIATE_AMOUNT vested-amount))
       )
       total-amount
     )
 )
 
-;; Returns the amount of STX that is vested at `burn-height`
-(define-read-only (calc-vested-amount (burn-height uint))
+;; Returns the amount of STX that is claimable from the vested balance at `burn-height`
+(define-read-only (calc-claimable-amount (burn-height uint))
     (let
-      (
-        (total-vested (calc-total-vested burn-height))
-      )
-      (ok (- total-vested (var-get vested-claimed-amount)))
+        (
+            (total-vested (calc-total-vested burn-height))
+        )
+        (- total-vested (var-get vested-claimed-amount))
     )
 )

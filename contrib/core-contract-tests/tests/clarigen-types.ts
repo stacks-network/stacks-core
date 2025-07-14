@@ -4586,14 +4586,14 @@ export const contracts = {
         [newRecipient: TypedAbiArg<string, "newRecipient">],
         Response<boolean, bigint>
       >,
-      calcVestedAmount: {
-        name: "calc-vested-amount",
+      calcClaimableAmount: {
+        name: "calc-claimable-amount",
         access: "read_only",
         args: [{ name: "burn-height", type: "uint128" }],
-        outputs: { type: { response: { ok: "uint128", error: "none" } } },
+        outputs: { type: "uint128" },
       } as TypedAbiFunction<
         [burnHeight: TypedAbiArg<number | bigint, "burnHeight">],
-        Response<bigint, null>
+        bigint
       >,
       getDeployBlockHeight: {
         name: "get-deploy-block-height",
@@ -4651,6 +4651,11 @@ export const contracts = {
         type: "uint128",
         access: "constant",
       } as TypedAbiVariable<bigint>,
+      STX_PER_ITERATION: {
+        name: "STX_PER_ITERATION",
+        type: "uint128",
+        access: "constant",
+      } as TypedAbiVariable<bigint>,
       deployBlockHeight: {
         name: "deploy-block-height",
         type: "uint128",
@@ -4675,6 +4680,7 @@ export const contracts = {
       INITIAL_MINT_VESTING_AMOUNT: 100_000_000_000_000n,
       INITIAL_MINT_VESTING_ITERATIONS: 24n,
       INITIAL_MINT_VESTING_ITERATION_BLOCKS: 4_383n,
+      STX_PER_ITERATION: 4_166_666_666_666n,
       deployBlockHeight: 3n,
       recipient: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
       vestedClaimedAmount: 0n,

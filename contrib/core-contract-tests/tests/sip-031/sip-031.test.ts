@@ -1,6 +1,6 @@
 import { project, accounts } from '../clarigen-types'; // where your [types.output] was specified
 import { CoreNodeEventType, projectFactory } from '@clarigen/core';
-import { filterEvents, rov, rovOk, txErr, txOk } from '@clarigen/test';
+import { filterEvents, rov, txErr, txOk } from '@clarigen/test';
 import { test, expect } from 'vitest';
 
 const contracts = projectFactory(project, 'simnet');
@@ -106,19 +106,19 @@ test('calculating vested amounts at a block height', () => {
     return immediateAmount + vestingAmount;
   }
 
-  expect(rovOk(contract.calcVestedAmount(deployBlockHeight))).toBe(immediateAmount);
+  expect(rov(contract.calcClaimableAmount(deployBlockHeight))).toBe(immediateAmount);
 
   function expectAmount(month: bigint) {
     const burnHeight = deployBlockHeight + month * 4383n;
-    expect(rovOk(contract.calcVestedAmount(burnHeight))).toBe(expectedAmount(burnHeight));
+    expect(rov(contract.calcClaimableAmount(burnHeight))).toBe(expectedAmount(burnHeight));
   }
 
   for (let i = 1n; i < 24n; i++) {
     expectAmount(i);
   }
   // At 24+ months, the entire vesting bucket should be unlocked
-  expect(rovOk(contract.calcVestedAmount(deployBlockHeight + 24n * 4383n))).toBe(initialMintAmount);
-  expect(rovOk(contract.calcVestedAmount(deployBlockHeight + 25n * 4383n))).toBe(initialMintAmount);
+  expect(rov(contract.calcClaimableAmount(deployBlockHeight + 24n * 4383n))).toBe(initialMintAmount);
+  expect(rov(contract.calcClaimableAmount(deployBlockHeight + 25n * 4383n))).toBe(initialMintAmount);
 });
 
 // -----------------------------------------------------------------------------
