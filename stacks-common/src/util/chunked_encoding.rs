@@ -447,7 +447,7 @@ mod test {
     use std::io;
     use std::io::Read;
 
-    use rand::RngCore;
+    use rand::RngCore as _;
 
     use super::*;
 

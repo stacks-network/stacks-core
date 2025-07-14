@@ -16,12 +16,12 @@
 
 use ::libsecp256k1;
 pub use ::libsecp256k1::Error;
+#[cfg(not(feature = "wasm-deterministic"))]
+use ::libsecp256k1::{Error as LibSecp256k1Error, Message as LibSecp256k1Message};
 use ::libsecp256k1::{
-    Error as LibSecp256k1Error, Message as LibSecp256k1Message, PublicKey as LibSecp256k1PublicKey,
-    RecoveryId as LibSecp256k1RecoveryId, SecretKey as LibSecp256k1PrivateKey,
-    Signature as LibSecp256k1Signature,
+    PublicKey as LibSecp256k1PublicKey, RecoveryId as LibSecp256k1RecoveryId,
+    SecretKey as LibSecp256k1PrivateKey, Signature as LibSecp256k1Signature,
 };
-use rand::RngCore;
 use serde::de::{Deserialize, Error as de_Error};
 use serde::Serialize;
 
@@ -102,6 +102,7 @@ impl Secp256k1PublicKey {
         Secp256k1PublicKey::from_slice(&data[..]).map_err(|_e| "Invalid public key hex string")
     }
 
+    #[cfg(not(feature = "wasm-deterministic"))]
     pub fn from_private(privk: &Secp256k1PrivateKey) -> Secp256k1PublicKey {
         let key = LibSecp256k1PublicKey::from_secret_key(&privk.key);
         Secp256k1PublicKey {
@@ -110,6 +111,7 @@ impl Secp256k1PublicKey {
         }
     }
 
+    #[cfg(not(feature = "wasm-deterministic"))]
     /// recover message and signature to public key (will be compressed)
     pub fn recover_to_pubkey(
         msg: &[u8],
@@ -123,7 +125,10 @@ impl Secp256k1PublicKey {
 }
 
 impl Secp256k1PrivateKey {
+    #[cfg(feature = "rand")]
     pub fn new() -> Secp256k1PrivateKey {
+        use rand::RngCore as _;
+
         let mut rng = rand::thread_rng();
         loop {
             // keep trying to generate valid bytes
@@ -184,6 +189,7 @@ impl Secp256k1PrivateKey {
     }
 }
 
+#[cfg(not(feature = "wasm-deterministic"))]
 pub fn secp256k1_recover(
     message_arr: &[u8],
     serialized_signature: &[u8],
@@ -195,6 +201,7 @@ pub fn secp256k1_recover(
     Ok(recovered_pub_key.serialize_compressed())
 }
 
+#[cfg(not(feature = "wasm-deterministic"))]
 pub fn secp256k1_verify(
     message_arr: &[u8],
     serialized_signature: &[u8],
@@ -298,6 +305,12 @@ impl PublicKey for Secp256k1PublicKey {
         self.to_bytes()
     }
 
+    #[cfg(feature = "wasm-deterministic")]
+    fn verify(&self, _data_hash: &[u8], _sig: &MessageSignature) -> Result<bool, &'static str> {
+        Err("Not implemented for wasm-deterministic")
+    }
+
+    #[cfg(not(feature = "wasm-deterministic"))]
     fn verify(&self, data_hash: &[u8], sig: &MessageSignature) -> Result<bool, &'static str> {
         let pub_key = Secp256k1PublicKey::recover_to_pubkey(data_hash, sig)?;
         Ok(self.eq(&pub_key))
@@ -313,6 +326,12 @@ impl PrivateKey for Secp256k1PrivateKey {
         bits
     }
 
+    #[cfg(feature = "wasm-deterministic")]
+    fn sign(&self, _data_hash: &[u8]) -> Result<MessageSignature, &'static str> {
+        Err("Not implemented for wasm-deterministic")
+    }
+
+    #[cfg(not(feature = "wasm-deterministic"))]
     fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str> {
         let message = LibSecp256k1Message::parse_slice(data_hash)
             .map_err(|_e| "Invalid message: failed to decode data hash: must be a 32-byte hash")?;
