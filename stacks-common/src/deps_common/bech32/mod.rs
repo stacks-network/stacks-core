@@ -792,7 +792,7 @@ mod tests {
                     let encoded = encode(&hrp, payload, variant).unwrap();
                     assert_eq!(s.to_lowercase(), encoded.to_lowercase());
                 }
-                Err(e) => panic!("Did not decode: {:?} Reason: {:?}", s, e),
+                Err(e) => panic!("Did not decode: {s:?} Reason: {e:?}"),
             }
         }
     }
@@ -850,8 +850,8 @@ mod tests {
         for p in pairs {
             let (s, expected_error) = p;
             match decode(s) {
-                Ok(_) => panic!("Should be invalid: {:?}", s),
-                Err(e) => assert_eq!(e, expected_error, "testing input '{}'", s),
+                Ok(_) => panic!("Should be invalid: {s:?}"),
+                Err(e) => assert_eq!(e, expected_error, "testing input '{s}'"),
             }
         }
     }

@@ -13,6 +13,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - When a previous block commit is unable to be RBFed, the miner will now just wait for it to be confirmed instead of submitting a new block commit which breaks the miner's UTXO chain.
 
+### Fixed
+
+- Fixed tenure downloader logic on reward cycle boundaries (#6234).
+
 ## [3.1.0.0.13]
 
 ### Added
