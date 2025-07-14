@@ -80,13 +80,6 @@ impl error::Error for Error {
 }
 
 #[doc(hidden)]
-impl From<serialize::Error> for Error {
-    fn from(e: serialize::Error) -> Error {
-        Error::Serialize(e)
-    }
-}
-
-#[doc(hidden)]
 impl From<network::Error> for Error {
     fn from(e: network::Error) -> Error {
         Error::Network(e)
