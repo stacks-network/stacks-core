@@ -20,7 +20,7 @@ on:
       - synchronize
 
 concurrency:
-  group: ci-${{ github.head_ref || github.ref || github.run_id }}
+  group: nix-${{ github.head_ref || github.ref || github.run_id }}
   ## Always cancel duplicate jobs
   cancel-in-progress: true
 
