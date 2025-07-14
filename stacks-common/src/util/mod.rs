@@ -34,8 +34,8 @@ pub mod vrf;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::{error, fmt, thread, time};
+use std::time::{self, SystemTime, UNIX_EPOCH};
+use std::{error, fmt, thread};
 
 /// Given a relative path inside the Cargo workspace, return the absolute path
 #[cfg(any(test, feature = "testing"))]
@@ -147,3 +147,5 @@ where
     let reader = BufReader::new(file);
     serde_json::from_reader::<_, J>(reader).map_err(std::io::Error::from)
 }
+#[cfg(all(feature = "rusqlite", target_family = "wasm"))]
+compile_error!("The `rusqlite` feature is not supported for wasm targets");
