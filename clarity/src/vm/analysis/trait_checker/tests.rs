@@ -99,7 +99,7 @@ fn test_incomplete_impl_trait_1(#[case] version: ClarityVersion, #[case] epoch: 
         .unwrap_err();
     match err.err {
         CheckErrors::BadTraitImplementation(_, _) => {}
-        _ => panic!("{:?}", err),
+        _ => panic!("{err:?}"),
     }
 }
 
@@ -126,7 +126,7 @@ fn test_incomplete_impl_trait_2(#[case] version: ClarityVersion, #[case] epoch: 
         .unwrap_err();
     match err.err {
         CheckErrors::BadTraitImplementation(_, _) => {}
-        _ => panic!("{:?}", err),
+        _ => panic!("{err:?}"),
     }
 }
 
@@ -150,7 +150,7 @@ fn test_impl_trait_arg_admission_1(#[case] version: ClarityVersion, #[case] epoc
         .unwrap_err();
     match err.err {
         CheckErrors::BadTraitImplementation(_, _) => {}
-        _ => panic!("{:?}", err),
+        _ => panic!("{err:?}"),
     }
 }
 
@@ -290,7 +290,7 @@ fn test_get_trait_reference_from_tuple(
         .unwrap_err();
     match err.err {
         CheckErrors::ContractCallExpectName => {}
-        _ => panic!("{:?}", err),
+        _ => panic!("{err:?}"),
     }
 }
 
@@ -333,7 +333,7 @@ fn test_dynamic_dispatch_by_defining_and_impl_trait(
         .unwrap_err();
     match err.err {
         CheckErrors::TraitReferenceUnknown(_) => {}
-        _ => panic!("{:?}", err),
+        _ => panic!("{err:?}"),
     }
 }
 
@@ -360,7 +360,7 @@ fn test_define_map_storing_trait_references(
 
     match err.err {
         ParseErrors::TraitReferenceNotAllowed => {}
-        _ => panic!("{:?}", err),
+        _ => panic!("{err:?}"),
     }
 }
 
@@ -384,7 +384,7 @@ fn test_cycle_in_traits_1_contract(#[case] version: ClarityVersion, #[case] epoc
     .unwrap_err();
     match err.err {
         ParseErrors::CircularReference(_) => {}
-        _ => panic!("{:?}", err),
+        _ => panic!("{err:?}"),
     }
 }
 
@@ -435,7 +435,7 @@ fn test_cycle_in_traits_2_contracts(#[case] version: ClarityVersion, #[case] epo
         .unwrap_err();
     match err.err {
         CheckErrors::NoSuchContract(_) => {}
-        _ => panic!("{:?}", err),
+        _ => panic!("{err:?}"),
     }
 }
 
@@ -488,7 +488,7 @@ fn test_dynamic_dispatch_unknown_method(
         .unwrap_err();
     match err.err {
         CheckErrors::TraitMethodUnknown(_, _) => {}
-        _ => panic!("{:?}", err),
+        _ => panic!("{err:?}"),
     }
 }
 
@@ -672,7 +672,7 @@ fn test_dynamic_dispatch_collision_trait(
     .unwrap_err();
     match err.err {
         ParseErrors::NameAlreadyUsed(_) => {}
-        _ => panic!("{:?}", err),
+        _ => panic!("{err:?}"),
     }
 }
 
@@ -701,7 +701,7 @@ fn test_dynamic_dispatch_collision_defined_trait(
     .unwrap_err();
     match err.err {
         ParseErrors::NameAlreadyUsed(_) => {}
-        _ => panic!("{:?}", err),
+        _ => panic!("{err:?}"),
     }
 }
 
@@ -741,7 +741,7 @@ fn test_dynamic_dispatch_collision_imported_trait(
     .unwrap_err();
     match err.err {
         ParseErrors::NameAlreadyUsed(_) => {}
-        _ => panic!("{:?}", err),
+        _ => panic!("{err:?}"),
     }
 }
 
@@ -813,7 +813,7 @@ fn test_dynamic_dispatch_importing_non_existant_trait(
         .unwrap_err();
     match err.err {
         CheckErrors::TraitReferenceUnknown(_) => {}
-        _ => panic!("{:?}", err),
+        _ => panic!("{err:?}"),
     }
 }
 
@@ -1106,7 +1106,7 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(
         CheckErrors::TypeError(TypeSignature::CallableType(_), TypeSignature::CallableType(_))
             if epoch >= StacksEpochId::Epoch21 && version < ClarityVersion::Clarity2 => {}
         CheckErrors::TraitReferenceUnknown(name) => assert_eq!(name.as_str(), "trait-a"),
-        _ => panic!("{:?}", err),
+        _ => panic!("{err:?}"),
     }
 }
 
@@ -1160,7 +1160,7 @@ fn test_dynamic_dispatch_mismatched_args(
         .unwrap_err();
     match err.err {
         CheckErrors::TypeError(_, _) => {}
-        _ => panic!("{:?}", err),
+        _ => panic!("{err:?}"),
     }
 }
 
@@ -1214,7 +1214,7 @@ fn test_dynamic_dispatch_mismatched_returns(
         .unwrap_err();
     match err.err {
         CheckErrors::BadTraitImplementation(_, _) => {}
-        _ => panic!("{:?}", err),
+        _ => panic!("{err:?}"),
     }
 }
 
@@ -1250,7 +1250,7 @@ fn test_bad_call_with_trait(#[case] version: ClarityVersion, #[case] epoch: Stac
         .unwrap_err();
     match err.err {
         CheckErrors::TypeError(_, _) => {}
-        _ => panic!("{:?}", err),
+        _ => panic!("{err:?}"),
     }
 }
 
@@ -1276,7 +1276,7 @@ fn test_good_call_with_trait(#[case] version: ClarityVersion, #[case] epoch: Sta
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    println!("c4: {:?}", c4);
+    println!("c4: {c4:?}");
 
     db.execute(|db| {
         type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
@@ -1310,7 +1310,7 @@ fn test_good_call_2_with_trait(#[case] version: ClarityVersion, #[case] epoch: S
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    println!("c4: {:?}", c4);
+    println!("c4: {c4:?}");
 
     db.execute(|db| {
         type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
@@ -1459,11 +1459,11 @@ fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions
         Err(err) if version == ClarityVersion::Clarity1 => {
             match err.err {
                 CheckErrors::TypeError(_, _) => {}
-                _ => panic!("{:?}", err),
+                _ => panic!("{err:?}"),
             };
         }
         Ok(_) if version >= ClarityVersion::Clarity2 => (),
-        _ => panic!("got {:?}", result),
+        _ => panic!("got {result:?}"),
     }
 }
 
@@ -1553,7 +1553,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         .unwrap_err();
     match err_principal.err {
         CheckErrors::TraitReferenceUnknown(_) => {}
-        _ => panic!("{:?}", err_principal),
+        _ => panic!("{err_principal:?}"),
     }
     let err_int = db
         .execute(|db| {
@@ -1563,7 +1563,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         .unwrap_err();
     match err_int.err {
         CheckErrors::TraitReferenceUnknown(_) => {}
-        _ => panic!("{:?}", err_int),
+        _ => panic!("{err_int:?}"),
     }
     let err_uint = db
         .execute(|db| {
@@ -1573,7 +1573,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         .unwrap_err();
     match err_uint.err {
         CheckErrors::TraitReferenceUnknown(_) => {}
-        _ => panic!("{:?}", err_uint),
+        _ => panic!("{err_uint:?}"),
     }
     let err_bool = db
         .execute(|db| {
@@ -1583,7 +1583,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         .unwrap_err();
     match err_bool.err {
         CheckErrors::TraitReferenceUnknown(_) => {}
-        _ => panic!("{:?}", err_bool),
+        _ => panic!("{err_bool:?}"),
     }
     let err_list = db
         .execute(|db| {
@@ -1593,7 +1593,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         .unwrap_err();
     match err_list.err {
         CheckErrors::TraitReferenceUnknown(_) => {}
-        _ => panic!("{:?}", err_list),
+        _ => panic!("{err_list:?}"),
     }
     let err_buff = db
         .execute(|db| {
@@ -1603,7 +1603,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         .unwrap_err();
     match err_buff.err {
         CheckErrors::TraitReferenceUnknown(_) => {}
-        _ => panic!("{:?}", err_buff),
+        _ => panic!("{err_buff:?}"),
     }
     let err_tuple = db
         .execute(|db| {
@@ -1613,7 +1613,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         .unwrap_err();
     match err_tuple.err {
         CheckErrors::TraitReferenceUnknown(_) => {}
-        _ => panic!("{:?}", err_tuple),
+        _ => panic!("{err_tuple:?}"),
     }
 }
 
@@ -1816,6 +1816,6 @@ fn test_trait_contract_not_found(#[case] version: ClarityVersion, #[case] epoch:
             diagnostic: _,
         }) if version < ClarityVersion::Clarity2 => assert!(contract.ends_with(".trait-contract")),
         Ok(_) if version >= ClarityVersion::Clarity2 => (),
-        res => panic!("{}: {:?}", version, res),
+        res => panic!("{version}: {res:?}"),
     }
 }

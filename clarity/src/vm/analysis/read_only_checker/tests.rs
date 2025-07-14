@@ -71,7 +71,7 @@ fn test_at_block_violations() {
 
     for contract in examples.iter() {
         let err = mem_type_check(contract).unwrap_err();
-        eprintln!("{}", err);
+        eprintln!("{err}");
         assert_eq!(err.err, CheckErrors::AtBlockClosureMustBeReadOnly)
     }
 }

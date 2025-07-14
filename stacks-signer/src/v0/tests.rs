@@ -25,7 +25,6 @@ use stacks_common::util::tests::TestFlag;
 use stacks_common::{info, warn};
 
 use super::signer::Signer;
-use super::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use crate::signerdb::BlockInfo;
 
 /// A global variable that can be used to pin a signer's highest supported protocol version if the signer's public key is in the provided list
@@ -168,6 +167,6 @@ impl Signer {
             warn!("{self}: signer version is pinned to {version}");
             return *version;
         }
-        SUPPORTED_SIGNER_PROTOCOL_VERSION
+        self.supported_signer_protocol_version
     }
 }

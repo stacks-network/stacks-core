@@ -189,7 +189,7 @@ impl RPCRequestHandler for RPCGetHealthRequestHandler {
             let peer_max_stacks_height_opt = {
                 if current_epoch.epoch_id < StacksEpochId::Epoch30 {
                     // When the node enters Epoch 3.0, ibd is not accurate. In nakamoto it's always set to false.
-                    // See the implementation of `RunLoop::start` in `testnet/stacks-node/src/run_loop/nakamoto.rs`,
+                    // See the implementation of `RunLoop::start` in `stacks-node/src/run_loop/nakamoto.rs`,
                     // specifically the section and comment where `let ibd = false`, for details.
                     let ibd = infer_initial_burnchain_block_download(
                         &network.burnchain,

@@ -110,7 +110,7 @@
               (craneLib.fileset.commonCargoSources ../../stacks-common)
               (craneLib.fileset.commonCargoSources ../../stackslib)
               (craneLib.fileset.commonCargoSources ../../stx-genesis)
-              (craneLib.fileset.commonCargoSources ../../testnet/stacks-node)
+              (craneLib.fileset.commonCargoSources ../../stacks-node)
             ];
           };
 
