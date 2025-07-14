@@ -115,25 +115,51 @@
           cargoExtraArgs = "${cargoFeatures}";
           src = fileSetForCrate ../..;
         });
+
+        stacks-node-app = {
+          type = "app";
+          program = "${stacks-core}/bin/stacks-node";
+          meta = with lib; {
+            license = licenses.gpl3;
+            platforms = platforms.all;
+            description = "The Stacks blockchain implementation.";
+            homepage = "https://stacks.co";
+          };
+        };
+
+        stacks-signer-app = {
+          type = "app";
+          program = "${stacks-signer}/bin/stacks-signer";
+          meta = with lib; {
+            license = licenses.gpl3;
+            platforms = platforms.all;
+            description = "Signer for the Stacks blockchain implementation.";
+            homepage = "https://stacks.co";
+          };
+        };
       in with pkgs; {
         packages = {
-          inherit stacks-signer;
+          inherit stacks-signer stacks-core;
           default = stacks-core;
         };
 
-        apps = rec {
-          stacks-node = {
-            type = "app";
-            program = "${stacks-core}/bin/stacks-node";
-          };
-          stacks-signer = {
-            type = "app";
-            program = "${stacks-signer}/bin/stacks-signer";
-          };
-          default = stacks-node;
+        apps = {
+          stacks-node = stacks-node-app;
+          default = stacks-node-app;
+          stacks-signer = stacks-signer-app;
         };
 
-        checks = { inherit stacks-core; };
+        checks = {
+          workspaceCheck = craneLib.buildPackage (commonArgs // rec {
+            inherit version cargoArtifacts;
+            cargoBuildCommand = "cargo check --workspace";
+            doCheck = false;
+            pname = name;
+            cargoFeatures = "--features monitoring_prom,slog_json";
+            cargoExtraArgs = "${cargoFeatures}";
+            src = fileSetForCrate ../..;
+          });
+        };
 
         devShells.default = craneLib.devShell {
           RUSTFMT = "${toolchain}/bin/rustfmt";
