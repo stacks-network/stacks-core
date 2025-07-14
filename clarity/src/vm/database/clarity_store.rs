@@ -143,7 +143,7 @@ pub trait ClarityBackingStore {
 
 // TODO: Figure out where this belongs
 pub fn make_contract_hash_key(contract: &QualifiedContractIdentifier) -> String {
-    format!("clarity-contract::{}", contract)
+    format!("clarity-contract::{contract}")
 }
 
 pub struct ContractCommitment {

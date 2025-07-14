@@ -115,7 +115,7 @@ impl StacksMessageCodec for ClarityName {
 
         // must decode to a clarity name
         let name = ClarityName::try_from(s).map_err(|e| {
-            codec_error::DeserializeError(format!("Failed to parse Clarity name: {:?}", e))
+            codec_error::DeserializeError(format!("Failed to parse Clarity name: {e:?}"))
         })?;
         Ok(name)
     }
@@ -144,8 +144,7 @@ impl StacksMessageCodec for ContractName {
             || (len_byte as usize) > CONTRACT_MAX_NAME_LENGTH
         {
             return Err(codec_error::DeserializeError(format!(
-                "Failed to deserialize contract name: too short or too long: {}",
-                len_byte
+                "Failed to deserialize contract name: too short or too long: {len_byte}"
             )));
         }
         let mut bytes = vec![0u8; len_byte as usize];
@@ -159,7 +158,7 @@ impl StacksMessageCodec for ContractName {
         })?;
 
         let name = ContractName::try_from(s).map_err(|e| {
-            codec_error::DeserializeError(format!("Failed to parse Contract name: {:?}", e))
+            codec_error::DeserializeError(format!("Failed to parse Contract name: {e:?}"))
         })?;
         Ok(name)
     }
@@ -627,7 +626,7 @@ impl fmt::Display for SymbolicExpression {
             SymbolicExpressionType::List(ref list) => {
                 write!(f, "(")?;
                 for item in list.iter() {
-                    write!(f, " {}", item)?;
+                    write!(f, " {item}")?;
                 }
                 write!(f, " )")?;
             }
@@ -636,13 +635,13 @@ impl fmt::Display for SymbolicExpression {
             }
             SymbolicExpressionType::AtomValue(ref value)
             | SymbolicExpressionType::LiteralValue(ref value) => {
-                write!(f, "{}", value)?;
+                write!(f, "{value}")?;
             }
             SymbolicExpressionType::TraitReference(ref value, _) => {
                 write!(f, "<{}>", &**value)?;
             }
             SymbolicExpressionType::Field(ref value) => {
-                write!(f, "<{}>", value)?;
+                write!(f, "<{value}>")?;
             }
         };
 

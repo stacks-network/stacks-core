@@ -564,7 +564,7 @@ pub fn build_signer_config_tomls(
     let mut signer_config_tomls = vec![];
 
     for stacks_private_key in stacks_private_keys {
-        let endpoint = format!("localhost:{}", port_start);
+        let endpoint = format!("localhost:{port_start}");
         port_start += 1;
 
         let stacks_public_key = StacksPublicKey::from_private(stacks_private_key).to_hex();
@@ -615,7 +615,7 @@ tx_fee_ustx = {tx_fee_ustx}
         }
 
         if let Some(metrics_port) = metrics_port_start {
-            let metrics_endpoint = format!("localhost:{}", metrics_port);
+            let metrics_endpoint = format!("localhost:{metrics_port}");
             signer_config_toml = format!(
                 r#"
 {signer_config_toml}
@@ -709,8 +709,7 @@ Dry run: false
 
         assert!(
             config_str == expected_str_v4 || config_str == expected_str_v6,
-            "Config string does not match expected output. Actual:\n{}",
-            config_str
+            "Config string does not match expected output. Actual:\n{config_str}",
         );
     }
 

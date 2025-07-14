@@ -230,5 +230,5 @@ pub fn c32_address_decode(c32_address_str: &str) -> Result<(u8, Vec<u8>), Error>
 
 pub fn c32_address(version: u8, data: &[u8]) -> Result<String, Error> {
     let c32_string = c32_check_encode(version, data)?;
-    Ok(format!("S{}", c32_string))
+    Ok(format!("S{c32_string}"))
 }
