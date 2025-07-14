@@ -43,7 +43,6 @@
             # Add additional build inputs here
           ] ++ lib.optionals pkgs.stdenv.isDarwin [
             # Darwin specific inputs
-            pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
           ];
         };
 
@@ -149,10 +148,7 @@
           '';
 
           packages = [ rust-analyzer bitcoind ]
-            ++ lib.optionals pkgs.stdenv.isDarwin [
-              pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
-              pkgs.darwin.apple_sdk.frameworks.CoreServices
-            ];
+            ++ lib.optionals pkgs.stdenv.isDarwin [ ];
         };
       });
 }
