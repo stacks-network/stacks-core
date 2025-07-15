@@ -21,15 +21,13 @@
 
 (define-data-var recipient principal tx-sender)
 
-(define-data-var deploy-block-height uint burn-block-height)
-
-(define-data-var vested-claimed-amount uint u0)
+;; The block height at which vesting starts. On Mainnet, this is
+;; burn height 907740, which is what is specified in SIP-031.
+(define-constant deploy-block-height (if is-in-mainnet u907740 burn-block-height))
 
 (define-read-only (get-recipient) (var-get recipient))
 
-(define-read-only (get-deploy-block-height) (var-get deploy-block-height))
-
-(define-read-only (get-vested-claimed-amount) (var-get vested-claimed-amount))
+(define-read-only (get-deploy-block-height) deploy-block-height)
 
 ;; Update the recipient of the funds.
 ;;
@@ -49,7 +47,6 @@
         (
             (balance (stx-get-balance (as-contract tx-sender)))
             (total-vested (calc-total-vested burn-block-height))
-            (vested-claimed (var-get vested-claimed-amount))
             ;; Portion of the initial mint that is *still* locked (not yet vested)
             (reserved (- INITIAL_MINT_AMOUNT total-vested))
             ;; Free balance = everything the caller may withdraw right now
@@ -60,7 +57,6 @@
         )
         (try! (validate-caller))
         (asserts! (> claimable u0) (err ERR_NOTHING_TO_CLAIM))
-        (var-set vested-claimed-amount (+ vested-claimed total-vested))
 
         (try! (as-contract (stx-transfer? claimable tx-sender (var-get recipient))))
         (ok claimable)
@@ -76,7 +72,7 @@
 (define-private (calc-total-vested (burn-height uint))
     (let
       (
-        (diff (- burn-height (var-get deploy-block-height)))
+        (diff (- burn-height deploy-block-height))
         ;; Note: this rounds down
         (iterations (/ diff INITIAL_MINT_VESTING_ITERATION_BLOCKS))
         (vested-multiple (* STX_PER_ITERATION iterations))
@@ -98,7 +94,13 @@
     (let
         (
             (total-vested (calc-total-vested burn-height))
+            (reserved (- INITIAL_MINT_AMOUNT total-vested))
+            (balance (stx-get-balance (as-contract tx-sender)))
+            (claimable
+                (if (> balance reserved)
+                    (- balance reserved)
+                    u0))
         )
-        (- total-vested (var-get vested-claimed-amount))
+        claimable
     )
 )

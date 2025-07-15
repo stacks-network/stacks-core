@@ -4607,12 +4607,6 @@ export const contracts = {
         args: [],
         outputs: { type: "principal" },
       } as TypedAbiFunction<[], string>,
-      getVestedClaimedAmount: {
-        name: "get-vested-claimed-amount",
-        access: "read_only",
-        args: [],
-        outputs: { type: "uint128" },
-      } as TypedAbiFunction<[], bigint>,
     },
     maps: {},
     variables: {
@@ -4659,18 +4653,13 @@ export const contracts = {
       deployBlockHeight: {
         name: "deploy-block-height",
         type: "uint128",
-        access: "variable",
+        access: "constant",
       } as TypedAbiVariable<bigint>,
       recipient: {
         name: "recipient",
         type: "principal",
         access: "variable",
       } as TypedAbiVariable<string>,
-      vestedClaimedAmount: {
-        name: "vested-claimed-amount",
-        type: "uint128",
-        access: "variable",
-      } as TypedAbiVariable<bigint>,
     },
     constants: {
       ERR_NOTHING_TO_CLAIM: 102n,
@@ -4683,7 +4672,6 @@ export const contracts = {
       STX_PER_ITERATION: 4_166_666_666_666n,
       deployBlockHeight: 3n,
       recipient: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
-      vestedClaimedAmount: 0n,
     },
     non_fungible_tokens: [],
     fungible_tokens: [],

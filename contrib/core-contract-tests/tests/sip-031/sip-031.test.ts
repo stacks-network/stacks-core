@@ -93,6 +93,7 @@ test('updated recipient can claim', () => {
 });
 
 test('calculating vested amounts at a block height', () => {
+  mintInitial();
   const deployBlockHeight = rov(contract.getDeployBlockHeight());
 
   const initialMintAmount = 200_000_000n * 1000000n; // 200,000,000 STX
