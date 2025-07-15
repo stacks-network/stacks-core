@@ -268,15 +268,22 @@ impl SortitionData {
         signer_db: &SignerDb,
         tenure_last_block_proposal_timeout: Duration,
     ) -> Result<Option<BlockInfo>, ClientError> {
-        // Get the last known block in the previous tenure
-        let last_locally_accepted_block = signer_db
+        // Get the last accepted block in the tenure
+        let last_accepted_block = signer_db
             .get_last_accepted_block(consensus_hash)
             .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
-        let Some(local_info) = last_locally_accepted_block else {
+
+        let Some(block_info) = last_accepted_block else {
             return Ok(None);
         };
 
-        let Some(signed_over_time) = local_info.signed_self else {
+        // If the last accepted block was globally accepted, return it
+        if block_info.state == BlockState::GloballyAccepted {
+            return Ok(Some(block_info));
+        }
+
+        // If the last accepted block was locally accepted, check if it has timed out
+        let Some(signed_over_time) = block_info.signed_self else {
             return Ok(None);
         };
 
@@ -284,9 +291,14 @@ impl SortitionData {
             > get_epoch_time_secs()
         {
             // The last locally accepted block is not timed out, return it
-            Ok(Some(local_info))
+            Ok(Some(block_info))
         } else {
             // The last locally accepted block is timed out
+            info!(
+                "Last locally accepted block hass timed out";
+                "signer_signature_hash" => %block_info.block.header.signer_signature_hash(),
+                "signed_over_time" => signed_over_time,
+            );
             Ok(None)
         }
     }

@@ -13,6 +13,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Introduced `capitulate_miner_view_timeout_secs`: the duration (in seconds) for the signer to wait between updating the local state machine viewpoint and capitulating to other signers' miner views.
 - Added codepath to enable signers to evaluate block proposals and miner activity against global signer state for improved consistency and correctness. Currently feature gated behind the `SUPPORTED_SIGNER_PROTOCOL_VERSION`
 
+### Fixed
+
+- Fixed a bug where signers would incorrectly reject block proposals if the parent block was globally accepted and the signer hadn't signed it within the `tenure_last_block_proposal_timeout` period; if it is globally accepted, the signer should accept it regardless of the timeout.
+
 ## [3.1.0.0.13.0]
 
 ### Changed
