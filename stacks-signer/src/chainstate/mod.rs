@@ -268,26 +268,57 @@ impl SortitionData {
         signer_db: &SignerDb,
         tenure_last_block_proposal_timeout: Duration,
     ) -> Result<Option<BlockInfo>, ClientError> {
-        // Get the last known block in the previous tenure
+        // Get the last globally accepted block in the tenure
+        let last_globally_accepted_block = signer_db
+            .get_last_globally_accepted_block(consensus_hash)
+            .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
+
+        // Get the last known block in the tenure
         let last_locally_accepted_block = signer_db
             .get_last_accepted_block(consensus_hash)
             .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
-        let Some(local_info) = last_locally_accepted_block else {
-            return Ok(None);
-        };
 
-        let Some(signed_over_time) = local_info.signed_self else {
-            return Ok(None);
-        };
-
-        if signed_over_time.saturating_add(tenure_last_block_proposal_timeout.as_secs())
-            > get_epoch_time_secs()
-        {
-            // The last locally accepted block is not timed out, return it
-            Ok(Some(local_info))
-        } else {
-            // The last locally accepted block is timed out
-            Ok(None)
+        // Get the highest block in the tenure that we know about
+        match (last_globally_accepted_block, last_locally_accepted_block) {
+            (Some(globally_accepted), Some(locally_accepted)) => {
+                // Return the block that is higher in chain length.
+                if globally_accepted.block.header.chain_length
+                    > locally_accepted.block.header.chain_length
+                {
+                    return Ok(Some(globally_accepted));
+                } else {
+                    return Ok(Some(locally_accepted));
+                }
+            }
+            (Some(globally_accepted), None) => {
+                // If we have a globally accepted block but no locally
+                // accepted block, return the globally accepted block.
+                return Ok(Some(globally_accepted));
+            }
+            (None, Some(locally_accepted)) => {
+                // If we have a locally accepted block but no globally
+                // accepted block, return the locally accepted block if it
+                // has not timed out.
+                if locally_accepted.signed_self.is_none_or(|signed_time| {
+                    signed_time.saturating_add(tenure_last_block_proposal_timeout.as_secs())
+                        > get_epoch_time_secs()
+                }) {
+                    // The last locally accepted block is not timed out, return it
+                    return Ok(Some(locally_accepted));
+                } else {
+                    info!(
+                        "Last locally accepted block has timed out";
+                        "signer_signature_hash" => %locally_accepted.block.header.signer_signature_hash(),
+                        "signed_over_time" => locally_accepted.signed_self,
+                    );
+                    // The last locally accepted block is timed out
+                    return Ok(None);
+                }
+            }
+            (None, None) => {
+                // If we have neither, return None.
+                return Ok(None);
+            }
         }
     }
 
