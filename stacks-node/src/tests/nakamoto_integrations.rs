@@ -12635,7 +12635,7 @@ fn write_signer_update(
 /// Test SIP-031 activation
 ///
 /// - check epoch 3.2 is active
-/// - check sip031 boot contract has a balance of 200_000_000 STX (TODO)
+/// - TODO: check sip031 boot contract has a balance of 200_000_000 STX (TODO)
 #[test]
 #[ignore]
 fn test_sip_031_activation() {
