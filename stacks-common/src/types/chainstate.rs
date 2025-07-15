@@ -123,7 +123,7 @@ impl slog::Value for BlockHeaderHash {
         key: slog::Key,
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
-        serializer.emit_arguments(key, &format_args!("{}", *self))
+        serializer.emit_arguments(key, &format_args!("{self}"))
     }
 }
 
@@ -171,7 +171,7 @@ impl SortitionId {
             // The `test_debug!` macro will expand to nothing on release builds.
             #[allow(clippy::let_and_return)]
             {
-                test_debug!("SortitionId({}) = {} + {}", &s, bhh, pox);
+                test_debug!("SortitionId({s}) = {bhh} + {pox}");
                 s
             }
         }

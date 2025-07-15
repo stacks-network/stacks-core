@@ -78,7 +78,7 @@ fn create_event_info_aggregation_code(function_name: &str) -> String {
         )
             {{
                 ;; Function name
-                name: "{func_name}",
+                name: "{function_name}",
                 ;; who called this
                 ;; NOTE: these fields are required by downstream clients.
                 ;; Even though tx-sender is *not* a stacker, the field is
@@ -91,8 +91,7 @@ fn create_event_info_aggregation_code(function_name: &str) -> String {
 
             }}
         )
-        "#,
-        func_name = function_name
+        "#
     )
 }
 
