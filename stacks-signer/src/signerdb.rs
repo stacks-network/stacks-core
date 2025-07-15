@@ -671,6 +671,28 @@ static CREATE_BLOCK_SIGNATURES_INDEX: &str = r#"
 CREATE INDEX IF NOT EXISTS idx_block_signatures_by_sighash ON block_signatures(signer_signature_hash);
 "#;
 
+static DROP_BLOCK_REJECTION_SIGNER_ADDRS: &str = r#"
+DROP TABLE IF EXISTS block_rejection_signer_addrs;
+"#;
+
+static CREATE_BLOCK_REJECTION_SIGNER_ADDRS_V17: &str = r#"
+CREATE TABLE IF NOT EXISTS block_rejection_signer_addrs (
+    -- The block sighash commits to all of the stacks and burnchain state as of its parent,
+    -- as well as the tenure itself so there's no need to include the reward cycle.  Just
+    -- the sighash is sufficient to uniquely identify the block across all burnchain, PoX,
+    -- and stacks forks.
+    signer_signature_hash TEXT NOT NULL,
+    -- the signer address that rejected the block
+    signer_addr TEXT NOT NULL,
+    -- the reject reason code
+    reject_code INTEGER NOT NULL,
+    PRIMARY KEY (signer_addr, signer_signature_hash)
+) STRICT;"#;
+
+static CREATE_BLOCK_REJECTION_SIGNER_ADDRS_INDEX: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_block_rejection_signer_addrs_by_sighash ON block_rejection_signer_addrs(signer_signature_hash);
+"#;
+
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
     CREATE_DB_CONFIG,
@@ -785,6 +807,9 @@ static SCHEMA_17: &[&str] = &[
     DROP_BLOCK_SIGNATURES_TABLE,
     CREATE_BLOCK_SIGNATURES_TABLE_V17,
     CREATE_BLOCK_SIGNATURES_INDEX,
+    DROP_BLOCK_REJECTION_SIGNER_ADDRS,
+    CREATE_BLOCK_REJECTION_SIGNER_ADDRS_V17,
+    CREATE_BLOCK_REJECTION_SIGNER_ADDRS_INDEX,
     "INSERT INTO db_config (version) VALUES (17);",
 ];
 
