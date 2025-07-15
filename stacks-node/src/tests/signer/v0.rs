@@ -11783,6 +11783,28 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     TEST_STALL_BLOCK_VALIDATION_SUBMISSION.set(false);
 
     info!("------------------------- Confirm N+1' is Rejected ------------------------");
+    // Confirm that every single signer has rejected the block and recorded its own rejection signature in its own DB
+    wait_for(30, || {
+        Ok(miners.signer_test.signer_configs.iter().all(|config| {
+            let conn = Connection::open(config.db_path.clone()).unwrap();
+            let mut stmt = conn
+                .prepare(
+                    "SELECT 1 FROM block_rejection_signer_addrs
+                WHERE signer_signature_hash = ?1 AND signer_addr = ?2
+                LIMIT 1",
+                )
+                .unwrap();
+
+            let mut rows = stmt
+                .query(rusqlite::params![
+                    block_n_1_prime_signature_hash,
+                    config.stacks_address
+                ])
+                .unwrap();
+            rows.next().unwrap().is_some()
+        }))
+    })
+    .expect("Failed to verify all signers recorded a signature rejection");
     wait_for_block_global_rejection(30, block_n_1_prime_signature_hash, num_signers)
         .expect("Failed to find block N+1'");
 
