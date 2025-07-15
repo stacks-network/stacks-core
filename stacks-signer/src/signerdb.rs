@@ -1323,6 +1323,12 @@ impl SignerDb {
         signer_addr: &StacksAddress,
         signature: &MessageSignature,
     ) -> Result<bool, DBError> {
+        // Remove any block rejection entry for this signer and block hash
+        let del_qry = "DELETE FROM block_rejection_signer_addrs WHERE signer_signature_hash = ?1 AND signer_addr = ?2";
+        let del_args = params![block_sighash, signer_addr.to_string()];
+        self.db.execute(del_qry, del_args)?;
+
+        // Insert the block signature
         let qry = "INSERT OR IGNORE INTO block_signatures (signer_signature_hash, signer_addr, signature) VALUES (?1, ?2, ?3);";
         let args = params![
             block_sighash,
@@ -1335,12 +1341,6 @@ impl SignerDb {
             "signature" => %signature);
 
         let rows_added = self.db.execute(qry, args)?;
-
-        // Remove any block rejection entry for this signer and block hash
-        let del_qry = "DELETE FROM block_rejection_signer_addrs WHERE signer_signature_hash = ?1 AND signer_addr = ?2";
-        let del_args = params![block_sighash, signer_addr.to_string()];
-        self.db.execute(del_qry, del_args)?;
-
         Ok(rows_added > 0)
     }
 
