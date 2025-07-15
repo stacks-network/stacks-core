@@ -1491,12 +1491,16 @@ impl Signer {
         }
 
         // signature is valid! store it
-        if let Err(e) = self.signer_db.add_block_rejection_signer_addr(
+        match self.signer_db.add_block_rejection_signer_addr(
             block_hash,
             &signer_address,
             &rejection.response_data.reject_reason,
         ) {
-            warn!("{self}: Failed to save block rejection signature: {e:?}",);
+            Err(e) => {
+                warn!("{self}: Failed to save block rejection signature: {e:?}",);
+            }
+            Ok(false) => return, // We already have this signature, do not process it again.
+            Ok(true) => (),
         }
         block_info.reject_reason = Some(rejection.response_data.reject_reason.clone());
 
@@ -1624,10 +1628,17 @@ impl Signer {
             return;
         }
 
-        // signature is valid! store it
-        self.signer_db
-            .add_block_signature(block_hash, signature)
-            .unwrap_or_else(|_| panic!("{self}: Failed to save block signature"));
+        let signer_address = StacksAddress::p2pkh(self.mainnet, &public_key);
+
+        // signature is valid! store it.
+        // if this returns false, it means the signature already exists in the DB, so just return.
+        if !self
+            .signer_db
+            .add_block_signature(block_hash, &signer_address, signature)
+            .unwrap_or_else(|_| panic!("{self}: Failed to save block signature"))
+        {
+            return;
+        }
 
         // do we have enough signatures to broadcast?
         // i.e. is the threshold reached?

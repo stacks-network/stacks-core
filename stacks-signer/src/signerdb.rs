@@ -40,7 +40,7 @@ use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::{debug, define_u8_enum, error};
+use stacks_common::{debug, define_u8_enum, error, warn};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 /// A vote across the signer set for a block
@@ -649,6 +649,28 @@ static ADD_SIGNER_STATE_MACHINE_UPDATES_SIGNER_ADDR_REWARD_CYCLE_INDEX: &str = r
 CREATE INDEX idx_signer_addr_reward_cycle ON signer_state_machine_updates(reward_cycle, signer_addr, received_time DESC);
 "#;
 
+static DROP_BLOCK_SIGNATURES_TABLE: &str = r#"
+DROP TABLE IF EXISTS block_signatures;
+"#;
+
+static CREATE_BLOCK_SIGNATURES_TABLE_V17: &str = r#"
+CREATE TABLE IF NOT EXISTS block_signatures (
+    -- The block sighash commits to all of the stacks and burnchain state as of its parent,
+    -- as well as the tenure itself so there's no need to include the reward cycle.  Just
+    -- the sighash is sufficient to uniquely identify the block across all burnchain, PoX,
+    -- and stacks forks.
+    signer_signature_hash TEXT NOT NULL,
+    -- the signer address that rejected the block
+    signer_addr TEXT NOT NULL,
+    -- signature itself
+    signature TEXT NOT NULL,
+    PRIMARY KEY (signer_addr, signer_signature_hash)
+) STRICT;"#;
+
+static CREATE_BLOCK_SIGNATURES_INDEX: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_block_signatures_by_sighash ON block_signatures(signer_signature_hash);
+"#;
+
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
     CREATE_DB_CONFIG,
@@ -759,6 +781,13 @@ static SCHEMA_16: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (16);",
 ];
 
+static SCHEMA_17: &[&str] = &[
+    DROP_BLOCK_SIGNATURES_TABLE,
+    CREATE_BLOCK_SIGNATURES_TABLE_V17,
+    CREATE_BLOCK_SIGNATURES_INDEX,
+    "INSERT INTO db_config (version) VALUES (17);",
+];
+
 struct Migration {
     version: u32,
     statements: &'static [&'static str],
@@ -829,11 +858,15 @@ static MIGRATIONS: &[Migration] = &[
         version: 16,
         statements: SCHEMA_16,
     },
+    Migration {
+        version: 17,
+        statements: SCHEMA_17,
+    },
 ];
 
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 16;
+    pub const SCHEMA_VERSION: u32 = 17;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -1287,11 +1320,13 @@ impl SignerDb {
     pub fn add_block_signature(
         &self,
         block_sighash: &Sha512Trunc256Sum,
+        signer_addr: &StacksAddress,
         signature: &MessageSignature,
-    ) -> Result<(), DBError> {
-        let qry = "INSERT OR REPLACE INTO block_signatures (signer_signature_hash, signature) VALUES (?1, ?2);";
+    ) -> Result<bool, DBError> {
+        let qry = "INSERT OR IGNORE INTO block_signatures (signer_signature_hash, signer_addr, signature) VALUES (?1, ?2, ?3);";
         let args = params![
             block_sighash,
+            signer_addr.to_string(),
             serde_json::to_string(signature).map_err(DBError::SerializationError)?
         ];
 
@@ -1299,8 +1334,14 @@ impl SignerDb {
             "signer_signature_hash" => %block_sighash,
             "signature" => %signature);
 
-        self.db.execute(qry, args)?;
-        Ok(())
+        let rows_added = self.db.execute(qry, args)?;
+
+        // Remove any block rejection entry for this signer and block hash
+        let del_qry = "DELETE FROM block_rejection_signer_addrs WHERE signer_signature_hash = ?1 AND signer_addr = ?2";
+        let del_args = params![block_sighash, signer_addr.to_string()];
+        self.db.execute(del_qry, del_args)?;
+
+        Ok(rows_added > 0)
     }
 
     /// Get all signatures for a block
@@ -1323,22 +1364,58 @@ impl SignerDb {
         block_sighash: &Sha512Trunc256Sum,
         addr: &StacksAddress,
         reject_reason: &RejectReason,
-    ) -> Result<(), DBError> {
-        let qry = "INSERT OR REPLACE INTO block_rejection_signer_addrs (signer_signature_hash, signer_addr, reject_code) VALUES (?1, ?2, ?3);";
-        let args = params![
-            block_sighash,
-            addr.to_string(),
-            RejectReasonPrefix::from(reject_reason) as i64
-        ];
+    ) -> Result<bool, DBError> {
+        // If this signer/block already has a signature, do not allow a rejection
+        let sig_qry = "SELECT 1 FROM block_signatures WHERE signer_signature_hash = ?1 AND signer_addr = ?2 LIMIT 1";
+        let sig_args = params![block_sighash, addr.to_string()];
+        let has_signature: Option<i64> = self
+            .db
+            .query_row(sig_qry, sig_args, |row| row.get(0))
+            .optional()?;
+        if has_signature.is_some() {
+            warn!("Cannot add block rejection for signer {} and block {} because a signature already exists.",
+                addr, block_sighash);
+            return Ok(false);
+        }
 
-        debug!("Inserting block rejection.";
-            "signer_signature_hash" => %block_sighash,
-            "signer_address" => %addr,
-            "reject_reason" => %reject_reason
-        );
+        // Check if a row exists for this sighash/signer combo
+        let qry = "SELECT reject_code FROM block_rejection_signer_addrs WHERE signer_signature_hash = ?1 AND signer_addr = ?2 LIMIT 1";
+        let args = params![block_sighash, addr.to_string()];
+        let existing_code: Option<i64> =
+            self.db.query_row(qry, args, |row| row.get(0)).optional()?;
 
-        self.db.execute(qry, args)?;
-        Ok(())
+        let reject_code = RejectReasonPrefix::from(reject_reason) as i64;
+
+        match existing_code {
+            Some(code) if code == reject_code => {
+                // Row exists with same reject_reason, do nothing
+                Ok(false)
+            }
+            Some(_) => {
+                // Row exists but with different reject_reason, update it
+                let update_qry = "UPDATE block_rejection_signer_addrs SET reject_code = ?1 WHERE signer_signature_hash = ?2 AND signer_addr = ?3";
+                let update_args = params![reject_code, block_sighash, addr.to_string()];
+                self.db.execute(update_qry, update_args)?;
+                debug!("Updated block rejection reason.";
+                    "signer_signature_hash" => %block_sighash,
+                    "signer_address" => %addr,
+                    "reject_reason" => %reject_reason
+                );
+                Ok(true)
+            }
+            None => {
+                // Row does not exist, insert it
+                let insert_qry = "INSERT INTO block_rejection_signer_addrs (signer_signature_hash, signer_addr, reject_code) VALUES (?1, ?2, ?3)";
+                let insert_args = params![block_sighash, addr.to_string(), reject_code];
+                self.db.execute(insert_qry, insert_args)?;
+                debug!("Inserted block rejection.";
+                    "signer_signature_hash" => %block_sighash,
+                    "signer_address" => %addr,
+                    "reject_reason" => %reject_reason
+                );
+                Ok(true)
+            }
+        }
     }
 
     /// Get all signer addresses that rejected the block (and their reject codes)
@@ -2090,19 +2167,175 @@ pub mod tests {
         let db = SignerDb::new(db_path).expect("Failed to create signer db");
 
         let block_id = Sha512Trunc256Sum::from_data("foo".as_bytes());
+        let address1 = StacksAddress::burn_address(false);
+        let address2 = StacksAddress::burn_address(true);
         let sig1 = MessageSignature([0x11; 65]);
         let sig2 = MessageSignature([0x22; 65]);
 
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
 
-        db.add_block_signature(&block_id, &sig1).unwrap();
+        db.add_block_signature(&block_id, &address1, &sig1).unwrap();
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
 
-        db.add_block_signature(&block_id, &sig2).unwrap();
+        db.add_block_signature(&block_id, &address2, &sig2).unwrap();
         assert_eq!(
             db.get_block_signatures(&block_id).unwrap(),
             vec![sig1, sig2]
         );
+    }
+
+    #[test]
+    fn duplicate_block_signatures() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let block_id = Sha512Trunc256Sum::from_data("foo".as_bytes());
+        let address = StacksAddress::burn_address(false);
+        let sig1 = MessageSignature([0x11; 65]);
+        let sig2 = MessageSignature([0x22; 65]);
+
+        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
+
+        assert!(db.add_block_signature(&block_id, &address, &sig1).unwrap());
+        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
+
+        assert!(!db.add_block_signature(&block_id, &address, &sig2).unwrap());
+        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
+    }
+
+    #[test]
+    fn add_and_get_block_rejections() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let block_id = Sha512Trunc256Sum::from_data("foo".as_bytes());
+        let address1 = StacksAddress::burn_address(false);
+        let address2 = StacksAddress::burn_address(true);
+
+        assert_eq!(
+            db.get_block_rejection_signer_addrs(&block_id).unwrap(),
+            vec![]
+        );
+
+        assert!(db
+            .add_block_rejection_signer_addr(
+                &block_id,
+                &address1,
+                &RejectReason::DuplicateBlockFound,
+            )
+            .unwrap());
+        assert_eq!(
+            db.get_block_rejection_signer_addrs(&block_id).unwrap(),
+            vec![(address1, RejectReasonPrefix::DuplicateBlockFound)]
+        );
+
+        assert!(db
+            .add_block_rejection_signer_addr(
+                &block_id,
+                &address2,
+                &RejectReason::InvalidParentBlock
+            )
+            .unwrap());
+        assert_eq!(
+            db.get_block_rejection_signer_addrs(&block_id).unwrap(),
+            vec![
+                (address1, RejectReasonPrefix::DuplicateBlockFound),
+                (address2, RejectReasonPrefix::InvalidParentBlock)
+            ]
+        );
+    }
+
+    #[test]
+    fn duplicate_block_rejections() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let block_id = Sha512Trunc256Sum::from_data("foo".as_bytes());
+        let address = StacksAddress::burn_address(false);
+
+        assert_eq!(
+            db.get_block_rejection_signer_addrs(&block_id).unwrap(),
+            vec![]
+        );
+
+        assert!(db
+            .add_block_rejection_signer_addr(&block_id, &address, &RejectReason::InvalidParentBlock)
+            .unwrap());
+        assert_eq!(
+            db.get_block_rejection_signer_addrs(&block_id).unwrap(),
+            vec![(address, RejectReasonPrefix::InvalidParentBlock)]
+        );
+
+        assert!(db
+            .add_block_rejection_signer_addr(&block_id, &address, &RejectReason::InvalidMiner)
+            .unwrap());
+        assert_eq!(
+            db.get_block_rejection_signer_addrs(&block_id).unwrap(),
+            vec![(address, RejectReasonPrefix::InvalidMiner)]
+        );
+
+        assert!(!db
+            .add_block_rejection_signer_addr(&block_id, &address, &RejectReason::InvalidMiner)
+            .unwrap());
+        assert_eq!(
+            db.get_block_rejection_signer_addrs(&block_id).unwrap(),
+            vec![(address, RejectReasonPrefix::InvalidMiner)]
+        );
+    }
+
+    #[test]
+    fn reject_then_accept() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let block_id = Sha512Trunc256Sum::from_data("foo".as_bytes());
+        let address = StacksAddress::burn_address(false);
+        let sig1 = MessageSignature([0x11; 65]);
+
+        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
+
+        assert!(db
+            .add_block_rejection_signer_addr(&block_id, &address, &RejectReason::InvalidParentBlock)
+            .unwrap());
+        assert_eq!(
+            db.get_block_rejection_signer_addrs(&block_id).unwrap(),
+            vec![(address, RejectReasonPrefix::InvalidParentBlock)]
+        );
+
+        assert!(db.add_block_signature(&block_id, &address, &sig1).unwrap());
+        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
+        assert!(db
+            .get_block_rejection_signer_addrs(&block_id)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn accept_then_reject() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let block_id = Sha512Trunc256Sum::from_data("foo".as_bytes());
+        let address = StacksAddress::burn_address(false);
+        let sig1 = MessageSignature([0x11; 65]);
+
+        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
+
+        assert!(db.add_block_signature(&block_id, &address, &sig1).unwrap());
+        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
+        assert!(db
+            .get_block_rejection_signer_addrs(&block_id)
+            .unwrap()
+            .is_empty());
+
+        assert!(!db
+            .add_block_rejection_signer_addr(&block_id, &address, &RejectReason::InvalidParentBlock)
+            .unwrap());
+        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
+        assert!(db
+            .get_block_rejection_signer_addrs(&block_id)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
