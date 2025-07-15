@@ -420,17 +420,17 @@ pub enum CostErrors {
 impl fmt::Display for CostErrors {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CostErrors::CostComputationFailed(ref s) => write!(f, "Cost computation failed: {}", s),
+            CostErrors::CostComputationFailed(ref s) => write!(f, "Cost computation failed: {s}"),
             CostErrors::CostOverflow => write!(f, "Cost overflow"),
             CostErrors::CostBalanceExceeded(ref total, ref limit) => {
-                write!(f, "Cost balance exceeded: total {}, limit {}", total, limit)
+                write!(f, "Cost balance exceeded: total {total}, limit {limit}")
             }
             CostErrors::MemoryBalanceExceeded(ref used, ref limit) => {
-                write!(f, "Memory balance exceeded: used {}, limit {}", used, limit)
+                write!(f, "Memory balance exceeded: used {used}, limit {limit}")
             }
             CostErrors::CostContractLoadFailure => write!(f, "Failed to load cost contract"),
             CostErrors::InterpreterFailure => write!(f, "Interpreter failure"),
-            CostErrors::Expect(ref s) => write!(f, "Expectation failed: {}", s),
+            CostErrors::Expect(ref s) => write!(f, "Expectation failed: {s}"),
             CostErrors::ExecutionTimeExpired => write!(f, "Execution time expired"),
         }
     }
