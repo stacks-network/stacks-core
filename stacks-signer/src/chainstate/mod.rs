@@ -295,7 +295,7 @@ impl SortitionData {
         } else {
             // The last locally accepted block is timed out
             info!(
-                "Last locally accepted block hass timed out";
+                "Last locally accepted block has timed out";
                 "signer_signature_hash" => %block_info.block.header.signer_signature_hash(),
                 "signed_over_time" => signed_over_time,
             );
