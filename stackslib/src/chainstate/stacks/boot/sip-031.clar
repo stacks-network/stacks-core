@@ -83,16 +83,18 @@
 
 ;; Returns the amount of STX that is claimable from the vested balance at `burn-height`
 (define-read-only (calc-claimable-amount (burn-height uint))
-    (let
-        (
-            (total-vested (calc-total-vested burn-height))
-            (reserved (- INITIAL_MINT_AMOUNT total-vested))
-            (balance (stx-get-balance (as-contract tx-sender)))
-            (claimable
-                (if (> balance reserved)
-                    (- balance reserved)
-                    u0))
+    (if (< burn-height deploy-block-height)
+        u0
+        (let
+            (
+                (reserved (- INITIAL_MINT_AMOUNT (calc-total-vested burn-height)))
+                (balance (stx-get-balance (as-contract tx-sender)))
+                (claimable
+                    (if (> balance reserved)
+                        (- balance reserved)
+                        u0))
+            )
+            claimable
         )
-        claimable
     )
 )

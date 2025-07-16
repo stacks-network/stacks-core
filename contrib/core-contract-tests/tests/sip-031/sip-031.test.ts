@@ -282,3 +282,9 @@ test('new recipient claims vested tranche plus extra deposit', () => {
   expect(evt.data.recipient).toBe(accounts.wallet_1.address);
   expect(evt.data.sender).toBe(contract.identifier);
 });
+
+test('calculating claimable amount at invalid block height returns 0', () => {
+  mintInitial();
+  const deployBlockHeight = rov(contract.getDeployBlockHeight());
+  expect(rov(contract.calcClaimableAmount(deployBlockHeight - 1n))).toBe(0n);
+});
