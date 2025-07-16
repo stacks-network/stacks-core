@@ -37,10 +37,6 @@ rusqlite = { workspace = true, optional = true }
 version = "1.0"
 features = ["arbitrary_precision", "unbounded_depth"]
 
-[dependencies.time]
-version = "0.2.23"
-features = ["std"]
-
 [dev-dependencies]
 assert-json-diff = "1.0.0"
 mutants = "0.0.3"

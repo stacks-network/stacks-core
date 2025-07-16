@@ -1004,9 +1004,9 @@ impl BurnchainIndexer for BitcoinIndexer {
             false,
         )?;
         let first_block_height = self.get_first_block_height();
-        let first_header = spv_client
-            .read_block_header(first_block_height)?
-            .expect("BUG: no first block header timestamp");
+        let Ok(Some(first_header)) = spv_client.read_block_header(first_block_height) else {
+            return Err(burnchain_error::MissingHeaders);
+        };
 
         let first_block_header_timestamp = first_header.header.time as u64;
         Ok(first_block_header_timestamp)

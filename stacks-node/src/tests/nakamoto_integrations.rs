@@ -103,7 +103,8 @@ use stacks_common::types::{set_test_coinbase_schedule, CoinbaseInterval, StacksP
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
-use stacks_signer::chainstate::{ProposalEvalConfig, SortitionsView};
+use stacks_signer::chainstate::v1::SortitionsView;
+use stacks_signer::chainstate::ProposalEvalConfig;
 use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
 use stacks_signer::v0::SpawnedSigner;
 
@@ -6609,17 +6610,11 @@ fn signer_chainstate() {
 
         // check the prior tenure's proposals again, confirming that the sortitions_view
         //  will reject them.
-        if let Some((ref miner_pk, ref prior_tenure_first, ref prior_tenure_interims)) =
+        if let Some((_miner_pk, ref prior_tenure_first, ref prior_tenure_interims)) =
             last_tenures_proposals
         {
             let reject_code = sortitions_view
-                .check_proposal(
-                    &signer_client,
-                    &mut signer_db,
-                    prior_tenure_first,
-                    miner_pk,
-                    true,
-                )
+                .check_proposal(&signer_client, &mut signer_db, prior_tenure_first, true)
                 .expect_err("Sortitions view should reject proposals from prior tenure");
             assert_eq!(
                 reject_code,
@@ -6628,7 +6623,7 @@ fn signer_chainstate() {
             );
             for block in prior_tenure_interims.iter() {
                 let reject_code = sortitions_view
-                    .check_proposal(&signer_client, &mut signer_db, block, miner_pk, true)
+                    .check_proposal(&signer_client, &mut signer_db, block, true)
                     .expect_err("Sortitions view should reject proposals from prior tenure");
                 assert_eq!(
                     reject_code,
@@ -6643,7 +6638,8 @@ fn signer_chainstate() {
         let time_start = Instant::now();
         let proposal = loop {
             let proposal = get_latest_block_proposal(&naka_conf, &sortdb).unwrap();
-            if proposal.0.header.consensus_hash == sortitions_view.cur_sortition.consensus_hash {
+            if proposal.0.header.consensus_hash == sortitions_view.cur_sortition.data.consensus_hash
+            {
                 break proposal;
             }
             if time_start.elapsed() > Duration::from_secs(20) {
@@ -6659,13 +6655,7 @@ fn signer_chainstate() {
             .block_height_to_reward_cycle(burn_block_height)
             .unwrap();
         sortitions_view
-            .check_proposal(
-                &signer_client,
-                &mut signer_db,
-                &proposal.0,
-                &proposal.1,
-                true,
-            )
+            .check_proposal(&signer_client, &mut signer_db, &proposal.0, true)
             .expect("Nakamoto integration test produced invalid block proposal");
         signer_db
             .insert_block(&BlockInfo {
@@ -6711,13 +6701,7 @@ fn signer_chainstate() {
         let proposal_interim = get_latest_block_proposal(&naka_conf, &sortdb).unwrap();
 
         sortitions_view
-            .check_proposal(
-                &signer_client,
-                &mut signer_db,
-                &proposal_interim.0,
-                &proposal_interim.1,
-                true,
-            )
+            .check_proposal(&signer_client, &mut signer_db, &proposal_interim.0, true)
             .expect("Nakamoto integration test produced invalid block proposal");
         // force the view to refresh and check again
 
@@ -6740,13 +6724,7 @@ fn signer_chainstate() {
         let mut sortitions_view =
             SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
         sortitions_view
-            .check_proposal(
-                &signer_client,
-                &mut signer_db,
-                &proposal_interim.0,
-                &proposal_interim.1,
-                true,
-            )
+            .check_proposal(&signer_client, &mut signer_db, &proposal_interim.0, true)
             .expect("Nakamoto integration test produced invalid block proposal");
 
         signer_db
@@ -6811,13 +6789,7 @@ fn signer_chainstate() {
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
     sortitions_view
-        .check_proposal(
-            &signer_client,
-            &mut signer_db,
-            &sibling_block,
-            &miner_pk,
-            false,
-        )
+        .check_proposal(&signer_client, &mut signer_db, &sibling_block, false)
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but blocks have already
@@ -6865,13 +6837,7 @@ fn signer_chainstate() {
     };
 
     sortitions_view
-        .check_proposal(
-            &signer_client,
-            &mut signer_db,
-            &sibling_block,
-            &miner_pk,
-            false,
-        )
+        .check_proposal(&signer_client, &mut signer_db, &sibling_block, false)
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but it doesn't confirm all the blocks of the parent tenure
@@ -6925,19 +6891,13 @@ fn signer_chainstate() {
     };
 
     sortitions_view
-        .check_proposal(
-            &signer_client,
-            &mut signer_db,
-            &sibling_block,
-            &miner_pk,
-            false,
-        )
+        .check_proposal(&signer_client, &mut signer_db, &sibling_block, false)
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but the parent tenure is a reorg
     let reorg_to_block = first_tenure_blocks.as_ref().unwrap().last().unwrap();
     // make the sortition_view *think* that our block commit pointed at this old tenure
-    sortitions_view.cur_sortition.parent_tenure_id = reorg_to_block.header.consensus_hash;
+    sortitions_view.cur_sortition.data.parent_tenure_id = reorg_to_block.header.consensus_hash;
     let mut sibling_block_header = NakamotoBlockHeader {
         version: 1,
         chain_length: reorg_to_block.header.chain_length + 1,
@@ -6987,17 +6947,11 @@ fn signer_chainstate() {
     };
 
     sortitions_view
-        .check_proposal(
-            &signer_client,
-            &mut signer_db,
-            &sibling_block,
-            &miner_pk,
-            false,
-        )
+        .check_proposal(&signer_client, &mut signer_db, &sibling_block, false)
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     let start_sortition = &reorg_to_block.header.consensus_hash;
-    let stop_sortition = &sortitions_view.cur_sortition.prior_sortition;
+    let stop_sortition = &sortitions_view.cur_sortition.data.prior_sortition;
     // check that the get_tenure_forking_info response is sane
     let fork_info = signer_client
         .get_tenure_forking_info(start_sortition, stop_sortition)
@@ -12852,6 +12806,83 @@ fn test_sip_031_activation() {
         Some(Ok(STXBalance::Unlocked {
             amount: SIP_031_INITIAL_MINT
         }))
+    );
+
+    // check if the coinbase activation block receipt has the mint event
+    let mut mint_event_found: Option<serde_json::Value> = None;
+    let mut coinbase_txid: Option<String> = None;
+    for block in test_observer::get_blocks().iter().rev() {
+        let burn_block_height = block.get("burn_block_height").unwrap().as_u64().unwrap();
+        if burn_block_height
+            == naka_conf.burnchain.epochs.clone().unwrap()[StacksEpochId::Epoch32].start_height
+        {
+            // the first transaction is the coinbase
+            coinbase_txid = Some(
+                block
+                    .get("transactions")
+                    .unwrap()
+                    .as_array()
+                    .unwrap()
+                    .first()
+                    .unwrap()
+                    .get("txid")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .into(),
+            );
+            let events = block.get("events").unwrap().as_array().unwrap();
+            for event in events {
+                if let Some(_) = event.get("stx_mint_event") {
+                    mint_event_found = Some(event.clone());
+                    break;
+                }
+            }
+            break;
+        }
+    }
+
+    assert!(coinbase_txid.is_some());
+    assert!(mint_event_found.is_some());
+
+    // check the amount
+    assert_eq!(
+        mint_event_found
+            .clone()
+            .unwrap()
+            .get("stx_mint_event")
+            .unwrap()
+            .get("amount")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        "200000000000000"
+    );
+
+    // check the recipient
+    assert_eq!(
+        mint_event_found
+            .clone()
+            .unwrap()
+            .get("stx_mint_event")
+            .unwrap()
+            .get("recipient")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        boot_code_id(SIP_031_NAME, naka_conf.is_mainnet()).to_string()
+    );
+
+    // check the txid
+    assert_eq!(
+        mint_event_found
+            .clone()
+            .unwrap()
+            .get("txid")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        coinbase_txid.unwrap()
     );
 
     coord_channel

@@ -16,6 +16,7 @@
 
 use std::collections::BTreeMap;
 
+use regex;
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::types::net::{PeerAddress, PeerHost};
 
@@ -146,7 +147,7 @@ fn test_parse_http_request_preamble_ok() {
         ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nConnection: close\r\nFoo: Bar\r\n\r\n",
          HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, false, vec!["foo".to_string()], vec!["Bar".to_string()])),
         ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\nConnection: close\r\n\r\n",
-         HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, false, vec!["foo".to_string()], vec!["Bar".to_string()])) 
+         HttpRequestPreamble::from_headers(HttpVersion::Http11, "POST".to_string(), "asdf".to_string(), "core.blockstack.org".to_string(), 80, false, vec!["foo".to_string()], vec!["Bar".to_string()]))
     ];
 
     for (data, request) in tests.iter() {
@@ -391,6 +392,14 @@ fn test_http_response_preamble_headers() {
         "Content-Type is missing"
     );
     assert!(txt.find("Date: ").is_some(), "Date header is missing");
+
+    let rfc7231_date_regex =
+        regex::Regex::new(r"Date: [A-Za-z]{3}, \d{2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2} GMT\r\n")
+            .unwrap();
+    assert!(
+        rfc7231_date_regex.is_match(&txt),
+        "Date header format is incorrect"
+    );
     assert!(txt.find("foo: bar\r\n").is_some(), "foo header is missing");
     assert!(
         txt.find("Access-Control-Allow-Origin: *\r\n").is_some(),
