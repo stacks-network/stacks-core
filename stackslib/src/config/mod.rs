@@ -3723,6 +3723,13 @@ pub struct ConnectionOptionsFile {
     /// @default: [`DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS`]
     /// @units: seconds
     pub block_proposal_max_age_secs: Option<u64>,
+
+    /// Maximum time (in seconds) that a readonly call in free cost tracking mode
+    /// can run before being interrupted
+    /// ---
+    /// @default: 30
+    /// @units: seconds
+    pub read_only_max_execution_time_secs: Option<u64>,
 }
 
 impl ConnectionOptionsFile {
@@ -3874,6 +3881,9 @@ impl ConnectionOptionsFile {
             block_proposal_max_age_secs: self
                 .block_proposal_max_age_secs
                 .unwrap_or(DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS),
+            read_only_max_execution_time_secs: self
+                .read_only_max_execution_time_secs
+                .unwrap_or(default.read_only_max_execution_time_secs),
             ..default
         })
     }

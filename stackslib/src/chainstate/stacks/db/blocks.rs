@@ -4096,7 +4096,7 @@ impl StacksChainState {
                         current_epoch = StacksEpochId::Epoch32;
                     }
                     StacksEpochId::Epoch32 => {
-                        panic!("No defined transition from Epoch31 forward")
+                        panic!("No defined transition from Epoch32 forward")
                     }
                 }
 
