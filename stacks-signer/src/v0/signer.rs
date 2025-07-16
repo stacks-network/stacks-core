@@ -298,7 +298,6 @@ impl SignerTrait<SignerMessage> for Signer {
             &mut self.signer_db,
             &mut self.global_state_evaluator,
             local_signer_protocol_version,
-            self.reward_cycle,
             sortition_state,
             self.capitulate_miner_view_timeout,
             self.proposal_config.tenure_last_block_proposal_timeout,

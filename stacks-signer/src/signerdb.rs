@@ -593,20 +593,13 @@ CREATE TABLE IF NOT EXISTS signer_state_machine_updates (
     PRIMARY KEY (signer_addr, reward_cycle)
 ) STRICT;"#;
 
-static MIGRATE_SIGNER_STATE_MACHINE_UPDATES_TABLE_1_TO_2: &str = r#"
-CREATE TABLE signer_state_machine_updates_temp(
+static CREATE_BURN_BLOCK_UPDATES_RECEIVED_TIME_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS burn_block_updates_received_times (
     signer_addr TEXT NOT NULL,
-    reward_cycle INTEGER NOT NULL,
-    state_update TEXT NOT NULL,
-    received_time INTEGER NOT NULL,
     burn_block_consensus_hash TEXT NOT NULL,
-    PRIMARY KEY (signer_addr, reward_cycle, received_time)
+    received_time INTEGER NOT NULL,
+    PRIMARY KEY (signer_addr, burn_block_consensus_hash)
 ) STRICT;
-INSERT INTO signer_state_machine_updates_temp
-SELECT signer_addr, reward_cycle, state_update, received_time, extract_burn_block_consensus_hash(state_update) AS burn_block_consensus_hash
-FROM signer_state_machine_updates;
-DROP TABLE signer_state_machine_updates;
-ALTER TABLE signer_state_machine_updates_temp RENAME TO signer_state_machine_updates;
 "#;
 
 static ADD_PARENT_BURN_BLOCK_HASH: &str = r#"
@@ -635,18 +628,8 @@ CREATE TABLE stackerdb_tracking(
 ) STRICT;";
 
 // Used by get_burn_block_received_time_from_signers
-static ADD_SIGNER_STATE_MACHINE_UPDATES_BURN_BLOCK_CONSENSUS_HASH_INDEX: &str = r#"
-CREATE INDEX IF NOT EXISTS idx_signer_state_machine_consensus_hash ON signer_state_machine_updates(burn_block_consensus_hash, received_time ASC);
-"#;
-
-/// Used by get_signer_state_machine_updates_latency
-static ADD_SIGNER_STATE_MACHINE_UPDATES_RECEIVED_TIME_INDEX: &str = r#"
-CREATE INDEX idx_reward_cycle_received_time ON signer_state_machine_updates(reward_cycle, received_time);
-"#;
-
-/// Used by get_signer_state_machine_updates
-static ADD_SIGNER_STATE_MACHINE_UPDATES_SIGNER_ADDR_REWARD_CYCLE_INDEX: &str = r#"
-CREATE INDEX idx_signer_addr_reward_cycle ON signer_state_machine_updates(reward_cycle, signer_addr, received_time DESC);
+static ADD_BURN_BLOCK_RECEIVED_TIMES_CONSENSUS_HASH_INDEX: &str = r#"
+CREATE INDEX IF NOT EXISTS burn_block_updates_received_times_consensus_hash ON burn_block_updates_received_times(burn_block_consensus_hash, received_time ASC);
 "#;
 
 static SCHEMA_1: &[&str] = &[
@@ -752,10 +735,8 @@ static SCHEMA_15: &[&str] = &[
 ];
 
 static SCHEMA_16: &[&str] = &[
-    MIGRATE_SIGNER_STATE_MACHINE_UPDATES_TABLE_1_TO_2,
-    ADD_SIGNER_STATE_MACHINE_UPDATES_BURN_BLOCK_CONSENSUS_HASH_INDEX,
-    ADD_SIGNER_STATE_MACHINE_UPDATES_RECEIVED_TIME_INDEX,
-    ADD_SIGNER_STATE_MACHINE_UPDATES_SIGNER_ADDR_REWARD_CYCLE_INDEX,
+    CREATE_BURN_BLOCK_UPDATES_RECEIVED_TIME_TABLE,
+    ADD_BURN_BLOCK_RECEIVED_TIMES_CONSENSUS_HASH_INDEX,
     "INSERT INTO db_config (version) VALUES (16);",
 ];
 
@@ -1578,14 +1559,25 @@ impl SignerDb {
             "active_signer_protocol_version" => update.active_signer_protocol_version,
             "local_supported_signer_protocol_version" => update.local_supported_signer_protocol_version
         );
-        let burn_block_consensus_hash = update.content.burn_block_view().0;
-        self.db.execute("INSERT OR REPLACE INTO signer_state_machine_updates (signer_addr, reward_cycle, burn_block_consensus_hash, state_update, received_time) VALUES (?1, ?2, ?3, ?4, ?5)", params![
+        self.db.execute("INSERT OR REPLACE INTO signer_state_machine_updates (signer_addr, reward_cycle, state_update, received_time) VALUES (?1, ?2, ?3, ?4)", params![
             address.to_string(),
             u64_to_sql(reward_cycle)?,
-            burn_block_consensus_hash,
             update_str,
             u64_to_sql(received_ts)?,
         ])?;
+
+        // Conditionally insert into burn_block_updates_received_times only if missing for (signer_addr, burn_block_consensus_hash)
+        let burn_block_consensus_hash = update.content.burn_block_view().0;
+        self.db.execute(
+            "INSERT OR IGNORE INTO burn_block_updates_received_times
+            (signer_addr, burn_block_consensus_hash, received_time)
+            VALUES (?1, ?2, ?3)",
+            params![
+                address.to_string(),
+                burn_block_consensus_hash,
+                u64_to_sql(received_ts)?,
+            ],
+        )?;
         Ok(())
     }
 
@@ -1595,17 +1587,9 @@ impl SignerDb {
         reward_cycle: u64,
     ) -> Result<HashMap<StacksAddress, StateMachineUpdate>, DBError> {
         let query = r#"
-        SELECT signer_addr, state_update
-        FROM (
-            SELECT *,
-                ROW_NUMBER() OVER (
-                    PARTITION BY signer_addr
-                    ORDER BY received_time DESC
-                ) AS rn
+            SELECT signer_addr, state_update
             FROM signer_state_machine_updates
-            WHERE reward_cycle = ?1
-        )
-        WHERE rn = 1;
+            WHERE reward_cycle = ?1;
         "#;
         let args = params![u64_to_sql(reward_cycle)?];
         let mut stmt = self.db.prepare(query)?;
@@ -1622,22 +1606,6 @@ impl SignerDb {
             result.insert(address, update);
         }
         Ok(result)
-    }
-
-    /// Retrieve the elapsed time (in seconds) between
-    /// the oldest and the newest state machine update messages
-    /// produced by the signer set
-    pub fn get_signer_state_machine_updates_latency(
-        &self,
-        reward_cycle: u64,
-    ) -> Result<u64, DBError> {
-        let query = "SELECT COALESCE( (MAX(received_time) - MIN(received_time)), 0 ) AS elapsed_time FROM signer_state_machine_updates WHERE reward_cycle = ?1";
-        let args = params![u64_to_sql(reward_cycle)?];
-        let elapsed_time_opt: Option<u64> = query_row(&self.db, query, args)?;
-        match elapsed_time_opt {
-            Some(seconds) => Ok(seconds),
-            None => Ok(0),
-        }
     }
 
     /// Insert a block validated by a replay tx
@@ -1672,35 +1640,26 @@ impl SignerDb {
         query_row(&self.db, query, args)
     }
 
-    /// Get the received time of the signer state update that achieved a global burn view identified by the provided ConsensusHash
+    /// Get the earliest received time at which the signer state update achieved
+    /// a global burn view identified by the provided ConsensusHash
     pub fn get_burn_block_received_time_from_signers(
         &self,
         eval: &GlobalStateEvaluator,
         ch: &ConsensusHash,
         local_address: &StacksAddress,
     ) -> Result<Option<u64>, DBError> {
-        // First make sure we consider the time at which we received the burn block view
-        let local_received_time = self.get_burn_block_receive_time_ch(ch)?;
+        let mut entries = Vec::new();
 
-        let mut vote_weight = 0;
-        if local_received_time.is_some() {
-            vote_weight = eval
-                .address_weights
-                .get(local_address)
-                .copied()
-                .unwrap_or(0);
-        };
-        // Just in case we reached agreement with just our own vote weight...Hopefully this never happens.
-        if eval.reached_agreement(vote_weight) {
-            return Ok(local_received_time);
+        // Add our own vote if we received this consensus hash
+        if let Some(local_received_time) = self.get_burn_block_receive_time_ch(ch)? {
+            entries.push((*local_address, local_received_time));
         }
 
-        // Then calculate the time at which we received updates from a threshold number of signers with the same burn view
+        // Query other signer received times from the DB
         let query = r#"
             SELECT signer_addr, received_time
-            FROM signer_state_machine_updates
+            FROM burn_block_updates_received_times
             WHERE burn_block_consensus_hash = ?1
-            ORDER BY received_time ASC
         "#;
 
         let mut stmt = self.db.prepare(query)?;
@@ -1714,14 +1673,24 @@ impl SignerDb {
             let address =
                 StacksAddress::from_string(&signer_addr_str).ok_or(DBError::Corruption)?;
 
+            let received_time = u64::try_from(received_time_i64).map_err(|e| {
+                error!("Failed to convert received_time to u64: {e}");
+                DBError::Corruption
+            })?;
+
+            entries.push((address, received_time));
+        }
+
+        // Sort by received_time ascending
+        entries.sort_by_key(|(_, time)| *time);
+
+        // Accumulate vote weight and stop when threshold is reached
+        let mut vote_weight: u32 = 0;
+        for (address, received_time) in entries {
             let weight = eval.address_weights.get(&address).copied().unwrap_or(0);
             vote_weight = vote_weight.saturating_add(weight);
 
             if eval.reached_agreement(vote_weight) {
-                let received_time = u64::try_from(received_time_i64).map_err(|e| {
-                    error!("Failed to convert received_time to u64: {e}");
-                    DBError::Corruption
-                })?;
                 return Ok(Some(received_time));
             }
         }
@@ -2858,94 +2827,6 @@ pub mod tests {
     }
 
     #[test]
-    fn retrieve_latency_for_signer_state_machine_updates() {
-        let db_path = tmp_db_path();
-        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
-        let reward_cycle_1 = 1;
-        let address_1 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
-        let update_1 = StateMachineUpdate::new(
-            0,
-            3,
-            StateMachineUpdateContent::V0 {
-                burn_block: ConsensusHash([0x55; 20]),
-                burn_block_height: 100,
-                current_miner: StateMachineUpdateMinerState::ActiveMiner {
-                    current_miner_pkh: Hash160([0xab; 20]),
-                    tenure_id: ConsensusHash([0x44; 20]),
-                    parent_tenure_id: ConsensusHash([0x22; 20]),
-                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
-                    parent_tenure_last_block_height: 1,
-                },
-            },
-        )
-        .unwrap();
-        let time_1 = SystemTime::UNIX_EPOCH;
-
-        let address_2 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
-        let update_2 = StateMachineUpdate::new(
-            0,
-            4,
-            StateMachineUpdateContent::V0 {
-                burn_block: ConsensusHash([0x55; 20]),
-                burn_block_height: 100,
-                current_miner: StateMachineUpdateMinerState::NoValidMiner,
-            },
-        )
-        .unwrap();
-        let time_2 = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
-
-        let address_3 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
-        let update_3 = StateMachineUpdate::new(
-            0,
-            2,
-            StateMachineUpdateContent::V0 {
-                burn_block: ConsensusHash([0x66; 20]),
-                burn_block_height: 101,
-                current_miner: StateMachineUpdateMinerState::NoValidMiner,
-            },
-        )
-        .unwrap();
-        let time_3 = SystemTime::UNIX_EPOCH + Duration::from_secs(10);
-
-        assert_eq!(
-            0,
-            db.get_signer_state_machine_updates_latency(reward_cycle_1)
-                .unwrap(),
-            "latency on empty database should be 0 seconds for reward_cycle {reward_cycle_1}"
-        );
-
-        db.insert_state_machine_update(reward_cycle_1, &address_1, &update_1, &time_1)
-            .expect("Unable to insert block into db");
-
-        assert_eq!(
-            0,
-            db.get_signer_state_machine_updates_latency(reward_cycle_1)
-                .unwrap(),
-            "latency between same update should be 0 seconds"
-        );
-
-        db.insert_state_machine_update(reward_cycle_1, &address_2, &update_2, &time_2)
-            .expect("Unable to insert block into db");
-
-        assert_eq!(
-            1,
-            db.get_signer_state_machine_updates_latency(reward_cycle_1)
-                .unwrap(),
-            "latency between updates should be 1 second"
-        );
-
-        db.insert_state_machine_update(reward_cycle_1, &address_3, &update_3, &time_3)
-            .expect("Unable to insert block into db");
-
-        assert_eq!(
-            10,
-            db.get_signer_state_machine_updates_latency(reward_cycle_1)
-                .unwrap(),
-            "latency between updates should be 10 second"
-        );
-    }
-
-    #[test]
     fn burn_state_migration_consensus_hash_primary_key() {
         // Construct the old table
         let conn = rusqlite::Connection::open_in_memory().expect("Failed to create in mem db");
@@ -3062,98 +2943,102 @@ pub mod tests {
     }
 
     #[test]
-    fn signer_state_machine_update_migration_adds_consensus_hash_and_expands_primary_key() {
-        let conn = Connection::open_in_memory().expect("Failed to create in-memory DB");
-        // Register helper function for extracting the burn_block from the state machine update content
-        conn.create_scalar_function(
-            "extract_burn_block_consensus_hash",
-            1,
-            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
-            |ctx| {
-                let json_str = ctx.get::<String>(0)?;
-                SignerDb::extract_burn_block_consensus_hash_from_json(&json_str)
+    fn check_burn_block_received_time_from_signers() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let reward_cycle_1 = 1;
+        let local_address = StacksAddress::p2pkh(false, &StacksPublicKey::new());
+        let address_1 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
+        let burn_block_1 = ConsensusHash([0x55; 20]);
+        let burn_block_2 = ConsensusHash([0x66; 20]);
+        let update_1 = StateMachineUpdate::new(
+            0,
+            3,
+            StateMachineUpdateContent::V0 {
+                burn_block: burn_block_1,
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                    current_miner_pkh: Hash160([0xab; 20]),
+                    tenure_id: ConsensusHash([0x44; 20]),
+                    parent_tenure_id: ConsensusHash([0x22; 20]),
+                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                    parent_tenure_last_block_height: 1,
+                },
             },
         )
         .unwrap();
 
-        conn.execute_batch(CREATE_SIGNER_STATE_MACHINE_UPDATES_TABLE)
-            .expect("Failed to create old table");
+        let address_2 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
+        let update_2 = StateMachineUpdate::new(
+            0,
+            4,
+            StateMachineUpdateContent::V0 {
+                burn_block: burn_block_1,
+                burn_block_height: 100,
+                current_miner: StateMachineUpdateMinerState::NoValidMiner,
+            },
+        )
+        .unwrap();
 
-        let reward_cycle = 12;
+        let address_3 = StacksAddress::p2pkh(false, &StacksPublicKey::new());
+        let update_3 = StateMachineUpdate::new(
+            0,
+            2,
+            StateMachineUpdateContent::V0 {
+                burn_block: burn_block_2,
+                burn_block_height: 101,
+                current_miner: StateMachineUpdateMinerState::NoValidMiner,
+            },
+        )
+        .unwrap();
 
-        let total_nmb_rows = 5;
-        let addresses: Vec<_> = (0..=total_nmb_rows)
-            .map(|_| StacksAddress::p2pkh(false, &StacksPublicKey::new()))
-            .collect();
-        // Fill with data
-        for i in 0..=total_nmb_rows {
-            let now = SystemTime::now();
-            let received_ts = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-            let burn_block = ConsensusHash([i; 20]);
-            let burn_height = i;
-            let update = if i % 2 == 0 {
-                StateMachineUpdate::new(
-                    1,
-                    1,
-                    StateMachineUpdateContent::V1 {
-                        burn_block,
-                        burn_block_height: burn_height.into(),
-                        current_miner: StateMachineUpdateMinerState::NoValidMiner,
-                        replay_transactions: vec![],
-                    },
-                )
+        let mut address_weights = HashMap::new();
+        address_weights.insert(local_address, 10);
+        address_weights.insert(address_1, 10);
+        address_weights.insert(address_2, 10);
+        address_weights.insert(address_3, 10);
+        let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
+
+        assert!(db
+            .get_burn_block_received_time_from_signers(&eval, &burn_block_1, &local_address)
+            .unwrap()
+            .is_none());
+
+        db.insert_state_machine_update(reward_cycle_1, &address_1, &update_1, &SystemTime::now())
+            .expect("Unable to insert block into db");
+        db.insert_state_machine_update(reward_cycle_1, &address_2, &update_2, &SystemTime::now())
+            .expect("Unable to insert block into db");
+        db.insert_state_machine_update(reward_cycle_1, &address_3, &update_3, &SystemTime::now())
+            .expect("Unable to insert block into db");
+        assert!(db
+            .get_burn_block_received_time_from_signers(&eval, &burn_block_1, &local_address)
+            .unwrap()
+            .is_none());
+
+        let burn_hash = BurnchainHeaderHash([10; 32]);
+        let stime = SystemTime::now() + Duration::from_secs(30);
+        let time_to_epoch = stime
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        db.insert_burn_block(
+            &burn_hash,
+            &burn_block_1,
+            101,
+            &stime,
+            &BurnchainHeaderHash([11; 32]),
+        )
+        .unwrap();
+        assert_eq!(
+            time_to_epoch,
+            db.get_burn_block_received_time_from_signers(&eval, &burn_block_1, &local_address)
                 .unwrap()
-            } else {
-                StateMachineUpdate::new(
-                    0,
-                    0,
-                    StateMachineUpdateContent::V0 {
-                        burn_block,
-                        burn_block_height: burn_height.into(),
-                        current_miner: StateMachineUpdateMinerState::NoValidMiner,
-                    },
-                )
                 .unwrap()
-            };
-            let address = &addresses[i as usize];
-            let update_str = if i == 0 {
-                r#"{"active_signer_protocol_version":0,"local_supported_signer_protocol_version":1,"content":{"V0":{"burn_block":"0000000000000000000000000000000000000000","burn_block_height":896952,"current_miner":{"ActiveMiner":{"current_miner_pkh":"a0fd31044d7542fd81b6d6f8c074a3fd1c1714f6","tenure_id":"11d5b9f05bcb4a1acac21f7a5053d148545728af","parent_tenure_id":"50673996e2ec9ff600ba24ddd820c26ab74007b4","parent_tenure_last_block":"d30fac0a139c3e55f989ea3b62dc5b7d8cd116f1a52216ee957ee8353f4b9be5","parent_tenure_last_block_height":1180772}}}},"no_manual_construct":null}"#.to_string()
-            } else {
-                serde_json::to_string(&update).expect("Unable to serialize state machine update")
-            };
-
-            conn.execute("INSERT OR REPLACE INTO signer_state_machine_updates (signer_addr, reward_cycle, state_update, received_time) VALUES (?1, ?2, ?3, ?4)", params![
-                address.to_string(),
-                u64_to_sql(reward_cycle).unwrap(),
-                update_str,
-                u64_to_sql(received_ts + i as u64).unwrap()
-            ]).unwrap();
-        }
-
-        // Run migration
-        conn.execute_batch(MIGRATE_SIGNER_STATE_MACHINE_UPDATES_TABLE_1_TO_2)
-            .expect("Migration failed");
-
-        // Query new schema
-        let mut stmt = conn
-            .prepare(
-                r#"
-                SELECT burn_block_consensus_hash
-                FROM signer_state_machine_updates
-                ORDER BY received_time ASC
-                "#,
-            )
-            .expect("Prepare failed");
-
-        let rows: Vec<String> = stmt
-            .query_map([], |row| row.get(0))
-            .expect("Query failed")
-            .map(|r| r.expect("Row map failed"))
-            .collect();
-
-        for (i, block_hash) in rows.iter().enumerate() {
-            let consensus_hash = ConsensusHash([i as u8; 20]);
-            assert_eq!(block_hash, &consensus_hash.to_string());
-        }
+        );
+        assert!(db
+            .get_burn_block_received_time_from_signers(&eval, &burn_block_2, &local_address)
+            .unwrap()
+            .is_none());
     }
 }

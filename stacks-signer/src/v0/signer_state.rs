@@ -729,7 +729,6 @@ impl LocalStateMachine {
         signerdb: &mut SignerDb,
         eval: &mut GlobalStateEvaluator,
         local_supported_signer_protocol_version: u64,
-        reward_cycle: u64,
         sortition_state: &mut Option<SortitionsView>,
         capitulate_miner_view_timeout: Duration,
         tenure_last_block_proposal_timeout: Duration,
@@ -811,7 +810,6 @@ impl LocalStateMachine {
                 crate::monitoring::SignerAgreementStateChangeReason::MinerViewUpdate,
             );
             Self::monitor_miner_parent_tenure_update(current_miner, &new_miner);
-            Self::monitor_capitulation_latency(signerdb, reward_cycle);
 
             *self = Self::Initialized(SignerStateMachine {
                 burn_block: *burn_block,
@@ -986,22 +984,6 @@ impl LocalStateMachine {
                 crate::monitoring::actions::increment_signer_agreement_state_change_reason(
                     crate::monitoring::SignerAgreementStateChangeReason::MinerParentTenureUpdate,
                 );
-            }
-        }
-    }
-
-    #[allow(unused_variables)]
-    fn monitor_capitulation_latency(signer_db: &SignerDb, reward_cycle: u64) {
-        #[cfg(feature = "monitoring_prom")]
-        {
-            let latency_result = signer_db.get_signer_state_machine_updates_latency(reward_cycle);
-            match latency_result {
-                Ok(seconds) => {
-                    crate::monitoring::actions::record_signer_agreement_capitulation_latency(
-                        seconds,
-                    )
-                }
-                Err(e) => warn!("Failed to retrieve state updates latency in signerdb: {e}"),
             }
         }
     }
