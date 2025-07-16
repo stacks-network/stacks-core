@@ -1658,6 +1658,10 @@ pub mod test {
         epoch_id: StacksEpochId::Epoch31,
         ast_rules: ASTRules::PrecheckSize,
     };
+    pub const TestBurnStateDB_32: UnitTestBurnStateDB = UnitTestBurnStateDB {
+        epoch_id: StacksEpochId::Epoch32,
+        ast_rules: ASTRules::PrecheckSize,
+    };
 
     pub const ALL_BURN_DBS: &[&dyn BurnStateDB] = &[
         &TestBurnStateDB_20 as &dyn BurnStateDB,
@@ -8731,6 +8735,7 @@ pub mod test {
                     StacksEpochId::Epoch25 => self.get_stacks_epoch(6),
                     StacksEpochId::Epoch30 => self.get_stacks_epoch(7),
                     StacksEpochId::Epoch31 => self.get_stacks_epoch(8),
+                    StacksEpochId::Epoch32 => self.get_stacks_epoch(9),
                 }
             }
             fn get_pox_payout_addrs(

@@ -74,7 +74,8 @@ use stacks::core::{
     EpochList, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20,
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
-    PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_TESTNET,
+    PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2,
+    PEER_VERSION_TESTNET,
 };
 use stacks::libstackerdb::{SlotMetadata, StackerDBChunkData};
 use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
@@ -128,8 +129,10 @@ use crate::{tests, BitcoinRegtestController, BurnchainController, Config, Config
 pub static POX_4_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
 pub static POX_4_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
 
+use crate::clarity::vm::clarity::ClarityConnection;
+
 lazy_static! {
-    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 10] = [
+    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 11] = [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -196,9 +199,16 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch31,
             start_height: 241,
-            end_height: STACKS_EPOCH_MAX,
+            end_height: 251,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_1
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch32,
+            start_height: 251,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_3_2
         },
     ];
 }
@@ -12620,4 +12630,137 @@ fn write_signer_update(
             "Timed out waiting for signer state update to be accepted"
         );
     }
+}
+
+/// Test SIP-031 activation
+///
+/// - check epoch 3.2 is active
+/// - TODO: check sip031 boot contract has a balance of 200_000_000 STX (TODO)
+#[test]
+#[ignore]
+fn test_sip_031_activation() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    naka_conf.node.pox_sync_sample_secs = 180;
+    naka_conf.burnchain.max_rbf = 10_000_000;
+
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let tenure_count = 5;
+    let inter_blocks_per_tenure = 9;
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr).to_string(),
+        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (mut chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    // mine until epooch 3.2 height
+    loop {
+        let commits_before = commits_submitted.load(Ordering::SeqCst);
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+        wait_for(20, || {
+            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
+        })
+        .unwrap();
+
+        let node_info = get_chain_info_opt(&naka_conf).unwrap();
+        if node_info.burn_block_height
+            >= naka_conf.burnchain.epochs.clone().unwrap()[StacksEpochId::Epoch32].start_height
+        {
+            break;
+        }
+    }
+
+    info!(
+        "Nakamoto miner has advanced to bitcoin height {}",
+        get_chain_info_opt(&naka_conf).unwrap().burn_block_height
+    );
+
+    // check for Epoch 3.2 in clarity db
+    let latest_stacks_block_id = get_latest_block_proposal(&naka_conf, &sortdb)
+        .unwrap()
+        .0
+        .block_id();
+
+    let epoch_version = chainstate.with_read_only_clarity_tx(
+        &sortdb
+            .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+            .unwrap(),
+        &latest_stacks_block_id,
+        |conn| conn.with_clarity_db_readonly(|db| db.get_clarity_epoch_version().unwrap()),
+    );
+
+    assert_eq!(epoch_version, Some(StacksEpochId::Epoch32));
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
 }

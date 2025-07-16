@@ -292,6 +292,7 @@ impl DBConfig {
             StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 10,
             StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 10,
             StacksEpochId::Epoch31 => version_u32 >= 3 && version_u32 <= 10,
+            StacksEpochId::Epoch32 => version_u32 >= 3 && version_u32 <= 10,
         }
     }
 }
