@@ -45,15 +45,7 @@
 (define-public (claim)
     (let
         (
-            (balance (stx-get-balance (as-contract tx-sender)))
-            (total-vested (calc-total-vested burn-block-height))
-            ;; Portion of the initial mint that is *still* locked (not yet vested)
-            (reserved (- INITIAL_MINT_AMOUNT total-vested))
-            ;; Free balance = everything the caller may withdraw right now
-            (claimable
-                (if (> balance reserved)
-                    (- balance reserved)
-                    u0))
+            (claimable (calc-claimable-amount burn-block-height))
         )
         (try! (validate-caller))
         (asserts! (> claimable u0) (err ERR_NOTHING_TO_CLAIM))
