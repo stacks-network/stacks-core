@@ -71,7 +71,10 @@
 )
 
 (define-private (validate-caller)
-    (ok (asserts! (is-eq contract-caller (var-get recipient)) (err ERR_NOT_ALLOWED)))
+    (begin
+        (asserts! (is-eq contract-caller (var-get recipient)) (err ERR_NOT_ALLOWED))
+        (asserts! (is-eq tx-sender (var-get recipient)) (err ERR_NOT_ALLOWED))
+        (ok true))
 )
 
 ;; Returns the *total* vested amount at `burn-height`, i.e.
