@@ -12798,6 +12798,83 @@ fn test_sip_031_activation() {
         }))
     );
 
+    // check if the coinbase activation block receipt has the mint event
+    let mut mint_event_found: Option<serde_json::Value> = None;
+    let mut coinbase_txid: Option<String> = None;
+    for block in test_observer::get_blocks().iter().rev() {
+        let burn_block_height = block.get("burn_block_height").unwrap().as_u64().unwrap();
+        if burn_block_height
+            == naka_conf.burnchain.epochs.clone().unwrap()[StacksEpochId::Epoch32].start_height
+        {
+            // the first transaction is the coinbase
+            coinbase_txid = Some(
+                block
+                    .get("transactions")
+                    .unwrap()
+                    .as_array()
+                    .unwrap()
+                    .first()
+                    .unwrap()
+                    .get("txid")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .into(),
+            );
+            let events = block.get("events").unwrap().as_array().unwrap();
+            for event in events {
+                if let Some(_) = event.get("stx_mint_event") {
+                    mint_event_found = Some(event.clone());
+                    break;
+                }
+            }
+            break;
+        }
+    }
+
+    assert!(coinbase_txid.is_some());
+    assert!(mint_event_found.is_some());
+
+    // check the amount
+    assert_eq!(
+        mint_event_found
+            .clone()
+            .unwrap()
+            .get("stx_mint_event")
+            .unwrap()
+            .get("amount")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        "200000000000000"
+    );
+
+    // check the recipient
+    assert_eq!(
+        mint_event_found
+            .clone()
+            .unwrap()
+            .get("stx_mint_event")
+            .unwrap()
+            .get("recipient")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        boot_code_id(SIP_031_NAME, naka_conf.is_mainnet()).to_string()
+    );
+
+    // check the txid
+    assert_eq!(
+        mint_event_found
+            .clone()
+            .unwrap()
+            .get("txid")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        coinbase_txid.unwrap()
+    );
+
     coord_channel
         .lock()
         .expect("Mutex poisoned")
