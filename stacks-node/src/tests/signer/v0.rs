@@ -1897,22 +1897,48 @@ fn miner_gather_signatures() {
     // Test prometheus metrics response
     #[cfg(feature = "monitoring_prom")]
     {
+        let min_num_expected = (num_signers * 2) as u64;
         wait_for(30, || {
+            use regex::Regex;
+
             let metrics_response = signer_test.get_signer_metrics();
 
-            // Because 5 signers are running in the same process, the prometheus metrics
-            // are incremented once for every signer.When booting to Epoch 3.0, the old
-            // miner will attempt to propose a block before its burnchain tip has updated
-            // causing an additional block proposal that gets rejected due to consensus hash
-            // mismatch, hence why we expect 15 rather than just 10 proposals.
-            let expected_result_1 =
-                format!("stacks_signer_block_proposals_received {}", num_signers * 2);
-            let expected_result_2 = format!(
-                "stacks_signer_block_responses_sent{{response_type=\"accepted\"}} {}",
-                num_signers * 2
-            );
-            Ok(metrics_response.contains(&expected_result_1)
-                && metrics_response.contains(&expected_result_2))
+            let re_precommits =
+                Regex::new(r#"stacks_signer_block_pre_commits_sent (\d+)"#).unwrap();
+            let re_proposals =
+                Regex::new(r#"stacks_signer_block_proposals_received (\d+)"#).unwrap();
+            let re_responses = Regex::new(
+                r#"stacks_signer_block_responses_sent\{response_type="accepted"\} (\d+)"#,
+            )
+            .unwrap();
+
+            let precommits = re_precommits
+                .captures(&metrics_response)
+                .and_then(|caps| caps.get(1))
+                .map(|m| m.as_str().parse::<u64>().ok())
+                .flatten();
+
+            let proposals = re_proposals
+                .captures(&metrics_response)
+                .and_then(|caps| caps.get(1))
+                .map(|m| m.as_str().parse::<u64>().ok())
+                .flatten();
+
+            let responses = re_responses
+                .captures(&metrics_response)
+                .and_then(|caps| caps.get(1))
+                .map(|m| m.as_str().parse::<u64>().ok())
+                .flatten();
+
+            if let (Some(proposals), Some(responses), Some(precommits)) =
+                (proposals, responses, precommits)
+            {
+                Ok(proposals >= min_num_expected
+                    && responses >= min_num_expected
+                    && precommits >= min_num_expected)
+            } else {
+                Ok(false)
+            }
         })
         .expect("Failed to advance prometheus metrics");
     }
@@ -9284,7 +9310,7 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
 /// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
 ///
 /// Test Execution:
-/// The node mines 1 stacks block N (all signers sign it). The subsequent block N+1 is proposed, but <30% accept it. The remaining signers
+/// The node mines 1 stacks block N (all signers sign it). The subsequent block N+1 is proposed, but <30% pre-commit to it. The remaining signers
 /// do not make a decision on the block. A new tenure begins and the miner proposes a new block N+1' which all signers accept.
 ///
 /// Test Assertion:
@@ -9437,7 +9463,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     );
     let info_before = signer_test.get_peer_info();
     TEST_SIGNERS_SKIP_SIGNATURE_BROADCAST.set(Vec::new());
-
+    TEST_MINE_SKIP.set(false);
     let block_n_1_prime =
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
             .expect("Timed out waiting for block N+1' to be mined");
