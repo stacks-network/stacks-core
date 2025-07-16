@@ -35,9 +35,19 @@
 ;;
 ;; Returns `true` if the recipient was updated.
 (define-public (update-recipient (new-recipient principal)) (begin
-    (try! (validate-caller))
-    (var-set recipient new-recipient)
-    (ok true)
+    (let
+        (
+            (old-recipient (var-get recipient))
+        )
+        (try! (validate-caller))
+        (var-set recipient new-recipient)
+        (print {
+            topic: "update-recipient",
+            old-recipient: old-recipient,
+            new-recipient: new-recipient,
+        })
+        (ok true)
+    )
 ))
 
 ;; Transfer all currently withdrawable STX (vested + extra) to `recipient`.
@@ -51,6 +61,11 @@
         (asserts! (> claimable u0) (err ERR_NOTHING_TO_CLAIM))
 
         (try! (as-contract (stx-transfer? claimable tx-sender (var-get recipient))))
+        (print {
+            topic: "claim",
+            claimable: claimable,
+            recipient: (var-get recipient),
+        })
         (ok claimable)
     )
 )
