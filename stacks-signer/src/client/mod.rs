@@ -346,7 +346,7 @@ pub(crate) mod tests {
             stackerdbs: Some(
                 stackerdb_contract_ids
                     .into_iter()
-                    .map(|cid| format!("{}", cid))
+                    .map(|cid| cid.to_string())
                     .collect(),
             ),
         };

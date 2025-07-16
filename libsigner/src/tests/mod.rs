@@ -229,15 +229,12 @@ fn test_status_endpoint() {
         let mut sock = match TcpStream::connect(endpoint) {
             Ok(sock) => sock,
             Err(e) => {
-                eprint!("Error connecting to {}: {}", endpoint, e);
+                eprint!("Error connecting to {endpoint}: {e}");
                 sleep_ms(100);
                 return;
             }
         };
-        let req = format!(
-            "GET /status HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-            endpoint
-        );
+        let req = format!("GET /status HTTP/1.1\r\nHost: {endpoint}\r\nConnection: close\r\n\r\n");
 
         sock.write_all(req.as_bytes()).unwrap();
         let mut buf = [0; 128];

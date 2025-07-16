@@ -115,7 +115,7 @@ impl StacksClient {
         let stacks_address = StacksAddress::p2pkh(mainnet, &pubkey);
         Self {
             stacks_address,
-            http_origin: format!("http://{}", node_host),
+            http_origin: format!("http://{node_host}"),
             tx_version,
             chain_id,
             stacks_node_client: reqwest::blocking::Client::new(),
@@ -751,7 +751,7 @@ impl StacksClient {
     }
 
     fn tenure_tip_path(&self, consensus_hash: &ConsensusHash) -> String {
-        format!("{}/v3/tenures/tip/{}", self.http_origin, consensus_hash)
+        format!("{}/v3/tenures/tip/{consensus_hash}", self.http_origin)
     }
 }
 

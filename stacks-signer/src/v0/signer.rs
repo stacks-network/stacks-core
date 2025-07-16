@@ -1050,19 +1050,25 @@ impl Signer {
         // TODO: should add a check to ignore an old burn block height if we know its outdated. Would require us to store the burn block height we last saw on the side.
         //  the signer needs to be able to determine whether or not the block they're about to sign would conflict with an already-signed Stacks block
         let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
-        let prior_evaluation = self
-            .block_lookup_by_reward_cycle(&signer_signature_hash)
-            .and_then(|block_info| if should_reevaluate_block(&block_info) {
-                debug!("Received a proposal for this block before, but our rejection reason allows us to reconsider";
-                    "reject_reason" => ?block_info.reject_reason);
-                None
-            } else {
-                Some(block_info)
-            });
-
-        // we previously considered this proposal, handle the status here
-        if let Some(block_info) = prior_evaluation {
-            return self.handle_prior_proposal_eval(&block_info);
+        if let Some(block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) {
+            if block_info.state == BlockState::GloballyAccepted {
+                info!("{self}: Received a block proposal for a block that is already globally accepted. Ignoring...";
+                    "signer_signature_hash" => %signer_signature_hash,
+                    "block_id" => %block_proposal.block.block_id(),
+                    "block_height" => block_proposal.block.header.chain_length,
+                    "burn_height" => block_proposal.burn_height,
+                    "consensus_hash" => %block_proposal.block.header.consensus_hash,
+                    "timestamp" => block_proposal.block.header.timestamp,
+                    "signed_group" => block_info.signed_group,
+                    "signed_self" => block_info.signed_self
+                );
+                return;
+            }
+            if !should_reevaluate_block(&block_info) {
+                return self.handle_prior_proposal_eval(&block_info);
+            }
+            debug!("Received a proposal for this block before, but our rejection reason allows us to reconsider";
+                "reject_reason" => ?block_info.reject_reason);
         }
 
         info!(

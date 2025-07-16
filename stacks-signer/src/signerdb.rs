@@ -148,7 +148,7 @@ impl Display for BlockState {
             BlockState::GloballyAccepted => "GloballyAccepted",
             BlockState::GloballyRejected => "GloballyRejected",
         };
-        write!(f, "{}", state)
+        write!(f, "{state}")
     }
 }
 

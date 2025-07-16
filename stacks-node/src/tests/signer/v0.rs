@@ -573,6 +573,7 @@ impl MultipleMinerTest {
             node_1_config_modifier,
             node_2_config_modifier,
             |port| u8::try_from(port % 2).unwrap(),
+            None,
         )
     }
 
@@ -594,6 +595,7 @@ impl MultipleMinerTest {
         mut node_1_config_modifier: G,
         mut node_2_config_modifier: H,
         signer_distributor: S,
+        ports: Option<Vec<u16>>,
     ) -> MultipleMinerTest {
         let sender_sk = Secp256k1PrivateKey::random();
         let sender_addr = tests::to_addr(&sender_sk);
@@ -605,10 +607,16 @@ impl MultipleMinerTest {
         let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
         let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
 
-        let node_1_rpc = gen_random_port();
-        let node_1_p2p = gen_random_port();
-        let node_2_rpc = gen_random_port();
-        let node_2_p2p = gen_random_port();
+        let (node_1_rpc, node_1_p2p, node_2_rpc, node_2_p2p) = if let Some(ports) = ports {
+            (ports[0], ports[1], ports[2], ports[3])
+        } else {
+            (
+                gen_random_port(),
+                gen_random_port(),
+                gen_random_port(),
+                gen_random_port(),
+            )
+        };
 
         let localhost = "127.0.0.1";
         let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
@@ -680,7 +688,6 @@ impl MultipleMinerTest {
         conf_node_2.node.miner = true;
         conf_node_2.events_observers.clear();
         conf_node_2.events_observers.extend(node_2_listeners);
-        assert!(!conf_node_2.events_observers.is_empty());
         node_2_config_modifier(&mut conf_node_2);
 
         let node_1_sk = StacksPrivateKey::from_seed(&conf.node.local_peer_seed);
@@ -8248,6 +8255,282 @@ fn duplicate_signers() {
     assert_eq!(signatures.len(), unique_signers);
 
     signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+fn signer_multinode_rollover() {
+    let num_signers = 5;
+    let new_num_signers = 4;
+
+    let new_signer_sks: Vec<_> = (0..new_num_signers)
+        .map(|ix| StacksPrivateKey::from_seed(format!("new_signer_{ix}").as_bytes()))
+        .collect();
+    let new_signer_pks: Vec<_> = new_signer_sks
+        .iter()
+        .map(|sk| Secp256k1PublicKey::from_private(sk).to_bytes_compressed())
+        .collect();
+    let new_signer_addrs: Vec<_> = new_signer_sks.iter().map(tests::to_addr).collect();
+    let additional_initial_balances: Vec<_> = new_signer_addrs
+        .iter()
+        .map(|addr| (*addr, POX_4_DEFAULT_STACKER_BALANCE))
+        .collect();
+    let new_signers_port_start = 3000 + num_signers;
+
+    let node_1_rpc = 40553;
+    let node_1_p2p = 40554;
+    let node_2_rpc = 50553;
+    let node_2_p2p = 50554;
+    let localhost = "127.0.0.1";
+    let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
+
+    let new_signer_configs = build_signer_config_tomls(
+        &new_signer_sks,
+        &node_1_rpc_bind,
+        Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
+        &Network::Testnet,
+        "12345",
+        rand::random(),
+        3000 + num_signers,
+        Some(100_000),
+        None,
+        Some(9000 + num_signers),
+        None,
+    );
+
+    let new_signer_configs: Vec<_> = new_signer_configs
+        .iter()
+        .map(|conf_str| SignerConfig::load_from_str(conf_str).unwrap())
+        .collect();
+
+    let new_spawned_signers: Vec<_> = new_signer_configs
+        .iter()
+        .map(|signer_config| {
+            info!("spawning signer");
+            SpawnedSigner::new(signer_config.clone())
+        })
+        .collect();
+
+    let mut miners = MultipleMinerTest::new_with_signer_dist(
+        num_signers,
+        60 * 5,
+        |_| {},
+        |node_config| {
+            for (addr, balance) in additional_initial_balances.iter() {
+                node_config.add_initial_balance(addr.to_string(), *balance);
+            }
+            for (ix, _) in new_signer_sks.iter().enumerate() {
+                info!(
+                    "---- Adding signer endpoint to naka conf ({}) ----",
+                    new_signers_port_start + ix,
+                );
+
+                node_config.events_observers.insert(EventObserverConfig {
+                    endpoint: format!("localhost:{}", new_signers_port_start + ix),
+                    events_keys: vec![
+                        EventKeyType::StackerDBChunks,
+                        EventKeyType::BlockProposal,
+                        EventKeyType::BurnchainBlocks,
+                    ],
+                    timeout_ms: 1000,
+                    disable_retries: false,
+                });
+            }
+        },
+        |node_2_conf| {
+            node_2_conf.connection_options.reject_blocks_pushed = true;
+        },
+        |_| 0,
+        Some(vec![node_1_rpc, node_1_p2p, node_2_rpc, node_2_p2p]),
+    );
+
+    miners.signer_test.num_stacking_cycles = 1;
+    miners.pause_commits_miner_2();
+    miners.boot_to_epoch_3();
+
+    // verify that the first reward cycle has the old signers in the reward set
+    let reward_cycle = miners.signer_test.get_current_reward_cycle();
+    let signer_test_pks: Vec<_> = miners
+        .signer_test
+        .signer_stacks_private_keys
+        .iter()
+        .map(|sk| Secp256k1PublicKey::from_private(sk).to_bytes_compressed())
+        .collect();
+
+    info!("---- Verifying that the current signers are the old signers ----");
+    let current_signers = miners.signer_test.get_reward_set_signers(reward_cycle);
+    assert_eq!(current_signers.len(), num_signers);
+    // Verify that the current signers are the same as the old signers
+    for signer in current_signers.iter() {
+        assert!(signer_test_pks.contains(&signer.signing_key.to_vec()));
+        assert!(!new_signer_pks.contains(&signer.signing_key.to_vec()));
+    }
+
+    let burnchain = miners.get_node_configs().0.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 120)
+        .unwrap();
+
+    let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
+    let block_sighash = mined_block.signer_signature_hash;
+    let signer_signatures = mined_block.signer_signature;
+
+    // verify the mined_block signatures against the OLD signer set
+    for signature in signer_signatures.iter() {
+        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
+            .expect("FATAL: Failed to recover pubkey from block sighash");
+        assert!(signer_test_pks.contains(&pk.to_bytes_compressed()));
+        assert!(!new_signer_pks.contains(&pk.to_bytes_compressed()));
+    }
+
+    // advance to the next reward cycle, stacking to the new signers beforehand
+    let reward_cycle = miners.signer_test.get_current_reward_cycle();
+
+    info!("---- Stacking new signers -----");
+
+    let burn_block_height = miners
+        .signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_headers_height();
+    let accounts_to_check = new_signer_addrs;
+    for stacker_sk in new_signer_sks.iter() {
+        let pox_addr = PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            tests::to_addr(stacker_sk).bytes().clone(),
+        );
+        let pox_addr_tuple: clarity::vm::Value =
+            pox_addr.clone().as_clarity_tuple().unwrap().into();
+        let signature = make_pox_4_signer_key_signature(
+            &pox_addr,
+            stacker_sk,
+            reward_cycle.into(),
+            &Pox4SignatureTopic::StackStx,
+            CHAIN_ID_TESTNET,
+            1_u128,
+            u128::MAX,
+            1,
+        )
+        .unwrap()
+        .to_rsv();
+
+        let chain_id = miners.get_node_configs().0.burnchain.chain_id;
+        let signer_pk = Secp256k1PublicKey::from_private(stacker_sk);
+        let stacking_tx = make_contract_call(
+            stacker_sk,
+            0,
+            1000,
+            chain_id,
+            &StacksAddress::burn_address(false),
+            "pox-4",
+            "stack-stx",
+            &[
+                clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
+                pox_addr_tuple.clone(),
+                clarity::vm::Value::UInt(burn_block_height as u128),
+                clarity::vm::Value::UInt(1),
+                clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap())
+                    .unwrap(),
+                clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+                clarity::vm::Value::UInt(u128::MAX),
+                clarity::vm::Value::UInt(1),
+            ],
+        );
+        submit_tx(&miners.node_http(), &stacking_tx);
+    }
+
+    wait_for(60, || {
+        Ok(accounts_to_check
+            .iter()
+            .all(|acct| get_account(&miners.node_http(), acct).nonce >= 1))
+    })
+    .expect("Timed out waiting for stacking txs to be mined");
+
+    let next_reward_cycle = reward_cycle.saturating_add(1);
+
+    let next_cycle_height = miners
+        .btc_regtest_controller_mut()
+        .get_burnchain()
+        .nakamoto_first_block_of_cycle(next_reward_cycle)
+        .saturating_add(1);
+
+    miners.signer_test.run_until_burnchain_height_nakamoto(
+        Duration::from_secs(60),
+        next_cycle_height.saturating_sub(3),
+        new_num_signers,
+    );
+
+    miners.wait_for_chains(120);
+
+    // Verify that the new reward set is the new signers
+    let reward_set = miners.signer_test.get_reward_set_signers(next_reward_cycle);
+    for signer in reward_set.iter() {
+        assert!(!signer_test_pks.contains(&signer.signing_key.to_vec()));
+        assert!(new_signer_pks.contains(&signer.signing_key.to_vec()));
+    }
+
+    info!("---- Mining to just before the next reward cycle (block {next_cycle_height}) -----",);
+    miners.signer_test.run_until_burnchain_height_nakamoto(
+        Duration::from_secs(60),
+        next_cycle_height.saturating_sub(1),
+        new_num_signers,
+    );
+
+    let (old_spawned_signers, _, _) =
+        miners
+            .signer_test
+            .replace_signers(new_spawned_signers, new_signer_sks, new_signer_configs);
+
+    miners.wait_for_chains(120);
+
+    info!("---- Mining into the next reward cycle (block {next_cycle_height}) -----",);
+    miners.signer_test.run_until_burnchain_height_nakamoto(
+        Duration::from_secs(60),
+        next_cycle_height,
+        new_num_signers,
+    );
+    let new_reward_cycle = miners.signer_test.get_current_reward_cycle();
+    assert_eq!(new_reward_cycle, reward_cycle.saturating_add(1));
+
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 120)
+        .unwrap();
+
+    miners.send_and_mine_transfer_tx(60).unwrap();
+    miners.send_and_mine_transfer_tx(60).unwrap();
+    miners.send_and_mine_transfer_tx(60).unwrap();
+    miners.wait_for_chains(120);
+
+    let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
+
+    info!("---- Verifying that the new signers signed the block -----");
+    let signer_signatures = mined_block.signer_signature;
+
+    // verify the mined_block signatures against the NEW signer set
+    for signature in signer_signatures.iter() {
+        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
+            .expect("FATAL: Failed to recover pubkey from block sighash");
+        assert!(!signer_test_pks.contains(&pk.to_bytes_compressed()));
+        assert!(new_signer_pks.contains(&pk.to_bytes_compressed()));
+    }
+
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 120)
+        .unwrap();
+    miners.wait_for_chains(120);
+    miners.send_and_mine_transfer_tx(60).unwrap();
+    miners.wait_for_chains(120);
+    miners.send_and_mine_transfer_tx(60).unwrap();
+    miners.wait_for_chains(120);
+    miners.send_and_mine_transfer_tx(60).unwrap();
+    miners.wait_for_chains(120);
+
+    miners.shutdown();
+    for signer in old_spawned_signers {
+        assert!(signer.stop().is_none());
+    }
 }
 
 /// This test involves two miners, each mining tenures with 6 blocks each. Half
@@ -17562,6 +17845,7 @@ fn bitcoin_reorg_extended_tenure() {
                 0
             }
         },
+        None,
     );
 
     let (conf_1, _conf_2) = miners.get_node_configs();
