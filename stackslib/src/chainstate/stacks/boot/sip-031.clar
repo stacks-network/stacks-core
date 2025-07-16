@@ -19,15 +19,15 @@
 ;; The amount of STX that is vested per iteration
 (define-constant STX_PER_ITERATION (/ INITIAL_MINT_VESTING_AMOUNT INITIAL_MINT_VESTING_ITERATIONS))
 
-(define-data-var recipient principal tx-sender)
-
 ;; The block height at which vesting starts. On Mainnet, this is
 ;; burn height 907740, which is what is specified in SIP-031.
-(define-constant deploy-block-height (if is-in-mainnet u907740 burn-block-height))
+(define-constant DEPLOY_BLOCK_HEIGHT (if is-in-mainnet u907740 burn-block-height))
+
+(define-data-var recipient principal tx-sender)
 
 (define-read-only (get-recipient) (var-get recipient))
 
-(define-read-only (get-deploy-block-height) deploy-block-height)
+(define-read-only (get-deploy-block-height) DEPLOY_BLOCK_HEIGHT)
 
 ;; Update the recipient of the funds.
 ;;
@@ -64,7 +64,7 @@
 (define-private (calc-total-vested (burn-height uint))
     (let
       (
-        (diff (- burn-height deploy-block-height))
+        (diff (- burn-height DEPLOY_BLOCK_HEIGHT))
         ;; Note: this rounds down
         (iterations (/ diff INITIAL_MINT_VESTING_ITERATION_BLOCKS))
         (vested-multiple (* STX_PER_ITERATION iterations))
@@ -83,7 +83,7 @@
 
 ;; Returns the amount of STX that is claimable from the vested balance at `burn-height`
 (define-read-only (calc-claimable-amount (burn-height uint))
-    (if (< burn-height deploy-block-height)
+    (if (< burn-height DEPLOY_BLOCK_HEIGHT)
         u0
         (let
             (
