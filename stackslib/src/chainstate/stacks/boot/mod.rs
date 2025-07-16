@@ -16,7 +16,9 @@
 
 use std::cmp;
 use std::collections::BTreeMap;
+use std::sync::LazyLock;
 
+use clarity::types::Address;
 use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::{Error as ClarityError, TransactionConnection};
@@ -34,6 +36,8 @@ use serde::Deserialize;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::util::hash::{hex_bytes, to_hex};
+#[cfg(test)]
+use stacks_common::util::tests::TestFlag;
 
 use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -90,6 +94,22 @@ pub const BOOT_TEST_POX_4_AGG_KEY_FNAME: &str = "aggregate-key";
 
 pub const MINERS_NAME: &str = "miners";
 
+/// The initial recipient address for SIP-031 on mainnet.
+/// TODO: replace with actual address
+pub const SIP_031_MAINNET_ADDR: LazyLock<StacksAddress> = LazyLock::new(|| {
+    StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap()
+});
+
+/// The initial recipient address for SIP-031 on testnet.
+/// TODO: replace with actual address
+pub const SIP_031_TESTNET_ADDR: LazyLock<StacksAddress> = LazyLock::new(|| {
+    StacksAddress::from_string("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap()
+});
+
+#[cfg(test)]
+pub static TEST_SIP_031_ADDR: LazyLock<TestFlag<Option<StacksAddress>>> =
+    LazyLock::new(TestFlag::default);
+
 pub mod docs;
 
 lazy_static! {
@@ -137,6 +157,40 @@ fn make_testnet_cost_voting() -> String {
             "(define-constant REQUIRED_VETOES u25)",
             1,
         )
+}
+
+#[cfg(test)]
+pub fn get_sip_031_recipient_addr(is_mainnet: bool) -> StacksAddress {
+    if is_mainnet {
+        SIP_031_MAINNET_ADDR.clone()
+    } else {
+        TEST_SIP_031_ADDR
+            .get()
+            .unwrap_or(SIP_031_TESTNET_ADDR.clone())
+    }
+}
+
+#[cfg(not(test))]
+pub fn get_sip_031_recipient_addr(is_mainnet: bool) -> StacksAddress {
+    if is_mainnet {
+        SIP_031_MAINNET_ADDR.clone()
+    } else {
+        SIP_031_TESTNET_ADDR.clone()
+    }
+}
+
+/// Generate the contract body for the SIP-031 contract.
+///
+/// When on mainnet, only the constant [SIP_031_MAINNET_ADDR] is used.
+/// Otherwise, on testnet, you can provide a configurable address.
+pub fn make_sip_031_body(is_mainnet: bool) -> String {
+    let addr = get_sip_031_recipient_addr(is_mainnet).to_string();
+
+    SIP_031_BODY.replacen(
+        "(define-data-var recipient principal tx-sender)",
+        &format!("(define-data-var recipient principal '{})", addr),
+        1,
+    )
 }
 
 pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractIdentifier {
@@ -2631,7 +2685,7 @@ pub mod test {
             )
             (begin
                 ;; take the stx from the tx-sender
-                
+
                 (unwrap-panic (stx-transfer? amount-ustx tx-sender this-contract))
 
                 ;; this contract stacks the stx given to it
@@ -5845,6 +5899,35 @@ pub mod test {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_sip031_addrs() {
+        assert_eq!(
+            SIP_031_MAINNET_ADDR.to_string(),
+            "SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5"
+        );
+        assert_eq!(
+            SIP_031_TESTNET_ADDR.to_string(),
+            "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+        );
+
+        assert_eq!(
+            get_sip_031_recipient_addr(true),
+            SIP_031_MAINNET_ADDR.clone()
+        );
+        assert_eq!(
+            get_sip_031_recipient_addr(false),
+            SIP_031_TESTNET_ADDR.clone()
+        );
+
+        let transient = StacksAddress::from(StandardPrincipalData::transient().clone());
+        TEST_SIP_031_ADDR.set(Some(transient.clone()));
+        assert_eq!(get_sip_031_recipient_addr(false), transient.clone());
+        assert_eq!(
+            get_sip_031_recipient_addr(true),
+            SIP_031_MAINNET_ADDR.clone()
+        );
     }
 
     // TODO: need Stacking-rejection with a BTC address -- contract name in OP_RETURN? (NEXT)

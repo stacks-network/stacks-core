@@ -24,8 +24,8 @@ use std::time::{Duration, Instant};
 use std::{env, thread};
 
 use clarity::vm::ast::ASTRules;
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::{ClarityName, ClarityVersion, Value};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
@@ -51,7 +51,7 @@ use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use stacks::chainstate::stacks::boot::{
-    MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME, SIP_031_TESTNET_ADDR,
 };
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{
@@ -12796,6 +12796,40 @@ fn test_sip_031_activation() {
         Some(Ok(STXBalance::Unlocked {
             amount: SIP_031_INITIAL_MINT
         }))
+    );
+
+    // Check that the boot contract has the right recipient
+    let sip_031_recipient = chainstate
+        .with_read_only_clarity_tx(
+            &sortdb
+                .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+                .unwrap(),
+            &latest_stacks_block_id,
+            |conn| {
+                conn.with_readonly_clarity_env(
+                    naka_conf.is_mainnet(),
+                    naka_conf.burnchain.chain_id,
+                    ClarityVersion::Clarity3,
+                    PrincipalData::Standard(StandardPrincipalData::transient()),
+                    None,
+                    LimitedCostTracker::new_free(),
+                    |tx| {
+                        tx.eval_read_only(
+                            &boot_code_id(SIP_031_NAME, naka_conf.is_mainnet()),
+                            "(get-recipient)",
+                        )
+                    },
+                )
+                .unwrap()
+            },
+        )
+        .unwrap()
+        .expect_principal()
+        .unwrap();
+
+    assert_eq!(
+        sip_031_recipient,
+        PrincipalData::Standard(StandardPrincipalData::from(SIP_031_TESTNET_ADDR.clone()))
     );
 
     coord_channel

@@ -39,12 +39,12 @@ use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use crate::burnchains::PoxConstants;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::stacks::boot::{
-    BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3,
-    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
-    COSTS_3_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE,
-    POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME, SIGNERS_BODY, SIGNERS_DB_0_BODY,
-    SIGNERS_DB_1_BODY, SIGNERS_NAME, SIGNERS_VOTING_BODY, SIGNERS_VOTING_NAME, SIP_031_BODY,
-    SIP_031_NAME,
+    make_sip_031_body, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
+    BOOT_CODE_COSTS_3, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
+    BOOT_CODE_POX_TESTNET, COSTS_2_NAME, COSTS_3_NAME, POX_2_MAINNET_CODE, POX_2_NAME,
+    POX_2_TESTNET_CODE, POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME,
+    SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY, SIGNERS_NAME, SIGNERS_VOTING_BODY,
+    SIGNERS_VOTING_NAME, SIP_031_NAME,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -1643,7 +1643,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                 TransactionSmartContract {
                     name: ContractName::try_from(SIP_031_NAME)
                         .expect("FATAL: invalid boot-code contract name"),
-                    code_body: StacksString::from_str(SIP_031_BODY)
+                    code_body: StacksString::from_str(&make_sip_031_body(mainnet))
                         .expect("FATAL: invalid boot code body"),
                 },
                 Some(ClarityVersion::Clarity3),
