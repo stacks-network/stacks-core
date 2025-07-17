@@ -23,8 +23,10 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
+use clarity::boot_util::boot_code_addr;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::representations::ContractName;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ClarityVersion, Value};
 use http_types::headers::AUTHORIZATION;
@@ -64,8 +66,8 @@ use stacks::chainstate::stacks::miner::{
 use stacks::chainstate::stacks::{
     SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction, TenureChangeCause,
     TenureChangePayload, TransactionAnchorMode, TransactionAuth, TransactionPayload,
-    TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSpendingCondition,
-    TransactionVersion, MAX_BLOCK_LEN,
+    TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSmartContract,
+    TransactionSpendingCondition, TransactionVersion, MAX_BLOCK_LEN,
 };
 use stacks::config::{EventKeyType, InitialBalance};
 use stacks::core::mempool::{MemPoolWalkStrategy, MAXIMUM_MEMPOOL_TX_CHAINING};
@@ -266,14 +268,32 @@ impl TestSigningChannel {
 /// Assert that the block events captured by the test observer
 ///  all match the miner heuristic of *exclusively* including the
 ///  tenure change transaction in tenure changing blocks.
-pub fn check_nakamoto_empty_block_heuristics() {
+pub fn check_nakamoto_empty_block_heuristics(mainnet: bool) {
     let blocks = test_observer::get_blocks();
     for block in blocks.iter() {
         // if its not a nakamoto block, don't check anything
         if block.get("miner_signature").is_none() {
             continue;
         }
+
         let txs = test_observer::parse_transactions(block);
+        let has_sip_031_boot_contract_deploy = txs.iter().any(|tx| match &tx.payload {
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: contract_name,
+                    ..
+                },
+                ..,
+            ) => {
+                contract_name == &ContractName::try_from(SIP_031_NAME.to_string()).unwrap()
+                    && tx.origin_address() == boot_code_addr(mainnet)
+            }
+            _ => false,
+        });
+        // skip sip-031 boot contract
+        if has_sip_031_boot_contract_deploy {
+            continue;
+        }
         let has_tenure_change = txs.iter().any(|tx| {
             matches!(
                 tx.payload,
@@ -747,6 +767,33 @@ pub fn next_block_and_process_new_stacks_block(
         }
         Ok(false)
     })
+}
+
+/// Mine a bitcoin block, and wait until:
+///  number_of_blocks has been processed by the coordinator
+pub fn next_block_and_process_new_stacks_blocks(
+    btc_controller: &BitcoinRegtestController,
+    number_of_blocks: u32,
+    timeout_secs: u64,
+    coord_channels: &Arc<Mutex<CoordinatorChannels>>,
+) -> Result<(), String> {
+    for _ in 0..number_of_blocks {
+        let blocks_processed_before = coord_channels
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        next_block_and(btc_controller, timeout_secs, || {
+            let blocks_processed = coord_channels
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            if blocks_processed > blocks_processed_before {
+                return Ok(true);
+            }
+            Ok(false)
+        })?;
+    }
+    Ok(())
 }
 
 /// Mine a bitcoin block, and wait until:
@@ -1703,7 +1750,7 @@ fn simple_neon_integration() {
         .expect("Prometheus metrics did not update");
     }
 
-    check_nakamoto_empty_block_heuristics();
+    check_nakamoto_empty_block_heuristics(naka_conf.is_mainnet());
 
     coord_channel
         .lock()
@@ -1919,7 +1966,7 @@ fn restarting_miner() {
         panic!("Missing the following burn blocks: {missing_is_error:?}");
     }
 
-    check_nakamoto_empty_block_heuristics();
+    check_nakamoto_empty_block_heuristics(naka_conf.is_mainnet());
 
     assert!(tip.stacks_block_height >= block_height_pre_3_0 + 4);
 }
@@ -2161,7 +2208,7 @@ fn flash_blocks_on_epoch_3_FLAKY() {
     // Verify blocks before and after the gap
     test_observer::contains_burn_block_range(220..=(gap_start - 1)).unwrap();
     test_observer::contains_burn_block_range((gap_end + 1)..=bhh).unwrap();
-    check_nakamoto_empty_block_heuristics();
+    check_nakamoto_empty_block_heuristics(naka_conf.is_mainnet());
 
     info!("Verified burn block ranges, including expected gap for flash blocks");
     info!("Confirmed that the gap includes the Epoch 3.0 activation height (Bitcoin block height): {epoch_3_start_height}");
@@ -2341,7 +2388,7 @@ fn mine_multiple_per_tenure_integration() {
         "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
     );
 
-    check_nakamoto_empty_block_heuristics();
+    check_nakamoto_empty_block_heuristics(naka_conf.is_mainnet());
 
     coord_channel
         .lock()
@@ -2593,7 +2640,7 @@ fn multiple_miners() {
         "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
     );
 
-    check_nakamoto_empty_block_heuristics();
+    check_nakamoto_empty_block_heuristics(naka_conf.is_mainnet());
 
     coord_channel
         .lock()
@@ -2934,7 +2981,7 @@ fn correct_burn_outs() {
         assert_eq!(signer_weight, 1, "The signer should have a weight of 1, indicating they stacked the minimum stacking amount");
     }
 
-    check_nakamoto_empty_block_heuristics();
+    check_nakamoto_empty_block_heuristics(naka_conf.is_mainnet());
 
     run_loop_thread.join().unwrap();
 }
@@ -9792,7 +9839,7 @@ fn skip_mining_long_tx() {
     let bhh = u64::from(tip.burn_header_height);
     check_nakamoto_no_missing_blocks(&naka_conf, 220..=bhh);
 
-    check_nakamoto_empty_block_heuristics();
+    check_nakamoto_empty_block_heuristics(naka_conf.is_mainnet());
 
     coord_channel
         .lock()
@@ -12845,6 +12892,10 @@ fn test_sip_031_activation() {
         if burn_block_height
             == naka_conf.burnchain.epochs.clone().unwrap()[StacksEpochId::Epoch32].start_height
         {
+            println!(
+                "\n\nOOPS {:?}\n\n",
+                block.get("transactions").unwrap().as_array().unwrap()
+            );
             // the first transaction is the coinbase
             coinbase_txid = Some(
                 block
@@ -13080,7 +13131,7 @@ fn test_sip_031_last_phase() {
     );
 
     // get current liquidity
-    let sip_031_current_liquid_ustx = chainstate
+    let _sip_031_current_liquid_ustx = chainstate
         .with_read_only_clarity_tx(
             &sortdb
                 .index_handle_at_block(&chainstate, &latest_stacks_block_id)
@@ -13093,15 +13144,75 @@ fn test_sip_031_last_phase() {
     // 50 more tenures...
     for _ in 0..50 {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
-        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
-            .unwrap();
+        next_block_and_process_new_stacks_blocks(
+            &mut btc_regtest_controller,
+            3,
+            60,
+            &coord_channel,
+        )
+        .unwrap();
         wait_for(20, || {
             Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
         })
         .unwrap();
-
-        let node_info = get_chain_info_opt(&naka_conf).unwrap();
     }
+
+    let mut total_minted_and_transferred: u128 = 0;
+
+    for block in test_observer::get_blocks() {
+        let burn_block_height = block.get("burn_block_height").unwrap().as_u64().unwrap();
+
+        let sip_031_mint_and_transfer_amount =
+            SIP031EmissionInterval::get_sip_031_emission_at_height(
+                burn_block_height,
+                naka_conf.is_mainnet(),
+            );
+
+        let events = block.get("events").unwrap().as_array().unwrap();
+        for event in events {
+            if let Some(mint_event) = event.get("stx_mint_event") {
+                let minted_amount =
+                    u128::try_from(mint_event.get("amount").unwrap().as_u64().unwrap()).unwrap();
+                assert_eq!(sip_031_mint_and_transfer_amount, minted_amount);
+                total_minted_and_transferred += minted_amount;
+                break;
+            }
+        }
+        total_minted_and_transferred += sip_031_mint_and_transfer_amount;
+    }
+
+    // (100_000 + 200_000 + 300_000) * 5
+    assert_eq!(total_minted_and_transferred, 3_000_000);
+
+    let latest_stacks_block_id = get_latest_block_proposal(&naka_conf, &sortdb)
+        .unwrap()
+        .0
+        .block_id();
+
+    // get sip-031 boot contract balance (will be checked for 200_000_000 STX + total_minted_and_transferred)
+    let sip_031_boot_contract_balance = chainstate.with_read_only_clarity_tx(
+        &sortdb
+            .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+            .unwrap(),
+        &latest_stacks_block_id,
+        |conn| {
+            conn.with_clarity_db_readonly(|db| {
+                db.get_account_stx_balance(&PrincipalData::Contract(boot_code_id(
+                    SIP_031_NAME,
+                    naka_conf.is_mainnet(),
+                )))
+            })
+        },
+    );
+
+    assert_eq!(
+        sip_031_boot_contract_balance,
+        Some(Ok(STXBalance::Unlocked {
+            amount: SIP_031_INITIAL_MINT + total_minted_and_transferred
+        }))
+    );
+
+    set_test_sip_031_emission_schedule(None);
 
     coord_channel
         .lock()

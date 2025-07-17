@@ -4834,14 +4834,15 @@ impl NakamotoChainState {
                 &mut clarity_tx,
                 chain_tip_burn_header_height,
             ) {
-                if let Some(receipt) = tx_receipts.get_mut(0) {
+                // for sip-031 we are safe in assuming coinbase is at index 1
+                if let Some(receipt) = tx_receipts.get_mut(1) {
                     if receipt.is_coinbase_tx() {
                         receipt.events.push(event);
                     } else {
-                        warn!("Unable to attach SIP-031 mint events, block's first transaction is not a coinbase transaction")
+                        error!("Unable to attach SIP-031 mint events, block's second transaction is not a coinbase transaction")
                     }
                 } else {
-                    warn!("Unable to attach SIP-031 mint events, block's first transaction not available")
+                    error!("Unable to attach SIP-031 mint events, block's second transaction not available")
                 }
             }
         }
