@@ -2210,7 +2210,7 @@ pub mod tests {
         db.add_block_signature(&block_id, &address2, &sig2).unwrap();
         assert_eq!(
             db.get_block_signatures(&block_id).unwrap(),
-            vec![sig1, sig2]
+            vec![sig2, sig1]
         );
     }
 
@@ -2269,8 +2269,8 @@ pub mod tests {
         assert_eq!(
             db.get_block_rejection_signer_addrs(&block_id).unwrap(),
             vec![
+                (address2, RejectReasonPrefix::InvalidParentBlock),
                 (address1, RejectReasonPrefix::DuplicateBlockFound),
-                (address2, RejectReasonPrefix::InvalidParentBlock)
             ]
         );
     }
