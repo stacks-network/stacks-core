@@ -222,6 +222,7 @@ pub enum Error {
     BurnchainError(burnchain_error),
     /// chunk is stale
     StaleChunk {
+        signer: StacksAddress,
         supplied_version: u32,
         latest_version: u32,
     },
@@ -354,14 +355,11 @@ impl fmt::Display for Error {
             Error::ExpectedEndOfStream => write!(f, "Expected end-of-stream"),
             Error::BurnchainError(ref e) => fmt::Display::fmt(e, f),
             Error::StaleChunk {
+                signer,
                 supplied_version,
                 latest_version,
             } => {
-                write!(
-                    f,
-                    "Stale DB chunk (supplied={},latest={})",
-                    supplied_version, latest_version
-                )
+                write!(f, "Stale DB chunk (signer={signer},supplied={supplied_version},latest={latest_version})")
             }
             Error::NoSuchSlot(ref addr, ref slot_id) => {
                 write!(f, "No such DB slot ({},{})", addr, slot_id)

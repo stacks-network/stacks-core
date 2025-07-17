@@ -399,10 +399,12 @@ fn test_stackerdb_insert_query_chunks() {
 
         // should fail -- stale version
         if let Err(net_error::StaleChunk {
+            signer,
             supplied_version,
             latest_version,
         }) = tx.try_replace_chunk(&sc, &chunk_data.get_slot_metadata(), &chunk_data.data)
         {
+            assert_eq!(signer, addrs[i]);
             assert_eq!(supplied_version, 1);
             assert_eq!(latest_version, 1);
         } else {

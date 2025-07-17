@@ -402,7 +402,7 @@ impl StackerDBTx<'_> {
         smart_contract: &QualifiedContractIdentifier,
         slot_desc: &SlotMetadata,
         chunk: &[u8],
-    ) -> Result<(), net_error> {
+    ) -> Result<StacksAddress, net_error> {
         if chunk.len() > STACKERDB_MAX_CHUNK_SIZE as usize {
             return Err(net_error::StackerDBChunkTooBig(chunk.len()));
         }
@@ -422,6 +422,7 @@ impl StackerDBTx<'_> {
         }
         if slot_desc.slot_version <= slot_validation.version {
             return Err(net_error::StaleChunk {
+                signer: slot_validation.signer,
                 latest_version: slot_validation.version,
                 supplied_version: slot_desc.slot_version,
             });
@@ -432,7 +433,8 @@ impl StackerDBTx<'_> {
                 supplied_version: slot_validation.version,
             });
         }
-        self.insert_chunk(smart_contract, slot_desc, chunk)
+        self.insert_chunk(smart_contract, slot_desc, chunk)?;
+        Ok(slot_validation.signer)
     }
 }
 
