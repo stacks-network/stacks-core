@@ -660,16 +660,12 @@ CREATE TABLE IF NOT EXISTS block_signatures (
     -- the sighash is sufficient to uniquely identify the block across all burnchain, PoX,
     -- and stacks forks.
     signer_signature_hash TEXT NOT NULL,
-    -- the signer address that rejected the block
+    -- the signer address that signed the block
     signer_addr TEXT NOT NULL,
     -- signature itself
     signature TEXT NOT NULL,
-    PRIMARY KEY (signer_addr, signer_signature_hash)
+    PRIMARY KEY (signer_signature_hash, signer_addr)
 ) STRICT;"#;
-
-static CREATE_BLOCK_SIGNATURES_INDEX: &str = r#"
-CREATE INDEX IF NOT EXISTS idx_block_signatures_by_sighash ON block_signatures(signer_signature_hash);
-"#;
 
 static DROP_BLOCK_REJECTION_SIGNER_ADDRS: &str = r#"
 DROP TABLE IF EXISTS block_rejection_signer_addrs;
@@ -686,12 +682,8 @@ CREATE TABLE IF NOT EXISTS block_rejection_signer_addrs (
     signer_addr TEXT NOT NULL,
     -- the reject reason code
     reject_code INTEGER NOT NULL,
-    PRIMARY KEY (signer_addr, signer_signature_hash)
+    PRIMARY KEY (signer_signature_hash, signer_addr)
 ) STRICT;"#;
-
-static CREATE_BLOCK_REJECTION_SIGNER_ADDRS_INDEX: &str = r#"
-CREATE INDEX IF NOT EXISTS idx_block_rejection_signer_addrs_by_sighash ON block_rejection_signer_addrs(signer_signature_hash);
-"#;
 
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
@@ -806,10 +798,8 @@ static SCHEMA_16: &[&str] = &[
 static SCHEMA_17: &[&str] = &[
     DROP_BLOCK_SIGNATURES_TABLE,
     CREATE_BLOCK_SIGNATURES_TABLE_V17,
-    CREATE_BLOCK_SIGNATURES_INDEX,
     DROP_BLOCK_REJECTION_SIGNER_ADDRS,
     CREATE_BLOCK_REJECTION_SIGNER_ADDRS_V17,
-    CREATE_BLOCK_REJECTION_SIGNER_ADDRS_INDEX,
     "INSERT INTO db_config (version) VALUES (17);",
 ];
 
@@ -1360,13 +1350,23 @@ impl SignerDb {
             signer_addr.to_string(),
             serde_json::to_string(signature).map_err(DBError::SerializationError)?
         ];
-
-        debug!("Inserting block signature.";
-            "signer_signature_hash" => %block_sighash,
-            "signature" => %signature);
-
         let rows_added = self.db.execute(qry, args)?;
-        Ok(rows_added > 0)
+
+        let is_new_signature = rows_added > 0;
+        if is_new_signature {
+            debug!("Added block signature.";
+                "signer_signature_hash" => %block_sighash,
+                "signer_address" => %signer_addr,
+                "signature" => %signature
+            );
+        } else {
+            debug!("Duplicate block signature.";
+                "signer_signature_hash" => %block_sighash,
+                "signer_address" => %signer_addr,
+                "signature" => %signature
+            );
+        }
+        Ok(is_new_signature)
     }
 
     /// Get all signatures for a block
@@ -1391,15 +1391,15 @@ impl SignerDb {
         reject_reason: &RejectReason,
     ) -> Result<bool, DBError> {
         // If this signer/block already has a signature, do not allow a rejection
-        let sig_qry = "SELECT 1 FROM block_signatures WHERE signer_signature_hash = ?1 AND signer_addr = ?2 LIMIT 1";
+        let sig_qry = "SELECT EXISTS(SELECT 1 FROM block_signatures WHERE signer_signature_hash = ?1 AND signer_addr = ?2)";
         let sig_args = params![block_sighash, addr.to_string()];
-        let has_signature: Option<i64> = self
-            .db
-            .query_row(sig_qry, sig_args, |row| row.get(0))
-            .optional()?;
-        if has_signature.is_some() {
-            warn!("Cannot add block rejection for signer {} and block {} because a signature already exists.",
-                addr, block_sighash);
+        let exists = self.db.query_row(sig_qry, sig_args, |row| row.get(0))?;
+        if exists {
+            warn!("Cannot add block rejection because a signature already exists.";
+                "signer_signature_hash" => %block_sighash,
+                "signer_address" => %addr,
+                "reject_reason" => %reject_reason
+            );
             return Ok(false);
         }
 
@@ -1414,6 +1414,11 @@ impl SignerDb {
         match existing_code {
             Some(code) if code == reject_code => {
                 // Row exists with same reject_reason, do nothing
+                debug!("Duplicate block rejection.";
+                    "signer_signature_hash" => %block_sighash,
+                    "signer_address" => %addr,
+                    "reject_reason" => %reject_reason
+                );
                 Ok(false)
             }
             Some(_) => {
