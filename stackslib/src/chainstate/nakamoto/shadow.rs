@@ -524,7 +524,7 @@ impl NakamotoBlockBuilder {
 
         let mut miner_tenure_info =
             builder.shadow_load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?;
-            let burn_chain_height = miner_tenure_info.burn_tip_height;
+        let burn_chain_height = miner_tenure_info.burn_tip_height;
         let mut tenure_tx = builder.shadow_tenure_begin(
             burn_dbconn,
             &mut miner_tenure_info,
