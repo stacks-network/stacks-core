@@ -262,7 +262,10 @@ impl SortitionData {
         Ok(true)
     }
 
-    /// Get the last locally signed block from the given tenure if it has not timed out
+    /// Get the last signed block from the given tenure if it has not timed out.
+    /// Even globally accepted blocks are allowed to be timed out, as that
+    /// triggers the signer to consult the Stacks node for the latest globally
+    /// accepted block. This is needed to handle Bitcoin reorgs correctly.
     pub fn get_tenure_last_block_info(
         consensus_hash: &ConsensusHash,
         signer_db: &SignerDb,
@@ -277,12 +280,6 @@ impl SortitionData {
             return Ok(None);
         };
 
-        // If the last accepted block was globally accepted, return it
-        if block_info.state == BlockState::GloballyAccepted {
-            return Ok(Some(block_info));
-        }
-
-        // If the last accepted block was locally accepted, check if it has timed out
         let Some(signed_over_time) = block_info.signed_self else {
             return Ok(None);
         };
@@ -290,14 +287,15 @@ impl SortitionData {
         if signed_over_time.saturating_add(tenure_last_block_proposal_timeout.as_secs())
             > get_epoch_time_secs()
         {
-            // The last locally accepted block is not timed out, return it
+            // The last accepted block is not timed out, return it
             Ok(Some(block_info))
         } else {
-            // The last locally accepted block is timed out
+            // The last accepted block is timed out
             info!(
-                "Last locally accepted block has timed out";
+                "Last accepted block has timed out";
                 "signer_signature_hash" => %block_info.block.header.signer_signature_hash(),
                 "signed_over_time" => signed_over_time,
+                "state" => block_info.state,
             );
             Ok(None)
         }
