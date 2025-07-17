@@ -1635,7 +1635,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             };
 
             let boot_code_address = boot_code_addr(mainnet);
-            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
+            let boot_code_auth = boot_code_tx_auth(boot_code_address);
 
             // SIP-031 setup (deploy of the boot contract, minting and transfer to the boot contract)
             let sip_031_contract_id = boot_code_id(SIP_031_NAME, mainnet);
@@ -1654,7 +1654,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
 
             let mut sip_031_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
-                debug!("Instantiate {} contract", &sip_031_contract_id);
+                info!("Instantiate {} contract", &sip_031_contract_id);
                 let receipt = StacksChainState::process_transaction_payload(
                     tx_conn,
                     &sip_031_contract_tx,
@@ -1662,7 +1662,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     ASTRules::PrecheckSize,
                     None,
                 )
-                .expect("FATAL: Failed to process .sip031 contract initialization");
+                .expect("FATAL: Failed to process .sip-031 contract initialization");
                 receipt
             });
 
@@ -1670,12 +1670,12 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                 || sip_031_initialization_receipt.post_condition_aborted
             {
                 panic!(
-                    "FATAL: Failure processing sip031 contract initialization: {:#?}",
+                    "FATAL: Failure processing sip-031 contract initialization: {:#?}",
                     &sip_031_initialization_receipt
                 );
             }
 
-            let recipient = PrincipalData::Contract(boot_code_id(SIP_031_NAME, mainnet));
+            let recipient = PrincipalData::Contract(sip_031_contract_id);
 
             self.as_transaction(|tx_conn| {
                 tx_conn
