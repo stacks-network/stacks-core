@@ -38,13 +38,11 @@ depends_on = []
 path = "../../stackslib/src/chainstate/stacks/boot/sip-031.clar"
 clarity_version = 3
 epoch = 3.0
-depends_on = []
 
 [contracts.sip-031-indirect]
 path = "contracts/sip-031-indirect.clar"
 clarity_version = 3
 epoch = 3.0
-depends_on = ["sip-031"]
 
 [contracts.bns_test]
 path = "./tests/bns_test.clar"
