@@ -295,7 +295,7 @@ impl SortitionData {
                 "Last accepted block has timed out";
                 "signer_signature_hash" => %block_info.block.header.signer_signature_hash(),
                 "signed_over_time" => signed_over_time,
-                "state" => block_info.state,
+                "state" => %block_info.state,
             );
             Ok(None)
         }
