@@ -1,5 +1,5 @@
 import { project, accounts } from '../clarigen-types'; // where your [types.output] was specified
-import { CoreNodeEventType, projectFactory } from '@clarigen/core';
+import { CoreNodeEventType, cvToValue, projectFactory } from '@clarigen/core';
 import { filterEvents, rov, txErr, txOk } from '@clarigen/test';
 import { test, expect } from 'vitest';
 
@@ -85,8 +85,10 @@ test('updated recipient can claim', () => {
   const receipt = txOk(contract.claim(), accounts.wallet_1.address);
   expect(receipt.value).toBe(constants.INITIAL_MINT_IMMEDIATE_AMOUNT);
 
-  expect(receipt.events.length).toBe(1);
-  const [event] = filterEvents(receipt.events, CoreNodeEventType.StxTransferEvent);
+  expect(receipt.events.length).toBe(2);
+  const stxTransferEvents = filterEvents(receipt.events, CoreNodeEventType.StxTransferEvent);
+  expect(stxTransferEvents.length).toBe(1);
+  const [event] = stxTransferEvents;
   expect(event.data.amount).toBe(`${constants.INITIAL_MINT_IMMEDIATE_AMOUNT}`);
   expect(event.data.recipient).toBe(accounts.wallet_1.address);
   expect(event.data.sender).toBe(contract.identifier);
@@ -281,4 +283,38 @@ test('new recipient claims vested tranche plus extra deposit', () => {
   expect(evt.data.amount).toBe(expected.toString());
   expect(evt.data.recipient).toBe(accounts.wallet_1.address);
   expect(evt.data.sender).toBe(contract.identifier);
+});
+
+test('calculating claimable amount at invalid block height returns 0', () => {
+  mintInitial();
+  const deployBlockHeight = rov(contract.getDeployBlockHeight());
+  expect(rov(contract.calcClaimableAmount(deployBlockHeight - 1n))).toBe(0n);
+});
+
+test('print events are emitted when updating recipient', () => {
+  const receipt = txOk(contract.updateRecipient(accounts.wallet_1.address), accounts.deployer.address);
+  expect(receipt.events.length).toBe(1);
+  const [event] = filterEvents(receipt.events, CoreNodeEventType.ContractEvent);
+  const printData = cvToValue<{
+    topic: string;
+    oldRecipient: string;
+    newRecipient: string;
+  }>(event.data.value);
+  expect(printData.topic).toBe('update-recipient');
+  expect(printData.oldRecipient).toBe(accounts.deployer.address);
+  expect(printData.newRecipient).toBe(accounts.wallet_1.address);
+});
+
+test('print events are emitted when claiming', () => {
+  mintInitial();
+  const receipt = txOk(contract.claim(), accounts.deployer.address);
+  const [event] = filterEvents(receipt.events, CoreNodeEventType.ContractEvent);
+  const printData = cvToValue<{
+    topic: string;
+    claimable: string;
+    recipient: string;
+  }>(event.data.value);
+  expect(printData.topic).toBe('claim');
+  expect(printData.claimable).toBe(constants.INITIAL_MINT_IMMEDIATE_AMOUNT);
+  expect(printData.recipient).toBe(accounts.deployer.address);
 });

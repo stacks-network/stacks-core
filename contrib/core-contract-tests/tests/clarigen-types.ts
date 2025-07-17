@@ -4610,6 +4610,11 @@ export const contracts = {
     },
     maps: {},
     variables: {
+      DEPLOY_BLOCK_HEIGHT: {
+        name: "DEPLOY_BLOCK_HEIGHT",
+        type: "uint128",
+        access: "constant",
+      } as TypedAbiVariable<bigint>,
       ERR_NOTHING_TO_CLAIM: {
         name: "ERR_NOTHING_TO_CLAIM",
         type: "uint128",
@@ -4650,11 +4655,6 @@ export const contracts = {
         type: "uint128",
         access: "constant",
       } as TypedAbiVariable<bigint>,
-      deployBlockHeight: {
-        name: "deploy-block-height",
-        type: "uint128",
-        access: "constant",
-      } as TypedAbiVariable<bigint>,
       recipient: {
         name: "recipient",
         type: "principal",
@@ -4662,6 +4662,7 @@ export const contracts = {
       } as TypedAbiVariable<string>,
     },
     constants: {
+      DEPLOY_BLOCK_HEIGHT: 3n,
       ERR_NOTHING_TO_CLAIM: 102n,
       ERR_NOT_ALLOWED: 101n,
       INITIAL_MINT_AMOUNT: 200_000_000_000_000n,
@@ -4670,7 +4671,6 @@ export const contracts = {
       INITIAL_MINT_VESTING_ITERATIONS: 24n,
       INITIAL_MINT_VESTING_ITERATION_BLOCKS: 4_383n,
       STX_PER_ITERATION: 4_166_666_666_666n,
-      deployBlockHeight: 3n,
       recipient: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
     },
     non_fungible_tokens: [],

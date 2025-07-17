@@ -19,15 +19,15 @@
 ;; The amount of STX that is vested per iteration
 (define-constant STX_PER_ITERATION (/ INITIAL_MINT_VESTING_AMOUNT INITIAL_MINT_VESTING_ITERATIONS))
 
-(define-data-var recipient principal tx-sender)
-
 ;; The block height at which vesting starts. On Mainnet, this is
 ;; burn height 907740, which is what is specified in SIP-031.
-(define-constant deploy-block-height (if is-in-mainnet u907740 burn-block-height))
+(define-constant DEPLOY_BLOCK_HEIGHT (if is-in-mainnet u907740 burn-block-height))
+
+(define-data-var recipient principal tx-sender)
 
 (define-read-only (get-recipient) (var-get recipient))
 
-(define-read-only (get-deploy-block-height) deploy-block-height)
+(define-read-only (get-deploy-block-height) DEPLOY_BLOCK_HEIGHT)
 
 ;; Update the recipient of the funds.
 ;;
@@ -35,9 +35,19 @@
 ;;
 ;; Returns `true` if the recipient was updated.
 (define-public (update-recipient (new-recipient principal)) (begin
-    (try! (validate-caller))
-    (var-set recipient new-recipient)
-    (ok true)
+    (let
+        (
+            (old-recipient (var-get recipient))
+        )
+        (try! (validate-caller))
+        (var-set recipient new-recipient)
+        (print {
+            topic: "update-recipient",
+            old-recipient: old-recipient,
+            new-recipient: new-recipient,
+        })
+        (ok true)
+    )
 ))
 
 ;; Transfer all currently withdrawable STX (vested + extra) to `recipient`.
@@ -45,26 +55,26 @@
 (define-public (claim)
     (let
         (
-            (balance (stx-get-balance (as-contract tx-sender)))
-            (total-vested (calc-total-vested burn-block-height))
-            ;; Portion of the initial mint that is *still* locked (not yet vested)
-            (reserved (- INITIAL_MINT_AMOUNT total-vested))
-            ;; Free balance = everything the caller may withdraw right now
-            (claimable
-                (if (> balance reserved)
-                    (- balance reserved)
-                    u0))
+            (claimable (calc-claimable-amount burn-block-height))
         )
         (try! (validate-caller))
         (asserts! (> claimable u0) (err ERR_NOTHING_TO_CLAIM))
 
         (try! (as-contract (stx-transfer? claimable tx-sender (var-get recipient))))
+        (print {
+            topic: "claim",
+            claimable: claimable,
+            recipient: (var-get recipient),
+        })
         (ok claimable)
     )
 )
 
 (define-private (validate-caller)
-    (ok (asserts! (is-eq contract-caller (var-get recipient)) (err ERR_NOT_ALLOWED)))
+    (begin
+        (asserts! (is-eq contract-caller (var-get recipient)) (err ERR_NOT_ALLOWED))
+        (asserts! (is-eq tx-sender (var-get recipient)) (err ERR_NOT_ALLOWED))
+        (ok true))
 )
 
 ;; Returns the *total* vested amount at `burn-height`, i.e.
@@ -72,7 +82,7 @@
 (define-private (calc-total-vested (burn-height uint))
     (let
       (
-        (diff (- burn-height deploy-block-height))
+        (diff (- burn-height DEPLOY_BLOCK_HEIGHT))
         ;; Note: this rounds down
         (iterations (/ diff INITIAL_MINT_VESTING_ITERATION_BLOCKS))
         (vested-multiple (* STX_PER_ITERATION iterations))
@@ -91,16 +101,18 @@
 
 ;; Returns the amount of STX that is claimable from the vested balance at `burn-height`
 (define-read-only (calc-claimable-amount (burn-height uint))
-    (let
-        (
-            (total-vested (calc-total-vested burn-height))
-            (reserved (- INITIAL_MINT_AMOUNT total-vested))
-            (balance (stx-get-balance (as-contract tx-sender)))
-            (claimable
-                (if (> balance reserved)
-                    (- balance reserved)
-                    u0))
+    (if (< burn-height DEPLOY_BLOCK_HEIGHT)
+        u0
+        (let
+            (
+                (reserved (- INITIAL_MINT_AMOUNT (calc-total-vested burn-height)))
+                (balance (stx-get-balance (as-contract tx-sender)))
+                (claimable
+                    (if (> balance reserved)
+                        (- balance reserved)
+                        u0))
+            )
+            claimable
         )
-        claimable
     )
 )
