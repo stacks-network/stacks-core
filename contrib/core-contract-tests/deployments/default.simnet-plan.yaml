@@ -107,4 +107,4 @@ plan:
             emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
             path: contracts/sip-031-indirect.clar
             clarity-version: 3
-      epoch: "3.0"
+      epoch: "3.1"
