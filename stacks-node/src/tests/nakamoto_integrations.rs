@@ -12647,11 +12647,6 @@ fn test_sip_031_activation() {
         return;
     }
 
-    // skip the test til we move to epoch 3.2
-    if StacksEpochId::latest() != StacksEpochId::Epoch32 {
-        //return;
-    }
-
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
@@ -12763,11 +12758,6 @@ fn test_sip_031_activation() {
             >= naka_conf.burnchain.epochs.clone().unwrap()[StacksEpochId::Epoch32].start_height
         {
             break;
-        }
-
-        for block in test_observer::get_blocks().iter().rev() {
-            println!("BLOCK {:?}", block);
-            //let events = block.get("events").unwrap().as_array().unwrap();
         }
     }
 

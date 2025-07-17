@@ -713,7 +713,7 @@ fn get_sip_031_emission_schedule(mainnet: bool) -> Vec<SIP031EmissionInterval> {
 impl SIP031EmissionInterval {
     /// Look up the amount of STX to emit at the start of the tenure at the specified height.
     /// Precondition: `intervals` must be sorted in descending order by `start_height`
-    pub fn get_sip_031_emission_at_height(height: u64, mainnet: bool) -> u128 {
+    pub fn get_sip_031_emission_at_height(burn_height: u64, mainnet: bool) -> u128 {
         let intervals = get_sip_031_emission_schedule(mainnet);
 
         if intervals.is_empty() {
@@ -721,7 +721,7 @@ impl SIP031EmissionInterval {
         }
 
         for interval in intervals {
-            if height >= interval.start_height {
+            if burn_height >= interval.start_height {
                 return interval.amount;
             }
         }
@@ -732,11 +732,11 @@ impl SIP031EmissionInterval {
 
     /// Verify that a list of intervals is sorted in descending order by `start_height`
     pub fn check_inversed_order(intervals: &[SIP031EmissionInterval]) -> bool {
-        if intervals.len() < 2 {
+        let Some(mut ht) = intervals.first().map(|x| x.start_height) else {
+            // if the interval list is empty, its sorted
             return true;
-        }
+        };
 
-        let mut ht = intervals[0].start_height;
         for interval in intervals.iter().skip(1) {
             if interval.start_height > ht {
                 return false;
@@ -4216,8 +4216,6 @@ impl NakamotoChainState {
             "parent_header_hash" => %parent_header_hash,
         );
 
-        let evaluated_epoch = clarity_tx.get_epoch();
-
         if new_tenure {
             clarity_tx
                 .connection()
@@ -4238,6 +4236,8 @@ impl NakamotoChainState {
                     e
                 })?;
         }
+
+        let evaluated_epoch = clarity_tx.get_epoch();
 
         let auto_unlock_events = if evaluated_epoch >= StacksEpochId::Epoch21 {
             let unlock_events = StacksChainState::check_and_handle_reward_start(
