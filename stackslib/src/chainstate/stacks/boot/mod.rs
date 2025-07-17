@@ -81,7 +81,8 @@ pub const SIGNERS_BODY: &str = std::include_str!("signers.clar");
 pub const SIGNERS_DB_0_BODY: &str = std::include_str!("signers-0-xxx.clar");
 pub const SIGNERS_DB_1_BODY: &str = std::include_str!("signers-1-xxx.clar");
 pub const SIGNERS_VOTING_BODY: &str = std::include_str!("signers-voting.clar");
-pub const SIP_031_BODY: &str = std::include_str!("sip-031.clar");
+/// Not public - be sure to use [make_sip_031_body]
+const SIP_031_BODY: &str = std::include_str!("sip-031.clar");
 
 pub const COSTS_1_NAME: &str = "costs";
 pub const COSTS_2_NAME: &str = "costs-2";
