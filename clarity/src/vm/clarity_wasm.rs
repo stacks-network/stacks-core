@@ -525,6 +525,25 @@ pub fn call_function<'a>(
         .get_memory(&mut store, "memory")
         .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
+    // Validate argument count
+    let expected_args = func_types.get_arg_types();
+    if args.len() != expected_args.len() {
+        return Err(Error::Unchecked(CheckErrors::IncorrectArgumentCount(
+            expected_args.len(),
+            args.len(),
+        )));
+    }
+
+    // Validate argument types
+    for (arg, expected_type) in args.iter().zip(expected_args.iter()) {
+        if !expected_type.admits(&epoch, arg)? {
+            return Err(Error::Unchecked(CheckErrors::TypeError(
+                expected_type.clone(),
+                TypeSignature::type_of(arg)?,
+            )));
+        }
+    }
+
     // Determine how much space is needed for arguments
     let mut arg_size = 0;
     for arg in func_types.get_arg_types() {
@@ -534,7 +553,7 @@ pub fn call_function<'a>(
 
     // Ensure that the memory has enough space for the arguments
     let mut total_required_bytes = 0;
-    for (arg, ty) in args.iter().zip(func_types.get_arg_types()) {
+    for (arg, ty) in args.iter().zip(expected_args) {
         total_required_bytes += get_required_bytes(ty, arg)?;
     }
     ensure_memory(
@@ -545,7 +564,7 @@ pub fn call_function<'a>(
 
     // Convert the args into wasmtime values
     let mut wasm_args = vec![];
-    for (arg, ty) in args.iter().zip(func_types.get_arg_types()) {
+    for (arg, ty) in args.iter().zip(expected_args) {
         let (arg_vec, new_offset, new_in_mem_offset) =
             pass_argument_to_wasm(memory, &mut store, ty, arg, offset, in_mem_offset)?;
         wasm_args.extend(arg_vec);
