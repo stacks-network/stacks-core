@@ -668,12 +668,17 @@ pub static SIP031_EMISSION_INTERVALS_TESTNET: LazyLock<[SIP031EmissionInterval; 
     });
 
 /// Used for testing to substitute a sip-031 emission schedule
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub static SIP031_EMISSION_INTERVALS_TEST: std::sync::Mutex<Option<Vec<SIP031EmissionInterval>>> =
     std::sync::Mutex::new(None);
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub fn set_test_sip_031_emission_schedule(emission_schedule: Option<Vec<SIP031EmissionInterval>>) {
+    if let Some(emission_schedule_vec) = &emission_schedule {
+        assert!(SIP031EmissionInterval::check_inversed_order(
+            &emission_schedule_vec
+        ));
+    }
     match SIP031_EMISSION_INTERVALS_TEST.lock() {
         Ok(mut schedule_guard) => {
             *schedule_guard = emission_schedule;
@@ -684,7 +689,7 @@ pub fn set_test_sip_031_emission_schedule(emission_schedule: Option<Vec<SIP031Em
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 fn get_sip_031_emission_schedule(_mainnet: bool) -> Vec<SIP031EmissionInterval> {
     match SIP031_EMISSION_INTERVALS_TEST.lock() {
         Ok(schedule_opt) => {
@@ -701,7 +706,7 @@ fn get_sip_031_emission_schedule(_mainnet: bool) -> Vec<SIP031EmissionInterval> 
     }
 }
 
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "testing")))]
 fn get_sip_031_emission_schedule(mainnet: bool) -> Vec<SIP031EmissionInterval> {
     if mainnet {
         SIP031_EMISSION_INTERVALS_MAINNET.to_vec()
@@ -4825,44 +4830,18 @@ impl NakamotoChainState {
         }
 
         if new_tenure {
-            if evaluated_epoch.includes_sip_031() {
-                let mainnet = clarity_tx.config.mainnet;
-
-                let sip_031_mint_and_transfer_amount =
-                    SIP031EmissionInterval::get_sip_031_emission_at_height(
-                        chain_tip_burn_header_height.into(),
-                        mainnet,
-                    );
-
-                if sip_031_mint_and_transfer_amount > 0 {
-                    let recipient = PrincipalData::Contract(boot_code_id(SIP_031_NAME, mainnet));
-
-                    clarity_tx.connection().as_transaction(|tx_conn| {
-                        tx_conn
-                            .with_clarity_db(|db| {
-                                db.increment_ustx_liquid_supply(sip_031_mint_and_transfer_amount)
-                                    .map_err(|e| e.into())
-                            })
-                            .expect("FATAL: `SIP-031 mint` overflowed");
-                        StacksChainState::account_credit(
-                            tx_conn,
-                            &recipient,
-                            u64::try_from(sip_031_mint_and_transfer_amount)
-                                .expect("FATAL: transferred more STX than exist"),
-                        );
-                    });
-
-                    if let Some(receipt) = tx_receipts.get_mut(0) {
-                        if receipt.is_coinbase_tx() {
-                            let event = STXEventType::STXMintEvent(STXMintEventData {
-                                recipient,
-                                amount: sip_031_mint_and_transfer_amount,
-                            });
-                            receipt.events.push(StacksTransactionEvent::STXEvent(event));
-                        }
+            if let Some(event) = Self::sip_031_mint_and_transfer_on_new_tenure(
+                &mut clarity_tx,
+                chain_tip_burn_header_height,
+            ) {
+                if let Some(receipt) = tx_receipts.get_mut(0) {
+                    if receipt.is_coinbase_tx() {
+                        receipt.events.push(event);
                     } else {
                         warn!("Unable to attach SIP-031 mint events, block's first transaction is not a coinbase transaction")
                     }
+                } else {
+                    warn!("Unable to attach SIP-031 mint events, block's first transaction not available")
                 }
             }
         }
@@ -5044,6 +5023,54 @@ impl NakamotoChainState {
             reward_set_data,
             lockup_events,
         ))
+    }
+
+    pub fn sip_031_mint_and_transfer_on_new_tenure(
+        clarity_tx: &mut ClarityTx,
+        chain_tip_burn_header_height: u32,
+    ) -> Option<StacksTransactionEvent> {
+        let evaluated_epoch = clarity_tx.get_epoch();
+        if evaluated_epoch.includes_sip_031() {
+            let mainnet = clarity_tx.config.mainnet;
+
+            let sip_031_mint_and_transfer_amount =
+                SIP031EmissionInterval::get_sip_031_emission_at_height(
+                    chain_tip_burn_header_height.into(),
+                    mainnet,
+                );
+
+            if sip_031_mint_and_transfer_amount > 0 {
+                let recipient = PrincipalData::Contract(boot_code_id(SIP_031_NAME, mainnet));
+
+                info!(
+                    "SIP-031 minting {} uSTX and transferring to {} for burn_block_height {}",
+                    sip_031_mint_and_transfer_amount, recipient, chain_tip_burn_header_height
+                );
+
+                clarity_tx.connection().as_transaction(|tx_conn| {
+                    tx_conn
+                        .with_clarity_db(|db| {
+                            db.increment_ustx_liquid_supply(sip_031_mint_and_transfer_amount)
+                                .map_err(|e| e.into())
+                        })
+                        .expect("FATAL: `SIP-031 mint` overflowed");
+                    StacksChainState::account_credit(
+                        tx_conn,
+                        &recipient,
+                        u64::try_from(sip_031_mint_and_transfer_amount)
+                            .expect("FATAL: transferred more STX than exist"),
+                    );
+                });
+
+                return Some(StacksTransactionEvent::STXEvent(
+                    STXEventType::STXMintEvent(STXMintEventData {
+                        recipient,
+                        amount: sip_031_mint_and_transfer_amount,
+                    }),
+                ));
+            }
+        }
+        None
     }
 
     /// Create a StackerDB config for the .miners contract.
