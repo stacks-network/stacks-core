@@ -653,7 +653,7 @@ static DROP_BLOCK_SIGNATURES_TABLE: &str = r#"
 DROP TABLE IF EXISTS block_signatures;
 "#;
 
-static CREATE_BLOCK_SIGNATURES_TABLE_V17: &str = r#"
+static CREATE_BLOCK_SIGNATURES_TABLE_V16: &str = r#"
 CREATE TABLE IF NOT EXISTS block_signatures (
     -- The block sighash commits to all of the stacks and burnchain state as of its parent,
     -- as well as the tenure itself so there's no need to include the reward cycle.  Just
@@ -671,7 +671,7 @@ static DROP_BLOCK_REJECTION_SIGNER_ADDRS: &str = r#"
 DROP TABLE IF EXISTS block_rejection_signer_addrs;
 "#;
 
-static CREATE_BLOCK_REJECTION_SIGNER_ADDRS_V17: &str = r#"
+static CREATE_BLOCK_REJECTION_SIGNER_ADDRS_V16: &str = r#"
 CREATE TABLE IF NOT EXISTS block_rejection_signer_addrs (
     -- The block sighash commits to all of the stacks and burnchain state as of its parent,
     -- as well as the tenure itself so there's no need to include the reward cycle.  Just
@@ -792,15 +792,11 @@ static SCHEMA_16: &[&str] = &[
     ADD_SIGNER_STATE_MACHINE_UPDATES_BURN_BLOCK_CONSENSUS_HASH_INDEX,
     ADD_SIGNER_STATE_MACHINE_UPDATES_RECEIVED_TIME_INDEX,
     ADD_SIGNER_STATE_MACHINE_UPDATES_SIGNER_ADDR_REWARD_CYCLE_INDEX,
-    "INSERT INTO db_config (version) VALUES (16);",
-];
-
-static SCHEMA_17: &[&str] = &[
     DROP_BLOCK_SIGNATURES_TABLE,
-    CREATE_BLOCK_SIGNATURES_TABLE_V17,
+    CREATE_BLOCK_SIGNATURES_TABLE_V16,
     DROP_BLOCK_REJECTION_SIGNER_ADDRS,
-    CREATE_BLOCK_REJECTION_SIGNER_ADDRS_V17,
-    "INSERT INTO db_config (version) VALUES (17);",
+    CREATE_BLOCK_REJECTION_SIGNER_ADDRS_V16,
+    "INSERT INTO db_config (version) VALUES (16);",
 ];
 
 struct Migration {
@@ -873,15 +869,11 @@ static MIGRATIONS: &[Migration] = &[
         version: 16,
         statements: SCHEMA_16,
     },
-    Migration {
-        version: 17,
-        statements: SCHEMA_17,
-    },
 ];
 
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 17;
+    pub const SCHEMA_VERSION: u32 = 16;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
