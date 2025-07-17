@@ -645,6 +645,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "clarity-serialization"
+version = "0.0.1"
+dependencies = [
+ "hashbrown 0.15.2",
+ "lazy_static",
+ "mutants",
+ "regex",
+ "serde",
+ "serde_derive",
+ "slog",
+ "stacks-common 0.0.1",
+ "thiserror",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

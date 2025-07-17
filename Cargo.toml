@@ -4,6 +4,7 @@ members = [
     "stackslib",
     "stacks-common",
     "pox-locking",
+    "clarity-serialization",
     "clarity",
     "stx-genesis",
     "libstackerdb",
