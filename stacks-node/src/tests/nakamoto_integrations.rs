@@ -12721,7 +12721,29 @@ fn test_sip_031_activation() {
 
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
-    // mine until epooch 3.2 height
+    // retrieve current liquidity
+    let last_block_id = StacksBlockId::from_hex(
+        &test_observer::get_blocks()
+            .last()
+            .unwrap()
+            .get("index_block_hash")
+            .unwrap()
+            .as_str()
+            .unwrap()[2..],
+    )
+    .unwrap();
+
+    let sip_031_initial_total_liquid_ustx = chainstate
+        .with_read_only_clarity_tx(
+            &sortdb
+                .index_handle_at_block(&chainstate, &last_block_id)
+                .unwrap(),
+            &last_block_id,
+            |conn| conn.with_clarity_db_readonly(|db| db.get_total_liquid_ustx().unwrap()),
+        )
+        .unwrap();
+
+    // mine until epoch 3.2 height
     loop {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
@@ -12797,6 +12819,19 @@ fn test_sip_031_activation() {
             amount: SIP_031_INITIAL_MINT
         }))
     );
+
+    // check liquidity has been updated accordingly
+    let sip_031_total_liquid_ustx = chainstate
+        .with_read_only_clarity_tx(
+            &sortdb
+                .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+                .unwrap(),
+            &latest_stacks_block_id,
+            |conn| conn.with_clarity_db_readonly(|db| db.get_total_liquid_ustx().unwrap()),
+        )
+        .unwrap();
+
+    assert!(sip_031_total_liquid_ustx - sip_031_initial_total_liquid_ustx >= SIP_031_INITIAL_MINT);
 
     // check if the coinbase activation block receipt has the mint event
     let mut mint_event_found: Option<serde_json::Value> = None;
