@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::mem;
 
 use clarity::vm::ast::errors::ParseErrors;
@@ -114,6 +114,9 @@ pub struct Relayer {
     /// Maps to tenure ID and timestamp, so we can garbage-collect.
     /// Timestamp is in milliseconds
     recently_sent_nakamoto_blocks: HashMap<StacksBlockId, (ConsensusHash, u128)>,
+    /// Recently-sent StackerDB chunks, so we don't keep re-sending them.
+    /// Maps (contract ID, slot ID) to the most recent 5 slot versions that we sent.
+    recently_sent_stacker_db_chunks: HashMap<(QualifiedContractIdentifier, u32), Top5>,
 }
 
 #[derive(Debug)]
@@ -578,6 +581,7 @@ impl Relayer {
             connection_opts,
             stacker_dbs,
             recently_sent_nakamoto_blocks: HashMap::new(),
+            recently_sent_stacker_db_chunks: HashMap::new(),
         }
     }
 
@@ -2547,8 +2551,20 @@ impl Relayer {
         }
 
         if let Some(observer) = event_observer.as_ref() {
-            for (contract_id, new_chunks) in all_events.into_iter() {
-                observer.new_stackerdb_chunks(contract_id, new_chunks);
+            // filter out recently sent chunks
+            let filtered = all_events.into_iter().map(|(contract_id, mut chunks)| {
+                chunks.retain(|chunk| {
+                    self.should_send_stackerdb_chunk_event(
+                        &contract_id,
+                        chunk.slot_id,
+                        chunk.slot_version,
+                    )
+                });
+                (contract_id, chunks)
+            });
+
+            for (contract_id, chunks) in filtered {
+                observer.new_stackerdb_chunks(contract_id, chunks);
             }
         }
         Ok(())
@@ -3035,6 +3051,19 @@ impl Relayer {
 
         Ok(receipts)
     }
+
+    /// Check if a stackerdb chunk should be sent to event observers.
+    fn should_send_stackerdb_chunk_event(
+        &mut self,
+        sc: &QualifiedContractIdentifier,
+        slot_id: u32,
+        slot_version: u32,
+    ) -> bool {
+        self.recently_sent_stacker_db_chunks
+            .entry((sc.clone(), slot_id))
+            .or_insert_with(Top5::new)
+            .add(slot_version)
+    }
 }
 
 impl PeerNetwork {
@@ -3461,5 +3490,93 @@ impl PeerNetwork {
                 self.relayer_stats.add_relayed_message((*nk).clone(), tx);
             }
         }
+    }
+}
+
+/// An ordered set of the top 5 most recently sent StackerDB slot versions.
+struct Top5(BTreeSet<u32>);
+
+impl Top5 {
+    fn new() -> Self {
+        Top5(BTreeSet::new())
+    }
+
+    /// Add a new slot version, if it is within 5 of the most recent version.
+    /// Returns true if the slot version was added, false if not.
+    fn add(&mut self, slot_version: u32) -> bool {
+        // If this version is not within 5 of the most recent, do not insert.
+        let max = self.0.last();
+        if let Some(max) = max {
+            if slot_version <= max.saturating_sub(5) {
+                return false;
+            }
+        }
+
+        // Insert and remove the oldest if we exceed 5.
+        if self.0.insert(slot_version) {
+            if self.0.len() > 5 {
+                self.0.pop_first();
+            }
+            return true;
+        }
+        false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Top5;
+
+    #[test]
+    fn test_add_and_order() {
+        let mut top5 = Top5::new();
+        assert!(top5.add(1));
+        assert!(top5.add(2));
+        assert!(top5.add(3));
+        assert!(top5.add(4));
+        assert!(top5.add(5));
+        // Should have 5 elements
+        assert_eq!(top5.0.len(), 5);
+        // Adding 6 should remove 1
+        assert!(top5.add(6));
+        assert_eq!(top5.0.len(), 5);
+        assert!(!top5.0.contains(&1));
+        assert!(top5.0.contains(&6));
+    }
+
+    #[test]
+    fn test_add_duplicate() {
+        let mut top5 = Top5::new();
+        assert!(top5.add(10));
+        assert!(!top5.add(10)); // duplicate, should not add
+        assert_eq!(top5.0.len(), 1);
+    }
+
+    #[test]
+    fn test_add_out_of_range() {
+        let mut top5 = Top5::new();
+        assert!(top5.add(105));
+        // Adding a value more than 5 less than max should not add
+        assert!(!top5.add(99));
+        assert_eq!(top5.0.len(), 1);
+        assert!(!top5.0.contains(&99));
+        assert!(top5.0.contains(&105));
+    }
+
+    #[test]
+    fn test_add_multiple_out_of_order() {
+        let mut top5 = Top5::new();
+        assert!(top5.add(52));
+        assert!(top5.add(50));
+        assert!(top5.add(51));
+        assert!(top5.add(54));
+        assert!(top5.add(53));
+        // Now, adding 49 (more than 5 less than max 54) should not add
+        assert!(!top5.add(49));
+        // Adding 55 should remove 50
+        assert!(top5.add(55));
+        assert_eq!(top5.0.len(), 5);
+        assert!(!top5.0.contains(&50));
+        assert!(top5.0.contains(&55));
     }
 }
