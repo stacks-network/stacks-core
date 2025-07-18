@@ -35,97 +35,102 @@
 
 ;; The block height at which vesting starts. On Mainnet, this is
 ;; burn height 907740, which is what is specified in SIP-031.
-(define-constant DEPLOY_BLOCK_HEIGHT (if is-in-mainnet u907740 burn-block-height))
+(define-constant DEPLOY_BLOCK_HEIGHT (if is-in-mainnet
+  u907740
+  burn-block-height
+))
 
 ;; The authorized recipient of the funds.
 ;; Note than in production environments, `tx-sender` is
 ;; replaced with a hard-coded address.
 (define-data-var recipient principal tx-sender)
 
-(define-read-only (get-recipient) (var-get recipient))
+(define-read-only (get-recipient)
+  (var-get recipient)
+)
 
-(define-read-only (get-deploy-block-height) DEPLOY_BLOCK_HEIGHT)
+(define-read-only (get-deploy-block-height)
+  DEPLOY_BLOCK_HEIGHT
+)
 
 ;; Update the recipient of the funds.
 ;; May only be called by the current `recipient`.
 ;; Returns `true` if the recipient was updated.
-(define-public (update-recipient (new-recipient principal)) (begin
+(define-public (update-recipient (new-recipient principal))
+  (begin
     (begin
-        (try! (validate-caller))
-        (print {
-            topic: "update-recipient",
-            old-recipient: (var-get recipient),
-            new-recipient: new-recipient,
-        })
-        (var-set recipient new-recipient)
-        (ok true))
-))
+      (try! (validate-caller))
+      (print {
+        topic: "update-recipient",
+        old-recipient: (var-get recipient),
+        new-recipient: new-recipient,
+      })
+      (var-set recipient new-recipient)
+      (ok true)
+    )
+  )
+)
 
 ;; Transfer all currently withdrawable STX (vested + extra) to `recipient`.
 ;; Errors with `ERR_NOTHING_TO_CLAIM` if there is nothing to withdraw.
 (define-public (claim)
-    (let
-        (
-            (claimable (calc-claimable-amount burn-block-height))
-        )
-        (try! (validate-caller))
-        (asserts! (> claimable u0) (err ERR_NOTHING_TO_CLAIM))
-
-        (try! (as-contract (stx-transfer? claimable tx-sender (var-get recipient))))
-        (print {
-            topic: "claim",
-            claimable: claimable,
-            recipient: (var-get recipient),
-        })
-        (ok claimable)
-    )
+  (let ((claimable (calc-claimable-amount burn-block-height)))
+    (try! (validate-caller))
+    (asserts! (> claimable u0) (err ERR_NOTHING_TO_CLAIM))
+    (try! (as-contract (stx-transfer? claimable tx-sender (var-get recipient))))
+    (print {
+      topic: "claim",
+      claimable: claimable,
+      recipient: (var-get recipient),
+    })
+    (ok claimable)
+  )
 )
 
 ;; Authorization check. Verify that the caller is the current `recipient`.
 ;; This also prevents `recipient` calling into this contract
 ;; via an indirect contract-call.
 (define-private (validate-caller)
-    (if (is-eq (var-get recipient) contract-caller tx-sender)
-        (ok true)
-        (err ERR_NOT_ALLOWED))
+  (if (is-eq (var-get recipient) contract-caller tx-sender)
+    (ok true)
+    (err ERR_NOT_ALLOWED)
+  )
 )
 
 ;; Returns the *total* vested amount at `burn-height`, i.e.
 ;; immediate bucket + linear vesting so far (DOES NOT subtract any claims).
 (define-private (calc-total-vested (burn-height uint))
-    (let
-      (
-        (diff (- burn-height DEPLOY_BLOCK_HEIGHT))
-        ;; Note: this rounds down
-        (iterations (/ diff INITIAL_MINT_VESTING_ITERATION_BLOCKS))
-        (vested-multiple (/ (* STX_PER_ITERATION diff) INITIAL_MINT_VESTING_ITERATION_BLOCKS))
-
-        ;; If we have completed (or exceeded) the scheduled number of iterations,
-        ;; consider the *entire* vesting bucket unlocked. This avoids leaving a
-        ;; tiny remainder caused by integer-division truncation.
-        (vested-amount (if (>= iterations INITIAL_MINT_VESTING_ITERATIONS)
-                            INITIAL_MINT_VESTING_AMOUNT
-                            vested-multiple))
-        (total-amount (+ INITIAL_MINT_IMMEDIATE_AMOUNT vested-amount))
-      )
-      total-amount
+  (let (
+      (diff (- burn-height DEPLOY_BLOCK_HEIGHT))
+      ;; Note: this rounds down
+      (iterations (/ diff INITIAL_MINT_VESTING_ITERATION_BLOCKS))
+      (vested-multiple (/ (* STX_PER_ITERATION diff) INITIAL_MINT_VESTING_ITERATION_BLOCKS))
+      ;; If we have completed (or exceeded) the scheduled number of iterations,
+      ;; consider the *entire* vesting bucket unlocked. This avoids leaving a
+      ;; tiny remainder caused by integer-division truncation.
+      (vested-amount (if (>= iterations INITIAL_MINT_VESTING_ITERATIONS)
+        INITIAL_MINT_VESTING_AMOUNT
+        vested-multiple
+      ))
+      (total-amount (+ INITIAL_MINT_IMMEDIATE_AMOUNT vested-amount))
     )
+    total-amount
+  )
 )
 
 ;; Returns the amount of STX that is claimable from the vested balance at `burn-height`
 (define-read-only (calc-claimable-amount (burn-height uint))
-    (if (< burn-height DEPLOY_BLOCK_HEIGHT)
-        u0
-        (let
-            (
-                (reserved (- INITIAL_MINT_AMOUNT (calc-total-vested burn-height)))
-                (balance (stx-get-balance (as-contract tx-sender)))
-                (claimable
-                    (if (> balance reserved)
-                        (- balance reserved)
-                        u0))
-            )
-            claimable
-        )
+  (if (< burn-height DEPLOY_BLOCK_HEIGHT)
+    u0
+    (let (
+        (reserved (- INITIAL_MINT_AMOUNT (calc-total-vested burn-height)))
+        (balance (stx-get-balance (as-contract tx-sender)))
+        (claimable (if (> balance reserved)
+          (- balance reserved)
+          u0
+        ))
+      )
+      claimable
     )
+  )
 )
