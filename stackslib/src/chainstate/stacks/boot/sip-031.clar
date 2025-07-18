@@ -1,3 +1,17 @@
+;; This contract implements a boot contract, deployed
+;; at epoch 3.2, which facilitates the mints and transfers
+;; described in SIP-031.
+;;
+;; There are three mechanisms for claiming STX from this contract:
+;; 1. An initial 100M STX, which is available immediately.
+;; 2. A linear vesting schedule of 100M STX over 24 months.
+;; 3. Per-tenure mints, which are transferred to this contract,
+;;   are available as soon as they are received by this contract.
+;;
+;; This contract is written based on the assumption that the contract
+;; will have a balance of at least 200M STX upon deployment, which is
+;; handled during the epoch 3.2 transition.
+
 (define-constant ERR_NOT_ALLOWED u101)
 (define-constant ERR_NOTHING_TO_CLAIM u102)
 
@@ -23,6 +37,9 @@
 ;; burn height 907740, which is what is specified in SIP-031.
 (define-constant DEPLOY_BLOCK_HEIGHT (if is-in-mainnet u907740 burn-block-height))
 
+;; The authorized recipient of the funds.
+;; Note than in production environments, `tx-sender` is
+;; replaced with a hard-coded address.
 (define-data-var recipient principal tx-sender)
 
 (define-read-only (get-recipient) (var-get recipient))
@@ -30,9 +47,7 @@
 (define-read-only (get-deploy-block-height) DEPLOY_BLOCK_HEIGHT)
 
 ;; Update the recipient of the funds.
-;;
-;; May only be called by the `recipient`.
-;;
+;; May only be called by the current `recipient`.
 ;; Returns `true` if the recipient was updated.
 (define-public (update-recipient (new-recipient principal)) (begin
     (begin
@@ -66,6 +81,9 @@
     )
 )
 
+;; Authorization check. Verify that the caller is the current `recipient`.
+;; This also prevents `recipient` calling into this contract
+;; via an indirect contract-call.
 (define-private (validate-caller)
     (if (is-eq (var-get recipient) contract-caller tx-sender)
         (ok true)
@@ -73,7 +91,7 @@
 )
 
 ;; Returns the *total* vested amount at `burn-height`, i.e.
-;; immediate bucket + linear vesting so far ( DOES NOT subtract any claims ).
+;; immediate bucket + linear vesting so far (DOES NOT subtract any claims).
 (define-private (calc-total-vested (burn-height uint))
     (let
       (
@@ -83,7 +101,7 @@
         (vested-multiple (/ (* STX_PER_ITERATION diff) INITIAL_MINT_VESTING_ITERATION_BLOCKS))
 
         ;; If we have completed (or exceeded) the scheduled number of iterations,
-        ;; consider the *entire* vesting bucket unlocked.  This avoids leaving a
+        ;; consider the *entire* vesting bucket unlocked. This avoids leaving a
         ;; tiny remainder caused by integer-division truncation.
         (vested-amount (if (>= iterations INITIAL_MINT_VESTING_ITERATIONS)
                             INITIAL_MINT_VESTING_AMOUNT
