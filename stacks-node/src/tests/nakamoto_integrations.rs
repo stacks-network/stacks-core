@@ -12892,10 +12892,6 @@ fn test_sip_031_activation() {
         if burn_block_height
             == naka_conf.burnchain.epochs.clone().unwrap()[StacksEpochId::Epoch32].start_height
         {
-            println!(
-                "\n\nOOPS {:?}\n\n",
-                block.get("transactions").unwrap().as_array().unwrap()
-            );
             // the first transaction is the coinbase
             coinbase_txid = Some(
                 block
@@ -13131,7 +13127,7 @@ fn test_sip_031_last_phase() {
     );
 
     // get current liquidity
-    let _sip_031_current_liquid_ustx = chainstate
+    let sip_031_current_liquid_ustx_before = chainstate
         .with_read_only_clarity_tx(
             &sortdb
                 .index_handle_at_block(&chainstate, &latest_stacks_block_id)
@@ -13141,7 +13137,7 @@ fn test_sip_031_last_phase() {
         )
         .unwrap();
 
-    // 50 more tenures...
+    // 50 more tenures (each one with 3 stacks blocks)
     for _ in 0..50 {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_blocks(
@@ -13168,17 +13164,41 @@ fn test_sip_031_last_phase() {
                 naka_conf.is_mainnet(),
             );
 
+        // check for mint events for the SIP-031 boot contract (excluding the activation one)
         let events = block.get("events").unwrap().as_array().unwrap();
         for event in events {
             if let Some(mint_event) = event.get("stx_mint_event") {
-                let minted_amount =
-                    u128::try_from(mint_event.get("amount").unwrap().as_u64().unwrap()).unwrap();
-                assert_eq!(sip_031_mint_and_transfer_amount, minted_amount);
-                total_minted_and_transferred += minted_amount;
-                break;
+                if mint_event.get("recipient").unwrap().as_str().unwrap()
+                    == boot_code_id(SIP_031_NAME, naka_conf.is_mainnet()).to_string()
+                    && burn_block_height != epoch32_start_height
+                {
+                    let minted_amount = mint_event
+                        .get("amount")
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .parse::<u128>()
+                        .unwrap();
+                    assert_eq!(sip_031_mint_and_transfer_amount, minted_amount);
+                    total_minted_and_transferred += minted_amount;
+
+                    let coinbase_txid = block
+                        .get("transactions")
+                        .unwrap()
+                        .as_array()
+                        .unwrap()
+                        .get(1)
+                        .unwrap()
+                        .get("txid")
+                        .unwrap()
+                        .as_str()
+                        .unwrap();
+
+                    // check the event txid is mapped to the coinbase
+                    assert_eq!(event.get("txid").unwrap().as_str().unwrap(), coinbase_txid);
+                }
             }
         }
-        total_minted_and_transferred += sip_031_mint_and_transfer_amount;
     }
 
     // (100_000 + 200_000 + 300_000) * 5
@@ -13210,6 +13230,23 @@ fn test_sip_031_last_phase() {
         Some(Ok(STXBalance::Unlocked {
             amount: SIP_031_INITIAL_MINT + total_minted_and_transferred
         }))
+    );
+
+    // get current liquidity
+    let sip_031_current_liquid_ustx = chainstate
+        .with_read_only_clarity_tx(
+            &sortdb
+                .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+                .unwrap(),
+            &latest_stacks_block_id,
+            |conn| conn.with_clarity_db_readonly(|db| db.get_total_liquid_ustx().unwrap()),
+        )
+        .unwrap();
+
+    // check liquidity has been updated accordingly
+    assert!(
+        sip_031_current_liquid_ustx - sip_031_current_liquid_ustx_before
+            >= total_minted_and_transferred
     );
 
     set_test_sip_031_emission_schedule(None);

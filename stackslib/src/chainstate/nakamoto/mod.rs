@@ -641,23 +641,23 @@ pub static SIP031_EMISSION_INTERVALS_TESTNET: LazyLock<[SIP031EmissionInterval; 
                 start_height: 2_600,
             },
             SIP031EmissionInterval {
-                amount: 0,
+                amount: 5_000,
                 start_height: 2_500,
             },
             SIP031EmissionInterval {
-                amount: 0,
+                amount: 4_000,
                 start_height: 2_400,
             },
             SIP031EmissionInterval {
-                amount: 0,
+                amount: 3_000,
                 start_height: 2_300,
             },
             SIP031EmissionInterval {
-                amount: 0,
+                amount: 2_000,
                 start_height: 2_200,
             },
             SIP031EmissionInterval {
-                amount: 0,
+                amount: 1_000,
                 start_height: 2_100,
             },
         ];
