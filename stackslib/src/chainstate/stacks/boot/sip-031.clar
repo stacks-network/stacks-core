@@ -116,7 +116,9 @@
   )
 )
 
-;; Returns the amount of STX that is claimable from the vested balance at `burn-height`
+;; Returns the amount of STX that is claimable from the vested balance at `burn-height`.
+;; Note that this function takes into account the current STX balance
+;; of this contract, which may change by `burn-height`.
 (define-read-only (calc-claimable-amount (burn-height uint))
   (if (< burn-height DEPLOY_BLOCK_HEIGHT)
     u0
