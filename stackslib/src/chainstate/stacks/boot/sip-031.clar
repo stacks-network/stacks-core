@@ -35,19 +35,15 @@
 ;;
 ;; Returns `true` if the recipient was updated.
 (define-public (update-recipient (new-recipient principal)) (begin
-    (let
-        (
-            (old-recipient (var-get recipient))
-        )
+    (begin
         (try! (validate-caller))
-        (var-set recipient new-recipient)
         (print {
             topic: "update-recipient",
-            old-recipient: old-recipient,
+            old-recipient: (var-get recipient),
             new-recipient: new-recipient,
         })
-        (ok true)
-    )
+        (var-set recipient new-recipient)
+        (ok true))
 ))
 
 ;; Transfer all currently withdrawable STX (vested + extra) to `recipient`.
@@ -71,10 +67,9 @@
 )
 
 (define-private (validate-caller)
-    (begin
-        (asserts! (is-eq contract-caller (var-get recipient)) (err ERR_NOT_ALLOWED))
-        (asserts! (is-eq tx-sender (var-get recipient)) (err ERR_NOT_ALLOWED))
-        (ok true))
+    (if (is-eq (var-get recipient) contract-caller tx-sender)
+        (ok true)
+        (err ERR_NOT_ALLOWED))
 )
 
 ;; Returns the *total* vested amount at `burn-height`, i.e.
