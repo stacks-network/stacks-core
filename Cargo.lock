@@ -609,8 +609,6 @@ dependencies = [
  "integer-sqrt",
  "lazy_static",
  "mutants",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
  "regex",
  "rstest",
  "rstest_reuse",

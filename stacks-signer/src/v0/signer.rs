@@ -937,19 +937,25 @@ impl Signer {
         // TODO: should add a check to ignore an old burn block height if we know its outdated. Would require us to store the burn block height we last saw on the side.
         //  the signer needs to be able to determine whether or not the block they're about to sign would conflict with an already-signed Stacks block
         let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
-        let prior_evaluation = self
-            .block_lookup_by_reward_cycle(&signer_signature_hash)
-            .and_then(|block_info| if should_reevaluate_block(&block_info) {
-                debug!("Received a proposal for this block before, but our rejection reason allows us to reconsider";
-                    "reject_reason" => ?block_info.reject_reason);
-                None
-            } else {
-                Some(block_info)
-            });
-
-        // we previously considered this proposal, handle the status here
-        if let Some(block_info) = prior_evaluation {
-            return self.handle_prior_proposal_eval(&block_info);
+        if let Some(block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) {
+            if block_info.state == BlockState::GloballyAccepted {
+                info!("{self}: Received a block proposal for a block that is already globally accepted. Ignoring...";
+                    "signer_signature_hash" => %signer_signature_hash,
+                    "block_id" => %block_proposal.block.block_id(),
+                    "block_height" => block_proposal.block.header.chain_length,
+                    "burn_height" => block_proposal.burn_height,
+                    "consensus_hash" => %block_proposal.block.header.consensus_hash,
+                    "timestamp" => block_proposal.block.header.timestamp,
+                    "signed_group" => block_info.signed_group,
+                    "signed_self" => block_info.signed_self
+                );
+                return;
+            }
+            if !should_reevaluate_block(&block_info) {
+                return self.handle_prior_proposal_eval(&block_info);
+            }
+            debug!("Received a proposal for this block before, but our rejection reason allows us to reconsider";
+                "reject_reason" => ?block_info.reject_reason);
         }
 
         info!(
@@ -1490,12 +1496,16 @@ impl Signer {
         }
 
         // signature is valid! store it
-        if let Err(e) = self.signer_db.add_block_rejection_signer_addr(
+        match self.signer_db.add_block_rejection_signer_addr(
             block_hash,
             &signer_address,
             &rejection.response_data.reject_reason,
         ) {
-            warn!("{self}: Failed to save block rejection signature: {e:?}",);
+            Err(e) => {
+                warn!("{self}: Failed to save block rejection signature: {e:?}",);
+            }
+            Ok(false) => return, // We already have this signature, do not process it again.
+            Ok(true) => (),
         }
         block_info.reject_reason = Some(rejection.response_data.reject_reason.clone());
 
@@ -1623,10 +1633,17 @@ impl Signer {
             return;
         }
 
-        // signature is valid! store it
-        self.signer_db
-            .add_block_signature(block_hash, signature)
-            .unwrap_or_else(|_| panic!("{self}: Failed to save block signature"));
+        let signer_address = StacksAddress::p2pkh(self.mainnet, &public_key);
+
+        // signature is valid! store it.
+        // if this returns false, it means the signature already exists in the DB, so just return.
+        if !self
+            .signer_db
+            .add_block_signature(block_hash, &signer_address, signature)
+            .unwrap_or_else(|_| panic!("{self}: Failed to save block signature"))
+        {
+            return;
+        }
 
         // do we have enough signatures to broadcast?
         // i.e. is the threshold reached?
