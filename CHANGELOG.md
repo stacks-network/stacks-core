@@ -19,6 +19,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Fixed
 
 - Fixed tenure downloader logic on reward cycle boundaries (#6234).
+- Do not send events to event observers for stale StackerDB chunks.
 
 ## [3.1.0.0.13]
 
