@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::path::Path;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::TransactionPayload;
@@ -1150,6 +1150,25 @@ impl SignerDb {
         let result: Option<String> = query_row(&self.db, query, args)?;
 
         try_deserialize(result)
+    }
+
+    /// Return the last globally accepted block that was signed by the local signer in a tenure (identified by its consensus hash).
+    pub fn get_last_globally_accepted_block_signed_self(
+        &self,
+        tenure: &ConsensusHash,
+    ) -> Result<Option<SystemTime>, DBError> {
+        let query = r#"
+            SELECT signed_self
+            FROM blocks
+            WHERE consensus_hash = ?1
+            AND state = ?2
+            AND signed_self IS NOT NULL
+            ORDER BY burn_block_height DESC
+            LIMIT 1;
+        "#;
+        let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
+        let result: Option<u64> = query_row(&self.db, query, args)?;
+        Ok(result.map(|signed_self| UNIX_EPOCH + Duration::from_secs(signed_self)))
     }
 
     /// Return the canonical tip -- the last globally accepted block.
@@ -3295,5 +3314,65 @@ pub mod tests {
             .get_burn_block_received_time_from_signers(&eval, &burn_block_2, &local_address)
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn test_get_last_globally_accepted_block_signed_self() {
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let consensus_hash_1 = ConsensusHash([0x01; 20]);
+        let consensus_hash_2 = ConsensusHash([0x02; 20]);
+
+        // Create blocks with different burn heights and signed_self timestamps (seconds since epoch)
+        let (mut block_info_1, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.miner_signature = MessageSignature([0x01; 65]);
+            b.block.header.chain_length = 1;
+            b.burn_height = 1;
+        });
+        block_info_1.mark_locally_accepted(false).unwrap();
+        let (mut block_info_2, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.miner_signature = MessageSignature([0x02; 65]);
+            b.block.header.chain_length = 2;
+            b.burn_height = 2;
+        });
+        block_info_2.mark_locally_accepted(false).unwrap();
+        let (mut block_info_3, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_2;
+            b.block.header.miner_signature = MessageSignature([0x03; 65]);
+            b.block.header.chain_length = 3;
+            b.burn_height = 3;
+        });
+        block_info_3.mark_locally_accepted(false).unwrap();
+
+        // Mark only one of the blocks as globally accepted
+        block_info_1.mark_globally_accepted().unwrap();
+
+        // Insert into db
+        db.insert_block(&block_info_1).unwrap();
+        db.insert_block(&block_info_2).unwrap();
+        db.insert_block(&block_info_3).unwrap();
+
+        // Query for consensus_hash_1 should return signed_self of block_info_2 (highest burn_height)
+        db.get_last_globally_accepted_block_signed_self(&consensus_hash_1)
+            .unwrap()
+            .expect("Expected a signed_self timestamp");
+
+        // Query for consensus_hash_2 should return none since we only contributed to a locally signed block
+        let result_2 = db
+            .get_last_globally_accepted_block_signed_self(&consensus_hash_2)
+            .unwrap();
+
+        assert!(result_2.is_none());
+
+        // Query for a consensus hash with no blocks should return None
+        let consensus_hash_3 = ConsensusHash([0x03; 20]);
+        let result_3 = db
+            .get_last_globally_accepted_block_signed_self(&consensus_hash_3)
+            .unwrap();
+
+        assert!(result_3.is_none());
     }
 }
