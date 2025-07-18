@@ -3001,6 +3001,8 @@ fn bitcoind_forking_test() {
             let epochs = node_config.burnchain.epochs.as_mut().unwrap();
             epochs[StacksEpochId::Epoch30].end_height = 3_015;
             epochs[StacksEpochId::Epoch31].start_height = 3_015;
+            epochs[StacksEpochId::Epoch31].end_height = 3_055;
+            epochs[StacksEpochId::Epoch32].start_height = 3_055;
         },
         None,
         None,
@@ -7483,6 +7485,8 @@ fn mock_sign_epoch_25() {
             epochs[StacksEpochId::Epoch30].start_height = 251;
             epochs[StacksEpochId::Epoch30].end_height = 265;
             epochs[StacksEpochId::Epoch31].start_height = 265;
+            epochs[StacksEpochId::Epoch31].end_height = 285;
+            epochs[StacksEpochId::Epoch32].start_height = 285;
         },
         None,
         None,
@@ -7601,6 +7605,8 @@ fn multiple_miners_mock_sign_epoch_25() {
             epochs[StacksEpochId::Epoch30].start_height = 251;
             epochs[StacksEpochId::Epoch30].end_height = 265;
             epochs[StacksEpochId::Epoch31].start_height = 265;
+            epochs[StacksEpochId::Epoch31].end_height = 285;
+            epochs[StacksEpochId::Epoch32].start_height = 285;
         },
         |_| {},
     );
