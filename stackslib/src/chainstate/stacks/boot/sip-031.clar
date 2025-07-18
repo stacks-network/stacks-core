@@ -58,16 +58,14 @@
 ;; Returns `true` if the recipient was updated.
 (define-public (update-recipient (new-recipient principal))
   (begin
-    (begin
-      (try! (validate-caller))
-      (print {
-        topic: "update-recipient",
-        old-recipient: (var-get recipient),
-        new-recipient: new-recipient,
-      })
-      (var-set recipient new-recipient)
-      (ok true)
-    )
+    (try! (validate-caller))
+    (print {
+      topic: "update-recipient",
+      old-recipient: (var-get recipient),
+      new-recipient: new-recipient,
+    })
+    (var-set recipient new-recipient)
+    (ok true)
   )
 )
 
