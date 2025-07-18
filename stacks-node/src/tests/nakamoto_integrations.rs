@@ -12886,14 +12886,14 @@ fn test_sip_031_activation() {
 
     // check if the coinbase activation block receipt has the mint event
     let mut mint_event_found: Option<serde_json::Value> = None;
-    let mut coinbase_txid: Option<String> = None;
+    let mut contract_deploy_txid: Option<String> = None;
     for block in test_observer::get_blocks().iter().rev() {
         let burn_block_height = block.get("burn_block_height").unwrap().as_u64().unwrap();
         if burn_block_height
             == naka_conf.burnchain.epochs.clone().unwrap()[StacksEpochId::Epoch32].start_height
         {
-            // the first transaction is the coinbase
-            coinbase_txid = Some(
+            // the first transaction is the boot contract deploy
+            contract_deploy_txid = Some(
                 block
                     .get("transactions")
                     .unwrap()
@@ -12907,6 +12907,19 @@ fn test_sip_031_activation() {
                     .unwrap()
                     .into(),
             );
+
+            // ensure it has a contract_interface
+            assert!(block
+                .get("transactions")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .first()
+                .unwrap()
+                .get("contract_interface")
+                .unwrap()
+                .as_object()
+                .is_some());
             let events = block.get("events").unwrap().as_array().unwrap();
             for event in events {
                 if let Some(_) = event.get("stx_mint_event") {
@@ -12918,7 +12931,7 @@ fn test_sip_031_activation() {
         }
     }
 
-    assert!(coinbase_txid.is_some());
+    assert!(contract_deploy_txid.is_some());
     assert!(mint_event_found.is_some());
 
     // check the amount
@@ -12958,7 +12971,7 @@ fn test_sip_031_activation() {
             .unwrap()
             .as_str()
             .unwrap(),
-        coinbase_txid.unwrap()
+        contract_deploy_txid.unwrap()
     );
 
     coord_channel
