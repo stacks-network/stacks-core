@@ -6338,8 +6338,8 @@ fn tenure_extend_with_other_transactions() {
     info!("---- Wait for tenure extend timeout ----");
     sleep_ms(idle_timeout.as_millis() as u64 + 5);
 
-    fault_injection_stall_miner();
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
+    fault_injection_stall_miner();
     // Submit a transaction to be included with the tenure extend
     let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
