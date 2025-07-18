@@ -104,7 +104,7 @@
       (diff (- burn-height DEPLOY_BLOCK_HEIGHT))
       ;; Note: this rounds down
       (iterations (/ diff INITIAL_MINT_VESTING_ITERATION_BLOCKS))
-      (vested-multiple (/ (* STX_PER_ITERATION diff) INITIAL_MINT_VESTING_ITERATION_BLOCKS))
+      (vested-multiple (* STX_PER_ITERATION iterations))
       ;; If we have completed (or exceeded) the scheduled number of iterations,
       ;; consider the *entire* vesting bucket unlocked. This avoids leaving a
       ;; tiny remainder caused by integer-division truncation.
