@@ -109,7 +109,8 @@ use stacks_signer::v0::SpawnedSigner;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::nakamoto_node::miner::{
-    fault_injection_stall_miner, fault_injection_unstall_miner, TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_P2P_BROADCAST_SKIP, TEST_P2P_BROADCAST_STALL
+    fault_injection_stall_miner, fault_injection_unstall_miner, TEST_BLOCK_ANNOUNCE_STALL,
+    TEST_BROADCAST_PROPOSAL_STALL, TEST_P2P_BROADCAST_SKIP, TEST_P2P_BROADCAST_STALL,
 };
 use crate::nakamoto_node::relayer::TEST_MINER_THREAD_STALL;
 use crate::neon::Counters;
