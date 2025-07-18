@@ -189,7 +189,7 @@ pub fn make_sip_031_body(is_mainnet: bool) -> String {
 
     SIP_031_BODY.replacen(
         "(define-data-var recipient principal tx-sender)",
-        &format!("(define-data-var recipient principal '{})", addr),
+        &format!("(define-data-var recipient principal '{addr})"),
         1,
     )
 }
