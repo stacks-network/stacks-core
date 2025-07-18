@@ -14,6 +14,7 @@
 
 (define-constant ERR_NOT_ALLOWED u101)
 (define-constant ERR_NOTHING_TO_CLAIM u102)
+(define-constant ERR_INVALID_RECIPIENT u103)
 
 ;; The amount initially minted to the contract is 200M STX
 (define-constant INITIAL_MINT_AMOUNT u200000000000000) ;; 200,000,000 STX
@@ -59,6 +60,7 @@
 (define-public (update-recipient (new-recipient principal))
   (begin
     (try! (validate-caller))
+    (asserts! (is-standard new-recipient) (err ERR_INVALID_RECIPIENT))
     (print {
       topic: "update-recipient",
       old-recipient: (var-get recipient),

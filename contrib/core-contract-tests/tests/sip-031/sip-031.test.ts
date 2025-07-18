@@ -1,5 +1,10 @@
 import { project, accounts } from '../clarigen-types'; // where your [types.output] was specified
-import { CoreNodeEventType, cvToValue, projectFactory } from '@clarigen/core';
+import {
+  CoreNodeEventType,
+  cvToValue,
+  projectFactory,
+  MAINNET_BURN_ADDRESS,
+} from '@clarigen/core';
 import { filterEvents, rov, txErr, txOk } from '@clarigen/test';
 import { test, expect } from 'vitest';
 
@@ -403,4 +408,26 @@ test('claiming after waiting more than 1 month', () => {
     constants.INITIAL_MINT_IMMEDIATE_AMOUNT +
       constants.INITIAL_MINT_VESTING_AMOUNT / 24n,
   );
+});
+
+test('recipient cannot be set to a non-standard address', () => {
+  const mainnetStandard = MAINNET_BURN_ADDRESS;
+  const standardReceipt = txErr(
+    contract.updateRecipient(mainnetStandard),
+    accounts.deployer.address,
+  );
+  expect(standardReceipt.value).toBe(constants.ERR_INVALID_RECIPIENT);
+
+  const mainnetContract = `${MAINNET_BURN_ADDRESS}.blah`;
+  const contractReceipt = txErr(
+    contract.updateRecipient(mainnetContract),
+    accounts.deployer.address,
+  );
+  expect(contractReceipt.value).toBe(constants.ERR_INVALID_RECIPIENT);
+});
+
+test('recipient can be set to a contract', () => {
+  const contractAddr = `${accounts.deployer.address}.blah`;
+  txOk(contract.updateRecipient(contractAddr), accounts.deployer.address);
+  expect(rov(contract.getRecipient())).toBe(contractAddr);
 });

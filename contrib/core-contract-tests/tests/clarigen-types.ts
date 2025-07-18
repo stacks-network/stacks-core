@@ -4615,6 +4615,11 @@ export const contracts = {
         type: "uint128",
         access: "constant",
       } as TypedAbiVariable<bigint>,
+      ERR_INVALID_RECIPIENT: {
+        name: "ERR_INVALID_RECIPIENT",
+        type: "uint128",
+        access: "constant",
+      } as TypedAbiVariable<bigint>,
       ERR_NOTHING_TO_CLAIM: {
         name: "ERR_NOTHING_TO_CLAIM",
         type: "uint128",
@@ -4663,6 +4668,7 @@ export const contracts = {
     },
     constants: {
       DEPLOY_BLOCK_HEIGHT: 3n,
+      ERR_INVALID_RECIPIENT: 103n,
       ERR_NOTHING_TO_CLAIM: 102n,
       ERR_NOT_ALLOWED: 101n,
       INITIAL_MINT_AMOUNT: 200_000_000_000_000n,
