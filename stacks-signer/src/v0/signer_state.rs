@@ -21,6 +21,7 @@ use std::time::{Duration, SystemTime};
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
+use blockstack_lib::util_lib::db::Error as DBError;
 #[cfg(any(test, feature = "testing"))]
 use clarity::util::tests::TestFlag;
 use libsigner::v0::messages::{
@@ -936,7 +937,8 @@ impl LocalStateMachine {
                         continue;
                     };
                     if local_parent_tenure_last_block_height < *parent_tenure_last_block_height {
-                        warn!(
+                        // We haven't processed this stacks block yet.
+                        debug!(
                             "Signer State: A threshold number of signers have a longer active miner parent tenure view. Signer may have an oudated view.";
                             "parent_tenure_id" => %parent_tenure_id,
                             "local_parent_tenure_last_block_height" => local_parent_tenure_last_block_height,
@@ -945,6 +947,13 @@ impl LocalStateMachine {
                         continue;
                     }
                     potential_matches.insert(potential_match);
+                }
+                Err(DBError::NotFoundError) => {
+                    // We haven't processed this burn block yet.
+                    debug!(
+                        "Signer State: A threshold number of signers have an active miner tenure id that we have not seen yet. Signer may have an outdated view.";
+                        "tenure_id" => %tenure_id,
+                    );
                 }
                 Err(e) => {
                     warn!("Signer State: Error retrieving burn block for consensus_hash {tenure_id} from signerdb: {e}");
