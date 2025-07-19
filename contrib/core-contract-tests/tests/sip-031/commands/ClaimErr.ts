@@ -1,6 +1,11 @@
 import fc from "fast-check";
 import type { Model, Real } from "./types";
-import { calculateClaimable, logCommand, trackCommandRun } from "./utils";
+import {
+  calculateClaimable,
+  getWalletNameByAddress,
+  logCommand,
+  trackCommandRun,
+} from "./utils";
 import { expect } from "vitest";
 import { txErr } from "@clarigen/test";
 
@@ -35,7 +40,7 @@ export const ClaimErr = (accounts: Real["accounts"]) =>
         ? "ERR_NOT_ALLOWED"
         : "ERR_NOTHING_TO_CLAIM";
       logCommand({
-        sender: r.sender,
+        sender: getWalletNameByAddress(r.sender),
         status: "err",
         action: "claim-err",
         error: errString,

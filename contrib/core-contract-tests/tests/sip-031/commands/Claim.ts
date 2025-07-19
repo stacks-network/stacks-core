@@ -1,6 +1,11 @@
 import fc from "fast-check";
 import type { Model, Real } from "./types";
-import { calculateClaimable, logCommand, trackCommandRun } from "./utils";
+import {
+  calculateClaimable,
+  getWalletNameByAddress,
+  logCommand,
+  trackCommandRun,
+} from "./utils";
 import { expect } from "vitest";
 import { txOk } from "@clarigen/test";
 
@@ -26,7 +31,7 @@ export const Claim = (accounts: Real["accounts"]) =>
       model.totalClaimed += expectedClaim;
 
       logCommand({
-        sender: r.sender,
+        sender: getWalletNameByAddress(r.sender),
         status: "ok",
         action: "claim",
         value: `amount ${expectedClaim}`,

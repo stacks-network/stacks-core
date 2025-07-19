@@ -2,7 +2,7 @@ import fc from "fast-check";
 import type { Model, Real } from "./types";
 import { expect } from "vitest";
 import { txErr } from "@clarigen/test";
-import { logCommand, trackCommandRun } from "./utils";
+import { getWalletNameByAddress, logCommand, trackCommandRun } from "./utils";
 
 export const UpdateRecipientErr = (accounts: Real["accounts"]) =>
   fc.record({
@@ -26,7 +26,7 @@ export const UpdateRecipientErr = (accounts: Real["accounts"]) =>
       expect(receipt.value).toBe(model.constants.ERR_NOT_ALLOWED);
 
       logCommand({
-        sender: r.sender,
+        sender: getWalletNameByAddress(r.sender),
         status: "err",
         action: "update-recipient-err",
         error: "ERR_NOT_ALLOWED",
