@@ -562,6 +562,40 @@ test('vesting calculation one block before boundary', () => {
   }
 });
 
+test('vesting calculation one block after boundary', () => {
+  mintInitial();
+  const deployBlockHeight = rov(contract.getDeployBlockHeight());
+
+  // Test one block after each iteration boundary
+  for (let i = 1n; i < constants.INITIAL_MINT_VESTING_ITERATIONS; i++) {
+    const oneBlockAfter =
+      deployBlockHeight +
+      i * constants.INITIAL_MINT_VESTING_ITERATION_BLOCKS +
+      1n;
+    const claimable = rov(contract.calcClaimableAmount(oneBlockAfter));
+
+    // Should still be the current iteration's amount
+    const expectedVested =
+      i *
+      (constants.INITIAL_MINT_VESTING_AMOUNT /
+        constants.INITIAL_MINT_VESTING_ITERATIONS);
+    const expected = constants.INITIAL_MINT_IMMEDIATE_AMOUNT + expectedVested;
+    expect(claimable).toBe(expected);
+  }
+
+  // Special case for the last iteration
+  const oneBlockAfter =
+    deployBlockHeight +
+    constants.INITIAL_MINT_VESTING_ITERATION_BLOCKS *
+      constants.INITIAL_MINT_VESTING_ITERATIONS +
+    1n;
+  const claimable = rov(contract.calcClaimableAmount(oneBlockAfter));
+
+  // Should still be the current iteration's amount
+  const expectedVested = constants.INITIAL_MINT_AMOUNT;
+  expect(claimable).toBe(expectedVested);
+});
+
 test('contract balance exactly equals vested amount (no extra funds)', () => {
   // Only mint the exact initial amount, no extra
   mintInitial();
@@ -635,4 +669,224 @@ test('recipient change during vesting period preserves vested amounts', () => {
     6n;
   const secondClaim = txOk(contract.claim(), accounts.wallet_1.address);
   expect(secondClaim.value).toBe(expectedVested);
+});
+
+// -----------------------------------------------------------------------------
+// Fuzz Testing - Randomized Tests
+// -----------------------------------------------------------------------------
+
+test('fuzz: random extra deposits at random times', () => {
+  mintInitial();
+
+  let totalExtraDeposited = 0n;
+  let totalMonthsElapsed = 0;
+
+  // Generate 10 random deposit/time combinations
+  for (let i = 0; i < 10; i++) {
+    // Random deposit between 1 and 1000 STX
+    const randomDeposit =
+      BigInt(Math.floor(Math.random() * 1000) + 1) * 1000000n;
+    mint(randomDeposit);
+    totalExtraDeposited += randomDeposit;
+
+    // Random time advancement between 0 and 3 months
+    const randomMonths = Math.floor(Math.random() * 4);
+    if (randomMonths > 0) {
+      simnet.mineEmptyBlocks(months(randomMonths));
+      totalMonthsElapsed += randomMonths;
+    }
+  }
+
+  // Cap at 24 months for vesting calculation
+  const effectiveMonths = Math.min(totalMonthsElapsed, 24);
+  const expectedVested =
+    effectiveMonths < 24
+      ? (constants.INITIAL_MINT_VESTING_AMOUNT /
+          constants.INITIAL_MINT_VESTING_ITERATIONS) *
+        BigInt(effectiveMonths)
+      : constants.INITIAL_MINT_VESTING_AMOUNT;
+
+  const expectedTotal =
+    constants.INITIAL_MINT_IMMEDIATE_AMOUNT +
+    expectedVested +
+    totalExtraDeposited;
+
+  const receipt = txOk(contract.claim(), accounts.deployer.address);
+  expect(receipt.value).toBe(expectedTotal);
+
+  // Verify balance consistency
+  const remainingBalance = rov(
+    indirectContract.getBalance(contract.identifier),
+  );
+  const expectedRemaining =
+    effectiveMonths < 24
+      ? constants.INITIAL_MINT_VESTING_AMOUNT - expectedVested
+      : 0n;
+  expect(remainingBalance).toBe(expectedRemaining);
+});
+
+test('fuzz: random recipient changes during vesting', () => {
+  mintInitial();
+
+  const wallets = [
+    accounts.deployer.address,
+    accounts.wallet_1.address,
+    accounts.wallet_2.address,
+    accounts.wallet_3.address,
+  ];
+
+  let currentRecipient: string = accounts.deployer.address;
+  let currentRecipientIndex = 0;
+  let totalMonthsElapsed = 0;
+
+  // Perform random recipient changes over time
+  for (let i = 0; i < 8; i++) {
+    // Random time advancement
+    const monthsToAdvance = Math.floor(Math.random() * 4) + 1; // 1-4 months
+    simnet.mineEmptyBlocks(months(monthsToAdvance));
+    totalMonthsElapsed += monthsToAdvance;
+
+    if (totalMonthsElapsed >= 24) break;
+
+    // Random recipient change
+    const newRecipientIndex = Math.floor(Math.random() * wallets.length);
+    if (newRecipientIndex !== currentRecipientIndex) {
+      txOk(
+        contract.updateRecipient(wallets[newRecipientIndex]),
+        currentRecipient,
+      );
+      currentRecipient = wallets[newRecipientIndex];
+      currentRecipientIndex = newRecipientIndex;
+    }
+  }
+
+  // Final recipient should be able to claim all vested funds
+  const expectedVested =
+    totalMonthsElapsed < 24
+      ? (constants.INITIAL_MINT_VESTING_AMOUNT /
+          constants.INITIAL_MINT_VESTING_ITERATIONS) *
+        BigInt(totalMonthsElapsed)
+      : constants.INITIAL_MINT_VESTING_AMOUNT;
+
+  // If balance is sufficient, we can claim the vested amount
+  const receipt = txOk(contract.claim(), currentRecipient);
+  expect(receipt.value).toBe(
+    expectedVested + constants.INITIAL_MINT_IMMEDIATE_AMOUNT,
+  );
+});
+
+test('fuzz: random tiny deposits', () => {
+  mintInitial();
+
+  let totalTinyDeposits = 0n;
+
+  // Add many tiny deposits (1-10 micro-STX each)
+  for (let i = 0; i < 100; i++) {
+    const tinyAmount = BigInt(Math.floor(Math.random() * 10) + 1); // 1-10 micro-STX
+    mint(tinyAmount);
+    totalTinyDeposits += tinyAmount;
+  }
+
+  // Advance some time
+  simnet.mineEmptyBlocks(months(6));
+
+  const expectedVested =
+    (constants.INITIAL_MINT_VESTING_AMOUNT /
+      constants.INITIAL_MINT_VESTING_ITERATIONS) *
+    6n;
+  const expected =
+    constants.INITIAL_MINT_IMMEDIATE_AMOUNT +
+    expectedVested +
+    totalTinyDeposits;
+
+  const receipt = txOk(contract.claim(), accounts.deployer.address);
+  expect(receipt.value).toBe(expected);
+
+  // Verify the expected remaining balance
+  const remainingBalance = rov(
+    indirectContract.getBalance(contract.identifier),
+  );
+  expect(remainingBalance).toBe(
+    constants.INITIAL_MINT_AMOUNT -
+      constants.INITIAL_MINT_IMMEDIATE_AMOUNT -
+      expectedVested,
+  );
+});
+
+test('fuzz: stress test claim at random intervals', () => {
+  mintInitial();
+
+  let totalClaimed = 0n;
+  let currentBlock = 0n;
+  let currentMonth = 0n;
+  let initialBalance = rov(
+    indirectContract.getBalance(accounts.deployer.address),
+  );
+  let totalExtraDeposited = 0n;
+
+  // Perform claims at random intervals with random extra deposits
+  while (currentMonth < 24) {
+    const balance = rov(indirectContract.getBalance(contract.identifier));
+    console.log(`Current balance: ${balance}`);
+
+    // Random extra deposit
+    const extraDeposit = BigInt(Math.floor(Math.random() * 10000000000));
+    if (extraDeposit > 0n) {
+      mint(extraDeposit);
+      totalExtraDeposited += extraDeposit;
+    }
+
+    // Random time advancement, up to 5 months
+    const blocksToAdvance =
+      Math.floor(
+        Math.random() *
+          Number(constants.INITIAL_MINT_VESTING_ITERATION_BLOCKS) *
+          5,
+      ) + 1;
+    simnet.mineEmptyBlocks(blocksToAdvance);
+    currentBlock += BigInt(blocksToAdvance);
+    currentMonth =
+      currentBlock / constants.INITIAL_MINT_VESTING_ITERATION_BLOCKS;
+
+    const totalClaimable =
+      currentMonth < 24
+        ? (constants.INITIAL_MINT_VESTING_AMOUNT /
+            constants.INITIAL_MINT_VESTING_ITERATIONS) *
+            currentMonth +
+          constants.INITIAL_MINT_IMMEDIATE_AMOUNT
+        : constants.INITIAL_MINT_AMOUNT;
+    const expectedClaimable =
+      totalClaimable + totalExtraDeposited - totalClaimed;
+
+    console.log(
+      `Claiming at month ${currentMonth} (block ${currentBlock})\n  extra deposit: ${extraDeposit}\n  expected claimable: ${expectedClaimable}`,
+    );
+
+    // Claim whatever is available
+    const receipt = txOk(contract.claim(), accounts.deployer.address);
+    totalClaimed += receipt.value;
+
+    // Verify claim amount is correct
+    expect(receipt.value).toBe(expectedClaimable);
+
+    // Verify the account balance after claim
+    const newBalance = rov(
+      indirectContract.getBalance(accounts.deployer.address),
+    );
+    expect(newBalance).toBe(initialBalance + totalClaimed);
+  }
+
+  // After all claims, verify the final balance
+  const finalBalance = rov(indirectContract.getBalance(contract.identifier));
+  const expectedFinalBalance =
+    currentMonth >= 24
+      ? 0n
+      : constants.INITIAL_MINT_AMOUNT -
+        constants.INITIAL_MINT_IMMEDIATE_AMOUNT -
+        currentMonth *
+          (constants.INITIAL_MINT_VESTING_AMOUNT /
+            constants.INITIAL_MINT_VESTING_ITERATIONS);
+
+  // Total claimed + final balance should account for all deposited funds
+  expect(finalBalance).toBe(expectedFinalBalance);
 });
