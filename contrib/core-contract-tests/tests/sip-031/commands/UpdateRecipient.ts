@@ -2,7 +2,7 @@ import fc from "fast-check";
 import type { Model, Real } from "./types";
 import { expect } from "vitest";
 import { txOk } from "@clarigen/test";
-import { logCommand, trackCommandRun } from "./utils";
+import { getWalletNameByAddress, logCommand, trackCommandRun } from "./utils";
 
 export const UpdateRecipient = (accounts: Real["accounts"]) =>
   fc.record({
@@ -30,10 +30,10 @@ export const UpdateRecipient = (accounts: Real["accounts"]) =>
       model.recipient = r.newRecipient;
 
       logCommand({
-        sender: r.sender,
+        sender: getWalletNameByAddress(r.sender),
         status: "ok",
         action: "update-recipient",
-        value: `to ${r.newRecipient}`,
+        value: `to ${getWalletNameByAddress(r.newRecipient)}`,
       });
     },
     toString: () => `update-recipient to ${r.newRecipient}`,

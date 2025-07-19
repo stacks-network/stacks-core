@@ -1,4 +1,5 @@
 import type { Model } from "./types";
+import { accounts } from "../../clarigen-types";
 
 export function calculateClaimable(model: Readonly<Model>): bigint {
   const c = model.constants;
@@ -35,7 +36,7 @@ export function logCommand({
   value?: string | number | bigint;
   error?: string;
 }) {
-  const senderStr = (sender ?? "system").padEnd(41, " ");
+  const senderStr = (sender ?? "system").padEnd(11, " ");
   const statusStr = status === "ok" ? "✓" : "✗";
   const actionStr = action.padEnd(22, " ");
 
@@ -97,3 +98,6 @@ function logAsTree(statistics: [string, number][]) {
 
   printTree(tree);
 }
+
+export const getWalletNameByAddress = (address: string): string | undefined =>
+  Object.entries(accounts).find(([, v]) => v.address === address)?.[0];
