@@ -148,7 +148,9 @@ test('calculating vested amounts at a block height', () => {
   function expectedAmount(burnHeight: bigint) {
     const diff = burnHeight - deployBlockHeight;
     const iterations = diff / 4383n;
-    const stxPerIteration = (initialMintAmount - immediateAmount) / 24n;
+    const stxPerIteration =
+      (initialMintAmount - immediateAmount) /
+      constants.INITIAL_MINT_VESTING_ITERATIONS;
     const vestingAmount = stxPerIteration * iterations;
     return immediateAmount + vestingAmount;
   }
@@ -164,12 +166,16 @@ test('calculating vested amounts at a block height', () => {
     );
   }
 
-  for (let i = 1n; i < 24n; i++) {
+  for (let i = 1n; i < constants.INITIAL_MINT_VESTING_ITERATIONS; i++) {
     expectAmount(i);
   }
   // At 24+ months, the entire vesting bucket should be unlocked
   expect(
-    rov(contract.calcClaimableAmount(deployBlockHeight + 24n * 4383n)),
+    rov(
+      contract.calcClaimableAmount(
+        deployBlockHeight + constants.INITIAL_MINT_VESTING_ITERATIONS * 4383n,
+      ),
+    ),
   ).toBe(initialMintAmount);
   expect(
     rov(contract.calcClaimableAmount(deployBlockHeight + 25n * 4383n)),
@@ -189,7 +195,8 @@ test('claim scenario 1', () => {
   const receipt = txOk(contract.claim(), accounts.deployer.address);
   const expected =
     constants.INITIAL_MINT_IMMEDIATE_AMOUNT +
-    constants.INITIAL_MINT_VESTING_AMOUNT / 24n +
+    constants.INITIAL_MINT_VESTING_AMOUNT /
+      constants.INITIAL_MINT_VESTING_ITERATIONS +
     100n * 1000000n;
   expect(receipt.value).toBe(expected);
 
@@ -206,7 +213,10 @@ test('claim scenario 1', () => {
   simnet.mineEmptyBlocks(months(4));
   const receipt2 = txOk(contract.claim(), accounts.deployer.address);
   const expected2 =
-    (constants.INITIAL_MINT_VESTING_AMOUNT / 24n) * 4n + 500n * 1000000n;
+    (constants.INITIAL_MINT_VESTING_AMOUNT /
+      constants.INITIAL_MINT_VESTING_ITERATIONS) *
+      4n +
+    500n * 1000000n;
   expect(receipt2.value).toBe(expected2);
 
   const [event2] = filterEvents(
@@ -218,7 +228,10 @@ test('claim scenario 1', () => {
 
   // wait until end of vesting (20 more months), with an extra 1500 STX
   // calc remainder of unvested, to deal with integer division
-  const vestedAlready = (constants.INITIAL_MINT_VESTING_AMOUNT / 24n) * 5n;
+  const vestedAlready =
+    (constants.INITIAL_MINT_VESTING_AMOUNT /
+      constants.INITIAL_MINT_VESTING_ITERATIONS) *
+    5n;
   const unvested = constants.INITIAL_MINT_VESTING_AMOUNT - vestedAlready;
   const expected3 = unvested + 1500n * 1000000n;
   mint(1500n * 1000000n);
@@ -406,7 +419,8 @@ test('claiming after waiting more than 1 month', () => {
   const receipt = txOk(contract.claim(), accounts.deployer.address);
   expect(receipt.value).toBe(
     constants.INITIAL_MINT_IMMEDIATE_AMOUNT +
-      constants.INITIAL_MINT_VESTING_AMOUNT / 24n,
+      constants.INITIAL_MINT_VESTING_AMOUNT /
+        constants.INITIAL_MINT_VESTING_ITERATIONS,
   );
 });
 
@@ -430,4 +444,195 @@ test('recipient can be set to a contract', () => {
   const contractAddr = `${accounts.deployer.address}.blah`;
   txOk(contract.updateRecipient(contractAddr), accounts.deployer.address);
   expect(rov(contract.getRecipient())).toBe(contractAddr);
+});
+
+test('multiple recipient changes in same block work correctly', () => {
+  // Initial recipient is deployer
+  expect(rov(contract.getRecipient())).toBe(accounts.deployer.address);
+
+  // Change to wallet_1
+  txOk(
+    contract.updateRecipient(accounts.wallet_1.address),
+    accounts.deployer.address,
+  );
+  expect(rov(contract.getRecipient())).toBe(accounts.wallet_1.address);
+
+  // Change back to deployer in same block
+  txOk(
+    contract.updateRecipient(accounts.deployer.address),
+    accounts.wallet_1.address,
+  );
+  expect(rov(contract.getRecipient())).toBe(accounts.deployer.address);
+});
+
+test('large extra deposit does not break vesting calculations', () => {
+  mintInitial();
+
+  // Add a large amount of extra STX (100M STX)
+  const largeAmount = 100000000n * 1000000n; // 100 million STX
+  mint(largeAmount);
+
+  // Move forward 12 months
+  simnet.mineEmptyBlocks(months(12));
+
+  // Calculate expected: immediate + half vesting + large amount
+  const expected =
+    constants.INITIAL_MINT_IMMEDIATE_AMOUNT +
+    (constants.INITIAL_MINT_VESTING_AMOUNT /
+      constants.INITIAL_MINT_VESTING_ITERATIONS) *
+      12n +
+    largeAmount;
+
+  const receipt = txOk(contract.claim(), accounts.deployer.address);
+  expect(receipt.value).toBe(expected);
+});
+
+test('previous recipient cannot update the recipient', () => {
+  txOk(
+    contract.updateRecipient(accounts.wallet_1.address),
+    accounts.deployer.address,
+  );
+  expect(rov(contract.getRecipient())).toBe(accounts.wallet_1.address);
+
+  txErr(
+    contract.updateRecipient(accounts.wallet_2.address),
+    accounts.deployer.address,
+  );
+  expect(rov(contract.getRecipient())).toBe(accounts.wallet_1.address);
+});
+
+test('previous recipient cannot claim', () => {
+  mintInitial();
+
+  txOk(
+    contract.updateRecipient(accounts.wallet_1.address),
+    accounts.deployer.address,
+  );
+
+  txErr(contract.claim(), accounts.deployer.address);
+
+  // Contract should still have the unvested portion
+  const remainingBalance = rov(
+    indirectContract.getBalance(contract.identifier),
+  );
+  expect(remainingBalance).toBe(constants.INITIAL_MINT_AMOUNT);
+});
+
+test('vesting calculation at exact boundary blocks', () => {
+  mintInitial();
+  const deployBlockHeight = rov(contract.getDeployBlockHeight());
+
+  // Test at exact iteration boundaries
+  for (let i = 1n; i <= constants.INITIAL_MINT_VESTING_ITERATIONS; i++) {
+    const exactBoundary =
+      deployBlockHeight + i * constants.INITIAL_MINT_VESTING_ITERATION_BLOCKS;
+    const claimable = rov(contract.calcClaimableAmount(exactBoundary));
+
+    const expectedVested =
+      i < constants.INITIAL_MINT_VESTING_ITERATIONS
+        ? (constants.INITIAL_MINT_VESTING_AMOUNT /
+            constants.INITIAL_MINT_VESTING_ITERATIONS) *
+          i
+        : constants.INITIAL_MINT_VESTING_AMOUNT;
+
+    const expected = constants.INITIAL_MINT_IMMEDIATE_AMOUNT + expectedVested;
+    expect(claimable).toBe(expected);
+  }
+});
+
+test('vesting calculation one block before boundary', () => {
+  mintInitial();
+  const deployBlockHeight = rov(contract.getDeployBlockHeight());
+
+  // Test one block before each iteration boundary
+  for (let i = 1n; i <= constants.INITIAL_MINT_VESTING_ITERATIONS; i++) {
+    const oneBlockBefore =
+      deployBlockHeight +
+      i * constants.INITIAL_MINT_VESTING_ITERATION_BLOCKS -
+      1n;
+    const claimable = rov(contract.calcClaimableAmount(oneBlockBefore));
+
+    // Should still be the previous iteration's amount
+    const expectedVested =
+      (i - 1n) *
+      (constants.INITIAL_MINT_VESTING_AMOUNT /
+        constants.INITIAL_MINT_VESTING_ITERATIONS);
+    const expected = constants.INITIAL_MINT_IMMEDIATE_AMOUNT + expectedVested;
+    expect(claimable).toBe(expected);
+  }
+});
+
+test('contract balance exactly equals vested amount (no extra funds)', () => {
+  // Only mint the exact initial amount, no extra
+  mintInitial();
+
+  // Move to middle of vesting period (12 months)
+  simnet.mineEmptyBlocks(months(12));
+
+  const vested =
+    (constants.INITIAL_MINT_VESTING_AMOUNT /
+      constants.INITIAL_MINT_VESTING_ITERATIONS) *
+    12n;
+  // Should be able to claim immediate + half of vesting
+  const expected = constants.INITIAL_MINT_IMMEDIATE_AMOUNT + vested;
+  const receipt = txOk(contract.claim(), accounts.deployer.address);
+  expect(receipt.value).toBe(expected);
+
+  // Contract should still have the unvested portion
+  const remainingBalance = rov(
+    indirectContract.getBalance(contract.identifier),
+  );
+  const expectedRemaining = constants.INITIAL_MINT_VESTING_AMOUNT - vested;
+  expect(remainingBalance).toBe(expectedRemaining);
+});
+
+test('multiple small extra deposits accumulate correctly', () => {
+  mintInitial();
+
+  // Add multiple small deposits over time
+  mint(100n * 1000000n); // 100 STX
+  simnet.mineEmptyBlocks(months(1));
+
+  mint(200n * 1000000n); // 200 STX
+  simnet.mineEmptyBlocks(months(1));
+
+  mint(300n * 1000000n); // 300 STX
+  simnet.mineEmptyBlocks(months(1));
+
+  // Total extra: 600 STX, Total time: 3 months
+  const extraAmount = 600n * 1000000n;
+  const vestedAfter3Months =
+    (constants.INITIAL_MINT_VESTING_AMOUNT /
+      constants.INITIAL_MINT_VESTING_ITERATIONS) *
+    3n;
+  const expected =
+    constants.INITIAL_MINT_IMMEDIATE_AMOUNT + vestedAfter3Months + extraAmount;
+
+  const receipt = txOk(contract.claim(), accounts.deployer.address);
+  expect(receipt.value).toBe(expected);
+});
+
+test('recipient change during vesting period preserves vested amounts', () => {
+  mintInitial();
+
+  // Original recipient claims immediate amount
+  const firstClaim = txOk(contract.claim(), accounts.deployer.address);
+  expect(firstClaim.value).toBe(constants.INITIAL_MINT_IMMEDIATE_AMOUNT);
+
+  // Wait 6 months
+  simnet.mineEmptyBlocks(months(6));
+
+  // Change recipient
+  txOk(
+    contract.updateRecipient(accounts.wallet_1.address),
+    accounts.deployer.address,
+  );
+
+  // New recipient should be able to claim 6 months of vesting
+  const expectedVested =
+    (constants.INITIAL_MINT_VESTING_AMOUNT /
+      constants.INITIAL_MINT_VESTING_ITERATIONS) *
+    6n;
+  const secondClaim = txOk(contract.claim(), accounts.wallet_1.address);
+  expect(secondClaim.value).toBe(expectedVested);
 });
