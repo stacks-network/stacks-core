@@ -5044,8 +5044,10 @@ impl NakamotoChainState {
                 let recipient = PrincipalData::Contract(boot_code_id(SIP_031_NAME, mainnet));
 
                 info!(
-                    "SIP-031 minting {} uSTX and transferring to {} for burn_block_height {}",
-                    sip_031_mint_and_transfer_amount, recipient, chain_tip_burn_header_height
+                    "SIP-031 minting and transferring on new tenure";
+                    "mint_and_transfer_amount" => sip_031_mint_and_transfer_amount,
+                    "recipient" => recipient.to_string(),
+                    "burnchain_height" => chain_tip_burn_header_height
                 );
 
                 clarity_tx.connection().as_transaction(|tx_conn| {
