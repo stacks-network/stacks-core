@@ -632,6 +632,11 @@ static ADD_BURN_BLOCK_RECEIVED_TIMES_CONSENSUS_HASH_INDEX: &str = r#"
 CREATE INDEX IF NOT EXISTS burn_block_updates_received_times_consensus_hash ON burn_block_updates_received_times(burn_block_consensus_hash, received_time ASC);
 "#;
 
+// Used by get_last_globally_accepted_block_signed_self
+static ADD_BLOCK_SIGNED_SELF_INDEX: &str = r#"
+CREATE INDEX idx_blocks_query_opt ON blocks (consensus_hash, state, signed_self, burn_block_height DESC);
+"#;
+
 static DROP_BLOCK_SIGNATURES_TABLE: &str = r#"
 DROP TABLE IF EXISTS block_signatures;
 "#;
@@ -773,6 +778,7 @@ static SCHEMA_15: &[&str] = &[
 static SCHEMA_16: &[&str] = &[
     CREATE_BURN_BLOCK_UPDATES_RECEIVED_TIME_TABLE,
     ADD_BURN_BLOCK_RECEIVED_TIMES_CONSENSUS_HASH_INDEX,
+    ADD_BLOCK_SIGNED_SELF_INDEX,
     DROP_BLOCK_SIGNATURES_TABLE,
     CREATE_BLOCK_SIGNATURES_TABLE_V16,
     DROP_BLOCK_REJECTION_SIGNER_ADDRS,
@@ -1152,7 +1158,7 @@ impl SignerDb {
         try_deserialize(result)
     }
 
-    /// Return the last globally accepted block that was signed by the local signer in a tenure (identified by its consensus hash).
+    /// Return the last globally accepted block self_signed time in a given tenure (identified by its consensus hash).
     pub fn get_last_globally_accepted_block_signed_self(
         &self,
         tenure: &ConsensusHash,
