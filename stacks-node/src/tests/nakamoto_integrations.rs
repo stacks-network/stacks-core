@@ -12993,7 +12993,8 @@ fn test_sip_031_activation() {
 /// Test SIP-031 last phase per-tenure-mint-and-transfer
 ///
 /// - check epoch 3.2 is active
-/// - check minting event and boot contract transfer for the first (and only the first) block of a tenure
+/// - check minting event on coinbase and boot contract transfer for the first (and only the first) block of a tenure
+/// - ensure liquidity is updated accordingly to SIP-031
 #[test]
 #[ignore]
 fn test_sip_031_last_phase() {
