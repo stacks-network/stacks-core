@@ -771,29 +771,36 @@ pub fn next_block_and_process_new_stacks_block(
 
 /// Mine a bitcoin block, and wait until:
 ///  number_of_blocks has been processed by the coordinator
-pub fn next_block_and_process_new_stacks_blocks(
+pub fn next_block_and_process_new_stacks_blocks<F>(
     btc_controller: &BitcoinRegtestController,
-    number_of_blocks: u32,
+    number_of_blocks: u64,
     timeout_secs: u64,
     coord_channels: &Arc<Mutex<CoordinatorChannels>>,
-) -> Result<(), String> {
-    for _ in 0..number_of_blocks {
-        let blocks_processed_before = coord_channels
+    mut post_block_generation: F,
+) -> Result<(), String>
+where
+    F: FnMut() -> Result<(), String>,
+{
+    let blocks_processed_before = coord_channels
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
+    let mut block_processed_current = blocks_processed_before;
+    next_block_and(btc_controller, timeout_secs, || {
+        let blocks_processed = coord_channels
             .lock()
             .expect("Mutex poisoned")
             .get_stacks_blocks_processed();
-        next_block_and(btc_controller, timeout_secs, || {
-            let blocks_processed = coord_channels
-                .lock()
-                .expect("Mutex poisoned")
-                .get_stacks_blocks_processed();
-            if blocks_processed > blocks_processed_before {
-                return Ok(true);
-            }
-            Ok(false)
-        })?;
-    }
-    Ok(())
+        // new block?
+        if blocks_processed > block_processed_current {
+            post_block_generation()?;
+            block_processed_current += 1;
+        }
+        if blocks_processed >= blocks_processed_before + number_of_blocks {
+            return Ok(true);
+        }
+        Ok(false)
+    })
 }
 
 /// Mine a bitcoin block, and wait until:
@@ -13002,7 +13009,8 @@ fn test_sip_031_last_phase() {
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let mut signers = TestSigners::new(vec![sender_signer_sk]);
-    let tenure_count = 5;
+    // let's assume funds for 200 tenures
+    let tenure_count = 200;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
@@ -13150,6 +13158,9 @@ fn test_sip_031_last_phase() {
         )
         .unwrap();
 
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+    let mut sender_nonce = 0;
     // 50 more tenures (each one with 3 stacks blocks)
     for _ in 0..50 {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
@@ -13158,6 +13169,19 @@ fn test_sip_031_last_phase() {
             3,
             60,
             &coord_channel,
+            || {
+                let transfer_tx = make_stacks_transfer_serialized(
+                    &sender_sk,
+                    sender_nonce,
+                    send_fee,
+                    naka_conf.burnchain.chain_id,
+                    &PrincipalData::from(sender_signer_addr),
+                    send_amt,
+                );
+                submit_tx(&http_origin, &transfer_tx);
+                sender_nonce += 1;
+                Ok(())
+            },
         )
         .unwrap();
         wait_for(20, || {
@@ -13214,8 +13238,8 @@ fn test_sip_031_last_phase() {
         }
     }
 
-    // (100_000 + 200_000 + 300_000) * 5
-    assert_eq!(total_minted_and_transferred, 3_000_000);
+    // (100_000 + 200_000 + 300_000) * 10
+    assert_eq!(total_minted_and_transferred, 6_000_000);
 
     let latest_stacks_block_id = get_latest_block_proposal(&naka_conf, &sortdb)
         .unwrap()
