@@ -25,6 +25,7 @@ use blockstack_lib::net::api::postblock_proposal::{
     TOO_MANY_REQUESTS_STATUS,
 };
 use blockstack_lib::util_lib::db::Error as DBError;
+use clarity::codec::read_next;
 use clarity::types::chainstate::{StacksBlockId, StacksPrivateKey};
 use clarity::types::{PrivateKey, StacksEpochId};
 use clarity::util::hash::{MerkleHashFunc, Sha512Trunc256Sum};
@@ -38,7 +39,7 @@ use libsigner::v0::messages::{
     RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate,
 };
 use libsigner::v0::signer_state::GlobalStateEvaluator;
-use libsigner::{BlockProposal, SignerEvent};
+use libsigner::{BlockProposal, SignerEvent, SignerSession};
 use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
@@ -201,7 +202,7 @@ impl<const N: usize> RecentlyProcessedBlocks<N> {
 impl SignerTrait<SignerMessage> for Signer {
     /// Create a new signer from the given configuration
     fn new(stacks_client: &StacksClient, signer_config: SignerConfig) -> Self {
-        let stackerdb = StackerDB::from(&signer_config);
+        let mut stackerdb = StackerDB::from(&signer_config);
         let mode = match signer_config.signer_mode {
             SignerConfigMode::DryRun => SignerMode::DryRun,
             SignerConfigMode::Normal { signer_id, .. } => SignerMode::Normal { signer_id },
@@ -218,12 +219,58 @@ impl SignerTrait<SignerMessage> for Signer {
             &StacksPublicKey::from_private(&signer_config.stacks_private_key),
         );
 
+        let session = stackerdb
+            .get_session_mut(&MessageSlotID::StateMachineUpdate)
+            .expect("Invalid stackerdb session");
+        let signer_slot_ids: Vec<_> = signer_config
+            .signer_entries
+            .signer_id_to_addr
+            .keys()
+            .copied()
+            .collect();
+        for (chunk_opt, slot_id) in session
+            .get_latest_chunks(&signer_slot_ids)
+            .inspect_err(|e| {
+                warn!("Error retrieving state machine updates from stacker DB: {e}");
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .zip(signer_slot_ids.iter())
+        {
+            let Some(chunk) = chunk_opt else {
+                continue;
+            };
+
+            let Ok(SignerMessage::StateMachineUpdate(update)) =
+                read_next::<SignerMessage, _>(&mut &chunk[..])
+            else {
+                continue;
+            };
+
+            let Some(signer_addr) = signer_config.signer_entries.signer_id_to_addr.get(slot_id)
+            else {
+                continue;
+            };
+
+            // This might update the received time/cause a discrepency between when we receive it at our event queue, but it
+            // allows signers to potentially evaluate blocks immediately regardless of its nodes event queue state on startup
+            if let Err(e) = signer_db.insert_state_machine_update(
+                signer_config.reward_cycle,
+                signer_addr,
+                &update,
+                &SystemTime::now(),
+            ) {
+                warn!("Error submitting state machine update to signer DB: {e}");
+            };
+        }
+
         let updates = signer_db
             .get_signer_state_machine_updates(signer_config.reward_cycle)
             .inspect_err(|e| {
                 warn!("An error occurred retrieving state machine updates from the db: {e}")
             })
             .unwrap_or_default();
+
         let global_state_evaluator = GlobalStateEvaluator::new(
             updates,
             signer_config.signer_entries.signer_addr_to_weight.clone(),
