@@ -3355,7 +3355,6 @@ dependencies = [
  "chrono",
  "clarity 0.0.1",
  "ed25519-dalek",
- "hashbrown 0.15.2",
  "lazy_static",
  "libstackerdb 0.0.1",
  "mio 0.6.23",
