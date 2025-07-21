@@ -29,6 +29,10 @@ pub mod errors;
 pub mod representations;
 pub mod types;
 
+pub use errors::CodecError;
+pub use representations::{ClarityName, ContractName};
+pub use types::Value;
+
 #[cfg(any(test, feature = "testing"))]
 pub mod tests;
 
