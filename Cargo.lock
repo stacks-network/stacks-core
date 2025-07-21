@@ -648,7 +648,6 @@ dependencies = [
 name = "clarity-serialization"
 version = "0.0.1"
 dependencies = [
- "hashbrown 0.15.2",
  "lazy_static",
  "mutants",
  "regex",
