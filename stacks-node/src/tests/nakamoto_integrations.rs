@@ -109,8 +109,8 @@ use stacks_signer::v0::SpawnedSigner;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::nakamoto_node::miner::{
-    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_MINE_STALL,
-    TEST_P2P_BROADCAST_SKIP, TEST_P2P_BROADCAST_STALL,
+    fault_injection_stall_miner, fault_injection_unstall_miner, TEST_BLOCK_ANNOUNCE_STALL,
+    TEST_BROADCAST_PROPOSAL_STALL, TEST_P2P_BROADCAST_SKIP, TEST_P2P_BROADCAST_STALL,
 };
 use crate::nakamoto_node::relayer::TEST_MINER_THREAD_STALL;
 use crate::neon::Counters;
@@ -6020,7 +6020,7 @@ fn nakamoto_attempt_time() {
 
             // Stall the miner to make sure it waits until all transactions are
             // submitted before it mines a block
-            TEST_MINE_STALL.set(true);
+            fault_injection_stall_miner();
 
             let mut sender_nonce = account.nonce;
             for _ in 0..txs_per_block {
@@ -6036,7 +6036,7 @@ fn nakamoto_attempt_time() {
                 submit_tx(&http_origin, &transfer_tx);
             }
 
-            TEST_MINE_STALL.set(false);
+            fault_injection_unstall_miner();
 
             // Miner should have made a new block by now
             let wait_start = Instant::now();
@@ -6304,7 +6304,7 @@ fn clarity_burn_state() {
             result.expect_result_ok().expect("Read-only call failed");
 
             // Pause mining to prevent the stacks block from being mined before the tenure change is processed
-            TEST_MINE_STALL.set(true);
+            fault_injection_stall_miner();
             // Submit a tx for the next block (the next block will be a new tenure, so the burn block height will increment)
             let call_tx = make_contract_call(
                 &sender_sk,
@@ -6329,7 +6329,7 @@ fn clarity_burn_state() {
             Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
         })
         .unwrap();
-        TEST_MINE_STALL.set(false);
+        fault_injection_unstall_miner();
         wait_for(20, || {
             Ok(coord_channel
                 .lock()
@@ -10368,7 +10368,7 @@ fn clarity_cost_spend_down() {
             .expect("Mutex poisoned")
             .get_stacks_blocks_processed();
         // Pause mining so we can add all our transactions to the mempool at once.
-        TEST_MINE_STALL.set(true);
+        fault_injection_stall_miner();
         for _nmb_tx in 0..nmb_txs_per_signer {
             for sender_sk in sender_sks.iter() {
                 let sender_nonce = get_and_increment_nonce(sender_sk, &mut sender_nonces);
@@ -10394,7 +10394,7 @@ fn clarity_cost_spend_down() {
                 }
             }
         }
-        TEST_MINE_STALL.set(false);
+        fault_injection_unstall_miner();
         wait_for(120, || {
             let blocks_processed = coord_channel
                 .lock()
@@ -10672,7 +10672,7 @@ fn test_tenure_extend_from_flashblocks() {
     assert_eq!(sort_tip.consensus_hash, election_tip.consensus_hash);
 
     // stop the relayer thread from starting a miner thread, and stop the miner thread from mining
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
     TEST_MINER_THREAD_STALL.set(true);
 
     // mine another Bitcoin block right away, and force it to be a flash block
@@ -10738,7 +10738,7 @@ fn test_tenure_extend_from_flashblocks() {
 
     // unstall miner thread and allow block-commits again
     counters.naka_skip_commit_op.set(false);
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     // wait for the miner directive to be processed
     wait_for(60, || {
@@ -11509,7 +11509,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
     info!("Pause mining and fill the mempool with the transfers");
 
     // Pause block mining
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let db_tx = conn.transaction().unwrap();
     let timer = Instant::now();
@@ -11549,7 +11549,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
     let proposed_blocks_before = test_observer::get_mined_nakamoto_blocks().len();
 
     // Unpause block mining
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     // Wait for the first block to be proposed.
     wait_for(30, || {
@@ -11846,7 +11846,7 @@ fn larger_mempool() {
     info!("Pause mining and fill the mempool with the transfers");
 
     // Pause block mining
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let timer = Instant::now();
 
@@ -11890,7 +11890,7 @@ fn larger_mempool() {
     let timer = Instant::now();
 
     // Unpause block mining
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     // Wait for the first block to be proposed.
     wait_for(10, || {
@@ -12184,7 +12184,7 @@ fn handle_considered_txs_foreign_key_failure() {
     let height_before = get_chain_info(&naka_conf).stacks_tip_height;
 
     // Initiate the transaction stall, then submit transactions.
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
     TEST_TX_STALL.set(true);
 
     let bad_transfer_tx = make_stacks_transfer_serialized(
@@ -12198,7 +12198,7 @@ fn handle_considered_txs_foreign_key_failure() {
     let txid = submit_tx(&http_origin, &bad_transfer_tx);
     info!("Bad transaction submitted: {txid}");
 
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     // Sleep long enough to ensure that the miner has started processing the tx
     sleep_ms(5_000);
@@ -12432,7 +12432,7 @@ fn miner_constructs_replay_block() {
 
     // Pause mining to prevent any of the submitted txs getting mined.
     info!("Stalling mining...");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
     let burn_height_before = get_chain_info(&naka_conf).burn_block_height;
     // Mine 1 bitcoin block to trigger a new block found transaction
     next_block_and(&mut btc_regtest_controller, 60, || {
@@ -12515,7 +12515,7 @@ fn miner_constructs_replay_block() {
     let blocks_before = test_observer::get_blocks().len();
     assert_eq!(observed_before, 0);
     info!("Resuming mining...");
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     info!("Waiting for two stacks block to be mined...");
     wait_for(30, || {
