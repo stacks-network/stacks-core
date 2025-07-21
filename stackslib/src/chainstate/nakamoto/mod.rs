@@ -632,33 +632,33 @@ pub static SIP031_EMISSION_INTERVALS_MAINNET: LazyLock<[SIP031EmissionInterval; 
         emissions_schedule
     });
 
-/// Testnet sip-031 emission intervals (starting from 2100, basically dummy values)
+/// Testnet sip-031 emission intervals (starting from 71_525, 1 interval every 360 bitcoin blocks)
 pub static SIP031_EMISSION_INTERVALS_TESTNET: LazyLock<[SIP031EmissionInterval; 6]> =
     LazyLock::new(|| {
         let emissions_schedule = [
             SIP031EmissionInterval {
                 amount: 0,
-                start_height: 30_000_602,
+                start_height: 71_525 + (360 * 6),
             },
             SIP031EmissionInterval {
                 amount: 5_000,
-                start_height: 30_000_502,
+                start_height: 71_525 + (360 * 5),
             },
             SIP031EmissionInterval {
                 amount: 4_000,
-                start_height: 30_000_402,
+                start_height: 71_525 + (360 * 4),
             },
             SIP031EmissionInterval {
                 amount: 3_000,
-                start_height: 30_000_302,
+                start_height: 71_525 + (360 * 3),
             },
             SIP031EmissionInterval {
                 amount: 2_000,
-                start_height: 30_000_202,
+                start_height: 71_525 + (360 * 2),
             },
             SIP031EmissionInterval {
                 amount: 1_000,
-                start_height: 30_000_102,
+                start_height: 71_525 + 360,
             },
         ];
         assert!(SIP031EmissionInterval::check_inversed_order(
