@@ -4825,7 +4825,7 @@ impl NakamotoChainState {
                 return Err(ChainstateError::InvalidStacksBlock(e));
             }
             Err(e) => return Err(e),
-            Ok(lockup_events) => lockup_events,
+            Ok(finish_events) => finish_events,
         };
 
         // If any, append lockups events to the coinbase receipt
