@@ -42,7 +42,7 @@
 ))
 
 ;; The authorized recipient of the funds.
-;; Note than in production environments, `tx-sender` is
+;; Note that in production environments, `tx-sender` is
 ;; replaced with a hard-coded address.
 (define-data-var recipient principal tx-sender)
 
