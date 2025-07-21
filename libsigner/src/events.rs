@@ -620,7 +620,7 @@ impl NewBlockTransaction {
             Ok(None)
         } else {
             let tx_bytes = hex_bytes(&self.raw_tx).map_err(|e| {
-                CodecError::DeserializeError(format!("Failed to deserialize raw tx: {}", e))
+                CodecError::DeserializeError(format!("Failed to deserialize raw tx: {e}"))
             })?;
             let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])?;
             Ok(Some(tx))

@@ -170,7 +170,7 @@ pub fn set_runloop_signal_handler<ST: EventStopSignaler + Send + 'static>(mut st
             }
         }
         _ => {
-            let msg = format!("Graceful termination request received (signal `{}`), will complete the ongoing runloop cycles and terminate\n", sig_id);
+            let msg = format!("Graceful termination request received (signal `{sig_id}`), will complete the ongoing runloop cycles and terminate\n");
             async_safe_write_stderr(&msg);
             stop_signaler.send();
         }

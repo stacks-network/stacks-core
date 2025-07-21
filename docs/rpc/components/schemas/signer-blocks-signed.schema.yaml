@@ -1,0 +1,7 @@
+type: object
+properties:
+  blocks_signed:
+    type: integer
+    description: Number of blocks signed by this signer
+required:
+  - blocks_signed

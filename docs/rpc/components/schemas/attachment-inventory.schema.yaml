@@ -1,0 +1,20 @@
+type: object
+properties:
+  block_id:
+    type: string
+    description: Index block hash
+  pages:
+    type: array
+    items:
+      type: object
+      properties:
+        index:
+          type: integer
+          description: Page index
+        inventory:
+          type: array
+          description: 8-byte bitfield for the page (array of integers 0-255)
+          items:
+            type: integer
+            minimum: 0
+            maximum: 255

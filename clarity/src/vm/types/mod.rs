@@ -123,14 +123,14 @@ mod std_principals {
     impl fmt::Display for StandardPrincipalData {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             let c32_str = self.to_address();
-            write!(f, "{}", c32_str)
+            write!(f, "{c32_str}")
         }
     }
 
     impl fmt::Debug for StandardPrincipalData {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             let c32_str = self.to_address();
-            write!(f, "StandardPrincipalData({})", c32_str)
+            write!(f, "StandardPrincipalData({c32_str})")
         }
     }
 }
@@ -609,15 +609,15 @@ pub enum CharType {
 impl fmt::Display for CharType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CharType::ASCII(string) => write!(f, "{}", string),
-            CharType::UTF8(string) => write!(f, "{}", string),
+            CharType::ASCII(string) => write!(f, "{string}"),
+            CharType::UTF8(string) => write!(f, "{string}"),
         }
     }
 }
 
 impl fmt::Debug for CharType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 
@@ -633,7 +633,7 @@ impl fmt::Display for ASCIIData {
             let escaped_char = format!("{}", std::ascii::escape_default(*c));
             escaped_str.push_str(&escaped_char);
         }
-        write!(f, "\"{}\"", escaped_str)
+        write!(f, "\"{escaped_str}\"")
     }
 }
 
@@ -655,7 +655,7 @@ impl fmt::Display for UTF8Data {
                 result.push_str(&escaped_char);
             }
         }
-        write!(f, "u\"{}\"", result)
+        write!(f, "u\"{result}\"")
     }
 }
 
@@ -1143,7 +1143,7 @@ impl Value {
             Ok(String::from_utf8(data)
                 .map_err(|_| InterpreterError::Expect("Non UTF-8 data in string".into()))?)
         } else {
-            error!("Value '{:?}' is not an ASCII string", &self);
+            error!("Value '{self:?}' is not an ASCII string");
             Err(InterpreterError::Expect("Expected ASCII string".into()).into())
         }
     }
@@ -1152,7 +1152,7 @@ impl Value {
         if let Value::UInt(inner) = self {
             Ok(inner)
         } else {
-            error!("Value '{:?}' is not a u128", &self);
+            error!("Value '{self:?}' is not a u128");
             Err(InterpreterError::Expect("Expected u128".into()).into())
         }
     }
@@ -1161,7 +1161,7 @@ impl Value {
         if let Value::Int(inner) = self {
             Ok(inner)
         } else {
-            error!("Value '{:?}' is not an i128", &self);
+            error!("Value '{self:?}' is not an i128");
             Err(InterpreterError::Expect("Expected i128".into()).into())
         }
     }
@@ -1172,14 +1172,13 @@ impl Value {
                 Ok(buffdata.data)
             } else {
                 error!(
-                    "Value buffer has len {}, expected {}",
-                    buffdata.data.len(),
-                    sz
+                    "Value buffer has len {}, expected {sz}",
+                    buffdata.data.len()
                 );
                 Err(InterpreterError::Expect("Unexpected buff length".into()).into())
             }
         } else {
-            error!("Value '{:?}' is not a buff", &self);
+            error!("Value '{self:?}' is not a buff");
             Err(InterpreterError::Expect("Expected buff".into()).into())
         }
     }
@@ -1188,7 +1187,7 @@ impl Value {
         if let Value::Sequence(SequenceData::List(listdata)) = self {
             Ok(listdata.data)
         } else {
-            error!("Value '{:?}' is not a list", &self);
+            error!("Value '{self:?}' is not a list");
             Err(InterpreterError::Expect("Expected list".into()).into())
         }
     }
@@ -1207,7 +1206,7 @@ impl Value {
         if let Value::Bool(b) = self {
             Ok(b)
         } else {
-            error!("Value '{:?}' is not a bool", &self);
+            error!("Value '{self:?}' is not a bool");
             Err(InterpreterError::Expect("Expected bool".into()).into())
         }
     }
@@ -1216,7 +1215,7 @@ impl Value {
         if let Value::Tuple(data) = self {
             Ok(data)
         } else {
-            error!("Value '{:?}' is not a tuple", &self);
+            error!("Value '{self:?}' is not a tuple");
             Err(InterpreterError::Expect("Expected tuple".into()).into())
         }
     }
@@ -1228,7 +1227,7 @@ impl Value {
                 None => Ok(None),
             }
         } else {
-            error!("Value '{:?}' is not an optional", &self);
+            error!("Value '{self:?}' is not an optional");
             Err(InterpreterError::Expect("Expected optional".into()).into())
         }
     }
@@ -1237,7 +1236,7 @@ impl Value {
         if let Value::Principal(p) = self {
             Ok(p)
         } else {
-            error!("Value '{:?}' is not a principal", &self);
+            error!("Value '{self:?}' is not a principal");
             Err(InterpreterError::Expect("Expected principal".into()).into())
         }
     }
@@ -1246,7 +1245,7 @@ impl Value {
         if let Value::CallableContract(t) = self {
             Ok(t)
         } else {
-            error!("Value '{:?}' is not a callable contract", &self);
+            error!("Value '{self:?}' is not a callable contract");
             Err(InterpreterError::Expect("Expected callable".into()).into())
         }
     }
@@ -1259,7 +1258,7 @@ impl Value {
                 Ok(Err(*res_data.data))
             }
         } else {
-            error!("Value '{:?}' is not a response", &self);
+            error!("Value '{self:?}' is not a response");
             Err(InterpreterError::Expect("Expected response".into()).into())
         }
     }
@@ -1273,7 +1272,7 @@ impl Value {
                 Err(InterpreterError::Expect("Expected ok response".into()).into())
             }
         } else {
-            error!("Value '{:?}' is not a response", &self);
+            error!("Value '{self:?}' is not a response");
             Err(InterpreterError::Expect("Expected response".into()).into())
         }
     }
@@ -1287,7 +1286,7 @@ impl Value {
                 Err(InterpreterError::Expect("Expected err response".into()).into())
             }
         } else {
-            error!("Value '{:?}' is not a response", &self);
+            error!("Value '{self:?}' is not a response");
             Err(InterpreterError::Expect("Expected response".into()).into())
         }
     }
@@ -1374,7 +1373,7 @@ impl UTF8Data {
 impl fmt::Display for OptionalData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.data {
-            Some(ref x) => write!(f, "(some {})", x),
+            Some(ref x) => write!(f, "(some {x})"),
             None => write!(f, "none"),
         }
     }
@@ -1397,33 +1396,33 @@ impl fmt::Display for BuffData {
 
 impl fmt::Debug for BuffData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Value::Int(int) => write!(f, "{}", int),
-            Value::UInt(int) => write!(f, "u{}", int),
-            Value::Bool(boolean) => write!(f, "{}", boolean),
-            Value::Tuple(data) => write!(f, "{}", data),
-            Value::Principal(principal_data) => write!(f, "{}", principal_data),
-            Value::Optional(opt_data) => write!(f, "{}", opt_data),
-            Value::Response(res_data) => write!(f, "{}", res_data),
-            Value::Sequence(SequenceData::Buffer(vec_bytes)) => write!(f, "0x{}", &vec_bytes),
-            Value::Sequence(SequenceData::String(string)) => write!(f, "{}", string),
+            Value::Int(int) => write!(f, "{int}"),
+            Value::UInt(int) => write!(f, "u{int}"),
+            Value::Bool(boolean) => write!(f, "{boolean}"),
+            Value::Tuple(data) => write!(f, "{data}"),
+            Value::Principal(principal_data) => write!(f, "{principal_data}"),
+            Value::Optional(opt_data) => write!(f, "{opt_data}"),
+            Value::Response(res_data) => write!(f, "{res_data}"),
+            Value::Sequence(SequenceData::Buffer(vec_bytes)) => write!(f, "0x{vec_bytes}"),
+            Value::Sequence(SequenceData::String(string)) => write!(f, "{string}"),
             Value::Sequence(SequenceData::List(list_data)) => {
                 write!(f, "(")?;
                 for (ix, v) in list_data.data.iter().enumerate() {
                     if ix > 0 {
                         write!(f, " ")?;
                     }
-                    write!(f, "{}", v)?;
+                    write!(f, "{v}")?;
                 }
                 write!(f, ")")
             }
-            Value::CallableContract(callable_data) => write!(f, "{}", callable_data),
+            Value::CallableContract(callable_data) => write!(f, "{callable_data}"),
         }
     }
 }
@@ -1462,9 +1461,8 @@ impl PrincipalData {
     }
 
     pub fn parse_standard_principal(literal: &str) -> Result<StandardPrincipalData> {
-        let (version, data) = c32::c32_address_decode(literal).map_err(|x| {
-            RuntimeErrorType::ParseError(format!("Invalid principal literal: {}", x))
-        })?;
+        let (version, data) = c32::c32_address_decode(literal)
+            .map_err(|x| RuntimeErrorType::ParseError(format!("Invalid principal literal: {x}")))?;
         if data.len() != 20 {
             return Err(RuntimeErrorType::ParseError(
                 "Invalid principal literal: Expected 20 data bytes.".to_string(),
@@ -1480,7 +1478,7 @@ impl PrincipalData {
 impl fmt::Display for PrincipalData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            PrincipalData::Standard(sender) => write!(f, "{}", sender),
+            PrincipalData::Standard(sender) => write!(f, "{sender}"),
             PrincipalData::Contract(contract_identifier) => write!(
                 f,
                 "{}.{}",
@@ -1493,11 +1491,7 @@ impl fmt::Display for PrincipalData {
 impl fmt::Display for CallableData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if let Some(trait_identifier) = &self.trait_identifier {
-            write!(
-                f,
-                "({} as <{}>)",
-                self.contract_identifier, trait_identifier,
-            )
+            write!(f, "({} as <{trait_identifier}>)", self.contract_identifier)
         } else {
             write!(f, "{}", self.contract_identifier,)
         }
@@ -1677,7 +1671,7 @@ impl fmt::Display for TupleData {
         write!(f, "(tuple")?;
         for (name, value) in self.data_map.iter() {
             write!(f, " ")?;
-            write!(f, "({} {})", &**name, value)?;
+            write!(f, "({} {value})", &**name)?;
         }
         write!(f, ")")
     }
