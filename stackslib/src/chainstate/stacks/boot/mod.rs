@@ -96,9 +96,8 @@ pub const BOOT_TEST_POX_4_AGG_KEY_FNAME: &str = "aggregate-key";
 pub const MINERS_NAME: &str = "miners";
 
 /// The initial recipient address for SIP-031 on mainnet.
-/// TODO: replace with actual address
 pub const SIP_031_MAINNET_ADDR: LazyLock<StacksAddress> = LazyLock::new(|| {
-    StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap()
+    StacksAddress::from_string("SM1Z6BP8PDKYKXTZXXSKXFEY6NQ7RAM7DAEAYR045").unwrap()
 });
 
 /// The initial recipient address for SIP-031 on testnet.
