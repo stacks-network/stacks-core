@@ -21,7 +21,7 @@ pub(crate) mod stacks_client;
 
 use std::time::Duration;
 
-use clarity::vm::errors::Error as ClarityError;
+use clarity::vm::errors::{CodecError as ClarityCodecError, Error as ClarityError};
 use clarity::vm::types::serialization::SerializationError;
 use libsigner::RPCError;
 use libstackerdb::Error as StackerDBError;
@@ -97,6 +97,12 @@ pub enum ClientError {
     /// An RPC libsigner error occurred
     #[error("A libsigner RPC error occurred: {0}")]
     RPCError(#[from] RPCError),
+}
+
+impl From<ClarityCodecError> for ClientError {
+    fn from(e: ClarityCodecError) -> Self {
+        ClientError::ClarityError(e.into())
+    }
 }
 
 /// Retry a function F with an exponential backoff and notification on transient failure
