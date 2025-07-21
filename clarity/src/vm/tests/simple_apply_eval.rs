@@ -744,16 +744,14 @@ fn test_concat_append_supertype() {
             Value::list_from(vec![Value::Int(4), Value::Int(5)]).unwrap(),
             Value::list_from(vec![]).unwrap(),
             Value::list_from(vec![]).unwrap(),
-            Value::list_from(vec![Value::Int(7), Value::Int(8), Value::Int(9)])
-                .unwrap(),
+            Value::list_from(vec![Value::Int(7), Value::Int(8), Value::Int(9)]).unwrap(),
         ])
         .unwrap(),
         Value::list_from(vec![Value::Int(1)]).unwrap(),
         Value::list_from(vec![
             Value::list_from(vec![Value::Int(3), Value::Int(4)]).unwrap(),
             Value::list_from(vec![]).unwrap(),
-            Value::list_from(vec![Value::Int(4), Value::Int(5), Value::Int(7)])
-                .unwrap(),
+            Value::list_from(vec![Value::Int(4), Value::Int(5), Value::Int(7)]).unwrap(),
         ])
         .unwrap(),
     ];
