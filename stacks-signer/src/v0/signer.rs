@@ -908,6 +908,9 @@ impl Signer {
 
     #[cfg(any(test, feature = "testing"))]
     fn send_block_response(&mut self, block: &NakamotoBlock, block_response: BlockResponse) {
+        if self.test_skip_signature_broadcast(&block_response) {
+            return;
+        }
         const NUM_REPEATS: usize = 1;
         let mut count = 0;
         let public_keys = TEST_REPEAT_PROPOSAL_RESPONSE.get();
@@ -1062,7 +1065,7 @@ impl Signer {
         let accepted = self.create_block_acceptance(&block_info.block);
         // have to save the signature _after_ the block info
         self.handle_block_signature(stacks_client, &accepted);
-        self.impl_send_block_response(&block_info.block, accepted.into());
+        self.send_block_response(&block_info.block, accepted.into());
     }
 
     /// Handle block proposal messages submitted to signers stackerdb
@@ -1216,7 +1219,7 @@ impl Signer {
             return;
         };
 
-        self.impl_send_block_response(&block_info.block, block_response);
+        self.send_block_response(&block_info.block, block_response);
     }
 
     /// Handle block response messages from a signer
@@ -1374,7 +1377,7 @@ impl Signer {
                 .insert_block(&block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
             self.handle_block_rejection(&block_rejection, sortition_state);
-            self.impl_send_block_response(&block_info.block, block_rejection.into());
+            self.send_block_response(&block_info.block, block_rejection.into());
         } else {
             if let Err(e) = block_info.mark_locally_accepted(false) {
                 if !block_info.has_reached_consensus() {
@@ -1448,7 +1451,7 @@ impl Signer {
             .insert_block(&block_info)
             .unwrap_or_else(|e| self.handle_insert_block_error(e));
         self.handle_block_rejection(&block_rejection, sortition_state);
-        self.impl_send_block_response(&block_info.block, block_rejection.into());
+        self.send_block_response(&block_info.block, block_rejection.into());
     }
 
     /// Handle the block validate response returned from our prior calls to submit a block for validation
@@ -1566,7 +1569,7 @@ impl Signer {
                 warn!("{self}: Failed to mark block as locally rejected: {e:?}");
             }
         };
-        self.impl_send_block_response(&block_info.block, rejection.into());
+        self.send_block_response(&block_info.block, rejection.into());
 
         self.signer_db
             .insert_block(&block_info)

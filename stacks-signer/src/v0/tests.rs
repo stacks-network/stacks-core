@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use libsigner::v0::messages::{BlockRejection, RejectReason};
+use libsigner::v0::messages::{BlockRejection, BlockResponse, RejectReason};
 use libsigner::BlockProposal;
 use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::util::get_epoch_time_secs;
@@ -52,6 +52,10 @@ pub static TEST_STALL_BLOCK_VALIDATION_SUBMISSION: LazyLock<TestFlag<bool>> =
 
 /// A global variable that can be used to prevent signer cleanup
 pub static TEST_SKIP_SIGNER_CLEANUP: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+
+/// A global variable that can be used to skip signature broadcast if the signer's public key is in the provided list
+pub static TEST_SIGNERS_SKIP_SIGNATURE_BROADCAST: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
+    LazyLock::new(TestFlag::default);
 
 impl Signer {
     /// Skip the block broadcast if the TEST_SKIP_BLOCK_BROADCAST flag is set
@@ -168,5 +172,24 @@ impl Signer {
             return *version;
         }
         self.supported_signer_protocol_version
+    }
+
+    /// Skip the block broadcast if the TEST_SIGNERS_SKIP_SIGNATURE_BROADCAST flag is set for the signer
+    pub fn test_skip_signature_broadcast(&self, block_response: &BlockResponse) -> bool {
+        if block_response.as_block_accepted().is_none() {
+            return false;
+        }
+        let hash = block_response.get_signer_signature_hash();
+        let public_keys = TEST_SIGNERS_SKIP_SIGNATURE_BROADCAST.get();
+        if public_keys.contains(
+            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
+        ) {
+            warn!(
+                "{self}: Skipping signature broadcast due to testing directive";
+                "signer_signature_hash" => %hash
+            );
+            return true;
+        }
+        false
     }
 }
