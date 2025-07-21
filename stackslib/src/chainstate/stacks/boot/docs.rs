@@ -13,9 +13,10 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::collections::{HashMap, HashSet};
+
 use clarity::vm::docs::contracts::{produce_docs_refs, ContractSupportDocs};
 use clarity::vm::ClarityVersion;
-use std::collections::{HashMap, HashSet};
 
 use super::STACKS_BOOT_CODE_MAINNET;
 
