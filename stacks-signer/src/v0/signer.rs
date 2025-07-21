@@ -25,6 +25,7 @@ use blockstack_lib::net::api::postblock_proposal::{
     TOO_MANY_REQUESTS_STATUS,
 };
 use blockstack_lib::util_lib::db::Error as DBError;
+use clarity::codec::read_next;
 use clarity::types::chainstate::{StacksBlockId, StacksPrivateKey};
 use clarity::types::{PrivateKey, StacksEpochId};
 use clarity::util::hash::{MerkleHashFunc, Sha512Trunc256Sum};
@@ -38,7 +39,7 @@ use libsigner::v0::messages::{
     RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate,
 };
 use libsigner::v0::signer_state::GlobalStateEvaluator;
-use libsigner::{BlockProposal, SignerEvent};
+use libsigner::{BlockProposal, SignerEvent, SignerSession};
 use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
@@ -131,6 +132,8 @@ pub struct Signer {
     pub tx_replay_scope: ReplayScopeOpt,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout: Duration,
+    /// The last time we capitulated our miner viewpoint
+    pub last_capitulate_miner_view: SystemTime,
     /// The signer supported protocol version. used only in testing
     #[cfg(any(test, feature = "testing"))]
     pub supported_signer_protocol_version: u64,
@@ -199,7 +202,7 @@ impl<const N: usize> RecentlyProcessedBlocks<N> {
 impl SignerTrait<SignerMessage> for Signer {
     /// Create a new signer from the given configuration
     fn new(stacks_client: &StacksClient, signer_config: SignerConfig) -> Self {
-        let stackerdb = StackerDB::from(&signer_config);
+        let mut stackerdb = StackerDB::from(&signer_config);
         let mode = match signer_config.signer_mode {
             SignerConfigMode::DryRun => SignerMode::DryRun,
             SignerConfigMode::Normal { signer_id, .. } => SignerMode::Normal { signer_id },
@@ -216,12 +219,58 @@ impl SignerTrait<SignerMessage> for Signer {
             &StacksPublicKey::from_private(&signer_config.stacks_private_key),
         );
 
+        let session = stackerdb
+            .get_session_mut(&MessageSlotID::StateMachineUpdate)
+            .expect("Invalid stackerdb session");
+        let signer_slot_ids: Vec<_> = signer_config
+            .signer_entries
+            .signer_id_to_addr
+            .keys()
+            .copied()
+            .collect();
+        for (chunk_opt, slot_id) in session
+            .get_latest_chunks(&signer_slot_ids)
+            .inspect_err(|e| {
+                warn!("Error retrieving state machine updates from stacker DB: {e}");
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .zip(signer_slot_ids.iter())
+        {
+            let Some(chunk) = chunk_opt else {
+                continue;
+            };
+
+            let Ok(SignerMessage::StateMachineUpdate(update)) =
+                read_next::<SignerMessage, _>(&mut &chunk[..])
+            else {
+                continue;
+            };
+
+            let Some(signer_addr) = signer_config.signer_entries.signer_id_to_addr.get(slot_id)
+            else {
+                continue;
+            };
+
+            // This might update the received time/cause a discrepency between when we receive it at our event queue, but it
+            // allows signers to potentially evaluate blocks immediately regardless of its nodes event queue state on startup
+            if let Err(e) = signer_db.insert_state_machine_update(
+                signer_config.reward_cycle,
+                signer_addr,
+                &update,
+                &SystemTime::now(),
+            ) {
+                warn!("Error submitting state machine update to signer DB: {e}");
+            };
+        }
+
         let updates = signer_db
             .get_signer_state_machine_updates(signer_config.reward_cycle)
             .inspect_err(|e| {
                 warn!("An error occurred retrieving state machine updates from the db: {e}")
             })
             .unwrap_or_default();
+
         let global_state_evaluator = GlobalStateEvaluator::new(
             updates,
             signer_config.signer_entries.signer_addr_to_weight.clone(),
@@ -262,6 +311,7 @@ impl SignerTrait<SignerMessage> for Signer {
             validate_with_replay_tx: signer_config.validate_with_replay_tx,
             tx_replay_scope: None,
             capitulate_miner_view_timeout: signer_config.capitulate_miner_view_timeout,
+            last_capitulate_miner_view: SystemTime::now(),
             #[cfg(any(test, feature = "testing"))]
             supported_signer_protocol_version: signer_config.supported_signer_protocol_version,
         }
@@ -298,10 +348,10 @@ impl SignerTrait<SignerMessage> for Signer {
             &mut self.signer_db,
             &mut self.global_state_evaluator,
             local_signer_protocol_version,
-            self.reward_cycle,
             sortition_state,
             self.capitulate_miner_view_timeout,
             self.proposal_config.tenure_last_block_proposal_timeout,
+            &mut self.last_capitulate_miner_view,
         );
 
         if prior_state != self.local_state_machine {
@@ -1159,6 +1209,7 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         block_validate_ok: &BlockValidateOk,
+        sortition_state: &mut Option<SortitionsView>,
     ) -> Option<BlockResponse> {
         crate::monitoring::actions::increment_block_validation_responses(true);
         let signer_signature_hash = block_validate_ok.signer_signature_hash;
@@ -1198,17 +1249,18 @@ impl Signer {
         if let Some(block_response) =
             self.check_block_against_signer_db_state(stacks_client, &block_info.block)
         {
+            let block_rejection = block_response.as_block_rejection()?;
             // The signer db state has changed. We no longer view this block as valid. Override the validation response.
             if let Err(e) = block_info.mark_locally_rejected() {
                 if !block_info.has_reached_consensus() {
                     warn!("{self}: Failed to mark block as locally rejected: {e:?}");
                 }
             };
-            self.impl_send_block_response(Some(&block_info.block), block_response);
             self.signer_db
                 .insert_block(&block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
-            None
+            self.handle_block_rejection(block_rejection, sortition_state);
+            Some(block_response)
         } else {
             if let Err(e) = block_info.mark_locally_accepted(false) {
                 if !block_info.has_reached_consensus() {
@@ -1298,7 +1350,7 @@ impl Signer {
                 crate::monitoring::actions::record_block_validation_latency(
                     block_validate_ok.validation_time_ms,
                 );
-                self.handle_block_validate_ok(stacks_client, block_validate_ok)
+                self.handle_block_validate_ok(stacks_client, block_validate_ok, sortition_state)
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
                 self.handle_block_validate_reject(block_validate_reject, sortition_state)
@@ -1497,12 +1549,16 @@ impl Signer {
         }
 
         // signature is valid! store it
-        if let Err(e) = self.signer_db.add_block_rejection_signer_addr(
+        match self.signer_db.add_block_rejection_signer_addr(
             block_hash,
             &signer_address,
             &rejection.response_data.reject_reason,
         ) {
-            warn!("{self}: Failed to save block rejection signature: {e:?}",);
+            Err(e) => {
+                warn!("{self}: Failed to save block rejection signature: {e:?}",);
+            }
+            Ok(false) => return, // We already have this signature, do not process it again.
+            Ok(true) => (),
         }
         block_info.reject_reason = Some(rejection.response_data.reject_reason.clone());
 
@@ -1630,10 +1686,17 @@ impl Signer {
             return;
         }
 
-        // signature is valid! store it
-        self.signer_db
-            .add_block_signature(block_hash, signature)
-            .unwrap_or_else(|_| panic!("{self}: Failed to save block signature"));
+        let signer_address = StacksAddress::p2pkh(self.mainnet, &public_key);
+
+        // signature is valid! store it.
+        // if this returns false, it means the signature already exists in the DB, so just return.
+        if !self
+            .signer_db
+            .add_block_signature(block_hash, &signer_address, signature)
+            .unwrap_or_else(|_| panic!("{self}: Failed to save block signature"))
+        {
+            return;
+        }
 
         // do we have enough signatures to broadcast?
         // i.e. is the threshold reached?

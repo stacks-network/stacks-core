@@ -24,8 +24,8 @@ use std::time::{Duration, Instant};
 use std::{env, thread};
 
 use clarity::vm::ast::ASTRules;
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::{ClarityName, ClarityVersion, Value};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
@@ -51,7 +51,7 @@ use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use stacks::chainstate::stacks::boot::{
-    MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME, SIP_031_TESTNET_ADDR,
 };
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{
@@ -74,7 +74,8 @@ use stacks::core::{
     EpochList, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20,
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
-    PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_TESTNET,
+    PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2,
+    PEER_VERSION_TESTNET,
 };
 use stacks::libstackerdb::{SlotMetadata, StackerDBChunkData};
 use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
@@ -109,8 +110,8 @@ use stacks_signer::v0::SpawnedSigner;
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::nakamoto_node::miner::{
-    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_MINE_STALL,
-    TEST_P2P_BROADCAST_SKIP, TEST_P2P_BROADCAST_STALL,
+    fault_injection_stall_miner, fault_injection_unstall_miner, TEST_BLOCK_ANNOUNCE_STALL,
+    TEST_BROADCAST_PROPOSAL_STALL, TEST_P2P_BROADCAST_SKIP, TEST_P2P_BROADCAST_STALL,
 };
 use crate::nakamoto_node::relayer::TEST_MINER_THREAD_STALL;
 use crate::neon::Counters;
@@ -128,8 +129,14 @@ use crate::{tests, BitcoinRegtestController, BurnchainController, Config, Config
 pub static POX_4_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
 pub static POX_4_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
 
+use clarity::vm::database::STXBalance;
+use stacks::chainstate::stacks::boot::SIP_031_NAME;
+use stacks::clarity_vm::clarity::SIP_031_INITIAL_MINT;
+
+use crate::clarity::vm::clarity::ClarityConnection;
+
 lazy_static! {
-    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 10] = [
+    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 11] = [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -196,9 +203,16 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch31,
             start_height: 241,
-            end_height: STACKS_EPOCH_MAX,
+            end_height: 251,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_1
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch32,
+            start_height: 251,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_3_2
         },
     ];
 }
@@ -3553,7 +3567,7 @@ fn vote_for_aggregate_key_burn_op() {
             burn_header_hash: BurnchainHeaderHash::zero(),
         });
 
-    let mut signer_burnop_signer = BurnchainOpSigner::new(signer_sk, false);
+    let mut signer_burnop_signer = BurnchainOpSigner::new(signer_sk);
     assert!(
         btc_regtest_controller
             .submit_operation(
@@ -4739,10 +4753,10 @@ fn burn_ops_integration_test() {
         "reward_cycle" => reward_cycle,
     );
 
-    let mut signer_burnop_signer_1 = BurnchainOpSigner::new(signer_sk_1, false);
-    let mut signer_burnop_signer_2 = BurnchainOpSigner::new(signer_sk_2, false);
-    let mut stacker_burnop_signer_1 = BurnchainOpSigner::new(stacker_sk_1, false);
-    let mut stacker_burnop_signer_2 = BurnchainOpSigner::new(stacker_sk_2, false);
+    let mut signer_burnop_signer_1 = BurnchainOpSigner::new(signer_sk_1);
+    let mut signer_burnop_signer_2 = BurnchainOpSigner::new(signer_sk_2);
+    let mut stacker_burnop_signer_1 = BurnchainOpSigner::new(stacker_sk_1);
+    let mut stacker_burnop_signer_2 = BurnchainOpSigner::new(stacker_sk_2);
 
     info!(
         "Before stack-stx op, signer 1 total: {}",
@@ -6020,7 +6034,7 @@ fn nakamoto_attempt_time() {
 
             // Stall the miner to make sure it waits until all transactions are
             // submitted before it mines a block
-            TEST_MINE_STALL.set(true);
+            fault_injection_stall_miner();
 
             let mut sender_nonce = account.nonce;
             for _ in 0..txs_per_block {
@@ -6036,7 +6050,7 @@ fn nakamoto_attempt_time() {
                 submit_tx(&http_origin, &transfer_tx);
             }
 
-            TEST_MINE_STALL.set(false);
+            fault_injection_unstall_miner();
 
             // Miner should have made a new block by now
             let wait_start = Instant::now();
@@ -6304,7 +6318,7 @@ fn clarity_burn_state() {
             result.expect_result_ok().expect("Read-only call failed");
 
             // Pause mining to prevent the stacks block from being mined before the tenure change is processed
-            TEST_MINE_STALL.set(true);
+            fault_injection_stall_miner();
             // Submit a tx for the next block (the next block will be a new tenure, so the burn block height will increment)
             let call_tx = make_contract_call(
                 &sender_sk,
@@ -6329,7 +6343,7 @@ fn clarity_burn_state() {
             Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
         })
         .unwrap();
-        TEST_MINE_STALL.set(false);
+        fault_injection_unstall_miner();
         wait_for(20, || {
             Ok(coord_channel
                 .lock()
@@ -10368,7 +10382,7 @@ fn clarity_cost_spend_down() {
             .expect("Mutex poisoned")
             .get_stacks_blocks_processed();
         // Pause mining so we can add all our transactions to the mempool at once.
-        TEST_MINE_STALL.set(true);
+        fault_injection_stall_miner();
         for _nmb_tx in 0..nmb_txs_per_signer {
             for sender_sk in sender_sks.iter() {
                 let sender_nonce = get_and_increment_nonce(sender_sk, &mut sender_nonces);
@@ -10394,7 +10408,7 @@ fn clarity_cost_spend_down() {
                 }
             }
         }
-        TEST_MINE_STALL.set(false);
+        fault_injection_unstall_miner();
         wait_for(120, || {
             let blocks_processed = coord_channel
                 .lock()
@@ -10672,7 +10686,7 @@ fn test_tenure_extend_from_flashblocks() {
     assert_eq!(sort_tip.consensus_hash, election_tip.consensus_hash);
 
     // stop the relayer thread from starting a miner thread, and stop the miner thread from mining
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
     TEST_MINER_THREAD_STALL.set(true);
 
     // mine another Bitcoin block right away, and force it to be a flash block
@@ -10738,7 +10752,7 @@ fn test_tenure_extend_from_flashblocks() {
 
     // unstall miner thread and allow block-commits again
     counters.naka_skip_commit_op.set(false);
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     // wait for the miner directive to be processed
     wait_for(60, || {
@@ -11509,7 +11523,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
     info!("Pause mining and fill the mempool with the transfers");
 
     // Pause block mining
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let db_tx = conn.transaction().unwrap();
     let timer = Instant::now();
@@ -11549,7 +11563,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
     let proposed_blocks_before = test_observer::get_mined_nakamoto_blocks().len();
 
     // Unpause block mining
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     // Wait for the first block to be proposed.
     wait_for(30, || {
@@ -11846,7 +11860,7 @@ fn larger_mempool() {
     info!("Pause mining and fill the mempool with the transfers");
 
     // Pause block mining
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let timer = Instant::now();
 
@@ -11890,7 +11904,7 @@ fn larger_mempool() {
     let timer = Instant::now();
 
     // Unpause block mining
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     // Wait for the first block to be proposed.
     wait_for(10, || {
@@ -12184,7 +12198,7 @@ fn handle_considered_txs_foreign_key_failure() {
     let height_before = get_chain_info(&naka_conf).stacks_tip_height;
 
     // Initiate the transaction stall, then submit transactions.
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
     TEST_TX_STALL.set(true);
 
     let bad_transfer_tx = make_stacks_transfer_serialized(
@@ -12198,7 +12212,7 @@ fn handle_considered_txs_foreign_key_failure() {
     let txid = submit_tx(&http_origin, &bad_transfer_tx);
     info!("Bad transaction submitted: {txid}");
 
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     // Sleep long enough to ensure that the miner has started processing the tx
     sleep_ms(5_000);
@@ -12432,7 +12446,7 @@ fn miner_constructs_replay_block() {
 
     // Pause mining to prevent any of the submitted txs getting mined.
     info!("Stalling mining...");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
     let burn_height_before = get_chain_info(&naka_conf).burn_block_height;
     // Mine 1 bitcoin block to trigger a new block found transaction
     next_block_and(&mut btc_regtest_controller, 60, || {
@@ -12515,7 +12529,7 @@ fn miner_constructs_replay_block() {
     let blocks_before = test_observer::get_blocks().len();
     assert_eq!(observed_before, 0);
     info!("Resuming mining...");
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     info!("Waiting for two stacks block to be mined...");
     wait_for(30, || {
@@ -12620,4 +12634,321 @@ fn write_signer_update(
             "Timed out waiting for signer state update to be accepted"
         );
     }
+}
+
+/// Test SIP-031 activation
+///
+/// - check epoch 3.2 is active
+/// - check sip031 boot contract has a balance of 200_000_000 STX
+#[test]
+#[ignore]
+fn test_sip_031_activation() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    naka_conf.node.pox_sync_sample_secs = 180;
+    naka_conf.burnchain.max_rbf = 10_000_000;
+
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let tenure_count = 5;
+    let inter_blocks_per_tenure = 9;
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr).to_string(),
+        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (mut chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    // retrieve current liquidity
+    let last_block_id = StacksBlockId::from_hex(
+        &test_observer::get_blocks()
+            .last()
+            .unwrap()
+            .get("index_block_hash")
+            .unwrap()
+            .as_str()
+            .unwrap()[2..],
+    )
+    .unwrap();
+
+    let sip_031_initial_total_liquid_ustx = chainstate
+        .with_read_only_clarity_tx(
+            &sortdb
+                .index_handle_at_block(&chainstate, &last_block_id)
+                .unwrap(),
+            &last_block_id,
+            |conn| conn.with_clarity_db_readonly(|db| db.get_total_liquid_ustx().unwrap()),
+        )
+        .unwrap();
+
+    // mine until epoch 3.2 height
+    loop {
+        let commits_before = commits_submitted.load(Ordering::SeqCst);
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+        wait_for(20, || {
+            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
+        })
+        .unwrap();
+
+        let node_info = get_chain_info_opt(&naka_conf).unwrap();
+        if node_info.burn_block_height
+            >= naka_conf.burnchain.epochs.clone().unwrap()[StacksEpochId::Epoch32].start_height
+        {
+            break;
+        }
+    }
+
+    info!(
+        "Nakamoto miner has advanced to bitcoin height {}",
+        get_chain_info_opt(&naka_conf).unwrap().burn_block_height
+    );
+
+    // check for Epoch 3.2 in clarity db
+    let latest_stacks_block_id = get_latest_block_proposal(&naka_conf, &sortdb)
+        .unwrap()
+        .0
+        .block_id();
+
+    let epoch_version = chainstate.with_read_only_clarity_tx(
+        &sortdb
+            .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+            .unwrap(),
+        &latest_stacks_block_id,
+        |conn| conn.with_clarity_db_readonly(|db| db.get_clarity_epoch_version().unwrap()),
+    );
+
+    assert_eq!(epoch_version, Some(StacksEpochId::Epoch32));
+
+    // check if sip-031 boot contract has been deployed
+    let sip_031_boot_contract_exists = chainstate.with_read_only_clarity_tx(
+        &sortdb
+            .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+            .unwrap(),
+        &latest_stacks_block_id,
+        |conn| {
+            conn.with_clarity_db_readonly(|db| {
+                db.has_contract(&boot_code_id(SIP_031_NAME, naka_conf.is_mainnet()))
+            })
+        },
+    );
+
+    assert_eq!(sip_031_boot_contract_exists, Some(true));
+
+    // check if sip-031 boot contract has a balance of 200_000_000 STX
+    let sip_031_boot_contract_balance = chainstate.with_read_only_clarity_tx(
+        &sortdb
+            .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+            .unwrap(),
+        &latest_stacks_block_id,
+        |conn| {
+            conn.with_clarity_db_readonly(|db| {
+                db.get_account_stx_balance(&PrincipalData::Contract(boot_code_id(
+                    SIP_031_NAME,
+                    naka_conf.is_mainnet(),
+                )))
+            })
+        },
+    );
+
+    assert_eq!(
+        sip_031_boot_contract_balance,
+        Some(Ok(STXBalance::Unlocked {
+            amount: SIP_031_INITIAL_MINT
+        }))
+    );
+
+    // check liquidity has been updated accordingly
+    let sip_031_total_liquid_ustx = chainstate
+        .with_read_only_clarity_tx(
+            &sortdb
+                .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+                .unwrap(),
+            &latest_stacks_block_id,
+            |conn| conn.with_clarity_db_readonly(|db| db.get_total_liquid_ustx().unwrap()),
+        )
+        .unwrap();
+
+    assert!(sip_031_total_liquid_ustx - sip_031_initial_total_liquid_ustx >= SIP_031_INITIAL_MINT);
+
+    // check if the coinbase activation block receipt has the mint event
+    let mut mint_event_found: Option<serde_json::Value> = None;
+    let mut coinbase_txid: Option<String> = None;
+    for block in test_observer::get_blocks().iter().rev() {
+        let burn_block_height = block.get("burn_block_height").unwrap().as_u64().unwrap();
+        if burn_block_height
+            == naka_conf.burnchain.epochs.clone().unwrap()[StacksEpochId::Epoch32].start_height
+        {
+            // the first transaction is the coinbase
+            coinbase_txid = Some(
+                block
+                    .get("transactions")
+                    .unwrap()
+                    .as_array()
+                    .unwrap()
+                    .first()
+                    .unwrap()
+                    .get("txid")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .into(),
+            );
+            let events = block.get("events").unwrap().as_array().unwrap();
+            for event in events {
+                if let Some(_) = event.get("stx_mint_event") {
+                    mint_event_found = Some(event.clone());
+                    break;
+                }
+            }
+            break;
+        }
+    }
+
+    assert!(coinbase_txid.is_some());
+    assert!(mint_event_found.is_some());
+
+    // check the amount
+    assert_eq!(
+        mint_event_found
+            .clone()
+            .unwrap()
+            .get("stx_mint_event")
+            .unwrap()
+            .get("amount")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        SIP_031_INITIAL_MINT.to_string()
+    );
+
+    // check the recipient
+    assert_eq!(
+        mint_event_found
+            .clone()
+            .unwrap()
+            .get("stx_mint_event")
+            .unwrap()
+            .get("recipient")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        boot_code_id(SIP_031_NAME, naka_conf.is_mainnet()).to_string()
+    );
+
+    // check the txid
+    assert_eq!(
+        mint_event_found
+            .clone()
+            .unwrap()
+            .get("txid")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        coinbase_txid.unwrap()
+    );
+
+    // Check that the boot contract has the right recipient
+    let sip_031_recipient = chainstate
+        .with_read_only_clarity_tx(
+            &sortdb
+                .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+                .unwrap(),
+            &latest_stacks_block_id,
+            |conn| {
+                conn.with_readonly_clarity_env(
+                    naka_conf.is_mainnet(),
+                    naka_conf.burnchain.chain_id,
+                    ClarityVersion::Clarity3,
+                    PrincipalData::Standard(StandardPrincipalData::transient()),
+                    None,
+                    LimitedCostTracker::new_free(),
+                    |tx| {
+                        tx.eval_read_only(
+                            &boot_code_id(SIP_031_NAME, naka_conf.is_mainnet()),
+                            "(get-recipient)",
+                        )
+                    },
+                )
+                .unwrap()
+            },
+        )
+        .unwrap()
+        .expect_principal()
+        .unwrap();
+
+    assert_eq!(
+        sip_031_recipient,
+        PrincipalData::Standard(StandardPrincipalData::from(SIP_031_TESTNET_ADDR.clone()))
+    );
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
 }
