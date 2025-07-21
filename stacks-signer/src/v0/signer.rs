@@ -518,6 +518,9 @@ impl Signer {
                         ),
                         SignerMessage::StateMachineUpdate(update) => self
                             .handle_state_machine_update(signer_public_key, update, received_time),
+                        SignerMessage::BlockPreCommit(signer_signature_hash) => {
+                            todo!("Unable to handle block precommit message from {signer_public_key:?}: {signer_signature_hash}");
+                        }
                         _ => {}
                     }
                 }
