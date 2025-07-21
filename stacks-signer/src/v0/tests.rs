@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use libsigner::v0::messages::{BlockResponse, RejectReason};
+use libsigner::v0::messages::{BlockRejection, RejectReason};
 use libsigner::BlockProposal;
 use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::util::get_epoch_time_secs;
@@ -81,8 +81,8 @@ impl Signer {
         &mut self,
         block_proposal: &BlockProposal,
         block_info: &mut BlockInfo,
-        block_response: Option<BlockResponse>,
-    ) -> Option<BlockResponse> {
+        block_rejection: Option<BlockRejection>,
+    ) -> Option<BlockRejection> {
         let public_keys = TEST_REJECT_ALL_BLOCK_PROPOSAL.get();
         if public_keys.contains(
             &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
@@ -108,7 +108,7 @@ impl Signer {
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
             Some(self.create_block_rejection(RejectReason::TestingDirective, &block_proposal.block))
         } else {
-            block_response
+            block_rejection
         }
     }
 

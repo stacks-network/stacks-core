@@ -1160,6 +1160,18 @@ pub enum BlockResponse {
     Rejected(BlockRejection),
 }
 
+impl From<BlockRejection> for BlockResponse {
+    fn from(rejection: BlockRejection) -> Self {
+        BlockResponse::Rejected(rejection)
+    }
+}
+
+impl From<BlockAccepted> for BlockResponse {
+    fn from(accepted: BlockAccepted) -> Self {
+        BlockResponse::Accepted(accepted)
+    }
+}
+
 #[cfg_attr(test, mutants::skip)]
 impl std::fmt::Display for BlockResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

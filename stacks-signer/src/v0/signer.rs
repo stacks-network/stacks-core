@@ -35,8 +35,9 @@ use clarity::util::sleep_ms;
 #[cfg(any(test, feature = "testing"))]
 use clarity::util::tests::TestFlag;
 use libsigner::v0::messages::{
-    BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
-    RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate,
+    BlockAccepted, BlockRejection, BlockResponse, BlockResponseData, MessageSlotID, MockProposal,
+    MockSignature, RejectReason, RejectReasonPrefix, SignerMessage, SignerMessageMetadata,
+    StateMachineUpdate,
 };
 use libsigner::v0::signer_state::GlobalStateEvaluator;
 use libsigner::{BlockProposal, SignerEvent, SignerSession};
@@ -452,31 +453,36 @@ impl Signer {
         let valid = block_info.valid?;
         let response = if valid {
             debug!("{self}: Accepting block {}", block_info.block.block_id());
-            self.create_block_acceptance(&block_info.block)
+            self.create_block_acceptance(&block_info.block).into()
         } else {
             debug!("{self}: Rejecting block {}", block_info.block.block_id());
             self.create_block_rejection(RejectReason::RejectedInPriorRound, &block_info.block)
+                .into()
         };
         Some(response)
     }
 
-    /// Create a block acceptance response for a block
-    pub fn create_block_acceptance(&self, block: &NakamotoBlock) -> BlockResponse {
+    /// Create a block acceptance for a block
+    pub fn create_block_acceptance(&self, block: &NakamotoBlock) -> BlockAccepted {
         let signature = self
             .private_key
             .sign(block.header.signer_signature_hash().bits())
             .expect("Failed to sign block");
-        BlockResponse::accepted(
-            block.header.signer_signature_hash(),
+        BlockAccepted {
+            signer_signature_hash: block.header.signer_signature_hash(),
             signature,
-            self.signer_db.calculate_tenure_extend_timestamp(
-                self.proposal_config
-                    .tenure_idle_timeout
-                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
-                block,
-                true,
+            metadata: SignerMessageMetadata::default(),
+            response_data: BlockResponseData::new(
+                self.signer_db.calculate_tenure_extend_timestamp(
+                    self.proposal_config
+                        .tenure_idle_timeout
+                        .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
+                    block,
+                    true,
+                ),
+                RejectReason::NotRejected,
             ),
-        )
+        }
     }
 
     /// The actual switch-on-event processing of an event.
@@ -676,8 +682,8 @@ impl Signer {
         &self,
         reject_reason: RejectReason,
         block: &NakamotoBlock,
-    ) -> BlockResponse {
-        BlockResponse::rejected(
+    ) -> BlockRejection {
+        BlockRejection::new(
             block.header.signer_signature_hash(),
             reject_reason,
             &self.private_key,
@@ -716,13 +722,13 @@ impl Signer {
     }
 
     /// Check if block should be rejected based on the appropriate state (either local or global)
-    /// Will return a BlockResponse::Rejection if the block is invalid, none otherwise.
+    /// Will return a BlockRejection if the block is invalid, none otherwise.
     fn check_block_against_state(
         &mut self,
         stacks_client: &StacksClient,
         sortition_state: &mut Option<SortitionsView>,
         block: &NakamotoBlock,
-    ) -> Option<BlockResponse> {
+    ) -> Option<BlockRejection> {
         let Some(latest_version) = self
             .global_state_evaluator
             .determine_latest_supported_signer_protocol_version()
@@ -743,14 +749,14 @@ impl Signer {
     }
 
     /// Check if block should be rejected based on the local view of the sortition state
-    /// Will return a BlockResponse::Rejection if the block is invalid, none otherwise.
+    /// Will return a BlockRejection if the block is invalid, none otherwise.
     /// This is the pre-global signer state activation path.
     fn check_block_against_local_state(
         &mut self,
         stacks_client: &StacksClient,
         sortition_state: &mut Option<SortitionsView>,
         block: &NakamotoBlock,
-    ) -> Option<BlockResponse> {
+    ) -> Option<BlockRejection> {
         let signer_signature_hash = block.header.signer_signature_hash();
         let block_id = block.block_id();
         // Get sortition view if we don't have it
@@ -804,13 +810,13 @@ impl Signer {
     }
 
     /// Check if block should be rejected based on global signer state
-    /// Will return a BlockResponse::Rejection if the block is invalid, none otherwise.
+    /// Will return a BlockRejection if the block is invalid, none otherwise.
     /// This is the Post-global signer state activation path
     fn check_block_against_global_state(
         &mut self,
         stacks_client: &StacksClient,
         block: &NakamotoBlock,
-    ) -> Option<BlockResponse> {
+    ) -> Option<BlockRejection> {
         let signer_signature_hash = block.header.signer_signature_hash();
         let block_id = block.block_id();
         // First update our global state evaluator with our local state if we have one
@@ -1053,12 +1059,10 @@ impl Signer {
         self.signer_db
             .insert_block(&block_info)
             .unwrap_or_else(|e| self.handle_insert_block_error(e));
-        let block_response = self.create_block_acceptance(&block_info.block);
-        if let Some(accepted) = block_response.as_block_accepted() {
-            // have to save the signature _after_ the block info
-            self.handle_block_signature(stacks_client, accepted);
-        }
-        self.impl_send_block_response(&block_info.block, block_response);
+        let accepted = self.create_block_acceptance(&block_info.block);
+        // have to save the signature _after_ the block info
+        self.handle_block_signature(stacks_client, &accepted);
+        self.impl_send_block_response(&block_info.block, accepted.into());
     }
 
     /// Handle block proposal messages submitted to signers stackerdb
@@ -1149,16 +1153,16 @@ impl Signer {
         }
 
         // Check if proposal can be rejected now if not valid against sortition view
-        let block_response =
+        let block_rejection =
             self.check_block_against_state(stacks_client, sortition_state, &block_proposal.block);
 
         #[cfg(any(test, feature = "testing"))]
-        let block_response =
-            self.test_reject_block_proposal(block_proposal, &mut block_info, block_response);
+        let block_rejection =
+            self.test_reject_block_proposal(block_proposal, &mut block_info, block_rejection);
 
-        if let Some(block_response) = block_response {
+        if let Some(block_rejection) = block_rejection {
             // We know proposal is invalid. Send rejection message, do not do further validation and do not store it.
-            self.send_block_response(&block_info.block, block_response);
+            self.send_block_response(&block_info.block, block_rejection.into());
         } else {
             // Just in case check if the last block validation submission timed out.
             self.check_submitted_block_proposal();
@@ -1240,7 +1244,7 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         proposed_block: &NakamotoBlock,
-    ) -> Option<BlockResponse> {
+    ) -> Option<BlockRejection> {
         let signer_signature_hash = proposed_block.header.signer_signature_hash();
         // If this is a tenure change block, ensure that it confirms the correct number of blocks from the parent tenure.
         if let Some(tenure_change) = proposed_block.get_tenure_change_tx_payload() {
@@ -1357,12 +1361,9 @@ impl Signer {
             return;
         }
 
-        if let Some(block_response) =
+        if let Some(block_rejection) =
             self.check_block_against_signer_db_state(stacks_client, &block_info.block)
         {
-            let Some(block_rejection) = block_response.as_block_rejection() else {
-                return;
-            };
             // The signer db state has changed. We no longer view this block as valid. Override the validation response.
             if let Err(e) = block_info.mark_locally_rejected() {
                 if !block_info.has_reached_consensus() {
@@ -1372,11 +1373,8 @@ impl Signer {
             self.signer_db
                 .insert_block(&block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
-            self.handle_block_rejection(block_rejection, sortition_state);
-            self.impl_send_block_response(
-                &block_info.block,
-                BlockResponse::Rejected(block_rejection.clone()),
-            );
+            self.handle_block_rejection(&block_rejection, sortition_state);
+            self.impl_send_block_response(&block_info.block, block_rejection.into());
         } else {
             if let Err(e) = block_info.mark_locally_accepted(false) {
                 if !block_info.has_reached_consensus() {
@@ -1450,7 +1448,7 @@ impl Signer {
             .insert_block(&block_info)
             .unwrap_or_else(|e| self.handle_insert_block_error(e));
         self.handle_block_rejection(&block_rejection, sortition_state);
-        self.impl_send_block_response(&block_info.block, BlockResponse::Rejected(block_rejection));
+        self.impl_send_block_response(&block_info.block, block_rejection.into());
     }
 
     /// Handle the block validate response returned from our prior calls to submit a block for validation
@@ -1562,13 +1560,13 @@ impl Signer {
             ),
             &block_info.block,
         );
-        block_info.reject_reason = Some(rejection.get_response_data().reject_reason.clone());
+        block_info.reject_reason = Some(rejection.response_data.reject_reason.clone());
         if let Err(e) = block_info.mark_locally_rejected() {
             if !block_info.has_reached_consensus() {
                 warn!("{self}: Failed to mark block as locally rejected: {e:?}");
             }
         };
-        self.impl_send_block_response(&block_info.block, rejection);
+        self.impl_send_block_response(&block_info.block, rejection.into());
 
         self.signer_db
             .insert_block(&block_info)
