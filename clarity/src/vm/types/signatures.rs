@@ -574,8 +574,9 @@ impl fmt::Display for FunctionArg {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashSet;
+
     use clarity_serialization::types::{QualifiedContractIdentifier, TraitIdentifier};
-    use hashbrown::HashSet;
     #[cfg(test)]
     use rstest::rstest;
     #[cfg(test)]

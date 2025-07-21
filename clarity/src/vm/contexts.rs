@@ -14,13 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::mem::replace;
 use std::time::{Duration, Instant};
 
 use clarity_serialization::representations::ClarityName;
-use hashbrown::{HashMap, HashSet};
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::types::chainstate::StacksBlockId;

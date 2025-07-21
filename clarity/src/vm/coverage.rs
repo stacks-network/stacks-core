@@ -1,8 +1,6 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
-
-use hashbrown::{HashMap, HashSet};
 
 use super::functions::define::DefineFunctionsParsed;
 use super::EvalHook;

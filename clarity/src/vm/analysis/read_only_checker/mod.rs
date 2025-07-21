@@ -14,9 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
+
 use clarity_serialization::representations::ClarityName;
 use clarity_serialization::types::{PrincipalData, Value};
-use hashbrown::HashMap;
 use stacks_common::types::StacksEpochId;
 
 pub use super::errors::{

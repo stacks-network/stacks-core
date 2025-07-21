@@ -606,7 +606,6 @@ version = "0.0.1"
 dependencies = [
  "assert-json-diff 1.1.0",
  "clarity-serialization",
- "hashbrown 0.15.2",
  "integer-sqrt",
  "lazy_static",
  "mutants",

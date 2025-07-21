@@ -14,13 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
 use std::{cmp, fmt};
 
 use costs_1::Costs1;
 use costs_2::Costs2;
 use costs_2_testnet::Costs2Testnet;
 use costs_3::Costs3;
-use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
