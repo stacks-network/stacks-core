@@ -16,10 +16,12 @@
 
 use std::{error, fmt};
 
+use clarity_serialization::errors::CodecError;
+use clarity_serialization::types::{TraitIdentifier, TupleTypeSignature, TypeSignature, Value};
+
 use crate::vm::costs::{CostErrors, ExecutionCost};
 use crate::vm::diagnostic::{DiagnosableError, Diagnostic};
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::{TraitIdentifier, TupleTypeSignature, TypeSignature, Value};
 
 pub type CheckResult<T> = Result<T, CheckError>;
 
@@ -491,5 +493,54 @@ impl DiagnosableError for CheckErrors {
             ),
             _ => None,
         }
+    }
+}
+
+impl From<CodecError> for CheckErrors {
+    fn from(err: CodecError) -> Self {
+        match err {
+            CodecError::ValueTooLarge => CheckErrors::ValueTooLarge,
+            CodecError::ValueOutOfBounds => CheckErrors::ValueOutOfBounds,
+            CodecError::TypeSignatureTooDeep => CheckErrors::TypeSignatureTooDeep,
+            CodecError::SupertypeTooLarge => CheckErrors::SupertypeTooLarge,
+            CodecError::EmptyTuplesNotAllowed => CheckErrors::EmptyTuplesNotAllowed,
+            CodecError::ListTypesMustMatch => CheckErrors::ListTypesMustMatch,
+            CodecError::CouldNotDetermineType => CheckErrors::CouldNotDetermineType,
+            CodecError::CouldNotDetermineSerializationType => {
+                CheckErrors::CouldNotDetermineSerializationType
+            }
+            CodecError::InvalidStringCharacters => CheckErrors::InvalidCharactersDetected,
+            CodecError::InvalidUtf8Encoding => CheckErrors::InvalidUTF8Encoding,
+            CodecError::NoSuchTupleField(name, sig) => CheckErrors::NoSuchTupleField(name, sig),
+            CodecError::TypeError { expected, found } => CheckErrors::TypeError(*expected, *found),
+            CodecError::TypeValueError { expected, found } => {
+                CheckErrors::TypeValueError(*expected, *found)
+            }
+            CodecError::Expect(s) => CheckErrors::Expects(s),
+            // These errors don't have a match in CheckErrors, so we convert
+            // them to a descriptive string inside the `Expects` variant.
+            // Based on the current code, this should never happen.
+            CodecError::Io(_)
+            | CodecError::Serialization(_)
+            | CodecError::Deserialization(_)
+            | CodecError::DeserializeExpected(_)
+            | CodecError::UnexpectedSerialization
+            | CodecError::LeftoverBytesInDeserialization
+            | CodecError::ParseError(_)
+            | CodecError::BadTypeConstruction
+            | CodecError::FailureConstructingTupleWithType
+            | CodecError::FailureConstructingListWithType
+            | CodecError::NameAlreadyUsedInTuple(_)
+            | CodecError::InvalidClarityName(_, _)
+            | CodecError::InvalidContractName(_, _) => {
+                CheckErrors::Expects(format!("Unexpected error: {err:?}"))
+            }
+        }
+    }
+}
+
+impl From<CodecError> for CheckError {
+    fn from(err: CodecError) -> Self {
+        CheckError::new(err.into())
     }
 }

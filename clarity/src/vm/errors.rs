@@ -16,6 +16,7 @@
 
 use std::{error, fmt};
 
+pub use clarity_serialization::errors::CodecError;
 #[cfg(feature = "rusqlite")]
 use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJSONErr;
@@ -45,6 +46,62 @@ pub enum Error {
     Interpreter(InterpreterError),
     Runtime(RuntimeErrorType, Option<StackTrace>),
     ShortReturn(ShortReturnType),
+}
+impl From<CodecError> for Error {
+    fn from(err: CodecError) -> Self {
+        match err {
+            CodecError::ParseError(msg) => Error::from(RuntimeErrorType::ParseError(msg)),
+            CodecError::BadTypeConstruction => Error::from(RuntimeErrorType::BadTypeConstruction),
+            CodecError::ValueTooLarge => Error::from(CheckErrors::ValueTooLarge),
+            CodecError::ValueOutOfBounds => Error::from(CheckErrors::ValueOutOfBounds),
+            CodecError::TypeSignatureTooDeep => Error::from(CheckErrors::TypeSignatureTooDeep),
+            CodecError::SupertypeTooLarge => Error::from(CheckErrors::SupertypeTooLarge),
+            CodecError::EmptyTuplesNotAllowed => Error::from(CheckErrors::EmptyTuplesNotAllowed),
+            CodecError::FailureConstructingTupleWithType => {
+                Error::from(InterpreterError::FailureConstructingTupleWithType)
+            }
+            CodecError::FailureConstructingListWithType => {
+                Error::from(InterpreterError::FailureConstructingListWithType)
+            }
+            CodecError::ListTypesMustMatch => Error::from(CheckErrors::ListTypesMustMatch),
+            CodecError::TypeError { expected, found } => {
+                Error::from(CheckErrors::TypeError(*expected, *found))
+            }
+            CodecError::TypeValueError { expected, found } => {
+                Error::from(CheckErrors::TypeValueError(*expected, *found))
+            }
+            CodecError::CouldNotDetermineSerializationType => {
+                Error::from(CheckErrors::CouldNotDetermineSerializationType)
+            }
+            CodecError::CouldNotDetermineType => Error::from(CheckErrors::CouldNotDetermineType),
+            CodecError::NameAlreadyUsedInTuple(name) => {
+                Error::from(CheckErrors::NameAlreadyUsed(name))
+            }
+            CodecError::NoSuchTupleField(name, tuple_type_signature) => {
+                Error::from(CheckErrors::NoSuchTupleField(name, tuple_type_signature))
+            }
+            CodecError::InvalidClarityName(name, msg) => {
+                Error::from(RuntimeErrorType::BadNameValue(name, msg))
+            }
+            CodecError::InvalidContractName(name, msg) => {
+                Error::from(RuntimeErrorType::BadNameValue(name, msg))
+            }
+            CodecError::InvalidStringCharacters => {
+                Error::from(CheckErrors::InvalidCharactersDetected)
+            }
+            CodecError::InvalidUtf8Encoding => Error::from(CheckErrors::InvalidUTF8Encoding),
+            CodecError::Expect(msg) => Error::from(CheckErrors::Expects(msg)),
+            // These errors don't have a match in CheckErrors, so we convert
+            // them to a descriptive string inside the `Expects` variant.
+            // Based on the current code, this should never happen.
+            CodecError::Io(_)
+            | CodecError::Serialization(_)
+            | CodecError::Deserialization(_)
+            | CodecError::DeserializeExpected(_)
+            | CodecError::UnexpectedSerialization
+            | CodecError::LeftoverBytesInDeserialization => Error::from(CheckErrors::from(err)),
+        }
+    }
 }
 
 /// InterpreterErrors are errors that *should never* occur.

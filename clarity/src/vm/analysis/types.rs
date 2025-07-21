@@ -16,6 +16,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use clarity_serialization::representations::ClarityName;
+use clarity_serialization::types::{QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::analysis_db::AnalysisDatabase;
@@ -24,8 +26,8 @@ use crate::vm::analysis::errors::{CheckErrors, CheckResult};
 use crate::vm::analysis::type_checker::contexts::TypeMap;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::types::signatures::FunctionSignature;
-use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
-use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression};
+use crate::vm::types::FunctionType;
+use crate::vm::{ClarityVersion, SymbolicExpression};
 
 const DESERIALIZE_FAIL_MESSAGE: &str =
     "PANIC: Failed to deserialize bad database data in contract analysis.";
@@ -247,7 +249,11 @@ impl ContractAnalysis {
                         .into());
                     }
 
-                    if !expected_sig.returns.admits_type(epoch, &func.returns)? {
+                    if !expected_sig
+                        .returns
+                        .admits_type(epoch, &func.returns)
+                        .map_err(CheckErrors::from)?
+                    {
                         return Err(CheckErrors::BadTraitImplementation(
                             trait_name,
                             func_name.to_string(),

@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_serialization::representations::ClarityName;
+use clarity_serialization::types::{QualifiedContractIdentifier, TraitIdentifier};
 use hashbrown::HashMap;
 
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
@@ -22,8 +24,7 @@ use crate::vm::functions::define::DefineFunctions;
 use crate::vm::representations::PreSymbolicExpressionType::{
     Atom, FieldIdentifier, List, SugaredFieldIdentifier, TraitReference, Tuple,
 };
-use crate::vm::representations::{ClarityName, PreSymbolicExpression, TraitDefinition};
-use crate::vm::types::{QualifiedContractIdentifier, TraitIdentifier};
+use crate::vm::representations::{PreSymbolicExpression, TraitDefinition};
 use crate::vm::ClarityVersion;
 
 pub struct TraitsResolver {}

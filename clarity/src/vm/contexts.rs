@@ -19,6 +19,7 @@ use std::fmt;
 use std::mem::replace;
 use std::time::{Duration, Instant};
 
+use clarity_serialization::representations::ClarityName;
 use hashbrown::{HashMap, HashSet};
 use serde::Serialize;
 use serde_json::json;
@@ -39,7 +40,7 @@ use crate::vm::errors::{
     CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::events::*;
-use crate::vm::representations::{ClarityName, SymbolicExpression};
+use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
     AssetIdentifier, BuffData, CallableData, PrincipalData, QualifiedContractIdentifier,

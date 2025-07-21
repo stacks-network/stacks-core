@@ -16,7 +16,7 @@
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
+    check_argument_count, check_arguments_at_least, CheckErrors, Error, InterpreterError,
     InterpreterResult as Result,
 };
 use crate::vm::representations::SymbolicExpression;
@@ -37,7 +37,9 @@ pub fn tuple_cons(
     let bindings = parse_eval_bindings(args, env, context)?;
     runtime_cost(ClarityCostFunction::TupleCons, env, bindings.len())?;
 
-    TupleData::from_data(bindings).map(Value::from)
+    TupleData::from_data(bindings)
+        .map_err(Error::from)
+        .map(Value::from)
 }
 
 pub fn tuple_get(
@@ -73,7 +75,7 @@ pub fn tuple_get(
         }
         Value::Tuple(tuple_data) => {
             runtime_cost(ClarityCostFunction::TupleGet, env, tuple_data.len())?;
-            tuple_data.get_owned(arg_name)
+            tuple_data.get_owned(arg_name).map_err(Error::from)
         }
         _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&value)?).into()),
     }

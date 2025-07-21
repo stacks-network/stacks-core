@@ -22,7 +22,7 @@ use crate::vm::callables::DefineType;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
+    check_argument_count, check_arguments_at_least, CheckErrors, Error, InterpreterError,
     InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
@@ -866,7 +866,7 @@ pub fn special_get_block_info(
         }
     };
 
-    Value::some(result)
+    Value::some(result).map_err(Error::from)
 }
 
 /// Handles the `get-burn-block-info?` special function.
@@ -925,6 +925,7 @@ pub fn special_get_burn_block_info(
                     Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
                         data: burnchain_header_hash.as_bytes().to_vec(),
                     })))
+                    .map_err(Error::from)
                 }
                 None => Ok(Value::none()),
             }
@@ -1037,7 +1038,7 @@ pub fn special_get_stacks_block_info(
         }
     };
 
-    Value::some(result)
+    Value::some(result).map_err(Error::from)
 }
 
 /// Handles the function `get-tenure-info?` special function.
@@ -1147,5 +1148,5 @@ pub fn special_get_tenure_info(
         }
     };
 
-    Value::some(result)
+    Value::some(result).map_err(Error::from)
 }

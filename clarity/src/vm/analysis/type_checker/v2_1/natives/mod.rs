@@ -65,14 +65,17 @@ fn check_special_list_cons(
     for arg in args.iter() {
         // don't use map here, since type_check has side-effects.
         let checked = checker.type_check(arg, context)?;
-        let cost = checked.type_size().and_then(|ty_size| {
-            checker
-                .compute_cost(
-                    ClarityCostFunction::AnalysisListItemsCheck,
-                    &[ty_size.into()],
-                )
-                .map_err(CheckErrors::from)
-        });
+        let cost = checked
+            .type_size()
+            .map_err(CheckErrors::from)
+            .and_then(|ty_size| {
+                checker
+                    .compute_cost(
+                        ClarityCostFunction::AnalysisListItemsCheck,
+                        &[ty_size.into()],
+                    )
+                    .map_err(CheckErrors::from)
+            });
         costs.push(cost);
 
         if let Some(cur_size) = entries_size {

@@ -21,13 +21,15 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
-    RuntimeErrorType,
+    check_argument_count, check_arguments_at_least, CheckErrors, Error,
+    InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::ListTypeData;
 use crate::vm::types::TypeSignature::BoolType;
-use crate::vm::types::{ListData, SequenceData, TypeSignature, Value};
+use crate::vm::types::{
+    Filter as _, GetAtomValues as _, ListData, SequenceData, TypeSignature, Value,
+};
 use crate::vm::{apply, eval, lookup_function, Environment, LocalContext};
 
 pub fn list_cons(
@@ -45,7 +47,7 @@ pub fn list_cons(
 
     runtime_cost(ClarityCostFunction::ListCons, env, arg_size)?;
 
-    Value::cons_list(args, env.epoch())
+    Value::cons_list(args, env.epoch()).map_err(Error::from)
 }
 
 pub fn special_filter(
@@ -167,7 +169,7 @@ pub fn special_map(
         mapped_results.push(res);
     }
 
-    Value::cons_list(mapped_results, env.epoch())
+    Value::cons_list(mapped_results, env.epoch()).map_err(Error::from)
 }
 
 pub fn special_append(
@@ -194,7 +196,7 @@ pub fn special_append(
             )?;
             if entry_type.is_no_type() {
                 assert_eq!(size, 0);
-                return Value::cons_list(vec![element], env.epoch());
+                return Value::cons_list(vec![element], env.epoch()).map_err(Error::from);
             }
             if let Ok(next_entry_type) =
                 TypeSignature::least_supertype(env.epoch(), &entry_type, &element_type)
@@ -236,7 +238,7 @@ pub fn special_concat_v200(
 
     match (&mut wrapped_seq, other_wrapped_seq) {
         (Value::Sequence(ref mut seq), Value::Sequence(other_seq)) => {
-            seq.concat(env.epoch(), other_seq)
+            seq.concat(env.epoch(), other_seq).map_err(Error::from)
         }
         _ => Err(RuntimeErrorType::BadTypeConstruction.into()),
     }?;
@@ -262,7 +264,7 @@ pub fn special_concat_v205(
                 (seq.len() as u64).cost_overflow_add(other_seq.len() as u64)?,
             )?;
 
-            seq.concat(env.epoch(), other_seq)
+            seq.concat(env.epoch(), other_seq).map_err(Error::from)
         }
         _ => {
             runtime_cost(ClarityCostFunction::Concat, env, 1)?;
@@ -321,7 +323,7 @@ pub fn native_len(sequence: Value) -> Result<Value> {
 pub fn native_index_of(sequence: Value, to_find: Value) -> Result<Value> {
     if let Value::Sequence(sequence_data) = sequence {
         match sequence_data.contains(to_find)? {
-            Some(index) => Value::some(Value::UInt(index as u128)),
+            Some(index) => Value::some(Value::UInt(index as u128)).map_err(Error::from),
             None => Ok(Value::none()),
         }
     } else {
@@ -347,7 +349,7 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value> {
     };
 
     if let Some(result) = sequence_data.element_at(index)? {
-        Value::some(result)
+        Value::some(result).map_err(Error::from)
     } else {
         Ok(Value::none())
     }
@@ -389,7 +391,7 @@ pub fn special_slice(
                 )?;
                 let seq_value =
                     seq.slice(env.epoch(), left_position as usize, right_position as usize)?;
-                Value::some(seq_value)
+                Value::some(seq_value).map_err(Error::from)
             }
             _ => Err(RuntimeErrorType::BadTypeConstruction.into()),
         }
@@ -447,6 +449,7 @@ pub fn special_replace_at(
             return Ok(Value::none());
         }
         data.replace_at(env.epoch(), index, new_element)
+            .map_err(Error::from)
     } else {
         Err(CheckErrors::ExpectedSequence(seq_type).into())
     }

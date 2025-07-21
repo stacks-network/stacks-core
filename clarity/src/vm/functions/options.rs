@@ -217,7 +217,7 @@ pub fn special_match(
 }
 
 pub fn native_some(input: Value) -> Result<Value> {
-    Value::some(input)
+    Value::some(input).map_err(Into::into)
 }
 
 fn is_some(input: Value) -> Result<bool> {
@@ -251,11 +251,11 @@ pub fn native_is_err(input: Value) -> Result<Value> {
 }
 
 pub fn native_okay(input: Value) -> Result<Value> {
-    Value::okay(input)
+    Value::okay(input).map_err(Into::into)
 }
 
 pub fn native_error(input: Value) -> Result<Value> {
-    Value::error(input)
+    Value::error(input).map_err(Into::into)
 }
 
 pub fn native_default_to(default: Value, input: Value) -> Result<Value> {

@@ -14,17 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_serialization::errors::CodecError;
+
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
+    check_argument_count, CheckErrors, Error, InterpreterError, InterpreterResult as Result,
 };
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::serialization::SerializationError;
 use crate::vm::types::SequenceSubtype::BufferType;
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
-    ASCIIData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
+    ASCIIData, BufferLength, CharType, SequenceData, TypeSignature, TypeSignatureExt as _,
+    UTF8Data, Value,
 };
 use crate::vm::{eval, Environment, LocalContext};
 
@@ -158,7 +160,7 @@ pub fn native_string_to_int_generic(
 fn safe_convert_string_to_int(raw_string: String) -> Result<Value> {
     let possible_int = raw_string.parse::<i128>();
     match possible_int {
-        Ok(val) => Value::some(Value::Int(val)),
+        Ok(val) => Value::some(Value::Int(val)).map_err(Error::from),
         Err(_error) => Ok(Value::none()),
     }
 }
@@ -170,7 +172,7 @@ pub fn native_string_to_int(value: Value) -> Result<Value> {
 fn safe_convert_string_to_uint(raw_string: String) -> Result<Value> {
     let possible_int = raw_string.parse::<u128>();
     match possible_int {
-        Ok(val) => Value::some(Value::UInt(val)),
+        Ok(val) => Value::some(Value::UInt(val)).map_err(Error::from),
         Err(_error) => Ok(Value::none()),
     }
 }
@@ -210,12 +212,16 @@ pub fn native_int_to_string_generic(
 
 pub fn native_int_to_ascii(value: Value) -> Result<Value> {
     // Given a string representing an integer, convert this to Clarity ASCII value.
-    native_int_to_string_generic(value, Value::string_ascii_from_bytes)
+    native_int_to_string_generic(value, |bytes| {
+        Value::string_ascii_from_bytes(bytes).map_err(Error::from)
+    })
 }
 
 pub fn native_int_to_utf8(value: Value) -> Result<Value> {
     // Given a string representing an integer, convert this to Clarity UTF8 value.
-    native_int_to_string_generic(value, Value::string_utf8_from_bytes)
+    native_int_to_string_generic(value, |bytes| {
+        Value::string_utf8_from_bytes(bytes).map_err(Error::from)
+    })
 }
 
 /// Returns `value` consensus serialized into a `(optional buff)` object.
@@ -277,7 +283,7 @@ pub fn from_consensus_buff(
         env.epoch().value_sanitizing(),
     ) {
         Ok(value) => value,
-        Err(SerializationError::UnexpectedSerialization) => {
+        Err(CodecError::UnexpectedSerialization) => {
             return Err(CheckErrors::Expects("UnexpectedSerialization".into()).into())
         }
         Err(_) => return Ok(Value::none()),
@@ -286,5 +292,5 @@ pub fn from_consensus_buff(
         return Ok(Value::none());
     }
 
-    Value::some(result)
+    Value::some(result).map_err(Error::from)
 }

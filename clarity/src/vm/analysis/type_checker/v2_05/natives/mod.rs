@@ -58,9 +58,8 @@ fn check_special_list_cons(
             type_arg.type_size()?,
         )?;
     }
-    TypeSignature::parent_list_type(&typed_args)
-        .map_err(|x| x.into())
-        .map(TypeSignature::from)
+    let list_type = TypeSignature::parent_list_type(&typed_args).map_err(CheckError::from)?;
+    Ok(TypeSignature::from(list_type))
 }
 
 fn check_special_print(

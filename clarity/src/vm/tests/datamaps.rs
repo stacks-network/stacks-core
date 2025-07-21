@@ -13,14 +13,13 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use crate::vm::errors::Error;
 use crate::vm::types::{TupleData, Value};
 #[cfg(test)]
 use crate::vm::{
     errors::{CheckErrors, ShortReturnType},
     types::{ListData, SequenceData, TupleTypeSignature, TypeSignature},
 };
-use crate::vm::{execute, ClarityName};
+use crate::vm::{execute, ClarityName, Error};
 
 fn assert_executes(expected: Result<Value, Error>, input: &str) {
     assert_eq!(expected.unwrap(), execute(input).unwrap().unwrap());
@@ -71,7 +70,7 @@ fn test_simple_tea_shop() {
         Value::Int(3),
     ]);
 
-    assert_executes(expected, test1);
+    assert_executes(expected.map_err(Error::from), test1);
 }
 
 #[test]
@@ -106,12 +105,12 @@ fn test_bound_tuple() {
         Value::Int(1),
         Value::Int(1),
     ]);
-    assert_executes(expected, &test_add_set_del);
+    assert_executes(expected.map_err(Error::from), &test_add_set_del);
 
     let mut test_get = test.to_string();
     test_get.push_str("(list (kv-get 1))");
     let expected = Value::list_from(vec![Value::Int(0)]);
-    assert_executes(expected, &test_get);
+    assert_executes(expected.map_err(Error::from), &test_get);
 }
 
 #[test]
@@ -143,12 +142,12 @@ fn test_explicit_syntax_tuple() {
         Value::Int(1),
         Value::Int(1),
     ]);
-    assert_executes(expected, &test_add_set_del);
+    assert_executes(expected.map_err(Error::from), &test_add_set_del);
 
     let mut test_get = test.to_string();
     test_get.push_str("(list (kv-get 1))");
     let expected = Value::list_from(vec![Value::Int(0)]);
-    assert_executes(expected, &test_get);
+    assert_executes(expected.map_err(Error::from), &test_get);
 }
 
 #[test]
@@ -180,12 +179,12 @@ fn test_implicit_syntax_tuple() {
         Value::Int(1),
         Value::Int(1),
     ]);
-    assert_executes(expected, &test_add_set_del);
+    assert_executes(expected.map_err(Error::from), &test_add_set_del);
 
     let mut test_get = test.to_string();
     test_get.push_str("(list (kv-get 1))");
     let expected = Value::list_from(vec![Value::Int(0)]);
-    assert_executes(expected, &test_get);
+    assert_executes(expected.map_err(Error::from), &test_get);
 }
 
 #[test]
@@ -214,7 +213,7 @@ fn test_set_int_variable() {
         Value::Int(255),
         Value::Int(256),
     ]);
-    assert_executes(expected, &contract_src);
+    assert_executes(expected.map_err(Error::from), &contract_src);
 }
 
 #[test]
@@ -236,7 +235,7 @@ fn test_set_bool_variable() {
         Value::Bool(false),
         Value::Bool(false),
     ]);
-    assert_executes(expected, &contract_src);
+    assert_executes(expected.map_err(Error::from), &contract_src);
 }
 
 #[test]
@@ -275,7 +274,7 @@ fn test_set_tuple_variable() {
             .unwrap(),
         ),
     ]);
-    assert_executes(expected, &contract_src);
+    assert_executes(expected.map_err(Error::from), &contract_src);
 }
 
 #[test]
@@ -321,7 +320,7 @@ fn test_set_list_variable() {
         Value::list_from(vec![Value::Int(2), Value::Int(3), Value::Int(1)]).unwrap(),
         Value::list_from(vec![Value::Int(2), Value::Int(3), Value::Int(1)]).unwrap(),
     ]);
-    assert_executes(expected, &contract_src);
+    assert_executes(expected.map_err(Error::from), &contract_src);
 }
 
 #[test]
@@ -372,7 +371,7 @@ fn test_set_string_variable() {
         Value::string_ascii_from_bytes("celia".to_string().into_bytes()).unwrap(),
         Value::string_ascii_from_bytes("celia".to_string().into_bytes()).unwrap(),
     ]);
-    assert_executes(expected, &contract_src);
+    assert_executes(expected.map_err(Error::from), &contract_src);
 }
 
 #[test]
@@ -420,7 +419,7 @@ fn test_factorial_contract() {
         Value::Int(120),
     ]);
 
-    assert_executes(expected, test1);
+    assert_executes(expected.map_err(Error::from), test1);
 }
 
 #[test]
@@ -462,7 +461,7 @@ fn silly_naming_system() {
         Value::Int(-1),
     ]);
 
-    assert_executes(expected, test1);
+    assert_executes(expected.map_err(Error::from), test1);
 }
 
 #[test]
@@ -546,7 +545,7 @@ fn lists_system() {
         Value::list_from(vec![list1, list2])
     };
 
-    assert_executes(expected(), test1);
+    assert_executes(expected().map_err(Error::from), test1);
 
     for test in [
         test_list_too_big,
@@ -611,7 +610,7 @@ fn tuples_system() {
         Value::list_from(vec![buff1, buff2])
     };
 
-    assert_executes(expected(), test1);
+    assert_executes(expected().map_err(Error::from), test1);
 
     let type_error_tests = [
         test_list_too_big,
@@ -764,7 +763,7 @@ fn test_non_tuple_map_get_set() {
         Value::list_from(vec![buff1, buff2])
     };
 
-    assert_executes(expected(), test1);
+    assert_executes(expected().map_err(Error::from), test1);
 
     let type_error_tests = [test_value_too_big, test_bad_value, test_bad_key];
 
@@ -808,10 +807,10 @@ fn test_non_tuple_map_kv_store() {
         Value::Int(1),
         Value::Int(1),
     ]);
-    assert_executes(expected, &test_add_set_del);
+    assert_executes(expected.map_err(Error::from), &test_add_set_del);
 
     let mut test_get = test.to_string();
     test_get.push_str("(list (kv-get 1))");
     let expected = Value::list_from(vec![Value::Int(0)]);
-    assert_executes(expected, &test_get);
+    assert_executes(expected.map_err(Error::from), &test_get);
 }
