@@ -78,9 +78,6 @@ pub enum CodecError {
     #[error("type of expression cannot be determined")]
     CouldNotDetermineType,
 
-    #[error("Deserialization expected a value of type '{0}', but the data did not match")]
-    DeserializeWrongType(Box<TypeSignature>),
-
     // --- Naming and Identifier Errors ---
     #[error("Name '{0}' is already used in this tuple")]
     NameAlreadyUsedInTuple(String),
