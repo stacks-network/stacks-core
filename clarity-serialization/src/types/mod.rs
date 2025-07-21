@@ -1023,7 +1023,7 @@ impl Value {
             Ok(String::from_utf8(data)
                 .map_err(|_| CodecError::Expect("Non UTF-8 data in string".into()))?)
         } else {
-            error!("Value '{:?}' is not an ASCII string", &self);
+            error!("Value '{self:?}' is not an ASCII string");
             Err(CodecError::Expect("Expected ASCII string".into()))
         }
     }
@@ -1032,7 +1032,7 @@ impl Value {
         if let Value::UInt(inner) = self {
             Ok(inner)
         } else {
-            error!("Value '{:?}' is not a u128", &self);
+            error!("Value '{self:?}' is not a u128");
             Err(CodecError::Expect("Expected u128".into()))
         }
     }
@@ -1041,7 +1041,7 @@ impl Value {
         if let Value::Int(inner) = self {
             Ok(inner)
         } else {
-            error!("Value '{:?}' is not an i128", &self);
+            error!("Value '{self:?}' is not an i128");
             Err(CodecError::Expect("Expected i128".into()))
         }
     }
@@ -1052,14 +1052,13 @@ impl Value {
                 Ok(buffdata.data)
             } else {
                 error!(
-                    "Value buffer has len {}, expected {}",
-                    buffdata.data.len(),
-                    sz
+                    "Value buffer has len {}, expected {sz}",
+                    buffdata.data.len()
                 );
                 Err(CodecError::Expect("Unexpected buff length".into()))
             }
         } else {
-            error!("Value '{:?}' is not a buff", &self);
+            error!("Value '{self:?}' is not a buff");
             Err(CodecError::Expect("Expected buff".into()))
         }
     }
@@ -1068,7 +1067,7 @@ impl Value {
         if let Value::Sequence(SequenceData::List(listdata)) = self {
             Ok(listdata.data)
         } else {
-            error!("Value '{:?}' is not a list", &self);
+            error!("Value '{self:?}' is not a list");
             Err(CodecError::Expect("Expected list".into()))
         }
     }
@@ -1087,7 +1086,7 @@ impl Value {
         if let Value::Bool(b) = self {
             Ok(b)
         } else {
-            error!("Value '{:?}' is not a bool", &self);
+            error!("Value '{self:?}' is not a bool");
             Err(CodecError::Expect("Expected bool".into()))
         }
     }
@@ -1096,7 +1095,7 @@ impl Value {
         if let Value::Tuple(data) = self {
             Ok(data)
         } else {
-            error!("Value '{:?}' is not a tuple", &self);
+            error!("Value '{self:?}' is not a tuple");
             Err(CodecError::Expect("Expected tuple".into()))
         }
     }
@@ -1108,7 +1107,7 @@ impl Value {
                 None => Ok(None),
             }
         } else {
-            error!("Value '{:?}' is not an optional", &self);
+            error!("Value '{self:?}' is not an optional");
             Err(CodecError::Expect("Expected optional".into()))
         }
     }
@@ -1117,7 +1116,7 @@ impl Value {
         if let Value::Principal(p) = self {
             Ok(p)
         } else {
-            error!("Value '{:?}' is not a principal", &self);
+            error!("Value '{self:?}' is not a principal");
             Err(CodecError::Expect("Expected principal".into()))
         }
     }
@@ -1126,7 +1125,7 @@ impl Value {
         if let Value::CallableContract(t) = self {
             Ok(t)
         } else {
-            error!("Value '{:?}' is not a callable contract", &self);
+            error!("Value '{self:?}' is not a callable contract");
             Err(CodecError::Expect("Expected callable".into()))
         }
     }
@@ -1139,7 +1138,7 @@ impl Value {
                 Ok(Err(*res_data.data))
             }
         } else {
-            error!("Value '{:?}' is not a response", &self);
+            error!("Value '{self:?}' is not a response");
             Err(CodecError::Expect("Expected response".into()))
         }
     }
@@ -1153,7 +1152,7 @@ impl Value {
                 Err(CodecError::Expect("Expected ok response".into()))
             }
         } else {
-            error!("Value '{:?}' is not a response", &self);
+            error!("Value '{self:?}' is not a response");
             Err(CodecError::Expect("Expected response".into()))
         }
     }
@@ -1167,7 +1166,7 @@ impl Value {
                 Err(CodecError::Expect("Expected err response".into()))
             }
         } else {
-            error!("Value '{:?}' is not a response", &self);
+            error!("Value '{self:?}' is not a response");
             Err(CodecError::Expect("Expected response".into()))
         }
     }

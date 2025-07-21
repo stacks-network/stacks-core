@@ -483,8 +483,7 @@ impl Value {
             if bytes_read > expect_size as u64 {
                 // this can happen due to sanitization, so its no longer indicative of a *problem* with the node.
                 debug!(
-                    "Deserialized more bytes than expected size during deserialization. Expected size = {}, bytes read = {}, type = {}",
-                    expect_size, bytes_read, expected_type,
+                    "Deserialized more bytes than expected size during deserialization. Expected size = {expect_size}, bytes read = {bytes_read}, type = {expected_type:?}"
                 );
             }
         }
@@ -1297,7 +1296,7 @@ impl StacksMessageCodec for Value {
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Value, codec_error> {
         Value::deserialize_read(fd, None, false).map_err(|e| match e {
             CodecError::Io(io_e) => codec_error::ReadError(io_e),
-            _ => codec_error::DeserializeError(format!("Failed to decode clarity value: {:?}", &e)),
+            _ => codec_error::DeserializeError(format!("Failed to decode clarity value: {e:?}")),
         })
     }
 }

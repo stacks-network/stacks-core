@@ -52,13 +52,7 @@ pub fn version_string(pkg_name: &str, pkg_version: &str) -> String {
     let git_tree_clean = GIT_TREE_CLEAN.unwrap_or("");
 
     format!(
-        "{} {} ({}:{}{}, {} build, {} [{}])",
-        pkg_name,
-        pkg_version,
-        &git_branch,
-        git_commit,
-        git_tree_clean,
-        BUILD_TYPE,
+        "{pkg_name} {pkg_version} ({git_branch}:{git_commit}{git_tree_clean}, {BUILD_TYPE} build {}, [{}])",
         std::env::consts::OS,
         std::env::consts::ARCH
     )
