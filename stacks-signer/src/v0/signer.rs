@@ -1162,6 +1162,7 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         block_validate_ok: &BlockValidateOk,
+        sortition_state: &mut Option<SortitionsView>,
     ) -> Option<BlockResponse> {
         crate::monitoring::actions::increment_block_validation_responses(true);
         let signer_signature_hash = block_validate_ok.signer_signature_hash;
@@ -1201,17 +1202,18 @@ impl Signer {
         if let Some(block_response) =
             self.check_block_against_signer_db_state(stacks_client, &block_info.block)
         {
+            let block_rejection = block_response.as_block_rejection()?;
             // The signer db state has changed. We no longer view this block as valid. Override the validation response.
             if let Err(e) = block_info.mark_locally_rejected() {
                 if !block_info.has_reached_consensus() {
                     warn!("{self}: Failed to mark block as locally rejected: {e:?}");
                 }
             };
-            self.impl_send_block_response(Some(&block_info.block), block_response);
             self.signer_db
                 .insert_block(&block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
-            None
+            self.handle_block_rejection(block_rejection, sortition_state);
+            Some(block_response)
         } else {
             if let Err(e) = block_info.mark_locally_accepted(false) {
                 if !block_info.has_reached_consensus() {
@@ -1301,7 +1303,7 @@ impl Signer {
                 crate::monitoring::actions::record_block_validation_latency(
                     block_validate_ok.validation_time_ms,
                 );
-                self.handle_block_validate_ok(stacks_client, block_validate_ok)
+                self.handle_block_validate_ok(stacks_client, block_validate_ok, sortition_state)
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
                 self.handle_block_validate_reject(block_validate_reject, sortition_state)
