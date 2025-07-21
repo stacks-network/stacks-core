@@ -649,6 +649,53 @@ impl TypeSignature {
         }
     }
 
+    /// Canonicalize a type.
+    /// This method will convert types from previous epochs with the appropriate
+    /// types for the specified epoch.
+    pub fn canonicalize(&self, epoch: &StacksEpochId) -> TypeSignature {
+        match epoch {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            // Epoch-2.2 had a regression in canonicalization, so it must be preserved here.
+            | StacksEpochId::Epoch22 => self.clone(),
+            // Note for future epochs: Epochs >= 2.3 should use the canonicalize_v2_1() routine
+            StacksEpochId::Epoch21
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31 => self.canonicalize_v2_1(),
+        }
+    }
+
+    pub fn canonicalize_v2_1(&self) -> TypeSignature {
+        match self {
+            SequenceType(SequenceSubtype::ListType(list_type)) => {
+                SequenceType(SequenceSubtype::ListType(ListTypeData {
+                    max_len: list_type.max_len,
+                    entry_type: Box::new(list_type.entry_type.canonicalize_v2_1()),
+                }))
+            }
+            OptionalType(inner_type) => OptionalType(Box::new(inner_type.canonicalize_v2_1())),
+            ResponseType(inner_type) => ResponseType(Box::new((
+                inner_type.0.canonicalize_v2_1(),
+                inner_type.1.canonicalize_v2_1(),
+            ))),
+            TupleType(tuple_sig) => {
+                let mut canonicalized_fields = BTreeMap::new();
+                for (field_name, field_type) in tuple_sig.get_type_map() {
+                    canonicalized_fields.insert(field_name.clone(), field_type.canonicalize_v2_1());
+                }
+                TypeSignature::from(TupleTypeSignature {
+                    type_map: Arc::new(canonicalized_fields),
+                })
+            }
+            TraitReferenceType(trait_id) => CallableType(CallableSubtype::Trait(trait_id.clone())),
+            _ => self.clone(),
+        }
+    }
+
     /// Concretize the type. The input to this method may include
     /// `ListUnionType` and the `CallableType` variant for a `principal.
     /// This method turns these "temporary" types into actual types.
