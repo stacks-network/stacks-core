@@ -240,7 +240,17 @@ impl From<ClarityError> for CliError {
 
 impl From<ClarityCodecError> for CliError {
     fn from(value: ClarityCodecError) -> Self {
-        CliError::ClarityGeneralError(value.into())
+        match value {
+            ClarityCodecError::Io(_)
+            | ClarityCodecError::Serialization(_)
+            | ClarityCodecError::Deserialization(_)
+            | ClarityCodecError::DeserializeExpected(_)
+            | ClarityCodecError::UnexpectedSerialization
+            | ClarityCodecError::LeftoverBytesInDeserialization => {
+                CliError::Message(format!("Failed to deserialize: {}", value))
+            }
+            _ => CliError::ClarityGeneralError(value.into()),
+        }
     }
 }
 
@@ -271,12 +281,6 @@ impl From<io::Error> for CliError {
 impl From<stacks_common::util::HexError> for CliError {
     fn from(value: stacks_common::util::HexError) -> Self {
         CliError::Message(format!("Bad hex string supplied: {}", value))
-    }
-}
-
-impl From<clarity::vm::types::serialization::SerializationError> for CliError {
-    fn from(value: clarity::vm::types::serialization::SerializationError) -> Self {
-        CliError::Message(format!("Failed to deserialize: {}", value))
     }
 }
 
@@ -1672,7 +1676,7 @@ mod test {
         let result = main_handler(to_string_vec(&cc_args));
         assert!(result.is_err(), "Result should be err!");
 
-        let expected_msg = "Failed to deserialize: Deserialization error: Bad hex string";
+        let expected_msg = "Failed to deserialize: Deserialization failed: Bad hex string";
         assert_eq!(expected_msg, result.unwrap_err().to_string());
     }
 
@@ -1699,7 +1703,7 @@ mod test {
         assert!(result.is_err(), "Result should be err!");
 
         let expected_msg =
-            "Failed to deserialize: Serialization error caused by IO: failed to fill whole buffer";
+            "Failed to deserialize: I/O error during (de)serialization: failed to fill whole buffer";
         assert_eq!(expected_msg, result.unwrap_err().to_string());
     }
 
