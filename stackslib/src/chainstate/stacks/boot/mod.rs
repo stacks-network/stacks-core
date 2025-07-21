@@ -101,7 +101,6 @@ pub const SIP_031_MAINNET_ADDR: LazyLock<StacksAddress> = LazyLock::new(|| {
 });
 
 /// The initial recipient address for SIP-031 on testnet.
-/// TODO: replace with actual address
 pub const SIP_031_TESTNET_ADDR: LazyLock<StacksAddress> = LazyLock::new(|| {
     StacksAddress::from_string("ST1QCN9YMXMJPJ0Y5EMR627FCWDXQWT1CRK9CWN23").unwrap()
 });
@@ -5905,11 +5904,11 @@ pub mod test {
     fn test_sip031_addrs() {
         assert_eq!(
             SIP_031_MAINNET_ADDR.to_string(),
-            "SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5"
+            "SM1Z6BP8PDKYKXTZXXSKXFEY6NQ7RAM7DAEAYR045"
         );
         assert_eq!(
             SIP_031_TESTNET_ADDR.to_string(),
-            "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+            "ST1QCN9YMXMJPJ0Y5EMR627FCWDXQWT1CRK9CWN23"
         );
 
         assert_eq!(
