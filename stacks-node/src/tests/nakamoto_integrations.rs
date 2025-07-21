@@ -25,9 +25,9 @@ use std::{env, thread};
 
 use clarity::boot_util::boot_code_addr;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::costs::ExecutionCost;
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::representations::ContractName;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::{ClarityName, ClarityVersion, Value};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
@@ -57,7 +57,7 @@ use stacks::chainstate::nakamoto::{
 };
 use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use stacks::chainstate::stacks::boot::{
-    MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME, SIP_031_TESTNET_ADDR,
 };
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{
@@ -13459,6 +13459,40 @@ fn test_sip_031_last_phase_out_of_epoch() {
     );
 
     set_test_sip_031_emission_schedule(None);
+
+    // Check that the boot contract has the right recipient
+    let sip_031_recipient = chainstate
+        .with_read_only_clarity_tx(
+            &sortdb
+                .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+                .unwrap(),
+            &latest_stacks_block_id,
+            |conn| {
+                conn.with_readonly_clarity_env(
+                    naka_conf.is_mainnet(),
+                    naka_conf.burnchain.chain_id,
+                    ClarityVersion::Clarity3,
+                    PrincipalData::Standard(StandardPrincipalData::transient()),
+                    None,
+                    LimitedCostTracker::new_free(),
+                    |tx| {
+                        tx.eval_read_only(
+                            &boot_code_id(SIP_031_NAME, naka_conf.is_mainnet()),
+                            "(get-recipient)",
+                        )
+                    },
+                )
+                .unwrap()
+            },
+        )
+        .unwrap()
+        .expect_principal()
+        .unwrap();
+
+    assert_eq!(
+        sip_031_recipient,
+        PrincipalData::Standard(StandardPrincipalData::from(SIP_031_TESTNET_ADDR.clone()))
+    );
 
     coord_channel
         .lock()
