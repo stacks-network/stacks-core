@@ -15,6 +15,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 
+- Do not count both a block acceptance and a block rejection for the same signer/block. Also ignore repeated responses (mainly for logging purposes).
+- Database schema updated to version 16
 - Upgraded `SUPPORTED_SIGNER_PROTOCOL_VERSION` to 2
 
 ## [3.1.0.0.13.0]

@@ -78,3 +78,7 @@ start_height = 1900
 [[burnchain.epochs]]
 epoch_name = "3.1"
 start_height = 2000
+
+[[burnchain.epochs]]
+epoch_name = "3.2"
+start_height = 71525

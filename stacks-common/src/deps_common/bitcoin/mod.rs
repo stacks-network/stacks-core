@@ -25,9 +25,6 @@
 //! software.
 //!
 
-// Clippy flags
-#![allow(clippy::needless_range_loop)] // suggests making a big mess of array newtypes
-
 // Coding conventions
 #![deny(non_upper_case_globals)]
 #![deny(non_camel_case_types)]

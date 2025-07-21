@@ -919,7 +919,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         &symbols_from_values(vec![Value::Bool(false)]),
     )
     .unwrap_err();
-    println!("{}", err);
+    println!("{err}");
     assert!(match err {
         Error::Runtime(RuntimeErrorType::SupplyOverflow(x, y), _) => (x, y) == (6, 5),
         _ => false,

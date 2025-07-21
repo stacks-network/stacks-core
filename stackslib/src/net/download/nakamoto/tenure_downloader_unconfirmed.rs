@@ -26,9 +26,7 @@ use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::api::gettenureinfo::RPCGetTenureInfo;
-use crate::net::download::nakamoto::{
-    downloader_block_height_to_reward_cycle, NakamotoTenureDownloader,
-};
+use crate::net::download::nakamoto::NakamotoTenureDownloader;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::p2p::{CurrentRewardSet, DropReason, DropSource, PeerNetwork};
@@ -162,8 +160,11 @@ impl NakamotoUnconfirmedTenureDownloader {
             return Err(NetError::InvalidState);
         }
 
-        debug!("Got tenure info {:?}", remote_tenure_tip);
-        debug!("Local sortition tip is {}", &local_sort_tip.consensus_hash);
+        debug!(
+            "Got tenure info";
+            "remote_tenure_tip" => ?remote_tenure_tip,
+            "local_sortition_tip" => %local_sort_tip.consensus_hash
+        );
 
         // authenticate consensus hashes against canonical chain history
         let local_tenure_sn = SortitionDB::get_block_snapshot_consensus(
@@ -286,19 +287,24 @@ impl NakamotoUnconfirmedTenureDownloader {
             return Ok(());
         }
 
+        debug!(
+            "TenureDownloaderUnconfirmed not finished";
+            "tenure_burn_ht" => local_tenure_sn.block_height,
+            "parent_tenure_burn_ht" => parent_local_tenure_sn.block_height
+        );
+
         // we're not finished
-        let tenure_rc = downloader_block_height_to_reward_cycle(
-            &sortdb.pox_constants,
-            sortdb.first_block_height,
-            local_tenure_sn.block_height,
-        )
-        .expect("FATAL: sortition from before system start");
-        let parent_tenure_rc = downloader_block_height_to_reward_cycle(
-            &sortdb.pox_constants,
-            sortdb.first_block_height,
-            parent_local_tenure_sn.block_height,
-        )
-        .expect("FATAL: sortition from before system start");
+        let tenure_rc = sortdb
+            .pox_constants
+            .block_height_to_reward_cycle(sortdb.first_block_height, local_tenure_sn.block_height)
+            .expect("FATAL: sortition from before system start");
+        let parent_tenure_rc = sortdb
+            .pox_constants
+            .block_height_to_reward_cycle(
+                sortdb.first_block_height,
+                parent_local_tenure_sn.block_height,
+            )
+            .expect("FATAL: sortition from before system start");
 
         // get reward set info for the unconfirmed tenure and highest-complete tenure sortitions
         let Some(Some(confirmed_reward_set)) = current_reward_sets
@@ -697,10 +703,12 @@ impl NakamotoUnconfirmedTenureDownloader {
             return Err(NetError::InvalidState);
         };
 
-        debug!(
-            "Create downloader for highest complete tenure {} known by {}",
-            &tenure_tip.parent_consensus_hash, &self.naddr,
+        info!(
+            "Create highest confirmed downloader from unconfirmed";
+            "confirmed_tenure" => %tenure_tip.parent_consensus_hash,
+            "neighbor" => %self.naddr,
         );
+
         let ntd = NakamotoTenureDownloader::new(
             tenure_tip.parent_consensus_hash.clone(),
             tenure_tip.consensus_hash.clone(),
