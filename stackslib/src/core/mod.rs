@@ -478,9 +478,16 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch31,
             start_height: 8001,
-            end_height: STACKS_EPOCH_MAX,
+            end_height: 9001,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_1
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch32,
+            start_height: 9001,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            network_epoch: PEER_VERSION_EPOCH_3_2
         },
     ]);
 }
@@ -1910,8 +1917,8 @@ impl StacksEpochExtension for StacksEpoch {
             .iter()
             .max()
             .expect("FATAL: expect at least one epoch");
-        if max_epoch.epoch_id == StacksEpochId::Epoch31 {
-            assert!(PEER_NETWORK_EPOCH >= u32::from(PEER_VERSION_EPOCH_3_0));
+        if max_epoch.epoch_id == StacksEpochId::Epoch32 {
+            assert!(PEER_NETWORK_EPOCH >= u32::from(PEER_VERSION_EPOCH_3_1));
         } else {
             assert!(
                 max_epoch.network_epoch as u32 <= PEER_NETWORK_EPOCH,
