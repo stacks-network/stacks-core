@@ -8,7 +8,7 @@ use std::{cmp, env, fs, io, thread};
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::serialization::SerializationError;
+use clarity::vm::errors::CodecError;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value, MAX_CALL_STACK_DEPTH};
 use rusqlite::params;
@@ -1056,7 +1056,7 @@ struct ReadOnlyResponse {
 }
 
 impl ReadOnlyResponse {
-    pub fn result(&self) -> Result<Value, SerializationError> {
+    pub fn result(&self) -> Result<Value, CodecError> {
         Value::try_deserialize_hex_untyped(&self.result_hex)
     }
 }
