@@ -558,7 +558,7 @@ fn lists_system() {
     .iter()
     {
         let test = execute(test);
-        println!("{:#?}", test);
+        println!("{test:#?}");
         assert!(matches!(
             test,
             Err(Error::Unchecked(CheckErrors::TypeValueError(_, _)))

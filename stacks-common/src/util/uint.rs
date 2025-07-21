@@ -556,7 +556,7 @@ mod tests {
             0xFFFFFFFFFFFFFFFF,
         ]);
         assert_eq!(
-            format!("{}", max_val),
+            max_val.to_string(),
             "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         );
     }

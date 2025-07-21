@@ -65,9 +65,9 @@ fn test_defines() {
 fn test_accept_options(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let defun = "(define-private (f (b (optional int))) (* 10 (default-to 0 b)))";
     let tests = [
-        format!("{} {}", defun, "(f none)"),
-        format!("{} {}", defun, "(f (some 1))"),
-        format!("{} {}", defun, "(f (some true))"),
+        format!("{defun} (f none)"),
+        format!("{defun} (f (some 1))"),
+        format!("{defun} (f (some true))"),
     ];
     let expectations: &[Result<_, Error>] = &[
         Ok(Some(Value::Int(0))),
@@ -176,8 +176,7 @@ fn test_stack_depth() {
     function_defines.push("(define-private (foo-0 (x int)) (+ 1 x))".to_string());
     for i in 1..65 {
         function_defines.push(format!(
-            "(define-private (foo-{} (x int)) (foo-{} (+ 1 x)))",
-            i,
+            "(define-private (foo-{i} (x int)) (foo-{} (+ 1 x)))",
             i - 1
         ));
     }
@@ -485,7 +484,7 @@ fn test_define_trait_arg_count() {
             }),
             _,
         ) => (),
-        e => panic!("{:?}", e),
+        e => panic!("{e:?}"),
     };
     match execute(test1).unwrap_err() {
         Error::Runtime(
@@ -496,7 +495,7 @@ fn test_define_trait_arg_count() {
             }),
             _,
         ) => (),
-        e => panic!("{}", e),
+        e => panic!("{e}"),
     };
     execute(test2).unwrap();
     match execute(test3).unwrap_err() {
@@ -508,7 +507,7 @@ fn test_define_trait_arg_count() {
             }),
             _,
         ) => (),
-        e => panic!("{}", e),
+        e => panic!("{e}"),
     };
 }
 
@@ -529,7 +528,7 @@ fn test_use_trait_arg_count() {
             }),
             _,
         ) => (),
-        e => panic!("{:?}", e),
+        e => panic!("{e:?}"),
     };
     match execute(test1).unwrap_err() {
         Error::Runtime(
@@ -540,7 +539,7 @@ fn test_use_trait_arg_count() {
             }),
             _,
         ) => (),
-        e => panic!("{}", e),
+        e => panic!("{e}"),
     };
     execute(test2).unwrap();
     match execute(test3).unwrap_err() {
@@ -552,7 +551,7 @@ fn test_use_trait_arg_count() {
             }),
             _,
         ) => (),
-        e => panic!("{}", e),
+        e => panic!("{e}"),
     };
 }
 
@@ -572,7 +571,7 @@ fn test_impl_trait_arg_count() {
             }),
             _,
         ) => (),
-        e => panic!("{:?}", e),
+        e => panic!("{e:?}"),
     };
     execute(test1).unwrap();
     match execute(test2).unwrap_err() {
@@ -584,6 +583,6 @@ fn test_impl_trait_arg_count() {
             }),
             _,
         ) => (),
-        e => panic!("{}", e),
+        e => panic!("{e}"),
     };
 }

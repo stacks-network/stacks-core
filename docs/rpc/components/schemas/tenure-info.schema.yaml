@@ -1,0 +1,30 @@
+type: object
+properties:
+  consensus_hash:
+    type: string
+    description: Consensus hash of the tenure
+    pattern: ^[0-9a-f]{40}$
+  tenure_start_block_id:
+    type: string
+    description: Block ID where the tenure started
+    pattern: ^[0-9a-f]{64}$
+  parent_consensus_hash:
+    type: string
+    description: Parent consensus hash
+    pattern: ^[0-9a-f]{40}$
+  parent_tenure_start_block_id:
+    type: string
+    description: Parent tenure start block ID
+    pattern: ^[0-9a-f]{64}$
+  tip_block_id:
+    type: string
+    description: Current tip block ID
+    pattern: ^[0-9a-f]{64}$
+  tip_height:
+    type: integer
+    minimum: 0
+    description: Current tip height
+  reward_cycle:
+    type: integer
+    minimum: 0
+    description: Current reward cycle

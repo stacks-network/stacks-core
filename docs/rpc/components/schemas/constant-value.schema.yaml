@@ -1,0 +1,9 @@
+description: Response of get constant val request
+type: object
+required:
+  - data
+properties:
+  data:
+    type: string
+    description: Hex-encoded 0x prefixed string of clarity value.
+    pattern: "^0x[0-9a-f]+$"

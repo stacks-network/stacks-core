@@ -21,6 +21,7 @@ use std::time::{Duration, SystemTime};
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
+use blockstack_lib::util_lib::db::Error as DBError;
 #[cfg(any(test, feature = "testing"))]
 use clarity::util::tests::TestFlag;
 use libsigner::v0::messages::{
@@ -729,7 +730,6 @@ impl LocalStateMachine {
         signerdb: &mut SignerDb,
         eval: &mut GlobalStateEvaluator,
         local_supported_signer_protocol_version: u64,
-        reward_cycle: u64,
         sortition_state: &mut Option<SortitionsView>,
         capitulate_miner_view_timeout: Duration,
         tenure_last_block_proposal_timeout: Duration,
@@ -811,7 +811,6 @@ impl LocalStateMachine {
                 crate::monitoring::SignerAgreementStateChangeReason::MinerViewUpdate,
             );
             Self::monitor_miner_parent_tenure_update(current_miner, &new_miner);
-            Self::monitor_capitulation_latency(signerdb, reward_cycle);
 
             *self = Self::Initialized(SignerStateMachine {
                 burn_block: *burn_block,
@@ -936,7 +935,8 @@ impl LocalStateMachine {
                         continue;
                     };
                     if local_parent_tenure_last_block_height < *parent_tenure_last_block_height {
-                        warn!(
+                        // We haven't processed this stacks block yet.
+                        debug!(
                             "Signer State: A threshold number of signers have a longer active miner parent tenure view. Signer may have an oudated view.";
                             "parent_tenure_id" => %parent_tenure_id,
                             "local_parent_tenure_last_block_height" => local_parent_tenure_last_block_height,
@@ -945,6 +945,13 @@ impl LocalStateMachine {
                         continue;
                     }
                     potential_matches.insert(potential_match);
+                }
+                Err(DBError::NotFoundError) => {
+                    // We haven't processed this burn block yet.
+                    debug!(
+                        "Signer State: A threshold number of signers have an active miner tenure id that we have not seen yet. Signer may have an outdated view.";
+                        "tenure_id" => %tenure_id,
+                    );
                 }
                 Err(e) => {
                     warn!("Signer State: Error retrieving burn block for consensus_hash {tenure_id} from signerdb: {e}");
@@ -986,22 +993,6 @@ impl LocalStateMachine {
                 crate::monitoring::actions::increment_signer_agreement_state_change_reason(
                     crate::monitoring::SignerAgreementStateChangeReason::MinerParentTenureUpdate,
                 );
-            }
-        }
-    }
-
-    #[allow(unused_variables)]
-    fn monitor_capitulation_latency(signer_db: &SignerDb, reward_cycle: u64) {
-        #[cfg(feature = "monitoring_prom")]
-        {
-            let latency_result = signer_db.get_signer_state_machine_updates_latency(reward_cycle);
-            match latency_result {
-                Ok(seconds) => {
-                    crate::monitoring::actions::record_signer_agreement_capitulation_latency(
-                        seconds,
-                    )
-                }
-                Err(e) => warn!("Failed to retrieve state updates latency in signerdb: {e}"),
             }
         }
     }

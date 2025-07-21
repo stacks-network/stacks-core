@@ -3141,7 +3141,6 @@ mod tests {
                 "9e446f6b0c6a96cf2190e54bcd5a8569c3e386f091605499464389b8d4e0bfc201",
             )
             .unwrap(),
-            false,
         );
         assert!(btc_controller.serialize_tx(
             StacksEpochId::Epoch25,

@@ -3553,7 +3553,7 @@ fn vote_for_aggregate_key_burn_op() {
             burn_header_hash: BurnchainHeaderHash::zero(),
         });
 
-    let mut signer_burnop_signer = BurnchainOpSigner::new(signer_sk, false);
+    let mut signer_burnop_signer = BurnchainOpSigner::new(signer_sk);
     assert!(
         btc_regtest_controller
             .submit_operation(
@@ -4739,10 +4739,10 @@ fn burn_ops_integration_test() {
         "reward_cycle" => reward_cycle,
     );
 
-    let mut signer_burnop_signer_1 = BurnchainOpSigner::new(signer_sk_1, false);
-    let mut signer_burnop_signer_2 = BurnchainOpSigner::new(signer_sk_2, false);
-    let mut stacker_burnop_signer_1 = BurnchainOpSigner::new(stacker_sk_1, false);
-    let mut stacker_burnop_signer_2 = BurnchainOpSigner::new(stacker_sk_2, false);
+    let mut signer_burnop_signer_1 = BurnchainOpSigner::new(signer_sk_1);
+    let mut signer_burnop_signer_2 = BurnchainOpSigner::new(signer_sk_2);
+    let mut stacker_burnop_signer_1 = BurnchainOpSigner::new(stacker_sk_1);
+    let mut stacker_burnop_signer_2 = BurnchainOpSigner::new(stacker_sk_2);
 
     info!(
         "Before stack-stx op, signer 1 total: {}",
