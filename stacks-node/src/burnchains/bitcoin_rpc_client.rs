@@ -94,7 +94,6 @@ impl BitcoinRpcClient {
         self.global_ep.send("listwallets", vec![])
     }
 
-    //TODO: Add wallet
     pub fn list_unspent(
         &self,
         addresses: Vec<String>,
@@ -229,23 +228,54 @@ impl BitcoinRpcClient {
     }
 }
 
+/// Test-only utilities for `BitcoinRpcClient`
 #[cfg(test)]
 impl BitcoinRpcClient {
+    /// Retrieves the raw hex-encoded transaction by its ID.
+    ///
+    /// # Arguments
+    /// * `txid` - Transaction ID (hash) to fetch.
+    ///
+    /// # Returns
+    /// A raw transaction as a hex-encoded string.
+    ///
+    /// # Errors
+    /// Returns an error if the transaction is not found or if the RPC request fails.
+    ///
+    /// # Availability
+    /// Available in Bitcoin Core since **v0.7.0**.
     pub fn get_raw_transaction(&self, txid: &str) -> RpcResult<String> {
         self.global_ep.send("getrawtransaction", vec![txid.into()])
     }
 
-    pub fn generate_block(&self, address: &str, tx_ids: Vec<String>) -> RpcResult<String> {
+    /// Mines a new block including the given transactions to a specified address.
+    ///
+    /// # Arguments
+    /// * `address` - Address to which the block subsidy will be paid.
+    /// * `txs` - List of transactions to include in the block. Each entry can be:
+    ///   - A raw hex-encoded transaction
+    ///   - A transaction ID (must be present in the mempool)
+    ///   If the list is empty, an empty block (with only the coinbase transaction) will be generated.
+    ///
+    /// # Returns
+    /// The block hash of the newly generated block.
+    ///
+    /// # Errors
+    /// Returns an error if block generation fails (e.g., invalid address, missing transactions, or malformed data).
+    ///
+    /// # Availability
+    /// Available in Bitcoin Core since **v22.0**. Requires `regtest` or similar testing networks.
+    pub fn generate_block(&self, address: &str, txs: Vec<String>) -> RpcResult<String> {
         let response = self
             .global_ep
-            .send::<GenerateBlockResponse>("generateblock", vec![address.into(), tx_ids.into()])?;
+            .send::<GenerateBlockResponse>("generateblock", vec![address.into(), txs.into()])?;
         Ok(response.hash)
     }
 
     /// Gracefully shuts down the Bitcoin Core node.
     ///
-    /// Sends the `"stop"` RPC command using the global endpoint to request that `bitcoind` shuts down
-    /// cleanly. This includes flushing the mempool, writing state to disk, and terminating the process.
+    /// Sends the shutdown command to safely terminate `bitcoind`. This ensures all state is written
+    /// to disk and the node exits cleanly.
     ///
     /// # Returns
     /// On success, returns the string:
@@ -253,22 +283,31 @@ impl BitcoinRpcClient {
     ///
     /// # Errors
     /// Returns an error if the RPC command fails (e.g., connection issue or insufficient permissions).
+    ///
+    /// # Availability
+    /// Available in Bitcoin Core since **v0.1.0**.
     pub fn stop(&self) -> RpcResult<String> {
         self.global_ep.send("stop", vec![])
     }
 
-    /// Get a new Bitcoin address from the wallet.
+    /// Retrieves a new Bitcoin address from the wallet.
     ///
     /// # Arguments
-    ///
     /// * `label` - Optional label to associate with the address.
-    /// * `address_type` - Optional address type ("legacy", "p2sh-segwit", "bech32", "bech32m").
-    ///   If `None`, the address type is determined by the `-addresstype` setting in `bitcoind`.
-    ///   If `-addresstype` is also unset, the default behavior is `bech32` (for v0.20+).
+    /// * `address_type` - Optional address type (`"legacy"`, `"p2sh-segwit"`, `"bech32"`, `"bech32m"`).
+    ///   If `None`, the address type defaults to the node’s `-addresstype` setting.
+    ///   If `-addresstype` is also unset, the default is `"bech32"` (since v0.20.0).
     ///
     /// # Returns
+    /// A string representing the newly generated Bitcoin address.
     ///
-    /// A string representing the new Bitcoin address.
+    /// # Errors
+    /// Returns an error if the wallet is not loaded or if address generation fails.
+    ///
+    /// # Availability
+    /// Available in Bitcoin Core since **v0.1.0**.  
+    /// `address_type` parameter supported since **v0.17.0**.
+    /// Defaulting to `bech32` (when unset) introduced in **v0.20.0**.
     pub fn get_new_address(
         &self,
         label: Option<&str>,
