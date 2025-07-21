@@ -255,7 +255,7 @@ fn test_set_handler() {
 
     match ctrlc::set_handler(|sig_id| {}) {
         Err(ctrlc::Error::MultipleHandlers) => {}
-        ret => panic!("{:?}", ret),
+        ret => panic!("{ret:?}"),
     }
 }
 

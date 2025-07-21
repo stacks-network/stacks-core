@@ -514,7 +514,7 @@ impl<'a> Parser<'a> {
             Ok(principal) => principal,
             _ => {
                 self.add_diagnostic(ParseErrors::InvalidPrincipalLiteral, span.clone())?;
-                let mut placeholder = PreSymbolicExpression::placeholder(format!("'{}", addr));
+                let mut placeholder = PreSymbolicExpression::placeholder(format!("'{addr}"));
                 placeholder.copy_span(&span);
                 return Ok(placeholder);
             }
@@ -541,8 +541,7 @@ impl<'a> Parser<'a> {
                     span.end_column = token_span.end_column;
                     self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, token_span)?;
                     let mut placeholder = PreSymbolicExpression::placeholder(format!(
-                        "'{}.{}",
-                        principal,
+                        "'{principal}.{}",
                         token.reproduce()
                     ));
                     placeholder.copy_span(&span);
@@ -551,7 +550,7 @@ impl<'a> Parser<'a> {
                 None => {
                     self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, dot.span)?;
                     let mut placeholder =
-                        PreSymbolicExpression::placeholder(format!("'{}.", principal));
+                        PreSymbolicExpression::placeholder(format!("'{principal}."));
                     placeholder.copy_span(&span);
                     return Ok(placeholder);
                 }
@@ -563,7 +562,7 @@ impl<'a> Parser<'a> {
                     contract_span,
                 )?;
                 let mut placeholder =
-                    PreSymbolicExpression::placeholder(format!("'{}.{}", principal, name));
+                    PreSymbolicExpression::placeholder(format!("'{principal}.{name}"));
                 placeholder.copy_span(&span);
                 return Ok(placeholder);
             }
@@ -575,7 +574,7 @@ impl<'a> Parser<'a> {
                         contract_span,
                     )?;
                     let mut placeholder =
-                        PreSymbolicExpression::placeholder(format!("'{}.{}", principal, name));
+                        PreSymbolicExpression::placeholder(format!("'{principal}.{name}"));
                     placeholder.copy_span(&span);
                     return Ok(placeholder);
                 }
@@ -604,8 +603,7 @@ impl<'a> Parser<'a> {
                             token_span.clone(),
                         )?;
                         let mut placeholder = PreSymbolicExpression::placeholder(format!(
-                            "'{}.{}",
-                            contract_id,
+                            "'{contract_id}.{}",
                             token.reproduce(),
                         ));
                         span.end_line = token_span.end_line;
@@ -619,7 +617,7 @@ impl<'a> Parser<'a> {
                             dot.span.clone(),
                         )?;
                         let mut placeholder =
-                            PreSymbolicExpression::placeholder(format!("'{}.", contract_id));
+                            PreSymbolicExpression::placeholder(format!("'{contract_id}."));
                         span.end_line = dot.span.end_line;
                         span.end_column = dot.span.end_column;
                         placeholder.copy_span(&span);
@@ -629,7 +627,7 @@ impl<'a> Parser<'a> {
                 if name.len() > MAX_STRING_LEN {
                     self.add_diagnostic(ParseErrors::NameTooLong(name.clone()), trait_span)?;
                     let mut placeholder =
-                        PreSymbolicExpression::placeholder(format!("'{}.{}", contract_id, name,));
+                        PreSymbolicExpression::placeholder(format!("'{contract_id}.{name}",));
                     placeholder.copy_span(&span);
                     return Ok(placeholder);
                 }
@@ -640,10 +638,8 @@ impl<'a> Parser<'a> {
                             ParseErrors::IllegalTraitName(name.clone()),
                             trait_span,
                         )?;
-                        let mut placeholder = PreSymbolicExpression::placeholder(format!(
-                            "'{}.{}",
-                            contract_id, name,
-                        ));
+                        let mut placeholder =
+                            PreSymbolicExpression::placeholder(format!("'{contract_id}.{name}",));
                         placeholder.copy_span(&span);
                         return Ok(placeholder);
                     }
@@ -703,7 +699,7 @@ impl<'a> Parser<'a> {
 
         if name.len() > MAX_CONTRACT_NAME_LEN {
             self.add_diagnostic(ParseErrors::ContractNameTooLong(name.clone()), span.clone())?;
-            let mut placeholder = PreSymbolicExpression::placeholder(format!(".{}", name));
+            let mut placeholder = PreSymbolicExpression::placeholder(format!(".{name}"));
             placeholder.copy_span(&span);
             return Ok(placeholder);
         }
@@ -715,7 +711,7 @@ impl<'a> Parser<'a> {
                     ParseErrors::IllegalContractName(name.clone()),
                     contract_span,
                 )?;
-                let mut placeholder = PreSymbolicExpression::placeholder(format!(".{}", name));
+                let mut placeholder = PreSymbolicExpression::placeholder(format!(".{name}"));
                 placeholder.copy_span(&span);
                 return Ok(placeholder);
             }
@@ -740,8 +736,7 @@ impl<'a> Parser<'a> {
                 }) => {
                     self.add_diagnostic(ParseErrors::ExpectedTraitIdentifier, token_span.clone())?;
                     let mut placeholder = PreSymbolicExpression::placeholder(format!(
-                        ".{}.{}",
-                        contract_name,
+                        ".{contract_name}.{}",
                         token.reproduce(),
                     ));
                     span.end_line = token_span.end_line;
@@ -752,7 +747,7 @@ impl<'a> Parser<'a> {
                 None => {
                     self.add_diagnostic(ParseErrors::ExpectedTraitIdentifier, dot.span.clone())?;
                     let mut placeholder =
-                        PreSymbolicExpression::placeholder(format!(".{}.", contract_name));
+                        PreSymbolicExpression::placeholder(format!(".{contract_name}."));
                     span.end_line = dot.span.end_line;
                     span.end_column = dot.span.end_column;
                     placeholder.copy_span(&span);
@@ -762,7 +757,7 @@ impl<'a> Parser<'a> {
             if name.len() > MAX_STRING_LEN {
                 self.add_diagnostic(ParseErrors::NameTooLong(name.clone()), trait_span)?;
                 let mut placeholder =
-                    PreSymbolicExpression::placeholder(format!(".{}.{}", contract_name, name));
+                    PreSymbolicExpression::placeholder(format!(".{contract_name}.{name}"));
                 placeholder.copy_span(&span);
                 return Ok(placeholder);
             }
@@ -771,7 +766,7 @@ impl<'a> Parser<'a> {
                 Err(_) => {
                     self.add_diagnostic(ParseErrors::IllegalTraitName(name.clone()), trait_span)?;
                     let mut placeholder =
-                        PreSymbolicExpression::placeholder(format!(".{}.{}", contract_name, name));
+                        PreSymbolicExpression::placeholder(format!(".{contract_name}.{name}"));
                     placeholder.copy_span(&span);
                     return Ok(placeholder);
                 }
@@ -1428,7 +1423,7 @@ mod tests {
         assert!(diagnostics.is_empty());
         if let Some(v) = stmts[0].match_atom_value() {
             let s = match v {
-                Value::Sequence(SequenceData::String(CharType::UTF8(data))) => format!("{}", data),
+                Value::Sequence(SequenceData::String(CharType::UTF8(data))) => format!("{data}"),
                 _ => panic!("failed to parse UTF8 string "),
             };
             assert_eq!(s, "u\"new\\nline\\u{f09f9881}\"");
@@ -2915,7 +2910,7 @@ mod tests {
         match &stmts[0].pre_expr {
             PreSymbolicExpressionType::FieldIdentifier(trait_id) => {
                 assert_eq!(
-                    format!("{}", trait_id),
+                    format!("{trait_id}"),
                     "ST000000000000000000002AMW42H.foo.bar"
                 );
             }
@@ -3566,7 +3561,7 @@ mod tests {
 
         assert!(match parse(&exceeds_stack_depth_list).unwrap_err().err {
             ParseErrors::ExpressionStackDepthTooDeep => true,
-            x => panic!("expected a stack depth too deep error, got {:?}", x),
+            x => panic!("expected a stack depth too deep error, got {x:?}"),
         });
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics(&exceeds_stack_depth_list);
@@ -3589,7 +3584,7 @@ mod tests {
 
         assert!(match parse(&exceeds_stack_depth_tuple).unwrap_err().err {
             ParseErrors::ExpressionStackDepthTooDeep => true,
-            x => panic!("expected a stack depth too deep error, got {:?}", x),
+            x => panic!("expected a stack depth too deep error, got {x:?}"),
         });
 
         let (stmts, diagnostics, success) = parse_collect_diagnostics(&exceeds_stack_depth_tuple);

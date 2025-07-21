@@ -2019,7 +2019,7 @@ fn stx_transfer_btc_integration_test() {
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
     };
 
-    let mut spender_signer = BurnchainOpSigner::new(spender_sk, false);
+    let mut spender_signer = BurnchainOpSigner::new(spender_sk);
 
     assert!(
         btc_regtest_controller
@@ -2090,7 +2090,7 @@ fn stx_transfer_btc_integration_test() {
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
     };
 
-    let mut spender_signer = BurnchainOpSigner::new(spender_2_sk, false);
+    let mut spender_signer = BurnchainOpSigner::new(spender_2_sk);
 
     btc_regtest_controller
         .submit_manual(
@@ -2288,7 +2288,7 @@ fn stx_delegate_btc_integration_test() {
         until_burn_height: None,
     };
 
-    let mut spender_signer = BurnchainOpSigner::new(spender_sk, false);
+    let mut spender_signer = BurnchainOpSigner::new(spender_sk);
     assert!(
         btc_regtest_controller
             .submit_operation(
@@ -2656,7 +2656,7 @@ fn stack_stx_burn_op_test() {
         burn_header_hash: BurnchainHeaderHash::zero(),
     });
 
-    let mut spender_signer_1 = BurnchainOpSigner::new(signer_sk_1, false);
+    let mut spender_signer_1 = BurnchainOpSigner::new(signer_sk_1);
     assert!(
         btc_regtest_controller
             .submit_operation(
@@ -2684,7 +2684,7 @@ fn stack_stx_burn_op_test() {
         burn_header_hash: BurnchainHeaderHash::zero(),
     });
 
-    let mut spender_signer_2 = BurnchainOpSigner::new(signer_sk_2, false);
+    let mut spender_signer_2 = BurnchainOpSigner::new(signer_sk_2);
     assert!(
         btc_regtest_controller
             .submit_operation(
@@ -3041,7 +3041,7 @@ fn vote_for_aggregate_key_burn_op_test() {
             burn_header_hash: BurnchainHeaderHash::zero(),
         });
 
-    let mut spender_signer = BurnchainOpSigner::new(signer_sk, false);
+    let mut spender_signer = BurnchainOpSigner::new(signer_sk);
     assert!(
         btc_regtest_controller
             .submit_operation(

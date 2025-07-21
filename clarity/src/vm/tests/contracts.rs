@@ -127,7 +127,7 @@ fn test_get_block_info_eval(
     let mut owned_env = tl_env_factory.get_env(epoch);
     for i in 0..contracts.len() {
         let contract_identifier =
-            QualifiedContractIdentifier::local(&format!("test-contract-{}", i)).unwrap();
+            QualifiedContractIdentifier::local(&format!("test-contract-{i}")).unwrap();
         owned_env
             .initialize_versioned_contract(
                 contract_identifier.clone(),
@@ -996,7 +996,7 @@ fn test_at_unknown_block(
             ASTRules::PrecheckSize,
         )
         .unwrap_err();
-    eprintln!("{}", err);
+    eprintln!("{err}");
     match err {
         Error::Runtime(x, _) => assert_eq!(
             x,

@@ -766,7 +766,7 @@ mod test {
             .push_opcode(opcodes::All::OP_CHECKSIG)
             .into_script();
         assert_eq!(
-            &format!("{:x}", script),
+            &format!("{script:x}"),
             "76a91416e1ae70ff0fa102905d4af297f6912bda6cce1988ac"
         );
     }

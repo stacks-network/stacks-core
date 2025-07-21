@@ -102,8 +102,8 @@ impl AssetMap {
             .iter()
             .map(|(principal, amount)| {
                 (
-                    format!("{}", principal),
-                    serde_json::value::Value::String(format!("{}", amount)),
+                    format!("{principal}"),
+                    serde_json::value::Value::String(format!("{amount}")),
                 )
             })
             .collect();
@@ -113,8 +113,8 @@ impl AssetMap {
             .iter()
             .map(|(principal, amount)| {
                 (
-                    format!("{}", principal),
-                    serde_json::value::Value::String(format!("{}", amount)),
+                    format!("{principal}"),
+                    serde_json::value::Value::String(format!("{amount}")),
                 )
             })
             .collect();
@@ -127,14 +127,14 @@ impl AssetMap {
                     .iter()
                     .map(|(asset_id, amount)| {
                         (
-                            format!("{}", asset_id),
-                            serde_json::value::Value::String(format!("{}", amount)),
+                            format!("{asset_id}"),
+                            serde_json::value::Value::String(format!("{amount}")),
                         )
                     })
                     .collect();
 
                 (
-                    format!("{}", principal),
+                    format!("{principal}"),
                     serde_json::value::Value::Object(token_json),
                 )
             })
@@ -150,19 +150,19 @@ impl AssetMap {
                         let nft_array = nft_values
                             .iter()
                             .map(|nft_value| {
-                                serde_json::value::Value::String(format!("{}", nft_value))
+                                serde_json::value::Value::String(format!("{nft_value}"))
                             })
                             .collect();
 
                         (
-                            format!("{}", asset_id),
+                            format!("{asset_id}"),
                             serde_json::value::Value::Array(nft_array),
                         )
                     })
                     .collect();
 
                 (
-                    format!("{}", principal),
+                    format!("{principal}"),
                     serde_json::value::Value::Object(nft_json),
                 )
             })
@@ -521,10 +521,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         let version = ClarityVersion::default_for_epoch(epoch);
         database.roll_back().unwrap();
 
-        debug!(
-            "Begin OwnedEnvironment(epoch = {}, version = {})",
-            &epoch, &version
-        );
+        debug!("Begin OwnedEnvironment(epoch = {epoch}, version = {version})");
         OwnedEnvironment {
             context: GlobalContext::new(
                 false,
@@ -1130,8 +1127,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             let args: Result<Vec<Value>> = args.iter()
                 .map(|arg| {
                     let value = arg.match_atom_value()
-                        .ok_or_else(|| InterpreterError::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
-                                                                                  tx_name)))?;
+                        .ok_or_else(|| InterpreterError::InterpreterError(format!("Passed non-value expression to exec_tx on {tx_name}!")))?;
                     // sanitize contract-call inputs in epochs >= 2.4
                     // testing todo: ensure sanitize_value() preserves trait callability!
                     let expected_type = TypeSignature::type_of(value)?;
