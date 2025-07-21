@@ -884,7 +884,9 @@ impl Value {
             let expected_item_type = expected_type.get_list_item_type();
 
             for item in &list_data {
-                expected_item_type.admits(epoch, item)?;
+                if !expected_item_type.admits(epoch, item)? {
+                    return Err(CodecError::FailureConstructingListWithType);
+                }
             }
         }
 
