@@ -104,7 +104,6 @@ pub fn signer_state_machine_v3_1_00_13_to_current(
                 .map(stacks_transaction_v3_1_00_13_to_current)
                 .collect(),
         ),
-        update_time: SystemTime::now(),
     }
 }
 

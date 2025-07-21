@@ -1,0 +1,51 @@
+description: POST response for estimated fee
+type: object
+additionalProperties: false
+required:
+  - estimated_cost
+  - estimated_cost_scalar
+  - cost_scalar_change_by_byte
+  - estimations
+properties:
+  estimated_cost:
+    type: object
+    additionalProperties: false
+    required:
+      - read_count
+      - write_count
+      - read_length
+      - write_length
+      - runtime
+    properties:
+      read_count:
+        type: integer
+        minimum: 0
+      read_length:
+        type: integer
+        minimum: 0
+      runtime:
+        type: integer
+        minimum: 0
+      write_count:
+        type: integer
+        minimum: 0
+      write_length:
+        type: integer
+        minimum: 0
+  estimated_cost_scalar:
+    type: integer
+    minimum: 0
+  cost_scalar_change_by_byte:
+    type: number
+    minimum: 0
+  estimations:
+    type: array
+    items:
+      type: object
+      properties:
+        fee_rate:
+          type: number
+          minimum: 0
+        fee:
+          type: integer
+          minimum: 0

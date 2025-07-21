@@ -366,11 +366,11 @@ fn main() {
             let keychain = Keychain::default(seed);
             println!(
                 "Hex formatted secret key: {}",
-                keychain.generate_op_signer().get_sk_as_hex()
+                keychain.generate_op_signer().get_secret_key_as_hex()
             );
             println!(
                 "WIF formatted secret key: {}",
-                keychain.generate_op_signer().get_sk_as_wif()
+                keychain.generate_op_signer().get_secret_key_as_wif()
             );
             return;
         }

@@ -1,0 +1,17 @@
+description: Describes representation of a Type-0 Stacks 2.0 transaction. https://github.com/stacksgov/sips/blob/main/sips/sip-005/sip-005-blocks-and-transactions.md#type-0-transferring-an-asset
+type: object
+required:
+  - sender
+  - arguments
+properties:
+  sender:
+    type: string
+    description: The simulated tx-sender
+  sponsor:
+    type: string
+    description: The simulated sponsor address
+  arguments:
+    type: array
+    description: An array of hex serialized Clarity values
+    items:
+      type: string

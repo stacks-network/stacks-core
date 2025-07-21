@@ -228,7 +228,7 @@ impl Keychain {
 
     /// Create a BurnchainOpSigner representation of this keychain
     pub fn generate_op_signer(&self) -> BurnchainOpSigner {
-        BurnchainOpSigner::new(self.get_secret_key(), false)
+        BurnchainOpSigner::new(self.get_secret_key())
     }
 }
 
@@ -451,7 +451,7 @@ mod tests {
         }
 
         pub fn generate_op_signer(&self) -> BurnchainOpSigner {
-            BurnchainOpSigner::new(self.secret_keys[0], false)
+            BurnchainOpSigner::new(self.secret_keys[0])
         }
     }
 

@@ -15,7 +15,6 @@
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::time::SystemTime;
 
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use clarity::types::chainstate::StacksAddress;
@@ -120,7 +119,6 @@ impl GlobalStateEvaluator {
                 active_signer_protocol_version,
                 // We need to calculate the threshold for the tx_replay_set separately
                 tx_replay_set: ReplayTransactionSet::none(),
-                update_time: SystemTime::now(),
             };
             let key = SignerStateMachineKey(state_machine.clone());
             let entry = state_views.entry(key).or_insert_with(|| 0);
@@ -240,7 +238,7 @@ impl Default for ReplayTransactionSet {
 /// A signer state machine view. This struct can
 ///  be used to encode the local signer's view or
 ///  the global view.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SignerStateMachine {
     /// The tip burn block (i.e., the latest bitcoin block) seen by this signer
     pub burn_block: ConsensusHash,
@@ -252,42 +250,16 @@ pub struct SignerStateMachine {
     pub active_signer_protocol_version: u64,
     /// Transaction replay set
     pub tx_replay_set: ReplayTransactionSet,
-    /// The time when this state machine was last updated
-    pub update_time: SystemTime,
-}
-
-impl PartialEq for SignerStateMachine {
-    fn eq(&self, other: &Self) -> bool {
-        // update_time is intentionally ignored
-        self.burn_block == other.burn_block
-            && self.burn_block_height == other.burn_block_height
-            && self.current_miner == other.current_miner
-            && self.active_signer_protocol_version == other.active_signer_protocol_version
-            && self.tx_replay_set == other.tx_replay_set
-    }
-}
-
-impl Eq for SignerStateMachine {}
-
-impl Hash for SignerStateMachine {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        // update_time is intentionally ignored
-        self.burn_block.hash(state);
-        self.burn_block_height.hash(state);
-        self.current_miner.hash(state);
-        self.active_signer_protocol_version.hash(state);
-        self.tx_replay_set.hash(state);
-    }
 }
 
 #[derive(Debug)]
 /// A wrapped SignerStateMachine that implements a very specific hash that enables properly ignoring the
-/// tx_replay_set and update_time when evaluating the global signer state machine
+/// tx_replay_set when evaluating the global signer state machine
 pub struct SignerStateMachineKey(SignerStateMachine);
 
 impl PartialEq for SignerStateMachineKey {
     fn eq(&self, other: &Self) -> bool {
-        // NOTE: tx_replay_set and update_time are intentionally ignored
+        // NOTE: tx_replay_set is intentionally ignored
         self.0.burn_block == other.0.burn_block
             && self.0.burn_block_height == other.0.burn_block_height
             && self.0.current_miner == other.0.current_miner

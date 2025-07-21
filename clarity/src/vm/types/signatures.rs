@@ -163,6 +163,29 @@ impl From<FixedFunction> for FunctionSignature {
 }
 
 /// Parsing functions.
+pub trait TupleTypeSignatureExt {
+    fn parse_name_type_pair_list<A: CostTracker>(
+        epoch: StacksEpochId,
+        type_def: &SymbolicExpression,
+        accounting: &mut A,
+    ) -> Result<TupleTypeSignature>;
+}
+
+impl TupleTypeSignatureExt for TupleTypeSignature {
+    fn parse_name_type_pair_list<A: CostTracker>(
+        epoch: StacksEpochId,
+        type_def: &SymbolicExpression,
+        accounting: &mut A,
+    ) -> Result<TupleTypeSignature> {
+        if let SymbolicExpressionType::List(ref name_type_pairs) = type_def.expr {
+            let mapped_key_types = parse_name_type_pairs(epoch, name_type_pairs, accounting)?;
+            TupleTypeSignature::try_from(mapped_key_types).map_err(CheckErrors::from)
+        } else {
+            Err(CheckErrors::BadSyntaxExpectedListOfPairs)
+        }
+    }
+}
+
 pub trait TypeSignatureExt {
     fn parse_atom_type(typename: &str) -> Result<TypeSignature>;
     fn parse_list_type_repr<A: CostTracker>(

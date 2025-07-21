@@ -67,9 +67,19 @@ use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
 use crate::neon_node;
 use crate::run_loop::nakamoto::Globals;
 use crate::run_loop::RegisteredKey;
+
+#[cfg(test)]
+#[derive(Default, Clone, PartialEq)]
+enum TestMineStall {
+    #[default]
+    NotStalled,
+    Pending,
+    Stalled,
+}
+
 #[cfg(test)]
 /// Test flag to stall the miner thread
-pub static TEST_MINE_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+static TEST_MINE_STALL: LazyLock<TestFlag<TestMineStall>> = LazyLock::new(TestFlag::default);
 #[cfg(test)]
 /// Test flag to stall block proposal broadcasting for the specified miner keys
 pub static TEST_BROADCAST_PROPOSAL_STALL: LazyLock<TestFlag<Vec<Secp256k1PublicKey>>> =
@@ -89,6 +99,23 @@ pub static TEST_P2P_BROADCAST_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(Te
 #[cfg(test)]
 // Test flag to skip pushing blocks to the signers
 pub static TEST_BLOCK_PUSH_SKIP: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+
+#[cfg(test)]
+/// Set the `TEST_MINE_STALL` flag to `Pending` and block until the miner is stalled.
+pub fn fault_injection_stall_miner() {
+    if TEST_MINE_STALL.get() == TestMineStall::NotStalled {
+        TEST_MINE_STALL.set(TestMineStall::Pending);
+    }
+    while TEST_MINE_STALL.get() != TestMineStall::Stalled {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[cfg(test)]
+/// Unstall the miner by setting the `TEST_MINE_STALL` flag to `NotStalled`.
+pub fn fault_injection_unstall_miner() {
+    TEST_MINE_STALL.set(TestMineStall::NotStalled);
+}
 
 /// If the miner was interrupted while mining a block, how long should the
 ///  miner thread sleep before trying again?
@@ -394,13 +421,15 @@ impl BlockMinerThread {
         false
     }
 
-    /// Stop a miner tenure by blocking the miner and then joining the tenure thread
+    /// Stall the miner based on the `TEST_MINE_STALL` flag.
+    /// Block the miner until the test flag is set to `NotStalled`.
     #[cfg(test)]
-    fn fault_injection_stall_miner() {
-        if TEST_MINE_STALL.get() {
+    fn fault_injection_miner_stall() {
+        if TEST_MINE_STALL.get() != TestMineStall::NotStalled {
             // Do an extra check just so we don't log EVERY time.
             warn!("Mining is stalled due to testing directive");
-            while TEST_MINE_STALL.get() {
+            TEST_MINE_STALL.set(TestMineStall::Stalled);
+            while TEST_MINE_STALL.get() != TestMineStall::NotStalled {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
             warn!("Mining is no longer stalled due to testing directive. Continuing...");
@@ -408,7 +437,7 @@ impl BlockMinerThread {
     }
 
     #[cfg(not(test))]
-    fn fault_injection_stall_miner() {}
+    fn fault_injection_miner_stall() {}
 
     pub fn run_miner(
         mut self,
@@ -520,7 +549,7 @@ impl BlockMinerThread {
         last_block_rejected: &mut bool,
         reward_set: &RewardSet,
     ) -> Result<(), NakamotoNodeError> {
-        Self::fault_injection_stall_miner();
+        Self::fault_injection_miner_stall();
         let mut chain_state =
             neon_node::open_chainstate_with_faults(&self.config).map_err(|e| {
                 NakamotoNodeError::SigningCoordinatorFailure(format!(
