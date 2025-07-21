@@ -10,7 +10,6 @@ keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized"
 readme = "README.md"
 
 [dependencies]
-hashbrown = { workspace = true }
 lazy_static = { workspace = true }
 regex = { version = "1", default-features = false }
 serde = { workspace = true }
