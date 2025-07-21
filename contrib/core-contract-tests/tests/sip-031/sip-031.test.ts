@@ -851,9 +851,6 @@ test('fuzz: stress test claim at random intervals', () => {
 
   // Perform claims at random intervals with random extra deposits
   while (currentMonth < 24) {
-    const balance = rov(indirectContract.getBalance(contract.identifier));
-    console.log(`Current balance: ${balance}`);
-
     // Random extra deposit
     const extraDeposit = BigInt(Math.floor(Math.random() * 10000000000));
     if (extraDeposit > 0n) {
@@ -882,10 +879,6 @@ test('fuzz: stress test claim at random intervals', () => {
         : constants.INITIAL_MINT_AMOUNT;
     const expectedClaimable =
       totalClaimable + totalExtraDeposited - totalClaimed;
-
-    console.log(
-      `Claiming at month ${currentMonth} (block ${currentBlock})\n  extra deposit: ${extraDeposit}\n  expected claimable: ${expectedClaimable}`,
-    );
 
     // Claim whatever is available
     const receipt = txOk(contract.claim(), accounts.deployer.address);
