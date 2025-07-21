@@ -206,7 +206,7 @@ fn inner_build_ast<T: CostTracker>(
             0,
             Diagnostic {
                 level: Level::Error,
-                message: format!("runtime_cost error: {:?}", e),
+                message: format!("runtime_cost error: {e:?}"),
                 spans: vec![],
                 suggestion: None,
             },

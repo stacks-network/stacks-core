@@ -142,7 +142,6 @@ fn setup_test_environment(
         },
         active_signer_protocol_version: 0,
         tx_replay_set: ReplayTransactionSet::none(),
-        update_time: SystemTime::now(),
     };
 
     let sortitions_view = GlobalStateView {

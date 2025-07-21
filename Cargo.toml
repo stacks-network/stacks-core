@@ -14,24 +14,29 @@ members = [
 
 # Dependencies we want to keep the same between workspace members
 [workspace.dependencies]
-ed25519-dalek = { version = "2.1.1", features = ["serde", "rand_core"] }
+ed25519-dalek = { version = "2.1.1", default-features = false }
 hashbrown = { version = "0.15.2", features = ["serde"] }
+lazy_static = "1.4.0"
 rand_core = "0.6.4"
 rand = "0.8"
 rand_chacha = "0.3.1"
-tikv-jemallocator = "0.5.4"
+serde = "1"
+serde_derive = "1"
+serde_json = { version = "1.0", features = ["arbitrary_precision", "unbounded_depth"] }
+slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 rusqlite = { version = "0.31.0", features = ["blob", "serde_json", "i128_blob", "bundled", "trace"] }
+tikv-jemallocator = "0.5.4"
 thiserror = "1.0.65"
 toml = "0.5.6"
 
 # Use a bit more than default optimization for
-#  dev builds to speed up test execution
+# dev builds to speed up test execution
 [profile.dev]
 opt-level = 1
 
 # Use release-level optimization for dependencies
 # This slows down "first" builds on development environments,
-#  but won't impact subsequent builds.
+# but won't impact subsequent builds.
 [profile.dev.package."*"]
 opt-level = 3
 

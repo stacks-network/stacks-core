@@ -1725,7 +1725,7 @@ impl StacksMessageCodec for RejectReason {
 impl std::fmt::Display for RejectCode {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            RejectCode::ValidationFailed(code) => write!(f, "Validation failed: {:?}", code),
+            RejectCode::ValidationFailed(code) => write!(f, "Validation failed: {code:?}"),
             RejectCode::ConnectivityIssues(reason) => write!(
                 f,
                 "The block was rejected due to connectivity issues with the signer: {reason}"
@@ -1754,7 +1754,7 @@ impl std::fmt::Display for RejectCode {
 impl std::fmt::Display for RejectReason {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            RejectReason::ValidationFailed(code) => write!(f, "Validation failed: {:?}", code),
+            RejectReason::ValidationFailed(code) => write!(f, "Validation failed: {code:?}"),
             RejectReason::ConnectivityIssues(reason) => write!(
                 f,
                 "The block was rejected due to connectivity issues with the signer: {reason}"
@@ -1830,7 +1830,7 @@ impl std::fmt::Display for RejectReason {
                 )
             }
             RejectReason::Unknown(code) => {
-                write!(f, "Unknown reject code: {}", code)
+                write!(f, "Unknown reject code: {code}")
             }
             RejectReason::NotRejected => {
                 write!(f, "The block was approved, no rejection details needed.")
@@ -1870,9 +1870,7 @@ mod test {
         let slot_identifiers_len = MessageSlotID::ALL.len();
         assert!(
             SIGNER_SLOTS_PER_USER as usize >= slot_identifiers_len,
-            "stacks_common::SIGNER_SLOTS_PER_USER ({}) must be >= slot identifiers ({})",
-            SIGNER_SLOTS_PER_USER,
-            slot_identifiers_len,
+            "stacks_common::SIGNER_SLOTS_PER_USER ({SIGNER_SLOTS_PER_USER}) must be >= slot identifiers ({slot_identifiers_len})"
         );
     }
 

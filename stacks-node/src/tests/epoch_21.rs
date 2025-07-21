@@ -697,7 +697,7 @@ fn transition_fixes_bitcoin_rigidity() {
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
     };
 
-    let mut spender_signer = BurnchainOpSigner::new(spender_sk, false);
+    let mut spender_signer = BurnchainOpSigner::new(spender_sk);
 
     assert!(
         btc_regtest_controller
@@ -849,7 +849,7 @@ fn transition_fixes_bitcoin_rigidity() {
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
     };
 
-    let mut spender_signer = BurnchainOpSigner::new(spender_sk, false);
+    let mut spender_signer = BurnchainOpSigner::new(spender_sk);
 
     assert!(
         btc_regtest_controller
@@ -923,7 +923,7 @@ fn transition_fixes_bitcoin_rigidity() {
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
     };
 
-    let mut spender_signer = BurnchainOpSigner::new(spender_2_sk, false);
+    let mut spender_signer = BurnchainOpSigner::new(spender_2_sk);
 
     btc_regtest_controller
         .submit_manual(
@@ -989,7 +989,7 @@ fn transition_fixes_bitcoin_rigidity() {
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
     };
 
-    let mut spender_signer = BurnchainOpSigner::new(spender_2_sk, false);
+    let mut spender_signer = BurnchainOpSigner::new(spender_2_sk);
 
     btc_regtest_controller
         .submit_manual(

@@ -1,0 +1,16 @@
+type: array
+items:
+  type: object
+  properties:
+    slot_id:
+      type: integer
+      description: Slot identifier (unique for each DB instance)
+    slot_version:
+      type: integer
+      description: Slot version (a lamport clock)
+    data_hash:
+      type: string
+      description: Data hash (hex, no 0x prefix)
+    signature:
+      type: string
+      description: signature over the above (hex, no 0x prefix)

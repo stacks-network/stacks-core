@@ -386,22 +386,22 @@ impl StackerDBListener {
                                 .total_weight_approved
                                 .checked_add(signer_entry.weight)
                                 .expect("FATAL: total weight signed exceeds u32::MAX");
-                        }
 
-                        info!("StackerDBListener: Signature Added to block";
-                            "signer_signature_hash" => %block_sighash,
-                            "signer_pubkey" => signer_pubkey.to_hex(),
-                            "signer_slot_id" => slot_id,
-                            "signature" => %signature,
-                            "signer_weight" => signer_entry.weight,
-                            "total_weight_approved" => block.total_weight_approved,
-                            "percent_approved" => block.total_weight_approved as f64 / self.total_weight as f64 * 100.0,
-                            "total_weight_rejected" => block.total_weight_rejected,
-                            "percent_rejected" => block.total_weight_rejected as f64 / self.total_weight as f64 * 100.0,
-                            "weight_threshold" => self.weight_threshold,
-                            "tenure_extend_timestamp" => tenure_extend_timestamp,
-                            "server_version" => metadata.server_version,
-                        );
+                            info!("StackerDBListener: Signature Added to block";
+                                "signer_signature_hash" => %block_sighash,
+                                "signer_pubkey" => signer_pubkey.to_hex(),
+                                "signer_slot_id" => slot_id,
+                                "signature" => %signature,
+                                "signer_weight" => signer_entry.weight,
+                                "total_weight_approved" => block.total_weight_approved,
+                                "percent_approved" => block.total_weight_approved as f64 / self.total_weight as f64 * 100.0,
+                                "total_weight_rejected" => block.total_weight_rejected,
+                                "percent_rejected" => block.total_weight_rejected as f64 / self.total_weight as f64 * 100.0,
+                                "weight_threshold" => self.weight_threshold,
+                                "tenure_extend_timestamp" => tenure_extend_timestamp,
+                                "server_version" => metadata.server_version,
+                            );
+                        }
                         block.gathered_signatures.insert(slot_id, signature);
                         block.responded_signers.insert(slot_id);
 
@@ -451,24 +451,24 @@ impl StackerDBListener {
                                 .total_weight_rejected
                                 .checked_add(signer_entry.weight)
                                 .expect("FATAL: total weight rejected exceeds u32::MAX");
-                        }
 
-                        info!("StackerDBListener: Signer rejected block";
-                            "signer_signature_hash" => %rejected_data.signer_signature_hash,
-                            "signer_pubkey" => rejected_pubkey.to_hex(),
-                            "signer_slot_id" => slot_id,
-                            "signature" => %rejected_data.signature,
-                            "signer_weight" => signer_entry.weight,
-                            "total_weight_approved" => block.total_weight_approved,
-                            "percent_approved" => block.total_weight_approved as f64 / self.total_weight as f64 * 100.0,
-                            "total_weight_rejected" => block.total_weight_rejected,
-                            "percent_rejected" => block.total_weight_rejected as f64 / self.total_weight as f64 * 100.0,
-                            "weight_threshold" => self.weight_threshold,
-                            "reason" => rejected_data.reason,
-                            "reason_code" => ?rejected_data.reason_code,
-                            "tenure_extend_timestamp" => rejected_data.response_data.tenure_extend_timestamp,
-                            "server_version" => rejected_data.metadata.server_version,
-                        );
+                            info!("StackerDBListener: Signer rejected block";
+                                "signer_signature_hash" => %rejected_data.signer_signature_hash,
+                                "signer_pubkey" => rejected_pubkey.to_hex(),
+                                "signer_slot_id" => slot_id,
+                                "signature" => %rejected_data.signature,
+                                "signer_weight" => signer_entry.weight,
+                                "total_weight_approved" => block.total_weight_approved,
+                                "percent_approved" => block.total_weight_approved as f64 / self.total_weight as f64 * 100.0,
+                                "total_weight_rejected" => block.total_weight_rejected,
+                                "percent_rejected" => block.total_weight_rejected as f64 / self.total_weight as f64 * 100.0,
+                                "weight_threshold" => self.weight_threshold,
+                                "reason" => rejected_data.reason,
+                                "reason_code" => ?rejected_data.reason_code,
+                                "tenure_extend_timestamp" => rejected_data.response_data.tenure_extend_timestamp,
+                                "server_version" => rejected_data.metadata.server_version,
+                            );
+                        }
 
                         if block
                             .total_weight_rejected

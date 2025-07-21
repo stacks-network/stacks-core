@@ -1,0 +1,12 @@
+name: proof
+in: query
+schema:
+  type: integer
+  enum:
+    - 0
+    - 1
+  default: 1
+  example: 1
+description: |
+  Controls MARF proof inclusion in response. Set to 1 (default) to include proof, 0 to exclude.
+  Invalid values default to 0 (no proof).

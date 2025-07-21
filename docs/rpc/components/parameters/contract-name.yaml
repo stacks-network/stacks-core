@@ -1,0 +1,13 @@
+name: contract_name
+in: path
+required: true
+description: |
+  Contract name. Must start with a letter and can contain letters, numbers,
+  hyphens, and underscores. Maximum length is 40 characters for new contracts.
+  Legacy contracts may have names up to 128 characters.
+schema:
+  type: string
+  pattern: "^[a-zA-Z]([a-zA-Z0-9]|[-_]){0,127}$"
+  minLength: 1
+  maxLength: 128
+  example: get-info
