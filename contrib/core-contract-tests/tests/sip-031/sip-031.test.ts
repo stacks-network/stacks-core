@@ -671,6 +671,31 @@ test('recipient change during vesting period preserves vested amounts', () => {
   expect(secondClaim.value).toBe(expectedVested);
 });
 
+test('recipient can be updated from an indirect contract set as recipient', () => {
+  txOk(
+    contract.updateRecipient(indirectContract.identifier),
+    accounts.deployer.address,
+  );
+  txOk(
+    indirectContract.updateRecipientAsContract(accounts.wallet_1.address),
+    accounts.wallet_1.address,
+  );
+  expect(rov(contract.getRecipient())).toBe(accounts.wallet_1.address);
+});
+
+test('claim can be called from an indirect contract set as recipient', () => {
+  mintInitial();
+  txOk(
+    contract.updateRecipient(indirectContract.identifier),
+    accounts.deployer.address,
+  );
+  let receipt = txOk(
+    indirectContract.claimAsContract(),
+    accounts.wallet_1.address,
+  );
+  expect(receipt.value).toBe(constants.INITIAL_MINT_IMMEDIATE_AMOUNT);
+});
+
 // -----------------------------------------------------------------------------
 // Fuzz Testing - Randomized Tests
 // -----------------------------------------------------------------------------
