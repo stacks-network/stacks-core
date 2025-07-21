@@ -1099,6 +1099,14 @@ impl Value {
 
     /// Try to deserialize a value without type information. This *does not* perform sanitization
     ///  so it should not be used when decoding clarity database values.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn try_deserialize_bytes_untyped(bytes: &Vec<u8>) -> Result<Value, CodecError> {
+        Value::deserialize_read(&mut bytes.as_slice(), None, false)
+    }
+
+    /// Try to deserialize a value without type information. This *does not* perform sanitization
+    ///  so it should not be used when decoding clarity database values.
+    #[cfg(not(any(test, feature = "testing")))]
     fn try_deserialize_bytes_untyped(bytes: &Vec<u8>) -> Result<Value, CodecError> {
         Value::deserialize_read(&mut bytes.as_slice(), None, false)
     }

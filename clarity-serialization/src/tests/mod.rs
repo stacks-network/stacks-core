@@ -16,8 +16,11 @@
 
 #![cfg(any(test, feature = "testing"))]
 
+use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+
 use crate::errors::CodecError;
-use crate::types::Value;
+use crate::types::{PrincipalData, StandardPrincipalData, Value};
 
 impl Value {
     pub fn list_from(list_data: Vec<Value>) -> Result<Value, CodecError> {
@@ -31,5 +34,30 @@ impl Value {
 impl PartialEq for CodecError {
     fn eq(&self, other: &Self) -> bool {
         self.to_string() == other.to_string()
+    }
+}
+
+impl From<&StacksPrivateKey> for StandardPrincipalData {
+    fn from(o: &StacksPrivateKey) -> StandardPrincipalData {
+        let stacks_addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(o)],
+        )
+        .unwrap();
+        StandardPrincipalData::from(stacks_addr)
+    }
+}
+
+impl From<&StacksPrivateKey> for PrincipalData {
+    fn from(o: &StacksPrivateKey) -> PrincipalData {
+        PrincipalData::Standard(StandardPrincipalData::from(o))
+    }
+}
+
+impl From<&StacksPrivateKey> for Value {
+    fn from(o: &StacksPrivateKey) -> Value {
+        Value::from(StandardPrincipalData::from(o))
     }
 }
