@@ -13502,3 +13502,357 @@ fn test_sip_031_last_phase_out_of_epoch() {
 
     run_loop_thread.join().unwrap();
 }
+
+/// Test SIP-031 last phase per-tenure-mint-and-transfer
+///
+/// - check epoch 3.2 is active
+/// - check minting event on coinbase and boot contract transfer for the first (and only the first) block of a tenure
+/// - ensure liquidity is updated accordingly to SIP-031
+#[test]
+#[ignore]
+#[serial]
+fn test_sip_031_last_phase_coinbase_matches_activation() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    naka_conf.node.pox_sync_sample_secs = 180;
+    naka_conf.burnchain.max_rbf = 10_000_000;
+
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    // let's assume funds for 200 tenures
+    let tenure_count = 200;
+    let inter_blocks_per_tenure = 9;
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr).to_string(),
+        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+    );
+    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    let epoch32_start_height =
+        naka_conf.burnchain.epochs.clone().unwrap()[StacksEpochId::Epoch32].start_height;
+
+    set_test_sip_031_emission_schedule(Some(vec![SIP031EmissionInterval {
+        amount: 100_000,
+        start_height: epoch32_start_height,
+    }]));
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (mut chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    // mine until epoch 3.2 height
+    loop {
+        let commits_before = commits_submitted.load(Ordering::SeqCst);
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+        wait_for(20, || {
+            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
+        })
+        .unwrap();
+
+        let node_info = get_chain_info_opt(&naka_conf).unwrap();
+        if node_info.burn_block_height >= epoch32_start_height {
+            break;
+        }
+    }
+
+    info!(
+        "Nakamoto miner has advanced to bitcoin height {}",
+        get_chain_info_opt(&naka_conf).unwrap().burn_block_height
+    );
+
+    let latest_stacks_block_id = get_latest_block_proposal(&naka_conf, &sortdb)
+        .unwrap()
+        .0
+        .block_id();
+
+    // check if sip-031 boot contract has a balance of 200_000_000 STX + coinbase-mint-and-transfer
+    let sip_031_boot_contract_balance = chainstate.with_read_only_clarity_tx(
+        &sortdb
+            .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+            .unwrap(),
+        &latest_stacks_block_id,
+        |conn| {
+            conn.with_clarity_db_readonly(|db| {
+                db.get_account_stx_balance(&PrincipalData::Contract(boot_code_id(
+                    SIP_031_NAME,
+                    naka_conf.is_mainnet(),
+                )))
+            })
+        },
+    );
+
+    assert_eq!(
+        sip_031_boot_contract_balance,
+        Some(Ok(STXBalance::Unlocked {
+            amount: SIP_031_INITIAL_MINT + 100_000
+        }))
+    );
+
+    // check the mint event has been attached to the coinbase
+    for block in test_observer::get_blocks() {
+        let burn_block_height = block.get("burn_block_height").unwrap().as_u64().unwrap();
+
+        if burn_block_height == epoch32_start_height {
+            // check for mint event for the SIP-031 coinbase minting events (activation mint and coinbase one)
+            let events = block.get("events").unwrap().as_array().unwrap();
+            for event in events {
+                if let Some(mint_event) = event.get("stx_mint_event") {
+                    if mint_event.get("recipient").unwrap().as_str().unwrap()
+                        == boot_code_id(SIP_031_NAME, naka_conf.is_mainnet()).to_string()
+                    {
+                        let minted_amount = mint_event
+                            .get("amount")
+                            .unwrap()
+                            .as_str()
+                            .unwrap()
+                            .parse::<u128>()
+                            .unwrap();
+                        if minted_amount == SIP_031_INITIAL_MINT {
+                            let boot_contract_deploy_tx = block
+                                .get("transactions")
+                                .unwrap()
+                                .as_array()
+                                .unwrap()
+                                .get(0)
+                                .unwrap()
+                                .get("txid")
+                                .unwrap()
+                                .as_str()
+                                .unwrap();
+
+                            // check the event txid is mapped to the boot_contract_deploy
+                            assert_eq!(
+                                event.get("txid").unwrap().as_str().unwrap(),
+                                boot_contract_deploy_tx
+                            );
+                        } else {
+                            let coinbase_txid = block
+                                .get("transactions")
+                                .unwrap()
+                                .as_array()
+                                .unwrap()
+                                .get(2)
+                                .unwrap()
+                                .get("txid")
+                                .unwrap()
+                                .as_str()
+                                .unwrap();
+
+                            // check the event txid is mapped to the coinbase
+                            assert_eq!(event.get("txid").unwrap().as_str().unwrap(), coinbase_txid);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // get current liquidity
+    let sip_031_current_liquid_ustx_before = chainstate
+        .with_read_only_clarity_tx(
+            &sortdb
+                .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+                .unwrap(),
+            &latest_stacks_block_id,
+            |conn| conn.with_clarity_db_readonly(|db| db.get_total_liquid_ustx().unwrap()),
+        )
+        .unwrap();
+
+    assert!(sip_031_current_liquid_ustx_before >= SIP_031_INITIAL_MINT + 100_000);
+
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+    let mut sender_nonce = 0;
+    // 1 more tenures (with 5 stacks blocks)
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    next_block_and_process_new_stacks_blocks(
+        &mut btc_regtest_controller,
+        5,
+        60,
+        &coord_channel,
+        || {
+            let transfer_tx = make_stacks_transfer_serialized(
+                &sender_sk,
+                sender_nonce,
+                send_fee,
+                naka_conf.burnchain.chain_id,
+                &PrincipalData::from(sender_signer_addr),
+                send_amt,
+            );
+            submit_tx(&http_origin, &transfer_tx);
+            sender_nonce += 1;
+            Ok(())
+        },
+    )
+    .unwrap();
+    wait_for(20, || {
+        Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
+    })
+    .unwrap();
+
+    let mut total_minted_and_transferred: u128 = 0;
+
+    for block in test_observer::get_blocks() {
+        let burn_block_height = block.get("burn_block_height").unwrap().as_u64().unwrap();
+
+        let sip_031_mint_and_transfer_amount =
+            SIP031EmissionInterval::get_sip_031_emission_at_height(
+                burn_block_height,
+                naka_conf.is_mainnet(),
+            );
+
+        // check for mint events for the SIP-031 boot contract (excluding the activation one)
+        let events = block.get("events").unwrap().as_array().unwrap();
+        for event in events {
+            if let Some(mint_event) = event.get("stx_mint_event") {
+                if mint_event.get("recipient").unwrap().as_str().unwrap()
+                    == boot_code_id(SIP_031_NAME, naka_conf.is_mainnet()).to_string()
+                    && burn_block_height != epoch32_start_height
+                {
+                    let minted_amount = mint_event
+                        .get("amount")
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .parse::<u128>()
+                        .unwrap();
+                    assert_eq!(sip_031_mint_and_transfer_amount, minted_amount);
+                    total_minted_and_transferred += minted_amount;
+
+                    let coinbase_txid = block
+                        .get("transactions")
+                        .unwrap()
+                        .as_array()
+                        .unwrap()
+                        .get(1)
+                        .unwrap()
+                        .get("txid")
+                        .unwrap()
+                        .as_str()
+                        .unwrap();
+
+                    // check the event txid is mapped to the coinbase
+                    assert_eq!(event.get("txid").unwrap().as_str().unwrap(), coinbase_txid);
+                }
+            }
+        }
+    }
+
+    // 100_000
+    assert_eq!(total_minted_and_transferred, 100_000);
+
+    let latest_stacks_block_id = get_latest_block_proposal(&naka_conf, &sortdb)
+        .unwrap()
+        .0
+        .block_id();
+
+    // get sip-031 boot contract balance (will be checked for 200_000_000 STX + 100_000 + total_minted_and_transferred)
+    let sip_031_boot_contract_balance = chainstate.with_read_only_clarity_tx(
+        &sortdb
+            .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+            .unwrap(),
+        &latest_stacks_block_id,
+        |conn| {
+            conn.with_clarity_db_readonly(|db| {
+                db.get_account_stx_balance(&PrincipalData::Contract(boot_code_id(
+                    SIP_031_NAME,
+                    naka_conf.is_mainnet(),
+                )))
+            })
+        },
+    );
+
+    assert_eq!(
+        sip_031_boot_contract_balance,
+        Some(Ok(STXBalance::Unlocked {
+            amount: SIP_031_INITIAL_MINT + 100_000 + total_minted_and_transferred
+        }))
+    );
+
+    // get current liquidity
+    let sip_031_current_liquid_ustx = chainstate
+        .with_read_only_clarity_tx(
+            &sortdb
+                .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+                .unwrap(),
+            &latest_stacks_block_id,
+            |conn| conn.with_clarity_db_readonly(|db| db.get_total_liquid_ustx().unwrap()),
+        )
+        .unwrap();
+
+    // check liquidity has been updated accordingly
+    assert!(
+        sip_031_current_liquid_ustx - sip_031_current_liquid_ustx_before
+            >= total_minted_and_transferred
+    );
+
+    set_test_sip_031_emission_schedule(None);
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
