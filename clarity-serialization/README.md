@@ -123,7 +123,6 @@ The crate implements the standard binary format for Clarity values. At a high le
 
 This crate is designed to be minimal by default. Optional functionality is available via feature flags:
 
-*   `developer-mode`: Enables additional debugging and logging information useful during development.
 *   `testing`: Enables helper functions and data structures used exclusively for unit and integration testing.
 *   `slog_json`: Integrates with `slog` for structured JSON logging.
 *   `wasm-web` / `wasm-deterministic`: Enables builds for WebAssembly environments with different determinism guarantees.
