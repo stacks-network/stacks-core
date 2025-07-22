@@ -1529,42 +1529,42 @@ mod test {
     use super::*;
     #[test]
     fn test_constructors() {
-        matches!(
+        assert!(matches!(
             Value::list_with_type(
                 &StacksEpochId::latest(),
                 vec![Value::Int(5), Value::Int(2)],
                 ListTypeData::new_list(TypeSignature::BoolType, 3).unwrap()
             ),
             Err(CodecError::FailureConstructingListWithType)
-        );
-        matches!(
+        ));
+        assert!(matches!(
             ListTypeData::new_list(TypeSignature::IntType, MAX_VALUE_SIZE),
             Err(CodecError::ValueTooLarge)
-        );
+        ));
 
-        matches!(
+        assert!(matches!(
             Value::buff_from(vec![0; (MAX_VALUE_SIZE + 1) as usize]),
             Err(CodecError::ValueTooLarge)
-        );
+        ));
 
         // Test that wrappers (okay, error, some)
         //   correctly error when _they_ cause the value size
         //   to exceed the max value size (note, the buffer constructor
         //   isn't causing the error).
-        matches!(
+        assert!(matches!(
             Value::okay(Value::buff_from(vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
             Err(CodecError::ValueTooLarge)
-        );
+        ));
 
-        matches!(
+        assert!(matches!(
             Value::error(Value::buff_from(vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
             Err(CodecError::ValueTooLarge)
-        );
+        ));
 
-        matches!(
+        assert!(matches!(
             Value::some(Value::buff_from(vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
             Err(CodecError::ValueTooLarge)
-        );
+        ));
 
         // Test that the depth limit is correctly enforced:
         //   for tuples, lists, somes, okays, errors.
@@ -1585,27 +1585,27 @@ mod test {
             )?)?)?)?)
         };
         let inner_value = cons().unwrap();
-        matches!(
+        assert!(matches!(
             TupleData::from_data(vec![("a".into(), inner_value.clone())]),
             Err(CodecError::TypeSignatureTooDeep)
-        );
+        ));
 
-        matches!(
+        assert!(matches!(
             Value::list_from(vec![inner_value.clone()]),
             Err(CodecError::TypeSignatureTooDeep)
-        );
-        matches!(
+        ));
+        assert!(matches!(
             Value::okay(inner_value.clone()),
             Err(CodecError::TypeSignatureTooDeep)
-        );
-        matches!(
+        ));
+        assert!(matches!(
             Value::error(inner_value.clone()),
             Err(CodecError::TypeSignatureTooDeep)
-        );
-        matches!(
+        ));
+        assert!(matches!(
             Value::some(inner_value),
             Err(CodecError::TypeSignatureTooDeep)
-        );
+        ));
 
         if std::env::var("CIRCLE_TESTING") == Ok("1".to_string()) {
             println!("Skipping allocation test on Circle");
@@ -1614,10 +1614,10 @@ mod test {
 
         // on 32-bit archs, this error cannot even happen, so don't test (and cause an overflow panic)
         if (u32::MAX as usize) < usize::MAX {
-            matches!(
+            assert!(matches!(
                 Value::buff_from(vec![0; (u32::MAX as usize) + 10]),
                 Err(CodecError::ValueTooLarge)
-            );
+            ));
         }
     }
 
@@ -1629,9 +1629,9 @@ mod test {
     #[test]
     fn simple_tuple_get_test() {
         let t = TupleData::from_data(vec![("abc".into(), Value::Int(0))]).unwrap();
-        matches!(t.get("abc"), Ok(&Value::Int(0)));
+        assert!(matches!(t.get("abc"), Ok(&Value::Int(0))));
         // should error!
-        t.get("abcd").unwrap_err();
+        t.get("abcd").expect_err("should error");
     }
 
     #[test]

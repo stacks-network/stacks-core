@@ -1358,10 +1358,10 @@ pub mod tests {
         )
         .unwrap();
 
-        matches!(
+        assert!(matches!(
             Value::deserialize_read(&mut too_big.as_slice(), None, false).unwrap_err(),
             CodecError::Deserialization(e) if e == "Illegal list type"
-        );
+        ));
 
         // make a list that says it is longer than it is!
         //   this describes a list of size MAX_VALUE_SIZE of Value::Bool(true)'s, but is actually only 59 bools.
@@ -1662,10 +1662,10 @@ pub mod tests {
             11, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
         ];
 
-        matches!(
+        assert!(matches!(
             Value::try_deserialize_bytes_untyped(&buff).unwrap_err(),
             CodecError::Deserialization(e) if e == "Illegal list type"
-        );
+        ));
     }
 
     #[test]
@@ -1674,19 +1674,19 @@ pub mod tests {
             12, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
         ];
 
-        matches!(
+        assert!(matches!(
             Value::try_deserialize_bytes_untyped(&buff).unwrap_err(),
             CodecError::Deserialization(e) if e == "Illegal tuple type"
-        );
+        ));
     }
 
     #[test]
     fn try_overflow_stack() {
         let input = "08080808080808080808070707080807080808080808080708080808080708080707080707080807080808080808080708080808080708080707080708070807080808080808080708080808080708080708080808080808080807070807080808080808070808070707080807070808070808080808070808070708070807080808080808080707080708070807080708080808080808070808080808070808070808080808080808080707080708080808080807080807070708080707080807080808080807080807070807080708080808080808070708070808080808080708080707070808070708080807080807070708";
-        matches!(
+        assert!(matches!(
             Value::try_deserialize_hex_untyped(input),
             Err(CodecError::TypeSignatureTooDeep)
-        );
+        ));
     }
 
     #[test]
