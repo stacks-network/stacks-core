@@ -31,6 +31,7 @@ async-h1 = { version = "2.3.2", optional = true }
 async-std = { version = "1.6", optional = true, features = ["attributes"] }
 http-types = { version = "2.12", default-features = false, optional = true }
 thiserror = { workspace = true }
+reqwest = { version = "0.11.24", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 
 # This dependency is used for the multiversion integration tests which live behind the build-v3-1-0-0-13 feature flag
 signer_v3_1_0_0_13 = { package = "stacks-signer", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
@@ -43,7 +44,6 @@ tikv-jemallocator = {workspace = true}
 [dev-dependencies]
 warp = "0.3.5"
 tokio = "1.15"
-reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls", "rustls-tls"] }
 clarity = { path = "../clarity", features = ["default", "testing"]}
 stacks-common = { path = "../stacks-common", features = ["default", "testing"] }
 stacks = { package = "stackslib", path = "../stackslib", features = ["default", "testing"] }
