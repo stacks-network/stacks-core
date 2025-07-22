@@ -4856,6 +4856,8 @@ impl NakamotoChainState {
         }
 
         // for sip-031 we append the mint event to the coinbase
+        // note that the above coinbase checks are left with index assumptions (get_mut(0))
+        // for backward compatibility (even if since nakamoto the coinbase is at index 1)
         if let Some(event) = sip31_event {
             if let Some(coinbase_receipt) = tx_receipts
                 .iter_mut()
