@@ -4855,16 +4855,15 @@ impl NakamotoChainState {
             }
         }
 
+        // for sip-031 we append the mint event to the coinbase
         if let Some(event) = sip31_event {
-            // for sip-031 we are safe in assuming coinbase is at index 1
-            if let Some(receipt) = tx_receipts.get_mut(1) {
-                if receipt.is_coinbase_tx() {
-                    receipt.events.push(event);
-                } else {
-                    error!("Unable to attach SIP-031 mint events, block's second transaction is not a coinbase transaction")
-                }
+            if let Some(coinbase_receipt) = tx_receipts
+                .iter_mut()
+                .find(|tx_receipt| tx_receipt.is_coinbase_tx())
+            {
+                coinbase_receipt.events.push(event);
             } else {
-                error!("Unable to attach SIP-031 mint events, block's second transaction not available")
+                error!("Unable to attach SIP-031 mint events, block's coinbase transaction not available")
             }
         }
 
