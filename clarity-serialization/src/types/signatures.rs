@@ -1,5 +1,4 @@
-// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -825,12 +824,6 @@ impl TupleTypeSignature {
     }
 }
 
-// impl FunctionArg {
-//     pub fn new(signature: TypeSignature, name: ClarityName) -> FunctionArg {
-//         FunctionArg { signature, name }
-//     }
-// }
-
 impl TypeSignature {
     pub fn empty_buffer() -> Result<TypeSignature> {
         Ok(SequenceType(SequenceSubtype::BufferType(
@@ -1563,12 +1556,6 @@ impl fmt::Display for StringUTF8Length {
         write!(f, "{}", self.0)
     }
 }
-
-// impl fmt::Display for FunctionArg {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         write!(f, "{}", self.signature)
-//     }
-// }
 
 #[cfg(test)]
 mod test {
