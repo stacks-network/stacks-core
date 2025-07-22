@@ -4,7 +4,6 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
-#![allow(clippy::assertions_on_constants)]
 
 #[allow(unused_imports)]
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
@@ -13,10 +12,10 @@ extern crate slog;
 #[macro_use]
 extern crate serde_derive;
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "ctrlc-handler"))]
 extern crate nix;
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "ctrlc-handler"))]
 extern crate winapi;
 
 #[macro_use]
@@ -29,7 +28,14 @@ pub mod types;
 
 pub mod address;
 
-pub mod deps_common;
+pub mod deps_common {
+    pub mod bech32;
+    pub mod bitcoin;
+    pub mod httparse;
+
+    #[cfg(all(not(target_family = "wasm"), feature = "ctrlc-handler"))]
+    pub mod ctrlc;
+}
 
 pub mod bitvec;
 

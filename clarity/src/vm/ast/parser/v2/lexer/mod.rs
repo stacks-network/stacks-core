@@ -255,7 +255,7 @@ impl<'a> Lexer<'a> {
                 _ => {
                     if !is_separator(self.next) {
                         return Ok(Token::Placeholder(self.proceed_through_error(
-                            format!("<{}", ident),
+                            format!("<{ident}"),
                             Some(LexerError::InvalidCharTraitIdent(self.next)),
                         )?));
                     }
@@ -278,7 +278,7 @@ impl<'a> Lexer<'a> {
                             end_column: start_column,
                         },
                     )?;
-                    return Ok(Token::Placeholder(format!("<{}", ident)));
+                    return Ok(Token::Placeholder(format!("<{ident}")));
                 }
             }
             self.read_char()?;
@@ -298,7 +298,7 @@ impl<'a> Lexer<'a> {
                 _ => {
                     if !is_separator(self.next) {
                         return Ok(Token::Placeholder(self.proceed_through_error(
-                            format!("'{}", principal),
+                            format!("'{principal}"),
                             Some(LexerError::InvalidCharPrincipal(self.next)),
                         )?));
                     }
@@ -316,7 +316,7 @@ impl<'a> Lexer<'a> {
         }
         if !is_separator(self.next) {
             return Ok(Token::Placeholder(self.proceed_through_error(
-                format!("u{}", num),
+                format!("u{num}"),
                 Some(LexerError::InvalidCharUint(self.next)),
             )?));
         }
@@ -353,7 +353,7 @@ impl<'a> Lexer<'a> {
             if !f.is_ascii_hexdigit() {
                 if !is_separator(f) {
                     return Ok(Token::Placeholder(self.proceed_through_error(
-                        format!("0x{}", bytes),
+                        format!("0x{bytes}"),
                         Some(LexerError::InvalidCharBuffer(f)),
                     )?));
                 }
@@ -374,10 +374,10 @@ impl<'a> Lexer<'a> {
                             end_column: self.last_column as u32,
                         },
                     )?;
-                    return Ok(Token::Placeholder(format!("0x{}", bytes)));
+                    return Ok(Token::Placeholder(format!("0x{bytes}")));
                 } else {
                     return Ok(Token::Placeholder(self.proceed_through_error(
-                        format!("0x{}", bytes),
+                        format!("0x{bytes}"),
                         Some(LexerError::InvalidCharBuffer(s)),
                     )?));
                 }
@@ -412,7 +412,7 @@ impl<'a> Lexer<'a> {
                             },
                         )?;
                         return Ok(Token::Placeholder(
-                            self.proceed_through_error_string(format!("\"{}\\", s), None)?,
+                            self.proceed_through_error_string(format!("\"{s}\\"), None)?,
                         ));
                     }
                 };
@@ -444,7 +444,7 @@ impl<'a> Lexer<'a> {
                                 end_column: start_column,
                             },
                         )?;
-                        return Ok(Token::Placeholder(format!("\"{}", s)));
+                        return Ok(Token::Placeholder(format!("\"{s}")));
                     }
                     _ => {
                         if !self.next.is_ascii() {
@@ -458,7 +458,7 @@ impl<'a> Lexer<'a> {
                                 },
                             )?;
                             return Ok(Token::Placeholder(
-                                self.proceed_through_error_string(format!("\"{}", s), None)?,
+                                self.proceed_through_error_string(format!("\"{s}"), None)?,
                             ));
                         } else {
                             s.push(self.next);
@@ -529,7 +529,7 @@ impl<'a> Lexer<'a> {
                             end_column: start_column,
                         },
                     )?;
-                    return Ok(Err(format!("{{{}", code)));
+                    return Ok(Err(format!("{{{code}")));
                 }
                 EOF => {
                     self.add_diagnostic(
@@ -550,7 +550,7 @@ impl<'a> Lexer<'a> {
                             end_column: start_column,
                         },
                     )?;
-                    return Ok(Err(format!("{{{}", code)));
+                    return Ok(Err(format!("{{{code}")));
                 }
                 _ => {
                     if self.next.is_ascii_hexdigit() {
@@ -565,7 +565,7 @@ impl<'a> Lexer<'a> {
                                 end_column: self.column as u32,
                             },
                         )?;
-                        return Ok(Err(format!("{{{}", code)));
+                        return Ok(Err(format!("{{{code}")));
                     }
                 }
             }
@@ -595,7 +595,7 @@ impl<'a> Lexer<'a> {
                             Ok(code) => code,
                             Err(bad) => {
                                 return Ok(Token::Placeholder(self.proceed_through_error_string(
-                                    format!("u\"{}\\u{}", s, bad),
+                                    format!("u\"{s}\\u{bad}"),
                                     None,
                                 )?));
                             }
@@ -615,7 +615,7 @@ impl<'a> Lexer<'a> {
                                     )?;
                                     return Ok(Token::Placeholder(
                                         self.proceed_through_error_string(
-                                            format!("u\"{}\\u{{{}}}", s, encode_str),
+                                            format!("u\"{s}\\u{{{encode_str}}}"),
                                             None,
                                         )?,
                                     ));
@@ -635,7 +635,7 @@ impl<'a> Lexer<'a> {
                                     )?;
                                     return Ok(Token::Placeholder(
                                         self.proceed_through_error_string(
-                                            format!("u\"{}\\u{{{}}}", s, encode_str),
+                                            format!("u\"{s}\\u{{{encode_str}}}"),
                                             None,
                                         )?,
                                     ));
@@ -656,7 +656,7 @@ impl<'a> Lexer<'a> {
                             },
                         )?;
                         return Ok(Token::Placeholder(
-                            self.proceed_through_error_string(format!("u\"{}\\", s), None)?,
+                            self.proceed_through_error_string(format!("u\"{s}\\"), None)?,
                         ));
                     }
                 };
@@ -688,7 +688,7 @@ impl<'a> Lexer<'a> {
                                 end_column: start_column + 1,
                             },
                         )?;
-                        return Ok(Token::Placeholder(format!("u\"{}", s)));
+                        return Ok(Token::Placeholder(format!("u\"{s}")));
                     }
                     _ => {
                         s.push(self.next);

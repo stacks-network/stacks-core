@@ -93,9 +93,8 @@ impl CoverageReporter {
         let out = CoverageFileInfo { coverage };
         if let Err(e) = serde_json::to_writer(f, &out) {
             error!(
-                "Failed to serialize JSON to coverage file {}: {}",
-                filename.as_ref().display(),
-                e
+                "Failed to serialize JSON to coverage file {}: {e}",
+                filename.as_ref().display()
             );
             return Err(e.into());
         }
@@ -182,9 +181,8 @@ impl CoverageReporter {
 
         if let Err(e) = serde_json::to_writer(f, &json) {
             error!(
-                "Failed to serialize JSON to coverage file {}: {}",
-                filename.as_ref().display(),
-                e
+                "Failed to serialize JSON to coverage file {}: {e}",
+                filename.as_ref().display()
             );
             return Err(e.into());
         }
@@ -219,7 +217,7 @@ impl CoverageReporter {
             writeln!(out, "SF:{}", &info.src_file)?;
             for line in info.executable_lines.iter() {
                 let count = summed_coverage.get(line).cloned().unwrap_or(0);
-                writeln!(out, "DA:{},{}", line, count)?;
+                writeln!(out, "DA:{line},{count}")?;
             }
             writeln!(out, "LH:{}", summed_coverage.len())?;
             writeln!(out, "LF:{}", &info.executable_lines.len())?;

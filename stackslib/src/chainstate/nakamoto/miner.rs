@@ -483,15 +483,14 @@ impl NakamotoBlockBuilder {
         clarity_tx: &mut ClarityTx,
         burn_block_height: u32,
     ) -> NakamotoBlock {
-        NakamotoChainState::finish_block(clarity_tx, self.matured_miner_rewards_opt.as_ref())
-            .expect("FATAL: call to `finish_block` failed");
-        // if coinbase_tx is defined, we are at the start of a new tenure
-        if self.coinbase_tx.is_some() {
-            NakamotoChainState::sip_031_mint_and_transfer_on_new_tenure(
-                clarity_tx,
-                burn_block_height,
-            );
-        }
+        let is_new_tenure = self.coinbase_tx.is_some();
+        NakamotoChainState::finish_block(
+            clarity_tx,
+            self.matured_miner_rewards_opt.as_ref(),
+            is_new_tenure,
+            burn_block_height,
+        )
+        .expect("FATAL: call to `finish_block` failed");
         self.finalize_block(clarity_tx)
     }
 

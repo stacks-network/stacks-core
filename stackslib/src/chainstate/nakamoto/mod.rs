@@ -524,6 +524,13 @@ impl MaturedMinerPaymentSchedules {
     }
 }
 
+/// Struct for the transaction events associated with
+/// any operations handled in finish_block()
+pub struct FinishBlockEvents {
+    pub lockup_events: Vec<StacksTransactionEvent>,
+    pub sip31_event: Option<StacksTransactionEvent>,
+}
+
 /// Struct containing information about the miners assigned in the
 /// .miners stackerdb config
 pub struct MinersDBInformation {
@@ -4350,7 +4357,9 @@ impl NakamotoChainState {
     pub fn finish_block(
         clarity_tx: &mut ClarityTx,
         miner_payouts: Option<&MaturedMinerRewards>,
-    ) -> Result<Vec<StacksTransactionEvent>, ChainstateError> {
+        new_tenure: bool,
+        chain_tip_burn_header_height: u32,
+    ) -> Result<FinishBlockEvents, ChainstateError> {
         // add miner payments
         if let Some(rewards) = miner_payouts {
             // grant in order by miner, then users
@@ -4369,7 +4378,17 @@ impl NakamotoChainState {
 
         clarity_tx.increment_ustx_liquid_supply(new_unlocked_ustx);
 
-        Ok(lockup_events)
+        // process SIP-031 mint/transfers
+        let sip31_event = if new_tenure {
+            Self::sip_031_mint_and_transfer_on_new_tenure(clarity_tx, chain_tip_burn_header_height)
+        } else {
+            None
+        };
+
+        Ok(FinishBlockEvents {
+            lockup_events,
+            sip31_event,
+        })
     }
 
     /// Verify that the PoX bitvector from the block header is consistent with the block-commit's
@@ -4792,15 +4811,22 @@ impl NakamotoChainState {
             .map(|matured_miner_rewards| matured_miner_rewards.consolidate())
             .unwrap_or_default();
 
-        let mut lockup_events =
-            match Self::finish_block(&mut clarity_tx, matured_miner_rewards_opt.as_ref()) {
-                Err(ChainstateError::InvalidStacksBlock(e)) => {
-                    clarity_tx.rollback_block();
-                    return Err(ChainstateError::InvalidStacksBlock(e));
-                }
-                Err(e) => return Err(e),
-                Ok(lockup_events) => lockup_events,
-            };
+        let FinishBlockEvents {
+            mut lockup_events,
+            sip31_event,
+        } = match Self::finish_block(
+            &mut clarity_tx,
+            matured_miner_rewards_opt.as_ref(),
+            new_tenure,
+            chain_tip_burn_header_height,
+        ) {
+            Err(ChainstateError::InvalidStacksBlock(e)) => {
+                clarity_tx.rollback_block();
+                return Err(ChainstateError::InvalidStacksBlock(e));
+            }
+            Err(e) => return Err(e),
+            Ok(finish_events) => finish_events,
+        };
 
         // If any, append lockups events to the coinbase receipt
         if let Some(receipt) = tx_receipts.get_mut(0) {
@@ -4829,21 +4855,16 @@ impl NakamotoChainState {
             }
         }
 
-        if new_tenure {
-            if let Some(event) = Self::sip_031_mint_and_transfer_on_new_tenure(
-                &mut clarity_tx,
-                chain_tip_burn_header_height,
-            ) {
-                // for sip-031 we are safe in assuming coinbase is at index 1
-                if let Some(receipt) = tx_receipts.get_mut(1) {
-                    if receipt.is_coinbase_tx() {
-                        receipt.events.push(event);
-                    } else {
-                        error!("Unable to attach SIP-031 mint events, block's second transaction is not a coinbase transaction")
-                    }
+        if let Some(event) = sip31_event {
+            // for sip-031 we are safe in assuming coinbase is at index 1
+            if let Some(receipt) = tx_receipts.get_mut(1) {
+                if receipt.is_coinbase_tx() {
+                    receipt.events.push(event);
                 } else {
-                    error!("Unable to attach SIP-031 mint events, block's second transaction not available")
+                    error!("Unable to attach SIP-031 mint events, block's second transaction is not a coinbase transaction")
                 }
+            } else {
+                error!("Unable to attach SIP-031 mint events, block's second transaction not available")
             }
         }
 

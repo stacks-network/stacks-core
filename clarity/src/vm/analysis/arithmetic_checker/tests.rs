@@ -77,8 +77,7 @@ fn test_bad_defines(#[case] version: ClarityVersion, #[case] epoch: StacksEpochI
         assert_eq!(
             arithmetic_check(contract, version, epoch),
             Err(error.clone()),
-            "Check contract:\n {}",
-            contract
+            "Check contract:\n {contract}"
         );
     }
 }
@@ -120,14 +119,12 @@ fn test_variables_fail_arithmetic_check_clarity1() {
         assert_eq!(
             arithmetic_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05),
             result.clone(),
-            "Check contract:\n {}",
-            contract
+            "Check contract:\n {contract}"
         );
         assert_eq!(
             arithmetic_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch21),
             result.clone(),
-            "Check contract:\n {}",
-            contract
+            "Check contract:\n {contract}"
         );
     }
 
@@ -188,8 +185,7 @@ fn test_variables_fail_arithmetic_check_clarity2() {
         assert_eq!(
             arithmetic_check(contract, ClarityVersion::Clarity2, StacksEpochId::Epoch21),
             result.clone(),
-            "Check contract:\n {}",
-            contract
+            "Check contract:\n {contract}"
         );
     }
 }
@@ -321,14 +317,12 @@ fn test_functions_clarity1() {
         assert_eq!(
             arithmetic_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05),
             result.clone(),
-            "Check contract:\n {}",
-            contract
+            "Check contract:\n {contract}"
         );
         assert_eq!(
             arithmetic_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch21),
             result.clone(),
-            "Check contract:\n {}",
-            contract
+            "Check contract:\n {contract}"
         );
     }
 }
@@ -458,8 +452,7 @@ fn test_functions_clarity2() {
         assert_eq!(
             arithmetic_check(contract, ClarityVersion::Clarity2, StacksEpochId::Epoch21),
             result.clone(),
-            "Check contract:\n {}",
-            contract
+            "Check contract:\n {contract}"
         );
     }
 }

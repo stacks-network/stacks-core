@@ -382,7 +382,7 @@ fn test_names_tokens_contracts_interface() {
         "non_fungible_tokens": []
     }"#).unwrap();
 
-    eprintln!("{}", test_contract_json_str);
+    eprintln!("{test_contract_json_str}");
 
     assert_json_eq!(test_contract_json, test_contract_json_expected);
 }
@@ -443,9 +443,8 @@ fn test_names_tokens_contracts_bad() {
                (err 1)))";
 
     let names_contract = format!(
-        "{}
-                 {}",
-        SIMPLE_NAMES, broken_public
+        "{SIMPLE_NAMES}
+                 {broken_public}"
     );
 
     let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
@@ -663,7 +662,7 @@ fn test_expects() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        eprintln!("unmatched_return_types returned check error: {}", err);
+        eprintln!("unmatched_return_types returned check error: {err}");
         assert!(matches!(err.err, CheckErrors::ReturnTypesMustMatch(_, _)));
     }
 
@@ -673,7 +672,7 @@ fn test_expects() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    eprintln!("bad_default_types returned check error: {}", err);
+    eprintln!("bad_default_types returned check error: {err}");
     assert!(matches!(err.err, CheckErrors::DefaultTypesMustMatch(_, _)));
 
     let err = mem_type_check(
@@ -682,7 +681,7 @@ fn test_expects() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    eprintln!("notype_response_type returned check error: {}", err);
+    eprintln!("notype_response_type returned check error: {err}");
     assert!(matches!(
         err.err,
         CheckErrors::CouldNotDetermineResponseErrType
@@ -694,7 +693,7 @@ fn test_expects() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    eprintln!("notype_response_type_2 returned check error: {}", err);
+    eprintln!("notype_response_type_2 returned check error: {err}");
     assert!(matches!(
         err.err,
         CheckErrors::CouldNotDetermineResponseOkType
