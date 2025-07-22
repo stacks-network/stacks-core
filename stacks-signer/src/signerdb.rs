@@ -685,6 +685,11 @@ CREATE TABLE IF NOT EXISTS block_pre_commits (
     PRIMARY KEY (signer_signature_hash, signer_addr)
 ) STRICT;"#;
 
+/// Used by get_block_pre_committers
+static CREATE_BLOCK_PRE_COMMITS_BY_SIGHASH_INDEX: &str = r#"
+CREATE INDEX idx_block_pre_commits_by_sighash ON block_pre_commits(signer_signature_hash);
+"#;
+
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
     CREATE_DB_CONFIG,
@@ -800,6 +805,7 @@ static SCHEMA_16: &[&str] = &[
 
 static SCHEMA_17: &[&str] = &[
     CREATE_BLOCK_PRE_COMMITS_TABLE,
+    CREATE_BLOCK_PRE_COMMITS_BY_SIGHASH_INDEX,
     "INSERT INTO db_config (version) VALUES (17);",
 ];
 
@@ -1843,7 +1849,7 @@ impl SignerDb {
         Ok(None)
     }
 
-    /// Record an observed block pre commit
+    /// Record an observed block pre-commit
     pub fn add_block_pre_commit(
         &self,
         block_sighash: &Sha512Trunc256Sum,
@@ -1852,7 +1858,7 @@ impl SignerDb {
         let qry = "INSERT OR REPLACE INTO block_pre_commits (signer_signature_hash, signer_addr) VALUES (?1, ?2);";
         let args = params![block_sighash, address.to_string()];
 
-        debug!("Inserting block pre commit.";
+        debug!("Inserting block pre-commit.";
             "signer_signature_hash" => %block_sighash,
             "signer_addr" => %address);
 
@@ -1883,7 +1889,7 @@ impl SignerDb {
         Ok(exists.is_some())
     }
 
-    /// Get all pre committers for a block
+    /// Get all pre-committers for a block
     pub fn get_block_pre_committers(
         &self,
         block_sighash: &Sha512Trunc256Sum,

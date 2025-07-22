@@ -187,7 +187,7 @@ pub enum SignerMessage {
     MockBlock(MockBlock),
     /// A state machine update
     StateMachineUpdate(StateMachineUpdate),
-    /// The pre commit message from signers for other signers to observe
+    /// The pre-commit message from signers for other signers to observe
     BlockPreCommit(Sha512Trunc256Sum),
 }
 
