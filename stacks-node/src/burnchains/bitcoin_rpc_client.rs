@@ -13,6 +13,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+//! Bitcoin RPC client module.
+//!
+//! This module provides a typed interface for interacting with a Bitcoin Core node via RPC.
+//! It includes structures representing RPC request parameters and responses,
+//! as well as a client implementation ([`BitcoinRpcClient`]) for common node operations
+//! such as creating wallets, listing UTXOs, importing descriptors, generating blocks, and sending transactions.
+//!
+//! Designed for use with Bitcoin Core versions v0.25.0 and newer
+
 use std::time::Duration;
 
 use serde::{Deserialize, Deserializer};
@@ -20,14 +29,14 @@ use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use stacks::config::Config;
 
-use crate::burnchains::bitcoin_regtest_controller::{ParsedUTXO, UTXO};
+use crate::burnchains::bitcoin_regtest_controller::ParsedUTXO;
 use crate::burnchains::rpc_transport::{RpcAuth, RpcError, RpcTransport};
 
 /// Response structure for the `gettransaction` RPC call.
 ///
 /// Contains metadata about a wallet transaction, currently limited to the confirmation count.
 ///
-/// # Note
+/// # Notes
 /// This struct supports a subset of available fields to match current usage.
 /// Additional fields can be added in the future as needed.
 #[derive(Debug, Clone, Deserialize)]
@@ -39,7 +48,7 @@ pub struct GetTransactionResponse {
 ///
 /// Contains information about a parsed descriptor, including its checksum.
 ///
-/// # Note
+/// # Notes
 /// This struct supports a subset of available fields to match current usage.
 /// Additional fields can be added in the future as needed.
 #[derive(Debug, Clone, Deserialize)]
@@ -50,20 +59,17 @@ pub struct DescriptorInfoResponse {
 /// Represents the `timestamp` parameter accepted by the `importdescriptors` RPC method.
 ///
 /// This indicates when the imported descriptor starts being relevant for address tracking.
-/// It affects wallet rescanning behavior:
-///
-/// - `Now` — Tells the wallet to start tracking from the current blockchain time.  
-/// - `Time(u64)` — A Unix timestamp (in seconds) specifying when the wallet should begin scanning.
-///
-/// # Serialization
-/// This enum serializes to either the string `"now"` or a numeric timestamp,
-/// matching the format expected by Bitcoin Core.
+/// It affects wallet rescanning behavior.
 #[derive(Debug, Clone)]
 pub enum Timestamp {
+    /// Tells the wallet to start tracking from the current blockchain time
     Now,
+    /// A Unix timestamp (in seconds) specifying when the wallet should begin scanning.
     Time(u64),
 }
 
+/// Serializes [`Timestamp`] to either the string `"now"` or a numeric timestamp,
+/// matching the format expected by Bitcoin Core.
 impl serde::Serialize for Timestamp {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -81,7 +87,7 @@ impl serde::Serialize for Timestamp {
 /// This struct defines a descriptor to import into the loaded wallet,
 /// along with metadata that influences how the wallet handles it (e.g., scan time, internal/external).
 ///
-/// # Notes:
+/// # Notes
 /// This struct supports a subset of available fields to match current usage.
 /// Additional fields can be added in the future as needed.
 #[derive(Debug, Clone, Serialize)]
@@ -98,7 +104,7 @@ pub struct ImportDescriptorsRequest {
 
 /// Response returned by the `importdescriptors` RPC method for each imported descriptor.
 ///
-/// # Notes:
+/// # Notes
 /// This struct supports a subset of available fields to match current usage.
 /// Additional fields can be added in the future as needed.
 #[derive(Debug, Clone, Deserialize)]
@@ -109,12 +115,12 @@ pub struct ImportDescriptorsResponse {
     #[serde(default)]
     pub warnings: Vec<String>,
     /// Optional detailed error information if the import failed for this descriptor
-    pub error: Option<RpcErrorResponse>,
+    pub error: Option<ImportDescriptorsErrorMessage>,
 }
 
 /// Represents a single UTXO (unspent transaction output) returned by the `listunspent` RPC method.
-/// 
-/// # Notes:
+///
+/// # Notes
 /// This struct supports a subset of available fields to match current usage.
 /// Additional fields can be added in the future as needed.
 #[derive(Debug, Clone, Deserialize)]
@@ -134,7 +140,7 @@ pub struct ListUnspentResponse {
 }
 
 /// Deserializes any raw JSON value into its unprocessed string representation.
-/// 
+///
 /// Useful when you need to defer parsing, preserve exact formatting (e.g., precision),
 /// or handle heterogeneous value types dynamically.
 fn serde_raw_to_string<'de, D>(deserializer: D) -> Result<String, D::Error>
@@ -145,28 +151,43 @@ where
     Ok(raw.get().to_string())
 }
 
+/// Represents the response returned by the `generateblock` RPC call.
+///
+/// This struct is used to deserialize the JSON response, specifically extracting
+/// the `hash` field from the response result, which contains the block hash
+/// generated by the RPC call.
 #[derive(Debug, Clone, Deserialize)]
-pub struct GenerateBlockResponse {
+struct GenerateBlockResponse {
+    /// The hash of the generated block
+    #[cfg_attr(not(test), allow(dead_code))]
     hash: String,
 }
 
+/// Represents an error message returned when importing descriptors fails.
 #[derive(Debug, Clone, Deserialize)]
-pub struct RpcErrorResponse {
+pub struct ImportDescriptorsErrorMessage {
+    /// Numeric error code identifying the type of error.
     pub code: i64,
+    /// Human-readable description of the error.
     pub message: String,
 }
 
+/// Client for interacting with a Bitcoin RPC service.
 pub struct BitcoinRpcClient {
+    /// The client ID to identify the source of the requests.
     client_id: String,
+    /// RPC endpoint used for global calls
     global_ep: RpcTransport,
+    /// RPC endpoint used for wallet-specific calls
     wallet_ep: RpcTransport,
 }
 
+/// Represents errors that can occur when using [`BitcoinRpcClient`].
 #[derive(Debug)]
 pub enum BitcoinRpcClientError {
-    // Transport or server-side errors
+    // RPC Transport errors
     Rpc(RpcError),
-    // Local JSON issues
+    // JSON serialization errors
     Serialization(serde_json::Error),
 }
 
@@ -247,17 +268,11 @@ impl BitcoinRpcClient {
     /// # Returns
     /// Returns `Ok(())` if the wallet is created successfully.
     ///
-    /// # Errors
-    /// Returns an error if the wallet creation fails. This includes:
-    /// - The wallet already exists.
-    /// - Invalid parameters.
-    /// - Node-level failures or RPC connection issues.
-    ///
     /// # Availability
     /// Available in Bitcoin Core since **v0.17.0**.
     ///
-    /// # Notes:
-    /// This method supports only a subset of available RPC arguments to match current usage.
+    /// # Notes
+    /// This method supports a subset of available RPC arguments to match current usage.
     /// Additional parameters can be added in the future as needed.
     pub fn create_wallet(
         &self,
@@ -279,9 +294,6 @@ impl BitcoinRpcClient {
     /// # Returns
     /// A vector of wallet names as strings.
     ///
-    /// # Errors
-    /// Returns an error if the RPC call fails or if communication with the node is interrupted.
-    ///
     /// # Availability
     /// Available since Bitcoin Core **v0.15.0**.
     pub fn list_wallets(&self) -> BitcoinRpcClientResult<Vec<String>> {
@@ -293,29 +305,18 @@ impl BitcoinRpcClient {
     /// Retrieve a list of unspent transaction outputs (UTXOs) that meet the specified criteria.
     ///
     /// # Arguments
-    /// * `min_confirmations` - Minimum number of confirmations required for a UTXO to be included.
-    /// * `max_confirmations` - Maximum number of confirmations allowed. Use `None` for effectively unlimited.
-    /// * `addresses` - Optional list of addresses to filter UTXOs by. If `None`, all UTXOs are returned.
-    /// * `include_unsafe` - Whether to include UTXOs from unconfirmed unsafe transactions.
-    /// * `minimum_amount` - Minimum amount (in satoshis) a UTXO must have to be included.
-    /// * `maximum_count` - Maximum number of UTXOs to return. Use `None` for effectively unlimited.
-    ///
-    /// Default values are applied for omitted parameters:
-    /// - `min_confirmations` defaults to 0
-    /// - `max_confirmations` defaults to 9,999,999
-    /// - `addresses` defaults to an empty list (no filtering)
-    /// - `include_unsafe` defaults to `true`
-    /// - `minimum_amount` defaults to 0 satoshis
-    /// - `maximum_count` defaults to 9,999,999
+    /// * `min_confirmations` - Minimum number of confirmations required for a UTXO to be included (Default: 0).
+    /// * `max_confirmations` - Maximum number of confirmations allowed (Default: 9.999.999).
+    /// * `addresses` - Optional list of addresses to filter UTXOs by (Default: no filtering).
+    /// * `include_unsafe` - Whether to include UTXOs from unconfirmed unsafe transactions (Default: `true`).
+    /// * `minimum_amount` - Minimum amount (in satoshis) a UTXO must have to be included (Default: 0).
+    /// * `maximum_count` - Maximum number of UTXOs to return. Use `None` for effectively unlimited (Default: 9.999.999).
     ///
     /// # Returns
-    /// A `Vec<ListUnspentResponse>` containing the matching UTXOs.
+    /// A Vec<[`ListUnspentResponse`]> containing the matching UTXOs.
     ///
-    /// # Errors
-    /// Returns a `BitcoinRpcClientError` if the RPC call fails or the response cannot be parsed.
-    ///
-    /// # Notes:
-    /// This method supports only a subset of available RPC arguments to match current usage.
+    /// # Notes
+    /// This method supports a subset of available RPC arguments to match current usage.
     /// Additional parameters can be added in the future as needed.
     pub fn list_unspent(
         &self,
@@ -358,13 +359,11 @@ impl BitcoinRpcClient {
     /// # Returns
     /// A vector of block hashes corresponding to the newly generated blocks.
     ///
-    /// # Errors
-    /// Returns an error if the block generation fails (e.g., invalid address or RPC issues).
-    ///
     /// # Availability
     /// Available in Bitcoin Core since **v0.17.0**.
+    ///
+    /// # Notes
     /// Typically used on `regtest` or test networks.
-    /// NOTE: Candidate to be a test util, but this api is used in production code when a burnchain is configured in `helium` mode
     pub fn generate_to_address(
         &self,
         num_block: u64,
@@ -388,9 +387,6 @@ impl BitcoinRpcClient {
     /// # Returns
     /// A [`GetTransactionResponse`] containing detailed metadata for the specified transaction.
     ///
-    /// # Errors
-    /// Returns an error if the transaction is not found in the wallet, or if the RPC request fails.
-    ///
     /// # Availability
     /// Available in Bitcoin Core since **v0.10.0**.
     pub fn get_transaction(&self, txid: &str) -> BitcoinRpcClientResult<GetTransactionResponse> {
@@ -401,8 +397,7 @@ impl BitcoinRpcClient {
 
     /// Broadcasts a raw transaction to the Bitcoin network.
     ///
-    /// This method sends a hex-encoded raw Bitcoin transaction using the
-    /// `sendrawtransaction` RPC endpoint. It supports optional limits for the
+    /// This method sends a hex-encoded raw Bitcoin transaction. It supports optional limits for the
     /// maximum fee rate and maximum burn amount to prevent accidental overspending.
     ///
     /// # Arguments
@@ -416,13 +411,7 @@ impl BitcoinRpcClient {
     ///     - If `None`, defaults to `0`, meaning burning is not allowed.
     ///
     /// # Returns
-    ///
-    /// * On success, returns the transaction ID (`txid`) as a `String`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `RpcError` if the RPC call fails, the transaction is invalid,
-    /// or if fee or burn limits are exceeded.
+    /// A transaction ID as a `String`.
     pub fn send_raw_transaction(
         &self,
         tx: &str,
@@ -447,9 +436,6 @@ impl BitcoinRpcClient {
     /// # Returns
     /// A `DescriptorInfoResponse` containing parsed descriptor information such as the checksum.
     ///
-    /// # Errors
-    /// Returns an error if the descriptor is invalid or the RPC call fails.
-    ///
     /// # Availability
     /// Available in Bitcoin Core since **v0.18.0**.
     pub fn get_descriptor_info(
@@ -465,17 +451,12 @@ impl BitcoinRpcClient {
 
     /// Imports one or more descriptors into the currently loaded wallet.
     ///
-    ///
     /// # Arguments
     /// * `descriptors` – A slice of `ImportDescriptorsRequest` items. Each item defines a single
     ///   descriptor and optional metadata for how it should be imported.
     ///
     /// # Returns
     /// A vector of `ImportDescriptorsResponse` results, one for each descriptor import attempt.
-    ///
-    /// # Errors
-    /// Returns an error if the request fails, if the input cannot be serialized,
-    /// or if the Bitcoin node responds with an error.
     ///
     /// # Availability
     /// Available in Bitcoin Core since **v0.21.0**.
@@ -494,13 +475,6 @@ impl BitcoinRpcClient {
             vec![descriptor_values.into()],
         )?)
     }
-
-    //TODO REMOVE:
-    pub fn get_blockchaininfo(&self) -> BitcoinRpcClientResult<()> {
-        self.global_ep
-            .send::<Value>(&self.client_id, "getblockchaininfo", vec![])?;
-        Ok(())
-    }
 }
 
 /// Test-only utilities for `BitcoinRpcClient`
@@ -513,9 +487,6 @@ impl BitcoinRpcClient {
     ///
     /// # Returns
     /// A raw transaction as a hex-encoded string.
-    ///
-    /// # Errors
-    /// Returns an error if the transaction is not found or if the RPC request fails.
     ///
     /// # Availability
     /// Available in Bitcoin Core since **v0.7.0**.
@@ -536,9 +507,6 @@ impl BitcoinRpcClient {
     ///
     /// # Returns
     /// The block hash of the newly generated block.
-    ///
-    /// # Errors
-    /// Returns an error if block generation fails (e.g., invalid address, missing transactions, or malformed data).
     ///
     /// # Availability
     /// Available in Bitcoin Core since **v22.0**. Requires `regtest` or similar testing networks.
@@ -561,11 +529,7 @@ impl BitcoinRpcClient {
     /// to disk and the node exits cleanly.
     ///
     /// # Returns
-    /// On success, returns the string:
-    /// `"Bitcoin Core stopping"`
-    ///
-    /// # Errors
-    /// Returns an error if the RPC command fails (e.g., connection issue or insufficient permissions).
+    /// On success, returns the string: `"Bitcoin Core stopping"`
     ///
     /// # Availability
     /// Available in Bitcoin Core since **v0.1.0**.
@@ -583,9 +547,6 @@ impl BitcoinRpcClient {
     ///
     /// # Returns
     /// A string representing the newly generated Bitcoin address.
-    ///
-    /// # Errors
-    /// Returns an error if the wallet is not loaded or if address generation fails.
     ///
     /// # Availability
     /// Available in Bitcoin Core since **v0.1.0**.  
