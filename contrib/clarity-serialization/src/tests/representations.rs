@@ -1,10 +1,24 @@
+// Copyright (C) 2025 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::Read;
 
 use test_case::test_case;
 
 use crate::errors::CodecError;
 use crate::representations::{
-    CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH, ClarityName, ContractName, MAX_STRING_LEN,
+    ClarityName, ContractName, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH, MAX_STRING_LEN,
 };
 use crate::stacks_common::codec::StacksMessageCodec;
 
@@ -80,13 +94,6 @@ fn test_clarity_name_serialization(name: &str) {
     assert_eq!(deserialized, name);
 }
 
-#[test]
-fn test_clarity_name_serialization_too_long() {
-    // This test can't be implemented with the current API since
-    // ClarityName::try_from would reject oversized strings
-    // and we can't construct invalid ClarityName instances directly
-}
-
 // the first byte is the length of the buffer.
 #[test_case(vec![4, 0xFF, 0xFE, 0xFD, 0xFC].as_slice(), "Failed to parse Clarity name: could not contruct from utf8"; "invalid_utf8")]
 #[test_case(vec![2, b'2', b'i'].as_slice(), "Failed to parse Clarity name: InvalidClarityName(\"ClarityName\", \"2i\")"; "invalid_name")] // starts with number
@@ -138,6 +145,7 @@ fn test_contract_name_valid(name: &str) {
 #[test_case("hello}world"; "contains_curly_close")]
 #[test_case("hello(world"; "contains_parenthesis_open")]
 #[test_case("hello)world"; "contains_parenthesis_close")]
+#[test_case(&"a".repeat(CONTRACT_MIN_NAME_LENGTH - 1); "too_short")]
 #[test_case(&"a".repeat(MAX_STRING_LEN as usize + 1); "too_long")]
 fn test_contract_name_invalid(name: &str) {
     let result = ContractName::try_from(name.to_string());
@@ -168,13 +176,19 @@ fn test_contract_name_serialization(name: &str) {
     assert_eq!(deserialized, name);
 }
 
-#[test_case(&"a".repeat(CONTRACT_MIN_NAME_LENGTH - 1); "too_short")]
 #[test_case(&"a".repeat(CONTRACT_MAX_NAME_LENGTH + 1); "too_long")]
-#[test_case(&"a".repeat(MAX_STRING_LEN as usize); "max_string_len")]
-fn test_contract_name_serialization_too_long_or_short(_name: &str) {
-    // This test can't be implemented with the current API since
-    // ContractName::try_from would reject invalid strings
-    // and we can't construct invalid ContractName instances directly
+fn test_contract_name_serialization_too_long_or_short(name: &str) {
+    let name = ContractName::try_from(name.to_string()).expect("should parse");
+    let mut buffer = Vec::with_capacity((name.len() + 1) as usize);
+    let result = name.consensus_serialize(&mut buffer);
+    assert!(result.is_err());
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        format!(
+            "Failed to serialize contract name: too short or too long: {}",
+            name.len()
+        )
+    );
 }
 
 // the first byte is the length of the buffer.

@@ -12,6 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+mod representations;
 mod types;
 
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
@@ -19,7 +20,7 @@ use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPu
 
 use crate::errors::CodecError;
 use crate::types::{PrincipalData, StandardPrincipalData, Value};
-use crate::{BUILD_TYPE, version_string};
+use crate::{version_string, BUILD_TYPE};
 
 impl Value {
     pub fn list_from(list_data: Vec<Value>) -> Result<Value, CodecError> {

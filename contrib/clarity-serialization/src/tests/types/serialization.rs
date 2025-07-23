@@ -1,3 +1,17 @@
+// Copyright (C) 2025 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::Write;
 
 use crate::errors::CodecError;
@@ -163,6 +177,7 @@ fn test_string_ascii() {
 
 #[test]
 fn test_string_utf8() {
+    test_deser_ser(Value::string_utf8_from_bytes(vec![61, 62, 63, 64]).unwrap());
     test_deser_ser(Value::string_utf8_from_bytes(vec![61, 62, 63, 240, 159, 164, 151]).unwrap());
 }
 #[test]
@@ -275,8 +290,8 @@ fn test_vectors() {
             Ok(StandardPrincipalData::new(
                 0x00,
                 [
-                    0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff, 0x11, 0xde, 0xad,
-                    0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff,
+                    0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff, 0x11, 0xde,
+                    0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff,
                 ],
             )
             .unwrap()
