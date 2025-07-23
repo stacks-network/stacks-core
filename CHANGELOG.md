@@ -9,8 +9,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
+- Added the `clarity-serialization` crate: A lightweight crate for serializing and deserializing Clarity values. This crate decouples core data types from the Clarity VM, making it easier to build off-chain tooling, and other applications that interact with Clarity data. It includes support for `wasm32-unknown-unknown` targets via the `wasm-web` and `wasm-deterministic` features.
 - Added `/v3/contracts/fast-call-read/:principal/:contract_name/:func_name` api endpoint. It allows to run read-only calls faster by disabling the cost and memory trackers. This endpoint requires authentication.
-- **SIP-031 consensus rules, activating in epoch 3.2 at block 907_740** 
+- **SIP-031 consensus rules, activating in epoch 3.2 at block 907_740**
 
 ### Changed
 
