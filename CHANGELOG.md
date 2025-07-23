@@ -5,11 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## Unreleased
+## [3.2.0.0.0]
 
 ### Added
 
 - Added `/v3/contracts/fast-call-read/:principal/:contract_name/:func_name` api endpoint. It allows to run read-only calls faster by disabling the cost and memory trackers. This endpoint requires authentication.
+- **SIP-031 consensus rules, activating in epoch 3.2 at block 907_740** 
 
 ### Changed
 
