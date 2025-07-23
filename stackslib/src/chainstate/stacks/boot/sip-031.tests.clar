@@ -1,14 +1,19 @@
 (define-constant ERR_FAILED_ASSERTION u999)
 (define-constant ERR_UNWRAP u998)
 (define-constant ERR_UNEXPECTED_RESULT u997)
+(define-constant ERR_IGNORED u996)
+
+(define-constant DEPLOYER tx-sender)
 
 (define-data-var last-iteration-claimed uint u0)
 (define-data-var minted-initial bool false)
 
-;; Helper to set up the Rendezvous testing environment. This should be called
-;; by wallet_10, which has 200M STX. It mints the initial 200M STX to the
-;; contract.
-(define-public (test-helper-initial-mint)
+;; General helpers
+
+;; Helper to simulate the initial balance of the SIP-031 contract. This should
+;; be called by wallet_10, which has 200M STX. It transfers the initial 200M
+;; STX to the contract.
+(define-private (initial-mint-helper)
   (ok
     (and
       ;; Ensure that the caller is wallet_10 as per Devnet.toml. It was added
@@ -24,15 +29,31 @@
 ;; Helper to transfer extra STX amounts to the contract. In combination with
 ;; other tests, this ensures that extra transfers do not break the vesting
 ;; schedule.
-(define-public (test-helper-transfer-to-contract (ustx-amount uint))
+(define-private (extra-transfer-to-contract-helper (ustx-amount uint))
   (ok
     (and
       (not (is-eq tx-sender 'ST3FFKYTTB975A3JC3F99MM7TXZJ406R3GKE6JV56))
       (> ustx-amount u0)
       (>= (stx-get-balance tx-sender) ustx-amount)
-      (try! (stx-transfer? ustx-amount tx-sender (as-contract tx-sender)))
+      (unwrap-panic (stx-transfer? ustx-amount tx-sender (as-contract tx-sender)))
     )
   )
+)
+
+;; Property tests
+
+;; Helper to set up the Rendezvous testing environment for the property testing
+;; routine. The naming adheres to Rendezvous property test convention, which
+;; allows this function to be picked up during property testing runs.
+(define-public (test-initial-mint-helper)
+  (initial-mint-helper)
+)
+
+;; Helper to transfer extra STX amounts to the contract. The naming adheres to
+;; Rendezvous property test convention, which allows this function to be picked
+;; up during property testing runs.
+(define-public (test-extra-transfer-helper (ustx-amount uint))
+  (extra-transfer-to-contract-helper ustx-amount)
 )
 
 ;; Tests that the recipient is updated if the caller is allowed.
@@ -160,6 +181,62 @@
         (> current-iteration (var-get last-iteration-claimed))
         (asserts! (>= claimable STX_PER_ITERATION) (err claimable))
       )
+    )
+  )
+)
+
+;; Invariants
+
+;; Public wrapper for initial mint setup, required for Rendezvous invariant 
+;; testing. Rendezvous randomly calls public functions during invariant testing
+;; runs, so this exposes the initial mint helper as a public function that can
+;; be selected and called.
+(define-public (initial-mint-helper-invariant-runs)
+  (if
+    (is-eq (initial-mint-helper) (ok true))
+    (ok true)
+    (err ERR_IGNORED)
+  )
+)
+
+;; Public wrapper for extra STX transfers to the contract for Rendezvous 
+;; invariant testing. Rendezvous randomly calls public functions during 
+;; invariant testing, so this exposes the extra transfer helper as a public
+;; function that can be selected during test runs.
+(define-public (extra-transfer-helper-invariant-runs (ustx-amount uint))
+  (if
+    (is-eq (extra-transfer-to-contract-helper ustx-amount) (ok true))
+    (ok true)
+    (err ERR_IGNORED)
+  )
+)
+
+;; Tests that the recipient remains unchanged unless `update-recipient` was
+;; called successfully at least once.
+(define-read-only (invariant-recipient-unchanged)
+  (if
+    (is-eq
+      u0
+      (default-to u0 (get called (map-get? context "update-recipient")))
+    )
+    (is-eq (var-get recipient) DEPLOYER)
+    true
+  )
+)
+
+;; Tests that the amount returned by `calc-total-vested` never exceeds
+;; the total initial mint amount, regardless of any extra transfers
+;; to the contract.
+(define-read-only (invariant-vested-lt-initial-mint (burn-height uint))
+  (or
+    (<= burn-height DEPLOY_BLOCK_HEIGHT)
+    (<=
+      (calc-total-vested burn-height)
+      ;; We explicitly add up the total initial mint amount rather than using
+      ;; `INITIAL_MINT_AMOUNT` directly. This ensures the invariant remains
+      ;; valid even if the constants or their relationships change in the main
+      ;; contract, making this invariant's feedback more robust.
+      (+ INITIAL_MINT_IMMEDIATE_AMOUNT INITIAL_MINT_VESTING_AMOUNT)
     )
   )
 )
