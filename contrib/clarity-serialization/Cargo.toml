@@ -10,13 +10,13 @@ keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized"
 readme = "README.md"
 
 [dependencies]
-lazy_static = { workspace = true }
+lazy_static = "1.4.0"
 regex = { version = "1", default-features = false }
-serde = { workspace = true }
-serde_derive = { workspace = true }
-slog = { workspace = true }
-stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false }
-thiserror = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_derive = { version = "1" }
+slog = { version = "2.5.2", features = [ "max_level_trace" ] }
+stacks_common = { package = "stacks-common", path = "../../stacks-common", default-features = false }
+thiserror = { version = "1.0.65" }
 
 [dev-dependencies]
 mutants = "0.0.3"
