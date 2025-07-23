@@ -46,8 +46,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Serialize the tuple to its consensus-cricital hex string.
     let hex_string = my_tuple.serialize_to_hex()?;
 
-    println!("Clarity Tuple: {}", my_tuple);
-    println!("Serialized Hex: {}", hex_string);
+    println!("Clarity Tuple: {my_tuple}");
+    println!("Serialized Hex: {hex_string}");
 
     // The output `hex_string` can now be used in a contract-call transaction.
     assert_eq!(
@@ -72,12 +72,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. First, let's deserialize without a type for inspection.
     // NOTE: This is not recommended for production use with data from untrusted sources.
     let untyped_value = Value::try_deserialize_hex_untyped(hex_string)?;
-    println!("Deserialized (untyped): {:?}", untyped_value);
+    println!("Deserialized (untyped): {untyped_value}");
 
     // 2. For robust deserialization, we should define the expected type.
     // This can be derived from the untyped value or known from a contract's interface.
     let expected_type = TypeSignature::type_of(&untyped_value)?;
-    println!("Inferred Type Signature: {}", expected_type);
+    println!("Inferred Type Signature: {expected_type}");
 
     // 3. Deserialize again, this time enforcing the type signature.
     // The `sanitize` flag should be `true` when reading values from the DB
@@ -90,8 +90,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let owner = tuple_data.get("owner")?.clone().expect_principal()?;
 
     println!("Successfully deserialized and validated!");
-    println!("ID: {}", id);
-    println!("Owner: {}", owner);
+    println!("ID: {id}");
+    println!("Owner: {owner}");
 
     Ok(())
 }
