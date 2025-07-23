@@ -32,7 +32,7 @@ pub use errors::CodecError;
 pub use representations::{ClarityName, ContractName};
 pub use types::Value;
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub mod tests;
 
 // set via _compile-time_ envars

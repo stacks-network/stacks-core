@@ -15,8 +15,8 @@
 use std::collections::HashSet;
 
 use crate::errors::CodecError;
-use crate::types::signatures::{CallableSubtype, TypeSignature};
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
+use crate::types::signatures::{CallableSubtype, TypeSignature};
 use crate::types::{
     QualifiedContractIdentifier, SequenceSubtype, TraitIdentifier, TupleTypeSignature,
 };

@@ -18,7 +18,7 @@ use test_case::test_case;
 
 use crate::errors::CodecError;
 use crate::representations::{
-    ClarityName, ContractName, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH, MAX_STRING_LEN,
+    CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH, ClarityName, ContractName, MAX_STRING_LEN,
 };
 use crate::stacks_common::codec::StacksMessageCodec;
 
