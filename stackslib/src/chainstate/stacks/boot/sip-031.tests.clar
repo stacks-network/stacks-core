@@ -7,7 +7,7 @@
 ;; Helper to set up the Rendezvous testing environment. This should be called
 ;; by wallet_10, which has 200M STX. It mints the initial 200M STX to the
 ;; contract.
-(define-public (test-initial-mint)
+(define-public (test-helper-initial-mint)
   (ok
     (and
       ;; Ensure that the caller is wallet_10 as per Devnet.toml. It was added
