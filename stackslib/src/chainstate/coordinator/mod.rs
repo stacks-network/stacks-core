@@ -1510,48 +1510,6 @@ impl<
         }
     }
 
-    /// Forget that stacks blocks for now-invalidated sortitions are orphaned, because they might
-    /// now be valid.  In particular, this applies to a Stacks block that got mined in two PoX
-    /// forks.  This can happen at most once between the two forks, but we need to ensure that the
-    /// block can be re-processed in that event.
-    fn undo_stacks_block_orphaning(
-        burnchain_conn: &DBConn,
-        burnchain_indexer: &B,
-        ic: &SortitionDBConn,
-        chainstate_db_tx: &mut DBTx,
-        first_invalidate_start_block: u64,
-        last_invalidate_start_block: u64,
-    ) -> Result<(), Error> {
-        debug!(
-            "Clear all orphans in burn range {} - {}",
-            first_invalidate_start_block, last_invalidate_start_block
-        );
-        for burn_height in first_invalidate_start_block..(last_invalidate_start_block + 1) {
-            let burn_header = match BurnchainDB::get_burnchain_header(
-                burnchain_conn,
-                burnchain_indexer,
-                burn_height,
-            )? {
-                Some(hdr) => hdr,
-                None => {
-                    continue;
-                }
-            };
-
-            debug!(
-                "Clear all orphans at {},{}",
-                &burn_header.block_hash, burn_header.block_height
-            );
-            forget_orphan_stacks_blocks(
-                ic,
-                chainstate_db_tx,
-                &burn_header.block_hash,
-                burn_height.saturating_sub(1),
-            )?;
-        }
-        Ok(())
-    }
-
     /// Try to revalidate a sortition if it exists already.  This can happen if the node flip/flops
     /// between two PoX forks.
     ///
