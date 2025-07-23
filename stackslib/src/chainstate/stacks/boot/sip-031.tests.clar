@@ -43,15 +43,13 @@
 ;; Property tests
 
 ;; Helper to set up the Rendezvous testing environment for the property testing
-;; routine. The naming adheres to Rendezvous property test convention, which
-;; allows this function to be picked up during property testing runs.
+;; routine. This will eventually be picked up during property testing runs.
 (define-public (test-initial-mint-helper)
   (initial-mint-helper)
 )
 
-;; Helper to transfer extra STX amounts to the contract. The naming adheres to
-;; Rendezvous property test convention, which allows this function to be picked
-;; up during property testing runs.
+;; Helper to transfer extra STX amounts to the contract. This will eventually
+;; be picked up during property testing runs.
 (define-public (test-extra-transfer-helper (ustx-amount uint))
   (extra-transfer-to-contract-helper ustx-amount)
 )
@@ -188,9 +186,7 @@
 ;; Invariants
 
 ;; Public wrapper for initial mint setup, required for Rendezvous invariant 
-;; testing. Rendezvous randomly calls public functions during invariant testing
-;; runs, so this exposes the initial mint helper as a public function that can
-;; be selected and called.
+;; testing. This will eventually be picked up during invariant testing runs.
 (define-public (initial-mint-helper-invariant-runs)
   (if
     (is-eq (initial-mint-helper) (ok true))
@@ -200,9 +196,8 @@
 )
 
 ;; Public wrapper for extra STX transfers to the contract for Rendezvous 
-;; invariant testing. Rendezvous randomly calls public functions during 
-;; invariant testing, so this exposes the extra transfer helper as a public
-;; function that can be selected during test runs.
+;; invariant testing. This will eventually be picked up during invariant
+;; testing runs.
 (define-public (extra-transfer-helper-invariant-runs (ustx-amount uint))
   (if
     (is-eq (extra-transfer-to-contract-helper ustx-amount) (ok true))
