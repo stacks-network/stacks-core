@@ -16,21 +16,23 @@
 pub mod serialization;
 pub mod signatures;
 
-use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
+use std::collections::BTreeMap;
 use std::{char, fmt, str};
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use stacks_common::address::c32;
-use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksAddress;
+#[cfg(feature = "testing")]
+use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash;
 
 pub use self::signatures::{
-    AssetIdentifier, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_33, BUFF_64, BUFF_65, BufferLength,
-    ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length, TupleTypeSignature,
-    TypeSignature,
+    AssetIdentifier, BufferLength, ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length,
+    TupleTypeSignature, TypeSignature, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_33, BUFF_64,
+    BUFF_65,
 };
 use crate::errors::CodecError;
 use crate::representations::{ClarityName, ContractName};
@@ -122,6 +124,23 @@ impl fmt::Debug for StandardPrincipalData {
     }
 }
 
+#[cfg(any(test, feature = "testing"))]
+impl From<&StacksPrivateKey> for StandardPrincipalData {
+    fn from(o: &StacksPrivateKey) -> StandardPrincipalData {
+        use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+        use stacks_common::types::chainstate::StacksPublicKey;
+
+        let stacks_addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(o)],
+        )
+        .unwrap();
+        StandardPrincipalData::from(stacks_addr)
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct QualifiedContractIdentifier {
     pub issuer: StandardPrincipalData,
@@ -176,6 +195,13 @@ impl fmt::Display for QualifiedContractIdentifier {
 pub enum PrincipalData {
     Standard(StandardPrincipalData),
     Contract(QualifiedContractIdentifier),
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl From<&StacksPrivateKey> for PrincipalData {
+    fn from(o: &StacksPrivateKey) -> PrincipalData {
+        PrincipalData::Standard(StandardPrincipalData::from(o))
+    }
 }
 
 pub enum ContractIdentifier {
@@ -1265,6 +1291,13 @@ impl fmt::Display for Value {
             }
             Value::CallableContract(callable_data) => write!(f, "{callable_data}"),
         }
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl From<&StacksPrivateKey> for Value {
+    fn from(o: &StacksPrivateKey) -> Value {
+        Value::from(StandardPrincipalData::from(o))
     }
 }
 
