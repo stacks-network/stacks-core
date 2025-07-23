@@ -448,7 +448,7 @@ mod tests {
             .with_header("Content-Type", "application/json")
             .with_chunked_body(move |writer| {
                 // Simulate server delay
-                thread::sleep(Duration::from_secs(2)); 
+                thread::sleep(Duration::from_secs(2));
                 writer.write_all(response_body.to_string().as_bytes())
             })
             .create();

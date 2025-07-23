@@ -15,20 +15,134 @@
 
 use std::time::Duration;
 
+use serde::{Deserialize, Deserializer};
+use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use stacks::config::Config;
 
 use crate::burnchains::bitcoin_regtest_controller::{ParsedUTXO, UTXO};
-use crate::burnchains::rpc_transport::{RpcAuth, RpcError, RpcResult, RpcTransport};
+use crate::burnchains::rpc_transport::{RpcAuth, RpcError, RpcTransport};
 
+/// Response structure for the `gettransaction` RPC call.
+///
+/// Contains metadata about a wallet transaction, currently limited to the confirmation count.
+///
+/// # Note
+/// This struct supports a subset of available fields to match current usage.
+/// Additional fields can be added in the future as needed.
 #[derive(Debug, Clone, Deserialize)]
 pub struct GetTransactionResponse {
     pub confirmations: u32,
 }
 
+/// Response returned by the `getdescriptorinfo` RPC call.
+///
+/// Contains information about a parsed descriptor, including its checksum.
+///
+/// # Note
+/// This struct supports a subset of available fields to match current usage.
+/// Additional fields can be added in the future as needed.
 #[derive(Debug, Clone, Deserialize)]
 pub struct DescriptorInfoResponse {
     pub checksum: String,
+}
+
+/// Represents the `timestamp` parameter accepted by the `importdescriptors` RPC method.
+///
+/// This indicates when the imported descriptor starts being relevant for address tracking.
+/// It affects wallet rescanning behavior:
+///
+/// - `Now` — Tells the wallet to start tracking from the current blockchain time.  
+/// - `Time(u64)` — A Unix timestamp (in seconds) specifying when the wallet should begin scanning.
+///
+/// # Serialization
+/// This enum serializes to either the string `"now"` or a numeric timestamp,
+/// matching the format expected by Bitcoin Core.
+#[derive(Debug, Clone)]
+pub enum Timestamp {
+    Now,
+    Time(u64),
+}
+
+impl serde::Serialize for Timestamp {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match *self {
+            Timestamp::Now => serializer.serialize_str("now"),
+            Timestamp::Time(timestamp) => serializer.serialize_u64(timestamp),
+        }
+    }
+}
+
+/// Represents a single descriptor import request for use with the `importdescriptors` RPC method.
+///
+/// This struct defines a descriptor to import into the loaded wallet,
+/// along with metadata that influences how the wallet handles it (e.g., scan time, internal/external).
+///
+/// # Notes:
+/// This struct supports a subset of available fields to match current usage.
+/// Additional fields can be added in the future as needed.
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportDescriptorsRequest {
+    /// A descriptor string (e.g., `addr(...)#checksum`) with a valid checksum suffix.
+    #[serde(rename = "desc")]
+    pub descriptor: String,
+    /// Specifies when the wallet should begin tracking addresses from this descriptor.
+    pub timestamp: Timestamp,
+    /// Optional flag indicating whether the descriptor is used for change addresses.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub internal: Option<bool>,
+}
+
+/// Response returned by the `importdescriptors` RPC method for each imported descriptor.
+///
+/// # Notes:
+/// This struct supports a subset of available fields to match current usage.
+/// Additional fields can be added in the future as needed.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ImportDescriptorsResponse {
+    /// whether the descriptor was imported successfully
+    pub success: bool,
+    /// Optional list of warnings encountered during the import process
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    /// Optional detailed error information if the import failed for this descriptor
+    pub error: Option<RpcErrorResponse>,
+}
+
+/// Represents a single UTXO (unspent transaction output) returned by the `listunspent` RPC method.
+/// 
+/// # Notes:
+/// This struct supports a subset of available fields to match current usage.
+/// Additional fields can be added in the future as needed.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListUnspentResponse {
+    /// The transaction ID of the UTXO.
+    pub txid: String,
+    /// The index of the output in the transaction.
+    pub vout: u32,
+    /// The script associated with the output.
+    pub script_pub_key: String,
+    /// The amount in BTC, deserialized as a string to preserve full precision.
+    #[serde(deserialize_with = "serde_raw_to_string")]
+    pub amount: String,
+    /// The number of confirmations for the transaction.
+    pub confirmations: u32,
+}
+
+/// Deserializes any raw JSON value into its unprocessed string representation.
+/// 
+/// Useful when you need to defer parsing, preserve exact formatting (e.g., precision),
+/// or handle heterogeneous value types dynamically.
+fn serde_raw_to_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw: Box<RawValue> = Deserialize::deserialize(deserializer)?;
+    Ok(raw.get().to_string())
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -42,19 +156,34 @@ pub struct RpcErrorResponse {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct ImportDescriptorsResponse {
-    pub success: bool,
-    #[serde(default)]
-    pub warnings: Vec<String>,
-    pub error: Option<RpcErrorResponse>,
-}
-
 pub struct BitcoinRpcClient {
     client_id: String,
     global_ep: RpcTransport,
     wallet_ep: RpcTransport,
 }
+
+#[derive(Debug)]
+pub enum BitcoinRpcClientError {
+    // Transport or server-side errors
+    Rpc(RpcError),
+    // Local JSON issues
+    Serialization(serde_json::Error),
+}
+
+impl From<RpcError> for BitcoinRpcClientError {
+    fn from(err: RpcError) -> Self {
+        BitcoinRpcClientError::Rpc(err)
+    }
+}
+
+impl From<serde_json::Error> for BitcoinRpcClientError {
+    fn from(err: serde_json::Error) -> Self {
+        BitcoinRpcClientError::Serialization(err)
+    }
+}
+
+/// Alias for results returned from client operations.
+pub type BitcoinRpcClientResult<T> = Result<T, BitcoinRpcClientError>;
 
 impl BitcoinRpcClient {
     pub fn from_params(
@@ -106,11 +235,35 @@ impl BitcoinRpcClient {
         }
     }
 
+    /// Creates and loads a new wallet into the Bitcoin Core node.
+    ///
+    /// Wallet is stored in the `-walletdir` specified in the Bitcoin Core configuration (or the default data directory if not set).
+    ///
+    /// # Arguments
+    /// * `wallet_name` - Name of the wallet to create.
+    /// * `disable_private_keys` - If `Some(true)`, the wallet will not be able to hold private keys.
+    ///   If `None`, this defaults to `false`, allowing private key import/use.
+    ///
+    /// # Returns
+    /// Returns `Ok(())` if the wallet is created successfully.
+    ///
+    /// # Errors
+    /// Returns an error if the wallet creation fails. This includes:
+    /// - The wallet already exists.
+    /// - Invalid parameters.
+    /// - Node-level failures or RPC connection issues.
+    ///
+    /// # Availability
+    /// Available in Bitcoin Core since **v0.17.0**.
+    ///
+    /// # Notes:
+    /// This method supports only a subset of available RPC arguments to match current usage.
+    /// Additional parameters can be added in the future as needed.
     pub fn create_wallet(
         &self,
         wallet_name: &str,
         disable_private_keys: Option<bool>,
-    ) -> RpcResult<()> {
+    ) -> BitcoinRpcClientResult<()> {
         let disable_private_keys = disable_private_keys.unwrap_or(false);
 
         self.global_ep.send::<Value>(
@@ -121,28 +274,71 @@ impl BitcoinRpcClient {
         Ok(())
     }
 
-    pub fn list_wallets(&self) -> RpcResult<Vec<String>> {
-        self.global_ep.send(&self.client_id, "listwallets", vec![])
+    /// Returns a list of currently loaded wallets by the Bitcoin Core node.
+    ///
+    /// # Returns
+    /// A vector of wallet names as strings.
+    ///
+    /// # Errors
+    /// Returns an error if the RPC call fails or if communication with the node is interrupted.
+    ///
+    /// # Availability
+    /// Available since Bitcoin Core **v0.15.0**.
+    pub fn list_wallets(&self) -> BitcoinRpcClientResult<Vec<String>> {
+        Ok(self
+            .global_ep
+            .send(&self.client_id, "listwallets", vec![])?)
     }
 
+    /// Retrieve a list of unspent transaction outputs (UTXOs) that meet the specified criteria.
+    ///
+    /// # Arguments
+    /// * `min_confirmations` - Minimum number of confirmations required for a UTXO to be included.
+    /// * `max_confirmations` - Maximum number of confirmations allowed. Use `None` for effectively unlimited.
+    /// * `addresses` - Optional list of addresses to filter UTXOs by. If `None`, all UTXOs are returned.
+    /// * `include_unsafe` - Whether to include UTXOs from unconfirmed unsafe transactions.
+    /// * `minimum_amount` - Minimum amount (in satoshis) a UTXO must have to be included.
+    /// * `maximum_count` - Maximum number of UTXOs to return. Use `None` for effectively unlimited.
+    ///
+    /// Default values are applied for omitted parameters:
+    /// - `min_confirmations` defaults to 0
+    /// - `max_confirmations` defaults to 9,999,999
+    /// - `addresses` defaults to an empty list (no filtering)
+    /// - `include_unsafe` defaults to `true`
+    /// - `minimum_amount` defaults to 0 satoshis
+    /// - `maximum_count` defaults to 9,999,999
+    ///
+    /// # Returns
+    /// A `Vec<ListUnspentResponse>` containing the matching UTXOs.
+    ///
+    /// # Errors
+    /// Returns a `BitcoinRpcClientError` if the RPC call fails or the response cannot be parsed.
+    ///
+    /// # Notes:
+    /// This method supports only a subset of available RPC arguments to match current usage.
+    /// Additional parameters can be added in the future as needed.
     pub fn list_unspent(
         &self,
-        addresses: Vec<String>,
-        include_unsafe: bool,
-        minimum_amount: u64,
-        maximum_count: u64,
-    ) -> RpcResult<Vec<UTXO>> {
-        let min_conf = 0i64;
-        let max_conf = 9999999i64;
-        let minimum_amount = ParsedUTXO::sat_to_serialized_btc(minimum_amount);
-        let maximum_count = maximum_count;
+        min_confirmations: Option<u64>,
+        max_confirmations: Option<u64>,
+        addresses: Option<Vec<String>>,
+        include_unsafe: Option<bool>,
+        minimum_amount: Option<u64>,
+        maximum_count: Option<u64>,
+    ) -> BitcoinRpcClientResult<Vec<ListUnspentResponse>> {
+        let min_confirmations = min_confirmations.unwrap_or(0);
+        let max_confirmations = max_confirmations.unwrap_or(9999999);
+        let addresses = addresses.unwrap_or(vec![]);
+        let include_unsafe = include_unsafe.unwrap_or(true);
+        let minimum_amount = ParsedUTXO::sat_to_serialized_btc(minimum_amount.unwrap_or(0));
+        let maximum_count = maximum_count.unwrap_or(9999999);
 
-        let raw_utxos: Vec<ParsedUTXO> = self.wallet_ep.send(
+        Ok(self.wallet_ep.send(
             &self.client_id,
             "listunspent",
             vec![
-                min_conf.into(),
-                max_conf.into(),
+                min_confirmations.into(),
+                max_confirmations.into(),
                 addresses.into(),
                 include_unsafe.into(),
                 json!({
@@ -150,51 +346,57 @@ impl BitcoinRpcClient {
                     "maximumCount": maximum_count
                 }),
             ],
-        )?;
-
-        let mut result = vec![];
-        for raw_utxo in raw_utxos.iter() {
-            let txid = match raw_utxo.get_txid() {
-                Some(hash) => hash,
-                None => continue,
-            };
-
-            let script_pub_key = match raw_utxo.get_script_pub_key() {
-                Some(script_pub_key) => script_pub_key,
-                None => {
-                    //TODO: add warn log?
-                    continue;
-                }
-            };
-
-            let amount = match raw_utxo.get_sat_amount() {
-                Some(amount) => amount,
-                None => continue, //TODO: add warn log?
-            };
-
-            result.push(UTXO {
-                txid,
-                vout: raw_utxo.vout,
-                script_pub_key,
-                amount,
-                confirmations: raw_utxo.confirmations,
-            });
-        }
-
-        Ok(result)
+        )?)
     }
 
-    pub fn generate_to_address(&self, num_block: u64, address: &str) -> RpcResult<Vec<String>> {
-        self.global_ep.send(
+    /// Mines a specified number of blocks and sends the block rewards to a given address.
+    ///
+    /// # Arguments
+    /// * `num_block` - The number of blocks to mine.
+    /// * `address` - The Bitcoin address to receive the block rewards.
+    ///
+    /// # Returns
+    /// A vector of block hashes corresponding to the newly generated blocks.
+    ///
+    /// # Errors
+    /// Returns an error if the block generation fails (e.g., invalid address or RPC issues).
+    ///
+    /// # Availability
+    /// Available in Bitcoin Core since **v0.17.0**.
+    /// Typically used on `regtest` or test networks.
+    /// NOTE: Candidate to be a test util, but this api is used in production code when a burnchain is configured in `helium` mode
+    pub fn generate_to_address(
+        &self,
+        num_block: u64,
+        address: &str,
+    ) -> BitcoinRpcClientResult<Vec<String>> {
+        Ok(self.global_ep.send(
             &self.client_id,
             "generatetoaddress",
             vec![num_block.into(), address.into()],
-        )
+        )?)
     }
 
-    pub fn get_transaction(&self, txid: &str) -> RpcResult<GetTransactionResponse> {
-        self.wallet_ep
-            .send(&self.client_id, "gettransaction", vec![txid.into()])
+    /// Retrieves detailed information about an in-wallet transaction.
+    ///
+    /// This method returns information such as amount, fee, confirmations, block hash,
+    /// hex-encoded transaction, and other metadata for a transaction tracked by the wallet.
+    ///
+    /// # Arguments
+    /// * `txid` - The transaction ID (txid) to query, as a hex-encoded string.
+    ///
+    /// # Returns
+    /// A [`GetTransactionResponse`] containing detailed metadata for the specified transaction.
+    ///
+    /// # Errors
+    /// Returns an error if the transaction is not found in the wallet, or if the RPC request fails.
+    ///
+    /// # Availability
+    /// Available in Bitcoin Core since **v0.10.0**.
+    pub fn get_transaction(&self, txid: &str) -> BitcoinRpcClientResult<GetTransactionResponse> {
+        Ok(self
+            .wallet_ep
+            .send(&self.client_id, "gettransaction", vec![txid.into()])?)
     }
 
     /// Broadcasts a raw transaction to the Bitcoin network.
@@ -226,44 +428,75 @@ impl BitcoinRpcClient {
         tx: &str,
         max_fee_rate: Option<f64>,
         max_burn_amount: Option<u64>,
-    ) -> RpcResult<String> {
+    ) -> BitcoinRpcClientResult<String> {
         let max_fee_rate = max_fee_rate.unwrap_or(0.10);
         let max_burn_amount = max_burn_amount.unwrap_or(0);
 
-        self.global_ep.send(
+        Ok(self.global_ep.send(
             &self.client_id,
             "sendrawtransaction",
             vec![tx.into(), max_fee_rate.into(), max_burn_amount.into()],
-        )
+        )?)
     }
 
-    pub fn get_descriptor_info(&self, descriptor: &str) -> RpcResult<DescriptorInfoResponse> {
-        self.global_ep.send(
+    /// Returns information about a descriptor, including its checksum.
+    ///
+    /// # Arguments
+    /// * `descriptor` - The descriptor string to analyze.
+    ///
+    /// # Returns
+    /// A `DescriptorInfoResponse` containing parsed descriptor information such as the checksum.
+    ///
+    /// # Errors
+    /// Returns an error if the descriptor is invalid or the RPC call fails.
+    ///
+    /// # Availability
+    /// Available in Bitcoin Core since **v0.18.0**.
+    pub fn get_descriptor_info(
+        &self,
+        descriptor: &str,
+    ) -> BitcoinRpcClientResult<DescriptorInfoResponse> {
+        Ok(self.global_ep.send(
             &self.client_id,
             "getdescriptorinfo",
             vec![descriptor.into()],
-        )
+        )?)
     }
 
-    //TODO: Improve with descriptor_list
-    pub fn import_descriptor(&self, descriptor: &str) -> RpcResult<ImportDescriptorsResponse> {
-        let timestamp = 0;
-        let internal = true;
+    /// Imports one or more descriptors into the currently loaded wallet.
+    ///
+    ///
+    /// # Arguments
+    /// * `descriptors` – A slice of `ImportDescriptorsRequest` items. Each item defines a single
+    ///   descriptor and optional metadata for how it should be imported.
+    ///
+    /// # Returns
+    /// A vector of `ImportDescriptorsResponse` results, one for each descriptor import attempt.
+    ///
+    /// # Errors
+    /// Returns an error if the request fails, if the input cannot be serialized,
+    /// or if the Bitcoin node responds with an error.
+    ///
+    /// # Availability
+    /// Available in Bitcoin Core since **v0.21.0**.
+    pub fn import_descriptors(
+        &self,
+        descriptors: &[ImportDescriptorsRequest],
+    ) -> BitcoinRpcClientResult<Vec<ImportDescriptorsResponse>> {
+        let descriptor_values = descriptors
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()?;
 
-        let result = self.global_ep.send::<Vec<ImportDescriptorsResponse>>(
+        Ok(self.global_ep.send(
             &self.client_id,
             "importdescriptors",
-            vec![json!([{ "desc": descriptor, "timestamp": timestamp, "internal": internal }])],
-        )?;
-
-        result
-            .into_iter()
-            .next()
-            .ok_or_else(|| RpcError::Service("empty importdescriptors response".to_string()))
+            vec![descriptor_values.into()],
+        )?)
     }
 
     //TODO REMOVE:
-    pub fn get_blockchaininfo(&self) -> RpcResult<()> {
+    pub fn get_blockchaininfo(&self) -> BitcoinRpcClientResult<()> {
         self.global_ep
             .send::<Value>(&self.client_id, "getblockchaininfo", vec![])?;
         Ok(())
@@ -286,9 +519,10 @@ impl BitcoinRpcClient {
     ///
     /// # Availability
     /// Available in Bitcoin Core since **v0.7.0**.
-    pub fn get_raw_transaction(&self, txid: &str) -> RpcResult<String> {
-        self.global_ep
-            .send(&self.client_id, "getrawtransaction", vec![txid.into()])
+    pub fn get_raw_transaction(&self, txid: &str) -> BitcoinRpcClientResult<String> {
+        Ok(self
+            .global_ep
+            .send(&self.client_id, "getrawtransaction", vec![txid.into()])?)
     }
 
     /// Mines a new block including the given transactions to a specified address.
@@ -308,7 +542,11 @@ impl BitcoinRpcClient {
     ///
     /// # Availability
     /// Available in Bitcoin Core since **v22.0**. Requires `regtest` or similar testing networks.
-    pub fn generate_block(&self, address: &str, txs: Vec<String>) -> RpcResult<String> {
+    pub fn generate_block(
+        &self,
+        address: &str,
+        txs: Vec<String>,
+    ) -> BitcoinRpcClientResult<String> {
         let response = self.global_ep.send::<GenerateBlockResponse>(
             &self.client_id,
             "generateblock",
@@ -331,8 +569,8 @@ impl BitcoinRpcClient {
     ///
     /// # Availability
     /// Available in Bitcoin Core since **v0.1.0**.
-    pub fn stop(&self) -> RpcResult<String> {
-        self.global_ep.send(&self.client_id, "stop", vec![])
+    pub fn stop(&self) -> BitcoinRpcClientResult<String> {
+        Ok(self.global_ep.send(&self.client_id, "stop", vec![])?)
     }
 
     /// Retrieves a new Bitcoin address from the wallet.
@@ -357,7 +595,7 @@ impl BitcoinRpcClient {
         &self,
         label: Option<&str>,
         address_type: Option<&str>,
-    ) -> RpcResult<String> {
+    ) -> BitcoinRpcClientResult<String> {
         let mut params = vec![];
 
         let label = label.unwrap_or("");
@@ -367,8 +605,9 @@ impl BitcoinRpcClient {
             params.push(at.into());
         }
 
-        self.global_ep
-            .send(&self.client_id, "getnewaddress", params)
+        Ok(self
+            .global_ep
+            .send(&self.client_id, "getnewaddress", params)?)
     }
 
     /// Sends a specified amount of BTC to a given address.
@@ -379,12 +618,12 @@ impl BitcoinRpcClient {
     ///
     /// # Returns
     /// The transaction ID as hex string
-    pub fn send_to_address(&self, address: &str, amount: f64) -> RpcResult<String> {
-        self.wallet_ep.send(
+    pub fn send_to_address(&self, address: &str, amount: f64) -> BitcoinRpcClientResult<String> {
+        Ok(self.wallet_ep.send(
             &self.client_id,
             "sendtoaddress",
             vec![address.into(), amount.into()],
-        )
+        )?)
     }
 }
 
@@ -395,7 +634,6 @@ mod tests {
     mod unit {
 
         use serde_json::json;
-        use stacks::util::hash::to_hex;
 
         use super::*;
 
@@ -428,7 +666,10 @@ mod tests {
 
             let mock_response = json!({
                 "id": "stacks",
-                "result": true,
+                "result": {
+                    "name": "testwallet",
+                    "warning": null
+                },
                 "error": null
             });
 
@@ -443,8 +684,9 @@ mod tests {
                 .create();
 
             let client = utils::setup_client(&server);
-            let result = client.create_wallet("testwallet", Some(true));
-            result.expect("Should work");
+            client
+                .create_wallet("testwallet", Some(true))
+                .expect("create wallet should be ok!");
         }
 
         #[test]
@@ -487,13 +729,13 @@ mod tests {
                 "id": "stacks",
                 "method": "listunspent",
                 "params": [
-                    0,
-                    9999999,
+                    1,
+                    10,
                     ["BTC_ADDRESS_1"],
                     true,
                     {
                         "minimumAmount": "0.00001000",
-                        "maximumCount": 100
+                        "maximumCount": 5
                     }
                 ]
             });
@@ -524,31 +766,32 @@ mod tests {
 
             let result = client
                 .list_unspent(
-                    vec!["BTC_ADDRESS_1".into()],
-                    true,
-                    1000, // 1000 sats = 0.00001000 BTC
-                    100,
+                    Some(1),
+                    Some(10),
+                    Some(vec!["BTC_ADDRESS_1".into()]),
+                    Some(true),
+                    Some(1000), // 1000 sats = 0.00001000 BTC
+                    Some(5),
                 )
                 .expect("Should parse unspent outputs");
 
             assert_eq!(1, result.len());
             let utxo = &result[0];
-            assert_eq!(1000, utxo.amount);
+            assert_eq!("0.00001", utxo.amount);
             assert_eq!(0, utxo.vout);
             assert_eq!(6, utxo.confirmations);
             assert_eq!(
                 "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
-                utxo.txid.to_string(),
+                utxo.txid,
             );
             assert_eq!(
                 "76a91489abcdefabbaabbaabbaabbaabbaabbaabbaabba88ac",
-                to_hex(&utxo.script_pub_key.to_bytes()),
+                utxo.script_pub_key,
             );
         }
 
         #[test]
         fn test_generate_to_address_ok() {
-            // Arrange
             let num_blocks = 3;
             let address = "00000000000000000000000000000000000000000000000000000";
 
@@ -605,7 +848,6 @@ mod tests {
                     "confirmations": 6,
                 },
                 "error": null,
-                //"id": "stacks"
             });
 
             let mut server = mockito::Server::new();
@@ -678,7 +920,6 @@ mod tests {
                     "hash" : expected_block_hash
                 },
                 "error": null,
-                //"id": "stacks"
             });
 
             let mut server = mockito::Server::new();
@@ -787,7 +1028,6 @@ mod tests {
                     "checksum": expected_checksum
                 },
                 "error": null,
-                //"id": "stacks"
             });
 
             let mut server = mockito::Server::new();
@@ -808,19 +1048,23 @@ mod tests {
         }
 
         #[test]
-        fn test_import_descriptor_ok() {
+        fn test_import_descriptors_ok() {
             let descriptor = "addr(1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa)#checksum";
+            let timestamp = 0;
+            let internal = true;
 
             let expected_request = json!({
                 "jsonrpc": "2.0",
                 "id": "stacks",
                 "method": "importdescriptors",
                 "params": [
-                    [{
-                        "desc": descriptor,
-                        "timestamp": 0,
-                        "internal": true
-                    }]
+                    [
+                        {
+                            "desc": descriptor,
+                            "timestamp": 0,
+                            "internal": true
+                        }
+                    ]
                 ]
             });
 
@@ -844,7 +1088,13 @@ mod tests {
                 .create();
 
             let client = utils::setup_client(&server);
-            let result = client.import_descriptor(&descriptor);
+
+            let desc_req = ImportDescriptorsRequest {
+                descriptor: descriptor.to_string(),
+                timestamp: Timestamp::Time(timestamp),
+                internal: Some(internal),
+            };
+            let result = client.import_descriptors(&[desc_req]);
             assert!(result.is_ok());
         }
 
@@ -1002,18 +1252,47 @@ mod tests {
             let wallets = client.list_wallets().unwrap();
             assert_eq!(0, wallets.len());
 
-            client.create_wallet("mywallet1", Some(false)).unwrap();
+            client
+                .create_wallet("mywallet1", Some(false))
+                .expect("mywallet1 creation should be ok!");
 
             let wallets = client.list_wallets().unwrap();
             assert_eq!(1, wallets.len());
             assert_eq!("mywallet1", wallets[0]);
 
-            client.create_wallet("mywallet2", Some(false)).unwrap();
+            client
+                .create_wallet("mywallet2", Some(false))
+                .expect("mywallet2 creation should be ok!");
 
             let wallets = client.list_wallets().unwrap();
             assert_eq!(2, wallets.len());
             assert_eq!("mywallet1", wallets[0]);
             assert_eq!("mywallet2", wallets[1]);
+        }
+
+        #[test]
+        fn test_wallet_creation_fails_if_already_exists() {
+            let config = utils::create_config();
+
+            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let client = BitcoinRpcClient::from_stx_config(&config);
+
+            client
+                .create_wallet("mywallet1", Some(false))
+                .expect("mywallet1 creation should be ok!");
+
+            let err = client
+                .create_wallet("mywallet1", Some(false))
+                .expect_err("mywallet1 creation should fail now!");
+
+            assert!(matches!(
+                err,
+                BitcoinRpcClientError::Rpc(RpcError::Service(_))
+            ));
         }
 
         #[test]
@@ -1031,7 +1310,7 @@ mod tests {
             let address = client.get_new_address(None, None).expect("Should work!");
 
             let utxos = client
-                .list_unspent(vec![], false, 1, 10)
+                .list_unspent(None, None, None, Some(false), Some(1), Some(10))
                 .expect("list_unspent should be ok!");
             assert_eq!(0, utxos.len());
 
@@ -1039,20 +1318,14 @@ mod tests {
             assert_eq!(102, blocks.len());
 
             let utxos = client
-                .list_unspent(vec![], false, 1, 10)
+                .list_unspent(None, None, None, Some(false), Some(1), Some(10))
                 .expect("list_unspent should be ok!");
             assert_eq!(2, utxos.len());
 
             let utxos = client
-                .list_unspent(vec![], false, 1, 1)
+                .list_unspent(None, None, None, Some(false), Some(1), Some(1))
                 .expect("list_unspent should be ok!");
             assert_eq!(1, utxos.len());
-
-            //client.create_wallet("hello1").expect("OK");
-            //client.create_wallet("hello2").expect("OK");
-            //client.generate_to_address(64, address)
-            //client.get_transaction("1", "hello1").expect("Boh");
-            //client.get_blockchaininfo().expect("Boh");
         }
 
         #[test]
@@ -1185,11 +1458,17 @@ mod tests {
             let address = "mqqxPdP1dsGk75S7ta2nwyU8ujDnB2Yxvu";
             let checksum = "spfcmvsn";
 
-            let descriptor = format!("addr({address})#{checksum}");
-            let import = client
-                .import_descriptor(&descriptor)
+            let desc_req = ImportDescriptorsRequest {
+                descriptor: format!("addr({address})#{checksum}"),
+                timestamp: Timestamp::Time(0),
+                internal: Some(true),
+            };
+
+            let response = client
+                .import_descriptors(&[desc_req])
                 .expect("import descriptor ok!");
-            assert!(import.success);
+            assert_eq!(1, response.len());
+            assert!(response[0].success);
         }
 
         #[test]
