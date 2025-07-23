@@ -99,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Clarity Value Binary Format
 
-The crate implements the standard binary format for Clarity values. At a high level, every value is encoded as: `[Type Prefix Byte] + [Payload]`.
+The crate implements the standard binary format for Clarity values as defined in [SIP-005](https://github.com/stacksgov/sips/blob/main/sips/sip-005/sip-005-blocks-and-transactions.md#clarity-value-representation). At a high level, every value is encoded as: `[Type Prefix Byte] + [Payload]`.
 
 | Type Prefix (Hex) | Clarity Type      | Payload Description                                                              |
 | ----------------- | ----------------- | -------------------------------------------------------------------------------- |
