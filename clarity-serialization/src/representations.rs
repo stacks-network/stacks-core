@@ -50,12 +50,10 @@ lazy_static! {
         "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into();
     pub static ref CLARITY_NAME_REGEX: Regex =
     {
-        #[allow(clippy::unwrap_used)]
         Regex::new(CLARITY_NAME_REGEX_STRING.as_str()).unwrap()
     };
     pub static ref CONTRACT_NAME_REGEX: Regex =
     {
-        #[allow(clippy::unwrap_used)]
         Regex::new(format!("^{}$|^__transient$", CONTRACT_NAME_REGEX_STRING.as_str()).as_str())
             .unwrap()
     };

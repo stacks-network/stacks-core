@@ -12,49 +12,21 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+mod representations;
+mod types;
 
-use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
-use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use crate::{BUILD_TYPE, version_string};
 
-use crate::errors::CodecError;
-use crate::types::{PrincipalData, StandardPrincipalData, Value};
+#[test]
+fn test_version_string_basic_no_env() {
+    let version = version_string("test-package", "1.0.0");
 
-impl Value {
-    pub fn list_from(list_data: Vec<Value>) -> Result<Value, CodecError> {
-        Value::cons_list_unsanitized(list_data)
-    }
-}
-
-// Implement PartialEq for testing and simple equality checks by comparing the
-// string representations of each error. This avoids requiring all wrapped
-// fields (like `std::io::Error`) to implement PartialEq.
-impl PartialEq for CodecError {
-    fn eq(&self, other: &Self) -> bool {
-        self.to_string() == other.to_string()
-    }
-}
-
-impl From<&StacksPrivateKey> for StandardPrincipalData {
-    fn from(o: &StacksPrivateKey) -> StandardPrincipalData {
-        let stacks_addr = StacksAddress::from_public_keys(
-            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            &AddressHashMode::SerializeP2PKH,
-            1,
-            &vec![StacksPublicKey::from_private(o)],
+    assert_eq!(
+        version,
+        format!(
+            "test-package 1.0.0 (:, {BUILD_TYPE} build, {} [{}])",
+            std::env::consts::OS,
+            std::env::consts::ARCH
         )
-        .unwrap();
-        StandardPrincipalData::from(stacks_addr)
-    }
-}
-
-impl From<&StacksPrivateKey> for PrincipalData {
-    fn from(o: &StacksPrivateKey) -> PrincipalData {
-        PrincipalData::Standard(StandardPrincipalData::from(o))
-    }
-}
-
-impl From<&StacksPrivateKey> for Value {
-    fn from(o: &StacksPrivateKey) -> Value {
-        Value::from(StandardPrincipalData::from(o))
-    }
+    );
 }

@@ -117,3 +117,13 @@ pub enum CodecError {
     #[error("An unexpected internal error occurred: {0}")]
     Expect(String),
 }
+
+// Implement PartialEq for testing and simple equality checks by comparing the
+// string representations of each error. This avoids requiring all wrapped
+// fields (like `std::io::Error`) to implement PartialEq.
+#[cfg(any(test, feature = "testing"))]
+impl PartialEq for CodecError {
+    fn eq(&self, other: &Self) -> bool {
+        self.to_string() == other.to_string()
+    }
+}

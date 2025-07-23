@@ -46,8 +46,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Serialize the tuple to its consensus-cricital hex string.
     let hex_string = my_tuple.serialize_to_hex()?;
 
-    println!("Clarity Tuple: {}", my_tuple);
-    println!("Serialized Hex: {}", hex_string);
+    println!("Clarity Tuple: {my_tuple}");
+    println!("Serialized Hex: {hex_string}");
 
     // The output `hex_string` can now be used in a contract-call transaction.
     assert_eq!(
@@ -72,12 +72,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. First, let's deserialize without a type for inspection.
     // NOTE: This is not recommended for production use with data from untrusted sources.
     let untyped_value = Value::try_deserialize_hex_untyped(hex_string)?;
-    println!("Deserialized (untyped): {:?}", untyped_value);
+    println!("Deserialized (untyped): {untyped_value}");
 
     // 2. For robust deserialization, we should define the expected type.
     // This can be derived from the untyped value or known from a contract's interface.
     let expected_type = TypeSignature::type_of(&untyped_value)?;
-    println!("Inferred Type Signature: {}", expected_type);
+    println!("Inferred Type Signature: {expected_type}");
 
     // 3. Deserialize again, this time enforcing the type signature.
     // The `sanitize` flag should be `true` when reading values from the DB
@@ -90,8 +90,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let owner = tuple_data.get("owner")?.clone().expect_principal()?;
 
     println!("Successfully deserialized and validated!");
-    println!("ID: {}", id);
-    println!("Owner: {}", owner);
+    println!("ID: {id}");
+    println!("Owner: {owner}");
 
     Ok(())
 }
@@ -99,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Clarity Value Binary Format
 
-The crate implements the standard binary format for Clarity values. At a high level, every value is encoded as: `[Type Prefix Byte] + [Payload]`.
+The crate implements the standard binary format for Clarity values as defined in [SIP-005](https://github.com/stacksgov/sips/blob/main/sips/sip-005/sip-005-blocks-and-transactions.md#clarity-value-representation). At a high level, every value is encoded as: `[Type Prefix Byte] + [Payload]`.
 
 | Type Prefix (Hex) | Clarity Type      | Payload Description                                                              |
 | ----------------- | ----------------- | -------------------------------------------------------------------------------- |
@@ -126,10 +126,6 @@ This crate is designed to be minimal by default. Optional functionality is avail
 *   `testing`: Enables helper functions and data structures used exclusively for unit and integration testing.
 *   `slog_json`: Integrates with `slog` for structured JSON logging.
 *   `wasm-web` / `wasm-deterministic`: Enables builds for WebAssembly environments with different determinism guarantees.
-
-## Contributing
-
-Contributions are welcome! This crate is part of the `stacks-core` monorepo. Please see the [main repository's contributing guidelines](https://github.com/stacks-network/stacks-core/blob/master/CONTRIBUTING.md) for more details on the development process.
 
 ## License
 

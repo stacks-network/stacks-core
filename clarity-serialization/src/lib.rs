@@ -12,7 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
+#[doc = include_str!("../README.md")]
 #[macro_use]
 extern crate serde_derive;
 
@@ -32,7 +32,7 @@ pub use errors::CodecError;
 pub use representations::{ClarityName, ContractName};
 pub use types::Value;
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub mod tests;
 
 // set via _compile-time_ envars
@@ -51,7 +51,7 @@ pub fn version_string(pkg_name: &str, pkg_version: &str) -> String {
     let git_tree_clean = GIT_TREE_CLEAN.unwrap_or("");
 
     format!(
-        "{pkg_name} {pkg_version} ({git_branch}:{git_commit}{git_tree_clean}, {BUILD_TYPE} build {}, [{}])",
+        "{pkg_name} {pkg_version} ({git_branch}:{git_commit}{git_tree_clean}, {BUILD_TYPE} build, {} [{}])",
         std::env::consts::OS,
         std::env::consts::ARCH
     )
