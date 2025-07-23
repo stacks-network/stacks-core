@@ -860,6 +860,11 @@ impl Value {
         })))
     }
 
+    #[cfg(any(test, feature = "testing"))]
+    pub fn list_from(list_data: Vec<Value>) -> Result<Value, CodecError> {
+        Value::cons_list_unsanitized(list_data)
+    }
+
     pub fn cons_list(list_data: Vec<Value>, epoch: &StacksEpochId) -> Result<Value, CodecError> {
         // Constructors for TypeSignature ensure that the size of the Value cannot
         //   be greater than MAX_VALUE_SIZE (they error on such constructions)
