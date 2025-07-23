@@ -127,10 +127,6 @@ This crate is designed to be minimal by default. Optional functionality is avail
 *   `slog_json`: Integrates with `slog` for structured JSON logging.
 *   `wasm-web` / `wasm-deterministic`: Enables builds for WebAssembly environments with different determinism guarantees.
 
-## Contributing
-
-Contributions are welcome! This crate is part of the `stacks-core` monorepo. Please see the [main repository's contributing guidelines](https://github.com/stacks-network/stacks-core/blob/master/CONTRIBUTING.md) for more details on the development process.
-
 ## License
 
 This project is licensed under the **GNU General Public License v3.0** ([GPLv3](https://www.gnu.org/licenses/gpl-3.0.en.html)). See the `LICENSE` file for details.
