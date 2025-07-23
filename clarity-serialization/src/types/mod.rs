@@ -16,23 +16,23 @@
 pub mod serialization;
 pub mod signatures;
 
-use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 use std::{char, fmt, str};
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use stacks_common::address::c32;
+use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksAddress;
 #[cfg(feature = "testing")]
 use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash;
 
 pub use self::signatures::{
-    AssetIdentifier, BufferLength, ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length,
-    TupleTypeSignature, TypeSignature, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_33, BUFF_64,
-    BUFF_65,
+    AssetIdentifier, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_33, BUFF_64, BUFF_65, BufferLength,
+    ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length, TupleTypeSignature,
+    TypeSignature,
 };
 use crate::errors::CodecError;
 use crate::representations::{ClarityName, ContractName};
