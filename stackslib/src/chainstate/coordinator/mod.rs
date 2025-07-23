@@ -1333,8 +1333,7 @@ impl<
         let parent_pox = {
             let mut sortition_db_handle =
                 SortitionHandleTx::begin(&mut self.sortition_db, &parent_sort_id)?;
-            let parent_pox = sortition_db_handle.get_pox_id()?;
-            parent_pox
+            sortition_db_handle.get_pox_id()?
         };
 
         let new_sortition_id =
@@ -1345,8 +1344,8 @@ impl<
         if let Some(sortition) = sortition_opt {
             // existing sortition -- go revalidate it
             info!(
-                "Revalidate already-processed snapshot {} height {} to have canonical tip {}/{} height {}",
-                &new_sortition_id, sortition.block_height,
+                "Revalidate already-processed snapshot {new_sortition_id} height {} to have canonical tip {}/{} height {}",
+                sortition.block_height,
                 &canonical_snapshot.canonical_stacks_tip_consensus_hash,
                 &canonical_snapshot.canonical_stacks_tip_hash,
                 canonical_snapshot.canonical_stacks_tip_height,
@@ -1684,44 +1683,11 @@ impl<
             // don't process this burnchain block again in this recursive call.
             already_processed_burn_blocks.insert(next_snapshot.burn_header_hash);
 
-            let mut compatible_stacks_blocks = vec![];
-            {
-                // get borrow checker to drop sort_tx
-                let mut sort_tx = self.sortition_db.tx_begin()?;
-                for (ch, bhh, height) in stacks_blocks_to_reaccept.into_iter() {
-                    debug!(
-                        "Check if Stacks block {}/{} height {} is compatible with `{}`",
-                        &ch, &bhh, height, &heaviest_am
-                    );
-
-                    let am = inner_static_get_stacks_tip_affirmation_map(
-                        &self.burnchain_blocks_db,
-                        last_2_05_rc,
-                        &sort_tx.find_sortition_tip_affirmation_map(&next_snapshot.sortition_id)?,
-                        &sort_tx,
-                        &ch,
-                        &bhh,
-                    )?;
-                    if StacksChainState::is_block_compatible_with_affirmation_map(
-                        &am,
-                        &heaviest_am,
-                    )? {
-                        debug!(
-                            "Stacks block {}/{} height {} is compatible with `{}`; will reaccept",
-                            &ch, &bhh, height, &heaviest_am
-                        );
-                        compatible_stacks_blocks.push((ch, bhh, height));
-                    } else {
-                        debug!("Stacks block {}/{} height {} is NOT compatible with `{}`; will NOT reaccept", &ch, &bhh, height, &heaviest_am);
-                    }
-                }
-            }
-
             // reaccept any stacks blocks
             let mut sortition_db_handle =
                 SortitionHandleTx::begin(&mut self.sortition_db, &next_snapshot.sortition_id)?;
 
-            for (ch, bhh, height) in compatible_stacks_blocks.into_iter() {
+            for (ch, bhh, height) in stacks_blocks_to_reaccept.into_iter() {
                 debug!("Re-accept Stacks block {}/{} height {}", &ch, &bhh, height);
                 revalidated_stacks_block = true;
                 sortition_db_handle.set_stacks_block_accepted(&ch, &bhh, height)?;
