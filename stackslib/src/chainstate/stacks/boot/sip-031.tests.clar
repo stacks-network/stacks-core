@@ -2,6 +2,7 @@
 (define-constant ERR_UNWRAP u998)
 (define-constant ERR_UNEXPECTED_RESULT u997)
 
+(define-data-var last-iteration-claimed uint u0)
 (define-data-var minted-initial bool false)
 
 ;; Helper to set up the Rendezvous testing environment. This should be called
@@ -16,6 +17,20 @@
       (not (var-get minted-initial))
       (unwrap-panic (stx-transfer? INITIAL_MINT_AMOUNT tx-sender (as-contract tx-sender)))
       (var-set minted-initial true)
+    )
+  )
+)
+
+;; Helper to transfer extra STX amounts to the contract. In combination with
+;; other tests, this ensures that extra transfers do not break the vesting
+;; schedule.
+(define-public (test-helper-transfer-to-contract (ustx-amount uint))
+  (ok
+    (and
+      (not (is-eq tx-sender 'ST3FFKYTTB975A3JC3F99MM7TXZJ406R3GKE6JV56))
+      (> ustx-amount u0)
+      (>= (stx-get-balance tx-sender) ustx-amount)
+      (try! (stx-transfer? ustx-amount tx-sender (as-contract tx-sender)))
     )
   )
 )
@@ -111,6 +126,7 @@
     (let (
         (recipient-balance-before (stx-get-balance (var-get recipient)))
         (claimable (calc-claimable-amount burn-block-height))
+        (current-iteration (/ (- burn-block-height DEPLOY_BLOCK_HEIGHT) INITIAL_MINT_VESTING_ITERATION_BLOCKS))
       )
       (and
         (is-eq (var-get recipient) contract-caller tx-sender)
@@ -123,6 +139,26 @@
           )
           (err ERR_FAILED_ASSERTION)
         )
+        (var-set last-iteration-claimed current-iteration)
+      )
+    )
+  )
+)
+
+;; Tests that the claimable amount is greater than the STX per iteration if the
+;; last iteration claimed is less than the current iteration.
+(define-public (test-claimable-amount-gt-iteration-stx)
+  (ok
+    (let (
+        (recipient-balance-before (stx-get-balance (var-get recipient)))
+        (claimable (calc-claimable-amount burn-block-height))
+        (current-iteration (/ (- burn-block-height DEPLOY_BLOCK_HEIGHT) INITIAL_MINT_VESTING_ITERATION_BLOCKS))
+      )
+      (and
+        (is-eq (var-get recipient) contract-caller tx-sender)
+        (> claimable u0)
+        (> current-iteration (var-get last-iteration-claimed))
+        (asserts! (>= claimable STX_PER_ITERATION) (err claimable))
       )
     )
   )
