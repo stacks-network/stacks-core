@@ -86,6 +86,7 @@
               #
               (craneLib.fileset.commonCargoSources ../../clarity)
               (craneLib.fileset.commonCargoSources ../../clarity-serialization)
+              ../../clarity-serialization/README.md
               (craneLib.fileset.commonCargoSources ../../libsigner)
               (craneLib.fileset.commonCargoSources ../../libstackerdb)
               (craneLib.fileset.commonCargoSources ../../pox-locking)
