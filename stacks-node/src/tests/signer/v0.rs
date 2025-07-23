@@ -18077,3 +18077,114 @@ fn bitcoin_reorg_extended_tenure() {
 
     miners.shutdown();
 }
+
+/// Tests that the active signer protocol version is set to the lowest common denominator
+#[test]
+#[ignore]
+fn multiversioned_signer_protocol_version_calculation() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 1000;
+    let send_fee = 180;
+
+    let btc_miner_1_seed = vec![1, 1, 1, 1];
+    let btc_miner_2_seed = vec![2, 2, 2, 2];
+    let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
+    let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr, send_amt + send_fee)],
+        |signer_config| {
+            // We don't want the miner of the "inactive" sortition before the flash block
+            //  to get timed out.
+            signer_config.block_proposal_timeout = Duration::from_secs(600);
+
+            let signer_version = match signer_config.endpoint.port() % num_signers as u16 {
+                0 | 1 => 0, // first two -> version 0
+                2 | 3 => 1, // next two -> version 1
+                _ => 2,     // last ones  -> version 2
+            };
+            signer_config.supported_signer_protocol_version = signer_version;
+        },
+        |_| {},
+        Some(vec![btc_miner_1_pk, btc_miner_2_pk]),
+        None,
+    );
+
+    signer_test.boot_to_epoch_3();
+    // Pause the miner to enforce exactly one proposal and to ensure it isn't just rejected with no consensus
+    info!("------------------------- Pausing Mining -------------------------");
+    TEST_MINE_SKIP.set(true);
+    test_observer::clear();
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    // In the next block, the miner should win the tenure and mine a stacks block
+    let peer_info_before = signer_test.get_peer_info();
+
+    info!("------------------------- Mining Burn Block for Tenure A -------------------------");
+    next_block_and(
+        &signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let peer_info = signer_test.get_peer_info();
+            Ok(peer_info.burn_block_height > peer_info_before.burn_block_height)
+        },
+    )
+    .unwrap();
+    let peer_info_after = signer_test.get_peer_info();
+    let signer_addresses = signer_test.signer_addresses_versions();
+
+    info!("------------------------- Waiting for Signer Updates -------------------------");
+    // Make sure all signers are on the same page before proposing a block so its accepted
+    wait_for_state_machine_update(
+        30,
+        &peer_info_after.pox_consensus,
+        peer_info_after.burn_block_height,
+        None,
+        &signer_addresses,
+    )
+    .unwrap();
+
+    info!("------------------------- Resuming Mining of Tenure Start Block for Tenure A -------------------------");
+    TEST_MINE_SKIP.set(false);
+    wait_for(30, || {
+        Ok(signer_test.get_peer_info().stacks_tip_height > peer_info_before.stacks_tip_height)
+    })
+    .unwrap();
+
+    info!("------------------------- Verifying Signer Versions and Responses to Tenure Start Block -------------------------");
+    // Assert that the signers sent only acceptances and that all updates indicate that the active protocol version is 0
+    wait_for(30, || {
+        let mut nmb_accept = 0;
+        let stackerdb_events = test_observer::get_stackerdb_chunks();
+        for chunk in stackerdb_events
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+        {
+            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                .expect("Failed to deserialize SignerMessage");
+            match message {
+                SignerMessage::StateMachineUpdate(update) => {
+                    assert_eq!(update.active_signer_protocol_version, 0);
+                }
+                SignerMessage::BlockResponse(response) => {
+                    assert!(
+                        matches!(response, BlockResponse::Accepted(_)),
+                        "Should have only received acceptances"
+                    );
+                    nmb_accept += 1;
+                }
+                _ => {
+                    continue;
+                }
+            }
+        }
+        Ok(nmb_accept == num_signers)
+    })
+    .unwrap();
+    signer_test.shutdown();
+}
