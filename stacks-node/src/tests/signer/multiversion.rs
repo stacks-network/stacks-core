@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::sync::mpsc::TryRecvError;
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use libsigner::v0::messages::{SignerMessage, StateMachineUpdate};
 use libsigner::v0::signer_state::{MinerState, ReplayTransactionSet, SignerStateMachine};
