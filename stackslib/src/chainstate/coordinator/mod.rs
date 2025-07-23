@@ -34,9 +34,7 @@ use crate::burnchains::db::{BurnchainBlockData, BurnchainDB, BurnchainHeaderRead
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, Error as BurnchainError, PoxConstants, Txid,
 };
-use crate::chainstate::burn::db::sortdb::{
-    SortitionDB, SortitionDBConn, SortitionDBTx, SortitionHandleTx,
-};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBTx, SortitionHandleTx};
 use crate::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
@@ -1656,16 +1654,6 @@ impl<
                     NewBurnchainBlockStatus::WaitForPoxNakamoto
                 }
             })
-    }
-
-    /// Are affirmation maps active during the epoch?
-    fn affirmation_maps_active(&self, epoch: &StacksEpochId) -> bool {
-        if *epoch >= StacksEpochId::Epoch21 {
-            return true;
-        } else if self.config.always_use_affirmation_maps {
-            return true;
-        }
-        return false;
     }
 
     // TODO: add tests from mutation testing results #4852
