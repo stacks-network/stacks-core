@@ -153,17 +153,9 @@ impl RpcTransport {
 
         if !response.status().is_success() {
             let status = response.status();
-            let body = response.text().unwrap_or_default();
-            let body_msg = if body.trim().is_empty() {
-                "<empty body>".to_string()
-            } else {
-                body
-            };
-
             return Err(RpcError::Service(format!(
-                "HTTP error {}: {}",
+                "HTTP error {}",
                 status.as_u16(),
-                body_msg,
             )));
         }
 
@@ -176,12 +168,14 @@ impl RpcTransport {
             )));
         }
 
-        match (parsed.result, parsed.error) {
-            (Some(result), None) => Ok(result),
-            (_, Some(err)) => Err(RpcError::Service(format!("{:#}", err))),
-            _ => Err(RpcError::Parsing(
-                "Invalid response: missing both 'result' and 'error'".to_string(),
-            )),
+        if let Some(error) = parsed.error {
+            return Err(RpcError::Service(format!("{:#}", error)));
+        }
+
+        if let Some(result) = parsed.result {
+            Ok(result)
+        } else {
+            Ok(serde_json::from_value(Value::Null).unwrap())
         }
     }
 
@@ -329,10 +323,10 @@ mod tests {
 
         assert!(result.is_err());
         match result {
-            Err(RpcError::Parsing(msg)) => {
-                assert!(msg.starts_with("Failed to parse RPC response:"))
+            Err(RpcError::Service(msg)) => {
+                assert!(msg.contains("500"))
             }
-            _ => panic!("Expected parse error"),
+            _ => panic!("Expected error 500"),
         }
     }
 
@@ -359,10 +353,9 @@ mod tests {
     }
 
     #[test]
-    fn test_send_fails_due_to_missing_result_and_error() {
+    fn test_send_ok_if_missing_both_result_and_error() {
         let response_body = json!({
             "id": "client_id",
-            "foo": "bar",
         });
 
         let mut server = mockito::Server::new();
@@ -375,13 +368,7 @@ mod tests {
 
         let transport = utils::rpc_no_auth(&server);
         let result: RpcResult<Value> = transport.send("client_id", "dummy", vec![]);
-
-        match result {
-            Err(RpcError::Parsing(msg)) => {
-                assert_eq!("Invalid response: missing both 'result' and 'error'", msg)
-            }
-            _ => panic!("Expected missing result/error error"),
-        }
+        assert!(result.is_ok());
     }
 
     #[test]

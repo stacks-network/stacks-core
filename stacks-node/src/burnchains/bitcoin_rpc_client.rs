@@ -499,6 +499,19 @@ struct GenerateBlockResponse {
 
 #[cfg(test)]
 impl BitcoinRpcClient {
+    /// Retrieve general information about the current state of the blockchain.
+    ///
+    /// # Arguments
+    /// None.
+    ///
+    /// # Returns
+    /// A [`GetBlockChainInfoResponse`] struct containing blockchain metadata.
+    pub fn get_blockchain_info(&self) -> BitcoinRpcClientResult<GetBlockChainInfoResponse> {
+        Ok(self
+            .global_ep
+            .send(&self.client_id, "getblockchaininfo", vec![])?)
+    }
+
     /// Retrieves the raw hex-encoded transaction by its ID.
     ///
     /// # Arguments
@@ -598,6 +611,8 @@ impl BitcoinRpcClient {
     ///
     /// # Returns
     /// The transaction ID as hex string
+    /// 
+    /// Available in Bitcoin Core since **v0.1.0**.
     pub fn send_to_address(&self, address: &str, amount: f64) -> BitcoinRpcClientResult<String> {
         Ok(self.wallet_ep.send(
             &self.client_id,
@@ -606,18 +621,25 @@ impl BitcoinRpcClient {
         )?)
     }
 
-    /// Retrieve general information about the current state of the blockchain.
+    /// Invalidate a block by its block hash, forcing the node to reconsider its chain state.
     ///
     /// # Arguments
-    /// None.
+    /// * `hash` - The block hash (as a hex string) of the block to invalidate.
     ///
     /// # Returns
-    /// A [`GetBlockChainInfoResponse`] struct containing blockchain metadata.
-    pub fn get_blockchain_info(&self) -> BitcoinRpcClientResult<GetBlockChainInfoResponse> {
-        Ok(self
-            .global_ep
-            .send(&self.client_id, "getblockchaininfo", vec![])?)
+    /// An empty `()` on success.
+    /// 
+    /// # Availability
+    /// Available in Bitcoin Core since **v0.1.0**.
+    pub fn invalidate_block(&self, hash: &str) -> BitcoinRpcClientResult<()> {
+        self.global_ep.send::<Value>(
+            &self.client_id,
+            "invalidateblock",
+            vec![hash.into()],
+        )?;
+        Ok(())
     }
+
 }
 
 #[cfg(test)]
@@ -1218,6 +1240,39 @@ mod tests {
                 .expect("Should be ok!");
             assert_eq!(expected_txid, txid);
         }
+
+        #[test]
+        fn test_invalidate_block_ok() {
+            let hash = "0000";
+            
+            let expected_request = json!({
+                "jsonrpc": "2.0",
+                "id": "stacks",
+                "method": "invalidateblock",
+                "params": [hash]
+            });
+
+            let mock_response = json!({
+                "id": "stacks",
+                "result": null,
+                "error": null,
+            });
+
+            let mut server = mockito::Server::new();
+            let _m = server
+                .mock("POST", "/")
+                .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
+                .with_status(200)
+                .with_header("Content-Type", "application/json")
+                .with_body(mock_response.to_string())
+                .create();
+
+            let client = utils::setup_client(&server);
+
+            client
+                .invalidate_block(hash)
+                .expect("Should be ok!");
+        }
     }
 
     #[cfg(test)]
@@ -1597,5 +1652,25 @@ mod tests {
             let msg = client.stop().expect("Should shutdown!");
             assert_eq!("Bitcoin Core stopping", msg);
         }
+
+        #[test]
+        fn test_invalidate_block_ok() {
+            let mut config = utils::create_stx_config();
+            config.burnchain.wallet_name = "my_wallet".to_string();
+
+            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+            client.create_wallet("my_wallet", Some(false)).expect("OK");
+            let address = client.get_new_address(None, None).expect("Should work!");
+            let block_hash = client.generate_block(&address, vec![]).expect("OK");
+
+            client.invalidate_block(&block_hash).expect("Invalidate valid hash should be ok!");
+            client.invalidate_block("invalid_hash").expect_err("Invalidate invalid hash should fail!");
+        }
+
     }
 }
