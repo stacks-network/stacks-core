@@ -195,7 +195,7 @@ impl From<serde_json::Error> for BitcoinRpcClientError {
 pub type BitcoinRpcClientResult<T> = Result<T, BitcoinRpcClientError>;
 
 impl BitcoinRpcClient {
-    /// Create a [`BitcoinRpcClient`] from Stacks Configuration, mainly using `BurnchainConfig`
+    /// Create a [`BitcoinRpcClient`] from Stacks Configuration, mainly using [`stacks::config::BurnchainConfig`]
     pub fn from_stx_config(config: &Config) -> Result<Self, String> {
         let host = config.burnchain.peer_host.clone();
         let port = config.burnchain.rpc_port;

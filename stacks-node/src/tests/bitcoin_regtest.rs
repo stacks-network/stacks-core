@@ -32,12 +32,12 @@ type BitcoinResult<T> = Result<T, BitcoinCoreError>;
 
 pub struct BitcoinCoreController {
     bitcoind_process: Option<Child>,
-    pub config: Config,
+    config: Config,
     args: Vec<String>,
 }
 
 impl BitcoinCoreController {
-    //TODO: to be removed in favor of `from_stx_config`
+    /// TODO: to be removed in favor of [`Self::from_stx_config`]
     pub fn new(config: Config) -> BitcoinCoreController {
         BitcoinCoreController {
             bitcoind_process: None,
@@ -46,15 +46,13 @@ impl BitcoinCoreController {
         }
     }
 
-    pub fn from_stx_config(config: Config) -> BitcoinCoreController {
+    /// Create a [`BitcoinCoreController`] from Stacks Configuration, mainly using [`stacks::config::BurnchainConfig`]
+    pub fn from_stx_config(config: Config) -> Self {
         let mut result = BitcoinCoreController {
             bitcoind_process: None,
-            config,
+            config: config.clone(), //TODO: clone can be removed once 
             args: vec![],
         };
-
-        //TODO: Remove this once verified if `pub config` is really needed or not.
-        let config = result.config.clone();
 
         result.add_arg("-regtest");
         result.add_arg("-nodebug");
@@ -88,12 +86,13 @@ impl BitcoinCoreController {
         result
     }
 
+    /// Add argument (like "-name=value") to be used to run bitcoind process
     pub fn add_arg(&mut self, arg: impl Into<String>) -> &mut Self {
-        //TODO: eventually protect againt duplicated arg
         self.args.push(arg.into());
         self
     }
 
+    ///  Start Bitcoind process
     pub fn start_bitcoind_v2(&mut self) -> BitcoinResult<()> {
         std::fs::create_dir_all(self.config.get_burnchain_path_str()).unwrap();
 
@@ -143,6 +142,7 @@ impl BitcoinCoreController {
         }
     }
 
+    /// TODO: to be removed in favor of [`Self::start_bitcoind_v2`]
     pub fn start_bitcoind(&mut self) -> BitcoinResult<()> {
         std::fs::create_dir_all(self.config.get_burnchain_path_str()).unwrap();
 
