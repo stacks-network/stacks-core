@@ -184,66 +184,26 @@ fn test_get_coinbase_at_effective_height() {
 #[test]
 fn test_epoch_coinbase_reward() {
     // new coinbase schedule
-    assert_eq!(
-        StacksEpochId::Epoch31.coinbase_reward(true, 666050, 666050),
-        1_000_000_000
-    );
-    assert_eq!(
-        StacksEpochId::Epoch31.coinbase_reward(true, 666050, 666051),
-        1_000_000_000
-    );
+    for epoch in [StacksEpochId::Epoch31, StacksEpochId::Epoch32].iter() {
+        assert_eq!(epoch.coinbase_reward(true, 666050, 666050), 1_000_000_000);
+        assert_eq!(epoch.coinbase_reward(true, 666050, 666051), 1_000_000_000);
 
-    assert_eq!(
-        StacksEpochId::Epoch31.coinbase_reward(true, 666050, 944_999),
-        1_000_000_000
-    );
-    assert_eq!(
-        StacksEpochId::Epoch31.coinbase_reward(true, 666050, 945_000),
-        500_000_000
-    );
-    assert_eq!(
-        StacksEpochId::Epoch31.coinbase_reward(true, 666050, 945_001),
-        500_000_000
-    );
+        assert_eq!(epoch.coinbase_reward(true, 666050, 944_999), 1_000_000_000);
+        assert_eq!(epoch.coinbase_reward(true, 666050, 945_000), 500_000_000);
+        assert_eq!(epoch.coinbase_reward(true, 666050, 945_001), 500_000_000);
 
-    assert_eq!(
-        StacksEpochId::Epoch31.coinbase_reward(true, 666050, 1_049_999),
-        500_000_000
-    );
-    assert_eq!(
-        StacksEpochId::Epoch31.coinbase_reward(true, 666050, 1_050_000),
-        250_000_000
-    );
-    assert_eq!(
-        StacksEpochId::Epoch31.coinbase_reward(true, 666050, 1_050_001),
-        250_000_000
-    );
+        assert_eq!(epoch.coinbase_reward(true, 666050, 1_049_999), 500_000_000);
+        assert_eq!(epoch.coinbase_reward(true, 666050, 1_050_000), 250_000_000);
+        assert_eq!(epoch.coinbase_reward(true, 666050, 1_050_001), 250_000_000);
 
-    assert_eq!(
-        StacksEpochId::Epoch31.coinbase_reward(true, 666050, 1_259_999),
-        250_000_000
-    );
-    assert_eq!(
-        StacksEpochId::Epoch31.coinbase_reward(true, 666050, 1_260_000),
-        125_000_000
-    );
-    assert_eq!(
-        StacksEpochId::Epoch31.coinbase_reward(true, 666050, 1_260_001),
-        125_000_000
-    );
+        assert_eq!(epoch.coinbase_reward(true, 666050, 1_259_999), 250_000_000);
+        assert_eq!(epoch.coinbase_reward(true, 666050, 1_260_000), 125_000_000);
+        assert_eq!(epoch.coinbase_reward(true, 666050, 1_260_001), 125_000_000);
 
-    assert_eq!(
-        StacksEpochId::Epoch31.coinbase_reward(true, 666050, 1_469_999),
-        125_000_000
-    );
-    assert_eq!(
-        StacksEpochId::Epoch31.coinbase_reward(true, 666050, 1_470_000),
-        62_500_000
-    );
-    assert_eq!(
-        StacksEpochId::Epoch31.coinbase_reward(true, 666050, 1_470_001),
-        62_500_000
-    );
+        assert_eq!(epoch.coinbase_reward(true, 666050, 1_469_999), 125_000_000);
+        assert_eq!(epoch.coinbase_reward(true, 666050, 1_470_000), 62_500_000);
+        assert_eq!(epoch.coinbase_reward(true, 666050, 1_470_001), 62_500_000);
+    }
 
     // old coinbase schedule
     for epoch in [
@@ -254,6 +214,7 @@ fn test_epoch_coinbase_reward() {
         StacksEpochId::Epoch23,
         StacksEpochId::Epoch24,
         StacksEpochId::Epoch25,
+        StacksEpochId::Epoch30,
     ]
     .iter()
     {

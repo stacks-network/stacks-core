@@ -16,7 +16,7 @@
 use std::collections::{HashMap, HashSet};
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
@@ -224,7 +224,6 @@ impl LocalStateMachine {
             current_miner: MinerState::NoValidMiner,
             active_signer_protocol_version: version,
             tx_replay_set: ReplayTransactionSet::none(),
-            update_time: SystemTime::now(),
         }
     }
 
@@ -235,14 +234,6 @@ impl LocalStateMachine {
             | LocalStateMachine::Pending { prior: update, .. } => {
                 Some(update.active_signer_protocol_version)
             }
-            LocalStateMachine::Uninitialized => None,
-        }
-    }
-    /// Return the update time of the internal signer state machine
-    pub fn get_update_time(&self) -> Option<SystemTime> {
-        match self {
-            LocalStateMachine::Initialized(update)
-            | LocalStateMachine::Pending { prior: update, .. } => Some(update.update_time),
             LocalStateMachine::Uninitialized => None,
         }
     }
@@ -360,7 +351,6 @@ impl LocalStateMachine {
             db,
             proposal_config.tenure_last_block_proposal_timeout,
         )?;
-        state_machine.update_time = SystemTime::now();
         info!(
             "Signer State: Current tenure timed out, setting the active miner to the prior tenure";
             "inactive_tenure_ch" => %inactive_tenure_ch,
@@ -498,7 +488,6 @@ impl LocalStateMachine {
                             "signer_signature_hash" => %signer_signature_hash,
                         );
                         prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
-                        prior_state_machine.update_time = SystemTime::now();
                     }
                 }
                 Ok(None) => {
@@ -506,7 +495,6 @@ impl LocalStateMachine {
                         "txs" => ?txs,
                     );
                     prior_state_machine.tx_replay_set = ReplayTransactionSet::none();
-                    prior_state_machine.update_time = SystemTime::now()
                 }
                 Err(e) => {
                     warn!("Signer State: Failed to check if block was validated by replay tx";
@@ -550,7 +538,6 @@ impl LocalStateMachine {
 
         *parent_tenure_last_block = *block_id;
         *parent_tenure_last_block_height = height;
-        prior_state_machine.update_time = SystemTime::now();
         *self = LocalStateMachine::Initialized(prior_state_machine);
 
         crate::monitoring::actions::increment_signer_agreement_state_change_reason(
@@ -710,7 +697,6 @@ impl LocalStateMachine {
             current_miner: miner_state,
             active_signer_protocol_version: prior_state_machine.active_signer_protocol_version,
             tx_replay_set,
-            update_time: SystemTime::now(),
         });
 
         if prior_state != *self {
@@ -733,6 +719,7 @@ impl LocalStateMachine {
         sortition_state: &mut Option<SortitionsView>,
         capitulate_miner_view_timeout: Duration,
         tenure_last_block_proposal_timeout: Duration,
+        last_capitulate_miner_view: &mut SystemTime,
     ) {
         // Before we ever access eval...we should make sure to include our own local state machine update message in the evaluation
         let Ok(mut local_update) =
@@ -740,12 +727,6 @@ impl LocalStateMachine {
         else {
             return;
         };
-        // call this BEFORE updating active signer protocol version as we still may
-        // want to update our miner view and don't want a protocol version update to prevent it
-        let should_capitulate_miner_view = SystemTime::now()
-            .duration_since(self.get_update_time().unwrap_or(SystemTime::now()))
-            .map(|elapsed| elapsed > capitulate_miner_view_timeout)
-            .unwrap_or_default();
 
         let old_protocol_version = local_update.active_signer_protocol_version;
         // First check if we should update our active protocol version
@@ -769,7 +750,6 @@ impl LocalStateMachine {
                 current_miner: current_miner.into(),
                 active_signer_protocol_version,
                 tx_replay_set,
-                update_time: SystemTime::now(),
             });
             // Because we updated our active signer protocol version, update local_update so its included in the subsequent evaluations
             let Ok(update) =
@@ -779,10 +759,44 @@ impl LocalStateMachine {
             };
             local_update = update;
         }
-
-        if !should_capitulate_miner_view {
+        // Avoid spamming the node with capitulate checks:
+        // Only proceed if we haven't checked capitulation recently or signed a globally accepted block recently
+        if last_capitulate_miner_view
+            .elapsed()
+            .map(|elapsed| elapsed < capitulate_miner_view_timeout)
+            .unwrap_or_default()
+        {
+            // We already recently checked if we should capitulate. Don't bother checking globally accepted blocks
             return;
         }
+
+        let now = SystemTime::now();
+        let current_miner = local_update.content.current_miner();
+        let last_approved_block_time = match current_miner {
+            StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. } => {
+                signerdb
+                    .get_last_globally_accepted_block_signed_self(tenure_id)
+                    .inspect_err(|e| {
+                        warn!("Error retrieving last globally accepted block approved by this signer: {e}");
+                    })
+                    .unwrap_or(None)
+            }
+            _ => None,
+        };
+
+        // Fallback to UNIX_EPOCH if no approved block time exists
+        let last_approved_block_time = last_approved_block_time.unwrap_or(UNIX_EPOCH);
+
+        let time_since_last_approved = now
+            .duration_since(last_approved_block_time)
+            .unwrap_or_default();
+
+        if time_since_last_approved < capitulate_miner_view_timeout {
+            // Recently participated in a globally accepted block; skip capitulation
+            return;
+        }
+
+        *last_capitulate_miner_view = now;
 
         // Is there a miner view to which we should capitulate?
         let Some(new_miner) = self.capitulate_miner_view(
@@ -818,7 +832,6 @@ impl LocalStateMachine {
                 current_miner: (&new_miner).into(),
                 active_signer_protocol_version,
                 tx_replay_set,
-                update_time: SystemTime::now(),
             });
 
             match new_miner {

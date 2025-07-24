@@ -1,0 +1,20 @@
+clarinet = "./Clarinet.toml"
+
+# Set where you'd like TypeScript types output.
+[types]
+output = "tests/clarigen-types.ts"
+
+# `types.after` - script to run after TypeScript types are generated.
+after = "npx prettier -w ./tests/clarigen-types.ts"
+
+watch_folders = [
+  "../../stackslib/src/chainstate/stacks/boot"
+]
+
+# Set where you'd like generated contract docs
+# Generate docs by running `clarigen docs`
+[docs]
+output = "docs"
+
+# `docs.after` - script to run after docs are generated.
+after = "npx -y prettier -w ./docs"

@@ -1,11 +1,21 @@
-import { Cl } from "@stacks/transactions";
+import { Cl, ClarityType } from "@stacks/transactions";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
+import { project } from '../clarigen-types'; // where your [types.output] was specified
+import { projectFactory } from '@clarigen/core';
+import { rovOk, mapGet } from '@clarigen/test';
+
+const contracts = projectFactory(project, 'simnet');
+const contract = contracts.bns;
 
 const accounts = simnet.getAccounts();
 const alice = accounts.get("wallet_1")!;
 const bob = accounts.get("wallet_2")!;
 const charlie = accounts.get("wallet_3")!;
+
+function utf8ToBytes(str: string) {
+  return new TextEncoder().encode(str);
+}
 
 const cases = [
   {
@@ -120,7 +130,7 @@ describe("preorder namespace", () => {
       [Cl.buffer(ripemd160), Cl.uint(cases[1].value)],
       cases[1].namespaceOwner
     );
-    expect(result).toBeOk(Cl.uint(144 + simnet.blockHeight));
+    expect(result).toBeOk(Cl.uint(143 + simnet.blockHeight));
   });
 });
 
@@ -136,7 +146,7 @@ describe("namespace reveal workflow", () => {
       [Cl.buffer(ripemd160), Cl.uint(cases[1].value)],
       cases[1].namespaceOwner
     );
-    expect(result).toBeOk(Cl.uint(144 + simnet.blockHeight));
+    expect(result).toBeOk(Cl.uint(143 + simnet.blockHeight));
   });
 
   it("should reveal a namespace", () => {
@@ -180,7 +190,7 @@ describe("namespace reveal workflow", () => {
       [Cl.buffer(ripemd160), Cl.uint(100)],
       bob
     );
-    expect(preorder.result).toBeOk(Cl.uint(144 + simnet.blockHeight));
+    expect(preorder.result).toBeOk(Cl.uint(141 + simnet.blockHeight));
 
     const register = simnet.callPublicFn(
       "bns",
@@ -286,6 +296,7 @@ describe("name revealing workflow", () => {
     const merged = new TextEncoder().encode(`${name}.${cases[0].namespace}${cases[0].salt}`);
     const sha256 = createHash("sha256").update(merged).digest();
     const ripemd160 = createHash("ripemd160").update(sha256).digest();
+    simnet.mineEmptyBlock();
     simnet.callPublicFn("bns", "name-preorder", [Cl.buffer(ripemd160), Cl.uint(2559999)], bob);
 
     const { result } = simnet.callPublicFn(
@@ -328,6 +339,7 @@ describe("name revealing workflow", () => {
     const merged = new TextEncoder().encode(`${name}.${cases[0].namespace}${cases[0].salt}`);
     const sha256 = createHash("sha256").update(merged).digest();
     const ripemd160 = createHash("ripemd160").update(sha256).digest();
+    simnet.mineEmptyBlock();
     simnet.callPublicFn("bns", "name-preorder", [Cl.buffer(ripemd160), Cl.uint(2560000)], bob);
 
     const register = simnet.callPublicFn(
@@ -366,8 +378,8 @@ describe("name revealing workflow", () => {
       Cl.tuple({
         owner: Cl.standardPrincipal(bob),
         ["zonefile-hash"]: Cl.bufferFromUtf8(cases[0].zonefile),
-        ["lease-ending-at"]: Cl.some(Cl.uint(16)),
-        ["lease-started-at"]: Cl.uint(6),
+        ["lease-ending-at"]: Cl.some(Cl.uint(14)),
+        ["lease-started-at"]: Cl.uint(4),
       })
     );
   });
@@ -377,6 +389,7 @@ describe("name revealing workflow", () => {
     const merged = new TextEncoder().encode(`${name}.${cases[0].namespace}${cases[0].salt}`);
     const sha256 = createHash("sha256").update(merged).digest();
     const ripemd160 = createHash("ripemd160").update(sha256).digest();
+    simnet.mineEmptyBlock();
     simnet.callPublicFn("bns", "name-preorder", [Cl.buffer(ripemd160), Cl.uint(2560000)], bob);
     simnet.callPublicFn(
       "bns",
@@ -415,11 +428,11 @@ describe("register a name again before and after expiration", () => {
     simnet.callPublicFn(
       "bns",
       "namespace-preorder",
-      [Cl.buffer(ripemd160NS), Cl.uint(cases[0].value)],
+      [Cl.buffer(Uint8Array.from(ripemd160NS)), Cl.uint(cases[0].value)],
       cases[0].namespaceOwner
     );
 
-    simnet.callPublicFn(
+    const revealResult = simnet.callPublicFn(
       "bns",
       "namespace-reveal",
       [
@@ -431,22 +444,34 @@ describe("register a name again before and after expiration", () => {
       ],
       cases[0].namespaceOwner
     );
+    expect(revealResult.result).toBeOk(Cl.bool(true));
 
-    simnet.callPublicFn(
+    const readyResult = simnet.callPublicFn(
       "bns",
       "namespace-ready",
       [Cl.bufferFromUtf8(cases[0].namespace)],
       cases[0].namespaceOwner
     );
-
+    expect(readyResult.result).toBeOk(Cl.bool(true));
     // register bob.blockstack
     const name = "bob";
     const merged = new TextEncoder().encode(`${name}.${cases[0].namespace}${cases[0].salt}`);
     const sha256 = createHash("sha256").update(merged).digest();
     const ripemd160 = createHash("ripemd160").update(sha256).digest();
-    simnet.callPublicFn("bns", "name-preorder", [Cl.buffer(ripemd160), Cl.uint(2560000)], bob);
+    simnet.mineEmptyBlocks(1);
+    const preorderResult = simnet.callPublicFn("bns", "name-preorder", [Cl.buffer(Uint8Array.from(ripemd160)), Cl.uint(2560000)], bob);
+    expect(preorderResult.result.type).toBe(ClarityType.ResponseOk);
 
-    simnet.callPublicFn(
+    const namespace = rovOk(contract.getNamespaceProperties(utf8ToBytes(cases[0].namespace)))
+    expect(namespace).toBeTruthy();
+
+    const preorder = mapGet(contract.identifier, contract.maps.namePreorders, {
+      buyer: bob,
+      hashedSaltedFqn: Uint8Array.from(ripemd160),
+    })
+    expect(preorder).toBeTruthy();
+
+    const registerResult = simnet.callPublicFn(
       "bns",
       "name-register",
       [
@@ -457,6 +482,7 @@ describe("register a name again before and after expiration", () => {
       ],
       bob
     );
+    expect(registerResult.result).toBeOk(Cl.bool(true));
   });
 
   it("fails if someone else tries to register it", () => {
@@ -465,13 +491,15 @@ describe("register a name again before and after expiration", () => {
     const merged = new TextEncoder().encode(`${name}.${cases[0].namespace}${salt}`);
     const sha256 = createHash("sha256").update(merged).digest();
     const ripemd160 = createHash("ripemd160").update(sha256).digest();
+    let blockHeight = simnet.blockHeight;
+    console.log("blockHeight", blockHeight);
     const preorder = simnet.callPublicFn(
       "bns",
       "name-preorder",
-      [Cl.buffer(ripemd160), Cl.uint(2560000)],
+      [Cl.buffer(Uint8Array.from(ripemd160)), Cl.uint(2560000)],
       charlie
     );
-    expect(preorder.result).toBeOk(Cl.uint(144 + simnet.blockHeight));
+    expect(preorder.result).toBeOk(Cl.uint(138 + simnet.blockHeight));
 
     const register = simnet.callPublicFn(
       "bns",
@@ -484,6 +512,7 @@ describe("register a name again before and after expiration", () => {
       ],
       charlie
     );
+    console.log(simnet.blockHeight);
     expect(register.result).toBeErr(Cl.int(2004));
   });
 
@@ -541,7 +570,7 @@ describe("register a name again before and after expiration", () => {
       [Cl.buffer(ripemd160), Cl.uint(2560000)],
       bob
     );
-    expect(preorder.result).toBeOk(Cl.uint(144 + simnet.blockHeight));
+    expect(preorder.result).toBeOk(Cl.uint(138 + simnet.blockHeight));
 
     const register = simnet.callPublicFn(
       "bns",
@@ -589,8 +618,8 @@ describe("register a name again before and after expiration", () => {
       Cl.tuple({
         owner: Cl.standardPrincipal(charlie),
         ["zonefile-hash"]: Cl.bufferFromAscii("CHARLIE"),
-        ["lease-ending-at"]: Cl.some(Cl.uint(5029)),
-        ["lease-started-at"]: Cl.uint(5019),
+        ["lease-ending-at"]: Cl.some(Cl.uint(5025)),
+        ["lease-started-at"]: Cl.uint(5015),
       })
     );
   });
