@@ -50,7 +50,7 @@ impl BitcoinCoreController {
     pub fn from_stx_config(config: Config) -> Self {
         let mut result = BitcoinCoreController {
             bitcoind_process: None,
-            config: config.clone(), //TODO: clone can be removed once 
+            config: config.clone(), //TODO: clone can be removed once
             args: vec![],
         };
 

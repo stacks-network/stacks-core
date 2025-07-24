@@ -210,7 +210,7 @@ mod tests {
     use super::*;
 
     mod utils {
-        use crate::burnchains::rpc_transport::{RpcAuth, RpcTransport};
+        use super::*;
 
         pub fn rpc_no_auth(server: &mockito::ServerGuard) -> RpcTransport {
             RpcTransport::new(server.url(), RpcAuth::None, None)

@@ -29,7 +29,7 @@ use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use stacks::config::Config;
 
-use crate::burnchains::rpc_transport::{RpcAuth, RpcError, RpcTransport};
+use crate::burnchains::rpc::rpc_transport::{RpcAuth, RpcError, RpcTransport};
 
 /// Response structure for the `gettransaction` RPC call.
 ///
@@ -418,7 +418,7 @@ impl BitcoinRpcClient {
     ///
     /// # Returns
     /// A transaction ID as a `String`.
-    /// 
+    ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.7.0**.
     /// - `maxburnamount` parameter is available starting from **v25.0**.
@@ -578,11 +578,7 @@ impl BitcoinRpcClient {
     /// # Availability
     /// - **Since**: Bitcoin Core **v22.0**.
     /// - Requires `regtest` or similar testing networks.
-    pub fn generate_block(
-        &self,
-        address: &str,
-        txs: &[&str],
-    ) -> BitcoinRpcClientResult<String> {
+    pub fn generate_block(&self, address: &str, txs: &[&str]) -> BitcoinRpcClientResult<String> {
         let response = self.global_ep.send::<GenerateBlockResponse>(
             &self.client_id,
             "generateblock",
@@ -1351,8 +1347,7 @@ mod tests {
 
             use stacks::config::Config;
 
-            use crate::burnchains::bitcoin_rpc_client::BitcoinRpcClient;
-            use crate::burnchains::rpc_transport::RpcAuth;
+            use super::*;
             use crate::util::get_epoch_time_ms;
 
             pub fn create_stx_config() -> Config {
