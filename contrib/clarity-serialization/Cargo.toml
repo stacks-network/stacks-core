@@ -1,0 +1,32 @@
+[package]
+name = "clarity-serialization"
+version = "0.0.1"
+edition = "2024"
+description = "Serialization and deserialization for Stacks Clarity smart contract language types."
+license = "GPLv3"
+homepage = "https://github.com/stacks-network/stacks-core"
+repository = "https://github.com/stacks-network/stacks-core"
+keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
+readme = "README.md"
+
+[dependencies]
+lazy_static = "1.4.0"
+regex = { version = "1", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_derive = { version = "1" }
+slog = { version = "2.5.2", features = [ "max_level_trace" ] }
+stacks_common = { package = "stacks-common", path = "../../stacks-common", default-features = false }
+thiserror = { version = "1.0.65" }
+
+[dev-dependencies]
+mutants = "0.0.3"
+test-case = { version = "3.3.1", default-features = false }
+
+[features]
+default = []
+testing = []
+slog_json = ["stacks_common/slog_json"]
+
+# Wasm-specific features for easier configuration
+wasm-web = ["stacks_common/wasm-web"]
+wasm-deterministic = ["stacks_common/wasm-deterministic"]
