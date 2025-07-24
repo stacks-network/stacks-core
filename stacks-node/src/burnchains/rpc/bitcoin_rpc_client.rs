@@ -1337,6 +1337,8 @@ mod tests {
 
     #[cfg(test)]
     mod inte {
+        use std::env;
+
         use stacks::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
 
         use super::*;
@@ -1390,8 +1392,13 @@ mod tests {
             }
         }
 
+        #[ignore]
         #[test]
         fn test_rpc_call_fails_when_bitcond_with_auth_but_rpc_no_auth() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
             let config_with_auth = utils::create_stx_config();
 
             let mut btcd_controller = BitcoinCoreController::new(config_with_auth.clone());
@@ -1411,8 +1418,13 @@ mod tests {
             }
         }
 
+        #[ignore]
         #[test]
         fn test_rpc_call_fails_when_bitcond_no_auth_and_rpc_no_auth() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
             let mut config_no_auth = utils::create_stx_config();
             config_no_auth.burnchain.username = None;
             config_no_auth.burnchain.password = None;
@@ -1434,8 +1446,13 @@ mod tests {
             }
         }
 
+        #[ignore]
         #[test]
         fn test_client_creation_fails_due_to_stx_config_missing_auth() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
             let mut config_no_auth = utils::create_stx_config();
             config_no_auth.burnchain.username = None;
             config_no_auth.burnchain.password = None;
@@ -1446,8 +1463,13 @@ mod tests {
             assert_eq!("Missing RPC credentials!", err);
         }
 
+        #[ignore]
         #[test]
         fn test_get_blockchain_info_ok() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
             let config = utils::create_stx_config();
 
             let mut btcd_controller = BitcoinCoreController::new(config.clone());
@@ -1464,8 +1486,13 @@ mod tests {
             assert_eq!(BITCOIN_REGTEST_FIRST_BLOCK_HASH, info.best_block_hash);
         }
 
+        #[ignore]
         #[test]
         fn test_wallet_listing_and_creation_ok() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
             let config = utils::create_stx_config();
 
             let mut btcd_controller = BitcoinCoreController::new(config.clone());
@@ -1496,8 +1523,13 @@ mod tests {
             assert_eq!("mywallet2", wallets[1]);
         }
 
+        #[ignore]
         #[test]
         fn test_wallet_creation_fails_if_already_exists() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
             let config = utils::create_stx_config();
 
             let mut btcd_controller = BitcoinCoreController::new(config.clone());
@@ -1521,8 +1553,13 @@ mod tests {
             ));
         }
 
+        #[ignore]
         #[test]
         fn test_generate_to_address_and_list_unspent_ok() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
             let mut config = utils::create_stx_config();
             config.burnchain.wallet_name = "my_wallet".to_string();
 
@@ -1554,8 +1591,13 @@ mod tests {
             assert_eq!(1, utxos.len());
         }
 
+        #[ignore]
         #[test]
         fn test_generate_block_ok() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
             let mut config = utils::create_stx_config();
             config.burnchain.wallet_name = "my_wallet".to_string();
 
@@ -1572,8 +1614,13 @@ mod tests {
             assert_eq!(64, block_hash.len());
         }
 
+        #[ignore]
         #[test]
         fn test_get_raw_transaction_ok() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
             let mut config = utils::create_stx_config();
             config.burnchain.wallet_name = "my_wallet".to_string();
 
@@ -1608,8 +1655,13 @@ mod tests {
             assert_ne!("", raw_tx);
         }
 
+        #[ignore]
         #[test]
         fn test_get_transaction_ok() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
             let mut config = utils::create_stx_config();
             config.burnchain.wallet_name = "my_wallet".to_string();
 
@@ -1641,8 +1693,13 @@ mod tests {
             assert_eq!(0, resp.confirmations);
         }
 
+        #[ignore]
         #[test]
         fn test_get_descriptor_ok() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
             let mut config = utils::create_stx_config();
             config.burnchain.wallet_name = "my_wallet".to_string();
 
@@ -1666,8 +1723,13 @@ mod tests {
             assert_eq!(checksum, info.checksum);
         }
 
+        #[ignore]
         #[test]
         fn test_import_descriptor_ok() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
             let mut config = utils::create_stx_config();
             config.burnchain.wallet_name = "my_wallet".to_string();
 
@@ -1697,8 +1759,13 @@ mod tests {
             assert!(response[0].success);
         }
 
+        #[ignore]
         #[test]
         fn test_stop_bitcoind_ok() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
             let config = utils::create_stx_config();
 
             let mut btcd_controller = BitcoinCoreController::new(config.clone());
@@ -1711,8 +1778,13 @@ mod tests {
             assert_eq!("Bitcoin Core stopping", msg);
         }
 
+        #[ignore]
         #[test]
         fn test_invalidate_block_ok() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
             let mut config = utils::create_stx_config();
             config.burnchain.wallet_name = "my_wallet".to_string();
 
@@ -1734,8 +1806,13 @@ mod tests {
                 .expect_err("Invalidate invalid hash should fail!");
         }
 
+        #[ignore]
         #[test]
         fn test_get_block_hash_ok() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
             let mut config = utils::create_stx_config();
             config.burnchain.wallet_name = "my_wallet".to_string();
 
