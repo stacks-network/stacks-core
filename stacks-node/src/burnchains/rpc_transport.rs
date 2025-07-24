@@ -83,11 +83,12 @@ pub enum RpcAuth {
 ///
 /// This struct encapsulates the target URL, optional authentication,
 /// and an internal HTTP client.
+#[derive(Debug)]
 pub struct RpcTransport {
     /// The base URL of the JSON-RPC endpoint.
-    pub url: String,
-    /// Optional authentication to apply to outgoing requests.
-    pub auth: RpcAuth,
+    url: String,
+    /// Authentication to apply to outgoing requests.
+    auth: RpcAuth,
     /// The reqwest http client
     client: ReqwestClient,
 }
@@ -99,7 +100,7 @@ impl RpcTransport {
     ///
     /// * `url` - The JSON-RPC server endpoint.
     /// * `auth` - Authentication configuration (`None` or `Basic`).
-    /// * `timeout` - Optional request timeout duration.
+    /// * `timeout` - Optional request timeout duration. (`None` to disable timeout)
     ///
     /// # Errors
     ///
@@ -149,6 +150,22 @@ impl RpcTransport {
         let response = request_builder
             .send()
             .map_err(|err| RpcError::Network(err.to_string()))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().unwrap_or_default();
+            let body_msg = if body.trim().is_empty() {
+                "<empty body>".to_string()
+            } else {
+                body
+            };
+
+            return Err(RpcError::Service(format!(
+                "HTTP error {}: {}",
+                status.as_u16(),
+                body_msg,
+            )));
+        }
 
         let parsed: JsonRpcResponse<T> = response.json().map_err(Self::classify_parse_error)?;
 
