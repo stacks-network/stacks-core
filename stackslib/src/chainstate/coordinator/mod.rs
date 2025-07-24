@@ -29,12 +29,11 @@ use stacks_common::util::get_epoch_time_secs;
 pub use self::comm::CoordinatorCommunication;
 use super::stacks::boot::{RewardSet, RewardSetData};
 use super::stacks::db::blocks::DummyEventDispatcher;
-use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::db::{BurnchainBlockData, BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, Error as BurnchainError, PoxConstants, Txid,
 };
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBTx, SortitionHandleTx};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
@@ -56,9 +55,7 @@ use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::Error as IndexError;
 use crate::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use crate::chainstate::stacks::{Error as ChainstateError, StacksBlockHeader, TransactionPayload};
-use crate::core::{
-    StacksEpoch, StacksEpochId, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
-};
+use crate::core::{StacksEpoch, StacksEpochId};
 use crate::cost_estimates::{CostEstimator, FeeEstimator};
 use crate::monitoring::{
     increment_contract_calls_processed, increment_stx_blocks_processed_counter,
@@ -981,135 +978,6 @@ fn forget_orphan_stacks_blocks(
     Ok(())
 }
 
-/// Consolidate affirmation maps.
-/// `sort_am` will be the prefix of the resulting AM.
-/// If `given_am` represents more reward cycles than `last_2_05_rc`, then its affirmations will be
-/// appended to `sort_am` to compute the consolidated affirmation map.
-///
-/// This way, the affirmation map reflects affirmations made under the 2.05 rules during epoch 2.05
-/// reward cycles, and affirmations made under the 2.1 rules during epoch 2.1.
-fn consolidate_affirmation_maps(
-    given_am: AffirmationMap,
-    sort_am: &AffirmationMap,
-    last_2_05_rc: usize,
-) -> AffirmationMap {
-    let mut am_entries = vec![];
-    for i in 0..last_2_05_rc {
-        if let Some(am_entry) = sort_am.affirmations.get(i) {
-            am_entries.push(*am_entry);
-        } else {
-            return AffirmationMap::new(am_entries);
-        }
-    }
-    for am_entry in given_am.affirmations.iter().skip(last_2_05_rc) {
-        am_entries.push(*am_entry);
-    }
-
-    AffirmationMap::new(am_entries)
-}
-
-/// Get the heaviest affirmation map, when considering epochs.
-/// * In epoch 2.05 and prior, the heaviest AM was the sortition AM.
-/// * In epoch 2.1, the reward cycles prior to the 2.1 boundary remain the sortition AM.
-pub fn static_get_heaviest_affirmation_map<B: BurnchainHeaderReader>(
-    burnchain: &Burnchain,
-    indexer: &B,
-    burnchain_blocks_db: &BurnchainDB,
-    sortition_db: &SortitionDB,
-    sortition_tip: &SortitionId,
-) -> Result<AffirmationMap, Error> {
-    let last_2_05_rc = sortition_db.get_last_epoch_2_05_reward_cycle()? as usize;
-
-    let sort_am = sortition_db.find_sortition_tip_affirmation_map(sortition_tip)?;
-
-    let heaviest_am = BurnchainDB::get_heaviest_anchor_block_affirmation_map(
-        burnchain_blocks_db.conn(),
-        burnchain,
-        indexer,
-    )?;
-
-    Ok(consolidate_affirmation_maps(
-        heaviest_am,
-        &sort_am,
-        last_2_05_rc,
-    ))
-}
-
-/// Get the canonical affirmation map, when considering epochs.
-/// * In epoch 2.05 and prior, the heaviest AM was the sortition AM.
-/// * In epoch 2.1, the reward cycles prior to the 2.1 boundary remain the sortition AM.
-pub fn static_get_canonical_affirmation_map<B: BurnchainHeaderReader>(
-    burnchain: &Burnchain,
-    indexer: &B,
-    burnchain_blocks_db: &BurnchainDB,
-    sortition_db: &SortitionDB,
-    chain_state_db: &StacksChainState,
-    sortition_tip: &SortitionId,
-) -> Result<AffirmationMap, Error> {
-    let last_2_05_rc = sortition_db.get_last_epoch_2_05_reward_cycle()? as usize;
-
-    let sort_am = sortition_db.find_sortition_tip_affirmation_map(sortition_tip)?;
-
-    let canonical_am = StacksChainState::find_canonical_affirmation_map(
-        burnchain,
-        indexer,
-        burnchain_blocks_db,
-        chain_state_db,
-    )?;
-
-    Ok(consolidate_affirmation_maps(
-        canonical_am,
-        &sort_am,
-        last_2_05_rc,
-    ))
-}
-
-fn inner_static_get_stacks_tip_affirmation_map(
-    burnchain_blocks_db: &BurnchainDB,
-    last_2_05_rc: u64,
-    sort_am: &AffirmationMap,
-    sortdb_conn: &DBConn,
-    canonical_ch: &ConsensusHash,
-    canonical_bhh: &BlockHeaderHash,
-) -> Result<AffirmationMap, Error> {
-    let last_2_05_rc = last_2_05_rc as usize;
-
-    let stacks_am = StacksChainState::find_stacks_tip_affirmation_map(
-        burnchain_blocks_db,
-        sortdb_conn,
-        canonical_ch,
-        canonical_bhh,
-    )?;
-
-    Ok(consolidate_affirmation_maps(
-        stacks_am,
-        sort_am,
-        last_2_05_rc,
-    ))
-}
-
-/// Get the canonical Stacks tip affirmation map, when considering epochs.
-/// * In epoch 2.05 and prior, the heaviest AM was the sortition AM.
-/// * In epoch 2.1, the reward cycles prior to the 2.1 boundary remain the sortition AM
-pub fn static_get_stacks_tip_affirmation_map(
-    burnchain_blocks_db: &BurnchainDB,
-    sortition_db: &SortitionDB,
-    sortition_tip: &SortitionId,
-    canonical_ch: &ConsensusHash,
-    canonical_bhh: &BlockHeaderHash,
-) -> Result<AffirmationMap, Error> {
-    let last_2_05_rc = sortition_db.get_last_epoch_2_05_reward_cycle()?;
-    let sort_am = sortition_db.find_sortition_tip_affirmation_map(sortition_tip)?;
-    inner_static_get_stacks_tip_affirmation_map(
-        burnchain_blocks_db,
-        last_2_05_rc,
-        &sort_am,
-        sortition_db.conn(),
-        canonical_ch,
-        canonical_bhh,
-    )
-}
-
 impl<
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
@@ -1130,32 +998,6 @@ impl<
         }
     }
 
-    fn get_heaviest_affirmation_map(
-        &self,
-        sortition_tip: &SortitionId,
-    ) -> Result<AffirmationMap, Error> {
-        static_get_heaviest_affirmation_map(
-            &self.burnchain,
-            &self.burnchain_indexer,
-            &self.burnchain_blocks_db,
-            &self.sortition_db,
-            sortition_tip,
-        )
-    }
-
-    fn get_canonical_affirmation_map(
-        &self,
-        sortition_tip: &SortitionId,
-    ) -> Result<AffirmationMap, Error> {
-        static_get_canonical_affirmation_map(
-            &self.burnchain,
-            &self.burnchain_indexer,
-            &self.burnchain_blocks_db,
-            &self.sortition_db,
-            &self.chain_state_db,
-            sortition_tip,
-        )
-    }
     /// Try to revalidate a sortition if it exists already.  This can happen if the node flip/flops
     /// between two PoX forks.
     ///
@@ -1315,8 +1157,6 @@ impl<
         already_processed_burn_blocks: &mut HashSet<BurnchainHeaderHash>,
     ) -> Result<Option<BlockHeaderHash>, Error> {
         debug!("Handle new burnchain block");
-
-        let last_2_05_rc = self.sortition_db.get_last_epoch_2_05_reward_cycle()?;
 
         // Retrieve canonical burnchain chain tip from the BurnchainBlocksDB
         let canonical_snapshot = match self.canonical_sortition_tip.as_ref() {

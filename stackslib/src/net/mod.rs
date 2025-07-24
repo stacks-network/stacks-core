@@ -37,7 +37,6 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use {rusqlite, url};
 
 use self::dns::*;
-use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::{Burnchain, Error as burnchain_error, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
@@ -3530,7 +3529,7 @@ pub mod test {
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
             self.network
-                .refresh_burnchain_view(&indexer, &sortdb, &mut stacks_node.chainstate, false)
+                .refresh_burnchain_view(&sortdb, &mut stacks_node.chainstate, false)
                 .unwrap();
 
             self.sortdb = Some(sortdb);

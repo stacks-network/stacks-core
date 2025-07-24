@@ -147,10 +147,10 @@ impl RPCPeerInfoData {
             node_public_key: Some(public_key_buf),
             node_public_key_hash: Some(public_key_hash),
             affirmations: Some(RPCAffirmationData {
-                heaviest: network.heaviest_affirmation_map.clone(),
-                stacks_tip: network.stacks_tip_affirmation_map.clone(),
-                sortition_tip: network.sortition_tip_affirmation_map.clone(),
-                tentative_best: network.tentative_best_affirmation_map.clone(),
+                heaviest: AffirmationMap::empty(),
+                stacks_tip: AffirmationMap::empty(),
+                sortition_tip: AffirmationMap::empty(),
+                tentative_best: AffirmationMap::empty(),
             }),
             last_pox_anchor: Some(RPCLastPoxAnchorData {
                 anchor_block_hash: network.last_anchor_block_hash.clone(),

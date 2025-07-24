@@ -681,12 +681,7 @@ impl<'a> TestRPC<'a> {
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
         let _ = peer_1
             .network
-            .refresh_burnchain_view(
-                &peer_1_indexer,
-                &peer_1_sortdb,
-                &mut peer_1_stacks_node.chainstate,
-                false,
-            )
+            .refresh_burnchain_view(&peer_1_sortdb, &mut peer_1_stacks_node.chainstate, false)
             .unwrap();
         peer_1.sortdb = Some(peer_1_sortdb);
         peer_1.stacks_node = Some(peer_1_stacks_node);
@@ -695,12 +690,7 @@ impl<'a> TestRPC<'a> {
         let mut peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
         let _ = peer_2
             .network
-            .refresh_burnchain_view(
-                &peer_2_indexer,
-                &peer_2_sortdb,
-                &mut peer_2_stacks_node.chainstate,
-                false,
-            )
+            .refresh_burnchain_view(&peer_2_sortdb, &mut peer_2_stacks_node.chainstate, false)
             .unwrap();
         peer_2.sortdb = Some(peer_2_sortdb);
         peer_2.stacks_node = Some(peer_2_stacks_node);
@@ -1174,12 +1164,7 @@ impl<'a> TestRPC<'a> {
 
             let _ = peer_2
                 .network
-                .refresh_burnchain_view(
-                    &peer_2_indexer,
-                    &peer_2_sortdb,
-                    &mut peer_2_stacks_node.chainstate,
-                    false,
-                )
+                .refresh_burnchain_view(&peer_2_sortdb, &mut peer_2_stacks_node.chainstate, false)
                 .unwrap();
 
             if unconfirmed_state {
@@ -1225,12 +1210,7 @@ impl<'a> TestRPC<'a> {
 
             let _ = peer_1
                 .network
-                .refresh_burnchain_view(
-                    &peer_1_indexer,
-                    &peer_1_sortdb,
-                    &mut peer_1_stacks_node.chainstate,
-                    false,
-                )
+                .refresh_burnchain_view(&peer_1_sortdb, &mut peer_1_stacks_node.chainstate, false)
                 .unwrap();
 
             if unconfirmed_state {

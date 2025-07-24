@@ -777,7 +777,7 @@ fn test_sync_inv_make_inv_messages() {
         .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
             network.refresh_local_peer().unwrap();
             network
-                .refresh_burnchain_view(&indexer, sortdb, chainstate, false)
+                .refresh_burnchain_view(sortdb, chainstate, false)
                 .unwrap();
             network.refresh_sortition_view(sortdb).unwrap();
             Ok(())

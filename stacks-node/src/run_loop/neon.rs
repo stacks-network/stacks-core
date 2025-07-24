@@ -13,9 +13,8 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{
-    migrate_chainstate_dbs, static_get_canonical_affirmation_map,
-    static_get_heaviest_affirmation_map, static_get_stacks_tip_affirmation_map, ChainsCoordinator,
-    ChainsCoordinatorConfig, CoordinatorCommunication, Error as coord_error,
+    migrate_chainstate_dbs, ChainsCoordinator, ChainsCoordinatorConfig, CoordinatorCommunication,
+    Error as coord_error,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
@@ -794,8 +793,6 @@ impl RunLoop {
     fn drive_pox_reorg_stacks_block_processing(
         globals: &Globals,
         config: &Config,
-        burnchain: &Burnchain,
-        sortdb: &SortitionDB,
         last_stacks_pox_reorg_recover_time: &mut u128,
     ) {
         let miner_config = config.get_miner_config();
@@ -812,92 +809,10 @@ impl RunLoop {
             return;
         }
 
-        // compare stacks and heaviest AMs
-        let burnchain_db = burnchain
-            .open_burnchain_db(false)
-            .expect("FATAL: failed to open burnchain DB");
-
-        let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
-            .expect("FATAL: could not read sortition DB");
-
-        let indexer = make_bitcoin_indexer(config, Some(globals.should_keep_running.clone()));
-
-        let heaviest_affirmation_map = match static_get_heaviest_affirmation_map(
-            burnchain,
-            &indexer,
-            &burnchain_db,
-            sortdb,
-            &sn.sortition_id,
-        ) {
-            Ok(am) => am,
-            Err(e) => {
-                warn!("Failed to find heaviest affirmation map: {e:?}");
-                return;
-            }
-        };
-
-        let highest_sn = SortitionDB::get_highest_known_burn_chain_tip(sortdb.conn())
-            .expect("FATAL: could not read sortition DB");
-
-        let canonical_burnchain_tip = burnchain_db
-            .get_canonical_chain_tip()
-            .expect("FATAL: could not read burnchain DB");
-
-        let sortition_tip_affirmation_map =
-            match SortitionDB::find_sortition_tip_affirmation_map(sortdb, &sn.sortition_id) {
-                Ok(am) => am,
-                Err(e) => {
-                    warn!("Failed to find sortition affirmation map: {e:?}");
-                    return;
-                }
-            };
-
-        let stacks_tip_affirmation_map = static_get_stacks_tip_affirmation_map(
-            &burnchain_db,
-            sortdb,
-            &sn.sortition_id,
-            &sn.canonical_stacks_tip_consensus_hash,
-            &sn.canonical_stacks_tip_hash,
-        )
-        .expect("FATAL: could not query stacks DB");
-
-        if stacks_tip_affirmation_map.len() < heaviest_affirmation_map.len()
-            || stacks_tip_affirmation_map
-                .find_divergence(&heaviest_affirmation_map)
-                .is_some()
-        {
-            // the sortition affirmation map might also be inconsistent, so we'll need to fix that
-            // (i.e. the underlying sortitions) before we can fix the stacks fork
-            if sortition_tip_affirmation_map.len() < heaviest_affirmation_map.len()
-                || sortition_tip_affirmation_map
-                    .find_divergence(&heaviest_affirmation_map)
-                    .is_some()
-            {
-                debug!("Drive burn block processing: possible PoX reorg (sortition tip: {sortition_tip_affirmation_map}, heaviest: {heaviest_affirmation_map})");
-                globals.coord().announce_new_burn_block();
-            } else if highest_sn.block_height == sn.block_height
-                && sn.block_height == canonical_burnchain_tip.block_height
-            {
-                // need to force an affirmation reorg because there will be no more burn block
-                // announcements.
-                debug!("Drive burn block processing: possible PoX reorg (sortition tip: {sortition_tip_affirmation_map}, heaviest: {heaviest_affirmation_map}, burn height {})", sn.block_height);
-                globals.coord().announce_new_burn_block();
-            }
-
-            debug!(
-                "Drive stacks block processing: possible PoX reorg (stacks tip: {stacks_tip_affirmation_map}, heaviest: {heaviest_affirmation_map})"
-            );
-            globals.coord().announce_new_stacks_block();
-        } else {
-            debug!(
-                "Drive stacks block processing: no need (stacks tip: {stacks_tip_affirmation_map}, heaviest: {heaviest_affirmation_map})"
-            );
-
-            // announce a new stacks block to force the chains coordinator
-            //  to wake up anyways. this isn't free, so we have to make sure
-            //  the chain-liveness thread doesn't wake up too often
-            globals.coord().announce_new_stacks_block();
-        }
+        // announce a new stacks block to force the chains coordinator
+        //  to wake up anyways. this isn't free, so we have to make sure
+        //  the chain-liveness thread doesn't wake up too often
+        globals.coord().announce_new_stacks_block();
 
         *last_stacks_pox_reorg_recover_time = get_epoch_time_secs().into();
     }
@@ -913,7 +828,6 @@ impl RunLoop {
         config: &Config,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
-        chain_state_db: &StacksChainState,
         last_burn_pox_reorg_recover_time: &mut u128,
         last_announce_time: &mut u128,
     ) {
@@ -953,82 +867,6 @@ impl RunLoop {
             return;
         }
 
-        // NOTE: this could be lower than the highest_sn
-        let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
-            .expect("FATAL: could not read sortition DB");
-
-        let sortition_tip_affirmation_map =
-            match SortitionDB::find_sortition_tip_affirmation_map(sortdb, &sn.sortition_id) {
-                Ok(am) => am,
-                Err(e) => {
-                    warn!("Failed to find sortition affirmation map: {e:?}");
-                    return;
-                }
-            };
-
-        let indexer = make_bitcoin_indexer(config, Some(globals.should_keep_running.clone()));
-
-        let heaviest_affirmation_map = match static_get_heaviest_affirmation_map(
-            burnchain,
-            &indexer,
-            &burnchain_db,
-            sortdb,
-            &sn.sortition_id,
-        ) {
-            Ok(am) => am,
-            Err(e) => {
-                warn!("Failed to find heaviest affirmation map: {e:?}");
-                return;
-            }
-        };
-
-        let canonical_affirmation_map = match static_get_canonical_affirmation_map(
-            burnchain,
-            &indexer,
-            &burnchain_db,
-            sortdb,
-            chain_state_db,
-            &sn.sortition_id,
-        ) {
-            Ok(am) => am,
-            Err(e) => {
-                warn!("Failed to find canonical affirmation map: {e:?}");
-                return;
-            }
-        };
-
-        if sortition_tip_affirmation_map.len() < heaviest_affirmation_map.len()
-            || sortition_tip_affirmation_map
-                .find_divergence(&heaviest_affirmation_map)
-                .is_some()
-            || sn.block_height < highest_sn.block_height
-        {
-            debug!("Drive burn block processing: possible PoX reorg (sortition tip: {sortition_tip_affirmation_map}, heaviest: {heaviest_affirmation_map}, {} <? {})", sn.block_height, highest_sn.block_height);
-            globals.coord().announce_new_burn_block();
-            globals.coord().announce_new_stacks_block();
-            *last_announce_time = get_epoch_time_secs().into();
-        } else if sortition_tip_affirmation_map.len() >= heaviest_affirmation_map.len()
-            && sortition_tip_affirmation_map.len() <= canonical_affirmation_map.len()
-        {
-            if let Some(divergence_rc) =
-                canonical_affirmation_map.find_divergence(&sortition_tip_affirmation_map)
-            {
-                if divergence_rc + 1 >= (heaviest_affirmation_map.len() as u64) {
-                    // we have unaffirmed PoX anchor blocks that are not yet processed in the sortition history
-                    debug!("Drive burnchain processing: possible PoX reorg from unprocessed anchor block(s) (sortition tip: {sortition_tip_affirmation_map}, heaviest: {heaviest_affirmation_map}, canonical: {canonical_affirmation_map})");
-                    globals.coord().announce_new_burn_block();
-                    globals.coord().announce_new_stacks_block();
-                    *last_announce_time = get_epoch_time_secs().into();
-                }
-            }
-        } else {
-            debug!(
-                "Drive burn block processing: no need (sortition tip: {sortition_tip_affirmation_map}, heaviest: {heaviest_affirmation_map}, {} </ {})",
-                sn.block_height,
-                highest_sn.block_height
-            );
-        }
-
         *last_burn_pox_reorg_recover_time = get_epoch_time_secs().into();
 
         // unconditionally bump every 5 minutes, just in case.
@@ -1051,7 +889,6 @@ impl RunLoop {
         config: Config,
         burnchain: Burnchain,
         sortdb: SortitionDB,
-        chain_state_db: StacksChainState,
     ) {
         let mut last_burn_pox_reorg_recover_time = 0;
         let mut last_stacks_pox_reorg_recover_time = 0;
@@ -1066,15 +903,12 @@ impl RunLoop {
                 &config,
                 &burnchain,
                 &sortdb,
-                &chain_state_db,
                 &mut last_burn_pox_reorg_recover_time,
                 &mut last_burn_announce_time,
             );
             Self::drive_pox_reorg_stacks_block_processing(
                 &globals,
                 &config,
-                &burnchain,
-                &sortdb,
                 &mut last_stacks_pox_reorg_recover_time,
             );
 
@@ -1092,20 +926,10 @@ impl RunLoop {
             .open_sortition_db(true)
             .expect("FATAL: could not open sortition DB");
 
-        let (chain_state_db, _) = StacksChainState::open(
-            config.is_mainnet(),
-            config.burnchain.chain_id,
-            &config.get_chainstate_path_str(),
-            Some(config.node.get_marf_opts()),
-        )
-        .unwrap();
-
         thread::Builder::new()
             .name(format!("chain-liveness-{}", config.node.rpc_bind))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
-            .spawn(move || {
-                Self::drive_chain_liveness(globals, config, burnchain, sortdb, chain_state_db)
-            })
+            .spawn(move || Self::drive_chain_liveness(globals, config, burnchain, sortdb))
             .expect("FATAL: failed to spawn chain liveness thread")
     }
 

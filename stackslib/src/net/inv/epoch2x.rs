@@ -1808,14 +1808,7 @@ impl PeerNetwork {
 
     /// Determine at which reward cycle to begin scanning inventories
     pub(crate) fn get_block_scan_start(&self, sortdb: &SortitionDB) -> u64 {
-        // see if the stacks tip affirmation map and heaviest affirmation map diverge.  If so, then
-        // start scaning at the reward cycle just before that.
-        let am_rescan_rc = self
-            .stacks_tip_affirmation_map
-            .find_inv_search(&self.heaviest_affirmation_map);
-
-        // affirmation maps are compatible, so just resume scanning off of wherever we are at the
-        // tip.
+        // Resume scanning off of wherever we are at the tip.
         // NOTE: This code path only works in Stacks 2.x, but that's okay because this whole state
         // machine is only used in Stacks 2.x
         let (consensus_hash, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
@@ -1834,19 +1827,9 @@ impl PeerNetwork {
             .block_height_to_reward_cycle(stacks_tip_burn_block_height)
             .unwrap_or(0);
 
-        let start_reward_cycle =
-            stacks_tip_rc.saturating_sub(self.connection_opts.inv_reward_cycles);
+        let rescan_rc = stacks_tip_rc.saturating_sub(self.connection_opts.inv_reward_cycles);
 
-        let rescan_rc = cmp::min(am_rescan_rc, start_reward_cycle);
-
-        test_debug!(
-            "begin blocks inv scan at {} = min({},{}) stacks_tip_am={} heaviest_am={}",
-            rescan_rc,
-            am_rescan_rc,
-            start_reward_cycle,
-            &self.stacks_tip_affirmation_map,
-            &self.heaviest_affirmation_map
-        );
+        test_debug!("begin blocks inv scan at {rescan_rc}");
         rescan_rc
     }
 

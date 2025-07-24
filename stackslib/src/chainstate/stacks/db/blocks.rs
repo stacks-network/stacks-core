@@ -2230,29 +2230,6 @@ impl StacksChainState {
         )
     }
 
-    /// Is a block compatible with the heaviest affirmation map?
-    pub fn is_block_compatible_with_affirmation_map(
-        stacks_tip_affirmation_map: &AffirmationMap,
-        heaviest_am: &AffirmationMap,
-    ) -> Result<bool, Error> {
-        // NOTE: a.find_divergence(b) will be `Some(..)` even if a and b have the same prefix,
-        // but b happens to be longer.  So, we need to check both `stacks_tip_affirmation_map`
-        // and `heaviest_am` against each other depending on their lengths.
-        if (stacks_tip_affirmation_map.len() > heaviest_am.len()
-            && stacks_tip_affirmation_map
-                .find_divergence(heaviest_am)
-                .is_some())
-            || (stacks_tip_affirmation_map.len() <= heaviest_am.len()
-                && heaviest_am
-                    .find_divergence(stacks_tip_affirmation_map)
-                    .is_some())
-        {
-            return Ok(false);
-        } else {
-            return Ok(true);
-        }
-    }
-
     /// Delete a microblock's data from the DB
     fn delete_microblock_data(
         tx: &mut DBTx,
