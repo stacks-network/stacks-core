@@ -13,8 +13,8 @@ import { assert, describe, expect, it } from "vitest";
 import { createHash } from "crypto";
 
 // Contract Consts
-const INITIAL_TOTAL_LIQ_SUPPLY = 1_000_000_000_000_000;
-const MIN_AMOUNT_USTX = 125_000_000_000n;
+const INITIAL_TOTAL_LIQ_SUPPLY = 1_200_000_000_000_000;
+const MIN_AMOUNT_USTX = 150_000_000_000n;
 const TESTNET_PREPARE_CYCLE_LENGTH = 50;
 const TESTNET_REWARD_CYCLE_LENGTH = 1050;
 const TESTNET_STACKING_THRESHOLD_25 = 8000;
