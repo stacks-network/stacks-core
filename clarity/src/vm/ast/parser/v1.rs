@@ -89,7 +89,7 @@ impl LexMatcher {
     fn new(regex_str: &str, handles: TokenType) -> LexMatcher {
         #[allow(clippy::unwrap_used)]
         LexMatcher {
-            matcher: Regex::new(&format!("^{}", regex_str)).unwrap(),
+            matcher: Regex::new(&format!("^{regex_str}")).unwrap(),
             handler: handles,
         }
     }
@@ -125,7 +125,7 @@ lazy_static! {
         *STANDARD_PRINCIPAL_REGEX, *CONTRACT_PRINCIPAL_REGEX
     );
     pub static ref CLARITY_NAME_REGEX: String =
-        format!(r#"([[:word:]]|[-!?+<>=/*]){{1,{}}}"#, MAX_STRING_LEN);
+        format!(r#"([[:word:]]|[-!?+<>=/*]){{1,{MAX_STRING_LEN}}}"#);
 
     static ref lex_matchers: Vec<LexMatcher> = vec![
         LexMatcher::new(
@@ -154,15 +154,15 @@ lazy_static! {
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new(
             &format!(
-                r#"'(?P<value>{}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
-                *CONTRACT_PRINCIPAL_REGEX, MAX_STRING_LEN
+                r#"'(?P<value>{}(\.)([[:alnum:]]|[-]){{1,{MAX_STRING_LEN}}})"#,
+                *CONTRACT_PRINCIPAL_REGEX
             ),
             TokenType::FullyQualifiedFieldIdentifierLiteral,
         ),
         LexMatcher::new(
             &format!(
-                r#"(?P<value>(\.){}(\.)([[:alnum:]]|[-]){{1,{}}})"#,
-                *CONTRACT_NAME_REGEX, MAX_STRING_LEN
+                r#"(?P<value>(\.){}(\.)([[:alnum:]]|[-]){{1,{MAX_STRING_LEN}}})"#,
+                *CONTRACT_NAME_REGEX
             ),
             TokenType::SugaredFieldIdentifierLiteral,
         ),
@@ -551,10 +551,7 @@ pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbol
                         }
                     }
                 } else {
-                    debug!(
-                        "Closing parenthesis expected ({}, {})",
-                        line_pos, column_pos
-                    );
+                    debug!("Closing parenthesis expected ({line_pos}, {column_pos})");
                     return Err(ParseError::new(ParseErrors::ClosingParenthesisUnexpected));
                 }
             }
@@ -614,10 +611,7 @@ pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbol
                         }
                     }
                 } else {
-                    debug!(
-                        "Closing tuple literal unexpected ({}, {})",
-                        line_pos, column_pos
-                    );
+                    debug!("Closing tuple literal unexpected ({line_pos}, {column_pos})");
                     return Err(ParseError::new(ParseErrors::ClosingTupleLiteralUnexpected));
                 }
             }
@@ -703,10 +697,8 @@ pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbol
         if let Some((_list, start_line, start_column, _parse_context)) = parse_stack.pop() {
             error.diagnostic.add_span(start_line, start_column, 0, 0);
             debug!(
-                "Unfinished stack: {} items remaining starting at ({}, {})",
-                parse_stack.len() + 1,
-                start_line,
-                start_column
+                "Unfinished stack: {} items remaining starting at ({start_line}, {start_column})",
+                parse_stack.len() + 1
             );
         }
         Err(error)

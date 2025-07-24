@@ -29,6 +29,7 @@ use clarity::vm::database::{
     RollbackWrapperPersistedLog, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::events::{STXEventType, STXMintEventData};
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use clarity::vm::{ClarityVersion, ContractName};
@@ -38,11 +39,12 @@ use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use crate::burnchains::PoxConstants;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::stacks::boot::{
-    BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3,
-    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
-    COSTS_3_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE,
-    POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME, SIGNERS_BODY, SIGNERS_DB_0_BODY,
-    SIGNERS_DB_1_BODY, SIGNERS_NAME, SIGNERS_VOTING_BODY, SIGNERS_VOTING_NAME,
+    make_sip_031_body, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
+    BOOT_CODE_COSTS_3, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
+    BOOT_CODE_POX_TESTNET, COSTS_2_NAME, COSTS_3_NAME, POX_2_MAINNET_CODE, POX_2_NAME,
+    POX_2_TESTNET_CODE, POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME,
+    SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY, SIGNERS_NAME, SIGNERS_VOTING_BODY,
+    SIGNERS_VOTING_NAME, SIP_031_NAME,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -56,6 +58,8 @@ use crate::core::{StacksEpoch, StacksEpochId, FIRST_STACKS_BLOCK_ID, GENESIS_EPO
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::Error as DatabaseError;
 use crate::util_lib::strings::StacksString;
+
+pub const SIP_031_INITIAL_MINT: u128 = 200_000_000_000_000;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
@@ -1593,6 +1597,113 @@ impl<'a> ClarityBlockConnection<'a, '_> {
 
             debug!("Epoch 3.1 initialized");
             (old_cost_tracker, Ok(vec![]))
+        })
+    }
+
+    pub fn initialize_epoch_3_2(&mut self) -> Result<Vec<StacksTransactionReceipt>, Error> {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*.
+            // NOTE: this also means that cost functions won't be evaluated.
+            self.cost_track.replace(LimitedCostTracker::new_free());
+            self.epoch = StacksEpochId::Epoch32;
+            self.as_transaction(|tx_conn| {
+                // bump the epoch in the Clarity DB
+                tx_conn
+                    .with_clarity_db(|db| {
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch32)?;
+                        Ok(())
+                    })
+                    .unwrap();
+
+                // require 3.2 rules henceforth in this connection as well
+                tx_conn.epoch = StacksEpochId::Epoch32;
+            });
+
+            let mut receipts = vec![];
+
+            let boot_code_account = self
+                .get_boot_code_account()
+                .expect("FATAL: did not get boot account");
+
+            let mainnet = self.mainnet;
+            let tx_version = if mainnet {
+                TransactionVersion::Mainnet
+            } else {
+                TransactionVersion::Testnet
+            };
+
+            let boot_code_address = boot_code_addr(mainnet);
+            let boot_code_auth = boot_code_tx_auth(boot_code_address);
+
+            // SIP-031 setup (deploy of the boot contract, minting and transfer to the boot contract)
+            let sip_031_contract_id = boot_code_id(SIP_031_NAME, mainnet);
+            let payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(SIP_031_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(&make_sip_031_body(mainnet))
+                        .expect("FATAL: invalid boot code body"),
+                },
+                Some(ClarityVersion::Clarity3),
+            );
+
+            let sip_031_contract_tx =
+                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
+
+            let mut sip_031_initialization_receipt = self.as_transaction(|tx_conn| {
+                // initialize with a synthetic transaction
+                info!("Instantiate {} contract", &sip_031_contract_id);
+                let receipt = StacksChainState::process_transaction_payload(
+                    tx_conn,
+                    &sip_031_contract_tx,
+                    &boot_code_account,
+                    ASTRules::PrecheckSize,
+                    None,
+                )
+                .expect("FATAL: Failed to process .sip-031 contract initialization");
+                receipt
+            });
+
+            if sip_031_initialization_receipt.result != Value::okay_true()
+                || sip_031_initialization_receipt.post_condition_aborted
+            {
+                panic!(
+                    "FATAL: Failure processing sip-031 contract initialization: {:#?}",
+                    &sip_031_initialization_receipt
+                );
+            }
+
+            let recipient = PrincipalData::Contract(sip_031_contract_id);
+
+            self.as_transaction(|tx_conn| {
+                tx_conn
+                    .with_clarity_db(|db| {
+                        db.increment_ustx_liquid_supply(SIP_031_INITIAL_MINT)
+                            .map_err(|e| e.into())
+                    })
+                    .expect("FATAL: `SIP-031 initial mint` overflowed");
+                StacksChainState::account_credit(
+                    tx_conn,
+                    &recipient,
+                    u64::try_from(SIP_031_INITIAL_MINT)
+                        .expect("FATAL: transferred more STX than exist"),
+                );
+            });
+
+            let event = STXEventType::STXMintEvent(STXMintEventData {
+                recipient,
+                amount: SIP_031_INITIAL_MINT,
+            });
+            sip_031_initialization_receipt
+                .events
+                .push(StacksTransactionEvent::STXEvent(event));
+
+            receipts.push(sip_031_initialization_receipt);
+
+            debug!("Epoch 3.2 initialized");
+            (old_cost_tracker, Ok(receipts))
         })
     }
 

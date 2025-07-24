@@ -22,7 +22,7 @@ RUN cargo test --no-run --workspace && \
     cargo build --workspace
 
 ENV BITCOIND_TEST 1
-RUN cd testnet/stacks-node && cargo test --release --features prod-genesis-chainstate -- --test-threads 1 --ignored neon_integrations::bitcoind_integration_test
+RUN cd stacks-node && cargo test --release --features prod-genesis-chainstate -- --test-threads 1 --ignored neon_integrations::bitcoind_integration_test
 
 RUN grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
 

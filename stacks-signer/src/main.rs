@@ -84,7 +84,7 @@ fn handle_list_chunks(args: StackerDBArgs) {
     let chunk_list = session.list_chunks().unwrap();
     let chunk_list_json = serde_json::to_string(&chunk_list).unwrap();
     let hexed_json = to_hex(chunk_list_json.as_bytes());
-    println!("{}", hexed_json);
+    println!("{hexed_json}");
 }
 
 fn handle_put_chunk(args: PutChunkArgs) {
@@ -148,7 +148,7 @@ fn handle_generate_stacking_signature(
     };
 
     if do_print {
-        println!("{}", output_str);
+        println!("{output_str}");
     }
 
     signature
@@ -156,7 +156,7 @@ fn handle_generate_stacking_signature(
 
 fn handle_check_config(args: RunSignerArgs) {
     let config = GlobalConfig::try_from(&args.config).unwrap();
-    println!("Signer version: {}\nConfig: \n{}", *VERSION_STRING, config);
+    println!("Signer version: {}\nConfig: \n{config}", *VERSION_STRING);
 }
 
 fn handle_generate_vote(args: GenerateVoteArgs, do_print: bool) -> MessageSignature {

@@ -25,6 +25,7 @@ use blockstack_lib::net::api::postblock_proposal::{
     TOO_MANY_REQUESTS_STATUS,
 };
 use blockstack_lib::util_lib::db::Error as DBError;
+use clarity::codec::read_next;
 use clarity::types::chainstate::{StacksBlockId, StacksPrivateKey};
 use clarity::types::{PrivateKey, StacksEpochId};
 use clarity::util::hash::{MerkleHashFunc, Sha512Trunc256Sum};
@@ -38,20 +39,22 @@ use libsigner::v0::messages::{
     RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate,
 };
 use libsigner::v0::signer_state::GlobalStateEvaluator;
-use libsigner::{BlockProposal, SignerEvent};
+use libsigner::{BlockProposal, SignerEvent, SignerSession};
 use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error, info, warn};
 
 use super::signer_state::LocalStateMachine;
-#[cfg(not(any(test, feature = "testing")))]
-use super::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
-use crate::chainstate::{ProposalEvalConfig, SortitionMinerStatus, SortitionsView};
+use crate::chainstate::v1::{SortitionMinerStatus, SortitionsView};
+use crate::chainstate::v2::GlobalStateView;
+use crate::chainstate::{ProposalEvalConfig, SortitionData, SortitionStateVersion};
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, SignerDb};
+#[cfg(not(any(test, feature = "testing")))]
+use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use crate::v0::signer_state::{NewBurnBlock, ReplayScopeOpt};
 use crate::Signer as SignerTrait;
 
@@ -129,6 +132,13 @@ pub struct Signer {
     pub tx_replay_scope: ReplayScopeOpt,
     /// The number of blocks after the past tip to reset the replay set
     pub reset_replay_set_after_fork_blocks: u64,
+    /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
+    pub capitulate_miner_view_timeout: Duration,
+    /// The last time we capitulated our miner viewpoint
+    pub last_capitulate_miner_view: SystemTime,
+    /// The signer supported protocol version. used only in testing
+    #[cfg(any(test, feature = "testing"))]
+    pub supported_signer_protocol_version: u64,
 }
 
 impl std::fmt::Display for SignerMode {
@@ -194,7 +204,7 @@ impl<const N: usize> RecentlyProcessedBlocks<N> {
 impl SignerTrait<SignerMessage> for Signer {
     /// Create a new signer from the given configuration
     fn new(stacks_client: &StacksClient, signer_config: SignerConfig) -> Self {
-        let stackerdb = StackerDB::from(&signer_config);
+        let mut stackerdb = StackerDB::from(&signer_config);
         let mode = match signer_config.signer_mode {
             SignerConfigMode::DryRun => SignerMode::DryRun,
             SignerConfigMode::Normal { signer_id, .. } => SignerMode::Normal { signer_id },
@@ -206,15 +216,55 @@ impl SignerTrait<SignerMessage> for Signer {
             SignerDb::new(&signer_config.db_path).expect("Failed to connect to signer Db");
         let proposal_config = ProposalEvalConfig::from(&signer_config);
 
-        let signer_state = LocalStateMachine::new(&signer_db, stacks_client, &proposal_config)
-            .unwrap_or_else(|e| {
-                warn!("Failed to initialize local state machine for signer: {e:?}");
-                LocalStateMachine::Uninitialized
-            });
         let stacks_address = StacksAddress::p2pkh(
             signer_config.mainnet,
             &StacksPublicKey::from_private(&signer_config.stacks_private_key),
         );
+
+        let session = stackerdb
+            .get_session_mut(&MessageSlotID::StateMachineUpdate)
+            .expect("Invalid stackerdb session");
+        let signer_slot_ids: Vec<_> = signer_config
+            .signer_entries
+            .signer_id_to_addr
+            .keys()
+            .copied()
+            .collect();
+        for (chunk_opt, slot_id) in session
+            .get_latest_chunks(&signer_slot_ids)
+            .inspect_err(|e| {
+                warn!("Error retrieving state machine updates from stacker DB: {e}");
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .zip(signer_slot_ids.iter())
+        {
+            let Some(chunk) = chunk_opt else {
+                continue;
+            };
+
+            let Ok(SignerMessage::StateMachineUpdate(update)) =
+                read_next::<SignerMessage, _>(&mut &chunk[..])
+            else {
+                continue;
+            };
+
+            let Some(signer_addr) = signer_config.signer_entries.signer_id_to_addr.get(slot_id)
+            else {
+                continue;
+            };
+
+            // This might update the received time/cause a discrepency between when we receive it at our event queue, but it
+            // allows signers to potentially evaluate blocks immediately regardless of its nodes event queue state on startup
+            if let Err(e) = signer_db.insert_state_machine_update(
+                signer_config.reward_cycle,
+                signer_addr,
+                &update,
+                &SystemTime::now(),
+            ) {
+                warn!("Error submitting state machine update to signer DB: {e}");
+            };
+        }
 
         let updates = signer_db
             .get_signer_state_machine_updates(signer_config.reward_cycle)
@@ -222,10 +272,26 @@ impl SignerTrait<SignerMessage> for Signer {
                 warn!("An error occurred retrieving state machine updates from the db: {e}")
             })
             .unwrap_or_default();
+
         let global_state_evaluator = GlobalStateEvaluator::new(
             updates,
             signer_config.signer_entries.signer_addr_to_weight.clone(),
         );
+        #[cfg(any(test, feature = "testing"))]
+        let version = signer_config.supported_signer_protocol_version;
+        #[cfg(not(any(test, feature = "testing")))]
+        let version = SUPPORTED_SIGNER_PROTOCOL_VERSION;
+        let signer_state = LocalStateMachine::new(
+            &signer_db,
+            stacks_client,
+            &proposal_config,
+            &global_state_evaluator,
+            version,
+        )
+        .unwrap_or_else(|e| {
+            warn!("Failed to initialize local state machine for signer: {e:?}");
+            LocalStateMachine::Uninitialized
+        });
         Self {
             private_key: signer_config.stacks_private_key,
             stacks_address,
@@ -247,6 +313,10 @@ impl SignerTrait<SignerMessage> for Signer {
             validate_with_replay_tx: signer_config.validate_with_replay_tx,
             tx_replay_scope: None,
             reset_replay_set_after_fork_blocks: signer_config.reset_replay_set_after_fork_blocks,
+            capitulate_miner_view_timeout: signer_config.capitulate_miner_view_timeout,
+            last_capitulate_miner_view: SystemTime::now(),
+            #[cfg(any(test, feature = "testing"))]
+            supported_signer_protocol_version: signer_config.supported_signer_protocol_version,
         }
     }
 
@@ -268,12 +338,24 @@ impl SignerTrait<SignerMessage> for Signer {
         self.check_pending_block_validations(stacks_client);
 
         let mut prior_state = self.local_state_machine.clone();
+        let local_signer_protocol_version = self.get_signer_protocol_version();
         if self.reward_cycle <= current_reward_cycle {
             self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client,
                 &self.proposal_config,
-                &mut self.tx_replay_scope)
+                &mut self.tx_replay_scope, &self.global_state_evaluator, local_signer_protocol_version)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
         }
+        // See if we should capitulate our viewpoint...
+        self.local_state_machine.capitulate_viewpoint(
+            stacks_client,
+            &mut self.signer_db,
+            &mut self.global_state_evaluator,
+            local_signer_protocol_version,
+            sortition_state,
+            self.capitulate_miner_view_timeout,
+            self.proposal_config.tenure_last_block_proposal_timeout,
+            &mut self.last_capitulate_miner_view,
+        );
 
         if prior_state != self.local_state_machine {
             let version = self.get_signer_protocol_version();
@@ -438,12 +520,7 @@ impl Signer {
                             sortition_state,
                         ),
                         SignerMessage::StateMachineUpdate(update) => self
-                            .handle_state_machine_update(
-                                signer_public_key,
-                                update,
-                                received_time,
-                                sortition_state,
-                            ),
+                            .handle_state_machine_update(signer_public_key, update, received_time),
                         _ => {}
                     }
                 }
@@ -460,19 +537,10 @@ impl Signer {
                             if self.test_ignore_all_block_proposals(block_proposal) {
                                 continue;
                             }
-                            let Some(miner_pubkey) = block_proposal.block.header.recover_miner_pk()
-                            else {
-                                warn!("{self}: Failed to recover miner pubkey";
-                                      "signer_signature_hash" => %block_proposal.block.header.signer_signature_hash(),
-                                      "consensus_hash" => %block_proposal.block.header.consensus_hash);
-                                continue;
-                            };
-
                             self.handle_block_proposal(
                                 stacks_client,
                                 sortition_state,
                                 block_proposal,
-                                &miner_pubkey,
                             );
                         }
                         SignerMessage::BlockPushed(b) => {
@@ -541,13 +609,14 @@ impl Signer {
                         panic!("{self} Failed to write burn block event to signerdb: {e}");
                     });
 
+                let active_signer_protocol_version = self.get_signer_protocol_version();
                 self.local_state_machine
                     .bitcoin_block_arrival(&self.signer_db, stacks_client, &self.proposal_config, Some(NewBurnBlock {
                         burn_block_height: *burn_height,
                         consensus_hash: *consensus_hash,
                     }),
                     &mut self.tx_replay_scope
-                )
+                , &self.global_state_evaluator, active_signer_protocol_version)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
                 *sortition_state = None;
             }
@@ -640,14 +709,41 @@ impl Signer {
         peer_info.stacks_tip_height >= block.header.chain_length.saturating_sub(1)
     }
 
-    /// Check if block should be rejected based on sortition state
+    /// Check if block should be rejected based on the appropriate state (either local or global)
     /// Will return a BlockResponse::Rejection if the block is invalid, none otherwise.
-    fn check_block_against_sortition_state(
+    fn check_block_against_state(
         &mut self,
         stacks_client: &StacksClient,
         sortition_state: &mut Option<SortitionsView>,
         block: &NakamotoBlock,
-        miner_pubkey: &Secp256k1PublicKey,
+    ) -> Option<BlockResponse> {
+        let Some(latest_version) = self
+            .global_state_evaluator
+            .determine_latest_supported_signer_protocol_version()
+        else {
+            warn!(
+                "{self}: No consensus on signer protocol version. Unable to validate block. Rejecting.";
+                "signer_signature_hash" => %block.header.signer_signature_hash(),
+                "block_id" => %block.block_id(),
+            );
+            return Some(self.create_block_rejection(RejectReason::NoSignerConsensus, block));
+        };
+        let state_version = SortitionStateVersion::from_protocol_version(latest_version);
+        if state_version.uses_global_state() {
+            self.check_block_against_global_state(stacks_client, block)
+        } else {
+            self.check_block_against_local_state(stacks_client, sortition_state, block)
+        }
+    }
+
+    /// Check if block should be rejected based on the local view of the sortition state
+    /// Will return a BlockResponse::Rejection if the block is invalid, none otherwise.
+    /// This is the pre-global signer state activation path.
+    fn check_block_against_local_state(
+        &mut self,
+        stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
+        block: &NakamotoBlock,
     ) -> Option<BlockResponse> {
         let signer_signature_hash = block.header.signer_signature_hash();
         let block_id = block.block_id();
@@ -667,13 +763,7 @@ impl Signer {
 
         // Check if proposal can be rejected now if not valid against sortition view
         if let Some(sortition_state) = sortition_state {
-            match sortition_state.check_proposal(
-                stacks_client,
-                &mut self.signer_db,
-                block,
-                miner_pubkey,
-                true,
-            ) {
+            match sortition_state.check_proposal(stacks_client, &mut self.signer_db, block, true) {
                 // Error validating block
                 Err(RejectReason::ConnectivityIssues(e)) => {
                     warn!(
@@ -704,6 +794,76 @@ impl Signer {
                 "block_id" => %block_id,
             );
             Some(self.create_block_rejection(RejectReason::NoSortitionView, block))
+        }
+    }
+
+    /// Check if block should be rejected based on global signer state
+    /// Will return a BlockResponse::Rejection if the block is invalid, none otherwise.
+    /// This is the Post-global signer state activation path
+    fn check_block_against_global_state(
+        &mut self,
+        stacks_client: &StacksClient,
+        block: &NakamotoBlock,
+    ) -> Option<BlockResponse> {
+        let signer_signature_hash = block.header.signer_signature_hash();
+        let block_id = block.block_id();
+        // First update our global state evaluator with our local state if we have one
+        let version = self.get_signer_protocol_version();
+        if let Ok(update) = self
+            .local_state_machine
+            .try_into_update_message_with_version(version)
+        {
+            self.global_state_evaluator
+                .insert_update(self.stacks_address, update);
+        };
+
+        let Some(global_state) = self.global_state_evaluator.determine_global_state() else {
+            warn!(
+                "{self}: Cannot validate block, no global signer state";
+                "signer_signature_hash" => %signer_signature_hash,
+                "block_id" => %block_id,
+                "local_signer_state" => ?self.local_state_machine
+            );
+            return Some(self.create_block_rejection(RejectReason::NoSignerConsensus, block));
+        };
+
+        let global_state_view = GlobalStateView {
+            signer_state: global_state,
+            config: self.proposal_config.clone(),
+        };
+
+        info!(
+            "{self}: Evaluating proposal against global state";
+            "signer_state" => ?global_state_view.signer_state,
+            "signer_signature_hash" => %signer_signature_hash,
+            "block_id" => %block_id,
+            "local_signer_state" => ?self.local_state_machine,
+        );
+
+        // Check if proposal can be rejected now if not valid against the global state
+        match global_state_view.check_proposal(stacks_client, &mut self.signer_db, block) {
+            // Error validating block
+            Err(RejectReason::ConnectivityIssues(e)) => {
+                warn!(
+                    "{self}: Error checking block proposal: {e}";
+                    "signer_signature_hash" => %signer_signature_hash,
+                    "block_id" => %block_id,
+                );
+                Some(self.create_block_rejection(RejectReason::ConnectivityIssues(e), block))
+            }
+            // Block proposal is bad
+            Err(reject_code) => {
+                warn!(
+                    "{self}: Block proposal invalid";
+                    "signer_signature_hash" => %signer_signature_hash,
+                    "block_id" => %block_id,
+                    "reject_reason" => %reject_code,
+                    "reject_code" => ?reject_code,
+                );
+                Some(self.create_block_rejection(reject_code, block))
+            }
+            // Block proposal passed check, still don't know if valid
+            Ok(_) => None,
         }
     }
 
@@ -777,8 +937,8 @@ impl Signer {
         signer_public_key: &Secp256k1PublicKey,
         update: &StateMachineUpdate,
         received_time: &SystemTime,
-        sortition_state: &mut Option<SortitionsView>,
     ) {
+        info!("{self}: Received a new state machine update from signer {signer_public_key:?}: {update:?}");
         let address = StacksAddress::p2pkh(self.mainnet, signer_public_key);
         // Store the state machine update so we can reload it if we crash
         if let Err(e) = self.signer_db.insert_state_machine_update(
@@ -791,17 +951,6 @@ impl Signer {
         }
         self.global_state_evaluator
             .insert_update(address, update.clone());
-
-        // See if this update means we should capitulate our viewpoint...
-        let version = self.get_signer_protocol_version();
-        self.local_state_machine.capitulate_viewpoint(
-            &mut self.signer_db,
-            &mut self.global_state_evaluator,
-            self.stacks_address,
-            version,
-            self.reward_cycle,
-            sortition_state,
-        );
     }
 
     /// Handle block proposal messages submitted to signers stackerdb
@@ -810,7 +959,6 @@ impl Signer {
         stacks_client: &StacksClient,
         sortition_state: &mut Option<SortitionsView>,
         block_proposal: &BlockProposal,
-        miner_pubkey: &Secp256k1PublicKey,
     ) {
         debug!("{self}: Received a block proposal: {block_proposal:?}");
         if block_proposal.reward_cycle != self.reward_cycle {
@@ -843,19 +991,25 @@ impl Signer {
         // TODO: should add a check to ignore an old burn block height if we know its outdated. Would require us to store the burn block height we last saw on the side.
         //  the signer needs to be able to determine whether or not the block they're about to sign would conflict with an already-signed Stacks block
         let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
-        let prior_evaluation = self
-            .block_lookup_by_reward_cycle(&signer_signature_hash)
-            .and_then(|block_info| if should_reevaluate_block(&block_info) {
-                debug!("Received a proposal for this block before, but our rejection reason allows us to reconsider";
-                    "reject_reason" => ?block_info.reject_reason);
-                None
-            } else {
-                Some(block_info)
-            });
-
-        // we previously considered this proposal, handle the status here
-        if let Some(block_info) = prior_evaluation {
-            return self.handle_prior_proposal_eval(&block_info);
+        if let Some(block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) {
+            if block_info.state == BlockState::GloballyAccepted {
+                info!("{self}: Received a block proposal for a block that is already globally accepted. Ignoring...";
+                    "signer_signature_hash" => %signer_signature_hash,
+                    "block_id" => %block_proposal.block.block_id(),
+                    "block_height" => block_proposal.block.header.chain_length,
+                    "burn_height" => block_proposal.burn_height,
+                    "consensus_hash" => %block_proposal.block.header.consensus_hash,
+                    "timestamp" => block_proposal.block.header.timestamp,
+                    "signed_group" => block_info.signed_group,
+                    "signed_self" => block_info.signed_self
+                );
+                return;
+            }
+            if !should_reevaluate_block(&block_info) {
+                return self.handle_prior_proposal_eval(&block_info);
+            }
+            debug!("Received a proposal for this block before, but our rejection reason allows us to reconsider";
+                "reject_reason" => ?block_info.reject_reason);
         }
 
         info!(
@@ -887,12 +1041,8 @@ impl Signer {
         }
 
         // Check if proposal can be rejected now if not valid against sortition view
-        let block_response = self.check_block_against_sortition_state(
-            stacks_client,
-            sortition_state,
-            &block_proposal.block,
-            miner_pubkey,
-        );
+        let block_response =
+            self.check_block_against_state(stacks_client, sortition_state, &block_proposal.block);
 
         #[cfg(any(test, feature = "testing"))]
         let block_response =
@@ -987,7 +1137,7 @@ impl Signer {
         // If this is a tenure change block, ensure that it confirms the correct number of blocks from the parent tenure.
         if let Some(tenure_change) = proposed_block.get_tenure_change_tx_payload() {
             // Ensure that the tenure change block confirms the expected parent block
-            match SortitionsView::check_tenure_change_confirms_parent(
+            match SortitionData::check_tenure_change_confirms_parent(
                 tenure_change,
                 proposed_block,
                 &mut self.signer_db,
@@ -1018,7 +1168,7 @@ impl Signer {
         }
 
         // Ensure that the block is the last block in the chain of its current tenure.
-        match SortitionsView::check_latest_block_in_tenure(
+        match SortitionData::check_latest_block_in_tenure(
             &proposed_block.header.consensus_hash,
             proposed_block,
             &mut self.signer_db,
@@ -1062,6 +1212,7 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         block_validate_ok: &BlockValidateOk,
+        sortition_state: &mut Option<SortitionsView>,
     ) -> Option<BlockResponse> {
         crate::monitoring::actions::increment_block_validation_responses(true);
         let signer_signature_hash = block_validate_ok.signer_signature_hash;
@@ -1101,17 +1252,18 @@ impl Signer {
         if let Some(block_response) =
             self.check_block_against_signer_db_state(stacks_client, &block_info.block)
         {
+            let block_rejection = block_response.as_block_rejection()?;
             // The signer db state has changed. We no longer view this block as valid. Override the validation response.
             if let Err(e) = block_info.mark_locally_rejected() {
                 if !block_info.has_reached_consensus() {
                     warn!("{self}: Failed to mark block as locally rejected: {e:?}");
                 }
             };
-            self.impl_send_block_response(Some(&block_info.block), block_response);
             self.signer_db
                 .insert_block(&block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
-            None
+            self.handle_block_rejection(block_rejection, sortition_state);
+            Some(block_response)
         } else {
             if let Err(e) = block_info.mark_locally_accepted(false) {
                 if !block_info.has_reached_consensus() {
@@ -1201,7 +1353,7 @@ impl Signer {
                 crate::monitoring::actions::record_block_validation_latency(
                     block_validate_ok.validation_time_ms,
                 );
-                self.handle_block_validate_ok(stacks_client, block_validate_ok)
+                self.handle_block_validate_ok(stacks_client, block_validate_ok, sortition_state)
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
                 self.handle_block_validate_reject(block_validate_reject, sortition_state)
@@ -1400,12 +1552,16 @@ impl Signer {
         }
 
         // signature is valid! store it
-        if let Err(e) = self.signer_db.add_block_rejection_signer_addr(
+        match self.signer_db.add_block_rejection_signer_addr(
             block_hash,
             &signer_address,
             &rejection.response_data.reject_reason,
         ) {
-            warn!("{self}: Failed to save block rejection signature: {e:?}",);
+            Err(e) => {
+                warn!("{self}: Failed to save block rejection signature: {e:?}",);
+            }
+            Ok(false) => return, // We already have this signature, do not process it again.
+            Ok(true) => (),
         }
         block_info.reject_reason = Some(rejection.response_data.reject_reason.clone());
 
@@ -1428,9 +1584,28 @@ impl Signer {
             });
         if total_reject_weight.saturating_add(min_weight) <= total_weight {
             // Not enough rejection signatures to make a decision
+            info!("{self}: Received block rejection";
+                "signer_pubkey" => public_key.to_hex(),
+                "signer_signature_hash" => %block_hash,
+                "consensus_hash" => %block_info.block.header.consensus_hash,
+                "block_height" => block_info.block.header.chain_length,
+                "reject_reason" => ?rejection.response_data.reject_reason,
+                "total_weight_rejected" => total_reject_weight,
+                "total_weight" => total_weight,
+                "percent_rejected" => (total_reject_weight as f64 / total_weight as f64 * 100.0),
+            );
             return;
         }
-        info!("{self}: {total_reject_weight}/{total_weight} signers voted to reject the block {block_hash}");
+        info!("{self}: Received block rejection and have reached the rejection threshold";
+            "signer_pubkey" => public_key.to_hex(),
+            "signer_signature_hash" => %block_hash,
+            "consensus_hash" => %block_info.block.header.consensus_hash,
+            "block_height" => block_info.block.header.chain_length,
+            "reject_reason" => ?rejection.response_data.reject_reason,
+            "total_weight_rejected" => total_reject_weight,
+            "total_weight" => total_weight,
+            "percent_rejected" => (total_reject_weight as f64 / total_weight as f64 * 100.0),
+        );
         if let Err(e) = self.signer_db.mark_block_globally_rejected(&mut block_info) {
             warn!("{self}: Failed to mark block as globally rejected: {e:?}",);
         }
@@ -1448,6 +1623,7 @@ impl Signer {
             self.submitted_block_proposal = None;
         }
 
+        // NOTE: This is only used by active signer protocol versions < 2
         // If 30% of the signers have rejected the block due to an invalid
         // reorg, mark the miner as invalid.
         let total_reorg_reject_weight = self.compute_reject_code_signing_weight(
@@ -1458,7 +1634,7 @@ impl Signer {
             // Mark the miner as invalid
             if let Some(sortition_state) = sortition_state {
                 let ch = block_info.block.header.consensus_hash;
-                if sortition_state.cur_sortition.consensus_hash == ch {
+                if sortition_state.cur_sortition.data.consensus_hash == ch {
                     info!("{self}: Marking miner as invalid for attempted reorg");
                     sortition_state.cur_sortition.miner_status =
                         SortitionMinerStatus::InvalidatedBeforeFirstBlock;
@@ -1513,10 +1689,17 @@ impl Signer {
             return;
         }
 
-        // signature is valid! store it
-        self.signer_db
-            .add_block_signature(block_hash, signature)
-            .unwrap_or_else(|_| panic!("{self}: Failed to save block signature"));
+        let signer_address = StacksAddress::p2pkh(self.mainnet, &public_key);
+
+        // signature is valid! store it.
+        // if this returns false, it means the signature already exists in the DB, so just return.
+        if !self
+            .signer_db
+            .add_block_signature(block_hash, &signer_address, signature)
+            .unwrap_or_else(|_| panic!("{self}: Failed to save block signature"))
+        {
+            return;
+        }
 
         // do we have enough signatures to broadcast?
         // i.e. is the threshold reached?
@@ -1547,12 +1730,26 @@ impl Signer {
             });
 
         if min_weight > signature_weight {
-            debug!(
-                "{self}: Not enough signatures on block {} (have {}, need at least {}/{})",
-                block_hash, signature_weight, min_weight, total_weight
+            info!("{self}: Received block acceptance";
+                "signer_pubkey" => public_key.to_hex(),
+                "signer_signature_hash" => %block_hash,
+                "consensus_hash" => %block_info.block.header.consensus_hash,
+                "block_height" => block_info.block.header.chain_length,
+                "total_weight_approved" => signature_weight,
+                "total_weight" => total_weight,
+                "percent_approved" => (signature_weight as f64 / total_weight as f64 * 100.0),
             );
             return;
         }
+        info!("{self}: Received block acceptance and have reached the threshold";
+            "signer_pubkey" => public_key.to_hex(),
+            "signer_signature_hash" => %block_hash,
+            "consensus_hash" => %block_info.block.header.consensus_hash,
+            "block_height" => block_info.block.header.chain_length,
+            "total_weight_approved" => signature_weight,
+            "total_weight" => total_weight,
+            "percent_approved" => (signature_weight as f64 / total_weight as f64 * 100.0),
+        );
 
         // have enough signatures to broadcast!
         // move block to LOCALLY accepted state.
@@ -1728,7 +1925,7 @@ impl Signer {
 
     #[cfg(not(any(test, feature = "testing")))]
     fn get_signer_protocol_version(&self) -> u64 {
-        SUPPORTED_SIGNER_PROTOCOL_VERSION
+        crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION
     }
 
     #[cfg(any(test, feature = "testing"))]
@@ -1746,6 +1943,8 @@ fn should_reevaluate_block(block_info: &BlockInfo) -> bool {
             | RejectReason::ConnectivityIssues(_)
             | RejectReason::TestingDirective
             | RejectReason::InvalidTenureExtend
+            | RejectReason::ConsensusHashMismatch { .. }
+            | RejectReason::NoSignerConsensus
             | RejectReason::NotRejected
             | RejectReason::Unknown(_) => true,
             RejectReason::ValidationFailed(_)
@@ -1757,7 +1956,8 @@ fn should_reevaluate_block(block_info: &BlockInfo) -> bool {
             | RejectReason::InvalidMiner
             | RejectReason::NotLatestSortitionWinner
             | RejectReason::InvalidParentBlock
-            | RejectReason::DuplicateBlockFound => {
+            | RejectReason::DuplicateBlockFound
+            | RejectReason::IrrecoverablePubkeyHash => {
                 // No need to re-validate these types of rejections.
                 false
             }

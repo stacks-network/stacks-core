@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use rand::rngs::ThreadRng;
-use rand::thread_rng;
+use rand::{thread_rng, RngCore as _};
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, TrieHash, VRFSeed,
@@ -690,7 +690,9 @@ fn test_burn_snapshot_sequence() {
 
     for i in 0..32 {
         let mut csprng: ThreadRng = thread_rng();
-        let vrf_privkey = VRFPrivateKey(ed25519_dalek::SigningKey::generate(&mut csprng));
+        let mut sk_bytes = [0u8; 32];
+        csprng.fill_bytes(&mut sk_bytes);
+        let vrf_privkey = VRFPrivateKey(ed25519_dalek::SigningKey::from_bytes(&sk_bytes));
         let vrf_pubkey = VRFPublicKey::from_private(&vrf_privkey);
 
         let pubkey_hex = vrf_pubkey.to_hex();

@@ -1,0 +1,12 @@
+apis:
+  main:
+    root: ./openapi.yaml
+
+rules:
+  # Don't force 4xx responses for all endpoints
+  operation-4xx-response: off
+  # Turn off the localhost server warning since it's appropriate for RPC APIs
+  no-server-example.com: off
+
+extends:
+  - recommended

@@ -252,7 +252,7 @@ fn test_dynamic_dispatch_intra_contract_call(
             .unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::CircularReference(_)) => {}
-            _ => panic!("{:?}", err_result),
+            _ => panic!("{err_result:?}"),
         }
     }
 }
@@ -583,7 +583,7 @@ fn test_dynamic_dispatch_mismatched_args(
             .unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::BadTraitImplementation(_, _)) => {}
-            _ => panic!("{:?}", err_result),
+            _ => panic!("{err_result:?}"),
         }
     }
 }
@@ -640,7 +640,7 @@ fn test_dynamic_dispatch_mismatched_returned(
             .unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::ReturnTypesMustMatch(_, _)) => {}
-            _ => panic!("{:?}", err_result),
+            _ => panic!("{err_result:?}"),
         }
     }
 }
@@ -700,7 +700,7 @@ fn test_reentrant_dynamic_dispatch(
             .unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::CircularReference(_)) => {}
-            _ => panic!("{:?}", err_result),
+            _ => panic!("{err_result:?}"),
         }
     }
 }
@@ -757,7 +757,7 @@ fn test_readwrite_dynamic_dispatch(
             .unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::TraitBasedContractCallInReadOnly) => {}
-            _ => panic!("{:?}", err_result),
+            _ => panic!("{err_result:?}"),
         }
     }
 }
@@ -814,7 +814,7 @@ fn test_readwrite_violation_dynamic_dispatch(
             .unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::TraitBasedContractCallInReadOnly) => {}
-            _ => panic!("{:?}", err_result),
+            _ => panic!("{err_result:?}"),
         }
     }
 }

@@ -718,6 +718,8 @@ impl Config {
                 Ok(StacksEpochId::Epoch30)
             } else if epoch_name == EPOCH_CONFIG_3_1_0 {
                 Ok(StacksEpochId::Epoch31)
+            } else if epoch_name == EPOCH_CONFIG_3_2_0 {
+                Ok(StacksEpochId::Epoch32)
             } else {
                 Err(format!("Unknown epoch name specified: {epoch_name}"))
             }?;
@@ -745,6 +747,7 @@ impl Config {
             StacksEpochId::Epoch25,
             StacksEpochId::Epoch30,
             StacksEpochId::Epoch31,
+            StacksEpochId::Epoch32,
         ];
         for (expected_epoch, configured_epoch) in expected_list
             .iter()
@@ -1726,6 +1729,7 @@ pub const EPOCH_CONFIG_2_4_0: &str = "2.4";
 pub const EPOCH_CONFIG_2_5_0: &str = "2.5";
 pub const EPOCH_CONFIG_3_0_0: &str = "3.0";
 pub const EPOCH_CONFIG_3_1_0: &str = "3.1";
+pub const EPOCH_CONFIG_3_2_0: &str = "3.2";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct AffirmationOverride {
@@ -3719,6 +3723,13 @@ pub struct ConnectionOptionsFile {
     /// @default: [`DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS`]
     /// @units: seconds
     pub block_proposal_max_age_secs: Option<u64>,
+
+    /// Maximum time (in seconds) that a readonly call in free cost tracking mode
+    /// can run before being interrupted
+    /// ---
+    /// @default: 30
+    /// @units: seconds
+    pub read_only_max_execution_time_secs: Option<u64>,
 }
 
 impl ConnectionOptionsFile {
@@ -3870,6 +3881,9 @@ impl ConnectionOptionsFile {
             block_proposal_max_age_secs: self
                 .block_proposal_max_age_secs
                 .unwrap_or(DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS),
+            read_only_max_execution_time_secs: self
+                .read_only_max_execution_time_secs
+                .unwrap_or(default.read_only_max_execution_time_secs),
             ..default
         })
     }

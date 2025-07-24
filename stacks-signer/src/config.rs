@@ -33,6 +33,8 @@ use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPu
 use stacks_common::util::hash::Hash160;
 
 use crate::client::SignerSlotID;
+#[cfg(any(test, feature = "testing"))]
+use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
 const BLOCK_PROPOSAL_TIMEOUT_MS: u64 = 120_000;
@@ -52,6 +54,9 @@ const DEFAULT_PROPOSAL_WAIT_TIME_FOR_PARENT_SECS: u64 = 15;
 /// Default number of blocks after a fork to reset the replay set,
 /// as a failsafe mechanism
 pub const DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS: u64 = 2;
+/// Default time (in secs) to wait between updating our local state
+/// machine view point and capitulating to other signers tenure view
+const DEFAULT_CAPITULATE_MINER_VIEW_SECS: u64 = 20;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -190,6 +195,11 @@ pub struct SignerConfig {
     /// How many blocks after a fork should we reset the replay set,
     /// as a failsafe mechanism
     pub reset_replay_set_after_fork_blocks: u64,
+    /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
+    pub capitulate_miner_view_timeout: Duration,
+    #[cfg(any(test, feature = "testing"))]
+    /// Only used for testing purposes to enable overriding the signer version
+    pub supported_signer_protocol_version: u64,
 }
 
 /// The parsed configuration for the signer
@@ -246,6 +256,11 @@ pub struct GlobalConfig {
     /// How many blocks after a fork should we reset the replay set,
     /// as a failsafe mechanism
     pub reset_replay_set_after_fork_blocks: u64,
+    /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
+    pub capitulate_miner_view_timeout: Duration,
+    #[cfg(any(test, feature = "testing"))]
+    /// Only used for testing to enable specific signer protocol versions
+    pub supported_signer_protocol_version: u64,
 }
 
 /// Internal struct for loading up the config file
@@ -300,6 +315,11 @@ struct RawConfigFile {
     /// How many blocks after a fork should we reset the replay set,
     /// as a failsafe mechanism
     pub reset_replay_set_after_fork_blocks: Option<u64>,
+    /// Time to wait (in secs) between updating our local state machine view point and capitulating to other signers miner view
+    pub capitulate_miner_view_timeout_secs: Option<u64>,
+    #[cfg(any(test, feature = "testing"))]
+    /// Only used for testing to enable specific signer protocol versions
+    pub supported_signer_protocol_version: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -429,6 +449,17 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             .reset_replay_set_after_fork_blocks
             .unwrap_or(DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS);
 
+        let capitulate_miner_view_timeout = Duration::from_secs(
+            raw_data
+                .capitulate_miner_view_timeout_secs
+                .unwrap_or(DEFAULT_CAPITULATE_MINER_VIEW_SECS),
+        );
+
+        #[cfg(any(test, feature = "testing"))]
+        let supported_signer_protocol_version = raw_data
+            .supported_signer_protocol_version
+            .unwrap_or(SUPPORTED_SIGNER_PROTOCOL_VERSION);
+
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
@@ -452,6 +483,9 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             proposal_wait_for_parent_time,
             validate_with_replay_tx,
             reset_replay_set_after_fork_blocks,
+            capitulate_miner_view_timeout,
+            #[cfg(any(test, feature = "testing"))]
+            supported_signer_protocol_version,
         })
     }
 }
@@ -547,7 +581,7 @@ pub fn build_signer_config_tomls(
     let mut signer_config_tomls = vec![];
 
     for stacks_private_key in stacks_private_keys {
-        let endpoint = format!("localhost:{}", port_start);
+        let endpoint = format!("localhost:{port_start}");
         port_start += 1;
 
         let stacks_public_key = StacksPublicKey::from_private(stacks_private_key).to_hex();
@@ -598,7 +632,7 @@ tx_fee_ustx = {tx_fee_ustx}
         }
 
         if let Some(metrics_port) = metrics_port_start {
-            let metrics_endpoint = format!("localhost:{}", metrics_port);
+            let metrics_endpoint = format!("localhost:{metrics_port}");
             signer_config_toml = format!(
                 r#"
 {signer_config_toml}
@@ -692,8 +726,7 @@ Dry run: false
 
         assert!(
             config_str == expected_str_v4 || config_str == expected_str_v6,
-            "Config string does not match expected output. Actual:\n{}",
-            config_str
+            "Config string does not match expected output. Actual:\n{config_str}",
         );
     }
 
@@ -719,6 +752,10 @@ db_path = ":memory:"
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
         assert_eq!(config.stacks_address.to_string(), expected_addr);
         assert!(!config.validate_with_replay_tx);
+        assert_eq!(
+            config.capitulate_miner_view_timeout,
+            Duration::from_secs(DEFAULT_CAPITULATE_MINER_VIEW_SECS)
+        );
         // 65 bytes (with compression flag)
         let sk_hex = "2de4e77aab89c0c2570bb8bb90824f5cf2a5204a975905fee450ff9dad0fcf2801";
 
@@ -732,6 +769,7 @@ auth_password = "abcd"
 db_path = ":memory:"
 validate_with_replay_tx = true
 reset_replay_set_after_fork_blocks = 100
+capitulate_miner_view_timeout_secs = 1000
             "#
         );
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
@@ -739,6 +777,10 @@ reset_replay_set_after_fork_blocks = 100
         assert_eq!(config.to_chain_id(), CHAIN_ID_MAINNET);
         assert!(config.validate_with_replay_tx);
         assert_eq!(config.reset_replay_set_after_fork_blocks, 100);
+        assert_eq!(
+            config.capitulate_miner_view_timeout,
+            Duration::from_secs(1000)
+        );
     }
 
     #[test]
