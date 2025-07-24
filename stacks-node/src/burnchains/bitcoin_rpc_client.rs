@@ -29,7 +29,6 @@ use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use stacks::config::Config;
 
-use crate::burnchains::bitcoin_regtest_controller::ParsedUTXO;
 use crate::burnchains::rpc_transport::{RpcAuth, RpcError, RpcTransport};
 
 /// Response structure for the `gettransaction` RPC call.
@@ -316,7 +315,7 @@ impl BitcoinRpcClient {
     /// * `max_confirmations` - Maximum number of confirmations allowed (Default: 9.999.999).
     /// * `addresses` - Optional list of addresses to filter UTXOs by (Default: no filtering).
     /// * `include_unsafe` - Whether to include UTXOs from unconfirmed unsafe transactions (Default: `true`).
-    /// * `minimum_amount` - Minimum amount (in satoshis) a UTXO must have to be included (Default: 0).
+    /// * `minimum_amount` - Minimum amount (in BTC. As String to preserve full precision) a UTXO must have to be included (Default: "0").
     /// * `maximum_count` - Maximum number of UTXOs to return. Use `None` for effectively unlimited (Default: 9.999.999).
     ///
     /// # Returns
@@ -329,16 +328,16 @@ impl BitcoinRpcClient {
         &self,
         min_confirmations: Option<u64>,
         max_confirmations: Option<u64>,
-        addresses: Option<Vec<String>>,
+        addresses: Option<&[&str]>,
         include_unsafe: Option<bool>,
-        minimum_amount: Option<u64>,
+        minimum_amount: Option<&str>,
         maximum_count: Option<u64>,
     ) -> BitcoinRpcClientResult<Vec<ListUnspentResponse>> {
         let min_confirmations = min_confirmations.unwrap_or(0);
         let max_confirmations = max_confirmations.unwrap_or(9999999);
-        let addresses = addresses.unwrap_or(vec![]);
+        let addresses = addresses.unwrap_or(&[]);
         let include_unsafe = include_unsafe.unwrap_or(true);
-        let minimum_amount = ParsedUTXO::sat_to_serialized_btc(minimum_amount.unwrap_or(0));
+        let minimum_amount = minimum_amount.unwrap_or("0");
         let maximum_count = maximum_count.unwrap_or(9999999);
 
         Ok(self.wallet_ep.send(
@@ -473,7 +472,7 @@ impl BitcoinRpcClient {
     /// - **Since**: Bitcoin Core **v0.21.0**.
     pub fn import_descriptors(
         &self,
-        descriptors: &[ImportDescriptorsRequest],
+        descriptors: &[&ImportDescriptorsRequest],
     ) -> BitcoinRpcClientResult<Vec<ImportDescriptorsResponse>> {
         let descriptor_values = descriptors
             .iter()
@@ -582,7 +581,7 @@ impl BitcoinRpcClient {
     pub fn generate_block(
         &self,
         address: &str,
-        txs: Vec<String>,
+        txs: &[&str],
     ) -> BitcoinRpcClientResult<String> {
         let response = self.global_ep.send::<GenerateBlockResponse>(
             &self.client_id,
@@ -856,9 +855,9 @@ mod tests {
                 .list_unspent(
                     Some(1),
                     Some(10),
-                    Some(vec!["BTC_ADDRESS_1".into()]),
+                    Some(&["BTC_ADDRESS_1"]),
                     Some(true),
-                    Some(1000), // 1000 sats = 0.00001000 BTC
+                    Some("0.00001000"), // 1000 sats = 0.00001000 BTC
                     Some(5),
                 )
                 .expect("Should parse unspent outputs");
@@ -1019,7 +1018,7 @@ mod tests {
             let client = utils::setup_client(&server);
 
             let result = client
-                .generate_block(addr, vec![txid1.to_string(), txid2.to_string()])
+                .generate_block(addr, &[txid1, txid2])
                 .expect("Should be ok!");
             assert_eq!(expected_block_hash, result);
         }
@@ -1174,7 +1173,7 @@ mod tests {
                 timestamp: Timestamp::Time(timestamp),
                 internal: Some(internal),
             };
-            let result = client.import_descriptors(&[desc_req]);
+            let result = client.import_descriptors(&[&desc_req]);
             assert!(result.is_ok());
         }
 
@@ -1542,7 +1541,7 @@ mod tests {
             let address = client.get_new_address(None, None).expect("Should work!");
 
             let utxos = client
-                .list_unspent(None, None, None, Some(false), Some(1), Some(10))
+                .list_unspent(None, None, None, Some(false), Some("1"), Some(10))
                 .expect("list_unspent should be ok!");
             assert_eq!(0, utxos.len());
 
@@ -1550,12 +1549,12 @@ mod tests {
             assert_eq!(102, blocks.len());
 
             let utxos = client
-                .list_unspent(None, None, None, Some(false), Some(1), Some(10))
+                .list_unspent(None, None, None, Some(false), Some("1"), Some(10))
                 .expect("list_unspent should be ok!");
             assert_eq!(2, utxos.len());
 
             let utxos = client
-                .list_unspent(None, None, None, Some(false), Some(1), Some(1))
+                .list_unspent(None, None, None, Some(false), Some("1"), Some(1))
                 .expect("list_unspent should be ok!");
             assert_eq!(1, utxos.len());
         }
@@ -1574,7 +1573,7 @@ mod tests {
             client.create_wallet("my_wallet", Some(false)).expect("OK");
             let address = client.get_new_address(None, None).expect("Should work!");
 
-            let block_hash = client.generate_block(&address, vec![]).expect("OK");
+            let block_hash = client.generate_block(&address, &[]).expect("OK");
             assert_eq!(64, block_hash.len());
         }
 
@@ -1697,7 +1696,7 @@ mod tests {
             };
 
             let response = client
-                .import_descriptors(&[desc_req])
+                .import_descriptors(&[&desc_req])
                 .expect("import descriptor ok!");
             assert_eq!(1, response.len());
             assert!(response[0].success);
@@ -1730,7 +1729,7 @@ mod tests {
             let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
             client.create_wallet("my_wallet", Some(false)).expect("OK");
             let address = client.get_new_address(None, None).expect("Should work!");
-            let block_hash = client.generate_block(&address, vec![]).expect("OK");
+            let block_hash = client.generate_block(&address, &[]).expect("OK");
 
             client
                 .invalidate_block(&block_hash)
