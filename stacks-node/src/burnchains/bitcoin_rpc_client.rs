@@ -218,6 +218,22 @@ impl BitcoinRpcClient {
         Self::new(host, port, ssl, rpc_auth, wallet_name, timeout, client_id)
     }
 
+    /// Creates a new instance of the Bitcoin RPC client with both global and wallet-specific endpoints.
+    ///
+    /// # Arguments
+    ///
+    /// * `host` - Hostname or IP address of the Bitcoin RPC server (e.g., `localhost`).
+    /// * `port` - Port number the RPC server is listening on.
+    /// * `ssl` - If `true`, uses HTTPS for communication; otherwise, uses HTTP.
+    /// * `auth` - RPC authentication credentials (`RpcAuth::None` or `RpcAuth::Basic`).
+    /// * `wallet_name` - Name of the wallet to target for wallet-specific RPC calls.
+    /// * `timeout` - Timeout for RPC requests, in seconds.
+    /// * `client_id` - Identifier used in the `id` field of JSON-RPC requests for traceability.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Self)` if both global and wallet RPC transports are successfully created,  
+    /// or `Err(String)` if the underlying HTTP client setup fails.Stacks Configuration, mainly using `BurnchainConfig`
     fn new(
         host: String,
         port: u16,
@@ -260,7 +276,7 @@ impl BitcoinRpcClient {
     /// Returns `Ok(())` if the wallet is created successfully.
     ///
     /// # Availability
-    /// Available in Bitcoin Core since **v0.17.0**.
+    /// - **Since**: Bitcoin Core **v0.17.0**.
     ///
     /// # Notes
     /// This method supports a subset of available RPC arguments to match current usage.
@@ -351,7 +367,7 @@ impl BitcoinRpcClient {
     /// A vector of block hashes corresponding to the newly generated blocks.
     ///
     /// # Availability
-    /// Available in Bitcoin Core since **v0.17.0**.
+    /// - **Since**: Bitcoin Core **v0.17.0**.
     ///
     /// # Notes
     /// Typically used on `regtest` or test networks.
@@ -379,7 +395,7 @@ impl BitcoinRpcClient {
     /// A [`GetTransactionResponse`] containing detailed metadata for the specified transaction.
     ///
     /// # Availability
-    /// Available in Bitcoin Core since **v0.10.0**.
+    /// - **Since**: Bitcoin Core **v0.10.0**.
     pub fn get_transaction(&self, txid: &str) -> BitcoinRpcClientResult<GetTransactionResponse> {
         Ok(self
             .wallet_ep
@@ -403,6 +419,10 @@ impl BitcoinRpcClient {
     ///
     /// # Returns
     /// A transaction ID as a `String`.
+    /// 
+    /// # Availability
+    /// - **Since**: Bitcoin Core **v0.7.0**.
+    /// - `maxburnamount` parameter is available starting from **v25.0**.
     pub fn send_raw_transaction(
         &self,
         tx: &str,
@@ -428,7 +448,7 @@ impl BitcoinRpcClient {
     /// A `DescriptorInfoResponse` containing parsed descriptor information such as the checksum.
     ///
     /// # Availability
-    /// Available in Bitcoin Core since **v0.18.0**.
+    /// - **Since**: Bitcoin Core **v0.18.0**.
     pub fn get_descriptor_info(
         &self,
         descriptor: &str,
@@ -450,7 +470,7 @@ impl BitcoinRpcClient {
     /// A vector of `ImportDescriptorsResponse` results, one for each descriptor import attempt.
     ///
     /// # Availability
-    /// Available in Bitcoin Core since **v0.21.0**.
+    /// - **Since**: Bitcoin Core **v0.21.0**.
     pub fn import_descriptors(
         &self,
         descriptors: &[ImportDescriptorsRequest],
@@ -465,6 +485,22 @@ impl BitcoinRpcClient {
             "importdescriptors",
             vec![descriptor_values.into()],
         )?)
+    }
+
+    /// Returns the hash of the block at the given height.
+    ///
+    /// # Arguments
+    /// * `height` - The height (block number) of the block whose hash is requested.
+    ///
+    /// # Returns
+    /// A `String` representing the block hash in hexadecimal format.
+    ///
+    /// # Availability
+    /// - **Since**: Bitcoin Core **v0.9.0**.
+    pub fn get_block_hash(&self, height: u64) -> BitcoinRpcClientResult<String> {
+        Ok(self
+            .global_ep
+            .send(&self.client_id, "getblockhash", vec![height.into()])?)
     }
 }
 
@@ -521,7 +557,7 @@ impl BitcoinRpcClient {
     /// A raw transaction as a hex-encoded string.
     ///
     /// # Availability
-    /// Available in Bitcoin Core since **v0.7.0**.
+    /// - **Since**: Bitcoin Core **v0.7.0**.
     pub fn get_raw_transaction(&self, txid: &str) -> BitcoinRpcClientResult<String> {
         Ok(self
             .global_ep
@@ -541,7 +577,8 @@ impl BitcoinRpcClient {
     /// The block hash of the newly generated block.
     ///
     /// # Availability
-    /// Available in Bitcoin Core since **v22.0**. Requires `regtest` or similar testing networks.
+    /// - **Since**: Bitcoin Core **v22.0**.
+    /// - Requires `regtest` or similar testing networks.
     pub fn generate_block(
         &self,
         address: &str,
@@ -564,7 +601,7 @@ impl BitcoinRpcClient {
     /// On success, returns the string: `"Bitcoin Core stopping"`
     ///
     /// # Availability
-    /// Available in Bitcoin Core since **v0.1.0**.
+    /// - **Since**: Bitcoin Core **v0.1.0**.
     pub fn stop(&self) -> BitcoinRpcClientResult<String> {
         Ok(self.global_ep.send(&self.client_id, "stop", vec![])?)
     }
@@ -581,9 +618,9 @@ impl BitcoinRpcClient {
     /// A string representing the newly generated Bitcoin address.
     ///
     /// # Availability
-    /// Available in Bitcoin Core since **v0.1.0**.  
-    /// `address_type` parameter supported since **v0.17.0**.
-    /// Defaulting to `bech32` (when unset) introduced in **v0.20.0**.
+    /// - **Since**: Bitcoin Core **v0.1.0**.  
+    /// - `address_type` parameter supported since **v0.17.0**.
+    /// - Defaulting to `bech32` (when unset) introduced in **v0.20.0**.
     pub fn get_new_address(
         &self,
         label: Option<&str>,
@@ -611,8 +648,9 @@ impl BitcoinRpcClient {
     ///
     /// # Returns
     /// The transaction ID as hex string
-    /// 
-    /// Available in Bitcoin Core since **v0.1.0**.
+    ///
+    /// # Availability
+    /// - **Since**: Bitcoin Core **v0.1.0**.
     pub fn send_to_address(&self, address: &str, amount: f64) -> BitcoinRpcClientResult<String> {
         Ok(self.wallet_ep.send(
             &self.client_id,
@@ -628,18 +666,14 @@ impl BitcoinRpcClient {
     ///
     /// # Returns
     /// An empty `()` on success.
-    /// 
+    ///
     /// # Availability
-    /// Available in Bitcoin Core since **v0.1.0**.
+    /// - **Since**: Bitcoin Core **v0.1.0**.
     pub fn invalidate_block(&self, hash: &str) -> BitcoinRpcClientResult<()> {
-        self.global_ep.send::<Value>(
-            &self.client_id,
-            "invalidateblock",
-            vec![hash.into()],
-        )?;
+        self.global_ep
+            .send::<Value>(&self.client_id, "invalidateblock", vec![hash.into()])?;
         Ok(())
     }
-
 }
 
 #[cfg(test)]
@@ -1244,7 +1278,7 @@ mod tests {
         #[test]
         fn test_invalidate_block_ok() {
             let hash = "0000";
-            
+
             let expected_request = json!({
                 "jsonrpc": "2.0",
                 "id": "stacks",
@@ -1269,14 +1303,47 @@ mod tests {
 
             let client = utils::setup_client(&server);
 
-            client
-                .invalidate_block(hash)
-                .expect("Should be ok!");
+            client.invalidate_block(hash).expect("Should be ok!");
+        }
+
+        #[test]
+        fn test_get_block_hash_ok() {
+            let height = 1;
+            let expected_hash = "0000";
+
+            let expected_request = json!({
+                "jsonrpc": "2.0",
+                "id": "stacks",
+                "method": "getblockhash",
+                "params": [height]
+            });
+
+            let mock_response = json!({
+                "id": "stacks",
+                "result": expected_hash,
+                "error": null,
+            });
+
+            let mut server = mockito::Server::new();
+            let _m = server
+                .mock("POST", "/")
+                .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
+                .with_status(200)
+                .with_header("Content-Type", "application/json")
+                .with_body(mock_response.to_string())
+                .create();
+
+            let client = utils::setup_client(&server);
+
+            let hash = client.get_block_hash(height).expect("Should be ok!");
+            assert_eq!(expected_hash, hash);
         }
     }
 
     #[cfg(test)]
     mod inte {
+        use stacks::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
+
         use super::*;
         use crate::tests::bitcoin_regtest::BitcoinCoreController;
 
@@ -1400,10 +1467,7 @@ mod tests {
             assert_eq!("regtest", info.chain);
             assert_eq!(0, info.blocks);
             assert_eq!(0, info.headers);
-            assert_eq!(
-                "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206",
-                info.best_block_hash
-            );
+            assert_eq!(BITCOIN_REGTEST_FIRST_BLOCK_HASH, info.best_block_hash);
         }
 
         #[test]
@@ -1668,9 +1732,30 @@ mod tests {
             let address = client.get_new_address(None, None).expect("Should work!");
             let block_hash = client.generate_block(&address, vec![]).expect("OK");
 
-            client.invalidate_block(&block_hash).expect("Invalidate valid hash should be ok!");
-            client.invalidate_block("invalid_hash").expect_err("Invalidate invalid hash should fail!");
+            client
+                .invalidate_block(&block_hash)
+                .expect("Invalidate valid hash should be ok!");
+            client
+                .invalidate_block("invalid_hash")
+                .expect_err("Invalidate invalid hash should fail!");
         }
 
+        #[test]
+        fn test_get_block_hash_ok() {
+            let mut config = utils::create_stx_config();
+            config.burnchain.wallet_name = "my_wallet".to_string();
+
+            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+
+            let hash = client
+                .get_block_hash(0)
+                .expect("Should return regtest genesis block hash!");
+            assert_eq!(BITCOIN_REGTEST_FIRST_BLOCK_HASH, hash);
+        }
     }
 }

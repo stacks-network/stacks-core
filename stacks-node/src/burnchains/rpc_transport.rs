@@ -153,10 +153,9 @@ impl RpcTransport {
 
         if !response.status().is_success() {
             let status = response.status();
-            return Err(RpcError::Service(format!(
-                "HTTP error {}",
-                status.as_u16(),
-            )));
+            return Err(RpcError::Service(
+                format!("HTTP error {}", status.as_u16(),),
+            ));
         }
 
         let parsed: JsonRpcResponse<T> = response.json().map_err(Self::classify_parse_error)?;
