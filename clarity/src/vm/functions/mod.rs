@@ -189,6 +189,7 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     ReplaceAt("replace-at?", ClarityVersion::Clarity2, None),
     GetStacksBlockInfo("get-stacks-block-info?", ClarityVersion::Clarity3, None),
     GetTenureInfo("get-tenure-info?", ClarityVersion::Clarity3, None),
+    CodeBodyOf("code-body-of?", ClarityVersion::Clarity4, None),
 });
 
 ///
@@ -557,6 +558,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 NativeHandle::MoreArg(&arithmetic::native_bitwise_xor),
                 ClarityCostFunction::Xor,
             ),
+            CodeBodyOf => SpecialFunction("special_code_body_of", &database::special_code_body_of),
         };
         Some(callable)
     } else {

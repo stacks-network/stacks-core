@@ -113,6 +113,7 @@ fn ClarityVersion_consensus_serialize<W: Write>(
         ClarityVersion::Clarity1 => write_next(fd, &1u8)?,
         ClarityVersion::Clarity2 => write_next(fd, &2u8)?,
         ClarityVersion::Clarity3 => write_next(fd, &3u8)?,
+        ClarityVersion::Clarity4 => write_next(fd, &4u8)?,
     }
     Ok(())
 }
@@ -125,6 +126,7 @@ fn ClarityVersion_consensus_deserialize<R: Read>(
         1u8 => Ok(ClarityVersion::Clarity1),
         2u8 => Ok(ClarityVersion::Clarity2),
         3u8 => Ok(ClarityVersion::Clarity3),
+        4u8 => Ok(ClarityVersion::Clarity4),
         _ => Err(codec_error::DeserializeError(format!(
             "Unrecognized ClarityVersion byte {}",
             &version_byte
@@ -1972,6 +1974,26 @@ mod test {
     }
 
     #[test]
+    fn clarity_version_codec_is_consistent() {
+        use std::io::Cursor;
+
+        const ALL: &[ClarityVersion] = &[
+            ClarityVersion::Clarity1,
+            ClarityVersion::Clarity2,
+            ClarityVersion::Clarity3,
+            ClarityVersion::Clarity4,
+        ];
+
+        for version in ALL {
+            let mut buf = vec![];
+            ClarityVersion_consensus_serialize(version, &mut buf).unwrap();
+            let mut cursor = Cursor::new(&buf);
+            let decoded = ClarityVersion_consensus_deserialize(&mut cursor).unwrap();
+            assert_eq!(*version, decoded, "Roundtrip mismatch for {:?}", version);
+        }
+    }
+
+    #[test]
     fn tx_stacks_transaction_payload_contracts() {
         let hello_contract_call = "hello-contract-call";
         let hello_contract_name = "hello-contract-name";
@@ -2048,6 +2070,36 @@ mod test {
             .consensus_serialize(&mut version_2_smart_contract_bytes)
             .unwrap();
 
+        let mut version_3_smart_contract_bytes = vec![];
+        ClarityVersion_consensus_serialize(
+            &ClarityVersion::Clarity3,
+            &mut version_3_smart_contract_bytes,
+        )
+        .unwrap();
+        smart_contract
+            .name
+            .consensus_serialize(&mut version_3_smart_contract_bytes)
+            .unwrap();
+        smart_contract
+            .code_body
+            .consensus_serialize(&mut version_3_smart_contract_bytes)
+            .unwrap();
+
+        let mut version_4_smart_contract_bytes = vec![];
+        ClarityVersion_consensus_serialize(
+            &ClarityVersion::Clarity4,
+            &mut version_4_smart_contract_bytes,
+        )
+        .unwrap();
+        smart_contract
+            .name
+            .consensus_serialize(&mut version_4_smart_contract_bytes)
+            .unwrap();
+        smart_contract
+            .code_body
+            .consensus_serialize(&mut version_4_smart_contract_bytes)
+            .unwrap();
+
         let mut transaction_contract_call = vec![TransactionPayloadID::ContractCall as u8];
         transaction_contract_call.append(&mut contract_call_bytes.clone());
 
@@ -2059,6 +2111,12 @@ mod test {
 
         let mut v2_smart_contract = vec![TransactionPayloadID::VersionedSmartContract as u8];
         v2_smart_contract.append(&mut version_2_smart_contract_bytes.clone());
+
+        let mut v3_smart_contract = vec![TransactionPayloadID::VersionedSmartContract as u8];
+        v3_smart_contract.append(&mut version_3_smart_contract_bytes.clone());
+
+        let mut v4_smart_contract = vec![TransactionPayloadID::VersionedSmartContract as u8];
+        v4_smart_contract.append(&mut version_4_smart_contract_bytes.clone());
 
         check_codec_and_corruption::<TransactionContractCall>(&contract_call, &contract_call_bytes);
         check_codec_and_corruption::<TransactionSmartContract>(
@@ -2086,6 +2144,17 @@ mod test {
                 Some(ClarityVersion::Clarity2),
             ),
             &v2_smart_contract,
+        );
+        check_codec_and_corruption::<TransactionPayload>(
+            &TransactionPayload::SmartContract(
+                smart_contract.clone(),
+                Some(ClarityVersion::Clarity3),
+            ),
+            &v3_smart_contract,
+        );
+        check_codec_and_corruption::<TransactionPayload>(
+            &TransactionPayload::SmartContract(smart_contract, Some(ClarityVersion::Clarity4)),
+            &v4_smart_contract,
         );
     }
 

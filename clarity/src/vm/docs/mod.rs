@@ -2512,6 +2512,24 @@ If the provided index is out of bounds, this functions returns `none`.
 "#,
 };
 
+const CODE_BODY_OF: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    snippet: "code-body-of? ${1:principal}",
+    signature: "(code-body-of? contract)",
+    description: "Returns the code body of the specified contract, or an error if the principal
+is not a contract, does not exist, or the body is too large. Returns:
+* `(ok \"code body string\")` on success.
+* `(err u0)` if the principal is not a contract principal.
+* `(err u1)` if the specified contract does not exist.
+* `(err u2)` if the code body does not fit in the string-ascii.",
+    example: r#"
+(code-body-of? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.foo) ;; Returns (ok "<code body>") if contract exists
+(code-body-of? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM) ;; Returns (err u0)
+(code-body-of? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.does-not-exist) ;; Returns (err u1) if contract does not exist
+(code-body-of? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.long-contract) ;; Returns (err u2) if contract body is too long
+"#,
+};
+
 pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use crate::vm::functions::NativeFunctions::*;
     let name = function.get_name();
@@ -2624,6 +2642,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BitwiseNot => make_for_simple_native(&BITWISE_NOT_API, function, name),
         BitwiseLShift => make_for_simple_native(&BITWISE_LEFT_SHIFT_API, function, name),
         BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, function, name),
+        CodeBodyOf => make_for_simple_native(&CODE_BODY_OF, function, name),
     }
 }
 

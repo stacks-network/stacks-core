@@ -92,6 +92,6 @@ fn is_reserved_word_v3(word: &str) -> bool {
 pub fn is_reserved_word(word: &str, version: ClarityVersion) -> bool {
     match version {
         ClarityVersion::Clarity1 | ClarityVersion::Clarity2 => false,
-        ClarityVersion::Clarity3 => is_reserved_word_v3(word),
+        ClarityVersion::Clarity3 | ClarityVersion::Clarity4 => is_reserved_word_v3(word),
     }
 }

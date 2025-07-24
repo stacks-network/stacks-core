@@ -100,6 +100,16 @@ macro_rules! clarity_template {
                 (StacksEpochId::Epoch23, ClarityVersion::Clarity3) => (),
                 (StacksEpochId::Epoch24, ClarityVersion::Clarity3) => (),
                 (StacksEpochId::Epoch25, ClarityVersion::Clarity3) => (),
+                (StacksEpochId::Epoch20, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch2_05, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch21, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch22, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch23, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch24, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch25, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch30, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch31, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch32, ClarityVersion::Clarity4) => (),
                 // this will lead to a compile time failure if a pair is left out
                 //  of the clarity_template! macro list
                 $((StacksEpochId::$epoch, ClarityVersion::$clarity))|* => (),

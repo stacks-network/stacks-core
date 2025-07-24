@@ -30,8 +30,8 @@ use crate::vm::{
         env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
         tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
     },
-    types::{OptionalData, ResponseData, TypeSignature},
-    {execute as vm_execute, ClarityVersion, ContractContext},
+    types::{OptionalData, ResponseData, TypeSignature, GET_BODY_OF_MAX_SIZE},
+    SymbolicExpression, {execute as vm_execute, ClarityVersion, ContractContext},
 };
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
@@ -1176,4 +1176,149 @@ fn test_eval_with_non_existing_contract(
     drop(env);
     owned_env.commit().unwrap();
     assert!(owned_env.destruct().is_some());
+}
+
+#[test]
+fn test_code_body_of() {
+    let hello_body = r#"
+(define-public (hello) (ok "Hello, world!"))
+"#;
+    let empty_body = "";
+    let almost_too_large_body = ";".repeat(GET_BODY_OF_MAX_SIZE);
+    let too_large_body = ";".repeat(GET_BODY_OF_MAX_SIZE + 1);
+    let get_body_body = r#"
+(define-public (get-body (contract-id principal))
+  (code-body-of? contract-id)
+)
+"#;
+
+    let mut env_factory = env_factory();
+    let mut owned_env = env_factory.get_env(StacksEpochId::latest());
+    let placeholder_context = ContractContext::new(
+        QualifiedContractIdentifier::transient(),
+        ClarityVersion::Clarity4,
+    );
+    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+
+    let hello_identifier = QualifiedContractIdentifier::local("hello").unwrap();
+    env.initialize_contract(hello_identifier.clone(), hello_body, ASTRules::PrecheckSize)
+        .unwrap();
+
+    let empty_identifier = QualifiedContractIdentifier::local("empty").unwrap();
+    env.initialize_contract(empty_identifier.clone(), empty_body, ASTRules::PrecheckSize)
+        .unwrap();
+
+    let almost_too_large_identifier =
+        QualifiedContractIdentifier::local("almost-too-large").unwrap();
+    env.initialize_contract(
+        almost_too_large_identifier.clone(),
+        &almost_too_large_body,
+        ASTRules::PrecheckSize,
+    )
+    .unwrap();
+
+    let too_large_identifier = QualifiedContractIdentifier::local("too-large").unwrap();
+    env.initialize_contract(
+        too_large_identifier.clone(),
+        &too_large_body,
+        ASTRules::PrecheckSize,
+    )
+    .unwrap();
+
+    let get_body_identifier = QualifiedContractIdentifier::local("get-body").unwrap();
+    env.initialize_contract(get_body_identifier, get_body_body, ASTRules::PrecheckSize)
+        .unwrap();
+
+    let res = env
+        .execute_contract(
+            &QualifiedContractIdentifier::local("get-body").unwrap(),
+            "get-body",
+            &[SymbolicExpression::atom_value(Value::Principal(
+                PrincipalData::Contract(hello_identifier),
+            ))],
+            false,
+        )
+        .unwrap();
+    assert_eq!(
+        res,
+        Value::okay(
+            Value::string_ascii_from_validated_ascii_string(hello_body.to_string()).unwrap()
+        )
+        .expect("failed to create okay response")
+    );
+
+    let res = env
+        .execute_contract(
+            &QualifiedContractIdentifier::local("get-body").unwrap(),
+            "get-body",
+            &[SymbolicExpression::atom_value(Value::Principal(
+                PrincipalData::Contract(empty_identifier),
+            ))],
+            false,
+        )
+        .unwrap();
+    assert_eq!(
+        res,
+        Value::okay(
+            Value::string_ascii_from_validated_ascii_string(empty_body.to_string()).unwrap()
+        )
+        .expect("failed to create okay response")
+    );
+
+    let res = env
+        .execute_contract(
+            &QualifiedContractIdentifier::local("get-body").unwrap(),
+            "get-body",
+            &[SymbolicExpression::atom_value(Value::Principal(
+                PrincipalData::Contract(almost_too_large_identifier),
+            ))],
+            false,
+        )
+        .unwrap();
+    assert_eq!(
+        res,
+        Value::okay(
+            Value::string_ascii_from_validated_ascii_string(almost_too_large_body.to_string())
+                .unwrap()
+        )
+        .expect("failed to create okay response")
+    );
+
+    let res = env
+        .execute_contract(
+            &QualifiedContractIdentifier::local("get-body").unwrap(),
+            "get-body",
+            &[SymbolicExpression::atom_value(Value::Principal(
+                PrincipalData::Standard(StandardPrincipalData::null_principal()),
+            ))],
+            false,
+        )
+        .unwrap();
+    assert_eq!(res, Value::err_uint(0));
+
+    let res = env
+        .execute_contract(
+            &QualifiedContractIdentifier::local("get-body").unwrap(),
+            "get-body",
+            &[SymbolicExpression::atom_value(Value::Principal(
+                PrincipalData::Contract(
+                    QualifiedContractIdentifier::local("non-existing").unwrap(),
+                ),
+            ))],
+            false,
+        )
+        .unwrap();
+    assert_eq!(res, Value::err_uint(1));
+
+    let res = env
+        .execute_contract(
+            &QualifiedContractIdentifier::local("get-body").unwrap(),
+            "get-body",
+            &[SymbolicExpression::atom_value(Value::Principal(
+                PrincipalData::Contract(too_large_identifier),
+            ))],
+            false,
+        )
+        .unwrap();
+    assert_eq!(res, Value::err_uint(2));
 }

@@ -35,7 +35,7 @@ use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use crate::vm::types::{
     BufferLength, FixedFunction, FunctionType, QualifiedContractIdentifier, TraitIdentifier,
-    TypeSignature, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
+    TypeSignature, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64, MAX_VALUE_SIZE,
 };
 use crate::vm::{execute_v2, ClarityName, ClarityVersion};
 
@@ -3652,5 +3652,48 @@ fn test_principal_admits() {
         let res = mem_type_check(bad_test);
         println!("{res:?}");
         assert!(res.is_err());
+    }
+}
+
+#[test]
+fn test_code_body_of() {
+    let good = [
+        "(code-body-of? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM)",
+        "(code-body-of? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.foo)",
+    ];
+    for snippet in good.iter() {
+        let (ty, _) =
+            mem_run_analysis(snippet, ClarityVersion::Clarity4, StacksEpochId::latest()).unwrap();
+        assert_eq!(
+            TypeSignature::new_response(
+                TypeSignature::new_string_ascii(MAX_VALUE_SIZE as usize - 5)
+                    .expect("Failed to create string type"),
+                TypeSignature::UIntType,
+            )
+            .expect("Failed to create response type"),
+            ty.expect("Type signature should be present")
+        );
+    }
+
+    let bad = [
+        "(code-body-of? 0x01)",
+        "(code-body-of? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM)",
+        "(code-body-of?)",
+        r#"(code-body-of? "this is a code body")"#,
+    ];
+    let bad_expected = [
+        CheckErrors::TypeError(TypeSignature::PrincipalType, BUFF_1.clone()),
+        CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::IncorrectArgumentCount(1, 0),
+        CheckErrors::TypeError(
+            TypeSignature::PrincipalType,
+            TypeSignature::new_string_ascii("this is a code body".len())
+                .expect("Failed to create string type"),
+        ),
+    ];
+    for (snippet, expected) in bad.iter().zip(bad_expected.iter()) {
+        let res = mem_run_analysis(snippet, ClarityVersion::Clarity4, StacksEpochId::latest());
+        assert!(res.is_err());
+        assert_eq!(expected, &res.unwrap_err().err);
     }
 }

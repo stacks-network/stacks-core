@@ -47,6 +47,11 @@ pub const MAX_TYPE_DEPTH: u8 = 32;
 // this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
 
+/// Maximum size of contract supported by `code-body-of?`.
+/// The maximum Clarity value size is 1MB and we subtract 1 byte for the
+/// response wrapper and 4 bytes for the string length prefix.
+pub const GET_BODY_OF_MAX_SIZE: usize = 1024 * 1024 - WRAPPER_VALUE_SIZE as usize - 4;
+
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
     // todo: remove type_signature
@@ -1075,6 +1080,23 @@ impl Value {
         // construct the string
         Ok(Value::Sequence(SequenceData::String(CharType::ASCII(
             ASCIIData { data: bytes },
+        ))))
+    }
+
+    /// This function is used to convert a validated ASCII string into a
+    /// `Value::Sequence(SequenceData::String(CharType::ASCII))`. The input
+    /// string MUST be known to be valid ASCII. If this is not known, use
+    /// `string_ascii_from_bytes` instead.
+    pub fn string_ascii_from_validated_ascii_string(input_string: String) -> Result<Value> {
+        // Check the string length
+        // This is a validated ASCII string, so we can safely use the length
+        BufferLength::try_from(input_string.len())?;
+
+        // Construct the string
+        Ok(Value::Sequence(SequenceData::String(CharType::ASCII(
+            ASCIIData {
+                data: input_string.into_bytes(),
+            },
         ))))
     }
 

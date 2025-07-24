@@ -29,6 +29,7 @@ use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
     BlockInfoProperty, BuffData, BurnBlockInfoProperty, PrincipalData, SequenceData,
     StacksBlockInfoProperty, TenureInfoProperty, TupleData, TypeSignature, Value, BUFF_32,
+    GET_BODY_OF_MAX_SIZE,
 };
 use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
 
@@ -1148,4 +1149,55 @@ pub fn special_get_tenure_info(
     };
 
     Value::some(result)
+}
+
+/// Handles the function `code-body-of?`
+pub fn special_code_body_of(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(1, args)?;
+    let contract_expr = args
+        .get(0)
+        .ok_or(CheckErrors::IncorrectArgumentCount(1, 0))?;
+    let contract_value = eval(contract_expr, env, context)?;
+    let contract_identifier = match contract_value {
+        Value::Principal(PrincipalData::Standard(_)) => {
+            // If the value is a standard principal, we return `(err u0)`.
+            return Ok(Value::err_uint(0));
+        }
+        Value::Principal(PrincipalData::Contract(contract_identifier)) => contract_identifier,
+        _ => {
+            // If the value is not a principal, we return a check error.
+            return Err(CheckErrors::ExpectedContractPrincipalValue(contract_value).into());
+        }
+    };
+
+    let Some(contract_body) = env
+        .global_context
+        .database
+        .get_contract_src(&contract_identifier)
+    else {
+        // If the contract does not exist, we return `(err u1)`.
+        return Ok(Value::err_uint(1));
+    };
+
+    // If the contract body is too large, we return `(err u2)`.
+    if contract_body.len() > GET_BODY_OF_MAX_SIZE {
+        return Ok(Value::err_uint(2));
+    }
+
+    println!(
+        "string: {}, okay: {}",
+        Value::string_ascii_from_validated_ascii_string(contract_body.clone()).is_ok(),
+        Value::okay(
+            Value::string_ascii_from_validated_ascii_string(contract_body.clone()).unwrap()
+        )
+        .is_ok()
+    );
+
+    Value::okay(Value::string_ascii_from_validated_ascii_string(
+        contract_body,
+    )?)
 }

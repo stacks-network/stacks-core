@@ -934,6 +934,7 @@ fn block_info_tests(use_primary_testnet: bool) {
 
     let clar1_contract_name = "clar1";
     let clar3_contract_name = "clar3";
+    let clar4_contract_name = "clar4";
 
     let clar1_contract_id = QualifiedContractIdentifier {
         issuer: addr.clone().into(),
@@ -942,6 +943,10 @@ fn block_info_tests(use_primary_testnet: bool) {
     let clar3_contract_id = QualifiedContractIdentifier {
         issuer: addr.clone().into(),
         name: clar3_contract_name.into(),
+    };
+    let clar4_contract_id = QualifiedContractIdentifier {
+        issuer: addr.clone().into(),
+        name: clar4_contract_name.into(),
     };
 
     let get_tip_info = |peer: &mut TestPeer| {
@@ -962,6 +967,7 @@ fn block_info_tests(use_primary_testnet: bool) {
             ClarityVersion::Clarity1 => &clar1_contract_id,
             ClarityVersion::Clarity2 => panic!("Clarity2 not supported in this test"),
             ClarityVersion::Clarity3 => &clar3_contract_id,
+            ClarityVersion::Clarity4 => &clar4_contract_id,
         };
         peer.with_db_state(|sortdb, chainstate, _, _| {
             let sortdb_handle = sortdb.index_handle_at_tip();

@@ -163,6 +163,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         ReplaceAt => "(replace-at? list-bar u0 5)",
         GetStacksBlockInfo => "(get-block-info? time u1)",
         GetTenureInfo => "(get-block-info? time u1)",
+        CodeBodyOf => "(code-body-of? 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.foo)",
     }
 }
 

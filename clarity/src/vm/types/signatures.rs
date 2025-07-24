@@ -563,6 +563,20 @@ impl TypeSignature {
         }
     }
 
+    pub fn new_string_ascii(len: usize) -> Result<TypeSignature> {
+        let len = BufferLength::try_from(len)?;
+        Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
+            StringSubtype::ASCII(len),
+        )))
+    }
+
+    pub fn new_string_utf8(len: usize) -> Result<TypeSignature> {
+        let len = StringUTF8Length::try_from(len)?;
+        Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
+            StringSubtype::UTF8(len),
+        )))
+    }
+
     pub fn is_response_type(&self) -> bool {
         matches!(self, TypeSignature::ResponseType(_))
     }
