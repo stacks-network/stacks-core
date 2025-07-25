@@ -17,33 +17,26 @@
 mod http;
 mod signer_state;
 
-use std::fmt::Debug;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::net::{SocketAddr, TcpStream};
+use std::sync::mpsc::{channel, Sender};
 use std::time::{Duration, SystemTime};
 use std::{mem, thread};
 
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
-use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
-use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::types::chainstate::{ConsensusHash, StacksBlockId, StacksPublicKey, TrieHash};
 use clarity::util::hash::Sha512Trunc256Sum;
 use clarity::util::secp256k1::MessageSignature;
-use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::StackerDBChunkData;
 use stacks_common::bitvec::BitVec;
-use stacks_common::codec::{
-    read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
-    StacksMessageCodec,
-};
+use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::sleep_ms;
 
 use crate::events::{BlockProposalData, SignerEvent, SignerEventTrait};
-use crate::v0::messages::{BlockRejection, SignerMessage};
+use crate::v0::messages::SignerMessage;
 use crate::{BlockProposal, Signer, SignerEventReceiver, SignerRunLoop};
 
 /// Simple runloop implementation.  It receives `max_events` events and returns `events` from the
@@ -236,15 +229,12 @@ fn test_status_endpoint() {
         let mut sock = match TcpStream::connect(endpoint) {
             Ok(sock) => sock,
             Err(e) => {
-                eprint!("Error connecting to {}: {}", endpoint, e);
+                eprint!("Error connecting to {endpoint}: {e}");
                 sleep_ms(100);
                 return;
             }
         };
-        let req = format!(
-            "GET /status HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-            endpoint
-        );
+        let req = format!("GET /status HTTP/1.1\r\nHost: {endpoint}\r\nConnection: close\r\n\r\n");
 
         sock.write_all(req.as_bytes()).unwrap();
         let mut buf = [0; 128];

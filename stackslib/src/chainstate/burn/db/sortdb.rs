@@ -58,7 +58,9 @@ use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::ChainstateDB;
-use crate::core::{StacksEpoch, StacksEpochExtension, StacksEpochId, AST_RULES_PRECHECK_SIZE};
+use crate::core::{
+    EpochList, StacksEpoch, StacksEpochExtension, StacksEpochId, AST_RULES_PRECHECK_SIZE,
+};
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::util_lib::db::{
     db_mkdirs, opt_u64_to_sql, query_row, query_row_panic, query_rows, sql_pragma, table_exists,
@@ -995,9 +997,12 @@ impl db_keys {
 
     pub fn reward_set_size_from_string(size: &str) -> u16 {
         let bytes = hex_bytes(size).expect("CORRUPTION: bad format written for reward set size");
-        let mut byte_buff = [0; 2];
-        byte_buff.copy_from_slice(&bytes[0..2]);
-        u16::from_le_bytes(byte_buff)
+        let byte_buff: &[u8; 2] = bytes
+            .get(0..2)
+            .expect("CORRUPTION: expected u16 reward set size")
+            .try_into()
+            .expect("CORRUPTION: expected u16 reward set size");
+        u16::from_le_bytes(*byte_buff)
     }
 
     /// reward cycle ID that was last processed
@@ -1022,8 +1027,8 @@ impl db_keys {
             8,
             "CORRUPTION: expected 8 bytes for reward cycle"
         );
-        let mut rc_buff = [0; 8];
-        rc_buff.copy_from_slice(&bytes[0..8]);
+        // expect, because we did a length check above
+        let rc_buff: [u8; 8] = bytes.try_into().expect("FATAL: non-length 8 array");
         u64::from_le_bytes(rc_buff)
     }
 }
@@ -1302,9 +1307,9 @@ impl<'a> SortitionHandleTx<'a> {
     ) -> Result<Vec<LeaderKeyRegisterOp>, db_error> {
         // get the set of VRF keys consumed by these commits
         let mut leader_keys = vec![];
-        for i in 0..block_candidates.len() {
-            let leader_key_block_height = block_candidates[i].key_block_ptr as u64;
-            let leader_key_vtxindex = block_candidates[i].key_vtxindex as u32;
+        for candidate in block_candidates.iter() {
+            let leader_key_block_height = candidate.key_block_ptr as u64;
+            let leader_key_vtxindex = candidate.key_vtxindex as u32;
             let leader_key = self
                 .get_leader_key_at(
                     leader_key_block_height,
@@ -1314,7 +1319,7 @@ impl<'a> SortitionHandleTx<'a> {
                 .unwrap_or_else(|| {
                     panic!(
                         "FATAL: no leader key for accepted block commit {} (at {},{})",
-                        &block_candidates[i].txid, leader_key_block_height, leader_key_vtxindex
+                        &candidate.txid, leader_key_block_height, leader_key_vtxindex
                     )
                 });
 
@@ -1690,7 +1695,11 @@ impl SortitionHandleTx<'_> {
                     recipients: chosen_recipients
                         .into_iter()
                         .map(|ix| {
-                            let recipient = reward_set.rewarded_addresses[ix as usize].clone();
+                            let recipient = reward_set
+                                .rewarded_addresses
+                                .get(ix as usize)
+                                .expect("Chosen reward set index not found in reward set")
+                                .clone();
                             info!("PoX recipient chosen";
                                "recipient" => recipient.to_burnchain_repr(),
                                "block_height" => block_height,
@@ -3027,13 +3036,14 @@ impl SortitionDB {
 
     /// Validates given StacksEpochs (will runtime panic if there is any invalid StacksEpoch structuring) and
     /// replaces them into the SortitionDB's epochs table
+    #[allow(clippy::indexing_slicing)] // bad epoch definitions panic
     fn validate_and_replace_epochs(
         db_tx: &Transaction,
         epochs: &[StacksEpoch],
     ) -> Result<(), db_error> {
         let epochs: &[StacksEpoch] = &StacksEpoch::validate_epochs(epochs);
-        let existing_epochs = Self::get_stacks_epochs(db_tx)?;
-        if &existing_epochs == epochs {
+        let existing_epochs: &[StacksEpoch] = &Self::get_stacks_epochs(db_tx)?;
+        if existing_epochs == epochs {
             return Ok(());
         }
 
@@ -3226,6 +3236,7 @@ impl SortitionDB {
             StacksEpochId::Epoch25 => version_u32 >= 3,
             StacksEpochId::Epoch30 => version_u32 >= 3,
             StacksEpochId::Epoch31 => version_u32 >= 3,
+            StacksEpochId::Epoch32 => version_u32 >= 3,
         }
     }
 
@@ -3545,10 +3556,9 @@ impl SortitionDB {
                         tx.commit()?;
                     } else if version == expected_version {
                         // this transaction is almost never needed
-                        let validated_epochs: &[StacksEpoch] =
-                            &StacksEpoch::validate_epochs(epochs);
+                        let validated_epochs = StacksEpoch::validate_epochs(epochs);
                         let existing_epochs = Self::get_stacks_epochs(self.conn())?;
-                        if &existing_epochs == validated_epochs {
+                        if existing_epochs == validated_epochs {
                             return Ok(());
                         }
 
@@ -3650,8 +3660,9 @@ impl SortitionDB {
         )?;
 
         assert!(!ast_rule_sets.is_empty());
-        let mut last_height = ast_rule_sets[0].1;
-        let mut last_rules = ast_rule_sets[0].0;
+        let first_rules = ast_rule_sets.first().unwrap();
+        let mut last_height = first_rules.1;
+        let mut last_rules = first_rules.0;
         for (ast_rules, ast_rule_height) in ast_rule_sets.into_iter() {
             if last_height <= height && height < ast_rule_height {
                 return Ok(last_rules);
@@ -3775,10 +3786,11 @@ impl SortitionDBTx<'_> {
 
         // remove the first entry -- it's always `n` based on the way we construct it, while the
         // heaviest affirmation map just has nothing.
-        Ok(match affirmation_map.as_slice() {
-            [] => AffirmationMap::empty(),
-            a => AffirmationMap::new(a[1..].to_vec()),
-        })
+        if let Some(skipped_first_entry) = affirmation_map.as_slice().get(1..) {
+            Ok(AffirmationMap::new(skipped_first_entry.to_vec()))
+        } else {
+            Ok(AffirmationMap::empty())
+        }
     }
 }
 
@@ -4652,10 +4664,10 @@ impl SortitionDB {
 
         // remove the first entry -- it's always `n` based on the way we construct it, while the
         // heaviest affirmation map just has nothing.
-        if am.is_empty() {
-            Ok(AffirmationMap::empty())
+        if let Some(skipped_first_entry) = am.as_slice().get(1..) {
+            Ok(AffirmationMap::new(skipped_first_entry.to_vec()))
         } else {
-            Ok(AffirmationMap::new(am.as_slice()[1..].to_vec()))
+            Ok(AffirmationMap::empty())
         }
     }
 
@@ -5119,9 +5131,9 @@ impl SortitionDB {
             SortitionDB::get_block_commits_by_block(conn, &block_snapshot.sortition_id)?;
         let mut burn_total: u64 = 0;
 
-        for i in 0..block_commits.len() {
+        for block_commit in block_commits.iter() {
             burn_total = burn_total
-                .checked_add(block_commits[i].burn_fee)
+                .checked_add(block_commit.burn_fee)
                 .expect("Way too many tokens burned");
         }
         Ok(burn_total)
@@ -5348,25 +5360,24 @@ impl SortitionDB {
         cache: &mut BlockHeaderCache,
         header_data: &[(ConsensusHash, Option<BlockHeaderHash>)],
     ) {
-        if !header_data.is_empty() {
-            let mut i = header_data.len() - 1;
-            while i > 0 {
-                let cur_consensus_hash = &header_data[i].0;
-                let cur_block_opt = &header_data[i].1;
-
-                if let Some((ref cached_block_opt, _)) = cache.get(cur_consensus_hash) {
-                    assert_eq!(cached_block_opt, cur_block_opt);
-                } else {
-                    let prev_consensus_hash = header_data[i - 1].0.clone();
-                    cache.insert(
-                        (*cur_consensus_hash).clone(),
-                        ((*cur_block_opt).clone(), prev_consensus_hash.clone()),
-                    );
-                }
-
-                i -= 1;
+        let Some(first_header) = header_data.first() else {
+            // empty, don't need to do anything
+            debug!("Block header cache has {} items", cache.len());
+            return;
+        };
+        let mut prev_consensus_hash = &first_header.0;
+        for (cur_consensus_hash, cur_block_opt) in header_data.iter().skip(1) {
+            if let Some((ref cached_block_opt, _)) = cache.get(cur_consensus_hash) {
+                assert_eq!(cached_block_opt, cur_block_opt);
+            } else {
+                cache.insert(
+                    cur_consensus_hash.clone(),
+                    (cur_block_opt.clone(), prev_consensus_hash.clone()),
+                );
             }
+            prev_consensus_hash = &cur_consensus_hash;
         }
+
         debug!("Block header cache has {} items", cache.len());
     }
 
@@ -5398,9 +5409,10 @@ impl SortitionDB {
     }
 
     /// Get all StacksEpochs, in order by ascending start height
-    pub fn get_stacks_epochs(conn: &DBConn) -> Result<Vec<StacksEpoch>, db_error> {
+    pub fn get_stacks_epochs(conn: &DBConn) -> Result<EpochList, db_error> {
         let sql = "SELECT * FROM epochs ORDER BY start_block_height ASC";
-        query_rows(conn, sql, NO_PARAMS)
+        let epochs_vec: Vec<StacksEpoch> = query_rows(conn, sql, NO_PARAMS)?;
+        Ok(EpochList::from(epochs_vec))
     }
 
     pub fn get_stacks_epoch_by_epoch_id(
@@ -5443,15 +5455,12 @@ impl SortitionDB {
     ) -> Result<u64, db_error> {
         let epochs = SortitionDB::get_stacks_epochs(conn)?;
 
-        for epoch in epochs {
-            if epoch.epoch_id == StacksEpochId::Epoch2_05 {
-                return Ok(pox_constants
-                    .block_height_to_reward_cycle(first_block_height, epoch.end_height)
-                    .expect("FATAL: end block of epoch 2.05 is before system start height"));
-            }
+        match epochs.get(StacksEpochId::Epoch2_05) {
+            None => Ok(u64::MAX),
+            Some(epoch) => Ok(pox_constants
+                .block_height_to_reward_cycle(first_block_height, epoch.end_height)
+                .expect("FATAL: end block of epoch 2.05 is before system start height")),
         }
-
-        Ok(u64::MAX)
     }
 
     /// Get the latest block snapshot on this fork where a sortition occured.
@@ -6430,11 +6439,11 @@ impl SortitionHandleTx<'_> {
             }
         }
 
-        if tied.is_empty() {
+        let Some(tied_0) = tied.first() else {
             return None;
-        }
+        };
         if tied.len() == 1 {
-            return Some(tied[0].1);
+            return Some(tied_0.1);
         }
 
         // break ties by hashing the index block hash with the snapshot's sortition hash, and
@@ -6580,8 +6589,12 @@ impl SortitionHandleTx<'_> {
             &new_block_arrivals,
         );
         if let Some(winning_index) = winning_index_opt {
-            best_tip_consensus_hash = new_block_arrivals[winning_index].0;
-            best_tip_block_bhh = new_block_arrivals[winning_index].1;
+            let winner = new_block_arrivals.get(winning_index).ok_or_else(|| {
+                error!("Failed to index the winner of a stacks tip tie");
+                db_error::Corruption
+            })?;
+            best_tip_consensus_hash = winner.0;
+            best_tip_block_bhh = winner.1;
         }
 
         debug!(
@@ -11044,7 +11057,7 @@ pub mod tests {
         .unwrap();
 
         let db_epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
-        assert_eq!(db_epochs, bad_epochs.to_vec());
+        assert_eq!(db_epochs, bad_epochs);
 
         let fixed_sortdb = SortitionDB::connect(
             &format!("{}/sortdb.sqlite", &path_root),
@@ -11059,7 +11072,7 @@ pub mod tests {
         .unwrap();
 
         let db_epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
-        assert_eq!(db_epochs, STACKS_EPOCHS_MAINNET.to_vec());
+        assert_eq!(db_epochs, *STACKS_EPOCHS_MAINNET);
     }
 
     #[test]

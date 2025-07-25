@@ -504,11 +504,10 @@ impl RelayerStats {
 
         if norm <= 1 {
             // there is one or zero options
-            if rankings_vec.is_empty() {
-                return vec![];
-            } else {
-                return vec![rankings_vec[0].0.clone()];
-            }
+            return match rankings_vec.first() {
+                Some(ranking) => vec![ranking.0.clone()],
+                None => vec![],
+            };
         }
 
         for l in 0..count {
@@ -520,19 +519,19 @@ impl RelayerStats {
             let target: usize = rng.gen::<usize>() % norm; // slightly biased, but it doesn't really matter
             let mut w = 0;
 
-            for i in 0..rankings_vec.len() {
-                if rankings_vec[i].1 == 0 {
+            for ranking in rankings_vec.iter_mut() {
+                if ranking.1 == 0 {
                     continue;
                 }
 
-                w += rankings_vec[i].1;
+                w += ranking.1;
                 if w >= target {
-                    ret.insert(rankings_vec[i].0.clone());
+                    ret.insert(ranking.0.clone());
                     sampled += 1;
 
                     // sample without replacement
-                    norm = norm.saturating_sub(rankings_vec[i].1);
-                    rankings_vec[i].1 = 0;
+                    norm = norm.saturating_sub(ranking.1);
+                    ranking.1 = 0;
                     break;
                 }
             }
@@ -1424,10 +1423,10 @@ impl Relayer {
         for (consensus_hash, microblock_stream, _download_time) in
             network_result.confirmed_microblocks.iter()
         {
-            if microblock_stream.is_empty() {
+            let Some(microblock_stream_first) = microblock_stream.first() else {
                 continue;
-            }
-            let anchored_block_hash = microblock_stream[0].header.prev_block.clone();
+            };
+            let anchored_block_hash = microblock_stream_first.header.prev_block.clone();
 
             let block_snapshot =
                 match SortitionDB::get_block_snapshot_consensus(sort_ic, consensus_hash) {
@@ -2438,12 +2437,6 @@ impl Relayer {
             let mut all_events: HashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
                 HashMap::new();
             for chunk in uploaded_chunks.into_iter() {
-                if let Some(events) = all_events.get_mut(&chunk.contract_id) {
-                    events.push(chunk.chunk_data.clone());
-                } else {
-                    all_events.insert(chunk.contract_id.clone(), vec![chunk.chunk_data.clone()]);
-                }
-
                 // forward if not stale
                 if chunk.rc_consensus_hash != *rc_consensus_hash {
                     debug!("Drop stale uploaded StackerDB chunk";
@@ -2453,6 +2446,12 @@ impl Relayer {
                            "chunk.rc_consensus_hash" => %chunk.rc_consensus_hash,
                            "network.rc_consensus_hash" => %rc_consensus_hash);
                     continue;
+                }
+
+                if let Some(events) = all_events.get_mut(&chunk.contract_id) {
+                    events.push(chunk.chunk_data.clone());
+                } else {
+                    all_events.insert(chunk.contract_id.clone(), vec![chunk.chunk_data.clone()]);
                 }
 
                 debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => %chunk.contract_id, "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
@@ -2530,6 +2529,7 @@ impl Relayer {
                         } else {
                             all_events.insert(sync_result.contract_id.clone(), vec![chunk.clone()]);
                         }
+
                         let msg = StacksMessageType::StackerDBPushChunk(StackerDBPushChunkData {
                             contract_id: sc.clone(),
                             rc_consensus_hash: rc_consensus_hash.clone(),
@@ -3091,7 +3091,8 @@ impl PeerNetwork {
         let inbound_recipients =
             if inbound_recipients_unshuffled.len() > MAX_BROADCAST_INBOUND_RECEIVERS {
                 let _ = &mut inbound_recipients_unshuffled[..].shuffle(&mut thread_rng());
-                inbound_recipients_unshuffled[0..MAX_BROADCAST_INBOUND_RECEIVERS].to_vec()
+                inbound_recipients_unshuffled.truncate(MAX_BROADCAST_INBOUND_RECEIVERS);
+                inbound_recipients_unshuffled
             } else {
                 inbound_recipients_unshuffled
             };
@@ -3109,15 +3110,11 @@ impl PeerNetwork {
     ) where
         S: FnMut(BlocksAvailableData) -> StacksMessageType,
     {
-        for i in (0..wanted.len()).step_by(BLOCKS_AVAILABLE_MAX_LEN as usize) {
-            let to_send = if i + (BLOCKS_AVAILABLE_MAX_LEN as usize) < wanted.len() {
-                wanted[i..(i + (BLOCKS_AVAILABLE_MAX_LEN as usize))].to_vec()
-            } else {
-                wanted[i..].to_vec()
-            };
-
+        for to_send in wanted.chunks(BLOCKS_AVAILABLE_MAX_LEN as usize) {
             let num_blocks = to_send.len();
-            let payload = BlocksAvailableData { available: to_send };
+            let payload = BlocksAvailableData {
+                available: to_send.to_vec(),
+            };
             let message = match self.sign_for_neighbor(recipient, msg_builder(payload)) {
                 Ok(m) => m,
                 Err(e) => {

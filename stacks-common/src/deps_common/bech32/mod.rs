@@ -679,11 +679,11 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::MissingSeparator => write!(f, "missing human-readable separator, \"{}\"", SEP),
+            Error::MissingSeparator => write!(f, "missing human-readable separator, \"{SEP}\""),
             Error::InvalidChecksum => write!(f, "invalid checksum"),
             Error::InvalidLength => write!(f, "invalid length"),
-            Error::InvalidChar(n) => write!(f, "invalid character (code={})", n),
-            Error::InvalidData(n) => write!(f, "invalid data point ({})", n),
+            Error::InvalidChar(n) => write!(f, "invalid character (code={n})"),
+            Error::InvalidData(n) => write!(f, "invalid data point ({n})"),
             Error::InvalidPadding => write!(f, "invalid padding"),
             Error::MixedCase => write!(f, "mixed-case strings not allowed"),
         }
@@ -792,7 +792,7 @@ mod tests {
                     let encoded = encode(&hrp, payload, variant).unwrap();
                     assert_eq!(s.to_lowercase(), encoded.to_lowercase());
                 }
-                Err(e) => panic!("Did not decode: {:?} Reason: {:?}", s, e),
+                Err(e) => panic!("Did not decode: {s:?} Reason: {e:?}"),
             }
         }
     }
@@ -850,8 +850,8 @@ mod tests {
         for p in pairs {
             let (s, expected_error) = p;
             match decode(s) {
-                Ok(_) => panic!("Should be invalid: {:?}", s),
-                Err(e) => assert_eq!(e, expected_error, "testing input '{}'", s),
+                Ok(_) => panic!("Should be invalid: {s:?}"),
+                Err(e) => assert_eq!(e, expected_error, "testing input '{s}'"),
             }
         }
     }

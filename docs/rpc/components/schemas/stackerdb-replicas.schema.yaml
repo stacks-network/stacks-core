@@ -1,0 +1,11 @@
+type: array
+items:
+  type: object
+  properties:
+    ip:
+      type: string
+    port:
+      type: integer
+    public_key_hash:
+      type: string
+      description: 20-byte public key hash

@@ -62,7 +62,7 @@ fn make_func_ref(func_name: &str, func_type: &FunctionType, description: &str) -
 
 #[allow(clippy::expect_used)]
 fn get_constant_value(var_name: &str, contract_content: &str) -> Value {
-    let to_eval = format!("{}\n{}", contract_content, var_name);
+    let to_eval = format!("{contract_content}\n{var_name}");
     doc_execute(&to_eval)
         .expect("BUG: failed to evaluate contract for constant value")
         .expect("BUG: failed to return constant value")
@@ -144,7 +144,7 @@ pub fn make_docs(
         })
         .collect::<Vec<_>>()
         .join(", ");
-    let ecode_to_eval = format!("{}\n {{ {} }}", content, ecode_names);
+    let ecode_to_eval = format!("{content}\n {{ {ecode_names} }}");
     let ecode_result = doc_execute(&ecode_to_eval)
         .expect("BUG: failed to evaluate contract for constant value")
         .expect("BUG: failed to return constant value")

@@ -36,7 +36,7 @@ use crate::vm::tests::{execute, test_clarity_versions};
 use crate::vm::types::signatures::*;
 use crate::vm::types::{
     ASCIIData, BuffData, CharType, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    StacksAddressExtensions, TypeSignature,
+    TypeSignature,
 };
 use crate::vm::{
     eval, execute as vm_execute, execute_v2 as vm_execute_v2,
@@ -260,13 +260,12 @@ fn test_to_consensus_buff_too_big() {
     // expect length, just return (some buffer), which will
     // cause the test assertion to fail.
     let program_check_1048570 = format!(
-        "{}
+        "{buff_setup}
      (let ((a (make-buff-1048570)))
         (if (is-eq (len a) u1048570)
             (to-consensus-buff? a)
             (some 0x00)))
-    ",
-        buff_setup
+    "
     );
 
     let result = vm_execute_v2(&program_check_1048570)
@@ -281,13 +280,12 @@ fn test_to_consensus_buff_too_big() {
     // expect length, just return (some buffer), which will
     // cause the test assertion to fail.
     let program_check_1048567 = format!(
-        "{}
+        "{buff_setup}
      (let ((a (make-buff-1048567)))
         (if (is-eq (len a) u1048567)
             (to-consensus-buff? a)
             (some 0x00)))
-    ",
-        buff_setup
+    "
     );
 
     let result = vm_execute_v2(&program_check_1048567)
@@ -344,8 +342,8 @@ fn test_from_consensus_buff_missed_expectations() {
     ];
 
     for (buff_repr, type_repr) in vectors.iter() {
-        let program = format!("(from-consensus-buff? {} {})", type_repr, buff_repr);
-        eprintln!("{}", program);
+        let program = format!("(from-consensus-buff? {type_repr} {buff_repr})");
+        eprintln!("{program}");
         let result_val = vm_execute_v2(&program)
             .expect("from-consensus-buff? should succeed")
             .expect("from-consensus-buff? should return")
@@ -380,8 +378,8 @@ fn test_to_from_consensus_buff_vectors() {
 
     // do `from-consensus-buff?` tests
     for (buff_repr, value_repr, type_repr) in vectors.iter() {
-        let program = format!("(from-consensus-buff? {} {})", type_repr, buff_repr);
-        eprintln!("{}", program);
+        let program = format!("(from-consensus-buff? {type_repr} {buff_repr})");
+        eprintln!("{program}");
         let result_val = vm_execute_v2(&program)
             .expect("from-consensus-buff? should succeed")
             .expect("from-consensus-buff? should return")
@@ -394,7 +392,7 @@ fn test_to_from_consensus_buff_vectors() {
 
     // do `to-consensus-buff?` tests
     for (buff_repr, value_repr, _) in vectors.iter() {
-        let program = format!("(to-consensus-buff? {})", value_repr);
+        let program = format!("(to-consensus-buff? {value_repr})");
         let result_buffer = vm_execute_v2(&program)
             .expect("to-consensus-buff? should succeed")
             .expect("to-consensus-buff? should return")
@@ -424,7 +422,7 @@ fn test_secp256k1() {
         "510f96a8efd0b11e211733c1ac5e3fa6f3d3fcdd62869e376c47decb3e14fea101",
     )
     .unwrap(); // need the "compressed extra 0x01 to match, as this changes the address"
-    eprintln!("privk {:?}", &privk);
+    eprintln!("privk {privk:?}");
     eprintln!("from_private {:?}", &StacksPublicKey::from_private(&privk));
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -433,7 +431,7 @@ fn test_secp256k1() {
         &vec![StacksPublicKey::from_private(&privk)],
     )
     .unwrap();
-    eprintln!("addr from privk {:?}", &addr);
+    eprintln!("addr from privk {addr:?}");
     let principal = addr.into();
     if let PrincipalData::Standard(data) = principal {
         eprintln!("test_secp256k1 principal {:?}", data.to_address());
@@ -449,7 +447,7 @@ fn test_secp256k1() {
         .unwrap()],
     )
     .unwrap();
-    eprintln!("addr from hex {:?}", addr);
+    eprintln!("addr from hex {addr:?}");
     let principal: PrincipalData = addr.into();
     if let PrincipalData::Standard(data) = principal.clone() {
         eprintln!("test_secp256k1 principal {:?}", data.to_address());
@@ -971,11 +969,9 @@ fn test_sequence_comparisons_clarity2() {
     // Note: Execute against Clarity2.
     success_tests.iter().for_each(|(program, expectation)| {
         assert_eq!(
-            expectation.clone(),
-            vm_execute_v2(program).unwrap().unwrap(),
-            "{:?}, {:?}",
-            program,
-            expectation.clone()
+            expectation,
+            &vm_execute_v2(program).unwrap().unwrap(),
+            "{program:?}, {expectation:?}"
         )
     });
 }

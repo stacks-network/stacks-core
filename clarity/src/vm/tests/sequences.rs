@@ -16,24 +16,33 @@
 
 use rstest::rstest;
 use rstest_reuse::{self, *};
+#[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::tests::test_clarity_versions;
-use crate::vm::types::signatures::SequenceSubtype;
-use crate::vm::types::signatures::SequenceSubtype::{BufferType, StringType};
-use crate::vm::types::signatures::StringSubtype::ASCII;
-use crate::vm::types::TypeSignature::{BoolType, IntType, SequenceType, UIntType};
-use crate::vm::types::{BufferLength, StringSubtype, StringUTF8Length, TypeSignature, Value};
-use crate::vm::{execute, execute_v2, ClarityVersion};
+#[cfg(test)]
+use crate::vm::{
+    errors::{CheckErrors, Error, RuntimeErrorType},
+    execute, execute_v2,
+    types::{
+        signatures::{
+            SequenceSubtype::{self, BufferType, StringType},
+            StringSubtype::ASCII,
+        },
+        BufferLength, StringSubtype, StringUTF8Length,
+        TypeSignature::{self, BoolType, IntType, SequenceType, UIntType},
+        Value,
+    },
+    ClarityVersion,
+};
 
 #[test]
 fn test_simple_list_admission() {
     let defines = "(define-private (square (x int)) (* x x))
          (define-private (square-list (x (list 4 int))) (map square x))";
-    let t1 = format!("{} (square-list (list 1 2 3 4))", defines);
-    let t2 = format!("{} (square-list (list))", defines);
-    let t3 = format!("{} (square-list (list 1 2 3 4 5))", defines);
+    let t1 = format!("{defines} (square-list (list 1 2 3 4))");
+    let t2 = format!("{defines} (square-list (list))");
+    let t3 = format!("{defines} (square-list (list 1 2 3 4 5))");
 
     let expected = Value::list_from(vec![
         Value::Int(1),
@@ -52,7 +61,7 @@ fn test_simple_list_admission() {
     assert!(match err {
         Error::Unchecked(CheckErrors::TypeValueError(_, _)) => true,
         _ => {
-            eprintln!("Expected TypeError, but found: {:?}", err);
+            eprintln!("Expected TypeError, but found: {err:?}");
             false
         }
     });
@@ -181,7 +190,7 @@ fn test_element_at() {
 #[test]
 fn test_string_ascii_admission() {
     let defines = "(define-private (set-name (x (string-ascii 11))) x)";
-    let t1 = format!("{} (set-name \"hello world\")", defines);
+    let t1 = format!("{defines} (set-name \"hello world\")");
 
     let expected = Value::string_ascii_from_bytes("hello world".into()).unwrap();
 
@@ -191,7 +200,7 @@ fn test_string_ascii_admission() {
 #[test]
 fn test_string_utf8_admission() {
     let defines = "(define-private (set-name (x (string-utf8 14))) x)";
-    let t1 = format!("{} (set-name u\"my 2 \\u{{c2a2}} (cents)\")", defines);
+    let t1 = format!("{defines} (set-name u\"my 2 \\u{{c2a2}} (cents)\")");
 
     let expected =
         Value::string_utf8_from_string_utf8_literal("my 2 \\u{c2a2} (cents)".into()).unwrap();
@@ -203,7 +212,7 @@ fn test_string_utf8_admission() {
 fn test_string_ascii_map() {
     let defines =
         "(define-private (replace-a-with-b (c (string-ascii 1))) (if (is-eq \"a\" c) \"b\" c))";
-    let t1 = format!("{} (map replace-a-with-b \"ababab\")", defines);
+    let t1 = format!("{defines} (map replace-a-with-b \"ababab\")");
 
     let expected = Value::list_from(vec![
         Value::string_ascii_from_bytes("b".into()).unwrap(),
@@ -222,10 +231,7 @@ fn test_string_ascii_map() {
 fn test_string_utf8_map() {
     let defines =
         "(define-private (replace-dog-with-fox (c (string-utf8 1))) (if (is-eq u\"\\u{1F436}\" c) u\"\\u{1F98A}\" c))";
-    let t1 = format!(
-        "{} (map replace-dog-with-fox u\"fox \\u{{1F436}}\")",
-        defines
-    );
+    let t1 = format!("{defines} (map replace-dog-with-fox u\"fox \\u{{1F436}}\")");
 
     let expected = Value::list_from(vec![
         Value::string_utf8_from_bytes("f".into()).unwrap(),
@@ -242,7 +248,7 @@ fn test_string_utf8_map() {
 #[test]
 fn test_string_ascii_filter() {
     let defines = "(define-private (remove-a (c (string-ascii 1))) (not (is-eq \"a\" c)))";
-    let t1 = format!("{} (filter remove-a \"ababab\")", defines);
+    let t1 = format!("{defines} (filter remove-a \"ababab\")");
 
     let expected = Value::string_ascii_from_bytes("bbb".into()).unwrap();
 
@@ -252,10 +258,7 @@ fn test_string_ascii_filter() {
 #[test]
 fn test_string_utf8_filter() {
     let defines = "(define-private (keep-dog (c (string-utf8 1))) (is-eq u\"\\u{1F436}\" c))";
-    let t1 = format!(
-        "{} (filter keep-dog u\"fox \\u{{1F98A}} \\u{{1F436}}\")",
-        defines
-    );
+    let t1 = format!("{defines} (filter keep-dog u\"fox \\u{{1F98A}} \\u{{1F436}}\")");
 
     let expected = Value::string_utf8_from_bytes("🐶".into()).unwrap();
 

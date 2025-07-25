@@ -64,7 +64,7 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
     write!(rd, " ")?;
     match thread::current().name() {
         None => write!(rd, "[{:?}]", thread::current().id())?,
-        Some(name) => write!(rd, "[{}]", name)?,
+        Some(name) => write!(rd, "[{name}]")?,
     }
 
     rd.start_whitespace()?;

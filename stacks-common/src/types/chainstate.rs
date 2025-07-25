@@ -64,13 +64,10 @@ impl TrieHash {
             return TrieHash::from_empty_data();
         }
 
-        let mut tmp = [0u8; 32];
-
         let mut hasher = Sha512_256::new();
         hasher.update(data);
-        tmp.copy_from_slice(hasher.finalize().as_slice());
-
-        TrieHash(tmp)
+        let out = hasher.finalize().into();
+        TrieHash(out)
     }
 
     pub fn from_data_array<B: AsRef<[u8]>>(data: &[B]) -> TrieHash {
@@ -78,15 +75,13 @@ impl TrieHash {
             return TrieHash::from_empty_data();
         }
 
-        let mut tmp = [0u8; 32];
-
         let mut hasher = Sha512_256::new();
 
         for item in data.iter() {
             hasher.update(item);
         }
-        tmp.copy_from_slice(hasher.finalize().as_slice());
-        TrieHash(tmp)
+        let out = hasher.finalize().into();
+        TrieHash(out)
     }
 
     /// Convert to a String that can be used in e.g. sqlite
@@ -128,7 +123,7 @@ impl slog::Value for BlockHeaderHash {
         key: slog::Key,
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
-        serializer.emit_arguments(key, &format_args!("{}", *self))
+        serializer.emit_arguments(key, &format_args!("{self}"))
     }
 }
 
@@ -170,11 +165,15 @@ impl SortitionId {
         } else {
             let mut hasher = Sha512_256::new();
             hasher.update(bhh);
-            write!(hasher, "{}", pox).expect("Failed to deserialize PoX ID into the hasher");
+            write!(hasher, "{pox}").expect("Failed to deserialize PoX ID into the hasher");
             let h = Sha512Trunc256Sum::from_hasher(hasher);
             let s = SortitionId(h.0);
-            test_debug!("SortitionId({}) = {} + {}", &s, bhh, pox);
-            s
+            // The `test_debug!` macro will expand to nothing on release builds.
+            #[allow(clippy::let_and_return)]
+            {
+                test_debug!("SortitionId({s}) = {bhh} + {pox}");
+                s
+            }
         }
     }
 }
@@ -493,9 +492,8 @@ impl BurnchainHeaderHash {
     }
 
     pub fn to_bitcoin_hash(&self) -> Sha256dHash {
-        let bytes = self.0.iter().rev().copied().collect::<Vec<_>>();
-        let mut buf = [0u8; 32];
-        buf.copy_from_slice(&bytes[0..32]);
+        let mut buf = self.0;
+        buf.reverse();
         Sha256dHash(buf)
     }
 

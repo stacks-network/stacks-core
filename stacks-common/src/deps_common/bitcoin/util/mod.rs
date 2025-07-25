@@ -20,8 +20,6 @@ pub mod hash;
 
 use std::{error, fmt};
 
-use secp256k1;
-
 use crate::deps_common::bitcoin::network;
 use crate::deps_common::bitcoin::network::serialize;
 
@@ -50,8 +48,6 @@ pub trait BitArray {
 /// if appropriate.
 #[derive(Debug)]
 pub enum Error {
-    /// secp-related error
-    Secp256k1(secp256k1::Error),
     /// Serialization error
     Serialize(serialize::Error),
     /// Network error
@@ -65,7 +61,6 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::Secp256k1(ref e) => fmt::Display::fmt(e, f),
             Error::Serialize(ref e) => fmt::Display::fmt(e, f),
             Error::Network(ref e) => fmt::Display::fmt(e, f),
             Error::SpvBadProofOfWork => f.write_str("target correct but not attained"),
@@ -77,25 +72,10 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
-            Error::Secp256k1(ref e) => Some(e),
             Error::Serialize(ref e) => Some(e),
             Error::Network(ref e) => Some(e),
             Error::SpvBadProofOfWork | Error::SpvBadTarget => None,
         }
-    }
-}
-
-#[doc(hidden)]
-impl From<secp256k1::Error> for Error {
-    fn from(e: secp256k1::Error) -> Error {
-        Error::Secp256k1(e)
-    }
-}
-
-#[doc(hidden)]
-impl From<serialize::Error> for Error {
-    fn from(e: serialize::Error) -> Error {
-        Error::Serialize(e)
     }
 }
 

@@ -395,12 +395,12 @@ impl CallableType {
 
 impl FunctionIdentifier {
     fn new_native_function(name: &str) -> FunctionIdentifier {
-        let identifier = format!("_native_:{}", name);
+        let identifier = format!("_native_:{name}");
         FunctionIdentifier { identifier }
     }
 
     fn new_user_function(name: &str, context: &str) -> FunctionIdentifier {
-        let identifier = format!("{}:{}", context, name);
+        let identifier = format!("{context}:{name}");
         FunctionIdentifier { identifier }
     }
 }
@@ -556,7 +556,7 @@ mod test {
                 assert_eq!(contract_id, &contract_identifier);
                 assert_eq!(trait_id.as_ref().unwrap(), &trait_identifier);
             }
-            other => panic!("expected Value::CallableContract, got {:?}", other),
+            other => panic!("expected Value::CallableContract, got {other:?}"),
         }
 
         // (ok principal) -> (ok <trait>)
@@ -713,7 +713,7 @@ mod test {
                 assert_eq!(contract_id, &contract_identifier);
                 assert_eq!(trait_id.as_ref().unwrap(), &trait_identifier);
             }
-            other => panic!("expected Value::CallableContract, got {:?}", other),
+            other => panic!("expected Value::CallableContract, got {other:?}"),
         }
     }
 

@@ -13,21 +13,28 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
+#[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::ast::ASTRules;
-use crate::vm::contexts::{AssetMap, AssetMapEntry, OwnedEnvironment};
-use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use crate::vm::contexts::{AssetMap, OwnedEnvironment};
+use crate::vm::errors::Error;
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::tests::{
-    execute, is_committed, is_err_code, symbols_from_values, test_clarity_versions, test_epochs,
-    tl_env_factory as env_factory, TopLevelMemoryEnvironmentGenerator,
+use crate::vm::tests::{test_clarity_versions, test_epochs};
+use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
+#[cfg(test)]
+use crate::vm::{
+    ast::ASTRules,
+    contexts::AssetMapEntry,
+    errors::{CheckErrors, RuntimeErrorType},
+    tests::{
+        execute, is_committed, is_err_code, symbols_from_values, tl_env_factory as env_factory,
+        TopLevelMemoryEnvironmentGenerator,
+    },
+    types::AssetIdentifier,
+    version::ClarityVersion,
+    ContractContext,
 };
-use crate::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, Value};
-use crate::vm::version::ClarityVersion;
-use crate::vm::ContractContext;
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-read-only (my-ft-get-balance (account principal))
@@ -912,7 +919,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         &symbols_from_values(vec![Value::Bool(false)]),
     )
     .unwrap_err();
-    println!("{}", err);
+    println!("{err}");
     assert!(match err {
         Error::Runtime(RuntimeErrorType::SupplyOverflow(x, y), _) => (x, y) == (6, 5),
         _ => false,

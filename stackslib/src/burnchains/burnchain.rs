@@ -56,11 +56,22 @@ use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::stacks::address::PoxAddress;
 #[cfg(any(test, feature = "testing"))]
 use crate::chainstate::stacks::StacksPublicKey;
-use crate::core::{
-    StacksEpoch, StacksEpochId, NETWORK_ID_MAINNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
-};
+use crate::core::{StacksEpochId, NETWORK_ID_MAINNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET};
 use crate::monitoring::update_burnchain_height;
 use crate::util_lib::db::Error as db_error;
+
+#[cfg(any(test, feature = "testing"))]
+pub static TEST_DOWNLOAD_ERROR_ON_REORG: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
+
+#[cfg(any(test, feature = "testing"))]
+fn fault_inject_downloader_on_reorg(did_reorg: bool) -> bool {
+    did_reorg && *TEST_DOWNLOAD_ERROR_ON_REORG.lock().unwrap()
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+fn fault_inject_downloader_on_reorg(_did_reorg: bool) -> bool {
+    false
+}
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -125,7 +136,7 @@ impl BurnchainStateTransition {
         if block_total_burns.is_empty() {
             return Some(0);
         } else if block_total_burns.len() == 1 {
-            return Some(block_total_burns[0]);
+            return block_total_burns.get(0).copied();
         } else if block_total_burns.len() % 2 != 0 {
             let idx = block_total_burns.len() / 2;
             return block_total_burns.get(idx).copied();
@@ -157,22 +168,22 @@ impl BurnchainStateTransition {
 
         // accept all leader keys we found.
         // don't treat block commits and user burn supports just yet.
-        for i in 0..block_ops.len() {
-            match block_ops[i] {
+        for block_op in block_ops.iter() {
+            match block_op {
                 BlockstackOperationType::PreStx(_) => {
                     // PreStx ops don't need to be processed by sort db, so pass.
                 }
                 BlockstackOperationType::StackStx(_) => {
-                    accepted_ops.push(block_ops[i].clone());
+                    accepted_ops.push(block_op.clone());
                 }
                 BlockstackOperationType::DelegateStx(_) => {
-                    accepted_ops.push(block_ops[i].clone());
+                    accepted_ops.push(block_op.clone());
                 }
                 BlockstackOperationType::TransferStx(_) => {
-                    accepted_ops.push(block_ops[i].clone());
+                    accepted_ops.push(block_op.clone());
                 }
                 BlockstackOperationType::LeaderKeyRegister(_) => {
-                    accepted_ops.push(block_ops[i].clone());
+                    accepted_ops.push(block_op.clone());
                 }
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
                     // we don't yet know which block commits are going to be accepted until we have
@@ -181,7 +192,7 @@ impl BurnchainStateTransition {
                     block_commits.push(op.clone());
                 }
                 BlockstackOperationType::VoteForAggregateKey(_) => {
-                    accepted_ops.push(block_ops[i].clone());
+                    accepted_ops.push(block_op.clone());
                 }
             };
         }
@@ -326,9 +337,7 @@ impl BurnchainStateTransition {
         BurnSamplePoint::prometheus_update_miner_commitments(&burn_dist);
 
         // find out which block commits we're going to take
-        for i in 0..burn_dist.len() {
-            let burn_point = &burn_dist[i];
-
+        for burn_point in burn_dist.iter() {
             // taking this commit in this sample point
             accepted_ops.push(BlockstackOperationType::LeaderBlockCommit(
                 burn_point.candidate.clone(),
@@ -975,12 +984,15 @@ impl Burnchain {
 
     /// Sanity check -- a list of checked ops is sorted and all vtxindexes are unique
     pub fn ops_are_sorted(ops: &[BlockstackOperationType]) -> bool {
-        if ops.len() > 1 {
-            for i in 0..ops.len() - 1 {
-                if ops[i].vtxindex() >= ops[i + 1].vtxindex() {
+        let mut last_vtxindex = None;
+        for op in ops.iter() {
+            let cur_vtxindex = op.vtxindex();
+            if let Some(last_vtxindex) = last_vtxindex {
+                if last_vtxindex >= cur_vtxindex {
                     return false;
                 }
             }
+            last_vtxindex = Some(cur_vtxindex);
         }
         true
     }
@@ -1357,13 +1369,13 @@ impl Burnchain {
 
         // feed the pipeline!
         let mut downloader_result: Result<(), burnchain_error> = Ok(());
-        for i in 0..input_headers.len() {
+        for (i, input_header) in input_headers.iter().enumerate() {
             debug!(
                 "Downloading burnchain block {} out of {}...",
                 start_block + 1 + (i as u64),
                 end_block
             );
-            if let Err(e) = downloader_send.send(Some(input_headers[i].clone())) {
+            if let Err(e) = downloader_send.send(Some(input_header.clone())) {
                 info!(
                     "Failed to feed burnchain block header {}: {:?}",
                     start_block + 1 + (i as u64),
@@ -1502,10 +1514,38 @@ impl Burnchain {
             }
         }
 
-        let mut start_block = sync_height;
-        if db_height < start_block {
-            start_block = db_height;
-        }
+        // check if the db has the parent of sync_height, if not,
+        //  start at the highest common ancestor
+        // if it does, then start at the minimum of db_height and sync_height
+        let start_block = if sync_height == 0 {
+            0
+        } else {
+            let Some(sync_header) = indexer.read_burnchain_header(sync_height)? else {
+                warn!("Missing burnchain header not read for sync start height";
+                      "sync_height" => sync_height);
+                return Err(burnchain_error::MissingHeaders);
+            };
+
+            let mut cursor = sync_header;
+            loop {
+                if burnchain_db.has_burnchain_block(&cursor.block_hash)? {
+                    break cursor.block_height;
+                }
+
+                cursor = indexer
+                    .read_burnchain_header(cursor.block_height.checked_sub(1).ok_or_else(
+                        || {
+                            error!("Could not find common ancestor, passed bitcoin genesis");
+                            burnchain_error::MissingHeaders
+                        },
+                    )?)?
+                    .ok_or_else(|| {
+                        warn!("Missing burnchain header not read for parent of indexed header";
+                              "indexed_header" => ?cursor);
+                        burnchain_error::MissingHeaders
+                    })?;
+            }
+        };
 
         debug!(
             "Sync'ed headers from {} to {}. DB at {}",
@@ -1605,6 +1645,17 @@ impl Burnchain {
                             _ => {}
                         };
 
+                        if fault_inject_downloader_on_reorg(did_reorg) {
+                            warn!("Stalling and yielding an error for the reorg";
+                                  "error_ht" => BurnHeaderIPC::height(&ipc_header),
+                                  "sync_ht" => sync_height,
+                                  "start_ht" => start_block,
+                                  "end_ht" => end_block,
+                            );
+                            thread::sleep(Duration::from_secs(10));
+                            return Err(burnchain_error::UnsupportedBurnchain);
+                        }
+
                         let download_start = get_epoch_time_ms();
                         let ipc_block = downloader.download(&ipc_header)?;
                         let download_end = get_epoch_time_ms();
@@ -1674,12 +1725,10 @@ impl Burnchain {
                             continue;
                         }
 
-                        let epoch_index = StacksEpoch::find_epoch(&epochs, block_height)
-                            .unwrap_or_else(|| {
+                        let epoch_id =
+                            epochs.epoch_id_at_height(block_height).unwrap_or_else(|| {
                                 panic!("FATAL: no epoch defined for height {}", block_height)
                             });
-
-                        let epoch_id = epochs[epoch_index].epoch_id;
 
                         let insert_start = get_epoch_time_ms();
 
@@ -1709,13 +1758,13 @@ impl Burnchain {
 
         // feed the pipeline!
         let mut downloader_result: Result<(), burnchain_error> = Ok(());
-        for i in 0..input_headers.len() {
+        for (i, input_header) in input_headers.iter().enumerate() {
             debug!(
                 "Downloading burnchain block {} out of {}...",
                 start_block + 1 + (i as u64),
                 end_block
             );
-            if let Err(e) = downloader_send.send(Some(input_headers[i].clone())) {
+            if let Err(e) = downloader_send.send(Some(input_header.clone())) {
                 info!(
                     "Failed to feed burnchain block header {}: {:?}",
                     start_block + 1 + (i as u64),

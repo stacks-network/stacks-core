@@ -585,7 +585,8 @@ impl TypeSignature {
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31 => self.admits_type_v2_1(other),
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => self.admits_type_v2_1(other),
             StacksEpochId::Epoch10 => Err(CheckErrors::Expects("epoch 1.0 not supported".into())),
         }
     }
@@ -793,7 +794,8 @@ impl TypeSignature {
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31 => self.canonicalize_v2_1(),
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => self.canonicalize_v2_1(),
         }
     }
 
@@ -1152,7 +1154,8 @@ impl TypeSignature {
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31 => Self::least_supertype_v2_1(a, b),
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => Self::least_supertype_v2_1(a, b),
             StacksEpochId::Epoch10 => Err(CheckErrors::Expects("epoch 1.0 not supported".into())),
         }
     }
@@ -1970,7 +1973,7 @@ impl fmt::Display for TupleTypeSignature {
         let mut type_strs: Vec<_> = self.type_map.iter().collect();
         type_strs.sort_unstable_by_key(|x| x.0);
         for (field_name, field_type) in type_strs {
-            write!(f, " ({} {})", &**field_name, field_type)?;
+            write!(f, " ({} {field_type})", &**field_name)?;
         }
         write!(f, ")")
     }
@@ -1980,7 +1983,7 @@ impl fmt::Debug for TupleTypeSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "TupleTypeSignature {{")?;
         for (field_name, field_type) in self.type_map.iter() {
-            write!(f, " \"{}\": {},", &**field_name, field_type)?;
+            write!(f, " \"{}\": {field_type},", &**field_name)?;
         }
         write!(f, "}}")
     }
@@ -2004,27 +2007,27 @@ impl fmt::Display for TypeSignature {
             IntType => write!(f, "int"),
             UIntType => write!(f, "uint"),
             BoolType => write!(f, "bool"),
-            OptionalType(t) => write!(f, "(optional {})", t),
+            OptionalType(t) => write!(f, "(optional {t})"),
             ResponseType(v) => write!(f, "(response {} {})", v.0, v.1),
-            TupleType(t) => write!(f, "{}", t),
+            TupleType(t) => write!(f, "{t}"),
             PrincipalType => write!(f, "principal"),
-            SequenceType(SequenceSubtype::BufferType(len)) => write!(f, "(buff {})", len),
+            SequenceType(SequenceSubtype::BufferType(len)) => write!(f, "(buff {len})"),
             SequenceType(SequenceSubtype::ListType(list_type_data)) => write!(
                 f,
                 "(list {} {})",
                 list_type_data.max_len, list_type_data.entry_type
             ),
             SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => {
-                write!(f, "(string-ascii {})", len)
+                write!(f, "(string-ascii {len})")
             }
             SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => {
-                write!(f, "(string-utf8 {})", len)
+                write!(f, "(string-utf8 {len})")
             }
             CallableType(CallableSubtype::Trait(trait_id)) | TraitReferenceType(trait_id) => {
-                write!(f, "<{}>", trait_id)
+                write!(f, "<{trait_id}>")
             }
             CallableType(CallableSubtype::Principal(contract_id)) => {
-                write!(f, "(principal {})", contract_id)
+                write!(f, "(principal {contract_id})")
             }
             ListUnionType(_) => write!(f, "principal"),
         }
@@ -2092,7 +2095,7 @@ mod test {
         let len = 4033;
         let mut keys = Vec::with_capacity(len);
         for i in 0..len {
-            let key_name = ClarityName::try_from(format!("a{:0127}", i)).unwrap();
+            let key_name = ClarityName::try_from(format!("a{i:0127}")).unwrap();
             let key_val = first_tuple.clone();
             keys.push((key_name, key_val));
         }

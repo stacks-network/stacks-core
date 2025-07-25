@@ -1,12 +1,8 @@
 {
-    "lldb.launch.sourceLanguages": [
-        "rust"
-    ],
-    "rust-analyzer.runnables.extraEnv": {
-        "BITCOIND_TEST": "1"
-    },
-    "rust-analyzer.rustfmt.extraArgs": [
-        "+nightly"
-    ],
-    "files.eol": "\n"
+  "lldb.launch.sourceLanguages": ["rust"],
+  "rust-analyzer.runnables.extraEnv": {
+    "BITCOIND_TEST": "1"
+  },
+  "rust-analyzer.rustfmt.extraArgs": ["+nightly"],
+  "files.eol": "\n",
 }

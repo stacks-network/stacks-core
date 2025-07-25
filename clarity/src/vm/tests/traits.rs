@@ -13,18 +13,21 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
+#[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
+#[cfg(test)]
 use super::MemoryEnvironmentGenerator;
-use crate::vm::ast::ASTRules;
-use crate::vm::errors::{CheckErrors, Error};
-use crate::vm::tests::{
-    env_factory, execute, symbols_from_values, test_clarity_versions, test_epochs,
+use crate::vm::tests::{test_clarity_versions, test_epochs};
+#[cfg(test)]
+use crate::vm::{
+    ast::ASTRules,
+    errors::{CheckErrors, Error},
+    tests::{env_factory, execute, symbols_from_values},
+    types::{PrincipalData, QualifiedContractIdentifier, Value},
+    version::ClarityVersion,
+    ContractContext,
 };
-use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
-use crate::vm::version::ClarityVersion;
-use crate::vm::ContractContext;
 
 #[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_by_defining_trait(
@@ -249,7 +252,7 @@ fn test_dynamic_dispatch_intra_contract_call(
             .unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::CircularReference(_)) => {}
-            _ => panic!("{:?}", err_result),
+            _ => panic!("{err_result:?}"),
         }
     }
 }
@@ -580,7 +583,7 @@ fn test_dynamic_dispatch_mismatched_args(
             .unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::BadTraitImplementation(_, _)) => {}
-            _ => panic!("{:?}", err_result),
+            _ => panic!("{err_result:?}"),
         }
     }
 }
@@ -637,7 +640,7 @@ fn test_dynamic_dispatch_mismatched_returned(
             .unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::ReturnTypesMustMatch(_, _)) => {}
-            _ => panic!("{:?}", err_result),
+            _ => panic!("{err_result:?}"),
         }
     }
 }
@@ -697,7 +700,7 @@ fn test_reentrant_dynamic_dispatch(
             .unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::CircularReference(_)) => {}
-            _ => panic!("{:?}", err_result),
+            _ => panic!("{err_result:?}"),
         }
     }
 }
@@ -754,7 +757,7 @@ fn test_readwrite_dynamic_dispatch(
             .unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::TraitBasedContractCallInReadOnly) => {}
-            _ => panic!("{:?}", err_result),
+            _ => panic!("{err_result:?}"),
         }
     }
 }
@@ -811,7 +814,7 @@ fn test_readwrite_violation_dynamic_dispatch(
             .unwrap_err();
         match err_result {
             Error::Unchecked(CheckErrors::TraitBasedContractCallInReadOnly) => {}
-            _ => panic!("{:?}", err_result),
+            _ => panic!("{err_result:?}"),
         }
     }
 }

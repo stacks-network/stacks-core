@@ -13,10 +13,12 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-use crate::vm::errors::{CheckErrors, Error, ShortReturnType};
-use crate::vm::types::{
-    ListData, SequenceData, TupleData, TupleTypeSignature, TypeSignature, Value,
+use crate::vm::errors::Error;
+use crate::vm::types::{TupleData, Value};
+#[cfg(test)]
+use crate::vm::{
+    errors::{CheckErrors, ShortReturnType},
+    types::{ListData, SequenceData, TupleTypeSignature, TypeSignature},
 };
 use crate::vm::{execute, ClarityName};
 
@@ -556,7 +558,7 @@ fn lists_system() {
     .iter()
     {
         let test = execute(test);
-        println!("{:#?}", test);
+        println!("{test:#?}");
         assert!(matches!(
             test,
             Err(Error::Unchecked(CheckErrors::TypeValueError(_, _)))
