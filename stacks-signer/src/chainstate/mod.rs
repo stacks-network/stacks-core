@@ -262,31 +262,41 @@ impl SortitionData {
         Ok(true)
     }
 
-    /// Get the last locally signed block from the given tenure if it has not timed out
+    /// Get the last signed block from the given tenure if it has not timed out.
+    /// Even globally accepted blocks are allowed to be timed out, as that
+    /// triggers the signer to consult the Stacks node for the latest globally
+    /// accepted block. This is needed to handle Bitcoin reorgs correctly.
     pub fn get_tenure_last_block_info(
         consensus_hash: &ConsensusHash,
         signer_db: &SignerDb,
         tenure_last_block_proposal_timeout: Duration,
     ) -> Result<Option<BlockInfo>, ClientError> {
-        // Get the last known block in the previous tenure
-        let last_locally_accepted_block = signer_db
+        // Get the last accepted block in the tenure
+        let last_accepted_block = signer_db
             .get_last_accepted_block(consensus_hash)
             .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
-        let Some(local_info) = last_locally_accepted_block else {
+
+        let Some(block_info) = last_accepted_block else {
             return Ok(None);
         };
 
-        let Some(signed_over_time) = local_info.signed_self else {
+        let Some(signed_over_time) = block_info.signed_self else {
             return Ok(None);
         };
 
         if signed_over_time.saturating_add(tenure_last_block_proposal_timeout.as_secs())
             > get_epoch_time_secs()
         {
-            // The last locally accepted block is not timed out, return it
-            Ok(Some(local_info))
+            // The last accepted block is not timed out, return it
+            Ok(Some(block_info))
         } else {
-            // The last locally accepted block is timed out
+            // The last accepted block is timed out
+            info!(
+                "Last accepted block has timed out";
+                "signer_signature_hash" => %block_info.block.header.signer_signature_hash(),
+                "signed_over_time" => signed_over_time,
+                "state" => %block_info.state,
+            );
             Ok(None)
         }
     }
@@ -317,7 +327,7 @@ impl SortitionData {
 
         if let Some(info) = last_block_info {
             // N.B. this block might not be the last globally accepted block across the network;
-            // it's just the highest one in this tenure that we knnge: &TenureChangePow about.  If this given block is
+            // it's just the highest one in this tenure that we know about.  If this given block is
             // no higher than it, then it's definitely no higher than the last globally accepted
             // block across the network, so we can do an early rejection here.
             if block.header.chain_length <= info.block.header.chain_length {

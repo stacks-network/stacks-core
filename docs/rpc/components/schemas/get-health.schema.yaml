@@ -1,0 +1,19 @@
+type: object
+required:
+  - difference_from_max_peer
+  - max_stacks_height_of_neighbors
+  - node_stacks_tip_height
+properties:
+  difference_from_max_peer:
+    type: integer
+    minimum: 0
+    description: The difference in Stacks height between this node and its most advanced peer
+  max_stacks_height_of_neighbors:
+    type: integer
+    minimum: 0
+    description: The maximum Stacks height observed among the node's connected peers
+  node_stacks_tip_height:
+    type: integer
+    minimum: 0
+    description: The current Stacks tip height of this node
+description: Health information about the node's synchronization status

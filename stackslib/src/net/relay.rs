@@ -2437,12 +2437,6 @@ impl Relayer {
             let mut all_events: HashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
                 HashMap::new();
             for chunk in uploaded_chunks.into_iter() {
-                if let Some(events) = all_events.get_mut(&chunk.contract_id) {
-                    events.push(chunk.chunk_data.clone());
-                } else {
-                    all_events.insert(chunk.contract_id.clone(), vec![chunk.chunk_data.clone()]);
-                }
-
                 // forward if not stale
                 if chunk.rc_consensus_hash != *rc_consensus_hash {
                     debug!("Drop stale uploaded StackerDB chunk";
@@ -2452,6 +2446,12 @@ impl Relayer {
                            "chunk.rc_consensus_hash" => %chunk.rc_consensus_hash,
                            "network.rc_consensus_hash" => %rc_consensus_hash);
                     continue;
+                }
+
+                if let Some(events) = all_events.get_mut(&chunk.contract_id) {
+                    events.push(chunk.chunk_data.clone());
+                } else {
+                    all_events.insert(chunk.contract_id.clone(), vec![chunk.chunk_data.clone()]);
                 }
 
                 debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => %chunk.contract_id, "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
@@ -2496,12 +2496,6 @@ impl Relayer {
                 let tx = self.stacker_dbs.tx_begin(config.clone())?;
                 for sync_result in sync_results.into_iter() {
                     for chunk in sync_result.chunks_to_store.into_iter() {
-                        if let Some(event_list) = all_events.get_mut(&sync_result.contract_id) {
-                            event_list.push(chunk.clone());
-                        } else {
-                            all_events.insert(sync_result.contract_id.clone(), vec![chunk.clone()]);
-                        }
-
                         let md = chunk.get_slot_metadata();
                         if let Err(e) = tx.try_replace_chunk(&sc, &md, &chunk.data) {
                             if matches!(e, Error::StaleChunk { .. }) {
@@ -2528,6 +2522,12 @@ impl Relayer {
                             continue;
                         } else {
                             debug!("Stored chunk"; "stackerdb_contract_id" => %sync_result.contract_id, "slot_id" => md.slot_id, "slot_version" => md.slot_version);
+                        }
+
+                        if let Some(event_list) = all_events.get_mut(&sync_result.contract_id) {
+                            event_list.push(chunk.clone());
+                        } else {
+                            all_events.insert(sync_result.contract_id.clone(), vec![chunk.clone()]);
                         }
 
                         let msg = StacksMessageType::StackerDBPushChunk(StackerDBPushChunkData {
