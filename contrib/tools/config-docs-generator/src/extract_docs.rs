@@ -156,10 +156,18 @@ fn generate_rustdoc_json(package: &str) -> Result<serde_json::Value> {
 
     // WARNING: This tool relies on nightly rustdoc JSON output (-Z unstable-options --output-format json)
     // The JSON format is subject to change with new Rust nightly versions and could break this tool.
-    // Use cargo rustdoc with nightly to generate JSON for the main package
+    // Determine the toolchain to use for rustdoc. Allow callers to override the
+    // default "+nightly" prefix via the `RUST_NIGHTLY_VERSION` environment variable
+    // so CI can pin a specific nightly (e.g. "+nightly-2025-06-17").
+    let toolchain_arg =
+        std::env::var("RUST_NIGHTLY_VERSION").unwrap_or_else(|_| "nightly".to_string());
+
+    let toolchain_arg = format!("+{}", toolchain_arg);
+
+    // Use cargo rustdoc with the selected toolchain to generate JSON for the main package
     let output = StdCommand::new("cargo")
         .args([
-            "+nightly",
+            toolchain_arg.as_str(),
             "rustdoc",
             "--lib",
             "-p",
@@ -189,7 +197,7 @@ fn generate_rustdoc_json(package: &str) -> Result<serde_json::Value> {
         );
         let output = StdCommand::new("cargo")
             .args([
-                "+nightly",
+                toolchain_arg.as_str(),
                 "rustdoc",
                 "--lib",
                 "-p",
