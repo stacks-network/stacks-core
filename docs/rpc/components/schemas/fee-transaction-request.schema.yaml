@@ -1,0 +1,10 @@
+description: POST request for estimated fee
+type: object
+additionalProperties: false
+required:
+- transaction_payload
+properties:
+  transaction_payload:
+    type: string
+  estimated_len:
+    type: integer

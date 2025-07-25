@@ -285,6 +285,7 @@ fn test_try_make_response() {
                     let mut miner_tenure_info = builder
                         .load_tenure_info(chainstate, &burn_dbconn, None)
                         .unwrap();
+                    let burn_chain_height = miner_tenure_info.burn_tip_height;
                     let mut tenure_tx = builder
                         .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
                         .unwrap();
@@ -296,7 +297,7 @@ fn test_try_make_response() {
                         ASTRules::PrecheckSize,
                         None,
                     );
-                    let block = builder.mine_nakamoto_block(&mut tenure_tx);
+                    let block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
                     Ok(block)
                 },
             )
@@ -535,6 +536,7 @@ fn replay_validation_test(
                     let mut miner_tenure_info = builder
                         .load_tenure_info(chainstate, &burn_dbconn, None)
                         .unwrap();
+                    let burn_chain_height = miner_tenure_info.burn_tip_height;
                     let mut tenure_tx = builder
                         .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
                         .unwrap();
@@ -548,7 +550,7 @@ fn replay_validation_test(
                             None,
                         );
                     }
-                    let block = builder.mine_nakamoto_block(&mut tenure_tx);
+                    let block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
                     Ok(block)
                 },
             )

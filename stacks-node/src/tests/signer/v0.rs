@@ -105,8 +105,8 @@ use crate::event_dispatcher::{
     EventObserver, MinedNakamotoBlockEvent, TEST_SKIP_BLOCK_ANNOUNCEMENT,
 };
 use crate::nakamoto_node::miner::{
-    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_MINE_SKIP, TEST_MINE_STALL,
-    TEST_P2P_BROADCAST_STALL,
+    fault_injection_stall_miner, fault_injection_unstall_miner, TEST_BLOCK_ANNOUNCE_STALL,
+    TEST_BROADCAST_PROPOSAL_STALL, TEST_MINE_SKIP, TEST_P2P_BROADCAST_STALL,
 };
 use crate::nakamoto_node::stackerdb_listener::TEST_IGNORE_SIGNERS;
 use crate::neon::{Counters, RunLoopCounter};
@@ -127,9 +127,6 @@ use crate::tests::signer::SpawnedSignerTrait;
 use crate::tests::{self, gen_random_port};
 use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
 
-pub fn test_mine_stall_set(value: bool) {
-    TEST_MINE_STALL.set(value)
-}
 impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// Run the test until the epoch 3 boundary
     pub fn boot_to_epoch_3(&self) {
@@ -572,6 +569,7 @@ impl MultipleMinerTest {
             node_1_config_modifier,
             node_2_config_modifier,
             |port| u8::try_from(port % 2).unwrap(),
+            None,
         )
     }
 
@@ -593,6 +591,7 @@ impl MultipleMinerTest {
         mut node_1_config_modifier: G,
         mut node_2_config_modifier: H,
         signer_distributor: S,
+        ports: Option<Vec<u16>>,
     ) -> MultipleMinerTest {
         let sender_sk = Secp256k1PrivateKey::random();
         let sender_addr = tests::to_addr(&sender_sk);
@@ -604,10 +603,16 @@ impl MultipleMinerTest {
         let btc_miner_1_pk = Keychain::default(btc_miner_1_seed.clone()).get_pub_key();
         let btc_miner_2_pk = Keychain::default(btc_miner_2_seed.clone()).get_pub_key();
 
-        let node_1_rpc = gen_random_port();
-        let node_1_p2p = gen_random_port();
-        let node_2_rpc = gen_random_port();
-        let node_2_p2p = gen_random_port();
+        let (node_1_rpc, node_1_p2p, node_2_rpc, node_2_p2p) = if let Some(ports) = ports {
+            (ports[0], ports[1], ports[2], ports[3])
+        } else {
+            (
+                gen_random_port(),
+                gen_random_port(),
+                gen_random_port(),
+                gen_random_port(),
+            )
+        };
 
         let localhost = "127.0.0.1";
         let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
@@ -679,7 +684,6 @@ impl MultipleMinerTest {
         conf_node_2.node.miner = true;
         conf_node_2.events_observers.clear();
         conf_node_2.events_observers.extend(node_2_listeners);
-        assert!(!conf_node_2.events_observers.is_empty());
         node_2_config_modifier(&mut conf_node_2);
 
         let node_1_sk = StacksPrivateKey::from_seed(&conf.node.local_peer_seed);
@@ -3001,6 +3005,8 @@ fn bitcoind_forking_test() {
             let epochs = node_config.burnchain.epochs.as_mut().unwrap();
             epochs[StacksEpochId::Epoch30].end_height = 3_015;
             epochs[StacksEpochId::Epoch31].start_height = 3_015;
+            epochs[StacksEpochId::Epoch31].end_height = 3_055;
+            epochs[StacksEpochId::Epoch32].start_height = 3_055;
         },
         None,
         None,
@@ -3074,7 +3080,7 @@ fn bitcoind_forking_test() {
 
     info!("Wait for block off of shallow fork");
 
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let submitted_commits = signer_test
         .running_nodes
@@ -3124,7 +3130,7 @@ fn bitcoind_forking_test() {
     // We should have forked 1 block (-2 nonces)
     assert_eq!(post_fork_1_nonce, pre_fork_1_nonce - 2);
 
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
     for i in 0..5 {
         info!("Mining post-fork tenure {} of 5", i + 1);
         signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
@@ -3168,7 +3174,7 @@ fn bitcoind_forking_test() {
         .naka_submitted_commits
         .clone();
     // we need to mine some blocks to get back to being considered a frequent miner
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
     for i in 0..3 {
         let current_burn_height = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
         info!(
@@ -3209,7 +3215,7 @@ fn bitcoind_forking_test() {
 
     assert_eq!(post_fork_2_nonce, pre_fork_2_nonce - 4 * 2);
 
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     for i in 0..5 {
         info!("Mining post-fork tenure {} of 5", i + 1);
@@ -3318,7 +3324,7 @@ fn tx_replay_forking_test() {
 
     info!("Wait for block off of shallow fork");
 
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let submitted_commits = signer_test
         .running_nodes
@@ -3356,7 +3362,7 @@ fn tx_replay_forking_test() {
     // We should have forked 1 tx
     assert_eq!(post_fork_1_nonce, pre_fork_1_nonce - 1);
 
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     // Now, wait for the tx replay set to be cleared
     signer_test
@@ -3409,7 +3415,7 @@ fn tx_replay_forking_test() {
         .expect("Failed to wait for nonce increase");
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let burn_header_hash_to_fork = btc_controller.get_block_hash(pre_fork_2_tip.burn_block_height);
     btc_controller.invalidate_block(&burn_header_hash_to_fork);
@@ -3451,7 +3457,7 @@ fn tx_replay_forking_test() {
 
     test_observer::clear();
 
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     let expected_height = stacks_height_before + 2;
     info!(
@@ -3582,7 +3588,7 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
 
     info!("Wait for block off of shallow fork");
 
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let submitted_commits = signer_test
         .running_nodes
@@ -3629,7 +3635,7 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
         .submit_transfer_tx(&sender_sk2, send_fee, send_amt)
         .unwrap();
     test_observer::clear();
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
     // First we will get the tenure change block. It shouldn't contain our two transfer transactions.
     info!(
         "---- Waiting for block pushed at height: {:?} ----",
@@ -3731,7 +3737,7 @@ fn tx_replay_btc_on_stx_invalidation() {
     let num_signers = 5;
     let sender_sk = Secp256k1PrivateKey::from_seed("sender_1".as_bytes());
     let sender_addr = tests::to_addr(&sender_sk);
-    let mut sender_burnop_signer = BurnchainOpSigner::new(sender_sk, false);
+    let mut sender_burnop_signer = BurnchainOpSigner::new(sender_sk);
     let send_amt = 100;
     let send_fee = 180;
     let recipient_sk = Secp256k1PrivateKey::from_seed("recipient_1".as_bytes());
@@ -3860,7 +3866,7 @@ fn tx_replay_btc_on_stx_invalidation() {
     btc_controller.invalidate_block(&burn_header_hash_to_fork);
     btc_controller.build_next_block(3);
 
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     // we need to mine some blocks to get back to being considered a frequent miner
     for i in 0..3 {
@@ -3899,7 +3905,7 @@ fn tx_replay_btc_on_stx_invalidation() {
 
     let stacks_height_before = get_chain_info(&conf).stacks_tip_height;
 
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     signer_test
         .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
@@ -4026,7 +4032,7 @@ fn tx_replay_disagreement() {
 
     info!("Wait for block off of shallow fork");
 
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let submitted_commits = miners
         .signer_test
@@ -4069,7 +4075,7 @@ fn tx_replay_disagreement() {
 
     let tip = get_chain_info(&conf_1);
 
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     // Now, wait for the tx replay set to be cleared
 
@@ -4170,7 +4176,7 @@ fn tx_replay_solved_by_mempool_txs() {
     signer_test.check_signer_states_normal();
 
     info!("Wait for block off of shallow fork");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let submitted_commits = counters.naka_submitted_commits.clone();
     // we need to mine some blocks to get back to being considered a frequent miner
@@ -4205,7 +4211,7 @@ fn tx_replay_solved_by_mempool_txs() {
 
     info!("------------------------- Mine Tx Replay Set -------------------------");
     TEST_EXCLUDE_REPLAY_TXS.set(true); //Force solving Tx Replay with mempool txs
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     signer_test
         .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
@@ -4312,7 +4318,7 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
     signer_test.check_signer_states_normal();
 
     //mine throught the fork (just check commits because of naka block mining stalled)
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let submitted_commits = counters.naka_submitted_commits.clone();
     for i in 0..3 {
@@ -4422,7 +4428,7 @@ fn tx_replay_with_fork_occured_before_starting_replaying_txs() {
     signer_test.check_signer_states_normal();
 
     info!("Wait for block off of shallow fork");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let submitted_commits = counters.naka_submitted_commits.clone();
     // we need to mine some blocks to get back to being considered a frequent miner
@@ -4462,7 +4468,7 @@ fn tx_replay_with_fork_occured_before_starting_replaying_txs() {
     btc_controller.build_next_block(3);
 
     info!("Wait for block off of shallow fork");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let submitted_commits = counters.naka_submitted_commits.clone();
     // we need to mine some blocks to get back to being considered a frequent miner
@@ -4492,7 +4498,7 @@ fn tx_replay_with_fork_occured_before_starting_replaying_txs() {
         .expect("Timed out waiting for tx replay set to be updated");
 
     info!("----------- Solve TX Replay ------------");
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     signer_test
         .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
@@ -4580,7 +4586,7 @@ fn tx_replay_with_fork_after_empty_tenures_before_starting_replaying_txs() {
     signer_test.check_signer_states_normal();
 
     info!("Wait for block off of shallow fork");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let submitted_commits = counters.naka_submitted_commits.clone();
     // we need to mine some blocks to get back to being considered a frequent miner
@@ -4614,10 +4620,10 @@ fn tx_replay_with_fork_after_empty_tenures_before_starting_replaying_txs() {
     assert_eq!(0, sender1_nonce_post_fork);
 
     info!("------------------- Produce Empty Tenuree -------------------------");
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
     let tip = get_chain_info(&conf);
     _ = wait_for_tenure_change_tx(30, TenureChangeCause::BlockFound, tip.stacks_tip_height + 1);
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let commits_count = submitted_commits.load(Ordering::SeqCst);
     next_block_and(btc_controller, 60, || {
@@ -4625,10 +4631,10 @@ fn tx_replay_with_fork_after_empty_tenures_before_starting_replaying_txs() {
     })
     .unwrap();
 
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
     let tip = get_chain_info(&conf);
     _ = wait_for_tenure_change_tx(30, TenureChangeCause::BlockFound, tip.stacks_tip_height + 1);
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     signer_test
         .wait_for_signer_state_check(30, |state| {
@@ -4650,7 +4656,7 @@ fn tx_replay_with_fork_after_empty_tenures_before_starting_replaying_txs() {
     btc_controller.build_next_block(3);
 
     info!("Wait for block off of shallow fork");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
     let submitted_commits = counters.naka_submitted_commits.clone();
     // we need to mine some blocks to get back to being considered a frequent miner
     for i in 0..3 {
@@ -4679,7 +4685,7 @@ fn tx_replay_with_fork_after_empty_tenures_before_starting_replaying_txs() {
         .expect("Timed out waiting for tx replay set to be updated");
 
     info!("------------------------- Mine Tx Replay Set -------------------------");
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
     signer_test
         .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
         .expect("Timed out waiting for tx replay set to be updated");
@@ -4777,7 +4783,7 @@ fn tx_replay_with_fork_causing_replay_set_to_be_updated() {
     signer_test.check_signer_states_normal();
 
     info!("Wait for block off of shallow fork");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
     let submitted_commits = counters.naka_submitted_commits.clone();
     // we need to mine some blocks to get back to being considered a frequent miner
     for i in 0..3 {
@@ -4816,7 +4822,7 @@ fn tx_replay_with_fork_causing_replay_set_to_be_updated() {
     btc_controller.build_next_block(7);
 
     info!("Wait for block off of shallow fork");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let submitted_commits = counters.naka_submitted_commits.clone();
     // we need to mine some blocks to get back to being considered a frequent miner
@@ -4848,7 +4854,7 @@ fn tx_replay_with_fork_causing_replay_set_to_be_updated() {
         .expect("Timed out waiting for tx replay set to be updated");
 
     info!("----------- Solve TX Replay ------------");
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     signer_test
         .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
@@ -4946,7 +4952,7 @@ fn tx_replay_with_fork_causing_replay_to_be_cleared_due_to_cycle() {
     signer_test.check_signer_states_normal();
 
     info!("Wait for block off of shallow fork");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
     let submitted_commits = counters.naka_submitted_commits.clone();
     // we need to mine some blocks to get back to being considered a frequent miner
     for i in 0..3 {
@@ -4984,7 +4990,7 @@ fn tx_replay_with_fork_causing_replay_to_be_cleared_due_to_cycle() {
     btc_controller.build_next_block(7);
 
     info!("Wait for block off of shallow fork");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let submitted_commits = counters.naka_submitted_commits.clone();
     // we need to mine some blocks to get back to being considered a frequent miner
@@ -5120,7 +5126,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
     btc_controller.build_next_block(3);
 
     info!("Wait for block off of shallow fork");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let submitted_commits = counters.naka_submitted_commits.clone();
     // we need to mine some blocks to get back to being considered a frequent miner
@@ -5154,11 +5160,11 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
 
     info!("---- Force Partial Tx Replay ----");
     // Only Tx1 is replayed, preventing Tenure Extension stalling the miner
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
     let tip = get_chain_info(&conf);
     _ = wait_for_tenure_change_tx(30, TenureChangeCause::BlockFound, tip.stacks_tip_height + 1);
     _ = wait_for_block_proposal(30, tip.stacks_tip_height + 2, &stacks_miner_pk);
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     // Signers still waiting for the Tx Replay set to be completed
     signer_test
@@ -5181,7 +5187,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
     btc_controller.build_next_block(3);
 
     info!("Wait for block off of shallow fork");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let submitted_commits = counters.naka_submitted_commits.clone();
     // we need to mine some blocks to get back to being considered a frequent miner
@@ -5214,7 +5220,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
     assert_eq!(1, post_fork_nonce); //due to contract deploy tx
 
     info!("---- Waiting for replay set to be cleared ----");
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     signer_test
         .wait_for_signer_state_check(60, |state| {
@@ -5367,7 +5373,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     btc_controller.build_next_block(3);
 
     info!("Wait for block off of shallow fork");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let submitted_commits = counters.naka_submitted_commits.clone();
     // we need to mine some blocks to get back to being considered a frequent miner
@@ -5401,11 +5407,11 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
 
     info!("---- Force Partial Tx Replay ----");
     // Only Tx1 is replayed, preventing Tenure Extension stalling the miner
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
     let tip = get_chain_info(&conf);
     _ = wait_for_tenure_change_tx(30, TenureChangeCause::BlockFound, tip.stacks_tip_height + 1);
     _ = wait_for_block_proposal(30, tip.stacks_tip_height + 2, &stacks_miner_pk);
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     // Signers still waiting for the Tx Replay set to be completed
     signer_test
@@ -5434,7 +5440,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     btc_controller.build_next_block(3);
 
     info!("Wait for block off of shallow fork");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let submitted_commits = counters.naka_submitted_commits.clone();
     // we need to mine some blocks to get back to being considered a frequent miner
@@ -5470,7 +5476,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     assert_eq!(0, sender2_nonce_post_fork);
 
     info!("---- Waiting for replay set to be cleared ----");
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     signer_test
         .wait_for_signer_state_check(60, |state| {
@@ -6311,7 +6317,7 @@ fn tenure_extend_with_other_transactions() {
     signer_test.check_signer_states_normal();
 
     info!("Pause miner so it doesn't propose a block before the tenure extend");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     info!("---- Trigger a block proposal but pause its broadcast ----");
     let stacks_tip_height = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
@@ -6329,13 +6335,13 @@ fn tenure_extend_with_other_transactions() {
     sender_nonce += 1;
 
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk]);
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     info!("---- Wait for tenure extend timeout ----");
     sleep_ms(idle_timeout.as_millis() as u64 + 5);
 
-    TEST_MINE_STALL.set(true);
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
+    fault_injection_stall_miner();
     // Submit a transaction to be included with the tenure extend
     let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
@@ -6348,7 +6354,7 @@ fn tenure_extend_with_other_transactions() {
     let to_find = submit_tx(&http_origin, &transfer_tx);
 
     info!("---- Resume miner to propose a block with the tenure extend and transfer tx ----");
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
     // Now, wait for a block with a tenure extend
     let block = wait_for_tenure_change_tx(
         idle_timeout.as_secs() + 10,
@@ -6861,7 +6867,7 @@ fn idle_tenure_extend_active_mining() {
             signer_test.wait_for_nakamoto_block(30, || {
                 // Stall the miner while we submit transactions, so that they
                 // are all included in the same block
-                TEST_MINE_STALL.set(true);
+                fault_injection_stall_miner();
 
                 // Throw in a STX transfer to test mixed blocks
                 let sender_nonce = get_and_increment_nonce(&sender_sk, &mut sender_nonces);
@@ -6898,7 +6904,7 @@ fn idle_tenure_extend_active_mining() {
                         }
                     }
                 }
-                TEST_MINE_STALL.set(false);
+                fault_injection_unstall_miner();
             });
 
             // We must actually have a new block response to ensure its tenure extend timestamp advances
@@ -7354,7 +7360,7 @@ fn empty_sortition_before_proposal() {
     skip_commit_op.set(true);
 
     info!("Pause miner so it doesn't propose a block before the next tenure arrives");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let burn_height_before = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
 
@@ -7373,7 +7379,7 @@ fn empty_sortition_before_proposal() {
     signer_test.check_signer_states_normal_missed_sortition();
 
     info!("Unpause miner");
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     info!("Unpause block commits");
     skip_commit_op.set(false);
@@ -7483,6 +7489,8 @@ fn mock_sign_epoch_25() {
             epochs[StacksEpochId::Epoch30].start_height = 251;
             epochs[StacksEpochId::Epoch30].end_height = 265;
             epochs[StacksEpochId::Epoch31].start_height = 265;
+            epochs[StacksEpochId::Epoch31].end_height = 285;
+            epochs[StacksEpochId::Epoch32].start_height = 285;
         },
         None,
         None,
@@ -7601,6 +7609,8 @@ fn multiple_miners_mock_sign_epoch_25() {
             epochs[StacksEpochId::Epoch30].start_height = 251;
             epochs[StacksEpochId::Epoch30].end_height = 265;
             epochs[StacksEpochId::Epoch31].start_height = 265;
+            epochs[StacksEpochId::Epoch31].end_height = 285;
+            epochs[StacksEpochId::Epoch32].start_height = 285;
         },
         |_| {},
     );
@@ -8216,6 +8226,282 @@ fn duplicate_signers() {
     assert_eq!(signatures.len(), unique_signers);
 
     signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+fn signer_multinode_rollover() {
+    let num_signers = 5;
+    let new_num_signers = 4;
+
+    let new_signer_sks: Vec<_> = (0..new_num_signers)
+        .map(|ix| StacksPrivateKey::from_seed(format!("new_signer_{ix}").as_bytes()))
+        .collect();
+    let new_signer_pks: Vec<_> = new_signer_sks
+        .iter()
+        .map(|sk| Secp256k1PublicKey::from_private(sk).to_bytes_compressed())
+        .collect();
+    let new_signer_addrs: Vec<_> = new_signer_sks.iter().map(tests::to_addr).collect();
+    let additional_initial_balances: Vec<_> = new_signer_addrs
+        .iter()
+        .map(|addr| (*addr, POX_4_DEFAULT_STACKER_BALANCE))
+        .collect();
+    let new_signers_port_start = 3000 + num_signers;
+
+    let node_1_rpc = 40553;
+    let node_1_p2p = 40554;
+    let node_2_rpc = 50553;
+    let node_2_p2p = 50554;
+    let localhost = "127.0.0.1";
+    let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
+
+    let new_signer_configs = build_signer_config_tomls(
+        &new_signer_sks,
+        &node_1_rpc_bind,
+        Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
+        &Network::Testnet,
+        "12345",
+        rand::random(),
+        3000 + num_signers,
+        Some(100_000),
+        None,
+        Some(9000 + num_signers),
+        None,
+    );
+
+    let new_signer_configs: Vec<_> = new_signer_configs
+        .iter()
+        .map(|conf_str| SignerConfig::load_from_str(conf_str).unwrap())
+        .collect();
+
+    let new_spawned_signers: Vec<_> = new_signer_configs
+        .iter()
+        .map(|signer_config| {
+            info!("spawning signer");
+            SpawnedSigner::new(signer_config.clone())
+        })
+        .collect();
+
+    let mut miners = MultipleMinerTest::new_with_signer_dist(
+        num_signers,
+        60 * 5,
+        |_| {},
+        |node_config| {
+            for (addr, balance) in additional_initial_balances.iter() {
+                node_config.add_initial_balance(addr.to_string(), *balance);
+            }
+            for (ix, _) in new_signer_sks.iter().enumerate() {
+                info!(
+                    "---- Adding signer endpoint to naka conf ({}) ----",
+                    new_signers_port_start + ix,
+                );
+
+                node_config.events_observers.insert(EventObserverConfig {
+                    endpoint: format!("localhost:{}", new_signers_port_start + ix),
+                    events_keys: vec![
+                        EventKeyType::StackerDBChunks,
+                        EventKeyType::BlockProposal,
+                        EventKeyType::BurnchainBlocks,
+                    ],
+                    timeout_ms: 1000,
+                    disable_retries: false,
+                });
+            }
+        },
+        |node_2_conf| {
+            node_2_conf.connection_options.reject_blocks_pushed = true;
+        },
+        |_| 0,
+        Some(vec![node_1_rpc, node_1_p2p, node_2_rpc, node_2_p2p]),
+    );
+
+    miners.signer_test.num_stacking_cycles = 1;
+    miners.pause_commits_miner_2();
+    miners.boot_to_epoch_3();
+
+    // verify that the first reward cycle has the old signers in the reward set
+    let reward_cycle = miners.signer_test.get_current_reward_cycle();
+    let signer_test_pks: Vec<_> = miners
+        .signer_test
+        .signer_stacks_private_keys
+        .iter()
+        .map(|sk| Secp256k1PublicKey::from_private(sk).to_bytes_compressed())
+        .collect();
+
+    info!("---- Verifying that the current signers are the old signers ----");
+    let current_signers = miners.signer_test.get_reward_set_signers(reward_cycle);
+    assert_eq!(current_signers.len(), num_signers);
+    // Verify that the current signers are the same as the old signers
+    for signer in current_signers.iter() {
+        assert!(signer_test_pks.contains(&signer.signing_key.to_vec()));
+        assert!(!new_signer_pks.contains(&signer.signing_key.to_vec()));
+    }
+
+    let burnchain = miners.get_node_configs().0.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 120)
+        .unwrap();
+
+    let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
+    let block_sighash = mined_block.signer_signature_hash;
+    let signer_signatures = mined_block.signer_signature;
+
+    // verify the mined_block signatures against the OLD signer set
+    for signature in signer_signatures.iter() {
+        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
+            .expect("FATAL: Failed to recover pubkey from block sighash");
+        assert!(signer_test_pks.contains(&pk.to_bytes_compressed()));
+        assert!(!new_signer_pks.contains(&pk.to_bytes_compressed()));
+    }
+
+    // advance to the next reward cycle, stacking to the new signers beforehand
+    let reward_cycle = miners.signer_test.get_current_reward_cycle();
+
+    info!("---- Stacking new signers -----");
+
+    let burn_block_height = miners
+        .signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_headers_height();
+    let accounts_to_check = new_signer_addrs;
+    for stacker_sk in new_signer_sks.iter() {
+        let pox_addr = PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            tests::to_addr(stacker_sk).bytes().clone(),
+        );
+        let pox_addr_tuple: clarity::vm::Value =
+            pox_addr.clone().as_clarity_tuple().unwrap().into();
+        let signature = make_pox_4_signer_key_signature(
+            &pox_addr,
+            stacker_sk,
+            reward_cycle.into(),
+            &Pox4SignatureTopic::StackStx,
+            CHAIN_ID_TESTNET,
+            1_u128,
+            u128::MAX,
+            1,
+        )
+        .unwrap()
+        .to_rsv();
+
+        let chain_id = miners.get_node_configs().0.burnchain.chain_id;
+        let signer_pk = Secp256k1PublicKey::from_private(stacker_sk);
+        let stacking_tx = make_contract_call(
+            stacker_sk,
+            0,
+            1000,
+            chain_id,
+            &StacksAddress::burn_address(false),
+            "pox-4",
+            "stack-stx",
+            &[
+                clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
+                pox_addr_tuple.clone(),
+                clarity::vm::Value::UInt(burn_block_height as u128),
+                clarity::vm::Value::UInt(1),
+                clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap())
+                    .unwrap(),
+                clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+                clarity::vm::Value::UInt(u128::MAX),
+                clarity::vm::Value::UInt(1),
+            ],
+        );
+        submit_tx(&miners.node_http(), &stacking_tx);
+    }
+
+    wait_for(60, || {
+        Ok(accounts_to_check
+            .iter()
+            .all(|acct| get_account(&miners.node_http(), acct).nonce >= 1))
+    })
+    .expect("Timed out waiting for stacking txs to be mined");
+
+    let next_reward_cycle = reward_cycle.saturating_add(1);
+
+    let next_cycle_height = miners
+        .btc_regtest_controller_mut()
+        .get_burnchain()
+        .nakamoto_first_block_of_cycle(next_reward_cycle)
+        .saturating_add(1);
+
+    miners.signer_test.run_until_burnchain_height_nakamoto(
+        Duration::from_secs(60),
+        next_cycle_height.saturating_sub(3),
+        new_num_signers,
+    );
+
+    miners.wait_for_chains(120);
+
+    // Verify that the new reward set is the new signers
+    let reward_set = miners.signer_test.get_reward_set_signers(next_reward_cycle);
+    for signer in reward_set.iter() {
+        assert!(!signer_test_pks.contains(&signer.signing_key.to_vec()));
+        assert!(new_signer_pks.contains(&signer.signing_key.to_vec()));
+    }
+
+    info!("---- Mining to just before the next reward cycle (block {next_cycle_height}) -----",);
+    miners.signer_test.run_until_burnchain_height_nakamoto(
+        Duration::from_secs(60),
+        next_cycle_height.saturating_sub(1),
+        new_num_signers,
+    );
+
+    let (old_spawned_signers, _, _) =
+        miners
+            .signer_test
+            .replace_signers(new_spawned_signers, new_signer_sks, new_signer_configs);
+
+    miners.wait_for_chains(120);
+
+    info!("---- Mining into the next reward cycle (block {next_cycle_height}) -----",);
+    miners.signer_test.run_until_burnchain_height_nakamoto(
+        Duration::from_secs(60),
+        next_cycle_height,
+        new_num_signers,
+    );
+    let new_reward_cycle = miners.signer_test.get_current_reward_cycle();
+    assert_eq!(new_reward_cycle, reward_cycle.saturating_add(1));
+
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 120)
+        .unwrap();
+
+    miners.send_and_mine_transfer_tx(60).unwrap();
+    miners.send_and_mine_transfer_tx(60).unwrap();
+    miners.send_and_mine_transfer_tx(60).unwrap();
+    miners.wait_for_chains(120);
+
+    let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
+
+    info!("---- Verifying that the new signers signed the block -----");
+    let signer_signatures = mined_block.signer_signature;
+
+    // verify the mined_block signatures against the NEW signer set
+    for signature in signer_signatures.iter() {
+        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
+            .expect("FATAL: Failed to recover pubkey from block sighash");
+        assert!(!signer_test_pks.contains(&pk.to_bytes_compressed()));
+        assert!(new_signer_pks.contains(&pk.to_bytes_compressed()));
+    }
+
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 120)
+        .unwrap();
+    miners.wait_for_chains(120);
+    miners.send_and_mine_transfer_tx(60).unwrap();
+    miners.wait_for_chains(120);
+    miners.send_and_mine_transfer_tx(60).unwrap();
+    miners.wait_for_chains(120);
+    miners.send_and_mine_transfer_tx(60).unwrap();
+    miners.wait_for_chains(120);
+
+    miners.shutdown();
+    for signer in old_spawned_signers {
+        assert!(signer.stop().is_none());
+    }
 }
 
 /// This test involves two miners, each mining tenures with 6 blocks each. Half
@@ -10938,7 +11224,7 @@ fn tenure_extend_after_failed_miner() {
         .expect("Failed to mine tx");
 
     info!("------------------------- Pause Block Proposals -------------------------");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
     miners.submit_commit_miner_2(&sortdb);
 
     info!("------------------------- Miner 2 Wins Tenure B, Mines No Blocks -------------------------");
@@ -10966,7 +11252,7 @@ fn tenure_extend_after_failed_miner() {
     .expect("Failed to update signer state");
     // Re-enable block mining, for both miners.
     // Since miner B has been offline, it won't be able to mine.
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     // wait for a tenure extend block from miner 1 to be processed
     wait_for_tenure_change_tx(30, TenureChangeCause::Extended, stacks_height_before + 1)
@@ -11053,7 +11339,7 @@ fn tenure_extend_after_bad_commit() {
         .expect("Failed to mine tx");
 
     info!("------------------------- Pause Block Proposals -------------------------");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
     miners.submit_commit_miner_1(&sortdb);
 
     info!("------------------------- Miner 1 Wins Tenure B -------------------------");
@@ -11069,7 +11355,7 @@ fn tenure_extend_after_bad_commit() {
     info!("----------------------------- Resume Block Production -----------------------------");
 
     let stacks_height_before = miners.get_peer_stacks_tip_height();
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     wait_for_tenure_change_tx(30, TenureChangeCause::BlockFound, stacks_height_before + 1)
         .expect("Failed to mine tenure change tx");
@@ -11177,7 +11463,7 @@ fn tenure_extend_after_2_bad_commits() {
     let stacks_height_before = miners.get_peer_stacks_tip_height();
 
     info!("------------------------- Pause Block Proposals -------------------------");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
     miners.submit_commit_miner_1(&sortdb);
 
     info!("------------------------- Miner 1 Wins Tenure B -------------------------");
@@ -11193,14 +11479,14 @@ fn tenure_extend_after_2_bad_commits() {
 
     info!("----------------------------- Resume Block Production -----------------------------");
 
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
     wait_for_tenure_change_tx(30, TenureChangeCause::BlockFound, stacks_height_before + 1)
         .expect("Failed to mine tenure change tx");
 
     info!("--------------- Miner 2 Wins Tenure C With Old Block Commit ----------------");
     // Pause block production again so that we can make sure miner 2 commits
     // to the wrong block again.
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 30)
@@ -11214,7 +11500,7 @@ fn tenure_extend_after_2_bad_commits() {
 
     info!("------------------------- Miner 1 Extends Tenure B -------------------------");
 
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     // wait for a tenure extend block from miner 1 to be processed
     // (miner 2's proposals will be rejected)
@@ -11238,7 +11524,7 @@ fn tenure_extend_after_2_bad_commits() {
 
     info!("---------------------- Miner 1 Extends Tenure B (again) ---------------------");
 
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     // wait for a tenure extend block from miner 1 to be processed
     // (miner 2's proposals will be rejected)
@@ -11783,6 +12069,28 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     TEST_STALL_BLOCK_VALIDATION_SUBMISSION.set(false);
 
     info!("------------------------- Confirm N+1' is Rejected ------------------------");
+    // Confirm that every single signer has rejected the block and recorded its own rejection signature in its own DB
+    wait_for(30, || {
+        Ok(miners.signer_test.signer_configs.iter().all(|config| {
+            let conn = Connection::open(config.db_path.clone()).unwrap();
+            let mut stmt = conn
+                .prepare(
+                    "SELECT 1 FROM block_rejection_signer_addrs
+                WHERE signer_signature_hash = ?1 AND signer_addr = ?2
+                LIMIT 1",
+                )
+                .unwrap();
+
+            let mut rows = stmt
+                .query(rusqlite::params![
+                    block_n_1_prime_signature_hash,
+                    config.stacks_address
+                ])
+                .unwrap();
+            rows.next().unwrap().is_some()
+        }))
+    })
+    .expect("Failed to verify all signers recorded a signature rejection");
     wait_for_block_global_rejection(30, block_n_1_prime_signature_hash, num_signers)
         .expect("Failed to find block N+1'");
 
@@ -13595,7 +13903,7 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
     miners.submit_commit_miner_2(&sortdb);
 
     info!("------------------------- Pause Miner 2's Block Mining -------------------------");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     info!("------------------------- Mine Tenure -------------------------");
     miners
@@ -13607,7 +13915,7 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
 
     info!("------------------------- Miner 2 Mines Block N+1 -------------------------");
 
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
     let _ = wait_for_block_pushed_by_miner_key(30, block_n_height + 1, &miner_pk_2)
         .expect("Failed to get block N+1");
 
@@ -15182,7 +15490,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
     miners.submit_commit_miner_2(&sortdb);
 
     info!("------------------------- Pause Miner 2's Block Mining -------------------------");
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     info!("------------------------- Mine 2 wins the Next Tenure -------------------------");
     let info_before = info_after;
@@ -15198,7 +15506,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
     miners.submit_commit_miner_1(&sortdb);
 
     info!("------------------------- Miner 2 Mines Block N+1 -------------------------");
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     let block_n_1 = wait_for_block_pushed_by_miner_key(30, block_n_height + 1, &miner_pk_2)
         .expect("Failed to get block N+1");
@@ -16073,7 +16381,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
     info!("Pause mining and fill the mempool with the transfers");
 
     // Pause block mining
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let db_tx = conn.transaction().unwrap();
     let timer = Instant::now();
@@ -16109,7 +16417,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
     info!("Mining transfers...");
 
     // Unpause block mining
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     // Wait for the first block to be proposed.
     wait_for(30, || {
@@ -16361,7 +16669,7 @@ fn larger_mempool() {
     info!("Pause mining and fill the mempool with the transfers");
 
     // Pause block mining
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     let timer = Instant::now();
 
@@ -16402,7 +16710,7 @@ fn larger_mempool() {
     info!("Mining transfers...");
 
     // Unpause block mining
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     // Wait for the first block to be proposed.
     wait_for(30, || {
@@ -16655,7 +16963,7 @@ fn verify_mempool_caches() {
         .expect("Timed out waiting for block proposal");
 
     // Stall the miners so that this block is not re-proposed after being rejected
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     // Wait for rejections
     wait_for_block_rejections(30, block.header.signer_signature_hash(), num_signers)
@@ -16684,7 +16992,7 @@ fn verify_mempool_caches() {
 
     // Set signers to accept and unpause the miners
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![]);
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
 
     info!("Unpausing miners and waiting for block to be mined");
 
@@ -16892,7 +17200,7 @@ fn burn_block_height_behavior() {
     .expect("Timed out waiting for block to be processed");
 
     // Stall mining, so that the next call will get included in the tenure extend block
-    TEST_MINE_STALL.set(true);
+    fault_injection_stall_miner();
 
     // Wait to ensure the miner reaches the stalled state
     // This is necessary because it's possible that the miner will mine the
@@ -16934,7 +17242,7 @@ fn burn_block_height_behavior() {
     info!("------------------------- wait for tenure change block -------------------------");
 
     // Resume mining and wait for the next block to be mined
-    TEST_MINE_STALL.set(false);
+    fault_injection_unstall_miner();
     wait_for_tenure_change_tx(60, TenureChangeCause::Extended, stacks_height_before + 1)
         .expect("Timed out waiting for tenure extend");
 
@@ -17532,6 +17840,7 @@ fn bitcoin_reorg_extended_tenure() {
                 0
             }
         },
+        None,
     );
 
     let (conf_1, _conf_2) = miners.get_node_configs();

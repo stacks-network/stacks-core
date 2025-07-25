@@ -5,13 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## Unreleased
+## [3.2.0.0.0]
 
-- The HTTP `Date` header in responses now strictly follows RFC7231.
+### Added
+
+- Added the `clarity-serialization` crate: A lightweight crate for serializing and deserializing Clarity values. This crate decouples core data types from the Clarity VM, making it easier to build off-chain tooling, and other applications that interact with Clarity data. It includes support for `wasm32-unknown-unknown` targets via the `wasm-web` and `wasm-deterministic` features.
+- Added `/v3/contracts/fast-call-read/:principal/:contract_name/:func_name` api endpoint. It allows to run read-only calls faster by disabling the cost and memory trackers. This endpoint requires authentication.
+- **SIP-031 consensus rules, activating in epoch 3.2 at block 907_740**
 
 ### Changed
 
+- The HTTP `Date` header in responses now strictly follows RFC7231.
 - When a previous block commit is unable to be RBFed, the miner will now just wait for it to be confirmed instead of submitting a new block commit which breaks the miner's UTXO chain.
+- When mining, only log new block proposal responses, not duplicates.
+
+### Fixed
+
+- Fixed tenure downloader logic on reward cycle boundaries (#6234).
+- Do not send events to event observers for stale StackerDB chunks.
 
 ## [3.1.0.0.13]
 
