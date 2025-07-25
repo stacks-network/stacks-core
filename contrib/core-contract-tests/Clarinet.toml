@@ -34,6 +34,16 @@ clarity_version = 2
 epoch = 2.4
 depends_on = []
 
+[contracts.sip-031]
+path = "../../stackslib/src/chainstate/stacks/boot/sip-031.clar"
+clarity_version = 3
+epoch = 3.1
+
+[contracts.sip-031-indirect]
+path = "contracts/sip-031-indirect.clar"
+clarity_version = 3
+epoch = 3.1
+
 [contracts.bns_test]
 path = "./tests/bns_test.clar"
 clarity_version = 2

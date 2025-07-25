@@ -1006,6 +1006,7 @@ impl TestStacksNode {
 
         let mut miner_tenure_info =
             builder.load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?;
+        let burn_chain_height = miner_tenure_info.burn_tip_height;
         let mut tenure_tx = builder.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
         for tx in txs.into_iter() {
             let tx_len = tx.tx_len();
@@ -1054,7 +1055,7 @@ impl TestStacksNode {
                 }
             }
         }
-        let block = builder.mine_nakamoto_block(&mut tenure_tx);
+        let block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
         let size = builder.bytes_so_far;
         let cost = builder.tenure_finish(tenure_tx).unwrap();
         Ok((block, size, cost))
