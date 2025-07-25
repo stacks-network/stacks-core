@@ -74,7 +74,8 @@ jobs:
   ## Generate and upload node configuration documentation
   node-config-docsgen:
     name: Node Configuration Documentation
-    uses: stacks-network/actions/node-config-docsgen@feat/node-config-docsgen
+    id: node-config-docsgen
+    uses: stacks-network/actions/stacks-core/node-config-docsgen@feat/node-config-docsgen
 
   ## Disabled
   ##   - this test can take several hours to run
