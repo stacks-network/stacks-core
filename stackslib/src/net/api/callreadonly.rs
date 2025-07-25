@@ -59,7 +59,7 @@ pub struct CallReadOnlyResponse {
 
 #[derive(Clone)]
 pub struct RPCCallReadOnlyRequestHandler {
-    maximum_call_argument_size: u32,
+    pub maximum_call_argument_size: u32,
     read_only_call_limit: ExecutionCost,
 
     /// Runtime fields

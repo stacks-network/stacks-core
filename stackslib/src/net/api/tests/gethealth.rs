@@ -19,12 +19,18 @@ use clarity::types::chainstate::StacksBlockId;
 use clarity::types::StacksEpochId;
 
 use super::TestRPC;
-use crate::net::api::gethealth::{RPCGetHealthRequestHandler, RPCGetHealthResponse};
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+use crate::chainstate::stacks::boot::RewardSet;
+use crate::net::api::gethealth::{
+    NeighborsScope, RPCGetHealthRequestHandler, RPCGetHealthResponse,
+};
 use crate::net::api::gettenureinfo::RPCGetTenureInfo;
 use crate::net::connection::ConnectionOptions;
 use crate::net::download::nakamoto::{
-    NakamotoDownloadStateMachine, NakamotoUnconfirmedTenureDownloader,
+    NakamotoDownloadState, NakamotoDownloadStateMachine, NakamotoTenureDownloader,
+    NakamotoUnconfirmedTenureDownloader,
 };
+use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::{StacksHttp, StacksHttpRequest};
 use crate::net::test::TestEventObserver;
 use crate::net::{NeighborAddress, ProtocolFamily};
@@ -34,7 +40,7 @@ fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
-    let request = StacksHttpRequest::new_gethealth(addr.into());
+    let request = StacksHttpRequest::new_gethealth(addr.into(), NeighborsScope::Initial);
     let bytes = request.try_serialize().unwrap();
 
     let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
@@ -59,6 +65,7 @@ fn setup_and_run_nakamoto_health_test(
     test_function_name_suffix: &str,
     peer_1_height_relative_to_node: i64, // How many blocks peer_1 is ahead (positive) or behind (negative) the node.
     expected_difference_from_max_peer: u64,
+    nakamoto_download_state: NakamotoDownloadState,
 ) {
     // `rpc_test` will have peer_1 (client) and peer_2 (server/node)
     let test_observer = TestEventObserver::new();
@@ -105,12 +112,6 @@ fn setup_and_run_nakamoto_health_test(
             .expect("FATAL: burnchain tip before system start"),
     };
 
-    let mut unconfirmed_tenure = NakamotoUnconfirmedTenureDownloader::new(
-        peer_1_address.clone(),
-        Some(peer_1_tenure_tip.tip_block_id.clone()),
-    );
-    unconfirmed_tenure.tenure_tip = Some(peer_1_tenure_tip);
-
     // Initialize the downloader state for peer_2 (the node)
     let epoch = rpc_test
         .peer_1
@@ -120,14 +121,52 @@ fn setup_and_run_nakamoto_health_test(
         epoch.start_height,
         rpc_test.peer_1.network.stacks_tip.block_id(), // Initial tip for the downloader state machine
     );
-    downloader
-        .unconfirmed_tenure_downloads
-        .insert(peer_1_address, unconfirmed_tenure); // Add peer_1's state to peer_2's downloader
+    match nakamoto_download_state {
+        NakamotoDownloadState::Confirmed => {
+            let mut confirmed_tenure = NakamotoTenureDownloader::new(
+                peer_1_tenure_tip.consensus_hash.clone(),
+                peer_1_tenure_tip.consensus_hash.clone(),
+                peer_1_tenure_tip.parent_tenure_start_block_id.clone(),
+                peer_1_tenure_tip.consensus_hash.clone(),
+                peer_1_tenure_tip.tip_block_id.clone(),
+                peer_1_address.clone(),
+                RewardSet::empty(),
+                RewardSet::empty(),
+                false,
+            );
+
+            let mut header = NakamotoBlockHeader::empty();
+            header.chain_length = peer_1_actual_height - 1;
+            header.consensus_hash = peer_1_tenure_tip.consensus_hash.clone();
+            header.parent_block_id = peer_1_tenure_tip.parent_tenure_start_block_id.clone();
+            let nakamoto_block = NakamotoBlock {
+                header,
+                txs: vec![],
+            };
+            confirmed_tenure.tenure_end_block = Some(nakamoto_block);
+            downloader
+                .tenure_downloads
+                .downloaders
+                .push(Some(confirmed_tenure)); // Add peer_1's state to peer_2's downloader
+            downloader.state = NakamotoDownloadState::Confirmed;
+        }
+        NakamotoDownloadState::Unconfirmed => {
+            let mut unconfirmed_tenure = NakamotoUnconfirmedTenureDownloader::new(
+                peer_1_address.clone(),
+                Some(peer_1_tenure_tip.tip_block_id.clone()),
+            );
+            unconfirmed_tenure.tenure_tip = Some(peer_1_tenure_tip);
+            downloader
+                .unconfirmed_tenure_downloads
+                .insert(peer_1_address, unconfirmed_tenure); // Add peer_1's state to peer_2's downloader
+            downloader.state = NakamotoDownloadState::Unconfirmed;
+        }
+    }
     rpc_test.peer_2.network.block_downloader_nakamoto = Some(downloader);
 
     // --- Invoke the Handler ---
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let request = StacksHttpRequest::new_gethealth(addr.into());
+    let request = StacksHttpRequest::new_gethealth(addr.into(), NeighborsScope::Initial);
     let mut responses = rpc_test.run(vec![request]);
     let response = responses.remove(0);
 
@@ -172,35 +211,102 @@ fn setup_and_run_nakamoto_health_test(
 }
 
 #[test]
-fn test_get_health_node_behind_of_peers() {
+fn test_get_health_node_behind_of_peers_unconfirmed() {
     // This test simulates peer_2 (node) being behind peer_1.
     // So, peer_1's height is greater than peer_2's height.
     setup_and_run_nakamoto_health_test(
         "node_behind",
         100, // peer_1 is 100 blocks *ahead* of the node (node's height + 100)
         100, // Expected difference: node is 100 blocks behind max peer height
+        NakamotoDownloadState::Unconfirmed,
     );
 }
 
 #[test]
-fn test_get_health_same_height_as_peers() {
+fn test_get_health_same_height_as_peers_unconfirmed() {
     // Test when node is at the same height as its most advanced peer (peer_1)
     setup_and_run_nakamoto_health_test(
         "same_height",
         0, // peer_1 is at the same height as the node (node's height + 0)
         0, // Expected difference: node is at the same height as max peer
+        NakamotoDownloadState::Unconfirmed,
     );
 }
 
 #[test]
-fn test_get_health_node_ahead_of_peers() {
+fn test_get_health_node_ahead_of_peers_unconfirmed() {
     // Test when node (peer_2) is ahead of its peer (peer_1)
     // So, peer_1's height is less than peer_2's height.
     setup_and_run_nakamoto_health_test(
         "node_ahead",
         -10, // peer_1 is 10 blocks *behind* the node (node's height - 10)
         0, // Expected difference: 0, because difference is node_height.saturating_sub(peer_height)
-           // when the node is ahead, this results in 0 if peer_height < node_height.
+        // when the node is ahead, this results in 0 if peer_height < node_height.
+        NakamotoDownloadState::Unconfirmed,
+    );
+}
+
+#[test]
+fn test_get_health_node_behind_of_peers_confirmed() {
+    // Test when node (peer_2) is behind its peer (peer_1)
+    // So, peer_1's height is greater than peer_2's height.
+    setup_and_run_nakamoto_health_test(
+        "node_behind",
+        100, // peer_1 is 100 blocks *ahead* of the node (node's height + 100)
+        100, // Expected difference: node is 100 blocks behind max peer height
+        NakamotoDownloadState::Confirmed,
+    );
+}
+
+#[test]
+fn test_get_health_same_height_as_peers_confirmed() {
+    // Test when node (peer_2) is at the same height as its peer (peer_1)
+    // So, peer_1's height is equal to peer_2's height.
+    setup_and_run_nakamoto_health_test(
+        "same_height",
+        0, // peer_1 is at the same height as the node (node's height + 0)
+        0, // Expected difference: node is at the same height as max peer
+        NakamotoDownloadState::Confirmed,
+    );
+}
+
+#[test]
+fn test_get_health_node_ahead_of_peers_confirmed() {
+    // Test when node (peer_2) is ahead of its peer (peer_1)
+    // So, peer_1's height is less than peer_2's height.
+    setup_and_run_nakamoto_health_test(
+        "node_ahead",
+        -10, // peer_1 is 10 blocks *behind* the node (node's height - 10)
+        0, // Expected difference: 0, because difference is node_height.saturating_sub(peer_height)
+        // when the node is ahead, this results in 0 if peer_height < node_height.
+        NakamotoDownloadState::Confirmed,
+    );
+}
+
+#[test]
+fn test_get_health_400_invalid_neighbors_param() {
+    let test_observer = TestEventObserver::new();
+    let rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
+    let request = StacksHttpRequest::new_for_peer(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333).into(),
+        "GET".into(),
+        "/v3/health".into(),
+        HttpRequestContents::new().query_string(Some("neighbors=invalid")),
+    )
+    .expect("FATAL: failed to construct request from infallible data");
+
+    let mut responses = rpc_test.run(vec![request]);
+    let response = responses.remove(0);
+
+    let (http_resp_preamble, contents) = response.destruct();
+    let error_message: String = contents.try_into().unwrap();
+    assert_eq!(
+        error_message,
+        "Invalid `neighbors` query parameter: `invalid`, allowed values are `initial` or `all`"
+    );
+    assert_eq!(
+        http_resp_preamble.status_code, 400,
+        "Expected HTTP 400 Bad Request for invalid neighbors parameter"
     );
 }
 
@@ -224,7 +330,7 @@ fn test_get_health_500_no_initial_neighbors() {
 
     // --- Invoke the Handler ---
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let request = StacksHttpRequest::new_gethealth(addr.into());
+    let request = StacksHttpRequest::new_gethealth(addr.into(), NeighborsScope::Initial);
     let mut responses = rpc_test.run(vec![request]);
     let response = responses.remove(0);
 
@@ -254,7 +360,7 @@ fn test_get_health_500_no_inv_state_pre_nakamoto() {
 
     // --- Invoke the Handler ---
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let request = StacksHttpRequest::new_gethealth(addr.into());
+    let request = StacksHttpRequest::new_gethealth(addr.into(), NeighborsScope::Initial);
     let mut responses = rpc_test.run(vec![request]);
     let response = responses.remove(0);
 
@@ -280,7 +386,7 @@ fn test_get_health_500_no_download_state() {
     let rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
     // --- Invoke the Handler ---
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let request = StacksHttpRequest::new_gethealth(addr.into());
+    let request = StacksHttpRequest::new_gethealth(addr.into(), NeighborsScope::Initial);
     let mut responses = rpc_test.run(vec![request]);
     let response = responses.remove(0);
     // --- Assertions ---
@@ -305,7 +411,7 @@ fn test_get_health_500_no_peers_stats() {
     rpc_test.peer_2.network.init_nakamoto_block_downloader();
     // --- Invoke the Handler ---
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let request = StacksHttpRequest::new_gethealth(addr.into());
+    let request = StacksHttpRequest::new_gethealth(addr.into(), NeighborsScope::Initial);
     let mut responses = rpc_test.run(vec![request]);
     let response = responses.remove(0);
     // --- Assertions ---

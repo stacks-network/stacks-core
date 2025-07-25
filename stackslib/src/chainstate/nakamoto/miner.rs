@@ -478,9 +478,19 @@ impl NakamotoBlockBuilder {
     }
 
     /// Finish building the Nakamoto block
-    pub fn mine_nakamoto_block(&mut self, clarity_tx: &mut ClarityTx) -> NakamotoBlock {
-        NakamotoChainState::finish_block(clarity_tx, self.matured_miner_rewards_opt.as_ref())
-            .expect("FATAL: call to `finish_block` failed");
+    pub fn mine_nakamoto_block(
+        &mut self,
+        clarity_tx: &mut ClarityTx,
+        burn_block_height: u32,
+    ) -> NakamotoBlock {
+        let is_new_tenure = self.coinbase_tx.is_some();
+        NakamotoChainState::finish_block(
+            clarity_tx,
+            self.matured_miner_rewards_opt.as_ref(),
+            is_new_tenure,
+            burn_block_height,
+        )
+        .expect("FATAL: call to `finish_block` failed");
         self.finalize_block(clarity_tx)
     }
 
@@ -530,6 +540,7 @@ impl NakamotoBlockBuilder {
 
         let mut miner_tenure_info =
             builder.load_tenure_info(&mut chainstate, burn_dbconn, tenure_info.cause())?;
+        let burn_chain_height = miner_tenure_info.burn_tip_height;
         let mut tenure_tx = builder.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
 
         let tenure_budget = tenure_tx
@@ -607,7 +618,7 @@ impl NakamotoBlockBuilder {
         }
 
         // save the block so we can build microblocks off of it
-        let block = builder.mine_nakamoto_block(&mut tenure_tx);
+        let block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
         let tenure_size = builder.bytes_so_far;
         let tenure_consumed = builder.tenure_finish(tenure_tx)?;
 

@@ -661,11 +661,15 @@ impl BlockstackOperationType {
         normalize_common_fields::<D>(map)?;
         if let Some(serde_json::Value::Array(arr)) = map.get("reward_addr") {
             if arr.len() == 2 {
-                let index = arr[0]
+                let index = arr
+                    .get(0)
+                    .unwrap()
                     .as_u64()
                     .ok_or_else(|| DeError::custom("Expected u64 index"))?
                     as u32;
-                let b58_str = arr[1]
+                let b58_str = arr
+                    .get(1)
+                    .unwrap()
                     .as_str()
                     .ok_or_else(|| DeError::custom("Expected base58 string"))?;
                 let addr = PoxAddress::from_b58(b58_str)

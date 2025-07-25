@@ -28,8 +28,8 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::chat::ConversationP2P;
 use crate::net::connection::ConnectionOptions;
 use crate::net::download::nakamoto::{
-    downloader_block_height_to_reward_cycle, AvailableTenures, NakamotoTenureDownloader,
-    NakamotoTenureDownloaderSet, NakamotoUnconfirmedTenureDownloader, TenureStartEnd, WantedTenure,
+    AvailableTenures, NakamotoTenureDownloader, NakamotoTenureDownloaderSet,
+    NakamotoUnconfirmedTenureDownloader, TenureStartEnd, WantedTenure,
 };
 use crate::net::inv::nakamoto::NakamotoTenureInv;
 use crate::net::neighbors::rpc::NeighborRPC;
@@ -73,7 +73,7 @@ pub struct NakamotoDownloadStateMachine {
     /// Last burnchain tip we've seen
     last_sort_tip: Option<BlockSnapshot>,
     /// Download behavior we're in
-    state: NakamotoDownloadState,
+    pub(crate) state: NakamotoDownloadState,
     /// Map a tenure ID to its tenure start-block and end-block for each of our neighbors' invs
     tenure_block_ids: HashMap<NeighborAddress, AvailableTenures>,
     /// Who can serve a given tenure
@@ -86,7 +86,7 @@ pub struct NakamotoDownloadStateMachine {
     pub(crate) unconfirmed_tenure_downloads:
         HashMap<NeighborAddress, NakamotoUnconfirmedTenureDownloader>,
     /// Ongoing confirmed tenure downloads for when we know the start and end block hashes.
-    tenure_downloads: NakamotoTenureDownloaderSet,
+    pub(crate) tenure_downloads: NakamotoTenureDownloaderSet,
     /// comms to remote neighbors
     pub(super) neighbor_rpc: NeighborRPC,
     /// Nakamoto chain tip
@@ -120,6 +120,21 @@ impl NakamotoDownloadStateMachine {
             last_unconfirmed_download_check_ms: 0,
             last_unconfirmed_download_run_ms: 0,
         }
+    }
+
+    /// Return the reward cycle which could be confirmed by a nakamoto block commit
+    ///  in burn block height `burn_height`.
+    ///
+    /// Nakamoto block commits point at the parent of the tenure that
+    /// starts at `burn_height`.  Therefore, a commit at height N
+    /// could confirm a tenure in the reward cycle active at height
+    /// `N-1`.
+    fn get_confirmable_reward_cycle(
+        pox_constants: &PoxConstants,
+        first_burn_height: u64,
+        burn_height: u64,
+    ) -> Option<u64> {
+        pox_constants.block_height_to_reward_cycle(first_burn_height, burn_height.saturating_sub(1))
     }
 
     /// Get a range of wanted tenures between two burnchain blocks.
@@ -220,7 +235,13 @@ impl NakamotoDownloadStateMachine {
         sortdb: &SortitionDB,
         loaded_so_far: &[WantedTenure],
     ) -> Result<Vec<WantedTenure>, NetError> {
-        let tip_rc = downloader_block_height_to_reward_cycle(
+        // we want tenures that are *confirmable* from the current sortition tip.
+        //  any miner commitment chosen in the sortition tip confirms a tenure with a lower
+        //  block height, so only consider the reward cycle at height - 1.
+        // *Note: it's possible that the second or later sortition of a RC also confirms a tenure
+        //   in the previous RC, but for the purposes of the wanted tenures calculations, we only
+        //   are loading up wanted tenures in the current RC.
+        let tip_rc = Self::get_confirmable_reward_cycle(
             &sortdb.pox_constants,
             sortdb.first_block_height,
             tip.block_height,
@@ -234,12 +255,9 @@ impl NakamotoDownloadStateMachine {
         } else if let Some(last_tip) = last_tip.as_ref() {
             last_tip.block_height.saturating_add(1)
         } else {
-            // careful -- need .saturating_sub(1) since this calculation puts the reward cycle start at
-            // block height 1 mod reward cycle len, but we really want 0 mod reward cycle len
             sortdb
                 .pox_constants
-                .reward_cycle_to_block_height(sortdb.first_block_height, tip_rc)
-                .saturating_sub(1)
+                .nakamoto_first_block_of_cycle(sortdb.first_block_height, tip_rc)
         };
 
         // be extra careful with last_block_height -- we not only account for the above, but also
@@ -247,8 +265,7 @@ impl NakamotoDownloadStateMachine {
         // of the last block height (but we want this!)
         let last_block_height = sortdb
             .pox_constants
-            .reward_cycle_to_block_height(sortdb.first_block_height, tip_rc.saturating_add(1))
-            .saturating_sub(1)
+            .nakamoto_first_block_of_cycle(sortdb.first_block_height, tip_rc.saturating_add(1))
             .min(tip.block_height.saturating_add(1));
 
         debug!(
@@ -395,7 +412,7 @@ impl NakamotoDownloadStateMachine {
                 .expect("FATAL: usize cannot support reward cycle length")
         {
             // this is the first-ever pass, so load up the last full reward cycle
-            let prev_sort_rc = downloader_block_height_to_reward_cycle(
+            let prev_sort_rc = Self::get_confirmable_reward_cycle(
                 &sortdb.pox_constants,
                 sortdb.first_block_height,
                 sort_tip.block_height,
@@ -419,7 +436,7 @@ impl NakamotoDownloadStateMachine {
         }
         if self.wanted_tenures.is_empty() {
             // this is the first-ever pass, so load up the current reward cycle
-            let sort_rc = downloader_block_height_to_reward_cycle(
+            let sort_rc = Self::get_confirmable_reward_cycle(
                 &sortdb.pox_constants,
                 sortdb.first_block_height,
                 sort_tip.block_height,
@@ -472,7 +489,7 @@ impl NakamotoDownloadStateMachine {
         self.initialize_wanted_tenures(sort_tip, sortdb)?;
         let last_sort_height_opt = self.last_sort_tip.as_ref().map(|sn| sn.block_height);
         let last_sort_height = last_sort_height_opt.unwrap_or(sort_tip.block_height);
-        let sort_rc = downloader_block_height_to_reward_cycle(
+        let sort_rc = Self::get_confirmable_reward_cycle(
             &sortdb.pox_constants,
             sortdb.first_block_height,
             last_sort_height,
@@ -659,32 +676,62 @@ impl NakamotoDownloadStateMachine {
         schedule.into_iter().map(|(_count, ch)| ch).collect()
     }
 
-    /// Returns the highest Stacks tip height reported by the given neighbors.
+    /// Returns the highest Stacks tip height from available sources.
     ///
-    /// For each neighbor, this checks if there's an active unconfirmed download with a known
-    /// `tip_height`. If so, it's considered when finding the maximum.
+    /// In IBD mode (Confirmed state), this queries confirmed tenure downloaders for their
+    /// tenure end block heights. In steady-state mode (Unconfirmed state), this checks
+    /// the unconfirmed tenure downloads for the given neighbors to find their tip heights.
     ///
     /// # Arguments
     ///
-    /// * `neighbors` - A slice of `NeighborAddress` structs to check.
+    /// * `neighbors` - Optional slice of `NeighborAddress` structs to check.
+    ///   If `None`, all neighbors are considered.
     ///
     /// # Returns
     ///
-    /// * `Some(u64)` if at least one neighbor has a tip height.
-    /// * `None` if no tip heights are found.
+    /// * `Some(u64)` - The maximum height found, or None if no heights are available.
     pub(crate) fn get_max_stacks_height_of_neighbors(
         &self,
-        neighbors: &[NeighborAddress],
+        neighbors: Option<&[NeighborAddress]>,
     ) -> Option<u64> {
-        neighbors
-            .iter()
-            .filter_map(|naddr| {
-                self.unconfirmed_tenure_downloads
-                    .get(naddr)
-                    .and_then(|downloader| downloader.tenure_tip.as_ref())
-                    .map(|tip| tip.tip_height)
-            })
-            .max()
+        match self.state {
+            // Still in IBD mode, so we can only get the max height from the confirmed tenure downloads
+            NakamotoDownloadState::Confirmed => self
+                .tenure_downloads
+                .downloaders
+                .iter()
+                .flatten()
+                .filter(|d| neighbors.map_or(true, |n| n.contains(&d.naddr)))
+                .filter_map(|d| {
+                    d.tenure_end_block
+                        .as_ref()
+                        .map(|end_block| end_block.header.chain_length + 1)
+                        .or_else(|| {
+                            d.tenure_start_block
+                                .as_ref()
+                                .map(|start_block| start_block.header.chain_length + 1)
+                        })
+                })
+                .max(),
+            // In steady-state mode, we can get the max height from the unconfirmed tenure downloads
+            NakamotoDownloadState::Unconfirmed => match neighbors {
+                None => self
+                    .unconfirmed_tenure_downloads
+                    .values()
+                    .filter_map(|d| d.tenure_tip.as_ref().map(|tip| tip.tip_height))
+                    .max(),
+                Some(addrs) => addrs
+                    .iter()
+                    .filter_map(|addr| {
+                        self.unconfirmed_tenure_downloads
+                            .get(addr)?
+                            .tenure_tip
+                            .as_ref()
+                            .map(|tip| tip.tip_height)
+                    })
+                    .max(),
+            },
+        }
     }
 
     /// How many neighbors can we contact still, given the map of tenures to neighbors which can

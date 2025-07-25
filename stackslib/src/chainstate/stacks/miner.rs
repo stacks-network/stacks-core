@@ -2016,13 +2016,11 @@ impl StacksBlockBuilder {
             parent_microblocks.len()
         );
 
-        if parent_microblocks.is_empty() {
-            self.set_parent_microblock(&EMPTY_MICROBLOCK_PARENT_HASH, 0);
+        if let Some(last_mblock) = parent_microblocks.last() {
+            self.set_parent_microblock(&last_mblock.block_hash(), last_mblock.header.sequence);
         } else {
-            let num_mblocks = parent_microblocks.len();
-            let last_mblock_hdr = parent_microblocks[num_mblocks - 1].header.clone();
-            self.set_parent_microblock(&last_mblock_hdr.block_hash(), last_mblock_hdr.sequence);
-        };
+            self.set_parent_microblock(&EMPTY_MICROBLOCK_PARENT_HASH, 0);
+        }
 
         let mainnet = chainstate.config().mainnet;
 

@@ -24,7 +24,6 @@ use ::secp256k1::{
     constants as LibSecp256k1Constants, Error as LibSecp256k1Error, Message as LibSecp256k1Message,
     PublicKey as LibSecp256k1PublicKey, Secp256k1, SecretKey as LibSecp256k1PrivateKey,
 };
-use rand::RngCore;
 use serde::de::{Deserialize, Error as de_Error};
 use serde::Serialize;
 
@@ -240,7 +239,10 @@ impl PublicKey for Secp256k1PublicKey {
 }
 
 impl Secp256k1PrivateKey {
+    #[cfg(feature = "rand")]
     pub fn random() -> Secp256k1PrivateKey {
+        use rand::RngCore as _;
+
         let mut rng = rand::thread_rng();
         loop {
             // keep trying to generate valid bytes
@@ -422,6 +424,7 @@ pub fn secp256k1_verify(
 
 #[cfg(test)]
 mod tests {
+    use rand::RngCore as _;
     use secp256k1;
     use secp256k1::{PublicKey as LibSecp256k1PublicKey, Secp256k1};
 
@@ -612,15 +615,13 @@ mod tests {
                 (Err(e1), Err(e2)) => assert_eq!(e1, e2),
                 (Err(e1), _) => {
                     test_debug!("Failed to verify signature: {}", e1);
-                    assert!(
-                        false,
+                    panic!(
                         "failed fixture (verification: {:?}): {:#?}",
                         &ver_res, &fixture
                     );
                 }
                 (_, _) => {
-                    assert!(
-                        false,
+                    panic!(
                         "failed fixture (verification: {:?}): {:#?}",
                         &ver_res, &fixture
                     );

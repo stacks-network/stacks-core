@@ -1134,7 +1134,7 @@ fn test_concat_append_supertypes() {
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
-        eprintln!("{}", good_test);
+        eprintln!("{good_test}");
         assert_eq!(
             expected,
             &format!("{}", type_check_helper(good_test).unwrap())
@@ -2056,8 +2056,7 @@ fn test_fetch_entry_matching_type_signatures() {
             "(define-map kv-store {{ key: int }} {{ value: int }})
              (define-private (compatible-tuple) (tuple (key 1)))
              (define-private (kv-get (key int))
-                ({}))",
-            case
+                ({case}))"
         );
 
         mem_type_check(
@@ -2083,8 +2082,7 @@ fn test_fetch_entry_mismatching_type_signatures() {
             "(define-map kv-store {{ key: int }} {{ value: int }})
              (define-private (incompatible-tuple) (tuple (k 1)))
              (define-private (kv-get (key int))
-                ({}))",
-            case
+                ({case}))"
         );
         let res = mem_type_check(
             &contract_src,
@@ -2104,8 +2102,7 @@ fn test_fetch_entry_unbound_variables() {
         let contract_src = format!(
             "(define-map kv-store {{ key: int }} {{ value: int }})
              (define-private (kv-get (key int))
-                ({}))",
-            case
+                ({case}))"
         );
         let res = mem_type_check(
             &contract_src,
@@ -2131,8 +2128,7 @@ fn test_insert_entry_matching_type_signatures() {
             "(define-map kv-store {{ key: int }} {{ value: int }})
              (define-private (compatible-tuple) (tuple (key 1)))
              (define-private (kv-add (key int) (value int))
-                ({}))",
-            case
+                ({case}))"
         );
         mem_type_check(
             &contract_src,
@@ -2158,8 +2154,7 @@ fn test_insert_entry_mismatching_type_signatures() {
             "(define-map kv-store {{ key: int }} {{ value: int }})
              (define-private (incompatible-tuple) (tuple (k 1)))
              (define-private (kv-add (key int) (value int))
-                ({}))",
-            case
+                ({case}))"
         );
         let res = mem_type_check(
             &contract_src,
@@ -2182,8 +2177,7 @@ fn test_insert_entry_unbound_variables() {
         let contract_src = format!(
             "(define-map kv-store {{ key: int }} {{ value: int }})
              (define-private (kv-add (key int))
-                ({}))",
-            case
+                ({case}))"
         );
         let res = mem_type_check(
             &contract_src,
@@ -2209,8 +2203,7 @@ fn test_delete_entry_matching_type_signatures() {
             "(define-map kv-store {{ key: int }} {{ value: int }})
              (define-private (compatible-tuple) (tuple (key 1)))
              (define-private (kv-del (key int))
-                ({}))",
-            case
+                ({case}))"
         );
         mem_type_check(
             &contract_src,
@@ -2234,8 +2227,7 @@ fn test_delete_entry_mismatching_type_signatures() {
             "(define-map kv-store {{ key: int }} {{ value: int }})
              (define-private (incompatible-tuple) (tuple (k 1)))
              (define-private (kv-del (key int))
-                ({}))",
-            case
+                ({case}))"
         );
         let res = mem_type_check(
             &contract_src,
@@ -2255,8 +2247,7 @@ fn test_delete_entry_unbound_variables() {
         let contract_src = format!(
             "(define-map kv-store {{ key: int }} {{ value: int }})
              (define-private (kv-del (key int))
-                ({}))",
-            case
+                ({case}))"
         );
         let res = mem_type_check(
             &contract_src,
@@ -2284,8 +2275,7 @@ fn test_set_entry_matching_type_signatures() {
              (define-private (compatible-tuple) (tuple (key 1)))
              (define-private (kv-set (key int) (value int))
                 (let ((known-value 2))
-                ({})))",
-            case
+                ({case})))"
         );
         mem_type_check(
             &contract_src,
@@ -2311,8 +2301,7 @@ fn test_set_entry_mismatching_type_signatures() {
             "(define-map kv-store {{ key: int }} {{ value: int }})
              (define-private (incompatible-tuple) (tuple (k 1)))
              (define-private (kv-set (key int) (value int))
-                ({}))",
-            case
+                ({case}))"
         );
         let res = mem_type_check(
             &contract_src,
@@ -2335,8 +2324,7 @@ fn test_set_entry_unbound_variables() {
         let contract_src = format!(
             "(define-map kv-store {{ key: int }} {{ value: int }})
              (define-private (kv-set (key int) (value int))
-                ({}))",
-            case
+                ({case}))"
         );
         let res = mem_type_check(
             &contract_src,

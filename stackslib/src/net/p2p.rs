@@ -837,6 +837,7 @@ impl PeerNetwork {
     }
 
     /// Get an epoch by epoch ID
+    #[allow(clippy::indexing_slicing)]
     pub fn get_epoch_by_epoch_id(&self, epoch_id: StacksEpochId) -> StacksEpoch {
         self.epochs[epoch_id].clone()
     }

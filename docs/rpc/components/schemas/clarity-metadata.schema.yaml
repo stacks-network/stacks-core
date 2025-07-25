@@ -1,0 +1,8 @@
+description: Response of get clarity metadata request
+type: object
+required:
+  - data
+properties:
+  data:
+    type: string
+    description: Metadata value

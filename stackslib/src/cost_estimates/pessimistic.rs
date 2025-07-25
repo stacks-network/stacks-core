@@ -100,20 +100,12 @@ impl Samples {
             return true;
         }
 
-        let (min_index, min_val) = match self
-            .items
-            .iter()
-            .enumerate()
-            .min_by_key(|(_i, value)| *value)
-        {
-            None => {
-                unreachable!("Should find minimum if len() >= SAMPLE_SIZE");
-            }
-            Some(x) => x,
+        let Some(min_val) = self.items.iter_mut().min_by_key(|value| **value) else {
+            unreachable!("Should find minimum if len() >= SAMPLE_SIZE");
         };
 
         if sample > *min_val {
-            self.items[min_index] = sample;
+            *min_val = sample;
             return true;
         }
 
@@ -230,6 +222,8 @@ impl PessimisticEstimator {
                     StacksEpochId::Epoch30 => ":2.1",
                     // reuse cost estimates in Epoch31
                     StacksEpochId::Epoch31 => ":2.1",
+                    // reuse cost estimates in Epoch32
+                    StacksEpochId::Epoch32 => ":2.1",
                 };
                 format!(
                     "cc{}:{}:{}.{}",

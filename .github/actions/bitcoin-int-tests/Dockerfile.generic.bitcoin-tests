@@ -4,7 +4,7 @@ WORKDIR /src/
 
 COPY . .
 
-WORKDIR /src/testnet/stacks-node
+WORKDIR /src/stacks-node
 
 RUN rustup component add llvm-tools-preview && \
     cargo install grcov

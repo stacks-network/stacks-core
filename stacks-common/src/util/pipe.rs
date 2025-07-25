@@ -78,8 +78,7 @@ impl PipeRead {
 
             if to_copy > 0 {
                 trace!(
-                    "Pipe read {} bytes from buffer [{}...]",
-                    to_copy,
+                    "Pipe read {to_copy} bytes from buffer [{}...]",
                     buf_available[0]
                 );
             }
@@ -121,13 +120,13 @@ impl PipeRead {
                                 Ok(bytes) => bytes,
                                 Err(_e) => {
                                     // dead
-                                    trace!("Pipe read disconnect on blocking read ({})", _e);
+                                    trace!("Pipe read disconnect on blocking read ({_e})");
                                     disconnected = true;
                                     vec![]
                                 }
                             }
                         } else {
-                            trace!("Pipe read {} bytes before blocking", copied);
+                            trace!("Pipe read {copied} bytes before blocking");
                             blocked = true;
                             vec![]
                         }
@@ -148,11 +147,7 @@ impl PipeRead {
                 remaining
             };
 
-            trace!(
-                "Pipe read copied {} bytes from channel ({} total)",
-                to_copy,
-                copied
-            );
+            trace!("Pipe read copied {to_copy} bytes from channel ({copied} total)");
             buf[copied..(copied + to_copy)].copy_from_slice(&next_bytes[0..to_copy]);
             copied += to_copy;
 
@@ -207,7 +202,7 @@ impl PipeWrite {
         // ...and try to send the whole thing over
         match self.output.try_send(data) {
             Ok(_) => {
-                trace!("Pipe wrote {} bytes", _len);
+                trace!("Pipe wrote {_len} bytes");
             }
             Err(TrySendError::Full(data)) => {
                 trace!("Pipe write buffered {} bytes", data.len());
@@ -259,10 +254,7 @@ impl Read for PipeRead {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let copied = self.drain_buf(buf);
         if copied == buf.len() {
-            trace!(
-                "Read {} bytes total from buffer (pipe channel not used)",
-                copied
-            );
+            trace!("Read {copied} bytes total from buffer (pipe channel not used)");
             return Ok(copied);
         }
 
@@ -275,12 +267,12 @@ impl Read for PipeRead {
                         // buffer, then this isn't a failure.
                         0
                     } else {
-                        trace!("Error reading from pipe: {:?}", &e);
+                        trace!("Error reading from pipe: {e:?}");
                         return Err(e);
                     }
                 }
                 _ => {
-                    trace!("Error reading from pipe: {:?}", &e);
+                    trace!("Error reading from pipe: {e:?}");
                     return Err(e);
                 }
             },
@@ -306,7 +298,7 @@ impl Write for PipeWrite {
                 .send(bytes)
                 .map_err(|_e| io::Error::from(io::ErrorKind::BrokenPipe))?;
 
-            trace!("Pipe wrote {} bytes on flush", _len);
+            trace!("Pipe wrote {_len} bytes on flush");
         }
         Ok(())
     }
@@ -317,8 +309,7 @@ mod test {
     use std::io::{Read, Write};
     use std::{io, thread};
 
-    use rand;
-    use rand::RngCore;
+    use rand::RngCore as _;
 
     use super::*;
 
@@ -341,12 +332,7 @@ mod test {
         ];
 
         for (send_bytes, recv_list, outputs) in tests.iter() {
-            test_debug!(
-                "send {:?}, recv {:?}, expect {:?}",
-                send_bytes,
-                recv_list,
-                outputs
-            );
+            test_debug!("send {send_bytes:?}, recv {recv_list:?}, expect {outputs:?}");
 
             assert_eq!(recv_list.len(), outputs.len());
 
@@ -363,16 +349,14 @@ mod test {
                     Ok(num_bytes) => {
                         assert!(
                             outputs[i].is_ok(),
-                            "Expected {:?}, got Ok({})",
-                            &outputs[i],
-                            num_bytes
+                            "Expected {:?}, got Ok({num_bytes})",
+                            &outputs[i]
                         );
 
                         let num_bytes_expected = outputs[i].as_ref().ok().unwrap();
                         assert_eq!(
                             num_bytes, *num_bytes_expected,
-                            "Expected {}, got {}",
-                            num_bytes, num_bytes_expected
+                            "Expected {num_bytes}, got {num_bytes_expected}"
                         );
 
                         recv_buf.extend_from_slice(&buf[0..num_bytes]);
@@ -380,9 +364,8 @@ mod test {
                     Err(e) => {
                         assert!(
                             outputs[i].is_err(),
-                            "Expected {:?}, got Err({:?})",
-                            &outputs[i],
-                            &e
+                            "Expected {:?}, got Err({e:?})",
+                            &outputs[i]
                         );
 
                         let expected_output_err = outputs[i].as_ref().err().unwrap();
