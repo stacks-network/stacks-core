@@ -62,9 +62,6 @@ test('property: vesting calculations are always mathematically correct', async (
             Number(constants.INITIAL_MINT_VESTING_ITERATION_BLOCKS),
         );
 
-        console.log(
-          `Running vesting calculation test for ${blocksElapsed} blocks and extra deposit ${extraDeposit}`,
-        );
         mintInitial();
 
         // Add extra deposit
