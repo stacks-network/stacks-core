@@ -51,10 +51,7 @@ use stacks::chainstate::nakamoto::coordinator::{load_nakamoto_reward_set, TEST_C
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::shadow::shadow_chainstate_repair;
 use stacks::chainstate::nakamoto::test_signers::TestSigners;
-use stacks::chainstate::nakamoto::{
-    set_test_sip_031_emission_schedule, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
-    SIP031EmissionInterval,
-};
+use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use stacks::chainstate::stacks::boot::{
     MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME, SIP_031_TESTNET_ADDR,
@@ -105,7 +102,10 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
     TrieHash,
 };
-use stacks_common::types::{set_test_coinbase_schedule, CoinbaseInterval, StacksPublicKeyBuffer};
+use stacks_common::types::{
+    set_test_coinbase_schedule, set_test_sip_031_emission_schedule, CoinbaseInterval,
+    SIP031EmissionInterval, StacksPublicKeyBuffer,
+};
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
