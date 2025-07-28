@@ -324,7 +324,6 @@ impl RunLoop {
 
                 let coord_config = ChainsCoordinatorConfig {
                     assume_present_anchor_blocks: moved_config.node.assume_present_anchor_blocks,
-                    always_use_affirmation_maps: moved_config.node.always_use_affirmation_maps,
                     txindex: moved_config.node.txindex,
                 };
                 ChainsCoordinator::run(

@@ -2228,18 +2228,6 @@ pub struct NodeConfig {
     /// @notes:
     ///   - This is intended strictly for testing purposes and is disallowed on mainnet.
     pub use_test_genesis_chainstate: Option<bool>,
-    /// Controls if Stacks Epoch 2.1+ affirmation map logic should be applied even
-    /// before Epoch 2.1.
-    /// - If `true` (default), the node consistently uses the newer (Epoch 2.1) rules
-    ///   for PoX anchor block validation and affirmation-based reorg handling, even in
-    ///   earlier epochs.
-    /// - If `false`, the node strictly follows the rules defined for the specific epoch
-    ///   it is currently processing, only applying 2.1+ logic from Epoch 2.1 onwards.
-    /// Differences in this setting between nodes prior to Epoch 2.1 could lead to
-    /// consensus forks.
-    /// ---
-    /// @default: `true`
-    pub always_use_affirmation_maps: bool,
     /// Controls if the node must strictly wait for any PoX anchor block selected by
     /// the core consensus mechanism.
     /// - If `true`: Halts burnchain processing immediately whenever a selected anchor
@@ -2563,7 +2551,6 @@ impl Default for NodeConfig {
             marf_defer_hashing: true,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
-            always_use_affirmation_maps: true,
             assume_present_anchor_blocks: true,
             fault_injection_block_push_fail_probability: None,
             fault_injection_hide_blocks: false,
@@ -3902,7 +3889,6 @@ pub struct NodeConfigFile {
     pub marf_defer_hashing: Option<bool>,
     pub pox_sync_sample_secs: Option<u64>,
     pub use_test_genesis_chainstate: Option<bool>,
-    pub always_use_affirmation_maps: Option<bool>,
     pub assume_present_anchor_blocks: Option<bool>,
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
@@ -3981,9 +3967,6 @@ impl NodeConfigFile {
                 .pox_sync_sample_secs
                 .unwrap_or(default_node_config.pox_sync_sample_secs),
             use_test_genesis_chainstate: self.use_test_genesis_chainstate,
-            always_use_affirmation_maps: self
-                .always_use_affirmation_maps
-                .unwrap_or(default_node_config.always_use_affirmation_maps),
             // as of epoch 3.0, all prepare phases have anchor blocks.
             // at the start of epoch 3.0, the chain stalls without anchor blocks.
             // only set this to false if you're doing some very extreme testing.

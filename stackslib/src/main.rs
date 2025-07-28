@@ -1946,7 +1946,6 @@ fn analyze_sortition_mev(argv: Vec<String>) {
             &mut chainstate,
             &mut sortdb,
             &OnChainRewardSetProvider::new(),
-            false,
         )
         .unwrap();
 

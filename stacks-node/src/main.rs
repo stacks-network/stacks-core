@@ -139,7 +139,6 @@ fn cli_get_miner_spend(
         &mut sortdb,
         &burnchain,
         &OnChainRewardSetProvider(no_dispatcher),
-        config.node.always_use_affirmation_maps,
     )
     .unwrap();
 

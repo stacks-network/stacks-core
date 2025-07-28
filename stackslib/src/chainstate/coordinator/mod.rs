@@ -185,9 +185,6 @@ pub struct ChainsCoordinatorConfig {
     /// true: assume all anchor blocks are present, and block chain sync until they arrive
     /// false: process sortitions in reward cycles without anchor blocks
     pub assume_present_anchor_blocks: bool,
-    /// true: use affirmation maps before 2.1
-    /// false: only use affirmation maps in 2.1 or later
-    pub always_use_affirmation_maps: bool,
     /// true: enable transactions indexing
     /// false: no transactions indexing
     pub txindex: bool,
@@ -196,7 +193,6 @@ pub struct ChainsCoordinatorConfig {
 impl ChainsCoordinatorConfig {
     pub fn new() -> ChainsCoordinatorConfig {
         ChainsCoordinatorConfig {
-            always_use_affirmation_maps: true,
             assume_present_anchor_blocks: true,
             txindex: false,
         }
@@ -204,7 +200,6 @@ impl ChainsCoordinatorConfig {
 
     pub fn test_new(txindex: bool) -> ChainsCoordinatorConfig {
         ChainsCoordinatorConfig {
-            always_use_affirmation_maps: false,
             assume_present_anchor_blocks: false,
             txindex,
         }
@@ -716,7 +711,6 @@ pub fn get_next_recipients<U: RewardSetProvider>(
     sort_db: &mut SortitionDB,
     burnchain: &Burnchain,
     provider: &U,
-    always_use_affirmation_maps: bool,
 ) -> Result<Option<RewardSetInfo>, Error> {
     let burnchain_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), false)?;
     let reward_cycle_info = get_reward_cycle_info(
@@ -728,7 +722,6 @@ pub fn get_next_recipients<U: RewardSetProvider>(
         chain_state,
         sort_db,
         provider,
-        always_use_affirmation_maps,
     )?;
     sort_db
         .get_next_block_recipients(burnchain, sortition_tip, reward_cycle_info.as_ref())
@@ -749,7 +742,6 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     chain_state: &mut StacksChainState,
     sort_db: &mut SortitionDB,
     provider: &U,
-    always_use_affirmation_maps: bool,
 ) -> Result<Option<RewardCycleInfo>, Error> {
     let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), burn_height)?
         .unwrap_or_else(|| panic!("FATAL: no epoch defined for burn height {}", burn_height));
@@ -780,13 +772,13 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
 
     let reward_cycle_info = {
         let ic = sort_db.index_handle(sortition_tip);
-        let burnchain_db_conn_opt =
-            if epoch_at_height.epoch_id >= StacksEpochId::Epoch21 || always_use_affirmation_maps {
-                // use the new block-commit-based PoX anchor block selection rules
-                Some(burnchain_db.conn())
-            } else {
-                None
-            };
+        // TODO: always use block-commit-based PoX anchor block selection rules?
+        let burnchain_db_conn_opt = if epoch_at_height.epoch_id >= StacksEpochId::Epoch21 {
+            // use the new block-commit-based PoX anchor block selection rules
+            Some(burnchain_db.conn())
+        } else {
+            None
+        };
 
         ic.get_chosen_pox_anchor(burnchain_db_conn_opt, parent_bhh, &burnchain.pox_constants)
     }?;
@@ -1459,7 +1451,6 @@ impl<
             &mut self.chain_state_db,
             &mut self.sortition_db,
             &self.reward_set_provider,
-            self.config.always_use_affirmation_maps,
         )
     }
 
@@ -1954,7 +1945,6 @@ impl SortitionDBMigrator {
             &mut chainstate,
             sort_db,
             &OnChainRewardSetProvider::new(),
-            true,
         )
         .map_err(|e| DBError::Other(format!("get_reward_cycle_info: {:?}", &e)));
 
