@@ -57,6 +57,12 @@ main() {
 
     cd "$PROJECT_ROOT"
 
+    # Workaround for new nightly lint that breaks stacks-common build.
+    # Allow callers to override or extend, but default to allowing the lint so documentation generation
+    # stays green until codebase is updated.
+    # TODO: Remove this once codebase will be updated to use the new lifetime syntax.
+    export RUSTFLAGS="${RUSTFLAGS:-} -A mismatched-lifetime-syntaxes"
+
     # Step 1: Build the documentation generation tools
     if [[ "$SKIP_BUILD" != "true" ]]; then
         log_info "Building documentation generation tools..."
