@@ -353,7 +353,7 @@ pub static SIP031_EMISSION_INTERVALS_TEST: std::sync::Mutex<Option<Vec<SIP031Emi
 pub fn set_test_sip_031_emission_schedule(emission_schedule: Option<Vec<SIP031EmissionInterval>>) {
     if let Some(emission_schedule_vec) = &emission_schedule {
         assert!(SIP031EmissionInterval::check_inversed_order(
-            &emission_schedule_vec
+            emission_schedule_vec
         ));
     }
     match SIP031_EMISSION_INTERVALS_TEST.lock() {
@@ -372,9 +372,9 @@ fn get_sip_031_emission_schedule(_mainnet: bool) -> Vec<SIP031EmissionInterval> 
         Ok(schedule_opt) => {
             if let Some(schedule) = (*schedule_opt).as_ref() {
                 info!("Use overridden SIP-031 emission schedule {:?}", &schedule);
-                return schedule.clone();
+                schedule.clone()
             } else {
-                return vec![];
+                vec![]
             }
         }
         Err(_e) => {
@@ -409,7 +409,7 @@ impl SIP031EmissionInterval {
         }
 
         // default emission (out of SIP-031 ranges)
-        return 0;
+        0
     }
 
     /// Verify that a list of intervals is sorted in descending order by `start_height`
