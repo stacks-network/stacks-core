@@ -224,10 +224,10 @@ fn test_wallet_creation_fails_if_already_exists() {
         .create_wallet("mywallet1", Some(false))
         .expect_err("mywallet1 creation should fail now!");
 
-    assert!(matches!(
-        err,
-        BitcoinRpcClientError::Rpc(RpcError::Service(_))
-    ));
+    assert!(
+        matches!(err, BitcoinRpcClientError::Rpc(RpcError::Service(_))),
+        "Expected Service error, got {err:?}"
+    );
 }
 
 #[ignore]
