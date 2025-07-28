@@ -239,7 +239,7 @@ impl BitcoinRpcClient {
     ///
     /// Returns `Ok(Self)` if both global and wallet RPC transports are successfully created,  
     /// or `Err(String)` if the underlying HTTP client setup fails.Stacks Configuration, mainly using `BurnchainConfig`
-    fn new(
+    pub fn new(
         host: String,
         port: u16,
         ssl: bool,
