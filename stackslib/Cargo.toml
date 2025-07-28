@@ -90,6 +90,7 @@ mutants = "0.0.3"
 rlimit = "0.10.2"
 chrono = "0.4.19"
 tempfile = "3.3"
+proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 
 [features]
 default = []

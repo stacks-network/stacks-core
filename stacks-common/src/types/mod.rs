@@ -549,6 +549,23 @@ impl StacksEpochId {
             ),
         }
     }
+
+    /// Whether or not this epoch is part of the SIP-031 schedule
+    pub fn includes_sip_031(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31 => false,
+            StacksEpochId::Epoch32 => true,
+        }
+    }
 }
 
 impl std::fmt::Display for StacksEpochId {

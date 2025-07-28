@@ -1419,7 +1419,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     }
 
     fn shutdown_and_make_snapshot(mut self, needs_snapshot: bool) {
-        check_nakamoto_empty_block_heuristics();
+        check_nakamoto_empty_block_heuristics(self.stacks_client.mainnet);
 
         self.running_nodes
             .coord_channel
