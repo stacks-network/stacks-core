@@ -188,9 +188,6 @@ pub struct ChainsCoordinatorConfig {
     /// true: use affirmation maps before 2.1
     /// false: only use affirmation maps in 2.1 or later
     pub always_use_affirmation_maps: bool,
-    /// true: always wait for canonical anchor blocks, even if it stalls the chain
-    /// false: proceed to process new chain history even if we're missing an anchor block.
-    pub require_affirmed_anchor_blocks: bool,
     /// true: enable transactions indexing
     /// false: no transactions indexing
     pub txindex: bool,
@@ -200,7 +197,6 @@ impl ChainsCoordinatorConfig {
     pub fn new() -> ChainsCoordinatorConfig {
         ChainsCoordinatorConfig {
             always_use_affirmation_maps: true,
-            require_affirmed_anchor_blocks: true,
             assume_present_anchor_blocks: true,
             txindex: false,
         }
@@ -209,7 +205,6 @@ impl ChainsCoordinatorConfig {
     pub fn test_new(txindex: bool) -> ChainsCoordinatorConfig {
         ChainsCoordinatorConfig {
             always_use_affirmation_maps: false,
-            require_affirmed_anchor_blocks: false,
             assume_present_anchor_blocks: false,
             txindex,
         }

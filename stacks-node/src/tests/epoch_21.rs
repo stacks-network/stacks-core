@@ -2008,8 +2008,6 @@ fn test_pox_reorgs_three_flaps() {
     conf_template.node.wait_time_for_blocks = 1_000;
     conf_template.burnchain.pox_2_activation = Some(v1_unlock_height);
 
-    conf_template.node.require_affirmed_anchor_blocks = false;
-
     // make epoch 2.1 start in the middle of boot-up
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = 101;
@@ -2068,8 +2066,6 @@ fn test_pox_reorgs_three_flaps() {
         conf.burnchain.max_rbf = conf_template.burnchain.max_rbf;
         conf.burnchain.epochs = conf_template.burnchain.epochs.clone();
         conf.burnchain.pox_2_activation = conf_template.burnchain.pox_2_activation;
-        conf.node.require_affirmed_anchor_blocks =
-            conf_template.node.require_affirmed_anchor_blocks;
 
         // multiple nodes so they must download from each other
         conf.miner.wait_for_block_download = true;
@@ -2528,8 +2524,6 @@ fn test_pox_reorg_one_flap() {
     conf_template.node.wait_time_for_blocks = 1_000;
     conf_template.burnchain.pox_2_activation = Some(v1_unlock_height);
 
-    conf_template.node.require_affirmed_anchor_blocks = false;
-
     // make epoch 2.1 start in the middle of boot-up
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = 101;
@@ -2588,8 +2582,6 @@ fn test_pox_reorg_one_flap() {
         conf.burnchain.max_rbf = conf_template.burnchain.max_rbf;
         conf.burnchain.epochs = conf_template.burnchain.epochs.clone();
         conf.burnchain.pox_2_activation = conf_template.burnchain.pox_2_activation;
-        conf.node.require_affirmed_anchor_blocks =
-            conf_template.node.require_affirmed_anchor_blocks;
 
         // multiple nodes so they must download from each other
         conf.miner.wait_for_block_download = true;
@@ -2932,8 +2924,6 @@ fn test_pox_reorg_flap_duel() {
     conf_template.node.wait_time_for_blocks = 1_000;
     conf_template.burnchain.pox_2_activation = Some(v1_unlock_height);
 
-    conf_template.node.require_affirmed_anchor_blocks = false;
-
     // make epoch 2.1 start in the middle of boot-up
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = 101;
@@ -2992,8 +2982,6 @@ fn test_pox_reorg_flap_duel() {
         conf.burnchain.max_rbf = conf_template.burnchain.max_rbf;
         conf.burnchain.epochs = conf_template.burnchain.epochs.clone();
         conf.burnchain.pox_2_activation = conf_template.burnchain.pox_2_activation;
-        conf.node.require_affirmed_anchor_blocks =
-            conf_template.node.require_affirmed_anchor_blocks;
 
         // multiple nodes so they must download from each other
         conf.miner.wait_for_block_download = true;
@@ -3351,8 +3339,6 @@ fn test_pox_reorg_flap_reward_cycles() {
     conf_template.node.wait_time_for_blocks = 1_000;
     conf_template.burnchain.pox_2_activation = Some(v1_unlock_height);
 
-    conf_template.node.require_affirmed_anchor_blocks = false;
-
     // make epoch 2.1 start in the middle of boot-up
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = 101;
@@ -3411,8 +3397,6 @@ fn test_pox_reorg_flap_reward_cycles() {
         conf.burnchain.max_rbf = conf_template.burnchain.max_rbf;
         conf.burnchain.epochs = conf_template.burnchain.epochs.clone();
         conf.burnchain.pox_2_activation = conf_template.burnchain.pox_2_activation;
-        conf.node.require_affirmed_anchor_blocks =
-            conf_template.node.require_affirmed_anchor_blocks;
 
         // multiple nodes so they must download from each other
         conf.miner.wait_for_block_download = true;
@@ -3761,8 +3745,6 @@ fn test_pox_missing_five_anchor_blocks() {
     conf_template.node.wait_time_for_blocks = 1_000;
     conf_template.burnchain.pox_2_activation = Some(v1_unlock_height);
 
-    conf_template.node.require_affirmed_anchor_blocks = false;
-
     // make epoch 2.1 start in the middle of boot-up
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = 101;
@@ -3821,8 +3803,6 @@ fn test_pox_missing_five_anchor_blocks() {
         conf.burnchain.max_rbf = conf_template.burnchain.max_rbf;
         conf.burnchain.epochs = conf_template.burnchain.epochs.clone();
         conf.burnchain.pox_2_activation = conf_template.burnchain.pox_2_activation;
-        conf.node.require_affirmed_anchor_blocks =
-            conf_template.node.require_affirmed_anchor_blocks;
 
         // multiple nodes so they must download from each other
         conf.miner.wait_for_block_download = true;
@@ -4138,7 +4118,6 @@ fn test_sortition_divergence_pre_21() {
     conf_template.node.wait_time_for_blocks = 1_000;
     conf_template.burnchain.pox_2_activation = Some(v1_unlock_height);
 
-    conf_template.node.require_affirmed_anchor_blocks = false;
     conf_template.node.always_use_affirmation_maps = false;
 
     // make epoch 2.1 start after we have created this error condition
@@ -4199,8 +4178,6 @@ fn test_sortition_divergence_pre_21() {
         conf.burnchain.max_rbf = conf_template.burnchain.max_rbf;
         conf.burnchain.epochs = conf_template.burnchain.epochs.clone();
         conf.burnchain.pox_2_activation = conf_template.burnchain.pox_2_activation;
-        conf.node.require_affirmed_anchor_blocks =
-            conf_template.node.require_affirmed_anchor_blocks;
 
         conf.node.always_use_affirmation_maps = false;
 

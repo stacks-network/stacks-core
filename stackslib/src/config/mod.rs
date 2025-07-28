@@ -2116,8 +2116,6 @@ pub struct NodeConfig {
     /// Flag indicating whether this node should activate its mining logic and attempt to
     /// produce Stacks blocks. Setting this to `true` typically requires providing
     /// necessary private keys (either [`NodeConfig::seed`] or [`MinerConfig::mining_key`]).
-    /// It also influences default behavior for settings like
-    /// [`NodeConfig::require_affirmed_anchor_blocks`].
     /// ---
     /// @default: `false`
     pub miner: bool,
@@ -2242,18 +2240,6 @@ pub struct NodeConfig {
     /// ---
     /// @default: `true`
     pub always_use_affirmation_maps: bool,
-    /// Controls if the node must wait for locally missing but burnchain-affirmed PoX
-    /// anchor blocks. If an anchor block is confirmed by the affirmation map but not
-    /// yet processed by this node:
-    /// - If `true`: Burnchain processing halts until the affirmed block is acquired.
-    ///   Ensures strict adherence to the affirmed canonical chain, typical for
-    ///   followers.
-    /// - If `false`: Burnchain processing continues without waiting. Allows miners to
-    ///   operate optimistically but may necessitate unwinding later if the affirmed
-    ///   block alters the chain state.
-    /// ---
-    /// @default: Derived from the inverse of [`NodeConfig::miner`] value.
-    pub require_affirmed_anchor_blocks: bool,
     /// Controls if the node must strictly wait for any PoX anchor block selected by
     /// the core consensus mechanism.
     /// - If `true`: Halts burnchain processing immediately whenever a selected anchor
@@ -2578,7 +2564,6 @@ impl Default for NodeConfig {
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
             always_use_affirmation_maps: true,
-            require_affirmed_anchor_blocks: true,
             assume_present_anchor_blocks: true,
             fault_injection_block_push_fail_probability: None,
             fault_injection_hide_blocks: false,
@@ -3918,7 +3903,6 @@ pub struct NodeConfigFile {
     pub pox_sync_sample_secs: Option<u64>,
     pub use_test_genesis_chainstate: Option<bool>,
     pub always_use_affirmation_maps: Option<bool>,
-    pub require_affirmed_anchor_blocks: Option<bool>,
     pub assume_present_anchor_blocks: Option<bool>,
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
@@ -4000,9 +3984,6 @@ impl NodeConfigFile {
             always_use_affirmation_maps: self
                 .always_use_affirmation_maps
                 .unwrap_or(default_node_config.always_use_affirmation_maps),
-            // miners should always try to mine, even if they don't have the anchored
-            // blocks in the canonical affirmation map. Followers, however, can stall.
-            require_affirmed_anchor_blocks: self.require_affirmed_anchor_blocks.unwrap_or(!miner),
             // as of epoch 3.0, all prepare phases have anchor blocks.
             // at the start of epoch 3.0, the chain stalls without anchor blocks.
             // only set this to false if you're doing some very extreme testing.
