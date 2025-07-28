@@ -72,7 +72,6 @@ main() {
     # Step 2: Extract documentation from source code using rustdoc
     log_info "Extracting configuration documentation using rustdoc..."
     EXTRACTED_JSON="$TEMP_DIR/extracted-config-docs.json"
-    log_info "Extracted JSON: $EXTRACTED_JSON"
 
     # Determine the list of structs to document from section_name_mappings.json
     # If the caller sets $TARGET_STRUCTS explicitly we honour that override.

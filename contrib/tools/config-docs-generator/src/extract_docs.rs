@@ -131,7 +131,6 @@ fn main() -> Result<()> {
     // Extract configuration documentation from the rustdoc JSON
     let config_docs = extract_config_docs_from_rustdoc(&rustdoc_json, &target_structs)?;
 
-    println!("Writing extracted docs to: {output_file}");
     // Write the extracted docs to file
     fs::write(output_file, serde_json::to_string_pretty(&config_docs)?)?;
 

@@ -32,15 +32,6 @@ concurrency:
 run-name: ${{ github.ref_name }}
 
 jobs:
-  ## Generate and upload node configuration documentation
-  node-config-docsgen:
-    name: Node Configuration Documentation
-    runs-on: ubuntu-latest
-    steps:
-      - name: Generate Node Configuration Documentation
-        id: node_config_docsgen
-        uses: stacks-network/actions/stacks-core/node-config-docsgen@feat/node-config-docsgen
-
   ##
   ## Jobs to execute everytime workflow runs
   ##   do not run if the trigger is any of the following:
@@ -102,7 +93,7 @@ jobs:
     needs:
       - rustfmt
       - check-release
-    secrets: inherit
+    secrets: inherit 
     uses: ./.github/workflows/github-release.yml
     with:
       node_tag: ${{ needs.check-release.outputs.node_tag }}
