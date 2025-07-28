@@ -182,9 +182,6 @@ pub trait BlockEventDispatcher {
 }
 
 pub struct ChainsCoordinatorConfig {
-    /// true: assume all anchor blocks are present, and block chain sync until they arrive
-    /// false: process sortitions in reward cycles without anchor blocks
-    pub assume_present_anchor_blocks: bool,
     /// true: enable transactions indexing
     /// false: no transactions indexing
     pub txindex: bool,
@@ -192,17 +189,11 @@ pub struct ChainsCoordinatorConfig {
 
 impl ChainsCoordinatorConfig {
     pub fn new() -> ChainsCoordinatorConfig {
-        ChainsCoordinatorConfig {
-            assume_present_anchor_blocks: true,
-            txindex: false,
-        }
+        ChainsCoordinatorConfig { txindex: false }
     }
 
     pub fn test_new(txindex: bool) -> ChainsCoordinatorConfig {
-        ChainsCoordinatorConfig {
-            assume_present_anchor_blocks: false,
-            txindex,
-        }
+        ChainsCoordinatorConfig { txindex }
     }
 }
 
@@ -1061,8 +1052,8 @@ impl<
                     panic!("BUG: no epoch defined at height {}", header.block_height)
                 });
 
-        if cur_epoch.epoch_id >= StacksEpochId::Epoch21 || self.config.assume_present_anchor_blocks
-        {
+        // TODO: Always stop if the anchor block is not present
+        if cur_epoch.epoch_id >= StacksEpochId::Epoch21 {
             // anchor blocks are always assumed to be present in the chain history,
             // so report its absence if we don't have it.
             if let PoxAnchorBlockStatus::SelectedAndUnknown(missing_anchor_block, _) =

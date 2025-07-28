@@ -2228,24 +2228,6 @@ pub struct NodeConfig {
     /// @notes:
     ///   - This is intended strictly for testing purposes and is disallowed on mainnet.
     pub use_test_genesis_chainstate: Option<bool>,
-    /// Controls if the node must strictly wait for any PoX anchor block selected by
-    /// the core consensus mechanism.
-    /// - If `true`: Halts burnchain processing immediately whenever a selected anchor
-    ///   block is missing locally (`SelectedAndUnknown` status), regardless of
-    ///   affirmation status.
-    /// - If `false` (primarily for testing): Skips this immediate halt, allowing
-    ///   processing to proceed to affirmation map checks.
-    /// Normal operation requires this to be `true`; setting to `false` will likely
-    /// break consensus adherence.
-    /// ---
-    /// @default: `true`
-    /// @notes:
-    ///   - This parameter cannot be set via the configuration file; it must be modified
-    ///     programmatically.
-    ///   - This is intended strictly for testing purposes.
-    ///   - The halt check runs *before* affirmation checks.
-    ///   - In Nakamoto (Epoch 3.0+), all prepare phases have anchor blocks.
-    pub assume_present_anchor_blocks: bool,
     /// Fault injection setting for testing purposes. If set to `Some(p)`, where `p` is
     /// between 0 and 100, the node will have a `p` percent chance of intentionally
     /// *not* pushing a newly processed block to its peers.
@@ -2551,7 +2533,6 @@ impl Default for NodeConfig {
             marf_defer_hashing: true,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
-            assume_present_anchor_blocks: true,
             fault_injection_block_push_fail_probability: None,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
@@ -3889,7 +3870,6 @@ pub struct NodeConfigFile {
     pub marf_defer_hashing: Option<bool>,
     pub pox_sync_sample_secs: Option<u64>,
     pub use_test_genesis_chainstate: Option<bool>,
-    pub assume_present_anchor_blocks: Option<bool>,
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: Option<u64>,
@@ -3967,10 +3947,6 @@ impl NodeConfigFile {
                 .pox_sync_sample_secs
                 .unwrap_or(default_node_config.pox_sync_sample_secs),
             use_test_genesis_chainstate: self.use_test_genesis_chainstate,
-            // as of epoch 3.0, all prepare phases have anchor blocks.
-            // at the start of epoch 3.0, the chain stalls without anchor blocks.
-            // only set this to false if you're doing some very extreme testing.
-            assume_present_anchor_blocks: true,
             // chainstate fault_injection activation for hide_blocks.
             // you can't set this in the config file.
             fault_injection_hide_blocks: false,
