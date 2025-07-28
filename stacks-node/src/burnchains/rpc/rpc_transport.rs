@@ -13,20 +13,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! A simple JSON-RPC transport client using `reqwest` for HTTP communication.
+//! A simple JSON-RPC transport client using [`StacksHttpRequest`] for HTTP communication.
 //!
 //! This module provides a wrapper around basic JSON-RPC interactions with support
 //! for configurable authentication and timeouts. It serializes requests and parses
 //! responses while exposing error types for network, parsing, and service-level issues.
 
+use std::io;
 use std::time::Duration;
 
 use base64::encode;
-use reqwest::blocking::Client as ReqwestClient;
-use reqwest::header::AUTHORIZATION;
-use reqwest::Error as ReqwestError;
 use serde::Deserialize;
 use serde_json::Value;
+use stacks::net::http::{HttpRequestContents, HttpResponsePayload};
+use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
+use stacks::types::net::PeerHost;
+use url::Url;
+
+#[cfg(test)]
+mod tests;
 
 /// The JSON-RPC protocol version used in all requests.
 /// Latest specification is `2.0`
@@ -61,14 +66,34 @@ struct JsonRpcResponse<T> {
 pub enum RpcError {
     /// Represents a network-level error, such as connection failures or timeouts.
     Network(String),
-    /// Indicates that the response could not be parsed or was malformed.
-    Parsing(String),
+    /// Indicates that the request could not be encoded properly
+    Encode(String),
+    /// Indicates that the response could not be decoded properly.
+    Decode(String),
     /// Represents an error returned by the RPC service itself.
     Service(String),
 }
 
 /// Alias for results returned from RPC operations using `RpcTransport`.
 pub type RpcResult<T> = Result<T, RpcError>;
+
+impl From<url::ParseError> for RpcError {
+    fn from(e: url::ParseError) -> Self {
+        Self::Network(format!("Url Error: {e:?}"))
+    }
+}
+
+impl From<stacks_common::types::net::Error> for RpcError {
+    fn from(e: stacks_common::types::net::Error) -> Self {
+        Self::Network(format!("Net Error: {e:?}"))
+    }
+}
+
+impl From<io::Error> for RpcError {
+    fn from(e: io::Error) -> Self {
+        Self::Network(format!("IO Error: {e:?}"))
+    }
+}
 
 /// Represents supported authentication mechanisms for RPC requests.
 #[derive(Debug, Clone)]
@@ -85,12 +110,14 @@ pub enum RpcAuth {
 /// and an internal HTTP client.
 #[derive(Debug)]
 pub struct RpcTransport {
-    /// The base URL of the JSON-RPC endpoint.
-    url: String,
+    /// Host and port of the target JSON-RPC server.
+    peer: PeerHost,
+    /// Request path component of the URL (e.g., `/` or `/api`).
+    path: String,
     /// Authentication to apply to outgoing requests.
     auth: RpcAuth,
-    /// The reqwest http client
-    client: ReqwestClient,
+    /// The maximum duration to wait for an HTTP request to complete.
+    timeout: Duration,
 }
 
 impl RpcTransport {
@@ -100,18 +127,29 @@ impl RpcTransport {
     ///
     /// * `url` - The JSON-RPC server endpoint.
     /// * `auth` - Authentication configuration (`None` or `Basic`).
-    /// * `timeout` - Optional request timeout duration. (`None` to disable timeout)
+    /// * `timeout` -  Optional timeout duration for HTTP requests. If `None`, defaults to 30 seconds.
     ///
-    /// # Errors
+    /// # Returns
     ///
-    /// Returns `RpcError::Network` if the HTTP client could not be built.
+    /// An instance of [`RpcTransport`] on success, or a [`RpcError`] otherwise.
     pub fn new(url: String, auth: RpcAuth, timeout: Option<Duration>) -> RpcResult<Self> {
-        let client = ReqwestClient::builder()
-            .timeout(timeout)
-            .build()
-            .map_err(|e| RpcError::Network(format!("Failed to build HTTP client: {}", e)))?;
+        let url_obj = Url::parse(&url)?;
+        let host = url_obj
+            .host_str()
+            .ok_or(RpcError::Network(format!("Missing host in url: {url}")))?;
+        let port = url_obj
+            .port_or_known_default()
+            .ok_or(RpcError::Network(format!("Missing port in url: {url}")))?;
 
-        Ok(RpcTransport { url, auth, client })
+        let peer: PeerHost = format!("{host}:{port}").parse()?;
+        let path = url_obj.path().to_string();
+        let timeout = timeout.unwrap_or(Duration::from_secs(30));
+        Ok(RpcTransport {
+            peer,
+            path,
+            auth,
+            timeout,
+        })
     }
 
     /// Sends a JSON-RPC request with the given ID, method name, and parameters.
@@ -122,56 +160,67 @@ impl RpcTransport {
     /// * `method` - The name of the JSON-RPC method to invoke.
     /// * `params` - A list of parameters to pass to the method.
     ///
-    /// # Errors
+    /// # Returns
     ///
-    /// Returns:
-    /// * `RpcError::Network` on network issues,
-    /// * `RpcError::Parsing` for malformed or invalid responses,
-    /// * `RpcError::Service` if the RPC server returns an error.
+    /// Returns `RpcResult<T>`, which is a result containing either the successfully deserialized response of type `T`
+    /// or an `RpcError` otherwise
     pub fn send<T: for<'de> Deserialize<'de>>(
         &self,
         id: &str,
         method: &str,
         params: Vec<Value>,
     ) -> RpcResult<T> {
-        let request = JsonRpcRequest {
+        let payload = JsonRpcRequest {
             jsonrpc: RCP_VERSION.to_string(),
             id: id.to_string(),
             method: method.to_string(),
             params: Value::Array(params),
         };
 
-        let mut request_builder = self.client.post(&self.url).json(&request);
+        let json_payload = serde_json::to_value(payload)
+            .map_err(|e| RpcError::Encode(format!("Failed to encode request as JSON: {e:?}")))?;
+
+        let mut request = StacksHttpRequest::new_for_peer(
+            self.peer.clone(),
+            "POST".to_string(),
+            self.path.clone(),
+            HttpRequestContents::new().payload_json(json_payload),
+        )
+        .map_err(|e| {
+            RpcError::Encode(format!(
+                "Failed to encode infallible data as HTTP request {e:?}"
+            ))
+        })?;
+        request.add_header("Connection".into(), "close".into());
 
         if let Some(auth_header) = self.auth_header() {
-            request_builder = request_builder.header(AUTHORIZATION, auth_header);
+            request.add_header("Authorization".to_string(), auth_header);
         }
 
-        let response = request_builder
-            .send()
-            .map_err(|err| RpcError::Network(err.to_string()))?;
+        let host = request.preamble().host.hostname();
+        let port = request.preamble().host.port();
 
-        if !response.status().is_success() {
-            let status = response.status();
-            return Err(RpcError::Service(
-                format!("HTTP error {}", status.as_u16(),),
-            ));
-        }
+        let response = send_http_request(&host, port, request, self.timeout)?;
+        let json_response = match response.destruct().1 {
+            HttpResponsePayload::JSON(js) => Ok(js),
+            _ => Err(RpcError::Decode("Did not get a JSON response".to_string())),
+        }?;
 
-        let parsed: JsonRpcResponse<T> = response.json().map_err(Self::classify_parse_error)?;
+        let parsed_response: JsonRpcResponse<T> = serde_json::from_value(json_response)
+            .map_err(|e| RpcError::Decode(format!("Json Parse Error: {e:?}")))?;
 
-        if id != parsed.id {
-            return Err(RpcError::Parsing(format!(
+        if id != parsed_response.id {
+            return Err(RpcError::Decode(format!(
                 "Invalid response: mismatched 'id': expected '{}', got '{}'",
-                id, parsed.id
+                id, parsed_response.id
             )));
         }
 
-        if let Some(error) = parsed.error {
+        if let Some(error) = parsed_response.error {
             return Err(RpcError::Service(format!("{:#}", error)));
         }
 
-        if let Some(result) = parsed.result {
+        if let Some(result) = parsed_response.result {
             Ok(result)
         } else {
             Ok(serde_json::from_value(Value::Null).unwrap())
@@ -186,289 +235,6 @@ impl RpcTransport {
                 let credentials = format!("{}:{}", username, password);
                 Some(format!("Basic {}", encode(credentials)))
             }
-        }
-    }
-
-    /// Classify possible error coming from Json parsing
-    fn classify_parse_error(e: ReqwestError) -> RpcError {
-        if e.is_timeout() {
-            RpcError::Network("Request timed out".to_string())
-        } else if e.is_decode() {
-            RpcError::Parsing(format!("Failed to parse RPC response: {e}"))
-        } else {
-            RpcError::Network(format!("Network error: {e}"))
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::thread;
-
-    use serde_json::json;
-
-    use super::*;
-
-    mod utils {
-        use super::*;
-
-        pub fn rpc_no_auth(server: &mockito::ServerGuard) -> RpcTransport {
-            RpcTransport::new(server.url(), RpcAuth::None, None)
-                .expect("Rpc no auth creation should be ok!")
-        }
-
-        pub fn rpc_with_auth(
-            server: &mockito::ServerGuard,
-            username: String,
-            password: String,
-        ) -> RpcTransport {
-            RpcTransport::new(server.url(), RpcAuth::Basic { username, password }, None)
-                .expect("Rpc with auth creation should be ok!")
-        }
-    }
-
-    #[test]
-    fn test_send_with_string_result_ok() {
-        let expected_request = json!({
-            "jsonrpc": "2.0",
-            "id": "client_id",
-            "method": "some_method",
-            "params": ["param1"]
-        });
-
-        let response_body = json!({
-            "id": "client_id",
-            "result": "some_result",
-            "error": null
-        });
-
-        let mut server = mockito::Server::new();
-        let _m = server
-            .mock("POST", "/")
-            .match_body(mockito::Matcher::PartialJson(expected_request))
-            .with_status(200)
-            .with_header("Content-Type", "application/json")
-            .with_body(response_body.to_string())
-            .create();
-
-        let transport = utils::rpc_no_auth(&server);
-
-        let result: RpcResult<String> =
-            transport.send("client_id", "some_method", vec!["param1".into()]);
-        assert_eq!(result.unwrap(), "some_result");
-    }
-
-    #[test]
-    fn test_send_with_string_result_with_basic_auth_ok() {
-        let expected_request = json!({
-            "jsonrpc": "2.0",
-            "id": "client_id",
-            "method": "some_method",
-            "params": ["param1"]
-        });
-
-        let response_body = json!({
-            "id": "client_id",
-            "result": "some_result",
-            "error": null
-        });
-
-        let username = "user".to_string();
-        let password = "pass".to_string();
-        let credentials = base64::encode(format!("{}:{}", username, password));
-
-        let mut server = mockito::Server::new();
-        let _m = server
-            .mock("POST", "/")
-            .match_header(
-                "authorization",
-                mockito::Matcher::Exact(format!("Basic {credentials}")),
-            )
-            .match_body(mockito::Matcher::PartialJson(expected_request))
-            .with_status(200)
-            .with_header("Content-Type", "application/json")
-            .with_body(response_body.to_string())
-            .create();
-
-        let transport = utils::rpc_with_auth(&server, username, password);
-
-        let result: RpcResult<String> =
-            transport.send("client_id", "some_method", vec!["param1".into()]);
-        assert_eq!(result.unwrap(), "some_result");
-    }
-
-    #[test]
-    fn test_send_fails_with_network_error() {
-        let transport =
-            RpcTransport::new("http://127.0.0.1:65535".to_string(), RpcAuth::None, None)
-                .expect("Should be created properly!");
-
-        let result: RpcResult<Value> = transport.send("client_id", "dummy_method", vec![]);
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), RpcError::Network(_)));
-    }
-
-    #[test]
-    fn test_send_fails_with_http_500() {
-        let mut server = mockito::Server::new();
-        let _m = server
-            .mock("POST", "/")
-            .with_status(500)
-            .with_body("Internal Server Error")
-            .create();
-
-        let transport = utils::rpc_no_auth(&server);
-        let result: RpcResult<Value> = transport.send("client_id", "dummy", vec![]);
-
-        assert!(result.is_err());
-        match result {
-            Err(RpcError::Service(msg)) => {
-                assert!(msg.contains("500"))
-            }
-            _ => panic!("Expected error 500"),
-        }
-    }
-
-    #[test]
-    fn test_send_fails_with_invalid_json() {
-        let mut server = mockito::Server::new();
-        let _m = server
-            .mock("POST", "/")
-            .with_status(200)
-            .with_header("Content-Type", "application/json")
-            .with_body("not a valid json")
-            .create();
-
-        let transport = utils::rpc_no_auth(&server);
-        let result: RpcResult<Value> = transport.send("client_id", "dummy", vec![]);
-
-        assert!(result.is_err());
-        match result {
-            Err(RpcError::Parsing(msg)) => {
-                assert!(msg.starts_with("Failed to parse RPC response:"))
-            }
-            _ => panic!("Expected parse error"),
-        }
-    }
-
-    #[test]
-    fn test_send_ok_if_missing_both_result_and_error() {
-        let response_body = json!({
-            "id": "client_id",
-        });
-
-        let mut server = mockito::Server::new();
-        let _m = server
-            .mock("POST", "/")
-            .with_status(200)
-            .with_header("Content-Type", "application/json")
-            .with_body(response_body.to_string())
-            .create();
-
-        let transport = utils::rpc_no_auth(&server);
-        let result: RpcResult<Value> = transport.send("client_id", "dummy", vec![]);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_send_fails_with_invalid_id() {
-        let response_body = json!({
-            "id": "wrong_client_id",
-            "result": true,
-        });
-
-        let mut server = mockito::Server::new();
-        let _m = server
-            .mock("POST", "/")
-            .with_status(200)
-            .with_header("Content-Type", "application/json")
-            .with_body(response_body.to_string())
-            .create();
-
-        let transport = utils::rpc_no_auth(&server);
-        let result: RpcResult<Value> = transport.send("client_id", "dummy", vec![]);
-
-        match result {
-            Err(RpcError::Parsing(msg)) => assert_eq!(
-                "Invalid response: mismatched 'id': expected 'client_id', got 'wrong_client_id'",
-                msg
-            ),
-            _ => panic!("Expected missing result/error error"),
-        }
-    }
-
-    #[test]
-    fn test_send_fails_with_service_error() {
-        let response_body = json!({
-            "id": "client_id",
-            "result": null,
-            "error": {
-                "code": -32601,
-                "message": "Method not found",
-            }
-        });
-
-        let mut server = mockito::Server::new();
-        let _m = server
-            .mock("POST", "/")
-            .with_status(200)
-            .with_header("Content-Type", "application/json")
-            .with_body(response_body.to_string())
-            .create();
-
-        let transport = utils::rpc_no_auth(&server);
-        let result: RpcResult<Value> = transport.send("client_id", "unknown_method", vec![]);
-
-        match result {
-            Err(RpcError::Service(msg)) => assert_eq!(
-                "{\n  \"code\": -32601,\n  \"message\": \"Method not found\"\n}",
-                msg
-            ),
-            _ => panic!("Expected service error"),
-        }
-    }
-
-    #[test]
-    fn test_send_fails_due_to_timeout() {
-        let expected_request = json!({
-            "jsonrpc": "2.0",
-            "id": "client_id",
-            "method": "delayed_method",
-            "params": []
-        });
-
-        let response_body = json!({
-            "id": "client_id",
-            "result": "should_not_get_this",
-            "error": null
-        });
-
-        let mut server = mockito::Server::new();
-        let _m = server
-            .mock("POST", "/")
-            .match_body(mockito::Matcher::PartialJson(expected_request))
-            .with_status(200)
-            .with_header("Content-Type", "application/json")
-            .with_chunked_body(move |writer| {
-                // Simulate server delay
-                thread::sleep(Duration::from_secs(2));
-                writer.write_all(response_body.to_string().as_bytes())
-            })
-            .create();
-
-        // Timeout shorter than the server's delay
-        let timeout = Duration::from_millis(500);
-        let transport = RpcTransport::new(server.url(), RpcAuth::None, Some(timeout)).unwrap();
-
-        let result: RpcResult<String> = transport.send("client_id", "delayed_method", vec![]);
-
-        assert!(result.is_err());
-
-        match result.unwrap_err() {
-            RpcError::Network(msg) => {
-                assert_eq!("Request timed out", msg);
-            }
-            err => panic!("Expected network error, got: {:?}", err),
         }
     }
 }

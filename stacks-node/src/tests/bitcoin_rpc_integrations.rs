@@ -92,12 +92,10 @@ fn test_rpc_call_fails_when_bitcond_with_auth_but_rpc_no_auth() {
 
     let err = client.get_blockchain_info().expect_err("Should fail!");
 
-    match err {
-        BitcoinRpcClientError::Rpc(RpcError::Service(ref msg)) => {
-            assert!(msg.contains("401"));
-        }
-        _ => panic!("Expected RpcError::Service, got: {:?}", err),
-    }
+    assert!(
+        matches!(err, BitcoinRpcClientError::Rpc(RpcError::Network(_))),
+        "Expected RpcError::Network, got: {err:?}"
+    );
 }
 
 #[ignore]
@@ -120,12 +118,10 @@ fn test_rpc_call_fails_when_bitcond_no_auth_and_rpc_no_auth() {
 
     let err = client.get_blockchain_info().expect_err("Should fail!");
 
-    match err {
-        BitcoinRpcClientError::Rpc(RpcError::Service(ref msg)) => {
-            assert!(msg.contains("401"));
-        }
-        _ => panic!("Expected RpcError::Service, got: {:?}", err),
-    }
+    assert!(
+        matches!(err, BitcoinRpcClientError::Rpc(RpcError::Network(_))),
+        "Expected RpcError::Network, got: {err:?}"
+    );
 }
 
 #[ignore]
