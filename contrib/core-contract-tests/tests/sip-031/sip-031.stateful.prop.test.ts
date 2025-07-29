@@ -51,7 +51,7 @@ test("SIP-031 Stateful", () => {
         fc.modelRun(state, cmds);
       },
     ),
-    { numRuns: 10, verbose: 2 },
+    { numRuns: 100, verbose: 2 },
   );
 
   reportCommandRuns(model);
