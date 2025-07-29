@@ -2175,7 +2175,7 @@ fn test_simple_setup() {
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(
             &pox_id.to_string(),
-            "110000000000",
+            "11",
             "PoX ID should reflect the initial 'known' reward cycle at genesis"
         );
     }
@@ -2203,12 +2203,8 @@ fn test_simple_setup() {
             pox_id_string.push('1');
         }
 
-        println!("=> {}", pox_id_string);
-        assert_eq!(
-            pox_id_at_tip.to_string(),
-            // right-pad pox_id_string to 11 characters
-            format!("1{:0<11}", pox_id_string)
-        );
+        println!("=> {pox_id_string}");
+        assert_eq!(pox_id_at_tip.to_string(), format!("1{pox_id_string}"));
     }
 }
 
