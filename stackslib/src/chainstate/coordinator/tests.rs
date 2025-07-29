@@ -6355,7 +6355,7 @@ fn test_pox_no_anchor_selected() {
         assert_eq!(&pox_id.to_string(), "1111");
     }
 
-    // Because there is a missing anchor block, the blinded coordinator will not advance on any 
+    // Because there is a missing anchor block, the blinded coordinator will not advance on any
     // fork that does not build upon one
     {
         let ic = sort_db_blind.index_handle_at_tip();
