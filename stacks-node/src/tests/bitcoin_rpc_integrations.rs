@@ -224,10 +224,15 @@ fn test_wallet_creation_fails_if_already_exists() {
         .create_wallet("mywallet1", Some(false))
         .expect_err("mywallet1 creation should fail now!");
 
-    assert!(
-        matches!(err, BitcoinRpcClientError::Rpc(RpcError::Service(_))),
-        "Expected Service error, got {err:?}"
-    );
+    match &err {
+        BitcoinRpcClientError::Rpc(RpcError::Network(msg)) => {
+            assert!(msg.contains("500"), "Bitcoind v25 returns HTTP 500)");
+        }
+        BitcoinRpcClientError::Rpc(RpcError::Service(_)) => {
+            assert!(true, "Bitcoind v26+ returns HTTP 200");
+        }
+        _ => panic!("Expected Network or Service error, got {err:?}"),
+    }
 }
 
 #[ignore]
