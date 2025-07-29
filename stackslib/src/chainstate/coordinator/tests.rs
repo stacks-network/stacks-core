@@ -6448,7 +6448,7 @@ fn test_pox_fork_out_of_order() {
         let burnchain_blinded = get_burnchain_db(path_blinded, None);
         let b = get_burnchain(path, None);
 
-        eprintln!("Making block {}", ix);
+        eprintln!("Making block {ix}");
         let (op, block) = if ix == 0 {
             make_genesis_block(
                 &b,
@@ -6461,9 +6461,7 @@ fn test_pox_fork_out_of_order() {
                 ix as u32,
             )
         } else {
-            let parent = if ix == 1 {
-                stacks_blocks[0].1.header.block_hash()
-            } else if ix == 6 {
+            let parent = if ix == 1 || ix == 6 {
                 stacks_blocks[0].1.header.block_hash()
             } else if ix == 11 {
                 stacks_blocks[5].1.header.block_hash()
@@ -6506,8 +6504,7 @@ fn test_pox_fork_out_of_order() {
             let ic = sort_db.index_handle_at_tip();
             let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
             eprintln!(
-                "Anchor block={}, selected at height={}",
-                &bhh,
+                "Anchor block={bhh}, selected at height={}",
                 SortitionDB::get_block_snapshot_for_winning_stacks_block(
                     &sort_db.index_conn(),
                     &ic.context.chain_tip,
@@ -6537,7 +6534,7 @@ fn test_pox_fork_out_of_order() {
 
         // load the block into staging
         let block_hash = block.header.block_hash();
-        eprintln!("Block hash={}, ix={}", &block_hash, ix);
+        eprintln!("Block hash={block_hash}, ix={ix}");
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
         stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
@@ -6560,10 +6557,11 @@ fn test_pox_fork_out_of_order() {
         assert_eq!(&pox_id.to_string(), "11111");
     }
 
+    // Because we no longer continue processing without an anchor block, the blinded signer has not advanced.
     {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "11000");
+        assert_eq!(&pox_id.to_string(), "11");
     }
 
     // now, we reveal to the blinded coordinator, but out of order.
@@ -6586,30 +6584,19 @@ fn test_pox_fork_out_of_order() {
     {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "11110");
+        assert_eq!(&pox_id.to_string(), "1111");
     }
 
     let block_height = eval_at_chain_tip(path_blinded, &sort_db_blind, "block-height");
     assert_eq!(block_height, Value::UInt(1));
 
     // reveal [6-10]
-    for (_sort_id, block) in stacks_blocks[6..=10].iter() {
-        // cannot use sort_id from stacks_blocks, because the blinded coordinator
-        //   has different sortition_id's for blocks 6-10 (because it's missing
-        //   the 2nd anchor block).
-        let sort_id = SortitionDB::get_block_snapshot_for_winning_stacks_block(
-            &sort_db_blind.index_conn(),
-            &SortitionDB::get_canonical_sortition_tip(sort_db_blind.conn()).unwrap(),
-            &block.header.block_hash(),
-        )
-        .unwrap()
-        .unwrap()
-        .sortition_id;
+    for (sort_id, block) in stacks_blocks[6..=10].iter() {
         reveal_block(
             path_blinded,
             &sort_db_blind,
             &mut coord_blind,
-            &sort_id,
+            sort_id,
             block,
         );
     }
@@ -6617,7 +6604,7 @@ fn test_pox_fork_out_of_order() {
     {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "11110");
+        assert_eq!(&pox_id.to_string(), "1111");
     }
 
     let block_height = eval_at_chain_tip(path_blinded, &sort_db_blind, "block-height");
@@ -6637,19 +6624,7 @@ fn test_pox_fork_out_of_order() {
     );
 
     // reveal [1-5]
-    for (_sort_id, block) in stacks_blocks[1..=5].iter() {
-        // cannot use sort_id from stacks_blocks, because the blinded coordinator
-        //   has different sortition_id's for blocks 6-10 (because it's missing
-        //   the 2nd anchor block).
-        let sort_id = SortitionDB::get_block_snapshot_for_winning_stacks_block(
-            &sort_db_blind.index_conn(),
-            &SortitionDB::get_canonical_sortition_tip(sort_db_blind.conn()).unwrap(),
-            &block.header.block_hash(),
-        )
-        .unwrap()
-        .unwrap()
-        .sortition_id;
-
+    for (sort_id, block) in stacks_blocks[1..=5].iter() {
         // before processing the last of these blocks, the stacks_block[9] should still
         //   be the canonical tip
         let block_hash = eval_at_chain_tip(
@@ -6670,7 +6645,7 @@ fn test_pox_fork_out_of_order() {
             path_blinded,
             &sort_db_blind,
             &mut coord_blind,
-            &sort_id,
+            sort_id,
             block,
         );
     }
@@ -6685,24 +6660,12 @@ fn test_pox_fork_out_of_order() {
     assert_eq!(block_height, Value::UInt(6));
 
     // reveal [11-14]
-    for (_sort_id, block) in stacks_blocks[11..].iter() {
-        // cannot use sort_id from stacks_blocks, because the blinded coordinator
-        //   has different sortition_id's for blocks 6-10 (because it's missing
-        //   the 2nd anchor block).
-        let sort_id = SortitionDB::get_block_snapshot_for_winning_stacks_block(
-            &sort_db_blind.index_conn(),
-            &SortitionDB::get_canonical_sortition_tip(sort_db_blind.conn()).unwrap(),
-            &block.header.block_hash(),
-        )
-        .unwrap()
-        .unwrap()
-        .sortition_id;
-
+    for (sort_id, block) in stacks_blocks[11..].iter() {
         reveal_block(
             path_blinded,
             &sort_db_blind,
             &mut coord_blind,
-            &sort_id,
+            sort_id,
             block,
         );
     }
@@ -6765,6 +6728,8 @@ fn reveal_block<T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProv
         .unwrap();
     preprocess_block(&mut chainstate, sort_db, &sortition, block.clone());
     coord.handle_new_stacks_block().unwrap();
+    // Force the coordinator to wake up and advance
+    coord.handle_new_burnchain_block().unwrap();
 }
 
 fn preprocess_block(

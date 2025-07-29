@@ -1034,7 +1034,7 @@ impl<
     }
 
     /// Check to see if the discovery of a PoX anchor block means it's time to process a new reward
-    /// cycle.  Based on the canonical affirmation map, this may not always be the case.
+    /// cycle.
     ///
     /// This mutates `rc_info` to be the affirmed anchor block status.
     ///
@@ -1043,31 +1043,21 @@ impl<
     /// Returns Ok(None) if not
     fn check_missing_anchor_block(
         &self,
-        header: &BurnchainBlockHeader,
+        _header: &BurnchainBlockHeader,
         rc_info: &mut RewardCycleInfo,
     ) -> Result<Option<BlockHeaderHash>, Error> {
-        let cur_epoch =
-            SortitionDB::get_stacks_epoch(self.sortition_db.conn(), header.block_height)?
-                .unwrap_or_else(|| {
-                    panic!("BUG: no epoch defined at height {}", header.block_height)
-                });
-
-        // TODO: Always stop if the anchor block is not present
-        if cur_epoch.epoch_id >= StacksEpochId::Epoch21 {
-            // anchor blocks are always assumed to be present in the chain history,
-            // so report its absence if we don't have it.
-            if let PoxAnchorBlockStatus::SelectedAndUnknown(missing_anchor_block, _) =
-                &rc_info.anchor_status
-            {
-                info!("Currently missing PoX anchor block {missing_anchor_block}, which is assumed to be present");
-                return Ok(Some(missing_anchor_block.clone()));
-            }
+        // anchor blocks are always assumed to be present in the chain history,
+        // so report its absence if we don't have it.
+        if let PoxAnchorBlockStatus::SelectedAndUnknown(missing_anchor_block, _) =
+            &rc_info.anchor_status
+        {
+            info!("Currently missing PoX anchor block {missing_anchor_block}, which is assumed to be present");
+            return Ok(Some(missing_anchor_block.clone()));
         }
 
         test_debug!(
-            "Reward cycle info at height {}: {:?}",
-            &header.block_height,
-            &rc_info
+            "Reward cycle info at height {}: {rc_info:?}",
+            &_header.block_height
         );
         Ok(None)
     }
