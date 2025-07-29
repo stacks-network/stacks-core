@@ -6234,7 +6234,7 @@ fn test_pox_no_anchor_selected() {
         let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         let burnchain_blinded = get_burnchain_db(path_blinded, None);
 
-        eprintln!("Making block {}", ix);
+        eprintln!("Making block {ix}");
         let (op, block) = if ix == 0 {
             make_genesis_block(
                 &b,
@@ -6300,8 +6300,7 @@ fn test_pox_no_anchor_selected() {
                 let ic = sort_db.index_handle_at_tip();
                 let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
                 eprintln!(
-                    "Anchor block={}, selected at height={}",
-                    &bhh,
+                    "Anchor block={bhh}, selected at height={}",
                     SortitionDB::get_block_snapshot_for_winning_stacks_block(
                         &sort_db.index_conn(),
                         &ic.context.chain_tip,
@@ -6333,7 +6332,7 @@ fn test_pox_no_anchor_selected() {
 
         // load the block into staging
         let block_hash = block.header.block_hash();
-        eprintln!("Block hash={}, ix={}", &block_hash, ix);
+        eprintln!("Block hash={block_hash}, ix={ix}");
 
         assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
         stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
@@ -6356,10 +6355,12 @@ fn test_pox_no_anchor_selected() {
         assert_eq!(&pox_id.to_string(), "1111");
     }
 
+    // Because there is a missing anchor block, the blinded coordinator will not advance on any 
+    // fork that does not build upon one
     {
         let ic = sort_db_blind.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(), "1101");
+        assert_eq!(&pox_id.to_string(), "11");
     }
 
     for (sort_id, block) in stacks_blocks.iter() {
