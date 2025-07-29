@@ -1174,6 +1174,14 @@ pub fn special_code_body_of(
         }
     };
 
+    let contract_size = env
+        .global_context
+        .database
+        .get_contract_size(&contract_identifier)?;
+    runtime_cost(ClarityCostFunction::LoadContract, env, contract_size)?;
+
+    env.global_context.add_memory(contract_size)?;
+
     let Some(contract_body) = env
         .global_context
         .database
@@ -1187,15 +1195,6 @@ pub fn special_code_body_of(
     if contract_body.len() > GET_BODY_OF_MAX_SIZE {
         return Ok(Value::err_uint(2));
     }
-
-    println!(
-        "string: {}, okay: {}",
-        Value::string_ascii_from_validated_ascii_string(contract_body.clone()).is_ok(),
-        Value::okay(
-            Value::string_ascii_from_validated_ascii_string(contract_body.clone()).unwrap()
-        )
-        .is_ok()
-    );
 
     Value::okay(Value::string_ascii_from_validated_ascii_string(
         contract_body,
