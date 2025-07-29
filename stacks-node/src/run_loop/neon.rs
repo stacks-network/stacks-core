@@ -1028,19 +1028,9 @@ impl RunLoop {
         let liveness_thread = self.spawn_chain_liveness_thread(globals.clone());
 
         // Wait for all pending sortitions to process
-        let mut burnchain_db = burnchain_config
+        let burnchain_db = burnchain_config
             .open_burnchain_db(true)
             .expect("FATAL: failed to open burnchain DB");
-        if !self.config.burnchain.affirmation_overrides.is_empty() {
-            let tx = burnchain_db
-                .tx_begin()
-                .expect("FATAL: failed to begin burnchain DB tx");
-            for (reward_cycle, affirmation) in self.config.burnchain.affirmation_overrides.iter() {
-                tx.set_override_affirmation_map(*reward_cycle, affirmation.clone()).unwrap_or_else(|_| panic!("FATAL: failed to set affirmation override ({affirmation}) for reward cycle {reward_cycle}"));
-            }
-            tx.commit()
-                .expect("FATAL: failed to commit burnchain DB tx");
-        }
         let burnchain_db_tip = burnchain_db
             .get_canonical_chain_tip()
             .expect("FATAL: failed to query burnchain DB");
