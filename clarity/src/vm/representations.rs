@@ -23,9 +23,7 @@ use std::ops::Deref;
 use lazy_static::lazy_static;
 use regex::Regex;
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::util::hash::Sha512Trunc256Sum;
 
-use crate::vm::ast::ContractAST;
 use crate::vm::errors::RuntimeErrorType;
 use crate::vm::types::{TraitIdentifier, Value};
 
@@ -674,88 +672,5 @@ impl Span {
 
     pub fn zero() -> Self {
         Self::default()
-    }
-}
-
-// MAST bytes used to hash a contract or its top-level definitions.
-// Used for `contract-hash?` and `contract-define-hash?` functions.
-
-impl ContractAST {
-    pub fn to_mast_hash(&self) -> [u8; 32] {
-        let mut all_hashes = Vec::with_capacity(self.expressions.len() * 32);
-        for expr in self.expressions.iter() {
-            all_hashes.extend_from_slice(&expr.to_mast_hash());
-        }
-        Sha512Trunc256Sum::from_data(&all_hashes).into_bytes()
-    }
-}
-
-impl SymbolicExpression {
-    fn to_mast_bytes(&self) -> Vec<u8> {
-        self.expr.to_mast_bytes()
-    }
-
-    fn to_mast_hash(&self) -> [u8; 32] {
-        let bytes = self.to_mast_bytes();
-        Sha512Trunc256Sum::from_data(&bytes).into_bytes()
-    }
-}
-
-impl SymbolicExpressionType {
-    fn to_mast_bytes(&self) -> Vec<u8> {
-        match self {
-            SymbolicExpressionType::AtomValue(value) => {
-                let mut out = b"atomval".to_vec();
-                value
-                    .consensus_serialize(&mut out)
-                    .expect("Failed to serialize atom value");
-                out
-            }
-            SymbolicExpressionType::Atom(name) => {
-                let mut out = b"atom".to_vec();
-                out.extend_from_slice(name.as_bytes());
-                out
-            }
-            SymbolicExpressionType::List(list) => {
-                let mut out = b"list".to_vec();
-                for item in list.iter() {
-                    out.extend_from_slice(&item.to_mast_hash());
-                }
-                out
-            }
-            SymbolicExpressionType::LiteralValue(value) => {
-                let mut out = b"literal".to_vec();
-                value
-                    .consensus_serialize(&mut out)
-                    .expect("Failed to serialize literal value");
-                out
-            }
-            SymbolicExpressionType::Field(field) => field.to_mast_bytes(),
-            SymbolicExpressionType::TraitReference(name, TraitDefinition::Defined(identifier)) => {
-                let mut out = b"traitref".to_vec();
-                out.extend_from_slice(name.as_bytes());
-                out.extend_from_slice(&identifier.to_mast_bytes());
-                out
-            }
-            SymbolicExpressionType::TraitReference(name, TraitDefinition::Imported(identifier)) => {
-                let mut out = b"traitref".to_vec();
-                out.extend_from_slice(name.as_bytes());
-                out.extend_from_slice(&identifier.to_mast_bytes());
-                out
-            }
-        }
-    }
-}
-
-impl TraitIdentifier {
-    pub fn to_mast_bytes(&self) -> Vec<u8> {
-        let mut out = b"trait".to_vec();
-        let principal = Value::from(self.contract_identifier.clone());
-        principal
-            .consensus_serialize(&mut out)
-            .expect("Failed to serialize trait contract identifier");
-        out.push(0xff); // delimiter between contract and trait name
-        out.extend_from_slice(self.name.as_bytes());
-        out
     }
 }
