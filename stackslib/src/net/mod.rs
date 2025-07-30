@@ -692,9 +692,9 @@ impl<'a> StacksNodeState<'a> {
         res
     }
 
-    pub fn canonical_stacks_tip_height(&mut self) -> u32 {
+    pub fn canonical_stacks_tip_height(&mut self) -> u64 {
         self.with_node_state(|network, _, _, _, _| {
-            network.burnchain_tip.canonical_stacks_tip_height as u32
+            network.burnchain_tip.canonical_stacks_tip_height
         })
     }
 

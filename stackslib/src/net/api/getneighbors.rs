@@ -26,7 +26,7 @@ use crate::net::http::{
     HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
-    HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
+    HttpPreambleExtensions as _, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::{Error as NetError, NeighborKey, StacksNodeState, MAX_NEIGHBORS_DATA_LEN};

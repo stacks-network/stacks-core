@@ -27,7 +27,7 @@ use crate::net::http::{
     HttpResponsePreamble, HttpServerError,
 };
 use crate::net::httpcore::{
-    HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
+    HttpPreambleExtensions as _, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
 use crate::net::relay::Relayer;
 use crate::net::{Attachment, Error as NetError, StacksMessageType, StacksNodeState};

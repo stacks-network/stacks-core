@@ -29,7 +29,9 @@ use crate::net::http::{
     HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
     HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
+use crate::net::httpcore::{
+    HttpPreambleExtensions as _, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
+};
 use crate::net::{Error as NetError, StacksNodeState};
 
 #[derive(Clone)]
@@ -202,14 +204,14 @@ impl RPCRequestHandler for RPCNakamotoBlockRequestHandler {
             }
         };
 
-        let resp_preamble = HttpResponsePreamble::from_http_request_preamble(
+        let mut resp_preamble = HttpResponsePreamble::from_http_request_preamble(
             &preamble,
             200,
             "OK",
             None,
             HttpContentType::Bytes,
         );
-
+        resp_preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
         Ok((
             resp_preamble,
             HttpResponseContents::from_stream(Box::new(stream)),

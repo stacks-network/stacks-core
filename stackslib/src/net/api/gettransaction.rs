@@ -25,7 +25,9 @@ use crate::net::http::{
     HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
     HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
+use crate::net::httpcore::{
+    request, HttpPreambleExtensions as _, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
+};
 use crate::net::{Error as NetError, StacksNodeState};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -108,7 +110,7 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
             .take()
             .ok_or(NetError::SendError("`txid` no set".into()))?;
 
-        node.with_node_state(|_network, _sortdb, chainstate, _mempool, _rpc_args| {
+        node.with_node_state(|network, _sortdb, chainstate, _mempool, _rpc_args| {
             let index_block_hash_and_tx_hex_opt = match NakamotoChainState::get_tx_info_from_txid(
                 chainstate.index_conn().conn(),
                 txid,
@@ -126,7 +128,8 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
 
             match index_block_hash_and_tx_hex_opt {
                 Some((index_block_hash, tx_hex, result)) => {
-                    let preamble = HttpResponsePreamble::ok_json(&preamble);
+                    let mut preamble = HttpResponsePreamble::ok_json(&preamble);
+                    preamble.set_canonical_stacks_tip_height(Some(network.stacks_tip.height));
                     let body = HttpResponseContents::try_from_json(&TransactionResponse {
                         index_block_hash,
                         tx: tx_hex,

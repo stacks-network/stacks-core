@@ -29,8 +29,8 @@ use crate::net::http::{
     HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
 use crate::net::httpcore::{
-    HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttpRequest,
-    StacksHttpResponse,
+    HttpPreambleExtensions as _, HttpRequestContentsExtensions as _, RPCRequestHandler,
+    StacksHttpRequest, StacksHttpResponse,
 };
 use crate::net::relay::Relayer;
 use crate::net::{

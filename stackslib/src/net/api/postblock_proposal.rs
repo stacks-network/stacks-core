@@ -53,7 +53,7 @@ use crate::net::http::{
     HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
     HttpResponsePreamble,
 };
-use crate::net::httpcore::{HttpPreambleExtensions, RPCRequestHandler};
+use crate::net::httpcore::{HttpPreambleExtensions as _, RPCRequestHandler};
 use crate::net::{Error as NetError, StacksNodeState};
 
 #[cfg(any(test, feature = "testing"))]

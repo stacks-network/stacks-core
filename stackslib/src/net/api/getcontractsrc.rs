@@ -29,7 +29,7 @@ use crate::net::http::{
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
-    request, HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler,
+    request, HttpPreambleExtensions as _, HttpRequestContentsExtensions as _, RPCRequestHandler,
     StacksHttpRequest, StacksHttpResponse,
 };
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};

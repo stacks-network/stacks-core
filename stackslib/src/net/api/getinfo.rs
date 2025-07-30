@@ -30,7 +30,7 @@ use crate::net::http::{
     HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
-    HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
+    HttpPreambleExtensions as _, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::{Error as NetError, StacksNodeState};
@@ -254,7 +254,7 @@ impl HttpResponse for RPCPeerInfoRequestHandler {
 
 impl StacksHttpRequest {
     /// Make a new getinfo request to this endpoint
-    pub fn new_getinfo(host: PeerHost, stacks_height: Option<u32>) -> StacksHttpRequest {
+    pub fn new_getinfo(host: PeerHost, stacks_height: Option<u64>) -> StacksHttpRequest {
         let mut req = StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
