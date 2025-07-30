@@ -21,6 +21,9 @@ use std::time::Instant;
 use std::{fs, process};
 
 use clarity::types::chainstate::SortitionId;
+use clarity::vm::ast::{build_ast_with_rules, ASTRules};
+use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::ClarityVersion;
 use db::blocks::DummyEventDispatcher;
 use db::ChainstateTx;
 use regex::Regex;
@@ -546,6 +549,39 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
     };
 
     process::exit(code);
+}
+
+/// Compute the contract hash for a given contract
+///
+/// Arguments:
+///  - `argv`: Args in CLI format: `<command-name> [args...]`
+pub fn command_contract_hash(argv: &[String], _conf: Option<&Config>) {
+    let print_help_and_exit = || -> ! {
+        let n = &argv[0];
+        eprintln!("Usage:");
+        eprintln!("  {n} <path-to-contract>");
+        process::exit(1);
+    };
+
+    // Process CLI args
+    let contract_path = argv.get(1).unwrap_or_else(|| print_help_and_exit());
+    let contract_source = fs::read_to_string(contract_path)
+        .unwrap_or_else(|e| panic!("Failed to read contract file {contract_path:?}: {e}"));
+
+    let ast = build_ast_with_rules(
+        &QualifiedContractIdentifier::transient(),
+        &contract_source,
+        &mut (),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+        ASTRules::PrecheckSize,
+    )
+    .unwrap_or_else(|e| panic!("Failed to build AST: {e}"));
+
+    let mast_bytes = ast.to_mast_hash();
+    let hex_string: String = mast_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+
+    println!("MAST hash for {contract_path}:\n{hex_string}");
 }
 
 /// Fetch and process a `StagingBlock` from database and call `replay_block()` to validate
