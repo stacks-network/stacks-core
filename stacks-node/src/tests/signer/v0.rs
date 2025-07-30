@@ -181,6 +181,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         })
         .unwrap();
         let info = get_chain_info(&self.running_nodes.conf);
+        info!(
+            "Waiting for signers to agree on expected tenure id: {}",
+            info.pox_consensus
+        );
         let res = wait_for_state_machine_update_by_miner_tenure_id(
             30,
             &info.pox_consensus,
@@ -7250,23 +7254,25 @@ fn empty_sortition_before_approval() {
 
     signer_test.boot_to_epoch_3();
 
-    let skip_commit_op = signer_test
-        .running_nodes
-        .counters
-        .naka_skip_commit_op
-        .clone();
-    let proposed_blocks = signer_test
-        .running_nodes
-        .counters
-        .naka_proposed_blocks
-        .clone();
+    let Counters {
+        naka_submitted_commits: commits_submitted,
+        naka_proposed_blocks: proposed_blocks,
+        naka_skip_commit_op: skip_commit_op,
+        ..
+    } = signer_test.running_nodes.counters.clone();
 
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
     next_block_and_process_new_stacks_block(
         &signer_test.running_nodes.btc_regtest_controller,
         60,
         &signer_test.running_nodes.coord_channel,
     )
     .unwrap();
+
+    wait_for(30, || {
+        Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
+    })
+    .expect("Timed out waiting for commit to be submitted for Tenure A");
 
     let info = get_chain_info(&signer_test.running_nodes.conf);
     let burn_height_before = info.burn_block_height;
