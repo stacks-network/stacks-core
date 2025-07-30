@@ -715,25 +715,23 @@ impl Signer {
         block: &NakamotoBlock,
     ) -> Option<BlockResponse> {
         // First update our global state evaluator with our local state if we have one
-        let version = self.get_signer_protocol_version();
+        let local_version = self.get_signer_protocol_version();
         if let Ok(update) = self
             .local_state_machine
-            .try_into_update_message_with_version(version)
+            .try_into_update_message_with_version(local_version)
         {
             self.global_state_evaluator
                 .insert_update(self.stacks_address, update);
         };
-        let Some(latest_version) = self
-            .global_state_evaluator
-            .determine_latest_supported_signer_protocol_version()
-        else {
+        let latest_version = self
+        .global_state_evaluator
+        .determine_latest_supported_signer_protocol_version()
+        .unwrap_or_else(|| {
             warn!(
-                "{self}: No consensus on signer protocol version. Unable to validate block. Rejecting.";
-                "signer_signature_hash" => %block.header.signer_signature_hash(),
-                "block_id" => %block.block_id(),
+                "{self}: No consensus on signer protocol version. Defaulting to local supported version: {local_version}"
             );
-            return Some(self.create_block_rejection(RejectReason::NoSignerConsensus, block));
-        };
+            local_version
+        });
         let state_version = SortitionStateVersion::from_protocol_version(latest_version);
         if state_version.uses_global_state() {
             self.check_block_against_global_state(stacks_client, block)
