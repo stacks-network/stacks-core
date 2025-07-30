@@ -723,15 +723,26 @@ impl Signer {
             self.global_state_evaluator
                 .insert_update(self.stacks_address, update);
         };
-        let latest_version = self
-        .global_state_evaluator
-        .determine_latest_supported_signer_protocol_version()
-        .unwrap_or_else(|| {
+        let Some(latest_version) = self
+            .global_state_evaluator
+            .determine_latest_supported_signer_protocol_version()
+            .or_else(|| {
+                // Don't default if we are in a global consensus activation state as its pointless
+                if SortitionStateVersion::from_protocol_version(local_version).uses_global_state() {
+                    None
+                } else {
+                    warn!("{self}: No consensus on signer protocol version. Defaulting to local state version: {local_version}.");
+                    Some(local_version)
+                }
+            })
+        else {
             warn!(
-                "{self}: No consensus on signer protocol version. Defaulting to local supported version: {local_version}"
+                "{self}: No consensus on signer protocol version. Unable to validate block. Rejecting.";
+                "signer_signature_hash" => %block.header.signer_signature_hash(),
+                "block_id" => %block.block_id(),
             );
-            local_version
-        });
+            return Some(self.create_block_rejection(RejectReason::NoSignerConsensus, block));
+        };
         let state_version = SortitionStateVersion::from_protocol_version(latest_version);
         if state_version.uses_global_state() {
             self.check_block_against_global_state(stacks_client, block)
