@@ -47,9 +47,9 @@ use crate::chainstate::stacks::MAX_BLOCK_LEN;
 use crate::config::chain_data::MinerStats;
 use crate::core::mempool::{MemPoolWalkSettings, MemPoolWalkStrategy, MemPoolWalkTxTypes};
 use crate::core::{
-    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId,
-    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET,
-    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET, STACKS_EPOCHS_REGTEST, STACKS_EPOCHS_TESTNET,
+    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET,
+    CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET, STACKS_EPOCHS_REGTEST,
+    STACKS_EPOCHS_TESTNET,
 };
 use crate::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
 use crate::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;

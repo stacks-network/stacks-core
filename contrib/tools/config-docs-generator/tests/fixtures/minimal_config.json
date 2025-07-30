@@ -74,6 +74,6 @@
     "referenced_constants": {
         "MinerConfig::mining_key": null,
         "NodeConfig::miner": null,
-        "NodeConfig::mine_microblocks": null,
+        "NodeConfig::mine_microblocks": null
     }
 }
