@@ -729,6 +729,15 @@ impl Signer {
         sortition_state: &mut Option<SortitionsView>,
         block: &NakamotoBlock,
     ) -> Option<BlockRejection> {
+        // First update our global state evaluator with our local state if we have one
+        let version = self.get_signer_protocol_version();
+        if let Ok(update) = self
+            .local_state_machine
+            .try_into_update_message_with_version(version)
+        {
+            self.global_state_evaluator
+                .insert_update(self.stacks_address, update);
+        };
         let Some(latest_version) = self
             .global_state_evaluator
             .determine_latest_supported_signer_protocol_version()
@@ -819,16 +828,6 @@ impl Signer {
     ) -> Option<BlockRejection> {
         let signer_signature_hash = block.header.signer_signature_hash();
         let block_id = block.block_id();
-        // First update our global state evaluator with our local state if we have one
-        let version = self.get_signer_protocol_version();
-        if let Ok(update) = self
-            .local_state_machine
-            .try_into_update_message_with_version(version)
-        {
-            self.global_state_evaluator
-                .insert_update(self.stacks_address, update);
-        };
-
         let Some(global_state) = self.global_state_evaluator.determine_global_state() else {
             warn!(
                 "{self}: Cannot validate block, no global signer state";
