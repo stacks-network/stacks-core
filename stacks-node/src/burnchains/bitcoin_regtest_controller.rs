@@ -1512,7 +1512,7 @@ impl BitcoinRegtestController {
         let ongoing_op = self.ongoing_block_commit.take().unwrap();
 
         let _ = self.sortdb_mut();
-        let burnchain_db = self.burnchain_db.as_ref().expect("BurnchainDB not opened");
+        let burnchain_db = self.burnchain_db.as_ref(). expect("BurnchainDB not opened");
 
         for txid in ongoing_op.txids.iter() {
             // check if ongoing_op is in the burnchain_db *or* has been confirmed via the bitcoin RPC
@@ -3670,7 +3670,7 @@ mod tests {
 
         #[test]
         #[ignore]
-        fn test_build_leader_block_commit_tx_ok_rbf_while_prev_is_confirmed() {
+        fn test_build_leader_block_commit_tx_ok_while_prev_is_confirmed() {
             if env::var("BITCOIND_TEST") != Ok("1".into()) {
                 return;
             }
@@ -3710,45 +3710,45 @@ mod tests {
             // Now tx is confirmed: prev utxo is updated and one more utxo is generated
             utils::mine_tx(&btc_controller, first_tx_ok);
 
-            //re-gen signer othewise fails because it will be disposed during previous commit tx.
+            // re-gen signer othewise fails because it will be disposed during previous commit tx.
             let mut signer = keychain.generate_op_signer();
-            //small change to the commit op payload
+            // Modify the commit operation payload slightly, so it no longer matches the confirmed version.
             commit_op.burn_fee += 10;
 
-            let rbf_tx = btc_controller
+            let new_tx = btc_controller
                 .build_leader_block_commit_tx(
                     StacksEpochId::Epoch31,
                     commit_op.clone(),
                     &mut signer,
                 )
-                .expect("Commit tx should be rbf-ed");
+                .expect("Commit tx should be created!");
 
             assert!(op_signer.is_disposed());
 
-            assert_eq!(1, rbf_tx.version);
-            assert_eq!(0, rbf_tx.lock_time);
-            assert_eq!(1, rbf_tx.input.len());
-            assert_eq!(4, rbf_tx.output.len());
+            assert_eq!(1, new_tx.version);
+            assert_eq!(0, new_tx.lock_time);
+            assert_eq!(1, new_tx.input.len());
+            assert_eq!(4, new_tx.output.len());
 
             // utxos list contains the sole utxo used by prev commit operation
-            // because has enough amount to cover the rfb commit
+            // because has enough amount to cover the new commit
             let used_utxos: Vec<UTXO> = btc_controller
                 .get_all_utxos(&miner_pubkey)
                 .into_iter()
                 .filter(|utxo| utxo.txid == first_txid)
                 .collect();
 
-            let input_0 = utils::txin_at_index(&rbf_tx, &op_signer, &used_utxos, 0);
-            assert_eq!(input_0, rbf_tx.input[0]);
+            let input_0 = utils::txin_at_index(&new_tx, &op_signer, &used_utxos, 0);
+            assert_eq!(input_0, new_tx.input[0]);
 
             let op_return = utils::txout_opreturn(&commit_op, &config.burnchain.magic_bytes, 5_500);
             let op_commit_1 = utils::txout_opdup_commit_to(&commit_op.commit_outs[0], 55_005);
             let op_commit_2 = utils::txout_opdup_commit_to(&commit_op.commit_outs[1], 55_005);
             let op_change = utils::txout_opdup_change_legacy(&mut signer, 4_999_730_590);
-            assert_eq!(op_return, rbf_tx.output[0]);
-            assert_eq!(op_commit_1, rbf_tx.output[1]);
-            assert_eq!(op_commit_2, rbf_tx.output[2]);
-            assert_eq!(op_change, rbf_tx.output[3]);
+            assert_eq!(op_return, new_tx.output[0]);
+            assert_eq!(op_commit_1, new_tx.output[1]);
+            assert_eq!(op_commit_2, new_tx.output[2]);
+            assert_eq!(op_change, new_tx.output[3]);
         }
 
         #[test]
