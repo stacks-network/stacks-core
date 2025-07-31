@@ -28,8 +28,7 @@ use crate::monitoring;
 use crate::net::connection::{ConnectionHttp, ConnectionOptions, ReplyHandleHttp};
 use crate::net::http::HttpResponseContents;
 use crate::net::httpcore::{
-    HttpPreambleExtensions as _, StacksHttp, StacksHttpMessage, StacksHttpRequest,
-    StacksHttpResponse, HTTP_REQUEST_ID_RESERVED,
+    StacksHttp, StacksHttpMessage, StacksHttpRequest, StacksHttpResponse, HTTP_REQUEST_ID_RESERVED,
 };
 use crate::net::{Error as net_error, StacksMessageType, StacksNodeState};
 use crate::util_lib::strings::UrlString;
