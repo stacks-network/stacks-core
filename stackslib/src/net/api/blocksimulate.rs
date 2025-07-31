@@ -24,7 +24,7 @@ use regex::{Captures, Regex};
 use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId, TrieHash};
 use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::Txid;
@@ -66,7 +66,13 @@ pub struct RPCSimulatedBlockTransaction {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct RPCBSimulatedBlock {
+pub struct RPCSimulatedBlockValidation {
+    pub tx_merkle_root: bool,
+    pub state_index_root: bool,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct RPCSimulatedBlock {
     pub block_id: StacksBlockId,
     pub block_hash: BlockHeaderHash,
     pub parent_block_id: StacksBlockId,
@@ -78,6 +84,7 @@ pub struct RPCBSimulatedBlock {
     pub miner_signature: MessageSignature,
     pub signer_signature: Vec<MessageSignature>,
     pub transactions: Vec<RPCSimulatedBlockTransaction>,
+    pub validation: RPCSimulatedBlockValidation,
 }
 
 /// Decode the HTTP request
@@ -215,7 +222,15 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
 
                 let block_hash = block.header.block_hash();
 
-                let mut simulated_block = RPCBSimulatedBlock {
+                let txid_vecs: Vec<_> = txs_receipts
+                    .iter()
+                    .map(|tx| tx.transaction.txid().as_bytes().to_vec())
+                    .collect();
+
+                let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+                let tx_merkle_root = merkle_tree.root();
+
+                let mut simulated_block = RPCSimulatedBlock {
                     block_id,
                     block_hash,
                     parent_block_id,
@@ -227,6 +242,10 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
                     miner_signature: block.header.miner_signature,
                     signer_signature: block.header.signer_signature,
                     transactions: vec![],
+                    validation: RPCSimulatedBlockValidation {
+                        tx_merkle_root: tx_merkle_root == block.header.tx_merkle_root,
+                        state_index_root: false,
+                    },
                 };
                 for receipt in txs_receipts {
                     let events = receipt
