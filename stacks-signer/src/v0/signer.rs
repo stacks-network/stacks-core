@@ -35,9 +35,8 @@ use clarity::util::sleep_ms;
 #[cfg(any(test, feature = "testing"))]
 use clarity::util::tests::TestFlag;
 use libsigner::v0::messages::{
-    BlockAccepted, BlockRejection, BlockResponse, BlockResponseData, MessageSlotID, MockProposal,
-    MockSignature, RejectReason, RejectReasonPrefix, SignerMessage, SignerMessageMetadata,
-    StateMachineUpdate,
+    BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
+    RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate,
 };
 use libsigner::v0::signer_state::GlobalStateEvaluator;
 use libsigner::{BlockProposal, SignerEvent, SignerSession};
@@ -468,21 +467,17 @@ impl Signer {
             .private_key
             .sign(block.header.signer_signature_hash().bits())
             .expect("Failed to sign block");
-        BlockAccepted {
-            signer_signature_hash: block.header.signer_signature_hash(),
+        BlockAccepted::new(
+            block.header.signer_signature_hash(),
             signature,
-            metadata: SignerMessageMetadata::default(),
-            response_data: BlockResponseData::new(
-                self.signer_db.calculate_tenure_extend_timestamp(
-                    self.proposal_config
-                        .tenure_idle_timeout
-                        .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
-                    block,
-                    true,
-                ),
-                RejectReason::NotRejected,
+            self.signer_db.calculate_tenure_extend_timestamp(
+                self.proposal_config
+                    .tenure_idle_timeout
+                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
+                block,
+                true,
             ),
-        }
+        )
     }
 
     /// The actual switch-on-event processing of an event.
@@ -907,7 +902,7 @@ impl Signer {
 
     #[cfg(any(test, feature = "testing"))]
     fn send_block_response(&mut self, block: &NakamotoBlock, block_response: BlockResponse) {
-        if self.test_skip_signature_broadcast(&block_response) {
+        if self.test_skip_block_response_broadcast(&block_response) {
             return;
         }
         const NUM_REPEATS: usize = 1;

@@ -94,8 +94,8 @@ use stacks_signer::v0::signer_state::{
 use stacks_signer::v0::tests::{
     TEST_IGNORE_ALL_BLOCK_PROPOSALS, TEST_PAUSE_BLOCK_BROADCAST,
     TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION, TEST_REJECT_ALL_BLOCK_PROPOSAL,
-    TEST_SIGNERS_SKIP_SIGNATURE_BROADCAST, TEST_SKIP_BLOCK_BROADCAST, TEST_SKIP_SIGNER_CLEANUP,
-    TEST_STALL_BLOCK_VALIDATION_SUBMISSION,
+    TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST, TEST_SKIP_BLOCK_BROADCAST,
+    TEST_SKIP_SIGNER_CLEANUP, TEST_STALL_BLOCK_VALIDATION_SUBMISSION,
 };
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
@@ -9403,7 +9403,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
         .cloned()
         .skip(num_signers * 7 / 10)
         .collect();
-    TEST_SIGNERS_SKIP_SIGNATURE_BROADCAST.set(ignoring_signers.clone());
+    TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST.set(ignoring_signers.clone());
     // Clear the stackerdb chunks
     test_observer::clear();
 
@@ -9471,7 +9471,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     );
     let info_before = signer_test.get_peer_info();
     test_observer::clear();
-    TEST_SIGNERS_SKIP_SIGNATURE_BROADCAST.set(Vec::new());
+    TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST.set(Vec::new());
     TEST_MINE_SKIP.set(false);
 
     let block_n_1_prime =
@@ -9615,7 +9615,7 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
         .cloned()
         .skip(num_signers * 7 / 10)
         .collect();
-    TEST_SIGNERS_SKIP_SIGNATURE_BROADCAST.set(ignoring_signers.clone());
+    TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST.set(ignoring_signers.clone());
     // Clear the stackerdb chunks
     test_observer::clear();
 
@@ -12809,7 +12809,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
         .collect();
     assert_eq!(ignoring_signers.len(), 3);
     assert_eq!(non_ignoring_signers.len(), 2);
-    TEST_SIGNERS_SKIP_SIGNATURE_BROADCAST.set(ignoring_signers.clone());
+    TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST.set(ignoring_signers.clone());
 
     let info_before = signer_test.get_peer_info();
     // submit a tx so that the miner will ATTEMPT to mine a stacks block N
@@ -18280,16 +18280,9 @@ fn signers_do_not_commit_unless_threshold_precommitted() {
 
     // Make sure that more than 30% of signers are set to ignore any incoming proposals so that consensus is not reached
     // on pre-commit round.
-    let ignore_signers: Vec<_> = all_signers
-        .iter()
-        .cloned()
-        .take(all_signers.len() / 2)
-        .collect();
-    let pre_commit_signers: Vec<_> = all_signers
-        .iter()
-        .cloned()
-        .skip(all_signers.len() / 2)
-        .collect();
+    let (ignore_slice, pre_commit_slice) = all_signers.split_at(all_signers.len() / 2);
+    let ignore_signers: Vec<_> = ignore_slice.to_vec();
+    let pre_commit_signers: Vec<_> = pre_commit_slice.to_vec();
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(ignore_signers);
     test_observer::clear();
     let blocks_before = test_observer::get_mined_nakamoto_blocks().len();
