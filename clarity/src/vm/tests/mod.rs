@@ -23,6 +23,7 @@ use super::ClarityVersion;
 use crate::vm::contexts::OwnedEnvironment;
 pub use crate::vm::database::BurnStateDB;
 use crate::vm::database::MemoryBackingStore;
+use crate::vm::SymbolicExpression;
 #[cfg(test)]
 use crate::{vm::errors::Error, vm::types::Value};
 
@@ -221,5 +222,12 @@ pub fn test_only_mainnet_to_chain_id(mainnet: bool) -> u32 {
         CHAIN_ID_MAINNET
     } else {
         CHAIN_ID_TESTNET
+    }
+}
+
+impl SymbolicExpression {
+    pub fn with_id(mut self, id: u64) -> Self {
+        self.id = id;
+        self
     }
 }
