@@ -396,6 +396,26 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         self.inner_setup_extension(chain_tip, next_chain_tip, block_height, true)
     }
 
+    pub fn begin_simulated(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
+        if self.storage.readonly() {
+            return Err(Error::ReadOnlyError);
+        }
+        if self.open_chain_tip.is_some() {
+            return Err(Error::InProgressError);
+        }
+
+        self.storage.hide_block(next_chain_tip)?;
+
+        if self.storage.has_block(next_chain_tip)? {
+            error!("Block data already exists: {}", next_chain_tip);
+            return Err(Error::ExistsError);
+        }
+
+        let block_height = self.inner_get_extension_height(chain_tip, next_chain_tip)?;
+        MARF::extend_trie(&mut self.storage, next_chain_tip)?;
+        self.inner_setup_extension(chain_tip, next_chain_tip, block_height, true)
+    }
+
     /// Set up the trie extension we're making.
     /// Sets storage pointer to chain_tip.
     /// Returns the height next_chain_tip would be at.

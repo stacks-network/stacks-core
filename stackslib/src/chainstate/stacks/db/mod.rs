@@ -2122,6 +2122,45 @@ impl StacksChainState {
         self.clarity_state.with_marf(f)
     }
 
+    pub fn with_simulated_clarity_tx<F, R>(
+        &mut self,
+        burn_dbconn: &dyn BurnStateDB,
+        parent_block_id: &StacksBlockId,
+        new_block_id: &StacksBlockId,
+        to_do: F,
+    ) -> Option<R>
+    where
+        F: FnOnce(&mut ClarityTx) -> R,
+    {
+        match NakamotoChainState::get_block_header(self.db(), parent_block_id) {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                return None;
+            }
+            Err(e) => {
+                warn!("Failed to query for {}: {:?}", parent_block_id, &e);
+                return None;
+            }
+        }
+
+        let dbconfig = self.config();
+
+        let conn = self.clarity_state.begin_simulated_block(
+            parent_block_id,
+            new_block_id,
+            &self.state_index,
+            burn_dbconn,
+        );
+
+        let mut clarity_tx = ClarityTx {
+            block: conn,
+            config: dbconfig,
+        };
+        let result = to_do(&mut clarity_tx);
+        clarity_tx.rollback_block();
+        Some(result)
+    }
+
     /// Run to_do on the state of the Clarity VM at the given chain tip.
     /// Returns Some(x: R) if the given parent_tip exists.
     /// Returns None if not

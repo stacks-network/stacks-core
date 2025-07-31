@@ -216,6 +216,15 @@ pub fn get_block_hash<T: MarfTrieId>(conn: &Connection, local_id: u32) -> Result
 }
 
 /// Write a serialized trie to sqlite
+pub fn hide_block<T: MarfTrieId>(conn: &Connection, block_hash: &T) -> Result<(), Error> {
+    let args = params![block_hash];
+    let mut s = conn.prepare("DELETE FROM marf_data WHERE block_hash = ?")?;
+    s.execute(args)?;
+    let mut s = conn.prepare("DELETE FROM metadata_table WHERE blockhash = ?")?;
+    s.execute(args)?;
+    Ok(())
+}
+
 pub fn write_trie_blob<T: MarfTrieId>(
     conn: &Connection,
     block_hash: &T,

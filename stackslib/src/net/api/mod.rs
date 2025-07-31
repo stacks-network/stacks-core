@@ -17,6 +17,7 @@ use crate::net::http::Error;
 use crate::net::httpcore::StacksHttp;
 use crate::net::Error as NetError;
 
+pub mod blocksimulate;
 pub mod callreadonly;
 pub mod fastcallreadonly;
 pub mod get_tenures_fork_info;
@@ -141,6 +142,7 @@ impl StacksHttp {
         self.register_rpc_endpoint(postmicroblock::RPCPostMicroblockRequestHandler::new());
         self.register_rpc_endpoint(poststackerdbchunk::RPCPostStackerDBChunkRequestHandler::new());
         self.register_rpc_endpoint(posttransaction::RPCPostTransactionRequestHandler::new());
+        self.register_rpc_endpoint(blocksimulate::RPCNakamotoBlockSimulateRequestHandler::new());
     }
 }
 
