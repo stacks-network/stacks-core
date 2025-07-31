@@ -33,7 +33,7 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::events::{
     StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
-use crate::chainstate::stacks::Error as ChainError;
+use crate::chainstate::stacks::{Error as ChainError, StacksTransaction};
 use crate::net::http::{
     parse_bytes, Error, HttpChunkGenerator, HttpContentType, HttpNotFound, HttpRequest,
     HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
@@ -57,18 +57,12 @@ impl RPCNakamotoBlockSimulateRequestHandler {
 pub struct RPCSimulatedBlockTransaction {
     pub txid: Txid,
     pub tx_index: u32,
+    pub data: Option<StacksTransaction>,
     pub hex: String,
     pub result: Value,
     pub stx_burned: u128,
     pub execution_cost: ExecutionCost,
     pub events: Vec<serde_json::Value>,
-    pub fee: u64,
-}
-
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct RPCSimulatedBlockValidation {
-    pub tx_merkle_root: bool,
-    pub state_index_root: bool,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -84,7 +78,6 @@ pub struct RPCSimulatedBlock {
     pub miner_signature: MessageSignature,
     pub signer_signature: Vec<MessageSignature>,
     pub transactions: Vec<RPCSimulatedBlockTransaction>,
-    pub validation: RPCSimulatedBlockValidation,
 }
 
 /// Decode the HTTP request
@@ -184,9 +177,10 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
                     })
                     .unwrap();
 
-                let burn_dbconn = sortdb
-                    .index_handle_at_block(chainstate, &parent_block_id)
-                    .unwrap();
+                let burn_dbconn = match sortdb.index_handle_at_block(chainstate, &parent_block_id) {
+                    Ok(burn_dbconn) => burn_dbconn,
+                    Err(_) => return Err(ChainError::NoSuchBlockError),
+                };
 
                 let (block_fees, txs_receipts) = chainstate
                     .with_simulated_clarity_tx(
@@ -222,14 +216,6 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
 
                 let block_hash = block.header.block_hash();
 
-                let txid_vecs: Vec<_> = txs_receipts
-                    .iter()
-                    .map(|tx| tx.transaction.txid().as_bytes().to_vec())
-                    .collect();
-
-                let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
-                let tx_merkle_root = merkle_tree.root();
-
                 let mut simulated_block = RPCSimulatedBlock {
                     block_id,
                     block_hash,
@@ -242,10 +228,6 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
                     miner_signature: block.header.miner_signature,
                     signer_signature: block.header.signer_signature,
                     transactions: vec![],
-                    validation: RPCSimulatedBlockValidation {
-                        tx_merkle_root: tx_merkle_root == block.header.tx_merkle_root,
-                        state_index_root: false,
-                    },
                 };
                 for receipt in txs_receipts {
                     let events = receipt
@@ -258,20 +240,20 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
                                 .unwrap()
                         })
                         .collect();
-                    let fee = match &receipt.transaction {
-                        TransactionOrigin::Stacks(stacks) => stacks.get_tx_fee(),
-                        TransactionOrigin::Burn(_) => 0,
+                    let transaction_data = match &receipt.transaction {
+                        TransactionOrigin::Stacks(stacks) => Some(stacks.clone()),
+                        TransactionOrigin::Burn(_) => None,
                     };
                     let txid = receipt.transaction.txid();
                     let transaction = RPCSimulatedBlockTransaction {
                         txid,
-                        hex: receipt.transaction.serialize_to_dbstring(),
                         tx_index: receipt.tx_index,
+                        data: transaction_data,
+                        hex: receipt.transaction.serialize_to_dbstring(),
                         result: receipt.result,
                         stx_burned: receipt.stx_burned,
                         execution_cost: receipt.execution_cost,
                         events,
-                        fee,
                     };
                     simulated_block.transactions.push(transaction);
                 }
