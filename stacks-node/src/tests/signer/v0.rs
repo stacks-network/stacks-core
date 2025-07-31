@@ -18335,6 +18335,9 @@ fn signer_loads_stackerdb_updates_on_startup() {
     // Wait until signer boots up BEFORE proposing the next block
     miners.signer_test.wait_for_registered();
     info!("------------------------- Miner B Mines Block N+2 (Transfer) -------------------------");
+    let (accepting, ignoring) = all_signers.split_at(4);
+    // Make some of the signers ignore so that we CANNOT advance without approval from the restarted signer (its at index 0)
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(ignoring.into());
     miners.send_transfer_tx();
     let block_n_2 =
         wait_for_block_pushed_by_miner_key(30, chain_after.stacks_tip_height + 2, &miner_pk_2)
@@ -18342,7 +18345,7 @@ fn signer_loads_stackerdb_updates_on_startup() {
     wait_for_block_acceptance_from_signers(
         30,
         &block_n_2.header.signer_signature_hash(),
-        &all_signers,
+        &accepting,
     )
     .expect("Not all signers accepted the block");
 
