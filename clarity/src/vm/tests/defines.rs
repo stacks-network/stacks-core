@@ -21,8 +21,11 @@ use rstest_reuse::{self, *};
 #[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
+use crate::vm::analysis::errors::SyntaxBindingError;
+use crate::vm::diagnostic::DiagnosableError;
 use crate::vm::errors::{CheckErrors, Error};
 use crate::vm::tests::test_clarity_versions;
+use crate::vm::SymbolicExpression;
 #[cfg(test)]
 use crate::vm::{
     ast::{
@@ -86,7 +89,17 @@ fn test_accept_options(#[case] version: ClarityVersion, #[case] epoch: StacksEpo
     let bad_defun = "(define-private (f (b (optional int int))) (* 10 (default-to 0 b)))";
     assert_eq!(
         execute(bad_defun).unwrap_err(),
-        CheckErrors::InvalidTypeDescription.into()
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::BadTypeSignature(
+            0,
+            SymbolicExpression::list(vec![
+                SymbolicExpression::atom("optional".into()).with_id(8),
+                SymbolicExpression::atom("int".into()).with_id(9),
+                SymbolicExpression::atom("int".into()).with_id(10),
+            ])
+            .with_id(7),
+            CheckErrors::InvalidTypeDescription.message()
+        ))
+        .into()
     );
 }
 
@@ -279,7 +292,10 @@ fn test_define_parse_panic() {
 fn test_define_parse_panic_2() {
     let tests = "(define-private (a b (d)) 1)";
     assert_eq_err(
-        CheckErrors::BadSyntaxExpectedListOfPairs,
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::eval_binding_not_list(
+            0,
+            SymbolicExpression::atom("b".into()).with_id(5),
+        )),
         execute(tests).unwrap_err(),
     );
 }
