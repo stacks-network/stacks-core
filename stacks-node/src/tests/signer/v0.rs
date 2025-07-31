@@ -18228,6 +18228,7 @@ fn multiversioned_signer_protocol_version_calculation() {
     .unwrap();
 
     info!("------------------------- Resuming Mining of Tenure Start Block for Tenure A -------------------------");
+    test_observer::clear();
     TEST_MINE_SKIP.set(false);
     wait_for(30, || {
         Ok(signer_test.get_peer_info().stacks_tip_height > peer_info_before.stacks_tip_height)
