@@ -17,7 +17,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
-    InterpreterResult as Result,
+    InterpreterResult as Result, SyntaxBindingErrorType,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TupleData, TypeSignature, Value};
@@ -34,7 +34,7 @@ pub fn tuple_cons(
 
     check_arguments_at_least(1, args)?;
 
-    let bindings = parse_eval_bindings(args, env, context)?;
+    let bindings = parse_eval_bindings(args, SyntaxBindingErrorType::TupleCons, env, context)?;
     runtime_cost(ClarityCostFunction::TupleCons, env, bindings.len())?;
 
     TupleData::from_data(bindings).map(Value::from)
