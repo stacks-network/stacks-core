@@ -129,7 +129,9 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
             match index_block_hash_and_tx_hex_opt {
                 Some((index_block_hash, tx_hex, result)) => {
                     let mut preamble = HttpResponsePreamble::ok_json(&preamble);
-                    preamble.set_canonical_stacks_tip_height(Some(network.stacks_tip.height));
+                    preamble.set_canonical_stacks_tip_height(Some(
+                        network.burnchain_tip.canonical_stacks_tip_height,
+                    ));
                     let body = HttpResponseContents::try_from_json(&TransactionResponse {
                         index_block_hash,
                         tx: tx_hex,
