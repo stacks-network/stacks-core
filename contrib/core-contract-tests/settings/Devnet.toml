@@ -71,3 +71,9 @@ balance = 100_000_000_000_000
 # stx_address: STNHKEPYEPJ8ET55ZZ0M5A34J0R3N5FM2CMMMAZ6
 # btc_address: mjSrB3wS4xab3kYqFktwBzfTdPg367ZJ2d
 
+[accounts.wallet_10]
+mnemonic = "kiss denial decade slide spawn medal twist lamp evidence economy torch alter witness paper rule snack cushion hill sugar fury public innocent almost divide"
+balance = 200_000_000_000_000
+# secret_key: 5b897659452b9f3642be69aee75dc3cc84b2386d55ece1312affdbb80a3b2a7d01
+# stx_address: ST3FFKYTTB975A3JC3F99MM7TXZJ406R3GKE6JV56
+# btc_address: n1qwmgbzf1YeHDW6cTxxEwuqnjbqauvKJ1

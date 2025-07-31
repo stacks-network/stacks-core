@@ -3005,6 +3005,8 @@ fn bitcoind_forking_test() {
             let epochs = node_config.burnchain.epochs.as_mut().unwrap();
             epochs[StacksEpochId::Epoch30].end_height = 3_015;
             epochs[StacksEpochId::Epoch31].start_height = 3_015;
+            epochs[StacksEpochId::Epoch31].end_height = 3_055;
+            epochs[StacksEpochId::Epoch32].start_height = 3_055;
         },
         None,
         None,
@@ -7487,6 +7489,8 @@ fn mock_sign_epoch_25() {
             epochs[StacksEpochId::Epoch30].start_height = 251;
             epochs[StacksEpochId::Epoch30].end_height = 265;
             epochs[StacksEpochId::Epoch31].start_height = 265;
+            epochs[StacksEpochId::Epoch31].end_height = 285;
+            epochs[StacksEpochId::Epoch32].start_height = 285;
         },
         None,
         None,
@@ -7605,6 +7609,8 @@ fn multiple_miners_mock_sign_epoch_25() {
             epochs[StacksEpochId::Epoch30].start_height = 251;
             epochs[StacksEpochId::Epoch30].end_height = 265;
             epochs[StacksEpochId::Epoch31].start_height = 265;
+            epochs[StacksEpochId::Epoch31].end_height = 285;
+            epochs[StacksEpochId::Epoch32].start_height = 285;
         },
         |_| {},
     );
@@ -18076,4 +18082,116 @@ fn bitcoin_reorg_extended_tenure() {
         .expect("Timed out waiting for contract-call");
 
     miners.shutdown();
+}
+
+/// Tests that the active signer protocol version is set to the lowest common denominator
+#[test]
+#[ignore]
+fn multiversioned_signer_protocol_version_calculation() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let deploy_fee = 1000000;
+    let call_fee = 1000;
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(
+            sender_addr,
+            (send_amt + send_fee) * 10 + deploy_fee + call_fee,
+        )],
+        |signer_config| {
+            // We don't want the miner of the "inactive" sortition before the flash block
+            //  to get timed out.
+            signer_config.block_proposal_timeout = Duration::from_secs(600);
+
+            let signer_version = match signer_config.endpoint.port() % num_signers as u16 {
+                0 | 1 => 0, // first two -> version 0
+                2 | 3 => 1, // next two -> version 1
+                _ => 2,     // last ones  -> version 2
+            };
+            signer_config.supported_signer_protocol_version = signer_version;
+        },
+        |node_config| {
+            node_config.miner.block_commit_delay = Duration::from_secs(1);
+            node_config.miner.replay_transactions = true;
+        },
+        None,
+        None,
+    );
+
+    signer_test.boot_to_epoch_3();
+    // Pause the miner to enforce exactly one proposal and to ensure it isn't just rejected with no consensus
+    info!("------------------------- Pausing Mining -------------------------");
+    TEST_MINE_SKIP.set(true);
+    test_observer::clear();
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    // In the next block, the miner should win the tenure and mine a stacks block
+    let peer_info_before = signer_test.get_peer_info();
+
+    info!("------------------------- Mining Burn Block for Tenure A -------------------------");
+    next_block_and(
+        &signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let peer_info = signer_test.get_peer_info();
+            Ok(peer_info.burn_block_height > peer_info_before.burn_block_height)
+        },
+    )
+    .unwrap();
+    let peer_info_after = signer_test.get_peer_info();
+    // All signers will view the active version as 0
+    let signer_addresses: Vec<_> = signer_test
+        .signer_addresses_versions()
+        .into_iter()
+        .map(|(address, _version)| (address, 0u64))
+        .collect();
+
+    info!("------------------------- Waiting for Signer Updates with Version 0-------------------------");
+    // Make sure all signers are on the same page before proposing a block so its accepted
+    wait_for_state_machine_update(
+        30,
+        &peer_info_after.pox_consensus,
+        peer_info_after.burn_block_height,
+        None,
+        &signer_addresses,
+    )
+    .unwrap();
+
+    info!("------------------------- Resuming Mining of Tenure Start Block for Tenure A -------------------------");
+    TEST_MINE_SKIP.set(false);
+    wait_for(30, || {
+        Ok(signer_test.get_peer_info().stacks_tip_height > peer_info_before.stacks_tip_height)
+    })
+    .unwrap();
+
+    info!("------------------------- Verifying Signers ONLY Sends Acceptances -------------------------");
+    wait_for(30, || {
+        let mut nmb_accept = 0;
+        let stackerdb_events = test_observer::get_stackerdb_chunks();
+        for chunk in stackerdb_events
+            .into_iter()
+            .flat_map(|chunk| chunk.modified_slots)
+        {
+            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                .expect("Failed to deserialize SignerMessage");
+            let SignerMessage::BlockResponse(response) = message else {
+                continue;
+            };
+            assert!(
+                matches!(response, BlockResponse::Accepted(_)),
+                "Should have only received acceptances"
+            );
+            nmb_accept += 1;
+        }
+        Ok(nmb_accept == num_signers)
+    })
+    .unwrap();
+    signer_test.shutdown();
 }
