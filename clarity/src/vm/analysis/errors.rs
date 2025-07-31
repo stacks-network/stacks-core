@@ -23,6 +23,141 @@ use crate::vm::types::{TraitIdentifier, TupleTypeSignature, TypeSignature, Value
 
 pub type CheckResult<T> = Result<T, CheckError>;
 
+/// What kind of syntax binding was found to be in error?
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum SyntaxBindingErrorType {
+    Let,
+    Eval,
+    TupleCons,
+    TypeDefinition,
+}
+
+impl fmt::Display for SyntaxBindingErrorType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", &self.message())
+    }
+}
+
+impl DiagnosableError for SyntaxBindingErrorType {
+    fn message(&self) -> String {
+        match &self {
+            Self::Let => "Let-binding".to_string(),
+            Self::Eval => "Function argument definition".to_string(),
+            Self::TupleCons => "Tuple constructor".to_string(),
+            Self::TypeDefinition => "Type definition".to_string(),
+        }
+    }
+
+    fn suggestion(&self) -> Option<String> {
+        None
+    }
+}
+
+/// Syntax binding error types
+#[derive(Debug, PartialEq)]
+pub enum SyntaxBindingError {
+    /// binding list item is not a list
+    NotList(SyntaxBindingErrorType, usize, SymbolicExpression),
+    /// binding list item has an invalid length (e.g. not 2)
+    InvalidLength(SyntaxBindingErrorType, usize, SymbolicExpression),
+    /// binding name is not an atom
+    NotAtom(SyntaxBindingErrorType, usize, SymbolicExpression),
+    /// second binding item is a type signature, and the type signature itself is bad.
+    /// NOTE: type signature parsing returns CheckErrors, so we cannot include a CheckErrors here
+    /// directly without creating a recursive type. Instead, we just report the `Display`
+    /// representation of the error here as the third item.
+    BadTypeSignature(usize, SymbolicExpression, String),
+}
+
+impl fmt::Display for SyntaxBindingError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl DiagnosableError for SyntaxBindingError {
+    fn message(&self) -> String {
+        match &self {
+            Self::NotList(err_type, item_index, item) => {
+                let item_no = item_index + 1;
+                format!(
+                    "{err_type} item #{item_no} is not a list: {}",
+                    item.as_error_string()
+                )
+            }
+            Self::InvalidLength(err_type, item_index, item) => {
+                let item_no = item_index + 1;
+                format!(
+                    "{err_type} item #{item_no} is not a two-element list: {}",
+                    item.as_error_string()
+                )
+            }
+            Self::NotAtom(err_type, item_index, item) => {
+                let item_no = item_index + 1;
+                format!(
+                    "{err_type} item #{item_no}'s name is not an atom: {}",
+                    item.as_error_string()
+                )
+            }
+            Self::BadTypeSignature(item_index, item, error_message) => {
+                let item_no = item_index + 1;
+                format!("Type definition item #{item_no} has an invalid type signature: {} (reason: {error_message})", item.as_error_string())
+            }
+        }
+    }
+
+    fn suggestion(&self) -> Option<String> {
+        None
+    }
+}
+
+impl SyntaxBindingError {
+    /// Helper constructor for NotList(SyntaxBindingErrorType::Let, item_no, item)
+    pub fn let_binding_not_list(item_no: usize, item: SymbolicExpression) -> Self {
+        Self::NotList(SyntaxBindingErrorType::Let, item_no, item)
+    }
+
+    /// Helper constructor for InvalidLength(SyntaxBindingErrorType::Let, item_no, item)
+    pub fn let_binding_invalid_length(item_no: usize, item: SymbolicExpression) -> Self {
+        Self::InvalidLength(SyntaxBindingErrorType::Let, item_no, item)
+    }
+
+    /// Helper constructor for NotAtom(SyntaxBindingErrorType::Let, item_no, item)
+    pub fn let_binding_not_atom(item_no: usize, item: SymbolicExpression) -> Self {
+        Self::NotAtom(SyntaxBindingErrorType::Let, item_no, item)
+    }
+
+    /// Helper constructor for NotList(SyntaxBindingErrorType::Eval, item_no, item)
+    pub fn eval_binding_not_list(item_no: usize, item: SymbolicExpression) -> Self {
+        Self::NotList(SyntaxBindingErrorType::Eval, item_no, item)
+    }
+
+    /// Helper constructor for InvalidLength(SyntaxBindingErrorType::Eval, item_no, item)
+    pub fn eval_binding_invalid_length(item_no: usize, item: SymbolicExpression) -> Self {
+        Self::InvalidLength(SyntaxBindingErrorType::Eval, item_no, item)
+    }
+
+    /// Helper constructor for NotAtom(SyntaxBindingErrorType::Eval, item_no, item)
+    pub fn eval_binding_not_atom(item_no: usize, item: SymbolicExpression) -> Self {
+        Self::NotAtom(SyntaxBindingErrorType::Eval, item_no, item)
+    }
+
+    /// Helper constructor for NotList(SyntaxBindingErrorType::TupleCons, item_no, item)
+    pub fn tuple_cons_not_list(item_no: usize, item: SymbolicExpression) -> Self {
+        Self::NotList(SyntaxBindingErrorType::TupleCons, item_no, item)
+    }
+
+    /// Helper constructor for InvalidLength(SyntaxBindingErrorType::TupleCons, item_no, item)
+    pub fn tuple_cons_invalid_length(item_no: usize, item: SymbolicExpression) -> Self {
+        Self::InvalidLength(SyntaxBindingErrorType::TupleCons, item_no, item)
+    }
+
+    /// Helper constructor for NotAtom(SyntaxBindingErrorType::TupleCons, item_no, item)
+    pub fn tuple_cons_not_atom(item_no: usize, item: SymbolicExpression) -> Self {
+        Self::NotAtom(SyntaxBindingErrorType::TupleCons, item_no, item)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum CheckErrors {
     // cost checker errors
@@ -101,8 +236,7 @@ pub enum CheckErrors {
     ExpectedTuple(TypeSignature),
     NoSuchTupleField(String, TupleTypeSignature),
     EmptyTuplesNotAllowed,
-    BadTupleConstruction,
-    TupleExpectsPairs,
+    BadTupleConstruction(String),
 
     // variables
     NoSuchDataVariable(String),
@@ -152,8 +286,7 @@ pub enum CheckErrors {
     BadLetSyntax,
 
     // generic binding syntax
-    BadSyntaxBinding,
-    BadSyntaxExpectedListOfPairs,
+    BadSyntaxBinding(SyntaxBindingError),
 
     MaxContextDepthReached,
     UndefinedFunction(String),
@@ -214,6 +347,11 @@ impl CheckErrors {
             self,
             CheckErrors::SupertypeTooLarge | CheckErrors::Expects(_)
         )
+    }
+
+    /// Is the given error message due to a BadSyntaxBinding?
+    pub fn has_nested_bad_syntax_binding_message(msg: &str) -> bool {
+        msg.contains("invalid syntax binding: ")
     }
 }
 
@@ -362,7 +500,6 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::MemoryBalanceExceeded(a, b) => format!("contract execution cost exceeded memory budget: {a:?} > {b:?}"),
             CheckErrors::InvalidTypeDescription => "supplied type description is invalid".into(),
             CheckErrors::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
-            CheckErrors::BadSyntaxExpectedListOfPairs => "bad syntax: function expects a list of pairs to bind names, e.g., ((name-0 a) (name-1 b) ...)".into(),
             CheckErrors::UnknownTypeName(name) => format!("failed to parse type: '{name}'"),
             CheckErrors::ValueTooLarge => "created a type which was greater than maximum allowed value size".into(),
             CheckErrors::ValueOutOfBounds => "created a type which value size was out of defined bounds".into(),
@@ -390,8 +527,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::BadTupleFieldName => "invalid tuple field name".into(),
             CheckErrors::ExpectedTuple(type_signature) => format!("expecting tuple, found '{type_signature}'"),
             CheckErrors::NoSuchTupleField(field_name, tuple_signature) => format!("cannot find field '{field_name}' in tuple '{tuple_signature}'"),
-            CheckErrors::BadTupleConstruction => "invalid tuple syntax, expecting list of pair".into(),
-            CheckErrors::TupleExpectsPairs => "invalid tuple syntax, expecting pair".into(),
+            CheckErrors::BadTupleConstruction(message) => format!("invalid tuple syntax: {message}"),
             CheckErrors::NoSuchDataVariable(var_name) => format!("use of unresolved persisted variable '{var_name}'"),
             CheckErrors::BadTransferSTXArguments => "STX transfer expects an int amount, from principal, to principal".into(),
             CheckErrors::BadTransferFTArguments => "transfer expects an int amount, from principal, to principal".into(),
@@ -428,7 +564,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::MaxLengthOverflow => format!("expecting a value <= {}", u32::MAX),
             CheckErrors::BadLetSyntax => "invalid syntax of 'let'".into(),
             CheckErrors::CircularReference(references) => format!("detected circular reference: ({})", references.join(", ")),
-            CheckErrors::BadSyntaxBinding => "invalid syntax binding".into(),
+            CheckErrors::BadSyntaxBinding(binding_error) => format!("invalid syntax binding: {}", &binding_error.message()),
             CheckErrors::MaxContextDepthReached => "reached depth limit".into(),
             CheckErrors::UndefinedVariable(var_name) => format!("use of unresolved variable '{var_name}'"),
             CheckErrors::UndefinedFunction(var_name) => format!("use of unresolved function '{var_name}'"),
@@ -476,9 +612,6 @@ impl DiagnosableError for CheckErrors {
 
     fn suggestion(&self) -> Option<String> {
         match &self {
-            CheckErrors::BadSyntaxBinding => {
-                Some("binding syntax example: ((supply int) (ttl int))".into())
-            }
             CheckErrors::BadLetSyntax => Some(
                 "'let' syntax example: (let ((supply 1000) (ttl 60)) <next-expression>)".into(),
             ),
