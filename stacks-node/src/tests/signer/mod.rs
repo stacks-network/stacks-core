@@ -1144,8 +1144,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         // Ensure that the tenure change transaction is mined and that the subsequent block commit confirms it
         wait_for(timeout.as_secs(), || {
             Ok(commits_submitted.load(Ordering::SeqCst) > commits_before
-                && commits_last_burn_height.load(Ordering::SeqCst) >= commit_burn_height_before
-                && commits_last_stacks_tip.load(Ordering::SeqCst) >= commits_stacks_tip_before
+                && commits_last_burn_height.load(Ordering::SeqCst) > commit_burn_height_before
+                && commits_last_stacks_tip.load(Ordering::SeqCst) > commits_stacks_tip_before
                 && get_chain_info(&self.running_nodes.conf).stacks_tip_height
                     > info_before.stacks_tip_height
                 && (!use_nakamoto_blocks_mined

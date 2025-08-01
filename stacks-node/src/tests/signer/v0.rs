@@ -4656,7 +4656,7 @@ fn tx_replay_with_fork_after_empty_tenures_before_starting_replaying_txs() {
     let sender1_nonce_post_fork = get_account(&http_origin, &sender1_addr).nonce;
     assert_eq!(0, sender1_nonce_post_fork);
 
-    info!("------------------- Produce Empty Tenuree -------------------------");
+    info!("------------------- Produce Empty Tenure -------------------------");
     fault_injection_unstall_miner();
     let tip = get_chain_info(&conf);
     _ = wait_for_tenure_change_tx(30, TenureChangeCause::BlockFound, tip.stacks_tip_height + 1);
