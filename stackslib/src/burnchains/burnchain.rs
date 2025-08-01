@@ -450,6 +450,23 @@ impl BurnchainBlock {
 }
 
 impl Burnchain {
+    pub fn handle_thread_join<T>(
+        handle: std::thread::JoinHandle<Result<T, burnchain_error>>,
+        name: &str,
+    ) -> Result<T, burnchain_error> {
+        match handle.join() {
+            Ok(Ok(val)) => Ok(val),
+            Ok(Err(e)) => {
+                warn!("{} thread error: {:?}", name, e);
+                Err(e)
+            }
+            Err(_) => {
+                error!("{} thread panicked", name);
+                Err(burnchain_error::ThreadChannelError)
+            }
+        }
+    }
+
     pub fn new(
         working_dir: &str,
         chain_name: &str,
@@ -1394,15 +1411,19 @@ impl Burnchain {
         }
 
         // join up
-        let _ = download_thread.join().unwrap();
-        let _ = parse_thread.join().unwrap();
-        let (block_snapshot, state_transition_opt) = match db_thread.join().unwrap() {
-            Ok(x) => x,
-            Err(e) => {
-                warn!("Failed to join burnchain download thread: {:?}", &e);
-                return Err(burnchain_error::TrySyncAgain);
-            }
-        };
+        let download_result = Self::handle_thread_join(download_thread, "burnchain-download");
+        let parse_result = Self::handle_thread_join(parse_thread, "burnchain-parse");
+        let db_result = Self::handle_thread_join(db_thread, "burnchain-db");
+
+        if let Err(e) = download_result {
+            warn!("Download thread failed: {:?}", e);
+            return Err(e);
+        }
+        if let Err(e) = parse_result {
+            warn!("Parse thread failed: {:?}", e);
+            return Err(e);
+        }
+        let (block_snapshot, state_transition_opt) = db_result?;
 
         if block_snapshot.block_height < end_block {
             warn!(
@@ -1783,20 +1804,21 @@ impl Burnchain {
         }
 
         // join up
-        let _ = download_thread.join().unwrap();
-        let _ = parse_thread.join().unwrap();
-        let block_header = match db_thread.join().unwrap() {
-            Ok(x) => x,
-            Err(e) => {
-                warn!("Failed to join burnchain download thread: {:?}", &e);
-                if let burnchain_error::CoordinatorClosed = e {
-                    return Err(burnchain_error::CoordinatorClosed);
-                } else {
-                    return Err(burnchain_error::TrySyncAgain);
-                }
-            }
-        };
+        let download_result = Self::handle_thread_join(download_thread, "download");
+        let parse_result = Self::handle_thread_join(parse_thread, "parse");
+        let db_result = Self::handle_thread_join(db_thread, "db");
 
+        if let Err(e) = download_result {
+            warn!("Download thread failed: {:?}", e);
+            return Err(e);
+        }
+
+        if let Err(e) = parse_result {
+            warn!("Parse thread failed: {:?}", e);
+            return Err(e);
+        }
+
+        let block_header = db_result?;
         if block_header.block_height < end_block {
             warn!(
                 "Try synchronizing the burn chain again: final snapshot {} < {}",

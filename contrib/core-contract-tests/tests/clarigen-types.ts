@@ -4687,6 +4687,12 @@ export const contracts = {
   },
   sip031Indirect: {
     functions: {
+      claimAsContract: {
+        name: 'claim-as-contract',
+        access: 'public',
+        args: [],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<[], Response<bigint, bigint>>,
       transferStx: {
         name: 'transfer-stx',
         access: 'public',
@@ -4704,6 +4710,15 @@ export const contracts = {
       >,
       updateRecipient: {
         name: 'update-recipient',
+        access: 'public',
+        args: [{ name: 'new-recipient', type: 'principal' }],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [newRecipient: TypedAbiArg<string, 'newRecipient'>],
+        Response<boolean, bigint>
+      >,
+      updateRecipientAsContract: {
+        name: 'update-recipient-as-contract',
         access: 'public',
         args: [{ name: 'new-recipient', type: 'principal' }],
         outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },

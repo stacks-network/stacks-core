@@ -17,6 +17,7 @@
 pub mod affirmation;
 pub mod burnchain;
 pub mod db;
+pub mod thread_join;
 
 use std::collections::HashMap;
 

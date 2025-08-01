@@ -12,9 +12,8 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::io::Read;
 
-use test_case::test_case;
+use rstest::rstest;
 
 use crate::errors::CodecError;
 use crate::representations::{
@@ -22,52 +21,54 @@ use crate::representations::{
 };
 use crate::stacks_common::codec::StacksMessageCodec;
 
-#[test_case("hello"; "valid_name")]
-#[test_case("hello-dash"; "dash")]
-#[test_case("hello_underscore"; "underscore")]
-#[test_case("test123"; "numbers")]
-#[test_case("a"; "single_letter")]
-#[test_case("set-token-uri!"; "exclamation_mark")]
-#[test_case("is-owner?"; "question_mark")]
-#[test_case("math+"; "plus")]
-#[test_case("greater-than<"; "less_than")]
-#[test_case("less-than>"; "greater_than")]
-#[test_case("<="; "less_than_or_equal_to")]
-#[test_case(">="; "greater_than_or_equal_to")]
-#[test_case("*"; "asterisk")]
-#[test_case("/"; "slash")]
-#[test_case("-"; "dash-only")]
-#[test_case("="; "equals")]
-fn test_clarity_name_valid(name: &str) {
+#[rstest]
+#[case::valid_name("hello")]
+#[case::dash("hello-dash")]
+#[case::underscore("hello_underscore")]
+#[case::numbers("test123")]
+#[case::single_letter("a")]
+#[case::exclamation_mark("set-token-uri!")]
+#[case::question_mark("is-owner?")]
+#[case::plus("math+")]
+#[case::less_than("greater-than<")]
+#[case::greater_than("less-than>")]
+#[case::less_than_or_equal_to("<=")]
+#[case::greater_than_or_equal_to(">=")]
+#[case::asterisk("*")]
+#[case::slash("/")]
+#[case::dash_only("-")]
+#[case::equals("=")]
+fn test_clarity_name_valid(#[case] name: &str) {
     let clarity_name = ClarityName::try_from(name.to_string())
         .unwrap_or_else(|_| panic!("Should parse valid clarity name: {name}"));
     assert_eq!(clarity_name.as_str(), name);
 }
 
-#[test_case(""; "empty")]
-#[test_case("123abc"; "starts_with_number")]
-#[test_case("hello world"; "contains_space")]
-#[test_case("hello@world"; "contains_at")]
-#[test_case("hello#world"; "contains_hash")]
-#[test_case("hello$world"; "contains_dollar")]
-#[test_case("hello%world"; "contains_percent")]
-#[test_case("hello&world"; "contains_ampersand")]
-#[test_case("hello.world"; "contains_dot")]
-#[test_case("hello,world"; "contains_comma")]
-#[test_case("hello;world"; "contains_semicolon")]
-#[test_case("hello:world"; "contains_colon")]
-#[test_case("hello|world"; "contains_pipe")]
-#[test_case("hello\\world"; "contains_backslash")]
-#[test_case("hello\"world"; "contains_quote")]
-#[test_case("hello'world"; "contains_apostrophe")]
-#[test_case("hello[world"; "contains_bracket_open")]
-#[test_case("hello]world"; "contains_bracket_close")]
-#[test_case("hello{world"; "contains_curly_open")]
-#[test_case("hello}world"; "contains_curly_close")]
-#[test_case("hello(world"; "contains_parenthesis_open")]
-#[test_case("hello)world"; "contains_parenthesis_close")]
-#[test_case(&"a".repeat(MAX_STRING_LEN as usize + 1); "too_long")]
-fn test_clarity_name_invalid(name: &str) {
+#[rstest]
+#[case::empty("")]
+#[case::starts_with_number("123abc")]
+#[case::contains_space("hello world")]
+#[case::contains_at("hello@world")]
+#[case::contains_hash("hello#world")]
+#[case::contains_dollar("hello$world")]
+#[case::contains_percent("hello%world")]
+#[case::contains_ampersand("hello&world")]
+#[case::contains_dot("hello.world")]
+#[case::contains_comma("hello,world")]
+#[case::contains_semicolon("hello;world")]
+#[case::contains_colon("hello:world")]
+#[case::contains_pipe("hello|world")]
+#[case::contains_backslash("hello\\world")]
+#[case::contains_quote("hello\"world")]
+#[case::contains_apostrophe("hello'world")]
+#[case::contains_bracket_open("hello[world")]
+#[case::contains_bracket_close("hello]world")]
+#[case::contains_curly_open("hello{world")]
+#[case::contains_curly_close("hello}world")]
+#[case::contains_parenthesis_open("hello(world")]
+#[case::contains_parenthesis_close("hello)world")]
+#[case::too_long(&"a".repeat(MAX_STRING_LEN as usize + 1))]
+fn test_clarity_name_invalid(#[case] name: &str) {
     let result = ClarityName::try_from(name.to_string());
     assert!(result.is_err());
     assert!(matches!(
@@ -76,9 +77,10 @@ fn test_clarity_name_invalid(name: &str) {
     ));
 }
 
-#[test_case("test-name")]
-#[test_case(&"a".repeat(MAX_STRING_LEN as usize); "max-length")]
-fn test_clarity_name_serialization(name: &str) {
+#[rstest]
+#[case("test-name")]
+#[case::max_length(&"a".repeat(MAX_STRING_LEN as usize))]
+fn test_clarity_name_serialization(#[case] name: &str) {
     let name = ClarityName::try_from(name.to_string()).unwrap();
 
     let mut buffer = Vec::new();
@@ -95,59 +97,62 @@ fn test_clarity_name_serialization(name: &str) {
 }
 
 // the first byte is the length of the buffer.
-#[test_case(vec![4, 0xFF, 0xFE, 0xFD, 0xFC].as_slice(), "Failed to parse Clarity name: could not contruct from utf8"; "invalid_utf8")]
-#[test_case(vec![2, b'2', b'i'].as_slice(), "Failed to parse Clarity name: InvalidClarityName(\"ClarityName\", \"2i\")"; "invalid_name")] // starts with number
-#[test_case(vec![MAX_STRING_LEN + 1].as_slice(), "Failed to deserialize clarity name: too long"; "too_long")]
-#[test_case(vec![3, b'a'].as_slice(), "failed to fill whole buffer"; "wrong_length")]
-fn test_clarity_name_deserialization_errors<R: Read>(mut buffer: R, error_message: &str) {
-    let result = ClarityName::consensus_deserialize(&mut buffer);
+#[rstest]
+#[case::invalid_utf8(vec![4, 0xFF, 0xFE, 0xFD, 0xFC], "Failed to parse Clarity name: could not contruct from utf8")]
+#[case::invalid_name(vec![2, b'2', b'i'], "Failed to parse Clarity name: InvalidClarityName(\"ClarityName\", \"2i\")")] // starts with number
+#[case::too_long(vec![MAX_STRING_LEN + 1], "Failed to deserialize clarity name: too long")]
+#[case::wrong_length(vec![3, b'a'], "failed to fill whole buffer")]
+fn test_clarity_name_deserialization_errors(#[case] buffer: Vec<u8>, #[case] error_message: &str) {
+    let result = ClarityName::consensus_deserialize(&mut buffer.as_slice());
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().to_string(), error_message);
 }
 
-#[test_case("hello"; "valid_name")]
-#[test_case("contract-name"; "dash")]
-#[test_case("hello_world"; "underscore")]
-#[test_case("test123"; "numbers")]
-#[test_case("__transient"; "transient")]
-#[test_case("a"; "min_length")]
-#[test_case(&"a".repeat(CONTRACT_MAX_NAME_LENGTH); "max_length")]
-#[test_case(&"a".repeat(MAX_STRING_LEN as usize); "max_string_len")]
-fn test_contract_name_valid(name: &str) {
+#[rstest]
+#[case::valid_name("hello")]
+#[case::dash("contract-name")]
+#[case::underscore("hello_world")]
+#[case::numbers("test123")]
+#[case::transient("__transient")]
+#[case::min_length("a")]
+#[case::max_length(&"a".repeat(CONTRACT_MAX_NAME_LENGTH))]
+#[case::max_string_len(&"a".repeat(MAX_STRING_LEN as usize))]
+fn test_contract_name_valid(#[case] name: &str) {
     let contract_name = ContractName::try_from(name.to_string())
         .unwrap_or_else(|_| panic!("Should parse valid contract name: {name}"));
     assert_eq!(contract_name.as_str(), name);
 }
 
-#[test_case(""; "emtpy")]
-#[test_case("123contract"; "starts_with_number")]
-#[test_case("hello world"; "contains_space")]
-#[test_case("hello@world"; "contains_at")]
-#[test_case("hello.world"; "contains_dot")]
-#[test_case("hello!world"; "contains_exclamation")]
-#[test_case("hello?world"; "contains_question")]
-#[test_case("hello+world"; "contains_plus")]
-#[test_case("hello*world"; "contains_asterisk")]
-#[test_case("hello=world"; "contains_equals")]
-#[test_case("hello/world"; "contains_slash")]
-#[test_case("hello<world"; "contains_less_than")]
-#[test_case("hello>world"; "contains_greater_than")]
-#[test_case("hello,world"; "contains_comma")]
-#[test_case("hello;world"; "contains_semicolon")]
-#[test_case("hello:world"; "contains_colon")]
-#[test_case("hello|world"; "contains_pipe")]
-#[test_case("hello\\world"; "contains_backslash")]
-#[test_case("hello\"world"; "contains_quote")]
-#[test_case("hello'world"; "contains_apostrophe")]
-#[test_case("hello[world"; "contains_bracket_open")]
-#[test_case("hello]world"; "contains_bracket_close")]
-#[test_case("hello{world"; "contains_curly_open")]
-#[test_case("hello}world"; "contains_curly_close")]
-#[test_case("hello(world"; "contains_parenthesis_open")]
-#[test_case("hello)world"; "contains_parenthesis_close")]
-#[test_case(&"a".repeat(CONTRACT_MIN_NAME_LENGTH - 1); "too_short")]
-#[test_case(&"a".repeat(MAX_STRING_LEN as usize + 1); "too_long")]
-fn test_contract_name_invalid(name: &str) {
+#[rstest]
+#[case::empty("")]
+#[case::starts_with_number("123contract")]
+#[case::contains_space("hello world")]
+#[case::contains_at("hello@world")]
+#[case::contains_dot("hello.world")]
+#[case::contains_exclamation("hello!world")]
+#[case::contains_question("hello?world")]
+#[case::contains_plus("hello+world")]
+#[case::contains_asterisk("hello*world")]
+#[case::contains_equals("hello=world")]
+#[case::contains_slash("hello/world")]
+#[case::contains_less_than("hello<world")]
+#[case::contains_greater_than("hello>world")]
+#[case::contains_comma("hello,world")]
+#[case::contains_semicolon("hello;world")]
+#[case::contains_colon("hello:world")]
+#[case::contains_pipe("hello|world")]
+#[case::contains_backslash("hello\\world")]
+#[case::contains_quote("hello\"world")]
+#[case::contains_apostrophe("hello'world")]
+#[case::contains_bracket_open("hello[world")]
+#[case::contains_bracket_close("hello]world")]
+#[case::contains_curly_open("hello{world")]
+#[case::contains_curly_close("hello}world")]
+#[case::contains_parenthesis_open("hello(world")]
+#[case::contains_parenthesis_close("hello)world")]
+#[case::too_short(&"a".repeat(CONTRACT_MIN_NAME_LENGTH - 1))]
+#[case::too_long(&"a".repeat(MAX_STRING_LEN as usize + 1))]
+fn test_contract_name_invalid(#[case] name: &str) {
     let result = ContractName::try_from(name.to_string());
     assert!(result.is_err());
     assert!(matches!(
@@ -156,14 +161,15 @@ fn test_contract_name_invalid(name: &str) {
     ));
 }
 
-#[test_case("test-contract"; "valid_name")]
-#[test_case("contract-name"; "dash")]
-#[test_case("hello_world"; "underscore")]
-#[test_case("test123"; "numbers")]
-#[test_case("__transient"; "transient")]
-#[test_case("a"; "min_length")]
-#[test_case(&"a".repeat(CONTRACT_MAX_NAME_LENGTH); "max_length")]
-fn test_contract_name_serialization(name: &str) {
+#[rstest]
+#[case::valid_name("test-contract")]
+#[case::dash("contract-name")]
+#[case::underscore("hello_world")]
+#[case::numbers("test123")]
+#[case::transient("__transient")]
+#[case::min_length("a")]
+#[case::max_length(&"a".repeat(CONTRACT_MAX_NAME_LENGTH))]
+fn test_contract_name_serialization(#[case] name: &str) {
     let name = ContractName::try_from(name.to_string()).unwrap();
     let mut buffer = Vec::with_capacity((name.len() + 1) as usize);
     name.consensus_serialize(&mut buffer)
@@ -176,9 +182,10 @@ fn test_contract_name_serialization(name: &str) {
     assert_eq!(deserialized, name);
 }
 
-#[test_case(&"a".repeat(CONTRACT_MAX_NAME_LENGTH + 1); "too_long")]
-fn test_contract_name_serialization_too_long_or_short(name: &str) {
-    let name = ContractName::try_from(name.to_string()).expect("should parse");
+#[test]
+fn test_contract_name_serialization_too_long() {
+    let name =
+        ContractName::try_from("a".repeat(CONTRACT_MAX_NAME_LENGTH + 1)).expect("should parse");
     let mut buffer = Vec::with_capacity((name.len() + 1) as usize);
     let result = name.consensus_serialize(&mut buffer);
     assert!(result.is_err());
@@ -192,12 +199,13 @@ fn test_contract_name_serialization_too_long_or_short(name: &str) {
 }
 
 // the first byte is the length of the buffer.
-#[test_case(vec![4, 0xFF, 0xFE, 0xFD, 0xFC].as_slice(), "Failed to parse Contract name: could not construct from utf8"; "invalid_utf8")]
-#[test_case(vec![2, b'2', b'i'].as_slice(), "Failed to parse Contract name: InvalidContractName(\"ContractName\", \"2i\")"; "invalid_name")] // starts with number
-#[test_case(vec![MAX_STRING_LEN + 1].as_slice(), &format!("Failed to deserialize contract name: too short or too long: {}", MAX_STRING_LEN + 1); "too_long")]
-#[test_case(vec![3, b'a'].as_slice(), "failed to fill whole buffer"; "wrong_length")]
-fn test_contract_name_deserialization_errors<R: Read>(mut buffer: R, error_message: &str) {
-    let result = ContractName::consensus_deserialize(&mut buffer);
+#[rstest]
+#[case::invalid_utf8(vec![4, 0xFF, 0xFE, 0xFD, 0xFC], "Failed to parse Contract name: could not construct from utf8")]
+#[case::invalid_name(vec![2, b'2', b'i'], "Failed to parse Contract name: InvalidContractName(\"ContractName\", \"2i\")")] // starts with number
+#[case::too_long(vec![MAX_STRING_LEN + 1], &format!("Failed to deserialize contract name: too short or too long: {}", MAX_STRING_LEN + 1))]
+#[case::wrong_length(vec![3, b'a'], "failed to fill whole buffer")]
+fn test_contract_name_deserialization_errors(#[case] buffer: Vec<u8>, #[case] error_message: &str) {
+    let result = ContractName::consensus_deserialize(&mut buffer.as_slice());
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().to_string(), error_message);
 }
