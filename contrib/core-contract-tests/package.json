@@ -16,6 +16,7 @@
     "@clarigen/test": "2.1.3",
     "@hirosystems/clarinet-sdk": "2.16.0",
     "@stacks/clarunit": "0.0.1",
+    "@stacks/rendezvous": "^0.7.4",
     "@stacks/stacking": "^6.13.2",
     "@stacks/transactions": "^6.13.0",
     "chokidar-cli": "^3.0.0",
