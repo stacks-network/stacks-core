@@ -21,7 +21,7 @@ use serde_json;
 use super::test_rpc;
 use crate::net::api::getinfo::RPCPeerInfoData;
 use crate::net::connection::ConnectionOptions;
-use crate::net::httpcore::{HttpPreambleExtensions, StacksHttp, StacksHttpRequest};
+use crate::net::httpcore::{HttpPreambleExtensions as _, StacksHttp, StacksHttpRequest};
 use crate::net::ProtocolFamily;
 
 #[test]

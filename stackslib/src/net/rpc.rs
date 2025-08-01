@@ -28,7 +28,8 @@ use crate::monitoring;
 use crate::net::connection::{ConnectionHttp, ConnectionOptions, ReplyHandleHttp};
 use crate::net::http::HttpResponseContents;
 use crate::net::httpcore::{
-    StacksHttp, StacksHttpMessage, StacksHttpRequest, StacksHttpResponse, HTTP_REQUEST_ID_RESERVED,
+    HttpPreambleExtensions as _, StacksHttp, StacksHttpMessage, StacksHttpRequest,
+    StacksHttpResponse, HTTP_REQUEST_ID_RESERVED,
 };
 use crate::net::{Error as net_error, StacksMessageType, StacksNodeState};
 use crate::util_lib::strings::UrlString;
@@ -228,6 +229,12 @@ impl ConversationHttp {
 
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let relay_msg_opt = node.take_relay_message();
+
+        // All successful RPC responses MUST include the canonical stacks tip height header.
+        if response_preamble.is_success() {
+            response_preamble
+                .set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+        }
 
         // make sure content-length is properly set, based on how we're about to stream data back
         response_preamble.content_length = response_body.content_length();

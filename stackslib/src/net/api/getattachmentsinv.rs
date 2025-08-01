@@ -29,9 +29,7 @@ use crate::net::http::{
     HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
     HttpResponsePreamble,
 };
-use crate::net::httpcore::{
-    HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
-};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
 
 #[derive(Clone)]
@@ -214,8 +212,7 @@ impl RPCRequestHandler for RPCGetAttachmentsInvRequestHandler {
             pages,
         };
 
-        let mut preamble = HttpResponsePreamble::ok_json(&preamble);
-        preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+        let preamble = HttpResponsePreamble::ok_json(&preamble);
         let body = HttpResponseContents::try_from_json(&content)?;
         Ok((preamble, body))
     }

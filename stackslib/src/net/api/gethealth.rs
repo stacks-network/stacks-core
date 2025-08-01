@@ -26,9 +26,7 @@ use crate::net::http::{
     parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
     HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{
-    HttpPreambleExtensions as _, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
-};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{
     infer_initial_burnchain_block_download, Error as NetError, NeighborAddress, StacksNodeState,
 };
@@ -234,8 +232,7 @@ impl RPCRequestHandler for RPCGetHealthRequestHandler {
                     let difference_from_max_peer =
                         max_stacks_height_of_neighbors.saturating_sub(node_stacks_tip_height);
 
-                    let mut preamble = HttpResponsePreamble::ok_json(&preamble);
-                    preamble.set_canonical_stacks_tip_height(Some(network.burnchain_tip.canonical_stacks_tip_height));
+                    let preamble = HttpResponsePreamble::ok_json(&preamble);
                     let data = RPCGetHealthResponse {
                         difference_from_max_peer,
                         max_stacks_height_of_neighbors,

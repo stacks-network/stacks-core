@@ -33,9 +33,7 @@ use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{
-    HttpPreambleExtensions as _, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
-};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
 use crate::util_lib::db::Error as DBError;
 
@@ -407,8 +405,7 @@ impl RPCRequestHandler for GetSortitionHandler {
             }
         }
 
-        let mut preamble = HttpResponsePreamble::ok_json(&preamble);
-        preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+        let preamble = HttpResponsePreamble::ok_json(&preamble);
         let result = HttpResponseContents::try_from_json(&info_list)?;
         Ok((preamble, result))
     }

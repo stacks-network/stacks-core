@@ -24,9 +24,7 @@ use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{
-    request, HttpPreambleExtensions as _, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
-};
+use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
 
 #[derive(Clone)]
@@ -133,8 +131,7 @@ impl RPCRequestHandler for RPCNakamotoTenureTipRequestHandler {
             }
         };
 
-        let mut preamble = HttpResponsePreamble::ok_json(&preamble);
-        preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+        let preamble = HttpResponsePreamble::ok_json(&preamble);
         let body = HttpResponseContents::try_from_json(&tenure_tip)?;
         Ok((preamble, body))
     }

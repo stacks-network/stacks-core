@@ -233,8 +233,7 @@ impl RPCRequestHandler for RPCPeerInfoRequestHandler {
             }
         };
 
-        let mut preamble = HttpResponsePreamble::ok_json(&preamble);
-        preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+        let preamble = HttpResponsePreamble::ok_json(&preamble);
         let body = HttpResponseContents::try_from_json(&rpc_peer_info)?;
         Ok((preamble, body))
     }

@@ -26,7 +26,7 @@ use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::Error as HttpError;
 use crate::net::httpcore::{
-    HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp,
+    HttpPreambleExtensions as _, HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttp,
     StacksHttpRequest,
 };
 use crate::net::{ProtocolFamily, TipRequest};

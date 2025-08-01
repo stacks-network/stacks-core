@@ -22,7 +22,7 @@ use super::test_rpc;
 use crate::net::api::getpoxinfo;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
-    HttpPreambleExtensions, HttpRequestContentsExtensions, StacksHttp, StacksHttpRequest,
+    HttpPreambleExtensions as _, HttpRequestContentsExtensions as _, StacksHttp, StacksHttpRequest,
 };
 use crate::net::{ProtocolFamily, TipRequest};
 

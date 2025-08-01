@@ -57,7 +57,8 @@ use crate::net::atlas::{Attachment, AttachmentInstance};
 use crate::net::http::error::{HttpNotFound, HttpServerError};
 use crate::net::http::{Error as HttpErr, HttpRequestContents, HttpRequestPreamble};
 use crate::net::httpcore::{
-    HttpRequestContentsExtensions, StacksHttp, StacksHttpRequest, StacksHttpResponse, TipRequest,
+    HttpRequestContentsExtensions as _, StacksHttp, StacksHttpRequest, StacksHttpResponse,
+    TipRequest,
 };
 use crate::net::p2p::{PeerNetwork, PendingMessages};
 use crate::util_lib::db::{DBConn, Error as db_error};

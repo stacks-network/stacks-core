@@ -25,7 +25,7 @@ use super::{test_rpc, test_rpc_with_config};
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
-    HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp,
+    HttpPreambleExtensions as _, HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttp,
     StacksHttpRequest,
 };
 use crate::net::{ProtocolFamily, TipRequest};
