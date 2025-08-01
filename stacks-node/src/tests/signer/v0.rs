@@ -175,31 +175,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         // Note, we don't use `nakamoto_blocks_mined` counter, because there
         // could be other miners mining blocks.
         info!("Waiting for first Epoch 3.0 tenure to start");
-        let info = get_chain_info(&self.running_nodes.conf);
-        next_block_and(&self.running_nodes.btc_regtest_controller, 30, || {
-            Ok(get_chain_info(&self.running_nodes.conf).burn_block_height > info.burn_block_height)
-        })
-        .unwrap();
-        let info = get_chain_info(&self.running_nodes.conf);
-        info!(
-            "Waiting for signers to agree on expected tenure id: {}",
-            info.pox_consensus
-        );
-        let res = wait_for_state_machine_update_by_miner_tenure_id(
-            30,
-            &info.pox_consensus,
-            &self.signer_addresses_versions(),
-        );
-        if res.is_err() {
-            warn!("Signer updates failed to update but attempting to continue test anyway");
-        }
-        TEST_MINE_SKIP.set(false);
-        let height_before = info.stacks_tip_height;
-        info!("Waiting for first Nakamoto block: {}", height_before + 1);
-        wait_for(30, || {
-            Ok(get_chain_info(&self.running_nodes.conf).stacks_tip_height > height_before)
-        })
-        .expect("Timed out waiting for first Nakamoto block after 3.0 boundary");
+        self.mine_nakamoto_block(Duration::from_secs(60), false);
         info!("Ready to mine Nakamoto blocks!");
     }
 }

@@ -70,6 +70,7 @@ use super::nakamoto_integrations::{
 use super::neon_integrations::{
     copy_dir_all, get_account, get_sortition_info_ch, submit_tx_fallible, Account,
 };
+use crate::nakamoto_node::miner::TEST_MINE_SKIP;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
@@ -80,6 +81,7 @@ use crate::tests::neon_integrations::{
     get_chain_info, next_block_and_wait, run_until_burnchain_height, test_observer,
     wait_for_runloop,
 };
+use crate::tests::signer::v0::wait_for_state_machine_update_by_miner_tenure_id;
 use crate::tests::to_addr;
 use crate::BitcoinRegtestController;
 
@@ -1101,23 +1103,59 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// Mine a BTC block and wait for a new Stacks block to be mined
     /// Note: do not use nakamoto blocks mined heuristic if running a test with multiple miners
     fn mine_nakamoto_block(&self, timeout: Duration, use_nakamoto_blocks_mined: bool) {
-        let mined_block_time = Instant::now();
-        let mined_before = self.running_nodes.counters.naka_mined_blocks.get();
-        let info_before = self.get_peer_info();
+        let info_before = get_chain_info(&self.running_nodes.conf);
+        info!("Pausing stacks block mining");
+        TEST_MINE_SKIP.set(true);
 
+        let Counters {
+            naka_submitted_commits: commits_submitted,
+            naka_submitted_commit_last_burn_height: commits_last_burn_height,
+            naka_submitted_commit_last_stacks_tip: commits_last_stacks_tip,
+            naka_mined_blocks: mined_blocks,
+            ..
+        } = self.running_nodes.counters.clone();
+
+        let commits_before = commits_submitted.load(Ordering::SeqCst);
+        let commit_burn_height_before = commits_last_burn_height.load(Ordering::SeqCst);
+        let commits_stacks_tip_before = commits_last_stacks_tip.load(Ordering::SeqCst);
+        let mined_before = mined_blocks.load(Ordering::SeqCst);
+
+        let mined_btc_block_time = Instant::now();
         next_block_and(
             &self.running_nodes.btc_regtest_controller,
             timeout.as_secs(),
-            || {
-                let info_after = self.get_peer_info();
-                let blocks_mined = self.running_nodes.counters.naka_mined_blocks.get();
-                Ok(info_after.stacks_tip_height > info_before.stacks_tip_height
-                    && (!use_nakamoto_blocks_mined || blocks_mined > mined_before))
-            },
+            || Ok(self.get_peer_info().burn_block_height > info_before.burn_block_height),
         )
         .unwrap();
-        let mined_block_elapsed_time = mined_block_time.elapsed();
-        info!("Nakamoto block mine time elapsed: {mined_block_elapsed_time:?}");
+        info!(
+            "Bitcoin block mine time elapsed: {:?}",
+            mined_btc_block_time.elapsed()
+        );
+        wait_for_state_machine_update_by_miner_tenure_id(
+            timeout.as_secs(),
+            &get_chain_info(&self.running_nodes.conf).pox_consensus,
+            &self.signer_addresses_versions(),
+        )
+        .expect("Failed to update signer state machine");
+
+        info!("Unpausing stacks block mining");
+        let mined_block_time = Instant::now();
+        TEST_MINE_SKIP.set(false);
+        // Ensure that the tenure change transaction is mined and that the subsequent block commit confirms it
+        wait_for(timeout.as_secs(), || {
+            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before
+                && commits_last_burn_height.load(Ordering::SeqCst) >= commit_burn_height_before
+                && commits_last_stacks_tip.load(Ordering::SeqCst) >= commits_stacks_tip_before
+                && get_chain_info(&self.running_nodes.conf).stacks_tip_height
+                    > info_before.stacks_tip_height
+                && (!use_nakamoto_blocks_mined
+                    || mined_blocks.load(Ordering::SeqCst) > mined_before))
+        })
+        .expect("Failed to mine Tenure Change block");
+        info!(
+            "Nakamoto block mine time elapsed: {:?}",
+            mined_block_time.elapsed()
+        );
     }
 
     fn mine_block_wait_on_processing(
