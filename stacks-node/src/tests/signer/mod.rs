@@ -17,7 +17,7 @@ mod commands;
 pub mod multiversion;
 pub mod v0;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1134,7 +1134,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         wait_for_state_machine_update_by_miner_tenure_id(
             timeout.as_secs(),
             &get_chain_info(&self.running_nodes.conf).pox_consensus,
-            &self.signer_addresses_versions(),
+            &self.signer_addresses_versions_majority(),
         )
         .expect("Failed to update signer state machine");
 
@@ -1381,7 +1381,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .collect()
     }
 
-    /// Get the signer addresses and corresponding versions
+    /// Get the signer addresses and corresponding versions configured versions
     pub fn signer_addresses_versions(&self) -> Vec<(StacksAddress, u64)> {
         self.signer_stacks_private_keys
             .iter()
@@ -1393,6 +1393,33 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                 )
             })
             .collect()
+    }
+
+    /// Get the signer addresses and corresponding majority versions
+    pub fn signer_addresses_versions_majority(&self) -> Vec<(StacksAddress, u64)> {
+        let mut signer_address_versions = self.signer_addresses_versions();
+        let majority = (signer_address_versions.len() * 7 / 10) as u64;
+        let mut protocol_versions = HashMap::new();
+        for (_, version) in &self.signer_addresses_versions() {
+            let entry = protocol_versions.entry(*version).or_insert_with(|| 0);
+            *entry += 1;
+        }
+
+        // find the highest version number supported by a threshold number of signers
+        let mut protocol_versions: Vec<_> = protocol_versions.into_iter().collect();
+        protocol_versions.sort_by_key(|(version, _)| *version);
+        let mut total_weight_support = 0;
+        for (version, weight_support) in protocol_versions.into_iter().rev() {
+            total_weight_support += weight_support;
+            if total_weight_support > majority {
+                // We need to actually overwrite the versions passed in since the signers will go with the majority value if they can
+                signer_address_versions
+                    .iter_mut()
+                    .for_each(|(_, v)| *v = version);
+                break;
+            }
+        }
+        signer_address_versions
     }
 
     /// Get the signer public keys for the given reward cycle
