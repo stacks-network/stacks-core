@@ -14,32 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::{Read, Seek, SeekFrom};
-
 use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::Value;
 use regex::{Captures, Regex};
 use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId, TrieHash};
-use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
+use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::Txid;
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoStagingBlocksConn};
+use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::events::{
-    StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
-};
+use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction};
 use crate::net::http::{
-    parse_bytes, Error, HttpChunkGenerator, HttpContentType, HttpNotFound, HttpRequest,
-    HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
-    HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+    parse_bytes, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
+    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
 
 #[derive(Clone)]
