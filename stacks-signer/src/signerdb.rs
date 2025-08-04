@@ -1732,6 +1732,15 @@ impl SignerDb {
         Ok(())
     }
 
+    #[cfg(any(test, feature = "testing"))]
+    /// Clear out signer state machine updates for testing purposes ONLY.
+    pub fn clear_state_machine_updates(&mut self) -> Result<(), DBError> {
+        debug!("Clearing all updates.");
+        self.db
+            .execute("DELETE FROM signer_state_machine_updates", params![])?;
+        Ok(())
+    }
+
     /// Get the most recent signer states from the signer state machine for the given reward cycle
     pub fn get_signer_state_machine_updates(
         &mut self,

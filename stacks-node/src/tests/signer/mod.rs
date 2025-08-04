@@ -1489,6 +1489,35 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         }
     }
 
+    /// Kills the signer runloop at index `signer_idx`
+    ///  and returns GlobalConfig of the killed signer
+    ///
+    /// # Panics
+    /// Panics if `signer_idx` is out of bounds
+    fn stop_signer(&mut self, signer_idx: usize) -> stacks_signer::config::GlobalConfig {
+        let running_signer = self.spawned_signers.remove(signer_idx);
+        let _signer_key = self.signer_stacks_private_keys.remove(signer_idx);
+        let signer_config = self.signer_configs.remove(signer_idx);
+        running_signer.stop();
+        signer_config
+    }
+
+    /// (Re)starts a new signer runloop with the given private key and adds it to the list
+    /// of running signers, updating the list of signer_stacks_private_keys and signer_configs
+    fn restart_signer(
+        &mut self,
+        signer_idx: usize,
+        signer_config: stacks_signer::config::GlobalConfig,
+    ) {
+        info!("Restarting signer");
+        self.signer_stacks_private_keys
+            .insert(signer_idx, signer_config.stacks_private_key.clone());
+        self.signer_configs
+            .insert(signer_idx, signer_config.clone());
+        self.spawned_signers
+            .insert(signer_idx, Z::new(signer_config));
+    }
+
     /// Get the latest block response from the given slot
     pub fn get_latest_block_response(&self, slot_id: u32) -> BlockResponse {
         let mut stackerdb = StackerDB::new_normal(
