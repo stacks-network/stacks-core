@@ -188,8 +188,6 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
                         &parent_block_id,
                         &block_id,
                         |clarity_tx| {
-                            //let mut clarity_tx = chainstate.block_begin(&burn_dbconn, parent_consensus_hash, parent_block, &block.header.consensus_hash, &block.header.block_hash());
-
                             let (block_fees, txs_receipts) =
                                 match StacksChainState::process_block_transactions(
                                     clarity_tx,
