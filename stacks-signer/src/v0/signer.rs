@@ -717,9 +717,27 @@ impl Signer {
         sortition_state: &mut Option<SortitionsView>,
         block: &NakamotoBlock,
     ) -> Option<BlockResponse> {
+        // First update our global state evaluator with our local state if we have one
+        let local_version = self.get_signer_protocol_version();
+        if let Ok(update) = self
+            .local_state_machine
+            .try_into_update_message_with_version(local_version)
+        {
+            self.global_state_evaluator
+                .insert_update(self.stacks_address, update);
+        };
         let Some(latest_version) = self
             .global_state_evaluator
             .determine_latest_supported_signer_protocol_version()
+            .or_else(|| {
+                // Don't default if we are in a global consensus activation state as its pointless
+                if SortitionStateVersion::from_protocol_version(local_version).uses_global_state() {
+                    None
+                } else {
+                    warn!("{self}: No consensus on signer protocol version. Defaulting to local state version: {local_version}.");
+                    Some(local_version)
+                }
+            })
         else {
             warn!(
                 "{self}: No consensus on signer protocol version. Unable to validate block. Rejecting.";
@@ -807,16 +825,6 @@ impl Signer {
     ) -> Option<BlockResponse> {
         let signer_signature_hash = block.header.signer_signature_hash();
         let block_id = block.block_id();
-        // First update our global state evaluator with our local state if we have one
-        let version = self.get_signer_protocol_version();
-        if let Ok(update) = self
-            .local_state_machine
-            .try_into_update_message_with_version(version)
-        {
-            self.global_state_evaluator
-                .insert_update(self.stacks_address, update);
-        };
-
         let Some(global_state) = self.global_state_evaluator.determine_global_state() else {
             warn!(
                 "{self}: Cannot validate block, no global signer state";
