@@ -17627,9 +17627,11 @@ fn rollover_signer_protocol_version() {
         .collect();
     TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(pinned_signers_versions);
 
-    info!("------------------------- Confirm Signers Sign The Block After Complete Downgraded Version Number -------------------------");
-    signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);
-
+    // Not strictly necessary, but makes it easier to logic out if miner doesn't send a proposal until signers are on same page...
+    TEST_MINE_SKIP.set(true);
+    info!("------------------------- Confirm Signers Sent Downgraded State Machine Updates -------------------------");
+    // Cannot use any built in functions that call mine_nakamoto_block since it expects signer updates matching the majority version and we are manually messing with these versions
+    signer_test.mine_bitcoin_block();
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     let burn_consensus_hash = tip.consensus_hash;
     let burn_height = tip.block_height;
@@ -17647,6 +17649,16 @@ fn rollover_signer_protocol_version() {
         &downgraded_versions,
     )
     .expect("Timed out waiting for signers to send their state update for block N+2");
+
+    let info = signer_test.get_peer_info();
+    info!("------------------------- Confirm Signers Sign The Block After Complete Downgraded Version Number -------------------------");
+    TEST_MINE_SKIP.set(false);
+    let expected_miner =
+        StacksPublicKey::from_private(&signer_test.running_nodes.conf.miner.mining_key.unwrap());
+    let block = wait_for_block_pushed_by_miner_key(60, info.stacks_tip_height + 1, &expected_miner)
+        .expect("Failed to mine block after downgraded version number.");
+    // Expect ALL signers even after downgrade to approve the proposed blocks
+    wait_for_block_acceptance_from_signers(30, &block.header.signer_signature_hash(), &all_signers);
 
     info!("------------------------- Reset All Signers to {SUPPORTED_SIGNER_PROTOCOL_VERSION} -------------------------");
     TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(HashMap::new());
