@@ -1117,7 +1117,6 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         let commit_burn_height_before = commits_last_burn_height.load(Ordering::SeqCst);
-        let commits_stacks_tip_before = commits_last_stacks_tip.load(Ordering::SeqCst);
         let mined_before = mined_blocks.load(Ordering::SeqCst);
 
         let mined_btc_block_time = Instant::now();
@@ -1141,17 +1140,23 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         info!("Unpausing stacks block mining");
         let mined_block_time = Instant::now();
         TEST_MINE_SKIP.set(false);
-        // Ensure that the tenure change transaction is mined and that the subsequent block commit confirms it
+        // Do these wait for's in two steps not only for increased timeout but for easier debugging.
+        // Ensure that the tenure change transaction is mined
         wait_for(timeout.as_secs(), || {
-            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before
-                && commits_last_burn_height.load(Ordering::SeqCst) > commit_burn_height_before
-                && commits_last_stacks_tip.load(Ordering::SeqCst) > commits_stacks_tip_before
-                && get_chain_info(&self.running_nodes.conf).stacks_tip_height
-                    > info_before.stacks_tip_height
+            Ok(get_chain_info(&self.running_nodes.conf).stacks_tip_height
+                > info_before.stacks_tip_height
                 && (!use_nakamoto_blocks_mined
                     || mined_blocks.load(Ordering::SeqCst) > mined_before))
         })
         .expect("Failed to mine Tenure Change block");
+        // Ensure the subsequent block commit confirms the previous Tenure Change block
+        let stacks_tip_height = get_chain_info(&self.running_nodes.conf).stacks_tip_height;
+        wait_for(timeout.as_secs(), || {
+            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before
+                && commits_last_burn_height.load(Ordering::SeqCst) > commit_burn_height_before
+                && commits_last_stacks_tip.load(Ordering::SeqCst) >= stacks_tip_height)
+        })
+        .expect("Failed to update Block Commit");
         info!(
             "Nakamoto block mine time elapsed: {:?}",
             mined_block_time.elapsed()

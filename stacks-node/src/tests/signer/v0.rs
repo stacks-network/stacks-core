@@ -17658,7 +17658,8 @@ fn rollover_signer_protocol_version() {
     let block = wait_for_block_pushed_by_miner_key(60, info.stacks_tip_height + 1, &expected_miner)
         .expect("Failed to mine block after downgraded version number.");
     // Expect ALL signers even after downgrade to approve the proposed blocks
-    wait_for_block_acceptance_from_signers(30, &block.header.signer_signature_hash(), &all_signers);
+    wait_for_block_acceptance_from_signers(30, &block.header.signer_signature_hash(), &all_signers)
+        .expect("Failed to confirm all signers accepted last block");
 
     info!("------------------------- Reset All Signers to {SUPPORTED_SIGNER_PROTOCOL_VERSION} -------------------------");
     TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(HashMap::new());
