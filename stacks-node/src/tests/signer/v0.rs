@@ -785,8 +785,11 @@ impl MultipleMinerTest {
             .unwrap()
             .block_height;
 
+        debug!("HERE Building {nmb_blocks} BTC blocks.");
         self.btc_regtest_controller_mut()
             .build_next_block(nmb_blocks);
+
+        debug!("HERE Waiting to for burn chain tip to advance {nmb_blocks} blocks.");
         wait_for(timeout_secs, || {
             let burn_block = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                 .unwrap()
@@ -795,6 +798,10 @@ impl MultipleMinerTest {
                 && self.get_peer_info().burn_block_height >= burn_block_before + nmb_blocks)
         })?;
         let peer_after = self.get_peer_info();
+        debug!(
+            "HERE Waiting for updates for burn block {} with block height {}.",
+            peer_after.pox_consensus, peer_after.burn_block_height
+        );
         wait_for_state_machine_update(
             timeout_secs,
             &peer_after.pox_consensus,
@@ -1841,33 +1848,12 @@ fn miner_gather_signatures() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
-    let miner_pk = StacksPublicKey::from_private(&miner_sk);
-    let miner_pkh = Hash160::from_node_public_key(&miner_pk);
 
     signer_test.boot_to_epoch_3();
 
     info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
     TEST_MINE_SKIP.set(true);
-    let info_before = get_chain_info(&signer_test.running_nodes.conf);
-    next_block_and(
-        &signer_test.running_nodes.btc_regtest_controller,
-        30,
-        || {
-            let info = get_chain_info(&signer_test.running_nodes.conf);
-            Ok(info.burn_block_height > info_before.burn_block_height)
-        },
-    )
-    .expect("Failed to process bitcoin block");
-    let info_after = get_chain_info(&signer_test.running_nodes.conf);
-    wait_for_state_machine_update(
-        30,
-        &info_after.pox_consensus,
-        info_after.burn_block_height,
-        Some((miner_pkh, info_before.stacks_tip_height)),
-        &signer_test.signer_addresses_versions(),
-    )
-    .expect("Failed to update state machine");
+    signer_test.mine_bitcoin_block();
     TEST_MINE_SKIP.set(false);
     signer_test.check_signer_states_normal();
 
@@ -7079,17 +7065,7 @@ fn empty_tenure_delayed() {
     } = signer_test.running_nodes.counters.clone();
 
     info!("------------------------- Test Mine Regular Tenure A  -------------------------");
-    let info_before = signer_test.get_peer_info();
-    // Mine a regular tenure, but wait for commits to be submitted
-    next_block_and(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || {
-            let info = signer_test.get_peer_info();
-            Ok(info.stacks_tip_height > info_before.stacks_tip_height)
-        },
-    )
-    .unwrap();
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
     signer_test.check_signer_states_normal();
 
     info!("------------------------- Test Mine Empty Tenure B  -------------------------");
@@ -7251,7 +7227,6 @@ fn empty_sortition_before_approval() {
     .expect("Timed out waiting for commit to be submitted for Tenure A");
 
     let info = get_chain_info(&signer_test.running_nodes.conf);
-    let burn_height_before = info.burn_block_height;
     let stacks_height_before = info.stacks_tip_height;
 
     info!("Forcing miner to ignore signatures for next block");
@@ -7274,15 +7249,7 @@ fn empty_sortition_before_approval() {
     info!("------------------------- Test Mine Empty Tenure B  -------------------------");
 
     // Trigger an empty tenure
-    next_block_and(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || {
-            let burn_height = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
-            Ok(burn_height == burn_height_before + 2)
-        },
-    )
-    .expect("Failed to mine empty tenure");
+    signer_test.mine_bitcoin_block();
     signer_test.check_signer_states_normal_missed_sortition();
 
     info!("Unpause block commits");
@@ -10530,19 +10497,10 @@ fn block_commit_delay() {
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(all_signers);
 
     info!("------------------------- Test Mine Burn Block  -------------------------");
-    let burn_height_before = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
     let commits_before = commits_submitted.load(Ordering::SeqCst);
 
     // Mine a burn block and wait for it to be processed.
-    next_block_and(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || {
-            let burn_height = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
-            Ok(burn_height > burn_height_before)
-        },
-    )
-    .unwrap();
+    signer_test.mine_bitcoin_block();
 
     // Sleep an extra minute to ensure no block commits are sent
     sleep_ms(60_000);
@@ -11105,17 +11063,7 @@ fn new_tenure_while_validating_previous_scenario() {
 
     info!("----- Mining a new BTC block -----");
     TEST_MINE_SKIP.set(true);
-    next_block_and(
-        &signer_test.running_nodes.btc_regtest_controller,
-        30,
-        || {
-            Ok(
-                get_chain_info(&signer_test.running_nodes.conf).burn_block_height
-                    > info_before.burn_block_height,
-            )
-        },
-    )
-    .unwrap();
+    signer_test.mine_bitcoin_block();
 
     let info = signer_test.get_peer_info();
     wait_for_state_machine_update_by_miner_tenure_id(
@@ -11853,17 +11801,7 @@ fn global_acceptance_depends_on_block_announcement() {
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(Vec::new());
     TEST_IGNORE_SIGNERS.set(false);
     test_observer::clear();
-    next_block_and(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || {
-            Ok(
-                get_chain_info(&signer_test.running_nodes.conf).burn_block_height
-                    > info_before.burn_block_height,
-            )
-        },
-    )
-    .unwrap();
+    signer_test.mine_bitcoin_block();
 
     let info = get_chain_info(&signer_test.running_nodes.conf);
     info!(
@@ -13167,16 +13105,8 @@ fn reorg_attempts_activity_timeout_exceeded() {
 
     info!("------------------------- Start Tenure B  -------------------------");
     test_observer::clear();
-    let chain_before = get_chain_info(&signer_test.running_nodes.conf);
-    next_block_and(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || {
-            let chain_info = get_chain_info(&signer_test.running_nodes.conf);
-            Ok(chain_info.burn_block_height > chain_before.burn_block_height)
-        },
-    )
-    .unwrap();
+    let chain_before = chain_after;
+    signer_test.mine_bitcoin_block();
     let chain_after = get_chain_info(&signer_test.running_nodes.conf);
     wait_for_state_machine_update_by_miner_tenure_id(
         30,
@@ -13977,14 +13907,8 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         get_chain_info(&conf_1).stacks_tip_height,
         block_n_height + 3
     );
-    let burn_height_before = get_chain_info(&conf_1).burn_block_height;
     info!("------------------------- Miner 1 Wins the Next Tenure, Mines N+1', got rejected -------------------------");
-    next_block_and(miners.btc_regtest_controller_mut(), 30, || {
-        let info = get_chain_info(&conf_1);
-        Ok(info.burn_block_height == burn_height_before + 1)
-    })
-    .expect("Failed to advance chain tip");
-
+    miners.signer_test.mine_bitcoin_block();
     // assure we have a successful sortition that miner 1 won
     verify_sortition_winner(&sortdb, &miner_pkh_1);
     // wait for a block N+1' proposal from miner1
@@ -15503,6 +15427,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
 
     info!("------------------------- Miner 1 Mines a Nakamoto Block N -------------------------");
     let info_before = get_chain_info(&conf_1);
+    // Because rl1 is not submitting commits, we cannot use mine_nakamoto_block (commit will never advance)
     next_block_and(&miners.btc_regtest_controller_mut(), 30, || {
         let chain_info = get_chain_info(&conf_1);
         Ok(chain_info.stacks_tip_height > info_before.stacks_tip_height)
@@ -15532,12 +15457,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
     fault_injection_stall_miner();
 
     info!("------------------------- Mine 2 wins the Next Tenure -------------------------");
-    let info_before = info_after;
-    next_block_and(&miners.btc_regtest_controller_mut(), 30, || {
-        let chain_info = get_chain_info(&conf_1);
-        Ok(chain_info.burn_block_height > info_before.burn_block_height)
-    })
-    .expect("Failed to build BTC block");
+    miners.signer_test.mine_bitcoin_block();
     verify_sortition_winner(&sortdb, &miner_pkh_2);
     miners.signer_test.check_signer_states_normal();
 
@@ -15559,12 +15479,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
 
     info!("------------------------- Miner 1 Wins the Next Tenure, Mines N+1' -------------------------");
     test_observer::clear();
-    let info_before = info_after;
-    next_block_and(&miners.btc_regtest_controller_mut(), 30, || {
-        let chain_info = get_chain_info(&conf_1);
-        Ok(chain_info.burn_block_height > info_before.burn_block_height)
-    })
-    .expect("Failed to build BTC block");
+    miners.signer_test.mine_bitcoin_block();
 
     let block_n_1_prime = wait_for_block_proposal(30, block_n_height + 1, &miner_pk_1)
         .expect("Failed to get block proposal N+1'");
@@ -17174,16 +17089,7 @@ fn burn_block_height_behavior() {
     skip_commit_op.set(true);
 
     // Mine a regular tenure
-    let info_before = signer_test.get_peer_info();
-    next_block_and(
-        &signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || {
-            let chain_info = get_chain_info(&signer_test.running_nodes.conf);
-            Ok(chain_info.stacks_tip_height > info_before.stacks_tip_height)
-        },
-    )
-    .expect("Timed out waiting for block");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     let info = get_chain_info(&signer_test.running_nodes.conf);
     let stacks_height_before = info.stacks_tip_height;
@@ -18302,14 +18208,9 @@ fn signer_loads_stackerdb_updates_on_startup() {
     skip_commit_op_rl1.set(true);
 
     info!("------------------------- Miner A Wins Tenure A -------------------------");
-    let info_before = get_chain_info(&conf_1);
     // Let's not mine anything until we see consensus on new tenure start.
     TEST_MINE_SKIP.set(true);
-    next_block_and(&miners.btc_regtest_controller_mut(), 60, || {
-        let info = get_chain_info(&conf_1);
-        Ok(info.burn_block_height > info_before.burn_block_height)
-    })
-    .unwrap();
+    miners.signer_test.mine_bitcoin_block();
     let chain_after = get_chain_info(&conf_1);
     wait_for_state_machine_update_by_miner_tenure_id(
         30,
@@ -18335,14 +18236,9 @@ fn signer_loads_stackerdb_updates_on_startup() {
 
     info!("------------------------- Miner B Wins Tenure B -------------------------");
     miners.submit_commit_miner_2(&sortdb);
-    let chain_before = get_chain_info(&conf_1);
     // Let's not mine anything until we see consensus on new tenure start.
     TEST_MINE_SKIP.set(true);
-    next_block_and(&miners.btc_regtest_controller_mut(), 60, || {
-        let info = get_chain_info(&conf_1);
-        Ok(info.burn_block_height > chain_before.burn_block_height)
-    })
-    .unwrap();
+    miners.signer_test.mine_bitcoin_block();
     let chain_after = get_chain_info(&conf_1);
     wait_for_state_machine_update_by_miner_tenure_id(
         30,
