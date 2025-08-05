@@ -183,6 +183,10 @@ pub enum BitcoinRpcClientError {
     Rpc(RpcError),
     // JSON serialization errors
     Serialization(serde_json::Error),
+    // Bitcoin serialization errors
+    BitcoinSerialization(stacks_common::deps_common::bitcoin::network::serialize::Error),
+    // Hex conversion errors
+    Hex(stacks_common::util::HexError),
 }
 
 impl From<RpcError> for BitcoinRpcClientError {
@@ -194,6 +198,20 @@ impl From<RpcError> for BitcoinRpcClientError {
 impl From<serde_json::Error> for BitcoinRpcClientError {
     fn from(err: serde_json::Error) -> Self {
         BitcoinRpcClientError::Serialization(err)
+    }
+}
+
+impl From<stacks_common::deps_common::bitcoin::network::serialize::Error>
+    for BitcoinRpcClientError
+{
+    fn from(err: stacks_common::deps_common::bitcoin::network::serialize::Error) -> Self {
+        BitcoinRpcClientError::BitcoinSerialization(err)
+    }
+}
+
+impl From<stacks_common::util::HexError> for BitcoinRpcClientError {
+    fn from(err: stacks_common::util::HexError) -> Self {
+        BitcoinRpcClientError::Hex(err)
     }
 }
 

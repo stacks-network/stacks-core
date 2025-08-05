@@ -17,6 +17,7 @@
 
 use std::env;
 
+use stacks::burnchains::Txid;
 use stacks::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
 
 use crate::burnchains::rpc::bitcoin_rpc_client::{
@@ -331,10 +332,13 @@ fn test_get_raw_transaction_ok() {
         .send_to_address(&address, 2.0)
         .expect("send to address ok!");
 
+    let txid = Txid::from_hex(&txid).unwrap();
+
     let raw_tx = client
         .get_raw_transaction(&txid)
         .expect("get raw transaction ok!");
-    assert_ne!("", raw_tx);
+
+    assert_eq!(txid.to_string(), raw_tx.txid().to_string());
 }
 
 #[ignore]

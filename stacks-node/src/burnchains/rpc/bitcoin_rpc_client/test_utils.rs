@@ -16,6 +16,10 @@
 //! Test-only utilities for [`BitcoinRpcClient`]
 
 use serde_json::Value;
+use stacks::burnchains::Txid;
+use stacks::util::hash::hex_bytes;
+use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
 
 use crate::burnchains::rpc::bitcoin_rpc_client::{BitcoinRpcClient, BitcoinRpcClientResult};
 
@@ -58,20 +62,25 @@ impl BitcoinRpcClient {
             .send(&self.client_id, "getblockchaininfo", vec![])?)
     }
 
-    /// Retrieves the raw hex-encoded transaction by its ID.
+    /// Retrieves and deserializes a raw Bitcoin transaction by its ID.
     ///
     /// # Arguments
-    /// * `txid` - Transaction ID (hash) to fetch.
+    /// * `txid` - Transaction ID to fetch.
     ///
     /// # Returns
-    /// A raw transaction as a hex-encoded string.
+    /// A [`Transaction`] struct representing the decoded transaction.
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.7.0**.
-    pub fn get_raw_transaction(&self, txid: &str) -> BitcoinRpcClientResult<String> {
-        Ok(self
-            .global_ep
-            .send(&self.client_id, "getrawtransaction", vec![txid.into()])?)
+    pub fn get_raw_transaction(&self, txid: &Txid) -> BitcoinRpcClientResult<Transaction> {
+        let raw_hex = self.global_ep.send::<String>(
+            &self.client_id,
+            "getrawtransaction",
+            vec![txid.to_string().into()],
+        )?;
+        let raw_bytes = hex_bytes(&raw_hex)?;
+        let tx = btc_deserialize(&raw_bytes)?;
+        Ok(tx)
     }
 
     /// Mines a new block including the given transactions to a specified address.

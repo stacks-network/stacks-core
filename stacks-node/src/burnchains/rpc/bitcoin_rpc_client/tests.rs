@@ -16,6 +16,8 @@
 //! Unit Tests for [`BitcoinRpcClient`]
 
 use serde_json::json;
+use stacks::burnchains::Txid;
+use stacks_common::deps_common::bitcoin::network::serialize::serialize_hex;
 
 use super::*;
 
@@ -288,19 +290,19 @@ fn test_get_transaction_ok() {
 
 #[test]
 fn test_get_raw_transaction_ok() {
-    let txid = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899";
-    let expected_ser_tx = "000111222333444555666";
+    let txid_hex = "b9a0d01a3e21809e920fa022dfdd85368d56d1cacc5229f7a704c4d5fbccc6bd";
+    let expected_tx_hex = "0100000001b1f2f67426d26301f0b20467e9fdd93557cb3cbbcb8d79f3a9c7b6c8ec7f69e8000000006a47304402206369d5eb2b7c99f540f4cf3ff2fd6f4b90f89c4328bfa0b6db0c30bb7f2c3d4c022015a1c0e5f6a0b08c271b2d218e6a7a29f5441dbe39d9a5cbcc223221ad5dbb59012103a34e84c8c7ebc8ecb7c2e59ff6672f392c792fc1c4f3c6fa2e7d3d314f1f38c9ffffffff0200e1f505000000001976a9144621d7f4ce0c956c80e6f0c1b9f78fe0c49cb82088ac80fae9c7000000001976a91488ac1f0f01c2a5c2e8f4b4f1a3b1a04d2f35b4c488ac00000000";
 
     let expected_request = json!({
         "jsonrpc": "2.0",
         "id": "stacks",
         "method": "getrawtransaction",
-        "params": [txid]
+        "params": [txid_hex]
     });
 
     let mock_response = json!({
         "id": "stacks",
-        "result": expected_ser_tx,
+        "result": expected_tx_hex,
         "error": null,
     });
 
@@ -315,8 +317,10 @@ fn test_get_raw_transaction_ok() {
 
     let client = utils::setup_client(&server);
 
-    let ser_tx = client.get_raw_transaction(txid).expect("Should be ok!");
-    assert_eq!(expected_ser_tx, ser_tx);
+    let txid = Txid::from_hex(txid_hex).unwrap();
+    let raw_tx = client.get_raw_transaction(&txid).expect("Should be ok!");
+    assert_eq!(txid_hex, raw_tx.txid().to_string());
+    assert_eq!(expected_tx_hex, serialize_hex(&raw_tx).unwrap());
 }
 
 #[test]
