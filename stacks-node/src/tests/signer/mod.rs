@@ -537,11 +537,16 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     }
 
     pub fn mine_bitcoin_block(&self) {
+        let mined_btc_block_time = Instant::now();
         let info = self.get_peer_info();
         next_block_and(&self.running_nodes.btc_regtest_controller, 60, || {
             Ok(get_chain_info(&self.running_nodes.conf).burn_block_height > info.burn_block_height)
         })
         .unwrap();
+        info!(
+            "Bitcoin block mine time elapsed: {:?}",
+            mined_btc_block_time.elapsed()
+        );
     }
 
     /// Fetch the local signer state machine for all the signers,
@@ -1100,36 +1105,19 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         output
     }
 
-    /// Mine a BTC block and wait for a new Stacks block to be mined
+    /// Mine a BTC block and wait for a new Stacks block to be mined, but do not wait for a commit
     /// Note: do not use nakamoto blocks mined heuristic if running a test with multiple miners
-    fn mine_nakamoto_block(&self, timeout: Duration, use_nakamoto_blocks_mined: bool) {
+    fn mine_nakamoto_block_without_commit(
+        &self,
+        timeout: Duration,
+        use_nakamoto_blocks_mined: bool,
+    ) {
         let info_before = get_chain_info(&self.running_nodes.conf);
         info!("Pausing stacks block mining");
         TEST_MINE_SKIP.set(true);
-
-        let Counters {
-            naka_submitted_commits: commits_submitted,
-            naka_submitted_commit_last_burn_height: commits_last_burn_height,
-            naka_submitted_commit_last_stacks_tip: commits_last_stacks_tip,
-            naka_mined_blocks: mined_blocks,
-            ..
-        } = self.running_nodes.counters.clone();
-
-        let commits_before = commits_submitted.load(Ordering::SeqCst);
-        let commit_burn_height_before = commits_last_burn_height.load(Ordering::SeqCst);
-        let mined_before = mined_blocks.load(Ordering::SeqCst);
-
-        let mined_btc_block_time = Instant::now();
-        next_block_and(
-            &self.running_nodes.btc_regtest_controller,
-            timeout.as_secs(),
-            || Ok(self.get_peer_info().burn_block_height > info_before.burn_block_height),
-        )
-        .unwrap();
-        info!(
-            "Bitcoin block mine time elapsed: {:?}",
-            mined_btc_block_time.elapsed()
-        );
+        let mined_blocks = self.running_nodes.counters.naka_mined_blocks.clone();
+        let mined_before = mined_blocks.get();
+        self.mine_bitcoin_block();
         wait_for_state_machine_update_by_miner_tenure_id(
             timeout.as_secs(),
             &get_chain_info(&self.running_nodes.conf).pox_consensus,
@@ -1145,22 +1133,35 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         wait_for(timeout.as_secs(), || {
             Ok(get_chain_info(&self.running_nodes.conf).stacks_tip_height
                 > info_before.stacks_tip_height
-                && (!use_nakamoto_blocks_mined
-                    || mined_blocks.load(Ordering::SeqCst) > mined_before))
+                && (!use_nakamoto_blocks_mined || mined_blocks.get() > mined_before))
         })
         .expect("Failed to mine Tenure Change block");
-        // Ensure the subsequent block commit confirms the previous Tenure Change block
-        let stacks_tip_height = get_chain_info(&self.running_nodes.conf).stacks_tip_height;
-        wait_for(timeout.as_secs(), || {
-            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before
-                && commits_last_burn_height.load(Ordering::SeqCst) > commit_burn_height_before
-                && commits_last_stacks_tip.load(Ordering::SeqCst) >= stacks_tip_height)
-        })
-        .expect("Failed to update Block Commit");
         info!(
             "Nakamoto block mine time elapsed: {:?}",
             mined_block_time.elapsed()
         );
+    }
+
+    /// Mine a BTC block and wait for a new Stacks block to be mined and commit to be submitted
+    /// Note: do not use nakamoto blocks mined heuristic if running a test with multiple miners
+    fn mine_nakamoto_block(&self, timeout: Duration, use_nakamoto_blocks_mined: bool) {
+        let Counters {
+            naka_submitted_commits: commits_submitted,
+            naka_submitted_commit_last_burn_height: commits_last_burn_height,
+            naka_submitted_commit_last_stacks_tip: commits_last_stacks_tip,
+            ..
+        } = self.running_nodes.counters.clone();
+        let commits_before = commits_submitted.get();
+        let commit_burn_height_before = commits_last_burn_height.get();
+        self.mine_nakamoto_block_without_commit(timeout, use_nakamoto_blocks_mined);
+        // Ensure the subsequent block commit confirms the previous Tenure Change block
+        let stacks_tip_height = get_chain_info(&self.running_nodes.conf).stacks_tip_height;
+        wait_for(timeout.as_secs(), || {
+            Ok(commits_submitted.get() > commits_before
+                && commits_last_burn_height.get() > commit_burn_height_before
+                && commits_last_stacks_tip.get() >= stacks_tip_height)
+        })
+        .expect("Failed to update Block Commit");
     }
 
     fn mine_block_wait_on_processing(

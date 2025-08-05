@@ -17089,7 +17089,7 @@ fn burn_block_height_behavior() {
     skip_commit_op.set(true);
 
     // Mine a regular tenure
-    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+    signer_test.mine_nakamoto_block_without_commit(Duration::from_secs(30), true);
 
     let info = get_chain_info(&signer_test.running_nodes.conf);
     let stacks_height_before = info.stacks_tip_height;
