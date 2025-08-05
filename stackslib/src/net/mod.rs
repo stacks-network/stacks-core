@@ -38,7 +38,7 @@ use {rusqlite, url};
 
 use self::dns::*;
 use crate::burnchains::affirmation::AffirmationMap;
-use crate::burnchains::{Burnchain, Error as burnchain_error, Txid};
+use crate::burnchains::{Error as burnchain_error, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
