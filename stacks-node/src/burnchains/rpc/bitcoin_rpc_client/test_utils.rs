@@ -15,8 +15,11 @@
 
 //! Test-only utilities for [`BitcoinRpcClient`]
 
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
+use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::Txid;
+use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::util::hash::hex_bytes;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
@@ -45,7 +48,19 @@ pub struct GetBlockChainInfoResponse {
 #[derive(Debug, Clone, Deserialize)]
 struct GenerateBlockResponse {
     /// The hash of the generated block
-    hash: String,
+    #[serde(deserialize_with = "deserialize_string_to_burn_header_hash")]
+    hash: BurnchainHeaderHash,
+}
+
+/// Deserializes a JSON string into [`BurnchainHeaderHash`]
+fn deserialize_string_to_burn_header_hash<'de, D>(
+    deserializer: D,
+) -> Result<BurnchainHeaderHash, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let string: String = Deserialize::deserialize(deserializer)?;
+    BurnchainHeaderHash::from_hex(&string).map_err(serde::de::Error::custom)
 }
 
 impl BitcoinRpcClient {
@@ -86,23 +101,27 @@ impl BitcoinRpcClient {
     /// Mines a new block including the given transactions to a specified address.
     ///
     /// # Arguments
-    /// * `address` - Address to which the block subsidy will be paid.
+    /// * `address` - A [`BitcoinAddress`] to which the block subsidy will be paid.
     /// * `txs` - List of transactions to include in the block. Each entry can be:
     ///   - A raw hex-encoded transaction
     ///   - A transaction ID (must be present in the mempool)
     ///   If the list is empty, an empty block (with only the coinbase transaction) will be generated.
     ///
     /// # Returns
-    /// The block hash of the newly generated block.
+    /// A [`BurnchainHeaderHash`] struct containing the block hash of the newly generated block.
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v22.0**.
     /// - Requires `regtest` or similar testing networks.
-    pub fn generate_block(&self, address: &str, txs: &[&str]) -> BitcoinRpcClientResult<String> {
+    pub fn generate_block(
+        &self,
+        address: &BitcoinAddress,
+        txs: &[&str],
+    ) -> BitcoinRpcClientResult<BurnchainHeaderHash> {
         let response = self.global_ep.send::<GenerateBlockResponse>(
             &self.client_id,
             "generateblock",
-            vec![address.into(), txs.into()],
+            vec![address.to_string().into(), txs.into()],
         )?;
         Ok(response.hash)
     }

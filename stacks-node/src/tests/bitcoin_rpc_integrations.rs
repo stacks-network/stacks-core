@@ -17,8 +17,10 @@
 
 use std::env;
 
+use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::Txid;
 use stacks::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
+use stacks::types::Address;
 
 use crate::burnchains::rpc::bitcoin_rpc_client::{
     BitcoinRpcClient, BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp,
@@ -290,11 +292,18 @@ fn test_generate_block_ok() {
         .expect("bitcoind should be started!");
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
-    client.create_wallet("my_wallet", Some(false)).expect("OK");
-    let address = client.get_new_address(None, None).expect("Should work!");
+    client
+        .create_wallet("my_wallet", Some(false))
+        .expect("create wallet ok!");
+    let address = client
+        .get_new_address(None, Some("legacy"))
+        .expect("get new address ok!");
 
-    let block_hash = client.generate_block(&address, &[]).expect("OK");
-    assert_eq!(64, block_hash.len());
+    let address = BitcoinAddress::from_string(&address).expect("valid address!");
+    let block_hash = client
+        .generate_block(&address, &[])
+        .expect("generate block ok!");
+    assert_eq!(64, block_hash.to_hex().len());
 }
 
 #[ignore]
@@ -480,12 +489,19 @@ fn test_invalidate_block_ok() {
         .expect("bitcoind should be started!");
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
-    client.create_wallet("my_wallet", Some(false)).expect("OK");
-    let address = client.get_new_address(None, None).expect("Should work!");
-    let block_hash = client.generate_block(&address, &[]).expect("OK");
+    client
+        .create_wallet("my_wallet", Some(false))
+        .expect("create wallet ok!");
+    let address = client
+        .get_new_address(None, Some("legacy"))
+        .expect("get new address ok!");
+    let address = BitcoinAddress::from_string(&address).expect("valid address!");
+    let block_hash = client
+        .generate_block(&address, &[])
+        .expect("generate block ok!");
 
     client
-        .invalidate_block(&block_hash)
+        .invalidate_block(&block_hash.to_hex())
         .expect("Invalidate valid hash should be ok!");
     client
         .invalidate_block("invalid_hash")

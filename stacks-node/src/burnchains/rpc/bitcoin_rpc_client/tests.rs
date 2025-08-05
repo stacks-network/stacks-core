@@ -16,7 +16,9 @@
 //! Unit Tests for [`BitcoinRpcClient`]
 
 use serde_json::json;
+use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::Txid;
+use stacks::types::Address;
 use stacks_common::deps_common::bitcoin::network::serialize::serialize_hex;
 
 use super::*;
@@ -325,16 +327,16 @@ fn test_get_raw_transaction_ok() {
 
 #[test]
 fn test_generate_block_ok() {
-    let addr = "myaddr";
+    let legacy_addr_str = "mp7gy5VhHzBzk1tJUtP7Qwdrp87XEWnxd4";
     let txid1 = "txid1";
     let txid2 = "txid2";
-    let expected_block_hash = "block_hash";
+    let expected_block_hash = "0000000000000000011f5b3c4e7e9f4dc2c88f0b6c3a3b17e5a7d0dfeb3bb3cd";
 
     let expected_request = json!({
         "jsonrpc": "2.0",
         "id": "stacks",
         "method": "generateblock",
-        "params": [addr, [txid1, txid2]]
+        "params": [legacy_addr_str, [txid1, txid2]]
     });
 
     let mock_response = json!({
@@ -356,10 +358,54 @@ fn test_generate_block_ok() {
 
     let client = utils::setup_client(&server);
 
+    let addr = BitcoinAddress::from_string(legacy_addr_str).expect("valid address!");
     let result = client
-        .generate_block(addr, &[txid1, txid2])
+        .generate_block(&addr, &[txid1, txid2])
         .expect("Should be ok!");
-    assert_eq!(expected_block_hash, result);
+    assert_eq!(expected_block_hash, result.to_hex());
+}
+
+#[test]
+fn test_generate_block_fails_for_invalid_block_hash() {
+    let legacy_addr_str = "mp7gy5VhHzBzk1tJUtP7Qwdrp87XEWnxd4";
+    let txid1 = "txid1";
+    let txid2 = "txid2";
+    let expected_block_hash = "invalid_block_hash";
+
+    let expected_request = json!({
+        "jsonrpc": "2.0",
+        "id": "stacks",
+        "method": "generateblock",
+        "params": [legacy_addr_str, [txid1, txid2]]
+    });
+
+    let mock_response = json!({
+        "id": "stacks",
+        "result": {
+            "hash" : expected_block_hash
+        },
+        "error": null,
+    });
+
+    let mut server = mockito::Server::new();
+    let _m = server
+        .mock("POST", "/")
+        .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
+        .with_status(200)
+        .with_header("Content-Type", "application/json")
+        .with_body(mock_response.to_string())
+        .create();
+
+    let client = utils::setup_client(&server);
+
+    let addr = BitcoinAddress::from_string(legacy_addr_str).expect("valid address!");
+    let error = client
+        .generate_block(&addr, &[txid1, txid2])
+        .expect_err("Should fail!");
+    assert!(matches!(
+        error,
+        BitcoinRpcClientError::Rpc(RpcError::Decode(_))
+    ));
 }
 
 #[test]
