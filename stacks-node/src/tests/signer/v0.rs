@@ -785,11 +785,9 @@ impl MultipleMinerTest {
             .unwrap()
             .block_height;
 
-        debug!("HERE Building {nmb_blocks} BTC blocks.");
         self.btc_regtest_controller_mut()
             .build_next_block(nmb_blocks);
 
-        debug!("HERE Waiting to for burn chain tip to advance {nmb_blocks} blocks.");
         wait_for(timeout_secs, || {
             let burn_block = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                 .unwrap()
@@ -798,10 +796,6 @@ impl MultipleMinerTest {
                 && self.get_peer_info().burn_block_height >= burn_block_before + nmb_blocks)
         })?;
         let peer_after = self.get_peer_info();
-        debug!(
-            "HERE Waiting for updates for burn block {} with block height {}.",
-            peer_after.pox_consensus, peer_after.burn_block_height
-        );
         wait_for_state_machine_update(
             timeout_secs,
             &peer_after.pox_consensus,
