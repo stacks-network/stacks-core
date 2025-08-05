@@ -535,6 +535,9 @@ impl ConversationHttp {
                     info!("Handled StacksHTTPRequest Error"; "path" => %path, "processing_time_ms" => start_time.elapsed().as_millis(), "conn_id" => self.conn_id, "peer_addr" => &self.peer_addr);
                 }
                 StacksHttpMessage::Response(resp) => {
+                    node.update_highest_stacks_height_of_neighbors(
+                        resp.preamble().get_canonical_stacks_tip_height(),
+                    );
                     // Is there someone else waiting for this message?  If so, pass it along.
                     // (this _should_ be our pending_request handle)
                     match self

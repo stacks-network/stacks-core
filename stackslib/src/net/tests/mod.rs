@@ -63,10 +63,10 @@ use crate::chainstate::stacks::{
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::{StacksEpoch, StacksEpochExtension};
 use crate::net::relay::Relayer;
-use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
+use crate::net::test::{RPCHandlerArgsType, TestEventObserver, TestPeer, TestPeerConfig};
 use crate::net::{
     BlocksData, BlocksDatum, MicroblocksData, NakamotoBlocksData, NeighborKey, NetworkResult,
-    PingData, StackerDBPushChunkData, StacksMessage, StacksMessageType,
+    PingData, StackerDBPushChunkData, StacksMessage, StacksMessageType, StacksNodeState,
 };
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
@@ -1805,4 +1805,39 @@ fn test_network_result_update() {
     assert!(updated_uploaded.pushed_nakamoto_blocks.is_empty());
     assert_eq!(updated_uploaded.uploaded_nakamoto_blocks.len(), 1);
     assert_eq!(updated_uploaded.uploaded_nakamoto_blocks[0], nblk1);
+}
+
+#[rstest]
+#[case::zero_to_none(0, None, 0)]
+#[case::zero_to_some(0, Some(10), 10)]
+#[case::some_to_none(10, None, 10)]
+#[case::new_height_higher(10, Some(20), 20)]
+#[case::new_height_lower(20, Some(10), 20)]
+fn test_update_highest_stacks_height_of_neighbors(
+    #[case] old_height: u64,
+    #[case] new_height: Option<u64>,
+    #[case] expected_height: u64,
+) {
+    let peer_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let mut peer = TestPeer::new(peer_config);
+    peer.network.highest_stacks_height_of_neighbors = old_height;
+    let peer_sortdb = peer.sortdb.take().unwrap();
+    let mut peer_stacks_node = peer.stacks_node.take().unwrap();
+    let mut peer_mempool = peer.mempool.take().unwrap();
+    let rpc_args = RPCHandlerArgsType::make_default();
+    let mut node_state = StacksNodeState::new(
+        &mut peer.network,
+        &peer_sortdb,
+        &mut peer_stacks_node.chainstate,
+        &mut peer_mempool,
+        &rpc_args,
+        false,
+        false,
+    );
+
+    node_state.update_highest_stacks_height_of_neighbors(new_height);
+    assert_eq!(
+        peer.network.highest_stacks_height_of_neighbors,
+        expected_height
+    );
 }

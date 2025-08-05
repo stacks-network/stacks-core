@@ -638,6 +638,9 @@ pub struct PeerNetwork {
 
     /// Thread handle for the async block proposal endpoint.
     block_proposal_thread: Option<JoinHandle<()>>,
+
+    /// Highest stacks block height received from RPC responses from neighbors
+    pub highest_stacks_height_of_neighbors: u64,
 }
 
 impl PeerNetwork {
@@ -799,6 +802,8 @@ impl PeerNetwork {
             nakamoto_inv_generator: InvGenerator::new(),
 
             block_proposal_thread: None,
+
+            highest_stacks_height_of_neighbors: 0,
         };
 
         network.init_block_downloader();
