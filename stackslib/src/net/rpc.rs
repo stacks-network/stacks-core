@@ -61,8 +61,6 @@ pub struct ConversationHttp {
     last_response_timestamp: u64,
     /// absolute time when this conversation was instantiated
     connection_time: u64,
-    /// stacks canonical chain tip that this peer reported
-    canonical_stacks_tip_height: Option<u32>,
     /// Ongoing replies
     reply_streams: VecDeque<(ReplyHandleHttp, HttpResponseContents, bool)>,
     /// outstanding request
@@ -115,7 +113,6 @@ impl ConversationHttp {
             peer_addr,
             outbound_url,
             peer_host,
-            canonical_stacks_tip_height: None,
             pending_request: None,
             pending_response: None,
             keep_alive: true,
