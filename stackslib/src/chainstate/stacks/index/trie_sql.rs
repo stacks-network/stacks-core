@@ -215,7 +215,7 @@ pub fn get_block_hash<T: MarfTrieId>(conn: &Connection, local_id: u32) -> Result
     })
 }
 
-/// Write a serialized trie to sqlite
+/// temporary delete references to the currently simulated block
 pub fn hide_block<T: MarfTrieId>(conn: &Connection, block_hash: &T) -> Result<(), Error> {
     let args = params![block_hash];
     let mut s = conn.prepare("DELETE FROM marf_data WHERE block_hash = ?")?;
