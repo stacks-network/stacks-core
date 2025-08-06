@@ -19,6 +19,7 @@ use std::env;
 
 use stacks::burnchains::bitcoin::address::LegacyBitcoinAddressType;
 use stacks::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
+use stacks::types::chainstate::BurnchainHeaderHash;
 
 use crate::burnchains::rpc::bitcoin_rpc_client::test_utils::AddressType;
 use crate::burnchains::rpc::bitcoin_rpc_client::{
@@ -553,11 +554,16 @@ fn test_invalidate_block_ok() {
         .expect("generate block ok!");
 
     client
-        .invalidate_block(&block_hash.to_hex())
+        .invalidate_block(&block_hash)
         .expect("Invalidate valid hash should be ok!");
+
+    let nonexistent_hash = BurnchainHeaderHash::from_hex(
+        "0000000000000000000000000000000000000000000000000000000000000000",
+    )
+    .unwrap();
     client
-        .invalidate_block("invalid_hash")
-        .expect_err("Invalidate invalid hash should fail!");
+        .invalidate_block(&nonexistent_hash)
+        .expect_err("Invalidate nonexistent hash should fail!");
 }
 
 #[ignore]

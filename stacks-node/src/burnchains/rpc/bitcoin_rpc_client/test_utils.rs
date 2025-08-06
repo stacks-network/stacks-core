@@ -273,16 +273,19 @@ impl BitcoinRpcClient {
     /// Invalidate a block by its block hash, forcing the node to reconsider its chain state.
     ///
     /// # Arguments
-    /// * `hash` - The block hash (as a hex string) of the block to invalidate.
+    /// * `hash` - The block hash (as [`BurnchainHeaderHash`]) of the block to invalidate.
     ///
     /// # Returns
     /// An empty `()` on success.
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.1.0**.
-    pub fn invalidate_block(&self, hash: &str) -> BitcoinRpcClientResult<()> {
-        self.global_ep
-            .send::<Value>(&self.client_id, "invalidateblock", vec![hash.into()])?;
+    pub fn invalidate_block(&self, hash: &BurnchainHeaderHash) -> BitcoinRpcClientResult<()> {
+        self.global_ep.send::<Value>(
+            &self.client_id,
+            "invalidateblock",
+            vec![hash.to_hex().into()],
+        )?;
         Ok(())
     }
 }

@@ -18,6 +18,7 @@
 use serde_json::json;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::Txid;
+use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::Address;
 use stacks_common::deps_common::bech32;
 use stacks_common::deps_common::bitcoin::network::serialize::serialize_hex;
@@ -31,6 +32,8 @@ mod utils {
     pub const BITCOIN_ADDRESS_LEGACY_STR: &str = "mp7gy5VhHzBzk1tJUtP7Qwdrp87XEWnxd4";
     pub const BITCOIN_TXID_HEX: &str =
         "b9a0d01a3e21809e920fa022dfdd85368d56d1cacc5229f7a704c4d5fbccc6bd";
+    pub const BITCOIN_BLOCK_HASH: &str =
+        "0000000000000000011f5b3c4e7e9f4dc2c88f0b6c3a3b17e5a7d0dfeb3bb3cd";
 
     pub fn setup_client(server: &mockito::ServerGuard) -> BitcoinRpcClient {
         let url = server.url();
@@ -335,7 +338,7 @@ fn test_generate_block_ok() {
     let legacy_addr_str = utils::BITCOIN_ADDRESS_LEGACY_STR;
     let txid1 = "txid1";
     let txid2 = "txid2";
-    let expected_block_hash = "0000000000000000011f5b3c4e7e9f4dc2c88f0b6c3a3b17e5a7d0dfeb3bb3cd";
+    let expected_block_hash = utils::BITCOIN_BLOCK_HASH;
 
     let expected_request = json!({
         "jsonrpc": "2.0",
@@ -744,7 +747,7 @@ fn test_send_to_address_fails_for_invalid_tx_id() {
 
 #[test]
 fn test_invalidate_block_ok() {
-    let hash = "0000";
+    let hash = utils::BITCOIN_BLOCK_HASH;
 
     let expected_request = json!({
         "jsonrpc": "2.0",
@@ -770,7 +773,8 @@ fn test_invalidate_block_ok() {
 
     let client = utils::setup_client(&server);
 
-    client.invalidate_block(hash).expect("Should be ok!");
+    let bhh = BurnchainHeaderHash::from_hex(&hash).unwrap();
+    client.invalidate_block(&bhh).expect("Should be ok!");
 }
 
 #[test]
