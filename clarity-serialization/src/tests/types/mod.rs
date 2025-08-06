@@ -17,7 +17,7 @@ mod signatures;
 
 use stacks_common::types::StacksEpochId;
 
-use crate::CodecError;
+use crate::errors::{CheckErrors, InterpreterError};
 use crate::types::{
     BuffData, ListTypeData, MAX_VALUE_SIZE, PrincipalData, SequenceData, TupleData, TypeSignature,
     Value,
@@ -25,42 +25,42 @@ use crate::types::{
 
 #[test]
 fn test_constructors() {
-    assert!(matches!(
+    assert_eq!(
         Value::list_with_type(
             &StacksEpochId::latest(),
             vec![Value::Int(5), Value::Int(2)],
             ListTypeData::new_list(TypeSignature::BoolType, 3).unwrap()
         ),
-        Err(CodecError::FailureConstructingListWithType)
-    ));
-    assert!(matches!(
+        Err(InterpreterError::FailureConstructingListWithType.into())
+    );
+    assert_eq!(
         ListTypeData::new_list(TypeSignature::IntType, MAX_VALUE_SIZE),
-        Err(CodecError::ValueTooLarge)
-    ));
+        Err(CheckErrors::ValueTooLarge)
+    );
 
-    assert!(matches!(
+    assert_eq!(
         Value::buff_from(vec![0; (MAX_VALUE_SIZE + 1) as usize]),
-        Err(CodecError::ValueTooLarge)
-    ));
+        Err(CheckErrors::ValueTooLarge.into())
+    );
 
     // Test that wrappers (okay, error, some)
     //   correctly error when _they_ cause the value size
     //   to exceed the max value size (note, the buffer constructor
     //   isn't causing the error).
-    assert!(matches!(
+    assert_eq!(
         Value::okay(Value::buff_from(vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
-        Err(CodecError::ValueTooLarge)
-    ));
+        Err(CheckErrors::ValueTooLarge.into())
+    );
 
-    assert!(matches!(
+    assert_eq!(
         Value::error(Value::buff_from(vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
-        Err(CodecError::ValueTooLarge)
-    ));
+        Err(CheckErrors::ValueTooLarge.into())
+    );
 
-    assert!(matches!(
+    assert_eq!(
         Value::some(Value::buff_from(vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
-        Err(CodecError::ValueTooLarge)
-    ));
+        Err(CheckErrors::ValueTooLarge.into())
+    );
 
     // Test that the depth limit is correctly enforced:
     //   for tuples, lists, somes, okays, errors.
@@ -81,27 +81,27 @@ fn test_constructors() {
         )?)?)?)?)
     };
     let inner_value = cons().unwrap();
-    assert!(matches!(
+    assert_eq!(
         TupleData::from_data(vec![("a".into(), inner_value.clone())]),
-        Err(CodecError::TypeSignatureTooDeep)
-    ));
+        Err(CheckErrors::TypeSignatureTooDeep.into())
+    );
 
-    assert!(matches!(
+    assert_eq!(
         Value::list_from(vec![inner_value.clone()]),
-        Err(CodecError::TypeSignatureTooDeep)
-    ));
-    assert!(matches!(
+        Err(CheckErrors::TypeSignatureTooDeep.into())
+    );
+    assert_eq!(
         Value::okay(inner_value.clone()),
-        Err(CodecError::TypeSignatureTooDeep)
-    ));
-    assert!(matches!(
+        Err(CheckErrors::TypeSignatureTooDeep.into())
+    );
+    assert_eq!(
         Value::error(inner_value.clone()),
-        Err(CodecError::TypeSignatureTooDeep)
-    ));
-    assert!(matches!(
+        Err(CheckErrors::TypeSignatureTooDeep.into())
+    );
+    assert_eq!(
         Value::some(inner_value),
-        Err(CodecError::TypeSignatureTooDeep)
-    ));
+        Err(CheckErrors::TypeSignatureTooDeep.into())
+    );
 
     if std::env::var("CIRCLE_TESTING") == Ok("1".to_string()) {
         println!("Skipping allocation test on Circle");
@@ -110,10 +110,10 @@ fn test_constructors() {
 
     // on 32-bit archs, this error cannot even happen, so don't test (and cause an overflow panic)
     if (u32::MAX as usize) < usize::MAX {
-        assert!(matches!(
+        assert_eq!(
             Value::buff_from(vec![0; (u32::MAX as usize) + 10]),
-            Err(CodecError::ValueTooLarge)
-        ));
+            Err(CheckErrors::ValueTooLarge.into())
+        );
     }
 }
 

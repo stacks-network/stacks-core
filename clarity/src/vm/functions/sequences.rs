@@ -27,9 +27,7 @@ use crate::vm::errors::{
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::ListTypeData;
 use crate::vm::types::TypeSignature::BoolType;
-use crate::vm::types::{
-    Filter as _, GetAtomValues as _, ListData, SequenceData, TypeSignature, Value,
-};
+use crate::vm::types::{ListData, SequenceData, TypeSignature, Value};
 use crate::vm::{apply, eval, lookup_function, Environment, LocalContext};
 
 pub fn list_cons(

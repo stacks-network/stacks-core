@@ -19,6 +19,7 @@ use std::fmt;
 use std::mem::replace;
 use std::time::{Duration, Instant};
 
+pub use clarity_serialization::errors::StackTrace;
 use clarity_serialization::representations::ClarityName;
 use serde::Serialize;
 use serde_json::json;
@@ -247,8 +248,6 @@ pub struct CallStack {
     set: HashSet<FunctionIdentifier>,
     apply_depth: usize,
 }
-
-pub type StackTrace = Vec<FunctionIdentifier>;
 
 pub const TRANSIENT_CONTRACT_NAME: &str = "__transient";
 

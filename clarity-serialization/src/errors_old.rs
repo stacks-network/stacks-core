@@ -13,11 +13,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io;
+use std::{error, fmt, io};
 
+use serde_json::Error as SerdeJSONErr;
+use stacks_common::types::chainstate::BlockHeaderHash;
 use thiserror::Error;
 
-use crate::types::{TupleTypeSignature, TypeSignature, Value};
+use crate::costs::{CostErrors, ExecutionCost};
+use crate::diagnostic::Diagnostic;
+use crate::representations::PreSymbolicExpression;
+use crate::token::Token;
+use crate::types::{FunctionIdentifier, TraitIdentifier, TupleTypeSignature, TypeSignature, Value};
 
 /// The primary error type for the `clarity-codec` crate.
 ///
@@ -26,28 +32,28 @@ use crate::types::{TupleTypeSignature, TypeSignature, Value};
 #[derive(Error, Debug)]
 pub enum CodecError {
     #[error("I/O error during (de)serialization: {0}")]
-    Io(#[from] io::Error),
+    Io(#[from] io::Error), // SerializationError::IOError
 
     #[error("Serialization error caused by IO: {0}")]
-    Serialization(String),
+    Serialization(String), // SerializationError::SerializationError
 
     #[error("Deserialization failed: {0}")]
-    Deserialization(String),
+    Deserialization(String), // SerializationError::DeserializationError
 
     #[error("Deserialization expected the type of the input to be: {0}")]
-    DeserializeExpected(Box<TypeSignature>),
+    DeserializeExpected(Box<TypeSignature>), // SerializationError::DeserializeExpected
 
     #[error("The serializer handled an input in an unexpected way")]
-    UnexpectedSerialization,
+    UnexpectedSerialization, // SerializationError::UnexpectedSerialization
 
     #[error("Deserialization finished but there were leftover bytes in the buffer")]
-    LeftoverBytesInDeserialization,
+    LeftoverBytesInDeserialization, // SerializationError::LeftoverBytesInDeserialization
 
     #[error("Parse error: {0}")]
-    ParseError(String),
+    ParseError(String), // RuntimeErrorType::ParseError
 
     #[error("Bad type construction.")]
-    BadTypeConstruction,
+    BadTypeConstruction, // RuntimeErrorType::BadTypeConstruction
 
     // --- Structural and Size Errors ---
     #[error("A value being constructed is larger than the 1MB Clarity limit")]
@@ -65,12 +71,11 @@ pub enum CodecError {
     #[error("Empty tuples are not allowed")]
     EmptyTuplesNotAllowed,
 
-    #[error("Failed to construct a tuple with the given type")]
-    FailureConstructingTupleWithType,
+    // #[error("Failed to construct a tuple with the given type")]
+    // FailureConstructingTupleWithType, // InterpreterError::FailureConstructingTupleWithType
 
-    #[error("Failed to construct a list with the given type")]
-    FailureConstructingListWithType,
-
+    // #[error("Failed to construct a list with the given type")]
+    // FailureConstructingListWithType, // InterpreterError::FailureConstructingListWithType
     #[error("All elements in a list must have a compatible supertype")]
     ListTypesMustMatch,
 
@@ -101,10 +106,10 @@ pub enum CodecError {
     NoSuchTupleField(String, TupleTypeSignature),
 
     #[error("Failed to parse {0}: {1}")]
-    InvalidClarityName(&'static str, String),
+    InvalidClarityName(&'static str, String), // RuntimeErrorType::BadNameValue
 
     #[error("Failed to parse {0}: {1}")]
-    InvalidContractName(&'static str, String),
+    InvalidContractName(&'static str, String), // RuntimeErrorType::BadNameValue
 
     // --- String/Buffer Content Errors ---
     #[error("Invalid characters detected in string")]
@@ -127,3 +132,8 @@ impl PartialEq for CodecError {
         self.to_string() == other.to_string()
     }
 }
+
+
+pub type StackTrace = Vec<FunctionIdentifier>;
+
+pub type InterpreterResult<R> = Result<R, Error>;

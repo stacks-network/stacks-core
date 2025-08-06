@@ -652,11 +652,12 @@ dependencies = [
  "mutants",
  "regex",
  "rstest",
+ "rusqlite",
  "serde",
  "serde_derive",
+ "serde_json",
  "slog",
  "stacks-common 0.0.1",
- "thiserror",
 ]
 
 [[package]]

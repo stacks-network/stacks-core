@@ -19,7 +19,7 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr};
 use std::{error, fmt, io};
 
-use clarity::vm::errors::{CodecError, Error as InterpreterError};
+use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libstackerdb::{Error as libstackerdb_error, StackerDBChunkData};
 use p2p::{DropReason, DropSource};
@@ -533,12 +533,6 @@ impl From<clarity_error> for Error {
 
 impl From<InterpreterError> for Error {
     fn from(e: InterpreterError) -> Self {
-        Error::ClarityError(e.into())
-    }
-}
-
-impl From<CodecError> for Error {
-    fn from(e: CodecError) -> Self {
         Error::ClarityError(e.into())
     }
 }

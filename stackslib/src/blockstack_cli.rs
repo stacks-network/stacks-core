@@ -42,9 +42,7 @@ use blockstack_lib::clarity_cli::vm_execute;
 use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use blockstack_lib::net::Error as NetError;
 use blockstack_lib::util_lib::strings::StacksString;
-use clarity::vm::errors::{
-    CodecError as ClarityCodecError, Error as ClarityError, RuntimeErrorType,
-};
+use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use stacks_common::address::{b58, AddressHashMode};
@@ -238,22 +236,6 @@ impl From<ClarityError> for CliError {
     }
 }
 
-impl From<ClarityCodecError> for CliError {
-    fn from(value: ClarityCodecError) -> Self {
-        match value {
-            ClarityCodecError::Io(_)
-            | ClarityCodecError::Serialization(_)
-            | ClarityCodecError::Deserialization(_)
-            | ClarityCodecError::DeserializeExpected(_)
-            | ClarityCodecError::UnexpectedSerialization
-            | ClarityCodecError::LeftoverBytesInDeserialization => {
-                CliError::Message(format!("Failed to deserialize: {}", value))
-            }
-            _ => CliError::ClarityGeneralError(value.into()),
-        }
-    }
-}
-
 impl From<NetError> for CliError {
     fn from(value: NetError) -> Self {
         CliError::Message(format!("Stacks NetError: {}", value))
@@ -281,6 +263,12 @@ impl From<io::Error> for CliError {
 impl From<stacks_common::util::HexError> for CliError {
     fn from(value: stacks_common::util::HexError) -> Self {
         CliError::Message(format!("Bad hex string supplied: {}", value))
+    }
+}
+
+impl From<clarity::vm::types::serialization::SerializationError> for CliError {
+    fn from(value: clarity::vm::types::serialization::SerializationError) -> Self {
+        CliError::Message(format!("Failed to deserialize: {}", value))
     }
 }
 

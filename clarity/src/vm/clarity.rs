@@ -1,6 +1,5 @@
 use std::fmt;
 
-use clarity_serialization::CodecError;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrors, ContractAnalysis};
@@ -114,12 +113,6 @@ impl From<ParseError> for Error {
             }
             _ => Error::Parse(e),
         }
-    }
-}
-
-impl From<CodecError> for Error {
-    fn from(e: CodecError) -> Self {
-        Error::from(InterpreterError::from(e))
     }
 }
 

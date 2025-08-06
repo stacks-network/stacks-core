@@ -14,109 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{error, str};
+use std::str;
 
-use clarity_serialization::errors::CodecError;
-pub use clarity_serialization::types::serialization::{TypePrefix, NONE_SERIALIZATION_LEN};
+pub use clarity_serialization::types::serialization::{
+    SerializationError, TypePrefix, NONE_SERIALIZATION_LEN,
+};
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::vm::database::{ClarityDeserializable, ClaritySerializable};
-use crate::vm::errors::{CheckErrors, Error as ClarityError, IncomparableError, InterpreterError};
-use crate::vm::types::TypeSignature;
-
-/// Errors that may occur in serialization or deserialization
-/// If deserialization failed because the described type is a bad type and
-///   a CheckError is thrown, it gets wrapped in BadTypeError.
-/// Any IOErrrors from the supplied buffer will manifest as IOError variants,
-///   except for EOF -- if the deserialization code experiences an EOF, it is caught
-///   and rethrown as DeserializationError
-#[derive(Debug, PartialEq)]
-pub enum SerializationError {
-    IOError(IncomparableError<std::io::Error>),
-    BadTypeError(CheckErrors),
-    DeserializationError(String),
-    DeserializeExpected(TypeSignature),
-    LeftoverBytesInDeserialization,
-    SerializationError(String),
-    UnexpectedSerialization,
-}
-
-impl std::fmt::Display for SerializationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            SerializationError::IOError(e) => {
-                write!(f, "Serialization error caused by IO: {}", e.err)
-            }
-            SerializationError::BadTypeError(e) => {
-                write!(f, "Deserialization error, bad type, caused by: {e}")
-            }
-            SerializationError::DeserializationError(e) => {
-                write!(f, "Deserialization error: {e}")
-            }
-            SerializationError::SerializationError(e) => {
-                write!(f, "Serialization error: {e}")
-            }
-            SerializationError::DeserializeExpected(e) => write!(
-                f,
-                "Deserialization expected the type of the input to be: {e}"
-            ),
-            SerializationError::UnexpectedSerialization => {
-                write!(f, "The serializer handled an input in an unexpected way")
-            }
-            SerializationError::LeftoverBytesInDeserialization => {
-                write!(f, "Deserialization error: bytes left over in buffer")
-            }
-        }
-    }
-}
-
-impl error::Error for SerializationError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match self {
-            SerializationError::IOError(e) => Some(&e.err),
-            SerializationError::BadTypeError(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-// Note: a byte stream that describes a longer type than
-//   there are available bytes to read will result in an IOError(UnexpectedEOF)
-impl From<std::io::Error> for SerializationError {
-    fn from(err: std::io::Error) -> Self {
-        SerializationError::IOError(IncomparableError { err })
-    }
-}
-
-impl From<&str> for SerializationError {
-    fn from(e: &str) -> Self {
-        SerializationError::DeserializationError(e.into())
-    }
-}
-
-impl From<CheckErrors> for SerializationError {
-    fn from(e: CheckErrors) -> Self {
-        SerializationError::BadTypeError(e)
-    }
-}
-
-impl From<CodecError> for SerializationError {
-    fn from(err: CodecError) -> Self {
-        match err {
-            CodecError::Io(e) => SerializationError::IOError(IncomparableError { err: e }),
-            CodecError::Serialization(s) => SerializationError::SerializationError(s),
-            CodecError::Deserialization(s) => SerializationError::DeserializationError(s),
-            CodecError::DeserializeExpected(t) => SerializationError::DeserializeExpected(*t),
-            CodecError::LeftoverBytesInDeserialization => {
-                SerializationError::LeftoverBytesInDeserialization
-            }
-            CodecError::UnexpectedSerialization => SerializationError::UnexpectedSerialization,
-            // For other errors, we must map them to a CheckError and then wrap in BadTypeError.
-            // This follows the original pattern of SerializationError.
-            other => SerializationError::BadTypeError(CheckErrors::from(other)),
-        }
-    }
-}
+use crate::vm::errors::{Error as ClarityError, InterpreterError};
 
 impl ClaritySerializable for u32 {
     fn serialize(&self) -> String {
@@ -149,10 +55,6 @@ pub mod tests {
     use crate::vm::database::{ClarityDeserializable, ClaritySerializable, RollbackWrapper};
     use crate::vm::tests::test_clarity_versions;
     use crate::vm::ClarityVersion;
-
-    fn buff_type(size: u32) -> TypeSignature {
-        TypeSignature::SequenceType(SequenceSubtype::BufferType(size.try_into().unwrap()))
-    }
 
     fn test_deser_ser(v: Value) {
         assert_eq!(
@@ -304,36 +206,6 @@ pub mod tests {
         }
     }
 
-    #[test]
-    fn test_bools() {
-        test_deser_ser(Value::Bool(false));
-        test_deser_ser(Value::Bool(true));
-
-        test_bad_expectation(Value::Bool(false), TypeSignature::IntType);
-        test_bad_expectation(Value::Bool(true), TypeSignature::IntType);
-    }
-
-    #[test]
-    fn test_ints() {
-        test_deser_ser(Value::Int(0));
-        test_deser_ser(Value::Int(1));
-        test_deser_ser(Value::Int(-1));
-        test_deser_ser(Value::Int(i128::MAX));
-        test_deser_ser(Value::Int(i128::MIN));
-
-        test_bad_expectation(Value::Int(1), TypeSignature::UIntType);
-    }
-
-    #[test]
-    fn test_uints() {
-        test_deser_ser(Value::UInt(0));
-        test_deser_ser(Value::UInt(1));
-        test_deser_ser(Value::UInt(u128::MAX));
-        test_deser_ser(Value::UInt(u128::MIN));
-
-        test_bad_expectation(Value::UInt(1), TypeSignature::IntType);
-    }
-
     #[apply(test_clarity_versions)]
     fn test_opts(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         test_deser_ser(Value::none());
@@ -411,98 +283,6 @@ pub mod tests {
             Value::string_utf8_from_bytes(vec![61, 62, 63, 240, 159, 164, 151]).unwrap(),
             TypeSignature::from_string("(string-utf8 3)", version, epoch),
         );
-    }
-
-    #[test]
-    fn test_tuples() {
-        let t_1 = Value::from(
-            TupleData::from_data(vec![
-                ("a".into(), Value::Int(1)),
-                ("b".into(), Value::Int(1)),
-            ])
-            .unwrap(),
-        );
-        let t_0 = Value::from(
-            TupleData::from_data(vec![
-                ("b".into(), Value::Int(1)),
-                ("a".into(), Value::Int(1)),
-            ])
-            .unwrap(),
-        );
-        let t_2 = Value::from(
-            TupleData::from_data(vec![
-                ("a".into(), Value::Int(1)),
-                ("b".into(), Value::Bool(true)),
-            ])
-            .unwrap(),
-        );
-        let t_3 = Value::from(TupleData::from_data(vec![("a".into(), Value::Int(1))]).unwrap());
-        let t_4 = Value::from(
-            TupleData::from_data(vec![
-                ("a".into(), Value::Int(1)),
-                ("c".into(), Value::Bool(true)),
-            ])
-            .unwrap(),
-        );
-
-        test_deser_ser(t_0.clone());
-        test_deser_ser(t_1.clone());
-        test_deser_ser(t_2.clone());
-        test_deser_ser(t_3.clone());
-
-        test_bad_expectation(t_0.clone(), TypeSignature::BoolType);
-
-        // t_0 and t_1 are actually the same
-        assert_eq!(
-            Value::try_deserialize_hex(
-                &t_1.serialize_to_hex().unwrap(),
-                &TypeSignature::type_of(&t_0).unwrap(),
-                false
-            )
-            .unwrap(),
-            Value::try_deserialize_hex(
-                &t_0.serialize_to_hex().unwrap(),
-                &TypeSignature::type_of(&t_0).unwrap(),
-                false
-            )
-            .unwrap()
-        );
-
-        // field number not equal to expectations
-        assert!(matches!(
-            Value::try_deserialize_hex(
-                &t_3.serialize_to_hex().unwrap(),
-                &TypeSignature::type_of(&t_1).unwrap(),
-                false
-            )
-            .unwrap_err()
-            .into(),
-            SerializationError::DeserializeExpected(_)
-        ));
-
-        // field type mismatch
-        assert!(matches!(
-            Value::try_deserialize_hex(
-                &t_2.serialize_to_hex().unwrap(),
-                &TypeSignature::type_of(&t_1).unwrap(),
-                false
-            )
-            .unwrap_err()
-            .into(),
-            SerializationError::DeserializeExpected(_)
-        ));
-
-        // field not-present in expected
-        assert!(matches!(
-            Value::try_deserialize_hex(
-                &t_1.serialize_to_hex().unwrap(),
-                &TypeSignature::type_of(&t_4).unwrap(),
-                false
-            )
-            .unwrap_err()
-            .into(),
-            SerializationError::DeserializeExpected(_)
-        ));
     }
 
     #[apply(test_clarity_versions)]
@@ -876,33 +656,5 @@ pub mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn try_overflow_stack() {
-        let input = "08080808080808080808070707080807080808080808080708080808080708080707080707080807080808080808080708080808080708080707080708070807080808080808080708080808080708080708080808080808080807070807080808080808070808070707080807070808070808080808070808070708070807080808080808080707080708070807080708080808080808070808080808070808070808080808080808080707080708080808080807080807070708080707080807080808080807080807070807080708080808080808070708070808080808080708080707070808070708080807080807070708";
-        assert_eq!(
-            CheckErrors::TypeSignatureTooDeep,
-            Value::try_deserialize_hex_untyped(input)
-                .unwrap_err()
-                .into()
-        );
-    }
-
-    #[test]
-    fn test_principals() {
-        let issuer =
-            PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G")
-                .unwrap();
-        let standard_p = Value::from(issuer.clone());
-
-        let contract_identifier = QualifiedContractIdentifier::new(issuer, "foo".into());
-        let contract_p2 = Value::from(PrincipalData::Contract(contract_identifier));
-
-        test_deser_ser(contract_p2.clone());
-        test_deser_ser(standard_p.clone());
-
-        test_bad_expectation(contract_p2, TypeSignature::BoolType);
-        test_bad_expectation(standard_p, TypeSignature::BoolType);
     }
 }

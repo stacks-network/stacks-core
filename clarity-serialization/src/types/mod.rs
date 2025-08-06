@@ -34,8 +34,8 @@ pub use self::signatures::{
     ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length, TupleTypeSignature,
     TypeSignature,
 };
-use crate::errors::CodecError;
-use crate::representations::{ClarityName, ContractName};
+use crate::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType};
+use crate::representations::{ClarityName, ContractName, SymbolicExpression};
 // use crate::vm::ClarityVersion;
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
@@ -78,9 +78,9 @@ impl StandardPrincipalData {
 }
 
 impl StandardPrincipalData {
-    pub fn new(version: u8, bytes: [u8; 20]) -> Result<Self, CodecError> {
+    pub fn new(version: u8, bytes: [u8; 20]) -> std::result::Result<Self, InterpreterError> {
         if version >= 32 {
-            return Err(CodecError::Expect("Unexpected principal data".into()));
+            return Err(InterpreterError::Expect("Unexpected principal data".into()));
         }
         Ok(Self(version, bytes))
     }
@@ -152,7 +152,7 @@ impl QualifiedContractIdentifier {
         Self { issuer, name }
     }
 
-    pub fn local(name: &str) -> Result<QualifiedContractIdentifier, CodecError> {
+    pub fn local(name: &str) -> Result<QualifiedContractIdentifier> {
         let name = name.to_string().try_into()?;
         Ok(Self::new(StandardPrincipalData::transient(), name))
     }
@@ -171,13 +171,14 @@ impl QualifiedContractIdentifier {
         self.issuer.1 == [0; 20]
     }
 
-    pub fn parse(literal: &str) -> Result<QualifiedContractIdentifier, CodecError> {
+    pub fn parse(literal: &str) -> Result<QualifiedContractIdentifier> {
         let split: Vec<_> = literal.splitn(2, '.').collect();
         if split.len() != 2 {
-            return Err(CodecError::ParseError(
+            return Err(RuntimeErrorType::ParseError(
                 "Invalid principal literal: expected a `.` in a qualified contract name"
                     .to_string(),
-            ));
+            )
+            .into());
         }
         let sender = PrincipalData::parse_standard_principal(split[0])?;
         let name = split[1].to_string().try_into()?;
@@ -259,26 +260,27 @@ impl TraitIdentifier {
         }
     }
 
-    pub fn parse_fully_qualified(literal: &str) -> Result<TraitIdentifier, CodecError> {
+    pub fn parse_fully_qualified(literal: &str) -> Result<TraitIdentifier> {
         let (issuer, contract_name, name) = Self::parse(literal)?;
-        let issuer = issuer.ok_or(CodecError::BadTypeConstruction)?;
+        let issuer = issuer.ok_or(RuntimeErrorType::BadTypeConstruction)?;
         Ok(TraitIdentifier::new(issuer, contract_name, name))
     }
 
-    pub fn parse_sugared_syntax(literal: &str) -> Result<(ContractName, ClarityName), CodecError> {
+    pub fn parse_sugared_syntax(literal: &str) -> Result<(ContractName, ClarityName)> {
         let (_, contract_name, name) = Self::parse(literal)?;
         Ok((contract_name, name))
     }
 
     pub fn parse(
         literal: &str,
-    ) -> Result<(Option<StandardPrincipalData>, ContractName, ClarityName), CodecError> {
+    ) -> Result<(Option<StandardPrincipalData>, ContractName, ClarityName)> {
         let split: Vec<_> = literal.splitn(3, '.').collect();
         if split.len() != 3 {
-            return Err(CodecError::ParseError(
+            return Err(RuntimeErrorType::ParseError(
                 "Invalid principal literal: expected a `.` in a qualified contract name"
                     .to_string(),
-            ));
+            )
+            .into());
         }
 
         let issuer = match split[0].len() {
@@ -316,7 +318,16 @@ pub enum SequenceData {
 }
 
 impl SequenceData {
-    pub fn element_size(&self) -> Result<u32, CodecError> {
+    pub fn atom_values(&mut self) -> Result<Vec<SymbolicExpression>> {
+        match self {
+            SequenceData::Buffer(data) => data.atom_values(),
+            SequenceData::List(data) => data.atom_values(),
+            SequenceData::String(CharType::ASCII(data)) => data.atom_values(),
+            SequenceData::String(CharType::UTF8(data)) => data.atom_values(),
+        }
+    }
+
+    pub fn element_size(&self) -> Result<u32> {
         let out = match self {
             SequenceData::Buffer(..) => TypeSignature::min_buffer()?.size(),
             SequenceData::List(data) => data.type_signature.get_list_item_type().size(),
@@ -338,10 +349,8 @@ impl SequenceData {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-}
 
-impl SequenceData {
-    pub fn element_at(self, index: usize) -> Result<Option<Value>, CodecError> {
+    pub fn element_at(self, index: usize) -> Result<Option<Value>> {
         if self.len() <= index {
             return Ok(None);
         }
@@ -350,7 +359,9 @@ impl SequenceData {
             SequenceData::List(mut data) => data.data.remove(index),
             SequenceData::String(CharType::ASCII(data)) => {
                 Value::string_ascii_from_bytes(vec![data.data[index]]).map_err(|_| {
-                    CodecError::Expect("BUG: failed to initialize single-byte ASCII buffer".into())
+                    InterpreterError::Expect(
+                        "BUG: failed to initialize single-byte ASCII buffer".into(),
+                    )
                 })?
             }
             SequenceData::String(CharType::UTF8(mut data)) => {
@@ -363,12 +374,7 @@ impl SequenceData {
         Ok(Some(result))
     }
 
-    pub fn replace_at(
-        self,
-        epoch: &StacksEpochId,
-        index: usize,
-        element: Value,
-    ) -> Result<Value, CodecError> {
+    pub fn replace_at(self, epoch: &StacksEpochId, index: usize, element: Value) -> Result<Value> {
         let seq_length = self.len();
 
         // Check that the length of the provided element is 1. In the case that SequenceData
@@ -377,14 +383,14 @@ impl SequenceData {
             if let Value::Sequence(data) = &element {
                 let elem_length = data.len();
                 if elem_length != 1 {
-                    return Err(CodecError::BadTypeConstruction);
+                    return Err(RuntimeErrorType::BadTypeConstruction.into());
                 }
             } else {
-                return Err(CodecError::BadTypeConstruction);
+                return Err(RuntimeErrorType::BadTypeConstruction.into());
             }
         }
         if index >= seq_length {
-            return Err(CodecError::ValueOutOfBounds);
+            return Err(CheckErrors::ValueOutOfBounds.into());
         }
 
         let new_seq_data = match (self, element) {
@@ -395,7 +401,7 @@ impl SequenceData {
             (SequenceData::List(mut data), elem) => {
                 let entry_type = data.type_signature.get_list_item_type();
                 if !entry_type.admits(epoch, &elem)? {
-                    return Err(CodecError::ListTypesMustMatch);
+                    return Err(CheckErrors::ListTypesMustMatch.into());
                 }
                 data.data[index] = elem;
                 SequenceData::List(data)
@@ -414,13 +420,13 @@ impl SequenceData {
                 data.data[index] = elem.data.swap_remove(0);
                 SequenceData::String(CharType::UTF8(data))
             }
-            _ => return Err(CodecError::ListTypesMustMatch),
+            _ => return Err(CheckErrors::ListTypesMustMatch.into()),
         };
 
         Value::some(Value::Sequence(new_seq_data))
     }
 
-    pub fn contains(&self, to_find: Value) -> Result<Option<usize>, CodecError> {
+    pub fn contains(&self, to_find: Value) -> Result<Option<usize>> {
         match self {
             SequenceData::Buffer(data) => {
                 if let Value::Sequence(SequenceData::Buffer(to_find_vec)) = to_find {
@@ -435,10 +441,7 @@ impl SequenceData {
                         Ok(None)
                     }
                 } else {
-                    Err(CodecError::TypeValueError {
-                        expected: Box::new(TypeSignature::min_buffer()?),
-                        found: Box::new(to_find),
-                    })
+                    Err(CheckErrors::TypeValueError(TypeSignature::min_buffer()?, to_find).into())
                 }
             }
             SequenceData::List(data) => {
@@ -463,10 +466,10 @@ impl SequenceData {
                         Ok(None)
                     }
                 } else {
-                    Err(CodecError::TypeValueError {
-                        expected: Box::new(TypeSignature::min_string_ascii()?),
-                        found: Box::new(to_find),
-                    })
+                    Err(
+                        CheckErrors::TypeValueError(TypeSignature::min_string_ascii()?, to_find)
+                            .into(),
+                    )
                 }
             }
             SequenceData::String(CharType::UTF8(data)) => {
@@ -483,20 +486,59 @@ impl SequenceData {
                         Ok(None)
                     }
                 } else {
-                    Err(CodecError::TypeValueError {
-                        expected: Box::new(TypeSignature::min_string_utf8()?),
-                        found: Box::new(to_find),
-                    })
+                    Err(
+                        CheckErrors::TypeValueError(TypeSignature::min_string_utf8()?, to_find)
+                            .into(),
+                    )
                 }
             }
         }
     }
 
-    pub fn concat(
-        &mut self,
-        epoch: &StacksEpochId,
-        other_seq: SequenceData,
-    ) -> Result<(), CodecError> {
+    pub fn filter<F>(&mut self, filter: &mut F) -> Result<()>
+    where
+        F: FnMut(SymbolicExpression) -> Result<bool>,
+    {
+        // Note: this macro can probably get removed once
+        // ```Vec::drain_filter<F>(&mut self, filter: F) -> DrainFilter<T, F>```
+        // is available in rust stable channel (experimental at this point).
+        macro_rules! drain_filter {
+            ($data:expr, $seq_type:ident) => {
+                let mut i = 0;
+                while i != $data.data.len() {
+                    let atom_value =
+                        SymbolicExpression::atom_value($seq_type::to_value(&$data.data[i])?);
+                    match filter(atom_value) {
+                        Ok(res) if res == false => {
+                            $data.data.remove(i);
+                        }
+                        Ok(_) => {
+                            i += 1;
+                        }
+                        Err(err) => return Err(err),
+                    }
+                }
+            };
+        }
+
+        match self {
+            SequenceData::Buffer(data) => {
+                drain_filter!(data, BuffData);
+            }
+            SequenceData::List(data) => {
+                drain_filter!(data, ListData);
+            }
+            SequenceData::String(CharType::ASCII(data)) => {
+                drain_filter!(data, ASCIIData);
+            }
+            SequenceData::String(CharType::UTF8(data)) => {
+                drain_filter!(data, UTF8Data);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn concat(&mut self, epoch: &StacksEpochId, other_seq: SequenceData) -> Result<()> {
         match (self, other_seq) {
             (SequenceData::List(inner_data), SequenceData::List(other_inner_data)) => {
                 inner_data.append(epoch, other_inner_data)
@@ -512,7 +554,7 @@ impl SequenceData {
                 SequenceData::String(CharType::UTF8(inner_data)),
                 SequenceData::String(CharType::UTF8(ref mut other_inner_data)),
             ) => inner_data.append(other_inner_data),
-            _ => Err(CodecError::BadTypeConstruction),
+            _ => Err(RuntimeErrorType::BadTypeConstruction.into()),
         }?;
         Ok(())
     }
@@ -522,7 +564,7 @@ impl SequenceData {
         epoch: &StacksEpochId,
         left_position: usize,
         right_position: usize,
-    ) -> Result<Value, CodecError> {
+    ) -> Result<Value> {
         let empty_seq = left_position == right_position;
 
         let result = match self {
@@ -630,30 +672,38 @@ impl fmt::Display for UTF8Data {
 }
 
 pub trait SequencedValue<T> {
-    fn type_signature(&self) -> Result<TypeSignature, CodecError>;
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrors>;
 
     fn items(&self) -> &Vec<T>;
 
     fn drained_items(&mut self) -> Vec<T>;
 
-    fn to_value(v: &T) -> Result<Value, CodecError>;
+    fn to_value(v: &T) -> Result<Value>;
+
+    fn atom_values(&mut self) -> Result<Vec<SymbolicExpression>> {
+        self.drained_items()
+            .iter()
+            .map(|item| Ok(SymbolicExpression::atom_value(Self::to_value(item)?)))
+            .collect()
+    }
 }
 
 impl SequencedValue<Value> for ListData {
     fn items(&self) -> &Vec<Value> {
         &self.data
     }
+
     fn drained_items(&mut self) -> Vec<Value> {
         self.data.drain(..).collect()
     }
 
-    fn type_signature(&self) -> std::result::Result<TypeSignature, CodecError> {
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrors> {
         Ok(TypeSignature::SequenceType(SequenceSubtype::ListType(
             self.type_signature.clone(),
         )))
     }
 
-    fn to_value(v: &Value) -> Result<Value, CodecError> {
+    fn to_value(v: &Value) -> Result<Value> {
         Ok(v.clone())
     }
 }
@@ -667,16 +717,16 @@ impl SequencedValue<u8> for BuffData {
         self.data.drain(..).collect()
     }
 
-    fn type_signature(&self) -> std::result::Result<TypeSignature, CodecError> {
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrors> {
         let buff_length = BufferLength::try_from(self.data.len()).map_err(|_| {
-            CodecError::Expect("ERROR: Too large of a buffer successfully constructed.".into())
+            CheckErrors::Expects("ERROR: Too large of a buffer successfully constructed.".into())
         })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::BufferType(
             buff_length,
         )))
     }
 
-    fn to_value(v: &u8) -> Result<Value, CodecError> {
+    fn to_value(v: &u8) -> Result<Value> {
         Ok(Value::buff_from_byte(*v))
     }
 }
@@ -690,18 +740,19 @@ impl SequencedValue<u8> for ASCIIData {
         self.data.drain(..).collect()
     }
 
-    fn type_signature(&self) -> std::result::Result<TypeSignature, CodecError> {
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrors> {
         let buff_length = BufferLength::try_from(self.data.len()).map_err(|_| {
-            CodecError::Expect("ERROR: Too large of a buffer successfully constructed.".into())
+            CheckErrors::Expects("ERROR: Too large of a buffer successfully constructed.".into())
         })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
             StringSubtype::ASCII(buff_length),
         )))
     }
 
-    fn to_value(v: &u8) -> Result<Value, CodecError> {
+    fn to_value(v: &u8) -> Result<Value> {
         Value::string_ascii_from_bytes(vec![*v]).map_err(|_| {
-            CodecError::Expect("ERROR: Invalid ASCII string successfully constructed".into())
+            InterpreterError::Expect("ERROR: Invalid ASCII string successfully constructed".into())
+                .into()
         })
     }
 }
@@ -715,36 +766,37 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
         self.data.drain(..).collect()
     }
 
-    fn type_signature(&self) -> std::result::Result<TypeSignature, CodecError> {
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrors> {
         let str_len = StringUTF8Length::try_from(self.data.len()).map_err(|_| {
-            CodecError::Expect("ERROR: Too large of a buffer successfully constructed.".into())
+            CheckErrors::Expects("ERROR: Too large of a buffer successfully constructed.".into())
         })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
             StringSubtype::UTF8(str_len),
         )))
     }
 
-    fn to_value(v: &Vec<u8>) -> Result<Value, CodecError> {
+    fn to_value(v: &Vec<u8>) -> Result<Value> {
         Value::string_utf8_from_bytes(v.clone()).map_err(|_| {
-            CodecError::Expect("ERROR: Invalid UTF8 string successfully constructed".into())
+            InterpreterError::Expect("ERROR: Invalid UTF8 string successfully constructed".into())
+                .into()
         })
     }
 }
 
 impl OptionalData {
-    pub fn type_signature(&self) -> Result<TypeSignature, CodecError> {
+    pub fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrors> {
         let type_result = match self.data {
             Some(ref v) => TypeSignature::new_option(TypeSignature::type_of(v)?),
             None => TypeSignature::new_option(TypeSignature::NoType),
         };
         type_result.map_err(|_| {
-            CodecError::Expect("Should not have constructed too large of a type.".into())
+            CheckErrors::Expects("Should not have constructed too large of a type.".into())
         })
     }
 }
 
 impl ResponseData {
-    pub fn type_signature(&self) -> Result<TypeSignature, CodecError> {
+    pub fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrors> {
         let type_result = match self.committed {
             true => TypeSignature::new_response(
                 TypeSignature::type_of(&self.data)?,
@@ -756,7 +808,7 @@ impl ResponseData {
             ),
         };
         type_result.map_err(|_| {
-            CodecError::Expect("Should not have constructed too large of a type.".into())
+            CheckErrors::Expects("Should not have constructed too large of a type.".into())
         })
     }
 }
@@ -776,11 +828,11 @@ impl PartialEq for TupleData {
 pub const NONE: Value = Value::Optional(OptionalData { data: None });
 
 impl Value {
-    pub fn some(data: Value) -> Result<Value, CodecError> {
+    pub fn some(data: Value) -> Result<Value> {
         if data.size()? + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
-            Err(CodecError::ValueTooLarge)
+            Err(CheckErrors::ValueTooLarge.into())
         } else if data.depth()? + 1 > MAX_TYPE_DEPTH {
-            Err(CodecError::TypeSignatureTooDeep)
+            Err(CheckErrors::TypeSignatureTooDeep.into())
         } else {
             Ok(Value::Optional(OptionalData {
                 data: Some(Box::new(data)),
@@ -813,11 +865,11 @@ impl Value {
         })
     }
 
-    pub fn okay(data: Value) -> Result<Value, CodecError> {
+    pub fn okay(data: Value) -> Result<Value> {
         if data.size()? + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
-            Err(CodecError::ValueTooLarge)
+            Err(CheckErrors::ValueTooLarge.into())
         } else if data.depth()? + 1 > MAX_TYPE_DEPTH {
-            Err(CodecError::TypeSignatureTooDeep)
+            Err(CheckErrors::TypeSignatureTooDeep.into())
         } else {
             Ok(Value::Response(ResponseData {
                 committed: true,
@@ -826,11 +878,11 @@ impl Value {
         }
     }
 
-    pub fn error(data: Value) -> Result<Value, CodecError> {
+    pub fn error(data: Value) -> Result<Value> {
         if data.size()? + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
-            Err(CodecError::ValueTooLarge)
+            Err(CheckErrors::ValueTooLarge.into())
         } else if data.depth()? + 1 > MAX_TYPE_DEPTH {
-            Err(CodecError::TypeSignatureTooDeep)
+            Err(CheckErrors::TypeSignatureTooDeep.into())
         } else {
             Ok(Value::Response(ResponseData {
                 committed: false,
@@ -839,11 +891,11 @@ impl Value {
         }
     }
 
-    pub fn size(&self) -> Result<u32, CodecError> {
-        TypeSignature::type_of(self)?.size()
+    pub fn size(&self) -> Result<u32> {
+        Ok(TypeSignature::type_of(self)?.size()?)
     }
 
-    pub fn depth(&self) -> Result<u8, CodecError> {
+    pub fn depth(&self) -> Result<u8> {
         Ok(TypeSignature::type_of(self)?.depth())
     }
 
@@ -854,12 +906,12 @@ impl Value {
         epoch: &StacksEpochId,
         list_data: Vec<Value>,
         expected_type: ListTypeData,
-    ) -> Result<Value, CodecError> {
+    ) -> Result<Value> {
         // Constructors for TypeSignature ensure that the size of the Value cannot
         //   be greater than MAX_VALUE_SIZE (they error on such constructions)
         //   so we do not need to perform that check here.
         if (expected_type.get_max_len() as usize) < list_data.len() {
-            return Err(CodecError::FailureConstructingListWithType);
+            return Err(InterpreterError::FailureConstructingListWithType.into());
         }
 
         {
@@ -867,7 +919,7 @@ impl Value {
 
             for item in &list_data {
                 if !expected_item_type.admits(epoch, item)? {
-                    return Err(CodecError::FailureConstructingListWithType);
+                    return Err(InterpreterError::FailureConstructingListWithType.into());
                 }
             }
         }
@@ -878,7 +930,7 @@ impl Value {
         })))
     }
 
-    pub fn cons_list_unsanitized(list_data: Vec<Value>) -> Result<Value, CodecError> {
+    pub fn cons_list_unsanitized(list_data: Vec<Value>) -> Result<Value> {
         let type_sig = TypeSignature::construct_parent_list_type(&list_data)?;
         Ok(Value::Sequence(SequenceData::List(ListData {
             data: list_data,
@@ -887,11 +939,11 @@ impl Value {
     }
 
     #[cfg(any(test, feature = "testing"))]
-    pub fn list_from(list_data: Vec<Value>) -> Result<Value, CodecError> {
+    pub fn list_from(list_data: Vec<Value>) -> Result<Value> {
         Value::cons_list_unsanitized(list_data)
     }
 
-    pub fn cons_list(list_data: Vec<Value>, epoch: &StacksEpochId) -> Result<Value, CodecError> {
+    pub fn cons_list(list_data: Vec<Value>, epoch: &StacksEpochId) -> Result<Value> {
         // Constructors for TypeSignature ensure that the size of the Value cannot
         //   be greater than MAX_VALUE_SIZE (they error on such constructions)
         // Aaron: at this point, we've _already_ allocated memory for this type.
@@ -906,7 +958,7 @@ impl Value {
                     .map(|(value, _did_sanitize)| value)
             })
             .collect();
-        let list_data = list_data_opt.ok_or_else(|| CodecError::ListTypesMustMatch)?;
+        let list_data = list_data_opt.ok_or_else(|| CheckErrors::ListTypesMustMatch)?;
         Ok(Value::Sequence(SequenceData::List(ListData {
             data: list_data,
             type_signature: type_sig,
@@ -914,8 +966,8 @@ impl Value {
     }
 
     /// # Errors
-    /// - [`CodecError::ValueTooLarge`] if `buff_data` is too large.
-    pub fn buff_from(buff_data: Vec<u8>) -> Result<Value, CodecError> {
+    /// - CheckErrors::ValueTooLarge if `buff_data` is too large.
+    pub fn buff_from(buff_data: Vec<u8>) -> Result<Value> {
         // check the buffer size
         BufferLength::try_from(buff_data.len())?;
         // construct the buffer
@@ -928,13 +980,13 @@ impl Value {
         Value::Sequence(SequenceData::Buffer(BuffData { data: vec![byte] }))
     }
 
-    pub fn string_ascii_from_bytes(bytes: Vec<u8>) -> Result<Value, CodecError> {
+    pub fn string_ascii_from_bytes(bytes: Vec<u8>) -> Result<Value> {
         // check the string size
         BufferLength::try_from(bytes.len())?;
 
         for b in bytes.iter() {
             if !b.is_ascii_alphanumeric() && !b.is_ascii_punctuation() && !b.is_ascii_whitespace() {
-                return Err(CodecError::InvalidStringCharacters);
+                return Err(CheckErrors::InvalidCharactersDetected.into());
             }
         }
         // construct the string
@@ -943,11 +995,9 @@ impl Value {
         ))))
     }
 
-    pub fn string_utf8_from_string_utf8_literal(
-        tokenized_str: String,
-    ) -> Result<Value, CodecError> {
+    pub fn string_utf8_from_string_utf8_literal(tokenized_str: String) -> Result<Value> {
         let wrapped_codepoints_matcher = Regex::new("^\\\\u\\{(?P<value>[[:xdigit:]]+)\\}")
-            .map_err(|_| CodecError::Expect("Bad regex".into()))?;
+            .map_err(|_| InterpreterError::Expect("Bad regex".into()))?;
         let mut window = tokenized_str.as_str();
         let mut cursor = 0;
         let mut data: Vec<Vec<u8>> = vec![];
@@ -955,12 +1005,12 @@ impl Value {
             if let Some(captures) = wrapped_codepoints_matcher.captures(window) {
                 let matched = captures
                     .name("value")
-                    .ok_or_else(|| CodecError::Expect("Expected capture".into()))?;
+                    .ok_or_else(|| InterpreterError::Expect("Expected capture".into()))?;
                 let scalar_value = window[matched.start()..matched.end()].to_string();
                 let unicode_char = {
                     let u = u32::from_str_radix(&scalar_value, 16)
-                        .map_err(|_| CodecError::InvalidUtf8Encoding)?;
-                    let c = char::from_u32(u).ok_or_else(|| CodecError::InvalidUtf8Encoding)?;
+                        .map_err(|_| CheckErrors::InvalidUTF8Encoding)?;
+                    let c = char::from_u32(u).ok_or_else(|| CheckErrors::InvalidUTF8Encoding)?;
                     let mut encoded_char: Vec<u8> = vec![0; c.len_utf8()];
                     c.encode_utf8(&mut encoded_char[..]);
                     encoded_char
@@ -984,10 +1034,10 @@ impl Value {
         ))))
     }
 
-    pub fn string_utf8_from_bytes(bytes: Vec<u8>) -> Result<Value, CodecError> {
+    pub fn string_utf8_from_bytes(bytes: Vec<u8>) -> Result<Value> {
         let validated_utf8_str = match str::from_utf8(&bytes) {
             Ok(string) => string,
-            _ => return Err(CodecError::InvalidStringCharacters),
+            _ => return Err(CheckErrors::InvalidCharactersDetected.into()),
         };
         let data = validated_utf8_str
             .chars()
@@ -1005,35 +1055,35 @@ impl Value {
         ))))
     }
 
-    pub fn expect_ascii(self) -> Result<String, CodecError> {
+    pub fn expect_ascii(self) -> Result<String> {
         if let Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) = self {
             Ok(String::from_utf8(data)
-                .map_err(|_| CodecError::Expect("Non UTF-8 data in string".into()))?)
+                .map_err(|_| InterpreterError::Expect("Non UTF-8 data in string".into()))?)
         } else {
             error!("Value '{self:?}' is not an ASCII string");
-            Err(CodecError::Expect("Expected ASCII string".into()))
+            Err(InterpreterError::Expect("Expected ASCII string".into()).into())
         }
     }
 
-    pub fn expect_u128(self) -> Result<u128, CodecError> {
+    pub fn expect_u128(self) -> Result<u128> {
         if let Value::UInt(inner) = self {
             Ok(inner)
         } else {
             error!("Value '{self:?}' is not a u128");
-            Err(CodecError::Expect("Expected u128".into()))
+            Err(InterpreterError::Expect("Expected u128".into()).into())
         }
     }
 
-    pub fn expect_i128(self) -> Result<i128, CodecError> {
+    pub fn expect_i128(self) -> Result<i128> {
         if let Value::Int(inner) = self {
             Ok(inner)
         } else {
             error!("Value '{self:?}' is not an i128");
-            Err(CodecError::Expect("Expected i128".into()))
+            Err(InterpreterError::Expect("Expected i128".into()).into())
         }
     }
 
-    pub fn expect_buff(self, sz: usize) -> Result<Vec<u8>, CodecError> {
+    pub fn expect_buff(self, sz: usize) -> Result<Vec<u8>> {
         if let Value::Sequence(SequenceData::Buffer(buffdata)) = self {
             if buffdata.data.len() <= sz {
                 Ok(buffdata.data)
@@ -1042,24 +1092,24 @@ impl Value {
                     "Value buffer has len {}, expected {sz}",
                     buffdata.data.len()
                 );
-                Err(CodecError::Expect("Unexpected buff length".into()))
+                Err(InterpreterError::Expect("Unexpected buff length".into()).into())
             }
         } else {
             error!("Value '{self:?}' is not a buff");
-            Err(CodecError::Expect("Expected buff".into()))
+            Err(InterpreterError::Expect("Expected buff".into()).into())
         }
     }
 
-    pub fn expect_list(self) -> Result<Vec<Value>, CodecError> {
+    pub fn expect_list(self) -> Result<Vec<Value>> {
         if let Value::Sequence(SequenceData::List(listdata)) = self {
             Ok(listdata.data)
         } else {
             error!("Value '{self:?}' is not a list");
-            Err(CodecError::Expect("Expected list".into()))
+            Err(InterpreterError::Expect("Expected list".into()).into())
         }
     }
 
-    pub fn expect_buff_padded(self, sz: usize, pad: u8) -> Result<Vec<u8>, CodecError> {
+    pub fn expect_buff_padded(self, sz: usize, pad: u8) -> Result<Vec<u8>> {
         let mut data = self.expect_buff(sz)?;
         if sz > data.len() {
             for _ in data.len()..sz {
@@ -1069,25 +1119,25 @@ impl Value {
         Ok(data)
     }
 
-    pub fn expect_bool(self) -> Result<bool, CodecError> {
+    pub fn expect_bool(self) -> Result<bool> {
         if let Value::Bool(b) = self {
             Ok(b)
         } else {
             error!("Value '{self:?}' is not a bool");
-            Err(CodecError::Expect("Expected bool".into()))
+            Err(InterpreterError::Expect("Expected bool".into()).into())
         }
     }
 
-    pub fn expect_tuple(self) -> Result<TupleData, CodecError> {
+    pub fn expect_tuple(self) -> Result<TupleData> {
         if let Value::Tuple(data) = self {
             Ok(data)
         } else {
             error!("Value '{self:?}' is not a tuple");
-            Err(CodecError::Expect("Expected tuple".into()))
+            Err(InterpreterError::Expect("Expected tuple".into()).into())
         }
     }
 
-    pub fn expect_optional(self) -> Result<Option<Value>, CodecError> {
+    pub fn expect_optional(self) -> Result<Option<Value>> {
         if let Value::Optional(opt) = self {
             match opt.data {
                 Some(boxed_value) => Ok(Some(*boxed_value)),
@@ -1095,29 +1145,29 @@ impl Value {
             }
         } else {
             error!("Value '{self:?}' is not an optional");
-            Err(CodecError::Expect("Expected optional".into()))
+            Err(InterpreterError::Expect("Expected optional".into()).into())
         }
     }
 
-    pub fn expect_principal(self) -> Result<PrincipalData, CodecError> {
+    pub fn expect_principal(self) -> Result<PrincipalData> {
         if let Value::Principal(p) = self {
             Ok(p)
         } else {
             error!("Value '{self:?}' is not a principal");
-            Err(CodecError::Expect("Expected principal".into()))
+            Err(InterpreterError::Expect("Expected principal".into()).into())
         }
     }
 
-    pub fn expect_callable(self) -> Result<CallableData, CodecError> {
+    pub fn expect_callable(self) -> Result<CallableData> {
         if let Value::CallableContract(t) = self {
             Ok(t)
         } else {
             error!("Value '{self:?}' is not a callable contract");
-            Err(CodecError::Expect("Expected callable".into()))
+            Err(InterpreterError::Expect("Expected callable".into()).into())
         }
     }
 
-    pub fn expect_result(self) -> Result<std::result::Result<Value, Value>, CodecError> {
+    pub fn expect_result(self) -> Result<std::result::Result<Value, Value>> {
         if let Value::Response(res_data) = self {
             if res_data.committed {
                 Ok(Ok(*res_data.data))
@@ -1126,52 +1176,52 @@ impl Value {
             }
         } else {
             error!("Value '{self:?}' is not a response");
-            Err(CodecError::Expect("Expected response".into()))
+            Err(InterpreterError::Expect("Expected response".into()).into())
         }
     }
 
-    pub fn expect_result_ok(self) -> Result<Value, CodecError> {
+    pub fn expect_result_ok(self) -> Result<Value> {
         if let Value::Response(res_data) = self {
             if res_data.committed {
                 Ok(*res_data.data)
             } else {
                 error!("Value is not a (ok ..)");
-                Err(CodecError::Expect("Expected ok response".into()))
+                Err(InterpreterError::Expect("Expected ok response".into()).into())
             }
         } else {
             error!("Value '{self:?}' is not a response");
-            Err(CodecError::Expect("Expected response".into()))
+            Err(InterpreterError::Expect("Expected response".into()).into())
         }
     }
 
-    pub fn expect_result_err(self) -> Result<Value, CodecError> {
+    pub fn expect_result_err(self) -> Result<Value> {
         if let Value::Response(res_data) = self {
             if !res_data.committed {
                 Ok(*res_data.data)
             } else {
                 error!("Value is not a (err ..)");
-                Err(CodecError::Expect("Expected err response".into()))
+                Err(InterpreterError::Expect("Expected err response".into()).into())
             }
         } else {
             error!("Value '{self:?}' is not a response");
-            Err(CodecError::Expect("Expected response".into()))
+            Err(InterpreterError::Expect("Expected response".into()).into())
         }
     }
 }
 
 impl BuffData {
-    pub fn len(&self) -> Result<BufferLength, CodecError> {
+    pub fn len(&self) -> Result<BufferLength> {
         self.data
             .len()
             .try_into()
-            .map_err(|_| CodecError::Expect("Data length should be valid".into()))
+            .map_err(|_| InterpreterError::Expect("Data length should be valid".into()).into())
     }
 
     pub fn as_slice(&self) -> &[u8] {
         self.data.as_slice()
     }
 
-    fn append(&mut self, other_seq: &mut BuffData) -> Result<(), CodecError> {
+    fn append(&mut self, other_seq: &mut BuffData) -> Result<()> {
         self.data.append(&mut other_seq.data);
         Ok(())
     }
@@ -1182,25 +1232,25 @@ impl BuffData {
 }
 
 impl ListData {
-    pub fn len(&self) -> Result<u32, CodecError> {
+    pub fn len(&self) -> Result<u32> {
         self.data
             .len()
             .try_into()
-            .map_err(|_| CodecError::Expect("Data length should be valid".into()))
+            .map_err(|_| InterpreterError::Expect("Data length should be valid".into()).into())
     }
 
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
 
-    fn append(&mut self, epoch: &StacksEpochId, other_seq: ListData) -> Result<(), CodecError> {
+    fn append(&mut self, epoch: &StacksEpochId, other_seq: ListData) -> Result<()> {
         let entry_type_a = self.type_signature.get_list_item_type();
         let entry_type_b = other_seq.type_signature.get_list_item_type();
         let entry_type = TypeSignature::factor_out_no_type(epoch, entry_type_a, entry_type_b)?;
         let max_len = self.type_signature.get_max_len() + other_seq.type_signature.get_max_len();
         for item in other_seq.data.into_iter() {
             let (item, _) = Value::sanitize_value(epoch, &entry_type, item)
-                .ok_or_else(|| CodecError::ListTypesMustMatch)?;
+                .ok_or_else(|| CheckErrors::ListTypesMustMatch)?;
             self.data.push(item);
         }
 
@@ -1210,30 +1260,30 @@ impl ListData {
 }
 
 impl ASCIIData {
-    fn append(&mut self, other_seq: &mut ASCIIData) -> Result<(), CodecError> {
+    fn append(&mut self, other_seq: &mut ASCIIData) -> Result<()> {
         self.data.append(&mut other_seq.data);
         Ok(())
     }
 
-    pub fn len(&self) -> Result<BufferLength, CodecError> {
+    pub fn len(&self) -> Result<BufferLength> {
         self.data
             .len()
             .try_into()
-            .map_err(|_| CodecError::Expect("Data length should be valid".into()))
+            .map_err(|_| InterpreterError::Expect("Data length should be valid".into()).into())
     }
 }
 
 impl UTF8Data {
-    fn append(&mut self, other_seq: &mut UTF8Data) -> Result<(), CodecError> {
+    fn append(&mut self, other_seq: &mut UTF8Data) -> Result<()> {
         self.data.append(&mut other_seq.data);
         Ok(())
     }
 
-    pub fn len(&self) -> Result<BufferLength, CodecError> {
+    pub fn len(&self) -> Result<BufferLength> {
         self.data
             .len()
             .try_into()
-            .map_err(|_| CodecError::Expect("Data length should be valid".into()))
+            .map_err(|_| InterpreterError::Expect("Data length should be valid".into()).into())
     }
 }
 
@@ -1277,7 +1327,7 @@ impl fmt::Display for Value {
             Value::Principal(principal_data) => write!(f, "{principal_data}"),
             Value::Optional(opt_data) => write!(f, "{opt_data}"),
             Value::Response(res_data) => write!(f, "{res_data}"),
-            Value::Sequence(SequenceData::Buffer(vec_bytes)) => write!(f, "0x{}", &vec_bytes),
+            Value::Sequence(SequenceData::Buffer(vec_bytes)) => write!(f, "0x{vec_bytes}"),
             Value::Sequence(SequenceData::String(string)) => write!(f, "{string}"),
             Value::Sequence(SequenceData::List(list_data)) => {
                 write!(f, "(")?;
@@ -1318,7 +1368,7 @@ impl PrincipalData {
         self.version() < 32
     }
 
-    pub fn parse(literal: &str) -> Result<PrincipalData, CodecError> {
+    pub fn parse(literal: &str) -> Result<PrincipalData> {
         // be permissive about leading single-quote
         let literal = literal.strip_prefix('\'').unwrap_or(literal);
 
@@ -1329,22 +1379,23 @@ impl PrincipalData {
         }
     }
 
-    pub fn parse_qualified_contract_principal(literal: &str) -> Result<PrincipalData, CodecError> {
+    pub fn parse_qualified_contract_principal(literal: &str) -> Result<PrincipalData> {
         let contract_id = QualifiedContractIdentifier::parse(literal)?;
         Ok(PrincipalData::Contract(contract_id))
     }
 
-    pub fn parse_standard_principal(literal: &str) -> Result<StandardPrincipalData, CodecError> {
+    pub fn parse_standard_principal(literal: &str) -> Result<StandardPrincipalData> {
         let (version, data) = c32::c32_address_decode(literal)
-            .map_err(|x| CodecError::ParseError(format!("Invalid principal literal: {x}")))?;
+            .map_err(|x| RuntimeErrorType::ParseError(format!("Invalid principal literal: {x}")))?;
         if data.len() != 20 {
-            return Err(CodecError::ParseError(
+            return Err(RuntimeErrorType::ParseError(
                 "Invalid principal literal: Expected 20 data bytes.".to_string(),
-            ));
+            )
+            .into());
         }
         let mut fixed_data = [0; 20];
         fixed_data.copy_from_slice(&data[..20]);
-        StandardPrincipalData::new(version, fixed_data)
+        Ok(StandardPrincipalData::new(version, fixed_data)?)
     }
 }
 
@@ -1364,11 +1415,7 @@ impl fmt::Display for PrincipalData {
 impl fmt::Display for CallableData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if let Some(trait_identifier) = &self.trait_identifier {
-            write!(
-                f,
-                "({} as <{}>)",
-                self.contract_identifier, trait_identifier,
-            )
+            write!(f, "({} as <{trait_identifier}>)", self.contract_identifier)
         } else {
             write!(f, "{}", self.contract_identifier,)
         }
@@ -1462,7 +1509,7 @@ impl TupleData {
     fn new(
         type_signature: TupleTypeSignature,
         data_map: BTreeMap<ClarityName, Value>,
-    ) -> Result<TupleData, CodecError> {
+    ) -> Result<TupleData> {
         let t = TupleData {
             type_signature,
             data_map,
@@ -1482,7 +1529,7 @@ impl TupleData {
 
     // TODO: add tests from mutation testing results #4833
     #[cfg_attr(test, mutants::skip)]
-    pub fn from_data(data: Vec<(ClarityName, Value)>) -> Result<TupleData, CodecError> {
+    pub fn from_data(data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();
         for (name, value) in data.into_iter() {
@@ -1490,9 +1537,7 @@ impl TupleData {
             let entry = type_map.entry(name.clone());
             match entry {
                 Entry::Vacant(e) => e.insert(type_info),
-                Entry::Occupied(_) => {
-                    return Err(CodecError::NameAlreadyUsedInTuple(name.into()));
-                }
+                Entry::Occupied(_) => return Err(CheckErrors::NameAlreadyUsed(name.into()).into()),
             };
             data_map.insert(name, value);
         }
@@ -1506,33 +1551,33 @@ impl TupleData {
         epoch: &StacksEpochId,
         data: Vec<(ClarityName, Value)>,
         expected: &TupleTypeSignature,
-    ) -> Result<TupleData, CodecError> {
+    ) -> Result<TupleData> {
         let mut data_map = BTreeMap::new();
         for (name, value) in data.into_iter() {
             let expected_type = expected
                 .field_type(&name)
-                .ok_or(CodecError::FailureConstructingTupleWithType)?;
+                .ok_or(InterpreterError::FailureConstructingTupleWithType)?;
             if !expected_type.admits(epoch, &value)? {
-                return Err(CodecError::FailureConstructingTupleWithType);
+                return Err(InterpreterError::FailureConstructingTupleWithType.into());
             }
             data_map.insert(name, value);
         }
         Self::new(expected.clone(), data_map)
     }
 
-    pub fn get(&self, name: &str) -> Result<&Value, CodecError> {
+    pub fn get(&self, name: &str) -> Result<&Value> {
         self.data_map.get(name).ok_or_else(|| {
-            CodecError::NoSuchTupleField(name.to_string(), self.type_signature.clone())
+            CheckErrors::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into()
         })
     }
 
-    pub fn get_owned(mut self, name: &str) -> Result<Value, CodecError> {
+    pub fn get_owned(mut self, name: &str) -> Result<Value> {
         self.data_map.remove(name).ok_or_else(|| {
-            CodecError::NoSuchTupleField(name.to_string(), self.type_signature.clone())
+            CheckErrors::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into()
         })
     }
 
-    pub fn shallow_merge(mut base: TupleData, updates: TupleData) -> Result<TupleData, CodecError> {
+    pub fn shallow_merge(mut base: TupleData, updates: TupleData) -> Result<TupleData> {
         let TupleData {
             data_map,
             mut type_signature,
@@ -1550,7 +1595,7 @@ impl fmt::Display for TupleData {
         write!(f, "(tuple")?;
         for (name, value) in self.data_map.iter() {
             write!(f, " ")?;
-            write!(f, "({} {})", &**name, value)?;
+            write!(f, "({} {value})", &**name)?;
         }
         write!(f, ")")
     }
@@ -1560,4 +1605,27 @@ impl fmt::Display for TupleData {
 ///  return the size of the same byte representation.
 pub fn byte_len_of_serialization(serialized: &str) -> u64 {
     serialized.len() as u64 / 2
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+pub struct FunctionIdentifier {
+    identifier: String,
+}
+
+impl fmt::Display for FunctionIdentifier {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.identifier)
+    }
+}
+
+impl FunctionIdentifier {
+    pub fn new_native_function(name: &str) -> FunctionIdentifier {
+        let identifier = format!("_native_:{name}");
+        FunctionIdentifier { identifier }
+    }
+
+    pub fn new_user_function(name: &str, context: &str) -> FunctionIdentifier {
+        let identifier = format!("{context}:{name}");
+        FunctionIdentifier { identifier }
+    }
 }

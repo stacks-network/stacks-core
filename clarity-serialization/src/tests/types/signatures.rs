@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashSet;
 
-use crate::errors::CodecError;
+use crate::errors::CheckErrors;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
 use crate::types::signatures::{CallableSubtype, TypeSignature};
 use crate::types::{
@@ -516,12 +516,16 @@ fn test_least_supertype() {
 
     for pair in bad_pairs {
         matches!(
-            TypeSignature::least_supertype_v2_1(&pair.0, &pair.1).unwrap_err(),
-            CodecError::TypeError { .. }
+            TypeSignature::least_supertype_v2_1(&pair.0, &pair.1)
+                .unwrap_err()
+                .into(),
+            CheckErrors::TypeError(..)
         );
         matches!(
-            TypeSignature::least_supertype_v2_1(&pair.1, &pair.0).unwrap_err(),
-            CodecError::TypeError { .. }
+            TypeSignature::least_supertype_v2_1(&pair.1, &pair.0)
+                .unwrap_err()
+                .into(),
+            CheckErrors::TypeError(..)
         );
     }
 }
