@@ -6451,8 +6451,8 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
             "clarity",
             "contract_call",
             |mut caller: Caller<'_, ClarityWasmContext>,
-             trait_name_offset: i32,
-             trait_name_length: i32,
+             trait_id_offset: i32,
+             trait_id_length: i32,
              contract_offset: i32,
              contract_length: i32,
              function_offset: i32,
@@ -6499,7 +6499,7 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 )?;
 
                 // Retrieve the contract context for the contract we're calling
-                let contract = caller
+                let mut contract = caller
                     .data_mut()
                     .global_context
                     .database
@@ -6568,30 +6568,34 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 }?;
 
                 // Write the result to the return buffer
-                let return_ty = if trait_name_length == 0 {
+                let return_ty = if trait_id_length == 0 {
                     // This is a direct call
-                    function.get_return_type().as_ref()
+                    function
+                        .get_return_type()
+                        .as_ref()
+                        .ok_or(CheckErrors::DefineFunctionBadSignature)?
                 } else {
                     // This is a dynamic call
-                    let trait_name = read_identifier_from_wasm(
-                        memory,
-                        &mut caller,
-                        trait_name_offset,
-                        trait_name_length,
-                    )?;
+                    let trait_id =
+                        read_bytes_from_wasm(memory, &mut caller, trait_id_offset, trait_id_length)
+                            .and_then(|bs| trait_identifier_from_bytes(&bs))?;
+                    contract = if &trait_id.contract_identifier == contract_id {
+                        contract
+                    } else {
+                        caller
+                            .data_mut()
+                            .global_context
+                            .database
+                            .get_contract(&trait_id.contract_identifier)?
+                    };
                     contract
                         .contract_context
                         .defined_traits
-                        .get(trait_name.as_str())
+                        .get(trait_id.name.as_str())
                         .and_then(|trait_functions| trait_functions.get(function_name.as_str()))
                         .map(|f_ty| &f_ty.returns)
-                }
-                .ok_or(CheckErrors::DefineFunctionBadSignature)?;
-
-                let memory = caller
-                    .get_export("memory")
-                    .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                        .ok_or(CheckErrors::DefineFunctionBadSignature)?
+                };
 
                 write_to_wasm(
                     &mut caller,
@@ -7374,6 +7378,43 @@ fn link_debug_msg<T>(linker: &mut Linker<T>) -> Result<(), Error> {
                 e,
             ))
         })
+}
+
+/// Tries to deserialize bytes into a [TraitIdentifier]. The bytes should have the following format:
+/// issuer principal as 21 bytes + contract name length as byte + contract name as bytes + trait name length as byte + trait name as bytes
+///
+/// This is a duplication of the function defined in clarity-wasm due to the duplication issue.
+pub fn trait_identifier_from_bytes(bytes: &[u8]) -> Result<TraitIdentifier, Error> {
+    let not_enough_bytes = || {
+        Error::Wasm(WasmError::Expect(
+            "Not enough bytes for a trait deserialization".to_owned(),
+        ))
+    };
+
+    // deserilize issuer
+    let (version, bytes) = bytes.split_first().ok_or_else(not_enough_bytes)?;
+    let (issuer_bytes, bytes) = bytes.split_at_checked(20).ok_or_else(not_enough_bytes)?;
+    let issuer = StandardPrincipalData::new(*version, issuer_bytes.try_into().unwrap())?;
+
+    // deserialize contract name
+    let (contract_name_len, bytes) = bytes.split_first().ok_or_else(not_enough_bytes)?;
+    let (contract_name_bytes, bytes) = bytes
+        .split_at_checked(*contract_name_len as usize)
+        .ok_or_else(not_enough_bytes)?;
+    let contract_name: ContractName = String::from_utf8(contract_name_bytes.to_owned())
+        .map_err(|err| Error::Wasm(WasmError::UnableToReadIdentifier(err)))?
+        .try_into()?;
+
+    // deserialize trait name
+    let (trait_name_len, bytes) = bytes.split_first().ok_or_else(not_enough_bytes)?;
+    if bytes.len() != *trait_name_len as usize {
+        return Err(not_enough_bytes());
+    }
+    let trait_name: ClarityName = String::from_utf8(bytes.to_owned())
+        .map_err(|err| Error::Wasm(WasmError::UnableToReadIdentifier(err)))?
+        .try_into()?;
+
+    Ok(TraitIdentifier::new(issuer, contract_name, trait_name))
 }
 
 #[cfg(test)]
