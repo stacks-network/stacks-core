@@ -27,6 +27,7 @@ use std::time::Duration;
 use serde::{Deserialize, Deserializer};
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
+use stacks::burnchains::Txid;
 use stacks::config::Config;
 
 use crate::burnchains::rpc::rpc_transport::{RpcAuth, RpcError, RpcTransport};
@@ -412,17 +413,19 @@ impl BitcoinRpcClient {
     /// hex-encoded transaction, and other metadata for a transaction tracked by the wallet.
     ///
     /// # Arguments
-    /// * `txid` - The transaction ID (txid) to query, as a hex-encoded string.
+    /// * `txid` - The transaction ID (as [`Txid`]) to query.
     ///
     /// # Returns
     /// A [`GetTransactionResponse`] containing detailed metadata for the specified transaction.
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.10.0**.
-    pub fn get_transaction(&self, txid: &str) -> BitcoinRpcClientResult<GetTransactionResponse> {
-        Ok(self
-            .wallet_ep
-            .send(&self.client_id, "gettransaction", vec![txid.into()])?)
+    pub fn get_transaction(&self, txid: &Txid) -> BitcoinRpcClientResult<GetTransactionResponse> {
+        Ok(self.wallet_ep.send(
+            &self.client_id,
+            "gettransaction",
+            vec![txid.to_string().into()],
+        )?)
     }
 
     /// Broadcasts a raw transaction to the Bitcoin network.

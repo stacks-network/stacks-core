@@ -395,13 +395,13 @@ fn test_generate_to_address_ok() {
 
 #[test]
 fn test_get_transaction_ok() {
-    let txid = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899";
+    let txid_hex = utils::BITCOIN_TXID_HEX;
 
     let expected_request = json!({
         "jsonrpc": "2.0",
         "id": "stacks",
         "method": "gettransaction",
-        "params": [txid]
+        "params": [txid_hex]
     });
 
     let mock_response = json!({
@@ -423,7 +423,8 @@ fn test_get_transaction_ok() {
 
     let client = utils::setup_client(&server);
 
-    let info = client.get_transaction(txid).expect("Should be ok!");
+    let txid = Txid::from_hex(&txid_hex).unwrap();
+    let info = client.get_transaction(&txid).expect("Should be ok!");
     assert_eq!(6, info.confirmations);
 }
 

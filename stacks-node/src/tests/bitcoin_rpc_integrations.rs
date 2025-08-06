@@ -440,9 +440,7 @@ fn test_get_transaction_ok() {
         .send_to_address(&address, 2.0)
         .expect("send to address ok!");
 
-    let resp = client
-        .get_transaction(&txid.to_hex())
-        .expect("get transaction ok!");
+    let resp = client.get_transaction(&txid).expect("get transaction ok!");
     assert_eq!(0, resp.confirmations);
 }
 
