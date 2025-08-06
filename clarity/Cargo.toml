@@ -36,7 +36,6 @@ assert-json-diff = "1.0.0"
 mutants = "0.0.3"
 rstest = { version = "0.17.0" }
 rstest_reuse = { version = "0.5.0" }
-clarity-serialization = { package = "clarity-serialization", path = "../clarity-serialization", default-features = false, features = ["testing"] }
 
 # a nightly rustc regression (35dbef235 2021-03-02) prevents criterion from compiling
 #  but it isn't necessary for tests: only benchmarks. therefore, commenting out for now.
