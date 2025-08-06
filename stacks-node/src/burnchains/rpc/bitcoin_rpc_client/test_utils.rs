@@ -20,6 +20,7 @@ use serde_json::Value;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::Txid;
 use stacks::types::chainstate::BurnchainHeaderHash;
+use stacks::types::Address;
 use stacks::util::hash::hex_bytes;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
@@ -61,6 +62,58 @@ where
 {
     let string: String = Deserialize::deserialize(deserializer)?;
     BurnchainHeaderHash::from_hex(&string).map_err(serde::de::Error::custom)
+}
+
+/// Represents supported Bitcoin address types.
+#[derive(Debug, Clone)]
+pub enum AddressType {
+    /// Legacy P2PKH address
+    Legacy,
+    /// P2SH-wrapped SegWit address
+    P2shSegwit,
+    /// Native SegWit address
+    Bech32,
+    /// Native SegWit v1+ address
+    Bech32m,
+}
+
+impl ToString for AddressType {
+    fn to_string(&self) -> String {
+        match self {
+            AddressType::Legacy => "legacy",
+            AddressType::P2shSegwit => "p2sh-segwit",
+            AddressType::Bech32 => "bech32",
+            AddressType::Bech32m => "bech32m",
+        }
+        .to_string()
+    }
+}
+
+/// Response for `getnewaddress` rpc, mainly used as deserialization wrapper for `BitcoinAddress`
+struct GetNewAddressResponse(pub BitcoinAddress);
+
+/// Deserializes a JSON string into [`BitcoinAddress`] and wrap it into [`GetNewAddressResponse`]
+impl<'de> Deserialize<'de> for GetNewAddressResponse {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let addr_str: String = Deserialize::deserialize(deserializer)?;
+        if addr_str.starts_with("bcrt") {
+            //Currently BitcoinAddress doesn't manage Regtest HRP
+            return Err(serde::de::Error::custom(
+                "BitcoinAddress cannot manage Regtest HRP ('bcrt')",
+            ));
+        }
+
+        if let Some(addr) = BitcoinAddress::from_string(&addr_str) {
+            Ok(GetNewAddressResponse(addr))
+        } else {
+            Err(serde::de::Error::custom(
+                "BitcoinAddress failed to create from string",
+            ))
+        }
+    }
 }
 
 impl BitcoinRpcClient {
@@ -144,12 +197,12 @@ impl BitcoinRpcClient {
     ///
     /// # Arguments
     /// * `label` - Optional label to associate with the address.
-    /// * `address_type` - Optional address type (`"legacy"`, `"p2sh-segwit"`, `"bech32"`, `"bech32m"`).
+    /// * `address_type` - Optional [`AddressType`] variant to specify the type of address.
     ///   If `None`, the address type defaults to the node’s `-addresstype` setting.
     ///   If `-addresstype` is also unset, the default is `"bech32"` (since v0.20.0).
     ///
     /// # Returns
-    /// A string representing the newly generated Bitcoin address.
+    /// A [`BitcoinAddress`] variant representing the newly generated Bitcoin address.
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.1.0**.  
@@ -158,20 +211,24 @@ impl BitcoinRpcClient {
     pub fn get_new_address(
         &self,
         label: Option<&str>,
-        address_type: Option<&str>,
-    ) -> BitcoinRpcClientResult<String> {
+        address_type: Option<AddressType>,
+    ) -> BitcoinRpcClientResult<BitcoinAddress> {
         let mut params = vec![];
 
         let label = label.unwrap_or("");
         params.push(label.into());
 
         if let Some(at) = address_type {
-            params.push(at.into());
+            params.push(at.to_string().into());
         }
 
-        Ok(self
-            .global_ep
-            .send(&self.client_id, "getnewaddress", params)?)
+        let response = self.global_ep.send::<GetNewAddressResponse>(
+            &self.client_id,
+            "getnewaddress",
+            params,
+        )?;
+
+        Ok(response.0)
     }
 
     /// Sends a specified amount of BTC to a given address.

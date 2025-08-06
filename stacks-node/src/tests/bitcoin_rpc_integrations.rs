@@ -17,11 +17,11 @@
 
 use std::env;
 
-use stacks::burnchains::bitcoin::address::BitcoinAddress;
+use stacks::burnchains::bitcoin::address::LegacyBitcoinAddressType;
 use stacks::burnchains::Txid;
 use stacks::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
-use stacks::types::Address;
 
+use crate::burnchains::rpc::bitcoin_rpc_client::test_utils::AddressType;
 use crate::burnchains::rpc::bitcoin_rpc_client::{
     BitcoinRpcClient, BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp,
 };
@@ -240,6 +240,58 @@ fn test_wallet_creation_fails_if_already_exists() {
 
 #[ignore]
 #[test]
+fn test_get_new_address_for_each_address_type() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut config = utils::create_stx_config();
+    config.burnchain.wallet_name = "my_wallet".to_string();
+
+    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("bitcoind should be started!");
+
+    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    client.create_wallet("my_wallet", Some(false)).expect("OK");
+
+    //Check Legacy type OK
+    let legacy = client
+        .get_new_address(None, Some(AddressType::Legacy))
+        .expect("legacy address ok!");
+    assert_eq!(
+        LegacyBitcoinAddressType::PublicKeyHash,
+        legacy.expect_legacy().addrtype
+    );
+
+    //Check Legacy p2sh type OK
+    let p2sh = client
+        .get_new_address(None, Some(AddressType::P2shSegwit))
+        .expect("p2sh address ok!");
+    assert_eq!(
+        LegacyBitcoinAddressType::ScriptHash,
+        p2sh.expect_legacy().addrtype
+    );
+
+    //Bech32 currently failing due to BitcoinAddress not supporting Regtest HRP
+    client
+        .get_new_address(None, Some(AddressType::Bech32))
+        .expect_err("bech32 should fail!");
+
+    //Bech32m currently failing due to BitcoinAddress not supporting Regtest HRP
+    client
+        .get_new_address(None, Some(AddressType::Bech32m))
+        .expect_err("bech32m should fail!");
+
+    //None defaults to bech32 so fails as well
+    client
+        .get_new_address(None, None)
+        .expect_err("default (bech32) should fail!");
+}
+
+#[ignore]
+#[test]
 fn test_generate_to_address_and_list_unspent_ok() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -255,13 +307,16 @@ fn test_generate_to_address_and_list_unspent_ok() {
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
     client.create_wallet("my_wallet", Some(false)).expect("OK");
-    let address = client.get_new_address(None, None).expect("Should work!");
+    let address = client
+        .get_new_address(None, Some(AddressType::Legacy))
+        .expect("Should work!");
 
     let utxos = client
         .list_unspent(None, None, None, Some(false), Some("1"), Some(10))
         .expect("list_unspent should be ok!");
     assert_eq!(0, utxos.len());
 
+    let address = address.to_string();
     let blocks = client.generate_to_address(102, &address).expect("OK");
     assert_eq!(102, blocks.len());
 
@@ -296,10 +351,9 @@ fn test_generate_block_ok() {
         .create_wallet("my_wallet", Some(false))
         .expect("create wallet ok!");
     let address = client
-        .get_new_address(None, Some("legacy"))
+        .get_new_address(None, Some(AddressType::Legacy))
         .expect("get new address ok!");
 
-    let address = BitcoinAddress::from_string(&address).expect("valid address!");
     let block_hash = client
         .generate_block(&address, &[])
         .expect("generate block ok!");
@@ -328,17 +382,17 @@ fn test_get_raw_transaction_ok() {
         .expect("create wallet ok!");
 
     let address = client
-        .get_new_address(None, None)
+        .get_new_address(None, Some(AddressType::Legacy))
         .expect("get new address ok!");
 
     //Create 1 UTXO
     _ = client
-        .generate_to_address(101, &address)
+        .generate_to_address(101, &address.to_string())
         .expect("generate to address ok!");
 
     //Need `fallbackfee` arg
     let txid = client
-        .send_to_address(&address, 2.0)
+        .send_to_address(&address.to_string(), 2.0)
         .expect("send to address ok!");
 
     let txid = Txid::from_hex(&txid).unwrap();
@@ -371,17 +425,17 @@ fn test_get_transaction_ok() {
         .create_wallet("my_wallet", Some(false))
         .expect("create wallet ok!");
     let address = client
-        .get_new_address(None, None)
+        .get_new_address(None, Some(AddressType::Legacy))
         .expect("get new address ok!");
 
     //Create 1 UTXO
     _ = client
-        .generate_to_address(101, &address)
+        .generate_to_address(101, &address.to_string())
         .expect("generate to address ok!");
 
     //Need `fallbackfee` arg
     let txid = client
-        .send_to_address(&address, 2.0)
+        .send_to_address(&address.to_string(), 2.0)
         .expect("send to address ok!");
 
     let resp = client.get_transaction(&txid).expect("get transaction ok!");
@@ -493,9 +547,8 @@ fn test_invalidate_block_ok() {
         .create_wallet("my_wallet", Some(false))
         .expect("create wallet ok!");
     let address = client
-        .get_new_address(None, Some("legacy"))
+        .get_new_address(None, Some(AddressType::Legacy))
         .expect("get new address ok!");
-    let address = BitcoinAddress::from_string(&address).expect("valid address!");
     let block_hash = client
         .generate_block(&address, &[])
         .expect("generate block ok!");

@@ -533,7 +533,7 @@ impl BitcoinAddress {
         return false;
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn expect_legacy(self) -> LegacyBitcoinAddress {
         match self {
             BitcoinAddress::Legacy(addr) => addr,
@@ -543,7 +543,7 @@ impl BitcoinAddress {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn expect_segwit(self) -> SegwitBitcoinAddress {
         match self {
             BitcoinAddress::Segwit(addr) => addr,

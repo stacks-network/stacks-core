@@ -32,7 +32,7 @@ use stacks::config::Config;
 use crate::burnchains::rpc::rpc_transport::{RpcAuth, RpcError, RpcTransport};
 
 #[cfg(test)]
-mod test_utils;
+pub mod test_utils;
 
 #[cfg(test)]
 mod tests;

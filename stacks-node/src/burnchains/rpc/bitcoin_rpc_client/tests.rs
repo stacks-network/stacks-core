@@ -19,6 +19,7 @@ use serde_json::json;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::Txid;
 use stacks::types::Address;
+use stacks_common::deps_common::bech32;
 use stacks_common::deps_common::bitcoin::network::serialize::serialize_hex;
 
 use super::*;
@@ -593,7 +594,7 @@ fn test_stop_ok() {
 
 #[test]
 fn test_get_new_address_ok() {
-    let expected_address = "btc_addr_1";
+    let expected_address = "mp7gy5VhHzBzk1tJUtP7Qwdrp87XEWnxd4";
 
     let expected_request = json!({
         "jsonrpc": "2.0",
@@ -620,7 +621,44 @@ fn test_get_new_address_ok() {
     let client = utils::setup_client(&server);
 
     let address = client.get_new_address(None, None).expect("Should be ok!");
-    assert_eq!(expected_address, address);
+    assert_eq!(expected_address, address.to_string());
+}
+
+#[test]
+fn test_get_new_address_fails_for_invalid_address() {
+    let expected_address = "invalid_address";
+
+    let expected_request = json!({
+        "jsonrpc": "2.0",
+        "id": "stacks",
+        "method": "getnewaddress",
+        "params": [""]
+    });
+
+    let mock_response = json!({
+        "id": "stacks",
+        "result": expected_address,
+        "error": null,
+    });
+
+    let mut server = mockito::Server::new();
+    let _m = server
+        .mock("POST", "/")
+        .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
+        .with_status(200)
+        .with_header("Content-Type", "application/json")
+        .with_body(mock_response.to_string())
+        .create();
+
+    let client = utils::setup_client(&server);
+
+    let error = client
+        .get_new_address(None, None)
+        .expect_err("Should fail!");
+    assert!(matches!(
+        error,
+        BitcoinRpcClientError::Rpc(RpcError::Decode(_))
+    ))
 }
 
 #[test]
@@ -721,4 +759,17 @@ fn test_get_block_hash_ok() {
 
     let hash = client.get_block_hash(height).expect("Should be ok!");
     assert_eq!(expected_hash, hash);
+}
+
+#[test]
+fn test_addr() {
+    let regtest_hrp = "bcrt1qhzhzvy2v4ykg877s87nwuh37teqzxj95ecutjf";
+
+    let decoded = bech32::decode(regtest_hrp).unwrap();
+    println!("WHAT: {decoded:?}");
+
+    let f = bech32::encode("tb", decoded.1, decoded.2).unwrap();
+    println!("F===: {f:?}");
+
+    BitcoinAddress::from_string(&f).unwrap();
 }
