@@ -282,8 +282,8 @@ impl TypeSignatureExt for TypeSignature {
             return Err(CheckErrors::InvalidTypeDescription);
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
-            let buffer_length = BufferLength::try_from(*buff_len)?;
-            Ok(SequenceType(SequenceSubtype::BufferType(buffer_length)))
+            BufferLength::try_from(*buff_len)
+                .map(|buff_len| SequenceType(SequenceSubtype::BufferType(buff_len)))
         } else {
             Err(CheckErrors::InvalidTypeDescription)
         }
@@ -296,10 +296,9 @@ impl TypeSignatureExt for TypeSignature {
             return Err(CheckErrors::InvalidTypeDescription);
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(utf8_len)) = &type_args[0].expr {
-            let string_utf8_length = StringUTF8Length::try_from(*utf8_len)?;
-            Ok(SequenceType(SequenceSubtype::StringType(
-                StringSubtype::UTF8(string_utf8_length),
-            )))
+            StringUTF8Length::try_from(*utf8_len).map(|utf8_len| {
+                SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(utf8_len)))
+            })
         } else {
             Err(CheckErrors::InvalidTypeDescription)
         }
@@ -312,10 +311,9 @@ impl TypeSignatureExt for TypeSignature {
             return Err(CheckErrors::InvalidTypeDescription);
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
-            let buffer_length = BufferLength::try_from(*buff_len)?;
-            Ok(SequenceType(SequenceSubtype::StringType(
-                StringSubtype::ASCII(buffer_length),
-            )))
+            BufferLength::try_from(*buff_len).map(|buff_len| {
+                SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(buff_len)))
+            })
         } else {
             Err(CheckErrors::InvalidTypeDescription)
         }
