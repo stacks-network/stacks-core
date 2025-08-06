@@ -1512,7 +1512,7 @@ impl BitcoinRegtestController {
         let ongoing_op = self.ongoing_block_commit.take().unwrap();
 
         let _ = self.sortdb_mut();
-        let burnchain_db = self.burnchain_db.as_ref(). expect("BurnchainDB not opened");
+        let burnchain_db = self.burnchain_db.as_ref().expect("BurnchainDB not opened");
 
         for txid in ongoing_op.txids.iter() {
             // check if ongoing_op is in the burnchain_db *or* has been confirmed via the bitcoin RPC
