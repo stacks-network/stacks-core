@@ -11,6 +11,7 @@ export const MineBlocks = () =>
       trackCommandRun(model, "mine-blocks");
 
       simnet.mineEmptyBlocks(r.blocks);
+      model.blockHeight += BigInt(r.blocks);
 
       logCommand({
         sender: undefined,
