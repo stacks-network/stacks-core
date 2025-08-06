@@ -27,8 +27,10 @@ use std::time::Duration;
 use serde::{Deserialize, Deserializer};
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
+use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::Txid;
 use stacks::config::Config;
+use stacks::types::chainstate::BurnchainHeaderHash;
 
 use crate::burnchains::rpc::rpc_transport::{RpcAuth, RpcError, RpcTransport};
 
@@ -164,6 +166,31 @@ pub struct ImportDescriptorsErrorMessage {
     pub code: i64,
     /// Human-readable description of the error.
     pub message: String,
+}
+
+/// Response for `generatetoaddress` rpc, mainly used as deserialization wrapper for `BurnchainHeaderHash`
+struct GenerateToAddressResponse(pub Vec<BurnchainHeaderHash>);
+
+/// Deserializes a JSON string array into a vec of [`BurnchainHeaderHash`] and wrap it into [`GenerateToAddressResponse`]
+impl<'de> Deserialize<'de> for GenerateToAddressResponse {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let hash_strs: Vec<String> = Deserialize::deserialize(deserializer)?;
+        let mut hashes = Vec::with_capacity(hash_strs.len());
+        for (i, s) in hash_strs.into_iter().enumerate() {
+            let hash = BurnchainHeaderHash::from_hex(&s).map_err(|e| {
+                serde::de::Error::custom(format!(
+                    "Invalid BurnchainHeaderHash at index {}: {}",
+                    i, e
+                ))
+            })?;
+            hashes.push(hash);
+        }
+
+        Ok(GenerateToAddressResponse(hashes))
+    }
 }
 
 /// Client for interacting with a Bitcoin RPC service.
@@ -385,10 +412,10 @@ impl BitcoinRpcClient {
     ///
     /// # Arguments
     /// * `num_block` - The number of blocks to mine.
-    /// * `address` - The Bitcoin address to receive the block rewards.
+    /// * `address` - The [`BitcoinAddress`] to receive the block rewards.
     ///
     /// # Returns
-    /// A vector of block hashes corresponding to the newly generated blocks.
+    /// A vector of [`BurnchainHeaderHash`] corresponding to the newly generated blocks.
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.17.0**.
@@ -398,13 +425,14 @@ impl BitcoinRpcClient {
     pub fn generate_to_address(
         &self,
         num_block: u64,
-        address: &str,
-    ) -> BitcoinRpcClientResult<Vec<String>> {
-        Ok(self.global_ep.send(
+        address: &BitcoinAddress,
+    ) -> BitcoinRpcClientResult<Vec<BurnchainHeaderHash>> {
+        let response = self.global_ep.send::<GenerateToAddressResponse>(
             &self.client_id,
             "generatetoaddress",
-            vec![num_block.into(), address.into()],
-        )?)
+            vec![num_block.into(), address.to_string().into()],
+        )?;
+        Ok(response.0)
     }
 
     /// Retrieves detailed information about an in-wallet transaction.

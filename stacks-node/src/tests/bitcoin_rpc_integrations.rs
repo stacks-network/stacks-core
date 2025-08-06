@@ -296,7 +296,34 @@ fn test_get_new_address_for_each_address_type() {
 
 #[ignore]
 #[test]
-fn test_generate_to_address_and_list_unspent_ok() {
+fn test_generate_to_address_ok() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut config = utils::create_stx_config();
+    config.burnchain.wallet_name = "my_wallet".to_string();
+
+    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("bitcoind should be started!");
+
+    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    client.create_wallet("my_wallet", Some(false)).expect("OK");
+    let address = client
+        .get_new_address(None, Some(AddressType::Legacy))
+        .expect("Should work!");
+
+    let blocks = client
+        .generate_to_address(102, &address)
+        .expect("Should be ok!");
+    assert_eq!(102, blocks.len());
+}
+
+#[ignore]
+#[test]
+fn test_list_unspent_ok() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -320,9 +347,9 @@ fn test_generate_to_address_and_list_unspent_ok() {
         .expect("list_unspent should be ok!");
     assert_eq!(0, utxos.len());
 
-    let address = address.to_string();
-    let blocks = client.generate_to_address(102, &address).expect("OK");
-    assert_eq!(102, blocks.len());
+    _ = client
+        .generate_to_address(102, &address)
+        .expect("generate to address ok!");
 
     let utxos = client
         .list_unspent(None, None, None, Some(false), Some("1"), Some(10))
@@ -391,7 +418,7 @@ fn test_get_raw_transaction_ok() {
 
     //Create 1 UTXO
     _ = client
-        .generate_to_address(101, &address.to_string())
+        .generate_to_address(101, &address)
         .expect("generate to address ok!");
 
     //Need `fallbackfee` arg
@@ -432,7 +459,7 @@ fn test_get_transaction_ok() {
 
     //Create 1 UTXO
     _ = client
-        .generate_to_address(101, &address.to_string())
+        .generate_to_address(101, &address)
         .expect("generate to address ok!");
 
     //Need `fallbackfee` arg

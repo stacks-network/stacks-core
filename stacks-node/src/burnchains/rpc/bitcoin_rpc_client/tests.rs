@@ -355,21 +355,21 @@ fn test_list_unspent_ok() {
 
 #[test]
 fn test_generate_to_address_ok() {
-    let num_blocks = 3;
-    let address = "00000000000000000000000000000000000000000000000000000";
+    let num_blocks = 1;
+    let addr_str = utils::BITCOIN_ADDRESS_LEGACY_STR;
+    let expected_block_hash = utils::BITCOIN_BLOCK_HASH;
 
     let expected_request = json!({
         "jsonrpc": "2.0",
         "id": "stacks",
         "method": "generatetoaddress",
-        "params": [num_blocks, address],
+        "params": [num_blocks, addr_str],
     });
 
     let mock_response = json!({
         "id": "stacks",
         "result": [
-            "block_hash1",
-            "block_hash2",
+            expected_block_hash,
         ],
         "error": null
     });
@@ -385,12 +385,56 @@ fn test_generate_to_address_ok() {
 
     let client = utils::setup_client(&server);
 
+    let address = BitcoinAddress::from_string(addr_str).unwrap();
     let result = client
-        .generate_to_address(num_blocks, address)
+        .generate_to_address(num_blocks, &address)
         .expect("Should work!");
-    assert_eq!(2, result.len());
-    assert_eq!("block_hash1", result[0]);
-    assert_eq!("block_hash2", result[1]);
+    assert_eq!(1, result.len());
+    assert_eq!(expected_block_hash, result[0].to_hex());
+}
+
+#[test]
+fn test_generate_to_address_fails_for_invalid_block_hash() {
+    let num_blocks = 2;
+    let addr_str = utils::BITCOIN_ADDRESS_LEGACY_STR;
+    let expected_block_hash = utils::BITCOIN_BLOCK_HASH;
+    let expected_block_hash_invalid = "invalid_hash";
+
+    let expected_request = json!({
+        "jsonrpc": "2.0",
+        "id": "stacks",
+        "method": "generatetoaddress",
+        "params": [num_blocks, addr_str],
+    });
+
+    let mock_response = json!({
+        "id": "stacks",
+        "result": [
+            expected_block_hash,
+            expected_block_hash_invalid,
+        ],
+        "error": null
+    });
+
+    let mut server = mockito::Server::new();
+    let _m = server
+        .mock("POST", "/")
+        .match_body(mockito::Matcher::PartialJson(expected_request))
+        .with_status(200)
+        .with_header("Content-Type", "application/json")
+        .with_body(mock_response.to_string())
+        .create();
+
+    let client = utils::setup_client(&server);
+
+    let address = BitcoinAddress::from_string(addr_str).unwrap();
+    let error = client
+        .generate_to_address(num_blocks, &address)
+        .expect_err("Should fail!");
+    assert!(matches!(
+        error,
+        BitcoinRpcClientError::Rpc(RpcError::Decode(_))
+    ));
 }
 
 #[test]
