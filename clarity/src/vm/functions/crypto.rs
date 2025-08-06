@@ -24,7 +24,7 @@ use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp25
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrors, Error, InterpreterError, InterpreterResult as Result,
+    check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value, BUFF_32, BUFF_33, BUFF_65};
@@ -47,7 +47,7 @@ macro_rules! native_hash_func {
                 )),
             }?;
             let hash = <$module>::from_data(&bytes);
-            Value::buff_from(hash.as_bytes().to_vec()).map_err(Error::from)
+            Value::buff_from(hash.as_bytes().to_vec())
         }
     };
 }
