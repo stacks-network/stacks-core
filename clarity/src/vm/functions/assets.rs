@@ -258,7 +258,6 @@ pub fn special_stx_account(
             ))),
         ),
     ])
-    .map_err(Error::from)
     .map(Value::Tuple)
 }
 

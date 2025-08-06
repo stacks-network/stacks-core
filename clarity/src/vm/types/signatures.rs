@@ -179,7 +179,7 @@ impl TupleTypeSignatureExt for TupleTypeSignature {
     ) -> Result<TupleTypeSignature> {
         if let SymbolicExpressionType::List(ref name_type_pairs) = type_def.expr {
             let mapped_key_types = parse_name_type_pairs(epoch, name_type_pairs, accounting)?;
-            TupleTypeSignature::try_from(mapped_key_types).map_err(CheckErrors::from)
+            TupleTypeSignature::try_from(mapped_key_types)
         } else {
             Err(CheckErrors::BadSyntaxExpectedListOfPairs)
         }
@@ -255,9 +255,7 @@ impl TypeSignatureExt for TypeSignature {
             let atomic_type_arg = &type_args[type_args.len() - 1];
             let entry_type = TypeSignature::parse_type_repr(epoch, atomic_type_arg, accounting)?;
             let max_len = u32::try_from(*max_len).map_err(|_| CheckErrors::ValueTooLarge)?;
-            ListTypeData::new_list(entry_type, max_len)
-                .map(|x| x.into())
-                .map_err(CheckErrors::from)
+            ListTypeData::new_list(entry_type, max_len).map(|x| x.into())
         } else {
             Err(CheckErrors::InvalidTypeDescription)
         }
@@ -331,7 +329,7 @@ impl TypeSignatureExt for TypeSignature {
         }
         let inner_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
 
-        TypeSignature::new_option(inner_type).map_err(CheckErrors::from)
+        TypeSignature::new_option(inner_type)
     }
 
     fn parse_response_type_repr<A: CostTracker>(
@@ -344,7 +342,7 @@ impl TypeSignatureExt for TypeSignature {
         }
         let ok_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
         let err_type = TypeSignature::parse_type_repr(epoch, &type_args[1], accounting)?;
-        TypeSignature::new_response(ok_type, err_type).map_err(CheckErrors::from)
+        TypeSignature::new_response(ok_type, err_type)
     }
 
     fn parse_type_repr<A: CostTracker>(
@@ -648,7 +646,7 @@ mod test {
         }
 
         assert_eq!(
-            CheckErrors::from(TupleTypeSignature::try_from(keys).unwrap_err()),
+            TupleTypeSignature::try_from(keys).unwrap_err(),
             ValueTooLarge
         );
     }

@@ -22,3 +22,19 @@ pub use clarity_serialization::errors::{
 pub use crate::vm::analysis::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors,
 };
+
+#[cfg(test)]
+mod test {
+
+    #[test]
+    #[cfg(feature = "developer-mode")]
+    fn error_formats() {
+        let t = "(/ 10 0)";
+        let expected = "DivisionByZero
+ Stack Trace:
+_native_:native_div
+";
+
+        assert_eq!(format!("{}", crate::vm::execute(t).unwrap_err()), expected);
+    }
+}

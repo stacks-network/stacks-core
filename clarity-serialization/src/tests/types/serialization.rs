@@ -240,8 +240,7 @@ fn test_tuples() {
             &TypeSignature::type_of(&t_1).unwrap(),
             false
         )
-        .unwrap_err()
-        .into(),
+        .unwrap_err(),
         SerializationError::DeserializeExpected(_)
     ));
 
@@ -252,8 +251,7 @@ fn test_tuples() {
             &TypeSignature::type_of(&t_1).unwrap(),
             false
         )
-        .unwrap_err()
-        .into(),
+        .unwrap_err(),
         SerializationError::DeserializeExpected(_)
     ));
 
@@ -264,8 +262,7 @@ fn test_tuples() {
             &TypeSignature::type_of(&t_4).unwrap(),
             false
         )
-        .unwrap_err()
-        .into(),
+        .unwrap_err(),
         SerializationError::DeserializeExpected(_)
     ));
 }

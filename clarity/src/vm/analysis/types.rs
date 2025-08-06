@@ -249,11 +249,7 @@ impl ContractAnalysis {
                         .into());
                     }
 
-                    if !expected_sig
-                        .returns
-                        .admits_type(epoch, &func.returns)
-                        .map_err(CheckErrors::from)?
-                    {
+                    if !expected_sig.returns.admits_type(epoch, &func.returns)? {
                         return Err(CheckErrors::BadTraitImplementation(
                             trait_name,
                             func_name.to_string(),

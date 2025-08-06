@@ -39,7 +39,6 @@ pub struct IncomparableError<T> {
 }
 
 #[derive(Debug)]
-#[allow(clippy::large_enum_variant)]
 pub enum Error {
     /// UncheckedErrors are errors that *should* be caught by the
     ///   TypeChecker and other check passes. Test executions may
@@ -238,18 +237,6 @@ impl From<ShortReturnType> for Value {
 #[cfg(test)]
 mod test {
     use super::*;
-
-    #[test]
-    #[cfg(feature = "developer-mode")]
-    fn error_formats() {
-        let t = "(/ 10 0)";
-        let expected = "DivisionByZero
- Stack Trace:
-_native_:native_div
-";
-
-        assert_eq!(format!("{}", crate::vm::execute(t).unwrap_err()), expected);
-    }
 
     #[test]
     fn equality() {

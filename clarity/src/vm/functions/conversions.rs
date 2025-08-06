@@ -19,7 +19,7 @@ use clarity_serialization::types::serialization::SerializationError;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrors, Error, InterpreterError, InterpreterResult as Result,
+    check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::SequenceSubtype::BufferType;
@@ -160,7 +160,7 @@ pub fn native_string_to_int_generic(
 fn safe_convert_string_to_int(raw_string: String) -> Result<Value> {
     let possible_int = raw_string.parse::<i128>();
     match possible_int {
-        Ok(val) => Value::some(Value::Int(val)).map_err(Error::from),
+        Ok(val) => Value::some(Value::Int(val)),
         Err(_error) => Ok(Value::none()),
     }
 }
@@ -172,7 +172,7 @@ pub fn native_string_to_int(value: Value) -> Result<Value> {
 fn safe_convert_string_to_uint(raw_string: String) -> Result<Value> {
     let possible_int = raw_string.parse::<u128>();
     match possible_int {
-        Ok(val) => Value::some(Value::UInt(val)).map_err(Error::from),
+        Ok(val) => Value::some(Value::UInt(val)),
         Err(_error) => Ok(Value::none()),
     }
 }
@@ -212,16 +212,12 @@ pub fn native_int_to_string_generic(
 
 pub fn native_int_to_ascii(value: Value) -> Result<Value> {
     // Given a string representing an integer, convert this to Clarity ASCII value.
-    native_int_to_string_generic(value, |bytes| {
-        Value::string_ascii_from_bytes(bytes).map_err(Error::from)
-    })
+    native_int_to_string_generic(value, Value::string_ascii_from_bytes)
 }
 
 pub fn native_int_to_utf8(value: Value) -> Result<Value> {
     // Given a string representing an integer, convert this to Clarity UTF8 value.
-    native_int_to_string_generic(value, |bytes| {
-        Value::string_utf8_from_bytes(bytes).map_err(Error::from)
-    })
+    native_int_to_string_generic(value, Value::string_utf8_from_bytes)
 }
 
 /// Returns `value` consensus serialized into a `(optional buff)` object.
@@ -292,5 +288,5 @@ pub fn from_consensus_buff(
         return Ok(Value::none());
     }
 
-    Value::some(result).map_err(Error::from)
+    Value::some(result)
 }

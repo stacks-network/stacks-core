@@ -310,6 +310,7 @@ impl From<CheckErrors> for String {
     }
 }
 
+#[allow(clippy::result_large_err)]
 pub fn check_argument_count<T>(expected: usize, args: &[T]) -> Result<(), CheckErrors> {
     if args.len() != expected {
         Err(CheckErrors::IncorrectArgumentCount(expected, args.len()))
@@ -318,6 +319,7 @@ pub fn check_argument_count<T>(expected: usize, args: &[T]) -> Result<(), CheckE
     }
 }
 
+#[allow(clippy::result_large_err)]
 pub fn check_arguments_at_least<T>(expected: usize, args: &[T]) -> Result<(), CheckErrors> {
     if args.len() < expected {
         Err(CheckErrors::RequiresAtLeastArguments(expected, args.len()))
@@ -326,6 +328,7 @@ pub fn check_arguments_at_least<T>(expected: usize, args: &[T]) -> Result<(), Ch
     }
 }
 
+#[allow(clippy::result_large_err)]
 pub fn check_arguments_at_most<T>(expected: usize, args: &[T]) -> Result<(), CheckErrors> {
     if args.len() > expected {
         Err(CheckErrors::RequiresAtMostArguments(expected, args.len()))

@@ -84,9 +84,7 @@ pub mod tests {
 
     fn test_bad_expectation(v: Value, e: TypeSignature) {
         assert!(matches!(
-            Value::try_deserialize_hex(&v.serialize_to_hex().unwrap(), &e, false)
-                .unwrap_err()
-                .into(),
+            Value::try_deserialize_hex(&v.serialize_to_hex().unwrap(), &e, false).unwrap_err(),
             SerializationError::DeserializeExpected(_)
         ));
     }
@@ -167,9 +165,7 @@ pub mod tests {
         .unwrap();
 
         assert_eq!(
-            Value::deserialize_read(&mut too_big.as_slice(), None, false)
-                .map_err(SerializationError::from)
-                .unwrap_err(),
+            Value::deserialize_read(&mut too_big.as_slice(), None, false).unwrap_err(),
             "Illegal list type".into()
         );
 
@@ -192,9 +188,7 @@ pub mod tests {
             "Unexpected end of byte stream".into());
         */
 
-        match Value::deserialize_read(&mut eof.as_slice(), None, false)
-            .map_err(SerializationError::from)
-        {
+        match Value::deserialize_read(&mut eof.as_slice(), None, false) {
             Ok(_) => panic!("Accidentally parsed truncated slice"),
             Err(eres) => match eres {
                 SerializationError::IOError(ioe) => match ioe.err.kind() {
