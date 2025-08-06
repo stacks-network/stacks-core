@@ -18,6 +18,7 @@
 use std::env;
 
 use stacks::burnchains::bitcoin::address::LegacyBitcoinAddressType;
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
 use stacks::types::chainstate::BurnchainHeaderHash;
 
@@ -160,10 +161,13 @@ fn test_get_blockchain_info_ok() {
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
 
     let info = client.get_blockchain_info().expect("Should be ok!");
-    assert_eq!("regtest", info.chain);
+    assert_eq!(BitcoinNetworkType::Regtest, info.chain);
     assert_eq!(0, info.blocks);
     assert_eq!(0, info.headers);
-    assert_eq!(BITCOIN_REGTEST_FIRST_BLOCK_HASH, info.best_block_hash);
+    assert_eq!(
+        BITCOIN_REGTEST_FIRST_BLOCK_HASH,
+        info.best_block_hash.to_hex()
+    );
 }
 
 #[ignore]

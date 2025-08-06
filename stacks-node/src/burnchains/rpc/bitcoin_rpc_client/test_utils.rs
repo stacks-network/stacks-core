@@ -18,6 +18,7 @@
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::Address;
@@ -35,14 +36,36 @@ use crate::burnchains::rpc::bitcoin_rpc_client::{BitcoinRpcClient, BitcoinRpcCli
 #[derive(Debug, Clone, Deserialize)]
 pub struct GetBlockChainInfoResponse {
     /// the network name
-    pub chain: String,
+    #[serde(deserialize_with = "deserialize_string_to_network_type")]
+    pub chain: BitcoinNetworkType,
     /// the height of the most-work fully-validated chain. The genesis block has height 0
     pub blocks: u64,
     /// the current number of headers that have been validated
     pub headers: u64,
     /// the hash of the currently best block
-    #[serde(rename = "bestblockhash")]
-    pub best_block_hash: String,
+    #[serde(
+        rename = "bestblockhash",
+        deserialize_with = "deserialize_string_to_burn_header_hash"
+    )]
+    pub best_block_hash: BurnchainHeaderHash,
+}
+
+/// Deserializes a JSON string into [`BitcoinNetworkType`]
+fn deserialize_string_to_network_type<'de, D>(
+    deserializer: D,
+) -> Result<BitcoinNetworkType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let string: String = Deserialize::deserialize(deserializer)?;
+    match string.as_str() {
+        "main" => Ok(BitcoinNetworkType::Mainnet),
+        "test" => Ok(BitcoinNetworkType::Testnet),
+        "regtest" => Ok(BitcoinNetworkType::Regtest),
+        other => Err(serde::de::Error::custom(format!(
+            "invalid network type: {other}"
+        ))),
+    }
 }
 
 /// Represents the response returned by the `generateblock` RPC call.

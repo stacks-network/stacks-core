@@ -17,6 +17,7 @@
 
 use serde_json::json;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::Address;
@@ -53,7 +54,9 @@ mod utils {
 }
 
 #[test]
-fn test_get_blockchain_info_ok() {
+fn test_get_blockchain_info_ok_for_regtest() {
+    let expected_block_hash = utils::BITCOIN_BLOCK_HASH;
+
     let expected_request = json!({
         "jsonrpc": "2.0",
         "id": "stacks",
@@ -67,7 +70,7 @@ fn test_get_blockchain_info_ok() {
             "chain": "regtest",
             "blocks": 1,
             "headers": 2,
-            "bestblockhash": "00000"
+            "bestblockhash": expected_block_hash
         },
         "error": null
     });
@@ -86,10 +89,136 @@ fn test_get_blockchain_info_ok() {
         .get_blockchain_info()
         .expect("get info should be ok!");
 
-    assert_eq!("regtest", info.chain);
+    assert_eq!(BitcoinNetworkType::Regtest, info.chain);
     assert_eq!(1, info.blocks);
     assert_eq!(2, info.headers);
-    assert_eq!("00000", info.best_block_hash);
+    assert_eq!(expected_block_hash, info.best_block_hash.to_hex());
+}
+
+#[test]
+fn test_get_blockchain_info_ok_for_testnet() {
+    let expected_block_hash = utils::BITCOIN_BLOCK_HASH;
+
+    let expected_request = json!({
+        "jsonrpc": "2.0",
+        "id": "stacks",
+        "method": "getblockchaininfo",
+        "params": []
+    });
+
+    let mock_response = json!({
+        "id": "stacks",
+        "result": {
+            "chain": "test",
+            "blocks": 1,
+            "headers": 2,
+            "bestblockhash": expected_block_hash
+        },
+        "error": null
+    });
+
+    let mut server: mockito::ServerGuard = mockito::Server::new();
+    let _m = server
+        .mock("POST", "/")
+        .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
+        .with_status(200)
+        .with_header("Content-Type", "application/json")
+        .with_body(mock_response.to_string())
+        .create();
+
+    let client = utils::setup_client(&server);
+    let info = client
+        .get_blockchain_info()
+        .expect("get info should be ok!");
+
+    assert_eq!(BitcoinNetworkType::Testnet, info.chain);
+    assert_eq!(1, info.blocks);
+    assert_eq!(2, info.headers);
+    assert_eq!(expected_block_hash, info.best_block_hash.to_hex());
+}
+
+#[test]
+fn test_get_blockchain_info_fails_for_unknown_network() {
+    let expected_block_hash = utils::BITCOIN_BLOCK_HASH;
+
+    let expected_request = json!({
+        "jsonrpc": "2.0",
+        "id": "stacks",
+        "method": "getblockchaininfo",
+        "params": []
+    });
+
+    let mock_response = json!({
+        "id": "stacks",
+        "result": {
+            "chain": "unknown",
+            "blocks": 1,
+            "headers": 2,
+            "bestblockhash": expected_block_hash
+        },
+        "error": null
+    });
+
+    let mut server: mockito::ServerGuard = mockito::Server::new();
+    let _m = server
+        .mock("POST", "/")
+        .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
+        .with_status(200)
+        .with_header("Content-Type", "application/json")
+        .with_body(mock_response.to_string())
+        .create();
+
+    let client = utils::setup_client(&server);
+    let error = client
+        .get_blockchain_info()
+        .expect_err("get info should fail!");
+
+    assert!(matches!(
+        error,
+        BitcoinRpcClientError::Rpc(RpcError::Decode(_))
+    ));
+}
+
+#[test]
+fn test_get_blockchain_info_ok_for_mainnet_network() {
+    let expected_block_hash = utils::BITCOIN_BLOCK_HASH;
+
+    let expected_request = json!({
+        "jsonrpc": "2.0",
+        "id": "stacks",
+        "method": "getblockchaininfo",
+        "params": []
+    });
+
+    let mock_response = json!({
+        "id": "stacks",
+        "result": {
+            "chain": "main",
+            "blocks": 1,
+            "headers": 2,
+            "bestblockhash": expected_block_hash
+        },
+        "error": null
+    });
+
+    let mut server: mockito::ServerGuard = mockito::Server::new();
+    let _m = server
+        .mock("POST", "/")
+        .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
+        .with_status(200)
+        .with_header("Content-Type", "application/json")
+        .with_body(mock_response.to_string())
+        .create();
+
+    let client = utils::setup_client(&server);
+    let info = client
+        .get_blockchain_info()
+        .expect("get info should be ok!");
+
+    assert_eq!(BitcoinNetworkType::Mainnet, info.chain);
+    assert_eq!(1, info.blocks);
+    assert_eq!(2, info.headers);
+    assert_eq!(expected_block_hash, info.best_block_hash.to_hex());
 }
 
 #[test]
