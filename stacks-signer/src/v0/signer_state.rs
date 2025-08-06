@@ -1053,7 +1053,7 @@ impl LocalStateMachine {
                 expected_burn_block,
                 prior_state_machine.burn_block_height,
                 prior_state_machine.burn_block,
-            )? {
+            ) {
                 info!("Detected bitcoin fork - prior tip is not parent of new tip.";
                     "new_tip.burn_block_height" => expected_burn_block.burn_block_height,
                     "new_tip.consensus_hash" => %expected_burn_block.consensus_hash,
@@ -1317,14 +1317,14 @@ impl LocalStateMachine {
         new_burn_block: &NewBurnBlock,
         prior_burn_block_height: u64,
         prior_burn_block_ch: ConsensusHash,
-    ) -> Result<bool, SignerChainstateError> {
+    ) -> bool {
         let max_height_delta = 10;
         let height_delta = match new_burn_block
             .burn_block_height
             .checked_sub(prior_burn_block_height)
         {
-            None | Some(0) => return Ok(false), // same height or older
-            Some(d) if d > max_height_delta => return Ok(false), // too far apart
+            None | Some(0) => return false, // same height or older
+            Some(d) if d > max_height_delta => return false, // too far apart
             Some(d) => d,
         };
 
@@ -1340,13 +1340,13 @@ impl LocalStateMachine {
                     new_burn_block.consensus_hash;
                     "error" => ?e,
                 );
-                return Ok(false);
+                return false;
             }
         };
 
         for _ in 0..height_delta {
             if parent_burn_block_info.block_height == prior_burn_block_height {
-                return Ok(parent_burn_block_info.consensus_hash != prior_burn_block_ch);
+                return parent_burn_block_info.consensus_hash != prior_burn_block_ch;
             }
 
             parent_burn_block_info =
@@ -1357,11 +1357,11 @@ impl LocalStateMachine {
                             "Failed to get parent burn block info for {}. Error: {e}",
                             parent_burn_block_info.parent_burn_block_hash
                         );
-                        return Ok(false);
+                        return false;
                     }
                 };
         }
 
-        Ok(false)
+        false
     }
 }
