@@ -162,7 +162,9 @@ impl From<FixedFunction> for FunctionSignature {
     }
 }
 
-/// Parsing functions.
+/// This trait is used to parse tuple type signatures from Clarity expressions.
+/// This is not included in clarity-serialization because it requires the
+/// [`CostTracker`] trait.
 pub trait TupleTypeSignatureExt {
     fn parse_name_type_pair_list<A: CostTracker>(
         epoch: StacksEpochId,
