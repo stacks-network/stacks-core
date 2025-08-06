@@ -1664,7 +1664,7 @@ mod test {
         let result = main_handler(to_string_vec(&cc_args));
         assert!(result.is_err(), "Result should be err!");
 
-        let expected_msg = "Failed to deserialize: Deserialization failed: Bad hex string";
+        let expected_msg = "Failed to deserialize: Deserialization error: Bad hex string";
         assert_eq!(expected_msg, result.unwrap_err().to_string());
     }
 
@@ -1691,7 +1691,7 @@ mod test {
         assert!(result.is_err(), "Result should be err!");
 
         let expected_msg =
-            "Failed to deserialize: I/O error during (de)serialization: failed to fill whole buffer";
+            "Failed to deserialize: Serialization error caused by IO: failed to fill whole buffer";
         assert_eq!(expected_msg, result.unwrap_err().to_string());
     }
 
