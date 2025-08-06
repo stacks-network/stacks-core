@@ -116,6 +116,21 @@ impl<'de> Deserialize<'de> for GetNewAddressResponse {
     }
 }
 
+/// Response for `sendtoaddress` rpc, mainly used as deserialization wrapper for `Txid`
+struct SendToAddressResponse(pub Txid);
+
+/// Deserializes a JSON string into [`Txid`] and wrap it into [`SendToAddressResponse`]
+impl<'de> Deserialize<'de> for SendToAddressResponse {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let hex_str: String = Deserialize::deserialize(deserializer)?;
+        let txid = Txid::from_hex(&hex_str).map_err(serde::de::Error::custom)?;
+        Ok(SendToAddressResponse(txid))
+    }
+}
+
 impl BitcoinRpcClient {
     /// Retrieve general information about the current state of the blockchain.
     ///
@@ -234,20 +249,25 @@ impl BitcoinRpcClient {
     /// Sends a specified amount of BTC to a given address.
     ///
     /// # Arguments
-    /// * `address` - The destination Bitcoin address.
+    /// * `address` - The destination Bitcoin address as a [`BitcoinAddress`].
     /// * `amount` - Amount to send in BTC (not in satoshis).
     ///
     /// # Returns
-    /// The transaction ID as hex string
+    /// A [`Txid`] struct representing the transaction ID
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.1.0**.
-    pub fn send_to_address(&self, address: &str, amount: f64) -> BitcoinRpcClientResult<String> {
-        Ok(self.wallet_ep.send(
+    pub fn send_to_address(
+        &self,
+        address: &BitcoinAddress,
+        amount: f64,
+    ) -> BitcoinRpcClientResult<Txid> {
+        let response = self.wallet_ep.send::<SendToAddressResponse>(
             &self.client_id,
             "sendtoaddress",
-            vec![address.into(), amount.into()],
-        )?)
+            vec![address.to_string().into(), amount.into()],
+        )?;
+        Ok(response.0)
     }
 
     /// Invalidate a block by its block hash, forcing the node to reconsider its chain state.

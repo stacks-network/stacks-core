@@ -28,6 +28,10 @@ mod utils {
 
     use super::*;
 
+    pub const BITCOIN_ADDRESS_LEGACY_STR: &str = "mp7gy5VhHzBzk1tJUtP7Qwdrp87XEWnxd4";
+    pub const BITCOIN_TXID_HEX: &str =
+        "b9a0d01a3e21809e920fa022dfdd85368d56d1cacc5229f7a704c4d5fbccc6bd";
+
     pub fn setup_client(server: &mockito::ServerGuard) -> BitcoinRpcClient {
         let url = server.url();
         let parsed = url::Url::parse(&url).unwrap();
@@ -293,7 +297,7 @@ fn test_get_transaction_ok() {
 
 #[test]
 fn test_get_raw_transaction_ok() {
-    let txid_hex = "b9a0d01a3e21809e920fa022dfdd85368d56d1cacc5229f7a704c4d5fbccc6bd";
+    let txid_hex = utils::BITCOIN_TXID_HEX;
     let expected_tx_hex = "0100000001b1f2f67426d26301f0b20467e9fdd93557cb3cbbcb8d79f3a9c7b6c8ec7f69e8000000006a47304402206369d5eb2b7c99f540f4cf3ff2fd6f4b90f89c4328bfa0b6db0c30bb7f2c3d4c022015a1c0e5f6a0b08c271b2d218e6a7a29f5441dbe39d9a5cbcc223221ad5dbb59012103a34e84c8c7ebc8ecb7c2e59ff6672f392c792fc1c4f3c6fa2e7d3d314f1f38c9ffffffff0200e1f505000000001976a9144621d7f4ce0c956c80e6f0c1b9f78fe0c49cb82088ac80fae9c7000000001976a91488ac1f0f01c2a5c2e8f4b4f1a3b1a04d2f35b4c488ac00000000";
 
     let expected_request = json!({
@@ -328,7 +332,7 @@ fn test_get_raw_transaction_ok() {
 
 #[test]
 fn test_generate_block_ok() {
-    let legacy_addr_str = "mp7gy5VhHzBzk1tJUtP7Qwdrp87XEWnxd4";
+    let legacy_addr_str = utils::BITCOIN_ADDRESS_LEGACY_STR;
     let txid1 = "txid1";
     let txid2 = "txid2";
     let expected_block_hash = "0000000000000000011f5b3c4e7e9f4dc2c88f0b6c3a3b17e5a7d0dfeb3bb3cd";
@@ -368,7 +372,7 @@ fn test_generate_block_ok() {
 
 #[test]
 fn test_generate_block_fails_for_invalid_block_hash() {
-    let legacy_addr_str = "mp7gy5VhHzBzk1tJUtP7Qwdrp87XEWnxd4";
+    let legacy_addr_str = utils::BITCOIN_ADDRESS_LEGACY_STR;
     let txid1 = "txid1";
     let txid2 = "txid2";
     let expected_block_hash = "invalid_block_hash";
@@ -594,7 +598,7 @@ fn test_stop_ok() {
 
 #[test]
 fn test_get_new_address_ok() {
-    let expected_address = "mp7gy5VhHzBzk1tJUtP7Qwdrp87XEWnxd4";
+    let expected_address = utils::BITCOIN_ADDRESS_LEGACY_STR;
 
     let expected_request = json!({
         "jsonrpc": "2.0",
@@ -663,20 +667,20 @@ fn test_get_new_address_fails_for_invalid_address() {
 
 #[test]
 fn test_send_to_address_ok() {
-    let address = "btc_addr_1";
+    let address_str = utils::BITCOIN_ADDRESS_LEGACY_STR;
     let amount = 0.5;
-    let expected_txid = "txid_1";
+    let expected_txid_str = utils::BITCOIN_TXID_HEX;
 
     let expected_request = json!({
         "jsonrpc": "2.0",
         "id": "stacks",
         "method": "sendtoaddress",
-        "params": [address, amount]
+        "params": [address_str, amount]
     });
 
     let mock_response = json!({
         "id": "stacks",
-        "result": expected_txid,
+        "result": expected_txid_str,
         "error": null,
     });
 
@@ -691,10 +695,51 @@ fn test_send_to_address_ok() {
 
     let client = utils::setup_client(&server);
 
+    let address = BitcoinAddress::from_string(&address_str).unwrap();
     let txid = client
-        .send_to_address(address, amount)
+        .send_to_address(&address, amount)
         .expect("Should be ok!");
-    assert_eq!(expected_txid, txid);
+    assert_eq!(expected_txid_str, txid.to_hex());
+}
+
+#[test]
+fn test_send_to_address_fails_for_invalid_tx_id() {
+    let address_str = utils::BITCOIN_ADDRESS_LEGACY_STR;
+    let amount = 0.5;
+    let expected_txid_str = "invalid_tx_id";
+
+    let expected_request = json!({
+        "jsonrpc": "2.0",
+        "id": "stacks",
+        "method": "sendtoaddress",
+        "params": [address_str, amount]
+    });
+
+    let mock_response = json!({
+        "id": "stacks",
+        "result": expected_txid_str,
+        "error": null,
+    });
+
+    let mut server = mockito::Server::new();
+    let _m = server
+        .mock("POST", "/wallet/mywallet")
+        .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
+        .with_status(200)
+        .with_header("Content-Type", "application/json")
+        .with_body(mock_response.to_string())
+        .create();
+
+    let client = utils::setup_client(&server);
+
+    let address = BitcoinAddress::from_string(&address_str).unwrap();
+    let error = client
+        .send_to_address(&address, amount)
+        .expect_err("Should fail!");
+    assert!(matches!(
+        error,
+        BitcoinRpcClientError::Rpc(RpcError::Decode(_))
+    ));
 }
 
 #[test]

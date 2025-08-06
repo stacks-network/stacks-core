@@ -18,7 +18,6 @@
 use std::env;
 
 use stacks::burnchains::bitcoin::address::LegacyBitcoinAddressType;
-use stacks::burnchains::Txid;
 use stacks::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
 
 use crate::burnchains::rpc::bitcoin_rpc_client::test_utils::AddressType;
@@ -392,10 +391,8 @@ fn test_get_raw_transaction_ok() {
 
     //Need `fallbackfee` arg
     let txid = client
-        .send_to_address(&address.to_string(), 2.0)
+        .send_to_address(&address, 2.0)
         .expect("send to address ok!");
-
-    let txid = Txid::from_hex(&txid).unwrap();
 
     let raw_tx = client
         .get_raw_transaction(&txid)
@@ -435,10 +432,12 @@ fn test_get_transaction_ok() {
 
     //Need `fallbackfee` arg
     let txid = client
-        .send_to_address(&address.to_string(), 2.0)
+        .send_to_address(&address, 2.0)
         .expect("send to address ok!");
 
-    let resp = client.get_transaction(&txid).expect("get transaction ok!");
+    let resp = client
+        .get_transaction(&txid.to_hex())
+        .expect("get transaction ok!");
     assert_eq!(0, resp.confirmations);
 }
 
