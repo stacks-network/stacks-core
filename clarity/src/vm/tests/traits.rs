@@ -18,7 +18,6 @@ use stacks_common::types::StacksEpochId;
 
 #[cfg(test)]
 use super::MemoryEnvironmentGenerator;
-
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::{test_clarity_versions, test_epochs};
 #[cfg(test)]
