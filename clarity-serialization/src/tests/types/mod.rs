@@ -17,11 +17,11 @@ mod signatures;
 
 use stacks_common::types::StacksEpochId;
 
-use crate::types::{
-    BuffData, ListTypeData, PrincipalData, SequenceData, TupleData, TypeSignature, Value,
-    MAX_VALUE_SIZE,
-};
 use crate::CodecError;
+use crate::types::{
+    BuffData, ListTypeData, MAX_VALUE_SIZE, PrincipalData, SequenceData, TupleData, TypeSignature,
+    Value,
+};
 
 #[test]
 fn test_constructors() {

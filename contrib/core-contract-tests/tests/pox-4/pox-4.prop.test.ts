@@ -13,8 +13,8 @@ import { assert, describe, expect, it } from "vitest";
 import { createHash } from "crypto";
 
 // Contract Consts
-const INITIAL_TOTAL_LIQ_SUPPLY = 1_000_000_000_000_000;
-const MIN_AMOUNT_USTX = 125_000_000_000n;
+const INITIAL_TOTAL_LIQ_SUPPLY = 1_200_000_000_000_000;
+const MIN_AMOUNT_USTX = 150_000_000_000n;
 const TESTNET_PREPARE_CYCLE_LENGTH = 50;
 const TESTNET_REWARD_CYCLE_LENGTH = 1050;
 const TESTNET_STACKING_THRESHOLD_25 = 8000;
@@ -53,6 +53,8 @@ const privateKeyMapping: {
     "6a1a754ba863d7bab14adbbc3f8ebb090af9e871ace621d3e5ab634e1422885e01",
   STNHKEPYEPJ8ET55ZZ0M5A34J0R3N5FM2CMMMAZ6:
     "de433bdfa14ec43aa1098d5be594c8ffb20a31485ff9de2923b2689471c401b801",
+  ST3FFKYTTB975A3JC3F99MM7TXZJ406R3GKE6JV56:
+    '5b897659452b9f3642be69aee75dc3cc84b2386d55ece1312affdbb80a3b2a7d01',
 };
 
 const sha256 = (data: Buffer): Buffer =>
