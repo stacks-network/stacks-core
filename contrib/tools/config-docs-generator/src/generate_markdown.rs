@@ -115,24 +115,16 @@ fn main() -> Result<()> {
     fs::write(output_path, markdown)
         .with_context(|| format!("Failed to write output file: {output_path}"))?;
 
-    println!(
-        "Successfully generated Markdown documentation at {output_path}"
-    );
+    println!("Successfully generated Markdown documentation at {output_path}");
     Ok(())
 }
 
 fn load_section_name_mappings(mappings_file: &str) -> Result<HashMap<String, String>> {
-    let content = fs::read_to_string(mappings_file).with_context(|| {
-        format!(
-            "Failed to read section name mappings file: {mappings_file}"
-        )
-    })?;
+    let content = fs::read_to_string(mappings_file)
+        .with_context(|| format!("Failed to read section name mappings file: {mappings_file}"))?;
 
-    let mappings: HashMap<String, String> = serde_json::from_str(&content).with_context(|| {
-        format!(
-            "Failed to parse section name mappings JSON: {mappings_file}"
-        )
-    })?;
+    let mappings: HashMap<String, String> = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse section name mappings JSON: {mappings_file}"))?;
 
     Ok(mappings)
 }

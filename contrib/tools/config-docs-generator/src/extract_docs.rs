@@ -183,9 +183,7 @@ fn generate_rustdoc_json(package: &str) -> Result<serde_json::Value> {
 
     // Generate rustdoc for additional crates that might contain referenced constants
     for additional_crate in &additional_crates {
-        let error_msg = format!(
-            "Failed to run cargo rustdoc command for {additional_crate}"
-        );
+        let error_msg = format!("Failed to run cargo rustdoc command for {additional_crate}");
         let output = StdCommand::new("cargo")
             .args([
                 "+nightly",
@@ -207,9 +205,7 @@ fn generate_rustdoc_json(package: &str) -> Result<serde_json::Value> {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            eprintln!(
-                "Warning: Failed to generate rustdoc for {additional_crate}: {stderr}"
-            );
+            eprintln!("Warning: Failed to generate rustdoc for {additional_crate}: {stderr}");
         }
     }
 
