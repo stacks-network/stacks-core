@@ -70,11 +70,18 @@ pub fn special_filter(
                 if let Value::Bool(include) = filter_eval {
                     Ok(include)
                 } else {
-                    Err(CheckErrors::TypeValueError(BoolType, filter_eval).into())
+                    Err(
+                        CheckErrors::TypeValueError(Box::new(BoolType), Box::new(filter_eval))
+                            .into(),
+                    )
                 }
             })?;
         }
-        _ => return Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)?).into()),
+        _ => {
+            return Err(
+                CheckErrors::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?)).into(),
+            )
+        }
     };
     Ok(sequence)
 }
@@ -106,7 +113,9 @@ pub fn special_fold(
                     context,
                 )
             }),
-        _ => Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)?).into()),
+        _ => {
+            Err(CheckErrors::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?)).into())
+        }
     }
 }
 
@@ -145,7 +154,8 @@ pub fn special_map(
             }
             _ => {
                 return Err(
-                    CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)?).into(),
+                    CheckErrors::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?))
+                        .into(),
                 )
             }
         }
@@ -209,7 +219,7 @@ pub fn special_append(
                     data,
                 })))
             } else {
-                Err(CheckErrors::TypeValueError(entry_type, element).into())
+                Err(CheckErrors::TypeValueError(Box::new(entry_type), Box::new(element)).into())
             }
         }
         _ => Err(CheckErrors::ExpectedListApplication.into()),
@@ -289,7 +299,8 @@ pub fn special_as_max_len(
             Value::Sequence(ref sequence_data) => sequence_data.len() as u128,
             _ => {
                 return Err(
-                    CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)?).into(),
+                    CheckErrors::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?))
+                        .into(),
                 )
             }
         };
@@ -304,8 +315,8 @@ pub fn special_as_max_len(
     } else {
         let actual_len = eval(&args[1], env, context)?;
         Err(CheckErrors::TypeError(
-            TypeSignature::UIntType,
-            TypeSignature::type_of(&actual_len)?,
+            Box::new(TypeSignature::UIntType),
+            Box::new(TypeSignature::type_of(&actual_len)?),
         )
         .into())
     }
@@ -314,7 +325,9 @@ pub fn special_as_max_len(
 pub fn native_len(sequence: Value) -> Result<Value> {
     match sequence {
         Value::Sequence(sequence_data) => Ok(Value::UInt(sequence_data.len() as u128)),
-        _ => Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)?).into()),
+        _ => {
+            Err(CheckErrors::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?)).into())
+        }
     }
 }
 
@@ -325,7 +338,7 @@ pub fn native_index_of(sequence: Value, to_find: Value) -> Result<Value> {
             None => Ok(Value::none()),
         }
     } else {
-        Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)?).into())
+        Err(CheckErrors::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?)).into())
     }
 }
 
@@ -333,7 +346,9 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value> {
     let sequence_data = if let Value::Sequence(sequence_data) = sequence {
         sequence_data
     } else {
-        return Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)?).into());
+        return Err(
+            CheckErrors::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?)).into(),
+        );
     };
 
     let index = if let Value::UInt(index_u128) = index {
@@ -343,7 +358,11 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value> {
             return Ok(Value::none());
         }
     } else {
-        return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, index).into());
+        return Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::UIntType),
+            Box::new(index),
+        )
+        .into());
     };
 
     if let Some(result) = sequence_data.element_at(index)? {
@@ -420,7 +439,7 @@ pub fn special_replace_at(
     let expected_elem_type = if let TypeSignature::SequenceType(seq_subtype) = &seq_type {
         seq_subtype.unit_type()?
     } else {
-        return Err(CheckErrors::ExpectedSequence(seq_type).into());
+        return Err(CheckErrors::ExpectedSequence(Box::new(seq_type)).into());
     };
     let index_val = eval(&args[1], env, context)?;
     let new_element = eval(&args[2], env, context)?;
@@ -428,7 +447,11 @@ pub fn special_replace_at(
     if expected_elem_type != TypeSignature::NoType
         && !expected_elem_type.admits(env.epoch(), &new_element)?
     {
-        return Err(CheckErrors::TypeValueError(expected_elem_type, new_element).into());
+        return Err(CheckErrors::TypeValueError(
+            Box::new(expected_elem_type),
+            Box::new(new_element),
+        )
+        .into());
     }
 
     let index = if let Value::UInt(index_u128) = index_val {
@@ -438,7 +461,11 @@ pub fn special_replace_at(
             return Ok(Value::none());
         }
     } else {
-        return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, index_val).into());
+        return Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::UIntType),
+            Box::new(index_val),
+        )
+        .into());
     };
 
     if let Value::Sequence(data) = seq {
@@ -448,6 +475,6 @@ pub fn special_replace_at(
         }
         data.replace_at(env.epoch(), index, new_element)
     } else {
-        Err(CheckErrors::ExpectedSequence(seq_type).into())
+        Err(CheckErrors::ExpectedSequence(Box::new(seq_type)).into())
     }
 }

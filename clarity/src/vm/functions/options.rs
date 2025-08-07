@@ -35,7 +35,7 @@ fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>> {
                 None
             }
         }
-        _ => return Err(CheckErrors::ExpectedOptionalOrResponseValue(to_unwrap).into()),
+        _ => return Err(CheckErrors::ExpectedOptionalOrResponseValue(Box::new(to_unwrap)).into()),
     };
 
     Ok(result)
@@ -50,7 +50,7 @@ fn inner_unwrap_err(to_unwrap: Value) -> Result<Option<Value>> {
                 None
             }
         }
-        _ => return Err(CheckErrors::ExpectedResponseValue(to_unwrap).into()),
+        _ => return Err(CheckErrors::ExpectedResponseValue(Box::new(to_unwrap)).into()),
     };
 
     Ok(result)
@@ -66,7 +66,7 @@ pub fn native_unwrap(input: Value) -> Result<Value> {
 pub fn native_unwrap_or_ret(input: Value, thrown: Value) -> Result<Value> {
     inner_unwrap(input).and_then(|opt_value| match opt_value {
         Some(v) => Ok(v),
-        None => Err(ShortReturnType::ExpectedValue(thrown).into()),
+        None => Err(ShortReturnType::ExpectedValue(Box::new(thrown)).into()),
     })
 }
 
@@ -80,7 +80,7 @@ pub fn native_unwrap_err(input: Value) -> Result<Value> {
 pub fn native_unwrap_err_or_ret(input: Value, thrown: Value) -> Result<Value> {
     inner_unwrap_err(input).and_then(|opt_value| match opt_value {
         Some(v) => Ok(v),
-        None => Err(ShortReturnType::ExpectedValue(thrown).into()),
+        None => Err(ShortReturnType::ExpectedValue(Box::new(thrown)).into()),
     })
 }
 
@@ -88,7 +88,7 @@ pub fn native_try_ret(input: Value) -> Result<Value> {
     match input {
         Value::Optional(data) => match data.data {
             Some(data) => Ok(*data),
-            None => Err(ShortReturnType::ExpectedValue(Value::none()).into()),
+            None => Err(ShortReturnType::ExpectedValue(Box::new(Value::none())).into()),
         },
         Value::Response(data) => {
             if data.committed {
@@ -99,10 +99,10 @@ pub fn native_try_ret(input: Value) -> Result<Value> {
                         "BUG: Failed to construct new response type from old response type".into(),
                     )
                 })?;
-                Err(ShortReturnType::ExpectedValue(short_return_val).into())
+                Err(ShortReturnType::ExpectedValue(Box::new(short_return_val)).into())
             }
         }
-        _ => Err(CheckErrors::ExpectedOptionalOrResponseValue(input).into()),
+        _ => Err(CheckErrors::ExpectedOptionalOrResponseValue(Box::new(input)).into()),
     }
 }
 
@@ -212,7 +212,7 @@ pub fn special_match(
     match input {
         Value::Response(data) => special_match_resp(data, &args[1..], env, context),
         Value::Optional(data) => special_match_opt(data, &args[1..], env, context),
-        _ => Err(CheckErrors::BadMatchInput(TypeSignature::type_of(&input)?).into()),
+        _ => Err(CheckErrors::BadMatchInput(Box::new(TypeSignature::type_of(&input)?)).into()),
     }
 }
 
@@ -223,14 +223,14 @@ pub fn native_some(input: Value) -> Result<Value> {
 fn is_some(input: Value) -> Result<bool> {
     match input {
         Value::Optional(ref data) => Ok(data.data.is_some()),
-        _ => Err(CheckErrors::ExpectedOptionalValue(input).into()),
+        _ => Err(CheckErrors::ExpectedOptionalValue(Box::new(input)).into()),
     }
 }
 
 fn is_okay(input: Value) -> Result<bool> {
     match input {
         Value::Response(data) => Ok(data.committed),
-        _ => Err(CheckErrors::ExpectedResponseValue(input).into()),
+        _ => Err(CheckErrors::ExpectedResponseValue(Box::new(input)).into()),
     }
 }
 
@@ -264,6 +264,6 @@ pub fn native_default_to(default: Value, input: Value) -> Result<Value> {
             Some(data) => Ok(*data),
             None => Ok(default),
         },
-        _ => Err(CheckErrors::ExpectedOptionalValue(input).into()),
+        _ => Err(CheckErrors::ExpectedOptionalValue(Box::new(input)).into()),
     }
 }

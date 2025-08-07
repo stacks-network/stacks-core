@@ -25,7 +25,11 @@ use crate::vm::types::{TypeSignature, Value};
 fn type_force_bool(value: &Value) -> Result<bool> {
     match *value {
         Value::Bool(boolean) => Ok(boolean),
-        _ => Err(CheckErrors::TypeValueError(TypeSignature::BoolType, value.clone()).into()),
+        _ => Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::BoolType),
+            Box::new(value.clone()),
+        )
+        .into()),
     }
 }
 

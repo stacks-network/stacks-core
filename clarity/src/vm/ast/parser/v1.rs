@@ -1056,56 +1056,56 @@ mod test {
         );
 
         assert!(matches!(
-            ast::parser::v1::parse(split_tokens).unwrap_err().err,
+            *ast::parser::v1::parse(split_tokens).unwrap_err().err,
             ParseErrors::SeparatorExpected(_)
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(too_much_closure).unwrap_err().err,
+            *ast::parser::v1::parse(too_much_closure).unwrap_err().err,
             ParseErrors::ClosingParenthesisUnexpected
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(not_enough_closure).unwrap_err().err,
+            *ast::parser::v1::parse(not_enough_closure).unwrap_err().err,
             ParseErrors::ClosingParenthesisExpected
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(middle_hash).unwrap_err().err,
+            *ast::parser::v1::parse(middle_hash).unwrap_err().err,
             ParseErrors::FailedParsingRemainder(_)
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(unicode).unwrap_err().err,
+            *ast::parser::v1::parse(unicode).unwrap_err().err,
             ParseErrors::FailedParsingRemainder(_)
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(name_with_dot).unwrap_err().err,
+            *ast::parser::v1::parse(name_with_dot).unwrap_err().err,
             ParseErrors::SeparatorExpected(_)
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(wrong_tuple_literal_close)
+            *ast::parser::v1::parse(wrong_tuple_literal_close)
                 .unwrap_err()
                 .err,
             ParseErrors::ClosingTupleLiteralExpected
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(wrong_list_close).unwrap_err().err,
+            *ast::parser::v1::parse(wrong_list_close).unwrap_err().err,
             ParseErrors::ClosingParenthesisExpected
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(extra_tuple_literal_close)
+            *ast::parser::v1::parse(extra_tuple_literal_close)
                 .unwrap_err()
                 .err,
             ParseErrors::ClosingTupleLiteralUnexpected
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(unexpected_comma).unwrap_err().err,
+            *ast::parser::v1::parse(unexpected_comma).unwrap_err().err,
             ParseErrors::CommaSeparatorUnexpected
         ));
 
@@ -1113,91 +1113,91 @@ mod test {
         ast::parser::v1::parse(tuple_comma_no_space).unwrap();
 
         assert!(matches!(
-            ast::parser::v1::parse(tuple_colon_no_space)
+            *ast::parser::v1::parse(tuple_colon_no_space)
                 .unwrap_err()
                 .err,
             ParseErrors::SeparatorExpectedAfterColon(_)
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(shorthand_tuple).unwrap_err().err,
+            *ast::parser::v1::parse(shorthand_tuple).unwrap_err().err,
             ParseErrors::TupleColonExpected(_)
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(shorthand_tuple_dangling_comma)
+            *ast::parser::v1::parse(shorthand_tuple_dangling_comma)
                 .unwrap_err()
                 .err,
             ParseErrors::TupleItemExpected(_)
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(decorative_colon_on_value)
+            *ast::parser::v1::parse(decorative_colon_on_value)
                 .unwrap_err()
                 .err,
             ParseErrors::TupleCommaExpected(_)
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(tuple_literal_colon_after_comma)
+            *ast::parser::v1::parse(tuple_literal_colon_after_comma)
                 .unwrap_err()
                 .err,
             ParseErrors::TupleItemExpected(_)
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(empty_tuple_literal_comma)
+            *ast::parser::v1::parse(empty_tuple_literal_comma)
                 .unwrap_err()
                 .err,
             ParseErrors::TupleItemExpected(_)
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(empty_tuple_literal_colon)
+            *ast::parser::v1::parse(empty_tuple_literal_colon)
                 .unwrap_err()
                 .err,
             ParseErrors::TupleItemExpected(_)
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(legacy_boolean_literals)
+            *ast::parser::v1::parse(legacy_boolean_literals)
                 .unwrap_err()
                 .err,
             ParseErrors::FailedParsingRemainder(_)
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(function_with_CR).unwrap_err().err,
+            *ast::parser::v1::parse(function_with_CR).unwrap_err().err,
             ParseErrors::FailedParsingRemainder(_)
         ));
         assert!(matches!(
-            ast::parser::v1::parse(function_with_CRLF).unwrap_err().err,
+            *ast::parser::v1::parse(function_with_CRLF).unwrap_err().err,
             ParseErrors::FailedParsingRemainder(_)
         ));
         assert!(matches!(
-            ast::parser::v1::parse(function_with_NEL).unwrap_err().err,
+            *ast::parser::v1::parse(function_with_NEL).unwrap_err().err,
             ParseErrors::FailedParsingRemainder(_)
         ));
         assert!(matches!(
-            ast::parser::v1::parse(function_with_LS).unwrap_err().err,
+            *ast::parser::v1::parse(function_with_LS).unwrap_err().err,
             ParseErrors::FailedParsingRemainder(_)
         ));
         assert!(matches!(
-            ast::parser::v1::parse(function_with_PS).unwrap_err().err,
+            *ast::parser::v1::parse(function_with_PS).unwrap_err().err,
             ParseErrors::FailedParsingRemainder(_)
         ));
 
         ast::parser::v1::parse(function_with_LF).unwrap();
 
         assert!(matches!(
-            ast::parser::v1::parse(string_with_invalid_escape)
+            *ast::parser::v1::parse(string_with_invalid_escape)
                 .unwrap_err()
                 .err,
             ParseErrors::InvalidEscaping
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(ascii_string_with_unicode_escape)
+            *ast::parser::v1::parse(ascii_string_with_unicode_escape)
                 .unwrap_err()
                 .err,
             ParseErrors::InvalidEscaping
@@ -1224,14 +1224,14 @@ mod test {
         );
 
         assert!(matches!(
-            ast::parser::v1::parse(&exceeds_stack_depth_tuple)
+            *ast::parser::v1::parse(&exceeds_stack_depth_tuple)
                 .unwrap_err()
                 .err,
             ParseErrors::VaryExpressionStackDepthTooDeep
         ));
 
         assert!(matches!(
-            ast::parser::v1::parse(&exceeds_stack_depth_list)
+            *ast::parser::v1::parse(&exceeds_stack_depth_list)
                 .unwrap_err()
                 .err,
             ParseErrors::VaryExpressionStackDepthTooDeep
@@ -1242,7 +1242,7 @@ mod test {
     fn test_long_contract_name() {
         let long_contract_name = "(define-private (transfer (id uint) (receiver principal)) (contract-call? 'SP3D6PV2ACBPEKYJTCMH7HEN02KP87QSP8KTEH335.megapont-robot-expansion-nftSPNWZ5V2TPWGQGVDR6T7B6RQ4XMGZ4PXTEE0VQ0S.guests-hosted-stacks-parrots transfer id tx-sender receiver))";
         assert!(matches!(
-            ast::parser::v1::parse(long_contract_name).unwrap_err().err,
+            *ast::parser::v1::parse(long_contract_name).unwrap_err().err,
             ParseErrors::SeparatorExpected(_)
         ));
     }

@@ -112,8 +112,16 @@ fn test_get_block_info_eval(
         Ok(Value::none()),
         Ok(Value::none()),
         Ok(Value::none()),
-        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(-1)).into()),
-        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Bool(true)).into()),
+        Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::UIntType),
+            Box::new(Value::Int(-1)),
+        )
+        .into()),
+        Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::UIntType),
+            Box::new(Value::Bool(true)),
+        )
+        .into()),
         Ok(Value::none()),
         Ok(Value::none()),
         Ok(Value::none()),
@@ -1041,7 +1049,10 @@ fn test_ast_stack_depth() {
                       ";
     assert_eq!(
         vm_execute(program).unwrap_err(),
-        RuntimeErrorType::ASTError(ParseErrors::VaryExpressionStackDepthTooDeep.into()).into()
+        RuntimeErrorType::ASTError(Box::new(
+            ParseErrors::VaryExpressionStackDepthTooDeep.into(),
+        ))
+        .into()
     );
 }
 

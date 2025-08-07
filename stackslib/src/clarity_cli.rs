@@ -158,7 +158,7 @@ fn parse(
         DEFAULT_CLI_EPOCH,
         ASTRules::PrecheckSize,
     )
-    .map_err(RuntimeErrorType::ASTError)?;
+    .map_err(|e| RuntimeErrorType::ASTError(Box::new(e)))?;
     Ok(ast.expressions)
 }
 
@@ -204,7 +204,7 @@ fn run_analysis_free<C: ClarityStorage>(
     expressions: &mut [SymbolicExpression],
     marf_kv: &mut C,
     save_contract: bool,
-) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
+) -> Result<ContractAnalysis, Box<(CheckError, LimitedCostTracker)>> {
     let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
     analysis::run_analysis(
         contract_identifier,
@@ -225,7 +225,7 @@ fn run_analysis<C: ClarityStorage>(
     header_db: &CLIHeadersDB,
     marf_kv: &mut C,
     save_contract: bool,
-) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
+) -> Result<ContractAnalysis, Box<(CheckError, LimitedCostTracker)>> {
     let mainnet = header_db.is_mainnet();
     let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
     let cost_track = LimitedCostTracker::new(
@@ -1207,12 +1207,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             let mut contract_analysis = match contract_analysis_res {
                 Ok(contract_analysis) => contract_analysis,
-                Err((e, cost_tracker)) => {
+                Err(boxed) => {
+                    let (e, cost_tracker) = *boxed;
                     let mut result = json!({
                         "message": "Checks failed.",
                         "error": {
                             "analysis": serde_json::to_value(&e.diagnostic).unwrap(),
-                        }
+                        },
                     });
                     add_costs(&mut result, costs, cost_tracker.get_total());
                     return (1, Some(result));
@@ -1285,7 +1286,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
                 match run_analysis_free(&contract_id, &mut ast, &mut analysis_marf, true) {
                     Ok(_) => (),
-                    Err((error, _)) => {
+                    Err(boxed) => {
+                        let (error, _) = *boxed;
                         println!("Type check error:\n{}", error);
                         continue;
                     }
@@ -1354,14 +1356,17 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                         ),
                     }
                 }
-                Err((error, _)) => (
-                    1,
-                    Some(json!({
-                        "error": {
-                            "analysis": serde_json::to_value(&format!("{}", error)).unwrap()
-                        }
-                    })),
-                ),
+                Err(boxed) => {
+                    let (error, _) = *boxed;
+                    (
+                        1,
+                        Some(json!({
+                            "error": {
+                                "analysis": serde_json::to_value(&format!("{}", error)).unwrap()
+                            }
+                        })),
+                    )
+                }
             }
         }
         "eval" => {
@@ -1697,7 +1702,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     result["events"] = serde_json::Value::Array(events_json);
                     (0, Some(result))
                 }
-                Err((error, cost_tracker)) => {
+                Err(boxed) => {
+                    let (error, cost_tracker) = *boxed;
                     let mut result = json!({
                         "error": {
                             "initialization": serde_json::to_value(&format!("{}", error)).unwrap()

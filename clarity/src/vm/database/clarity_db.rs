@@ -1515,9 +1515,11 @@ impl ClarityDatabase<'_> {
             .value_type
             .admits(&self.get_clarity_epoch_version()?, &value)?
         {
-            return Err(
-                CheckErrors::TypeValueError(variable_descriptor.value_type.clone(), value).into(),
-            );
+            return Err(CheckErrors::TypeValueError(
+                Box::new(variable_descriptor.value_type.clone()),
+                Box::new(value),
+            )
+            .into());
         }
 
         let key = ClarityDatabase::make_key_for_trip(
@@ -1673,8 +1675,8 @@ impl ClarityDatabase<'_> {
             .admits(&self.get_clarity_epoch_version()?, key_value)?
         {
             return Err(CheckErrors::TypeValueError(
-                map_descriptor.key_type.clone(),
-                (*key_value).clone(),
+                Box::new(map_descriptor.key_type.clone()),
+                Box::new(key_value.clone()),
             )
             .into());
         }
@@ -1704,8 +1706,8 @@ impl ClarityDatabase<'_> {
             .admits(&self.get_clarity_epoch_version()?, key_value)?
         {
             return Err(CheckErrors::TypeValueError(
-                map_descriptor.key_type.clone(),
-                (*key_value).clone(),
+                Box::new(map_descriptor.key_type.clone()),
+                Box::new(key_value.clone()),
             )
             .into());
         }
@@ -1846,17 +1848,21 @@ impl ClarityDatabase<'_> {
             .key_type
             .admits(&self.get_clarity_epoch_version()?, &key_value)?
         {
-            return Err(
-                CheckErrors::TypeValueError(map_descriptor.key_type.clone(), key_value).into(),
-            );
+            return Err(CheckErrors::TypeValueError(
+                Box::new(map_descriptor.key_type.clone()),
+                Box::new(key_value),
+            )
+            .into());
         }
         if !map_descriptor
             .value_type
             .admits(&self.get_clarity_epoch_version()?, &value)?
         {
-            return Err(
-                CheckErrors::TypeValueError(map_descriptor.value_type.clone(), value).into(),
-            );
+            return Err(CheckErrors::TypeValueError(
+                Box::new(map_descriptor.value_type.clone()),
+                Box::new(value),
+            )
+            .into());
         }
 
         let key_serialized = key_value.serialize_to_hex()?;
@@ -1902,8 +1908,8 @@ impl ClarityDatabase<'_> {
             .admits(&self.get_clarity_epoch_version()?, key_value)?
         {
             return Err(CheckErrors::TypeValueError(
-                map_descriptor.key_type.clone(),
-                (*key_value).clone(),
+                Box::new(map_descriptor.key_type.clone()),
+                Box::new(key_value.clone()),
             )
             .into());
         }
@@ -2119,7 +2125,11 @@ impl ClarityDatabase<'_> {
         key_type: &TypeSignature,
     ) -> Result<PrincipalData> {
         if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
-            return Err(CheckErrors::TypeValueError(key_type.clone(), (*asset).clone()).into());
+            return Err(CheckErrors::TypeValueError(
+                Box::new(key_type.clone()),
+                Box::new(asset.clone()),
+            )
+            .into());
         }
 
         let key = ClarityDatabase::make_key_for_quad(
@@ -2168,7 +2178,11 @@ impl ClarityDatabase<'_> {
         epoch: &StacksEpochId,
     ) -> Result<()> {
         if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
-            return Err(CheckErrors::TypeValueError(key_type.clone(), (*asset).clone()).into());
+            return Err(CheckErrors::TypeValueError(
+                Box::new(key_type.clone()),
+                Box::new(asset.clone()),
+            )
+            .into());
         }
 
         let key = ClarityDatabase::make_key_for_quad(
@@ -2193,7 +2207,11 @@ impl ClarityDatabase<'_> {
         epoch: &StacksEpochId,
     ) -> Result<()> {
         if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
-            return Err(CheckErrors::TypeValueError(key_type.clone(), (*asset).clone()).into());
+            return Err(CheckErrors::TypeValueError(
+                Box::new(key_type.clone()),
+                Box::new(asset.clone()),
+            )
+            .into());
         }
 
         let key = ClarityDatabase::make_key_for_quad(

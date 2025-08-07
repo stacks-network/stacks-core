@@ -416,7 +416,7 @@ mod test {
             cost_addition_count: 1,
         };
 
-        assert_eq!(&expected_err, &err.err);
+        assert_eq!(expected_err, *err.err);
         assert_eq!(expected_list_cost_state, cost_track);
 
         // with new rules, this is now VaryExpressionStackDepthTooDeep
@@ -438,7 +438,7 @@ mod test {
             cost_addition_count: 1,
         };
 
-        assert_eq!(&expected_err, &err.err);
+        assert_eq!(expected_err, *err.err);
         assert_eq!(expected_list_cost_state, cost_track);
 
         // you cannot do the same for tuples!
@@ -474,7 +474,7 @@ mod test {
             cost_addition_count: 1,
         };
 
-        assert_eq!(&expected_err, &err.err);
+        assert_eq!(expected_err, *err.err);
         assert_eq!(expected_list_cost_state, cost_track);
     }
 
@@ -518,7 +518,7 @@ mod test {
                 cost_addition_count: 1,
             };
 
-            assert_eq!(&expected_err, &err.err);
+            assert_eq!(expected_err, *err.err);
             assert_eq!(expected_list_cost_state, cost_track);
 
             // in 2.1, this is still ExpressionStackDepthTooDeep
@@ -540,7 +540,7 @@ mod test {
                 cost_addition_count: 1,
             };
 
-            assert_eq!(&expected_err, &err.err);
+            assert_eq!(expected_err, *err.err);
             assert_eq!(expected_list_cost_state, cost_track);
 
             // in 2.1, ASTRules::Typical is ignored -- this still fails to parse
@@ -562,7 +562,7 @@ mod test {
                 cost_addition_count: 1,
             };
 
-            assert_eq!(&expected_err, &err.err);
+            assert_eq!(expected_err, *err.err);
             assert_eq!(expected_list_cost_state, cost_track);
 
             // in 2.1, ASTRules::PrecheckSize is still ignored -- this still fails to parse
@@ -584,7 +584,7 @@ mod test {
                 cost_addition_count: 1,
             };
 
-            assert_eq!(&expected_err, &err.err);
+            assert_eq!(expected_err, *err.err);
             assert_eq!(expected_list_cost_state, cost_track);
         }
     }

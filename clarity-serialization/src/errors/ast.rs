@@ -97,7 +97,7 @@ pub enum ParseErrors {
 
 #[derive(Debug, PartialEq)]
 pub struct ParseError {
-    pub err: ParseErrors,
+    pub err: Box<ParseErrors>,
     pub pre_expressions: Option<Vec<PreSymbolicExpression>>,
     pub diagnostic: Diagnostic,
 }
@@ -106,14 +106,14 @@ impl ParseError {
     pub fn new(err: ParseErrors) -> ParseError {
         let diagnostic = Diagnostic::err(&err);
         ParseError {
-            err,
+            err: Box::new(err),
             pre_expressions: None,
             diagnostic,
         }
     }
 
     pub fn rejectable(&self) -> bool {
-        matches!(self.err, ParseErrors::InterpreterFailure)
+        matches!(*self.err, ParseErrors::InterpreterFailure)
     }
 
     pub fn has_pre_expression(&self) -> bool {

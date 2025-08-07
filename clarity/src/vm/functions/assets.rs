@@ -108,7 +108,10 @@ pub fn special_stx_balance(
         };
         Ok(Value::UInt(balance))
     } else {
-        Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into())
+        Err(
+            CheckErrors::TypeValueError(Box::new(TypeSignature::PrincipalType), Box::new(owner))
+                .into(),
+        )
     }
 }
 
@@ -222,7 +225,11 @@ pub fn special_stx_account(
     let principal = if let Value::Principal(p) = owner {
         p
     } else {
-        return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into());
+        return Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::PrincipalType),
+            Box::new(owner),
+        )
+        .into());
     };
 
     let stx_balance = env
@@ -397,7 +404,11 @@ pub fn special_mint_asset_v200(
     )?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
-        return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
+        return Err(CheckErrors::TypeValueError(
+            Box::new(expected_asset_type.clone()),
+            Box::new(asset),
+        )
+        .into());
     }
 
     if let Value::Principal(ref to_principal) = to {
@@ -433,7 +444,10 @@ pub fn special_mint_asset_v200(
 
         Ok(Value::okay_true())
     } else {
-        Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, to).into())
+        Err(
+            CheckErrors::TypeValueError(Box::new(TypeSignature::PrincipalType), Box::new(to))
+                .into(),
+        )
     }
 }
 
@@ -464,7 +478,11 @@ pub fn special_mint_asset_v205(
     runtime_cost(ClarityCostFunction::NftMint, env, asset_size)?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
-        return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
+        return Err(CheckErrors::TypeValueError(
+            Box::new(expected_asset_type.clone()),
+            Box::new(asset),
+        )
+        .into());
     }
 
     if let Value::Principal(ref to_principal) = to {
@@ -500,7 +518,10 @@ pub fn special_mint_asset_v205(
 
         Ok(Value::okay_true())
     } else {
-        Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, to).into())
+        Err(
+            CheckErrors::TypeValueError(Box::new(TypeSignature::PrincipalType), Box::new(to))
+                .into(),
+        )
     }
 }
 
@@ -531,7 +552,11 @@ pub fn special_transfer_asset_v200(
     )?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
-        return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
+        return Err(CheckErrors::TypeValueError(
+            Box::new(expected_asset_type.clone()),
+            Box::new(asset),
+        )
+        .into());
     }
 
     if let (Value::Principal(ref from_principal), Value::Principal(ref to_principal)) = (from, to) {
@@ -621,7 +646,11 @@ pub fn special_transfer_asset_v205(
     runtime_cost(ClarityCostFunction::NftTransfer, env, asset_size)?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
-        return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
+        return Err(CheckErrors::TypeValueError(
+            Box::new(expected_asset_type.clone()),
+            Box::new(asset),
+        )
+        .into());
     }
 
     if let (Value::Principal(ref from_principal), Value::Principal(ref to_principal)) = (from, to) {
@@ -812,7 +841,10 @@ pub fn special_get_balance(
         )?;
         Ok(Value::UInt(balance))
     } else {
-        Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into())
+        Err(
+            CheckErrors::TypeValueError(Box::new(TypeSignature::PrincipalType), Box::new(owner))
+                .into(),
+        )
     }
 }
 
@@ -841,7 +873,11 @@ pub fn special_get_owner_v200(
     )?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
-        return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
+        return Err(CheckErrors::TypeValueError(
+            Box::new(expected_asset_type.clone()),
+            Box::new(asset),
+        )
+        .into());
     }
 
     match env.global_context.database.get_nft_owner(
@@ -884,7 +920,11 @@ pub fn special_get_owner_v205(
     runtime_cost(ClarityCostFunction::NftOwner, env, asset_size)?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
-        return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
+        return Err(CheckErrors::TypeValueError(
+            Box::new(expected_asset_type.clone()),
+            Box::new(asset),
+        )
+        .into());
     }
 
     match env.global_context.database.get_nft_owner(
@@ -1014,7 +1054,11 @@ pub fn special_burn_asset_v200(
     )?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
-        return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
+        return Err(CheckErrors::TypeValueError(
+            Box::new(expected_asset_type.clone()),
+            Box::new(asset),
+        )
+        .into());
     }
 
     if let Value::Principal(ref sender_principal) = sender {
@@ -1062,7 +1106,10 @@ pub fn special_burn_asset_v200(
 
         Ok(Value::okay_true())
     } else {
-        Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, sender).into())
+        Err(
+            CheckErrors::TypeValueError(Box::new(TypeSignature::PrincipalType), Box::new(sender))
+                .into(),
+        )
     }
 }
 
@@ -1095,7 +1142,11 @@ pub fn special_burn_asset_v205(
     runtime_cost(ClarityCostFunction::NftBurn, env, asset_size)?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
-        return Err(CheckErrors::TypeValueError(expected_asset_type.clone(), asset).into());
+        return Err(CheckErrors::TypeValueError(
+            Box::new(expected_asset_type.clone()),
+            Box::new(asset),
+        )
+        .into());
     }
 
     if let Value::Principal(ref sender_principal) = sender {
@@ -1143,6 +1194,9 @@ pub fn special_burn_asset_v205(
 
         Ok(Value::okay_true())
     } else {
-        Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, sender).into())
+        Err(
+            CheckErrors::TypeValueError(Box::new(TypeSignature::PrincipalType), Box::new(sender))
+                .into(),
+        )
     }
 }
