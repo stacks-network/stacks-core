@@ -187,11 +187,11 @@ impl NullBackingStore {
         NullBackingStore {}
     }
 
-    pub fn as_clarity_db(&mut self) -> ClarityDatabase {
+    pub fn as_clarity_db(&mut self) -> ClarityDatabase<'_> {
         ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
     }
 
-    pub fn as_analysis_db(&mut self) -> AnalysisDatabase {
+    pub fn as_analysis_db(&mut self) -> AnalysisDatabase<'_> {
         AnalysisDatabase::new(self)
     }
 }
