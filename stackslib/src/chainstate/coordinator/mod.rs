@@ -763,7 +763,6 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
 
     let reward_cycle_info = {
         let ic = sort_db.index_handle(sortition_tip);
-        // TODO: always use block-commit-based PoX anchor block selection rules?
         let burnchain_db_conn_opt = if epoch_at_height.epoch_id >= StacksEpochId::Epoch21 {
             // use the new block-commit-based PoX anchor block selection rules
             Some(burnchain_db.conn())
