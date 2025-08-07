@@ -3822,7 +3822,6 @@ fn tx_replay_btc_on_stx_invalidation() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::PreStx(pre_stx_op),
                 &mut miner_keychain,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -3851,8 +3850,7 @@ fn tx_replay_btc_on_stx_invalidation() {
             .submit_operation(
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::TransferStx(transfer_stx_op),
-                &mut sender_burnop_signer,
-                1
+                &mut sender_burnop_signer
             )
             .is_ok(),
         "Transfer STX operation should submit successfully"
