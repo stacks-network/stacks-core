@@ -13,30 +13,12 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-use clarity::types::chainstate::VRFSeed;
-use clarity::vm::costs::ExecutionCost;
-use stacks_common::codec::read_next;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId,
-};
-use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
-use stacks_common::util::HexError;
-
-use crate::burnchains::Txid;
-use crate::chainstate::stacks::{StacksMicroblock, StacksTransaction};
-use crate::core::mempool;
-use crate::cost_estimates::FeeRateEstimate;
-use crate::net::atlas::GetAttachmentResponse;
-use crate::net::http::{
-    Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
-    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
-};
-use crate::net::httpcore::{StacksHttp, StacksHttpRequest, StacksHttpResponse};
+use crate::net::http::Error;
+use crate::net::httpcore::StacksHttp;
 use crate::net::Error as NetError;
-use crate::stacks_common::codec::StacksMessageCodec;
 
 pub mod callreadonly;
+pub mod fastcallreadonly;
 pub mod get_tenures_fork_info;
 pub mod getaccount;
 pub mod getattachment;
@@ -51,6 +33,7 @@ pub mod getcontractabi;
 pub mod getcontractsrc;
 pub mod getdatavar;
 pub mod getheaders;
+pub mod gethealth;
 pub mod getinfo;
 pub mod getistraitimplemented;
 pub mod getmapentry;
@@ -91,6 +74,11 @@ impl StacksHttp {
         self.register_rpc_endpoint(callreadonly::RPCCallReadOnlyRequestHandler::new(
             self.maximum_call_argument_size,
             self.read_only_call_limit.clone(),
+        ));
+        self.register_rpc_endpoint(fastcallreadonly::RPCFastCallReadOnlyRequestHandler::new(
+            self.maximum_call_argument_size,
+            self.read_only_max_execution_time,
+            self.auth_token.clone(),
         ));
         self.register_rpc_endpoint(getaccount::RPCGetAccountRequestHandler::new());
         self.register_rpc_endpoint(getattachment::RPCGetAttachmentRequestHandler::new());
@@ -137,6 +125,7 @@ impl StacksHttp {
         );
         self.register_rpc_endpoint(gettransaction::RPCGetTransactionRequestHandler::new());
         self.register_rpc_endpoint(getsigner::GetSignerRequestHandler::default());
+        self.register_rpc_endpoint(gethealth::RPCGetHealthRequestHandler::new());
         self.register_rpc_endpoint(
             liststackerdbreplicas::RPCListStackerDBReplicasRequestHandler::new(),
         );
@@ -164,86 +153,3 @@ impl From<NetError> for Error {
         }
     }
 }
-
-/// This module serde encodes and decodes optional byte fields in RPC
-/// responses as Some(String) where the String is a `0x` prefixed
-/// hex string.
-pub mod prefix_opt_hex {
-    pub fn serialize<S: serde::Serializer, T: std::fmt::LowerHex>(
-        val: &Option<T>,
-        s: S,
-    ) -> Result<S::Ok, S::Error> {
-        match val {
-            Some(ref some_val) => {
-                let val_str = format!("0x{some_val:x}");
-                s.serialize_some(&val_str)
-            }
-            None => s.serialize_none(),
-        }
-    }
-
-    pub fn deserialize<'de, D: serde::Deserializer<'de>, T: super::HexDeser>(
-        d: D,
-    ) -> Result<Option<T>, D::Error> {
-        let opt_inst_str: Option<String> = serde::Deserialize::deserialize(d)?;
-        let Some(inst_str) = opt_inst_str else {
-            return Ok(None);
-        };
-        let Some(hex_str) = inst_str.get(2..) else {
-            return Err(serde::de::Error::invalid_length(
-                inst_str.len(),
-                &"at least length 2 string",
-            ));
-        };
-        let val = T::try_from(hex_str).map_err(serde::de::Error::custom)?;
-        Ok(Some(val))
-    }
-}
-
-/// This module serde encodes and decodes byte fields in RPC
-/// responses as a String where the String is a `0x` prefixed
-/// hex string.
-pub mod prefix_hex {
-    pub fn serialize<S: serde::Serializer, T: std::fmt::LowerHex>(
-        val: &T,
-        s: S,
-    ) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&format!("0x{val:x}"))
-    }
-
-    pub fn deserialize<'de, D: serde::Deserializer<'de>, T: super::HexDeser>(
-        d: D,
-    ) -> Result<T, D::Error> {
-        let inst_str: String = serde::Deserialize::deserialize(d)?;
-        let Some(hex_str) = inst_str.get(2..) else {
-            return Err(serde::de::Error::invalid_length(
-                inst_str.len(),
-                &"at least length 2 string",
-            ));
-        };
-        T::try_from(hex_str).map_err(serde::de::Error::custom)
-    }
-}
-
-pub trait HexDeser: Sized {
-    fn try_from(hex: &str) -> Result<Self, HexError>;
-}
-
-macro_rules! impl_hex_deser {
-    ($thing:ident) => {
-        impl HexDeser for $thing {
-            fn try_from(hex: &str) -> Result<Self, HexError> {
-                $thing::from_hex(hex)
-            }
-        }
-    };
-}
-
-impl_hex_deser!(BurnchainHeaderHash);
-impl_hex_deser!(StacksBlockId);
-impl_hex_deser!(SortitionId);
-impl_hex_deser!(VRFSeed);
-impl_hex_deser!(ConsensusHash);
-impl_hex_deser!(BlockHeaderHash);
-impl_hex_deser!(Hash160);
-impl_hex_deser!(Sha512Trunc256Sum);

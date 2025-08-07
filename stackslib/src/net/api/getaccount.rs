@@ -14,37 +14,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::{Read, Write};
-
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::{ClarityDatabase, STXBalance};
 use clarity::vm::representations::PRINCIPAL_DATA_REGEX_STRING;
-use clarity::vm::types::{PrincipalData, StandardPrincipalData};
-use clarity::vm::ClarityVersion;
+use clarity::vm::types::PrincipalData;
 use regex::{Captures, Regex};
-use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::{to_hex, Sha256Sum};
+use stacks_common::util::hash::to_hex;
 
-use crate::burnchains::Burnchain;
-use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME};
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::Error as ChainError;
-use crate::core::mempool::MemPoolDB;
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
-    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
-    HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp,
-    StacksHttpRequest, StacksHttpResponse,
+    HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttpRequest,
+    StacksHttpResponse,
 };
-use crate::net::p2p::PeerNetwork;
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
-use crate::util_lib::boot::boot_code_id;
-use crate::util_lib::db::Error as DBError;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AccountEntryResponse {

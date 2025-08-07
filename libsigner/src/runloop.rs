@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(unused_imports)]
 #![allow(dead_code)]
 
 use std::marker::PhantomData;
@@ -24,7 +23,6 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use clarity::codec::StacksMessageCodec;
 use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;
 
@@ -172,7 +170,7 @@ pub fn set_runloop_signal_handler<ST: EventStopSignaler + Send + 'static>(mut st
             }
         }
         _ => {
-            let msg = format!("Graceful termination request received (signal `{}`), will complete the ongoing runloop cycles and terminate\n", sig_id);
+            let msg = format!("Graceful termination request received (signal `{sig_id}`), will complete the ongoing runloop cycles and terminate\n");
             async_safe_write_stderr(&msg);
             stop_signaler.send();
         }

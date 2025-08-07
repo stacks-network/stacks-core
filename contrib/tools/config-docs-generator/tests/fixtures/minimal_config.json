@@ -1,0 +1,80 @@
+{
+    "structs": [
+        {
+            "name": "NodeConfig",
+            "description": "Configuration settings for a Stacks node",
+            "fields": [
+                {
+                    "name": "name",
+                    "description": "Human-readable name for the node. Primarily used for identification in testing\nenvironments (e.g., deriving log file names, temporary directory names).",
+                    "default_value": "`\"helium-node\"`",
+                    "notes": null,
+                    "deprecated": null,
+                    "toml_example": null,
+                    "required": null,
+                    "units": null
+                },
+                {
+                    "name": "seed",
+                    "description": "The node's Bitcoin wallet private key, provided as a hex string in the config file.\nUsed to initialize the node's keychain for signing operations.\nIf [`MinerConfig::mining_key`] is not set, this seed may also be used for\nmining-related signing.",
+                    "default_value": "Randomly generated 32 bytes",
+                    "notes": [
+                        "Required if [`NodeConfig::miner`] is `true` and [`MinerConfig::mining_key`] is absent."
+                    ],
+                    "deprecated": null,
+                    "toml_example": null,
+                    "required": null,
+                    "units": null
+                },
+                {
+                    "name": "rpc_bind",
+                    "description": "The IPv4 address and port (e.g., \"0.0.0.0:20443\") on which the node's HTTP RPC\nserver should bind and listen for incoming API requests.",
+                    "default_value": "`\"0.0.0.0:20443\"`",
+                    "notes": null,
+                    "deprecated": null,
+                    "toml_example": null,
+                    "required": null,
+                    "units": null
+                },
+                {
+                    "name": "bootstrap_node",
+                    "description": "A list of initial peer nodes used to bootstrap connections into the Stacks P2P\nnetwork. Peers are specified in a configuration file as comma-separated\nstrings in the format `\"PUBKEY@IP:PORT\"` or `\"PUBKEY@HOSTNAME:PORT\"`. DNS\nhostnames are resolved during configuration loading.",
+                    "default_value": "`[]` (empty vector)",
+                    "notes": null,
+                    "deprecated": null,
+                    "toml_example": "bootstrap_node = \"pubkey1@example.com:30444,pubkey2@192.168.1.100:20444\"",
+                    "required": null,
+                    "units": null
+                },
+                {
+                    "name": "miner",
+                    "description": "Flag indicating whether this node should activate its mining logic and attempt to\nproduce Stacks blocks. Setting this to `true` typically requires providing\nnecessary private keys (either [`NodeConfig::seed`] or [`MinerConfig::mining_key`]).\nIt also influences default behavior for settings like\n[`NodeConfig::require_affirmed_anchor_blocks`].",
+                    "default_value": "`false`",
+                    "notes": null,
+                    "deprecated": null,
+                    "toml_example": null,
+                    "required": null,
+                    "units": null
+                },
+                {
+                    "name": "microblock_frequency",
+                    "description": "How often to attempt producing microblocks, in milliseconds.",
+                    "default_value": "`30_000` (30 seconds)",
+                    "notes": [
+                        "Only applies when [`NodeConfig::mine_microblocks`] is true and before Epoch 2.5."
+                    ],
+                    "deprecated": "This setting is ignored in Epoch 2.5+.",
+                    "toml_example": null,
+                    "required": null,
+                    "units": "milliseconds"
+                }
+            ]
+        }
+    ],
+    "referenced_constants": {
+        "MinerConfig::mining_key": null,
+        "NodeConfig::miner": null,
+        "NodeConfig::mine_microblocks": null,
+        "NodeConfig::require_affirmed_anchor_blocks": null
+    }
+}

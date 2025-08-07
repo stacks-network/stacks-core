@@ -38,9 +38,9 @@ concurrency:
 run-name: ${{ inputs.node_tag || inputs.signer_tag }}
 
 jobs:
-  ## This job's sole purpose is trigger a secondary approval outside of the matrix jobs below. 
+  ## This job's sole purpose is trigger a secondary approval outside of the matrix jobs below.
   ##   - If this job isn't approved to run, then the subsequent jobs will also not run - for this reason, we always exit 0
-  ##   - `andon-cord` requires the repo environment "Build Release", which will trigger a secondary approval step before running this workflow.  
+  ##   - `andon-cord` requires the repo environment "Build Release", which will trigger a secondary approval step before running this workflow.
   andon-cord:
     if: |
       inputs.node_tag != '' ||
@@ -65,6 +65,9 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - andon-cord
+    permissions:
+      id-token: write
+      attestations: write
     strategy:
       ## Run a maximum of 10 builds concurrently, using the matrix defined in inputs.arch
       max-parallel: 10
@@ -87,6 +90,8 @@ jobs:
             cpu: armv7
           - arch: macos # excludes macos-armv7
             cpu: armv7
+          - arch: macos # excludes macos-x64
+            cpu: x86_64
     steps:
       - name: Build Binary (${{ matrix.arch }}_${{ matrix.cpu }})
         uses: stacks-network/actions/stacks-core/release/create-source-binary@main
@@ -135,6 +140,10 @@ jobs:
       inputs.signer_tag != ''
     name: Docker Image (Binary)
     runs-on: ubuntu-latest
+    environment: "Push to Docker"
+    permissions:
+      id-token: write
+      attestations: write
     needs:
       - andon-cord
       - build-binaries
@@ -164,7 +173,6 @@ jobs:
   ## Create the downstream PR for the release branch to master,develop
   create-pr:
     if: |
-      !contains(github.ref, '-rc') &&
       (
         inputs.node_tag != '' ||
         inputs.signer_tag != ''

@@ -16,40 +16,35 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{fs, thread};
 
-use stacks_common::address::{public_keys_to_address_hash, AddressHashMode};
+#[cfg(test)]
+use rand::{thread_rng, RngCore};
+#[cfg(any(test, feature = "testing"))]
+use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
-use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, StacksAddress, TrieHash};
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::vrf::VRFPublicKey;
-use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log, sleep_ms};
+use stacks_common::util::{get_epoch_time_ms, sleep_ms};
 
 use super::EpochList;
 use crate::burnchains::affirmation::update_pox_affirmation_maps;
-use crate::burnchains::bitcoin::address::{
-    to_c32_version_byte, BitcoinAddress, LegacyBitcoinAddressType,
-};
-use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
-use crate::burnchains::bitcoin::{
-    BitcoinInputType, BitcoinNetworkType, BitcoinTxInput, BitcoinTxOutput,
-};
+use crate::burnchains::bitcoin::BitcoinTxOutput;
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
 };
 use crate::burnchains::{
-    Address, Burnchain, BurnchainBlock, BurnchainBlockHeader, BurnchainParameters,
-    BurnchainRecipient, BurnchainSigner, BurnchainStateTransition, BurnchainStateTransitionOps,
-    BurnchainTransaction, Error as burnchain_error, PoxConstants, PublicKey, Txid,
+    Burnchain, BurnchainBlock, BurnchainBlockHeader, BurnchainParameters, BurnchainRecipient,
+    BurnchainSigner, BurnchainStateTransition, BurnchainStateTransitionOps, BurnchainTransaction,
+    Error as burnchain_error, PoxConstants, Txid,
 };
-use crate::chainstate::burn::db::sortdb::{
-    SortitionDB, SortitionHandle, SortitionHandleConn, SortitionHandleTx,
-};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle, SortitionHandleTx};
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
 use crate::chainstate::burn::operations::{
@@ -58,17 +53,25 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
-use crate::chainstate::coordinator::SortitionDBMigrator;
-use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
-use crate::chainstate::stacks::boot::{POX_2_MAINNET_CODE, POX_2_TESTNET_CODE};
+use crate::chainstate::stacks::address::PoxAddress;
+#[cfg(any(test, feature = "testing"))]
 use crate::chainstate::stacks::StacksPublicKey;
-use crate::core::{
-    StacksEpoch, StacksEpochId, NETWORK_ID_MAINNET, NETWORK_ID_TESTNET, PEER_VERSION_MAINNET,
-    PEER_VERSION_TESTNET, STACKS_2_0_LAST_BLOCK_TO_PROCESS,
-};
-use crate::deps;
+use crate::core::{StacksEpochId, NETWORK_ID_MAINNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET};
 use crate::monitoring::update_burnchain_height;
-use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
+use crate::util_lib::db::Error as db_error;
+
+#[cfg(any(test, feature = "testing"))]
+pub static TEST_DOWNLOAD_ERROR_ON_REORG: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
+
+#[cfg(any(test, feature = "testing"))]
+fn fault_inject_downloader_on_reorg(did_reorg: bool) -> bool {
+    did_reorg && *TEST_DOWNLOAD_ERROR_ON_REORG.lock().unwrap()
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+fn fault_inject_downloader_on_reorg(_did_reorg: bool) -> bool {
+    false
+}
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -133,7 +136,7 @@ impl BurnchainStateTransition {
         if block_total_burns.is_empty() {
             return Some(0);
         } else if block_total_burns.len() == 1 {
-            return Some(block_total_burns[0]);
+            return block_total_burns.get(0).copied();
         } else if block_total_burns.len() % 2 != 0 {
             let idx = block_total_burns.len() / 2;
             return block_total_burns.get(idx).copied();
@@ -165,22 +168,22 @@ impl BurnchainStateTransition {
 
         // accept all leader keys we found.
         // don't treat block commits and user burn supports just yet.
-        for i in 0..block_ops.len() {
-            match block_ops[i] {
+        for block_op in block_ops.iter() {
+            match block_op {
                 BlockstackOperationType::PreStx(_) => {
                     // PreStx ops don't need to be processed by sort db, so pass.
                 }
                 BlockstackOperationType::StackStx(_) => {
-                    accepted_ops.push(block_ops[i].clone());
+                    accepted_ops.push(block_op.clone());
                 }
                 BlockstackOperationType::DelegateStx(_) => {
-                    accepted_ops.push(block_ops[i].clone());
+                    accepted_ops.push(block_op.clone());
                 }
                 BlockstackOperationType::TransferStx(_) => {
-                    accepted_ops.push(block_ops[i].clone());
+                    accepted_ops.push(block_op.clone());
                 }
                 BlockstackOperationType::LeaderKeyRegister(_) => {
-                    accepted_ops.push(block_ops[i].clone());
+                    accepted_ops.push(block_op.clone());
                 }
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
                     // we don't yet know which block commits are going to be accepted until we have
@@ -189,7 +192,7 @@ impl BurnchainStateTransition {
                     block_commits.push(op.clone());
                 }
                 BlockstackOperationType::VoteForAggregateKey(_) => {
-                    accepted_ops.push(block_ops[i].clone());
+                    accepted_ops.push(block_op.clone());
                 }
             };
         }
@@ -334,9 +337,7 @@ impl BurnchainStateTransition {
         BurnSamplePoint::prometheus_update_miner_commitments(&burn_dist);
 
         // find out which block commits we're going to take
-        for i in 0..burn_dist.len() {
-            let burn_point = &burn_dist[i];
-
+        for burn_point in burn_dist.iter() {
             // taking this commit in this sample point
             accepted_ops.push(BlockstackOperationType::LeaderBlockCommit(
                 burn_point.candidate.clone(),
@@ -449,6 +450,23 @@ impl BurnchainBlock {
 }
 
 impl Burnchain {
+    pub fn handle_thread_join<T>(
+        handle: std::thread::JoinHandle<Result<T, burnchain_error>>,
+        name: &str,
+    ) -> Result<T, burnchain_error> {
+        match handle.join() {
+            Ok(Ok(val)) => Ok(val),
+            Ok(Err(e)) => {
+                warn!("{} thread error: {:?}", name, e);
+                Err(e)
+            }
+            Err(_) => {
+                error!("{} thread panicked", name);
+                Err(burnchain_error::ThreadChannelError)
+            }
+        }
+    }
+
     pub fn new(
         working_dir: &str,
         chain_name: &str,
@@ -578,6 +596,15 @@ impl Burnchain {
             .nakamoto_first_block_of_cycle(self.first_block_height, reward_cycle)
     }
 
+    #[cfg(any(test, feature = "testing"))]
+    /// the last burn block that must be *signed* by the signer set of `reward_cycle`.
+    /// this is the modulo -1 block
+    pub fn nakamoto_last_block_of_cycle(&self, reward_cycle: u64) -> u64 {
+        self.nakamoto_first_block_of_cycle(reward_cycle)
+            + self.pox_constants.reward_cycle_length as u64
+            - 1
+    }
+
     /// What is the reward cycle for this block height?
     /// This considers the modulo 0 block to be in reward cycle `n`, even though
     ///  rewards for cycle `n` do not begin until modulo 1.
@@ -628,9 +655,6 @@ impl Burnchain {
         first_block_height: u64,
         first_block_hash: &BurnchainHeaderHash,
     ) -> Burnchain {
-        use rand::rngs::ThreadRng;
-        use rand::{thread_rng, RngCore};
-
         let mut rng = thread_rng();
         let mut byte_tail = [0u8; 16];
         rng.fill_bytes(&mut byte_tail);
@@ -977,12 +1001,15 @@ impl Burnchain {
 
     /// Sanity check -- a list of checked ops is sorted and all vtxindexes are unique
     pub fn ops_are_sorted(ops: &[BlockstackOperationType]) -> bool {
-        if ops.len() > 1 {
-            for i in 0..ops.len() - 1 {
-                if ops[i].vtxindex() >= ops[i + 1].vtxindex() {
+        let mut last_vtxindex = None;
+        for op in ops.iter() {
+            let cur_vtxindex = op.vtxindex();
+            if let Some(last_vtxindex) = last_vtxindex {
+                if last_vtxindex >= cur_vtxindex {
                     return false;
                 }
             }
+            last_vtxindex = Some(cur_vtxindex);
         }
         true
     }
@@ -1359,13 +1386,13 @@ impl Burnchain {
 
         // feed the pipeline!
         let mut downloader_result: Result<(), burnchain_error> = Ok(());
-        for i in 0..input_headers.len() {
+        for (i, input_header) in input_headers.iter().enumerate() {
             debug!(
                 "Downloading burnchain block {} out of {}...",
                 start_block + 1 + (i as u64),
                 end_block
             );
-            if let Err(e) = downloader_send.send(Some(input_headers[i].clone())) {
+            if let Err(e) = downloader_send.send(Some(input_header.clone())) {
                 info!(
                     "Failed to feed burnchain block header {}: {:?}",
                     start_block + 1 + (i as u64),
@@ -1384,15 +1411,19 @@ impl Burnchain {
         }
 
         // join up
-        let _ = download_thread.join().unwrap();
-        let _ = parse_thread.join().unwrap();
-        let (block_snapshot, state_transition_opt) = match db_thread.join().unwrap() {
-            Ok(x) => x,
-            Err(e) => {
-                warn!("Failed to join burnchain download thread: {:?}", &e);
-                return Err(burnchain_error::TrySyncAgain);
-            }
-        };
+        let download_result = Self::handle_thread_join(download_thread, "burnchain-download");
+        let parse_result = Self::handle_thread_join(parse_thread, "burnchain-parse");
+        let db_result = Self::handle_thread_join(db_thread, "burnchain-db");
+
+        if let Err(e) = download_result {
+            warn!("Download thread failed: {:?}", e);
+            return Err(e);
+        }
+        if let Err(e) = parse_result {
+            warn!("Parse thread failed: {:?}", e);
+            return Err(e);
+        }
+        let (block_snapshot, state_transition_opt) = db_result?;
 
         if block_snapshot.block_height < end_block {
             warn!(
@@ -1504,10 +1535,38 @@ impl Burnchain {
             }
         }
 
-        let mut start_block = sync_height;
-        if db_height < start_block {
-            start_block = db_height;
-        }
+        // check if the db has the parent of sync_height, if not,
+        //  start at the highest common ancestor
+        // if it does, then start at the minimum of db_height and sync_height
+        let start_block = if sync_height == 0 {
+            0
+        } else {
+            let Some(sync_header) = indexer.read_burnchain_header(sync_height)? else {
+                warn!("Missing burnchain header not read for sync start height";
+                      "sync_height" => sync_height);
+                return Err(burnchain_error::MissingHeaders);
+            };
+
+            let mut cursor = sync_header;
+            loop {
+                if burnchain_db.has_burnchain_block(&cursor.block_hash)? {
+                    break cursor.block_height;
+                }
+
+                cursor = indexer
+                    .read_burnchain_header(cursor.block_height.checked_sub(1).ok_or_else(
+                        || {
+                            error!("Could not find common ancestor, passed bitcoin genesis");
+                            burnchain_error::MissingHeaders
+                        },
+                    )?)?
+                    .ok_or_else(|| {
+                        warn!("Missing burnchain header not read for parent of indexed header";
+                              "indexed_header" => ?cursor);
+                        burnchain_error::MissingHeaders
+                    })?;
+            }
+        };
 
         debug!(
             "Sync'ed headers from {} to {}. DB at {}",
@@ -1607,6 +1666,17 @@ impl Burnchain {
                             _ => {}
                         };
 
+                        if fault_inject_downloader_on_reorg(did_reorg) {
+                            warn!("Stalling and yielding an error for the reorg";
+                                  "error_ht" => BurnHeaderIPC::height(&ipc_header),
+                                  "sync_ht" => sync_height,
+                                  "start_ht" => start_block,
+                                  "end_ht" => end_block,
+                            );
+                            thread::sleep(Duration::from_secs(10));
+                            return Err(burnchain_error::UnsupportedBurnchain);
+                        }
+
                         let download_start = get_epoch_time_ms();
                         let ipc_block = downloader.download(&ipc_header)?;
                         let download_end = get_epoch_time_ms();
@@ -1676,12 +1746,10 @@ impl Burnchain {
                             continue;
                         }
 
-                        let epoch_index = StacksEpoch::find_epoch(&epochs, block_height)
-                            .unwrap_or_else(|| {
+                        let epoch_id =
+                            epochs.epoch_id_at_height(block_height).unwrap_or_else(|| {
                                 panic!("FATAL: no epoch defined for height {}", block_height)
                             });
-
-                        let epoch_id = epochs[epoch_index].epoch_id;
 
                         let insert_start = get_epoch_time_ms();
 
@@ -1711,13 +1779,13 @@ impl Burnchain {
 
         // feed the pipeline!
         let mut downloader_result: Result<(), burnchain_error> = Ok(());
-        for i in 0..input_headers.len() {
+        for (i, input_header) in input_headers.iter().enumerate() {
             debug!(
                 "Downloading burnchain block {} out of {}...",
                 start_block + 1 + (i as u64),
                 end_block
             );
-            if let Err(e) = downloader_send.send(Some(input_headers[i].clone())) {
+            if let Err(e) = downloader_send.send(Some(input_header.clone())) {
                 info!(
                     "Failed to feed burnchain block header {}: {:?}",
                     start_block + 1 + (i as u64),
@@ -1736,20 +1804,21 @@ impl Burnchain {
         }
 
         // join up
-        let _ = download_thread.join().unwrap();
-        let _ = parse_thread.join().unwrap();
-        let block_header = match db_thread.join().unwrap() {
-            Ok(x) => x,
-            Err(e) => {
-                warn!("Failed to join burnchain download thread: {:?}", &e);
-                if let burnchain_error::CoordinatorClosed = e {
-                    return Err(burnchain_error::CoordinatorClosed);
-                } else {
-                    return Err(burnchain_error::TrySyncAgain);
-                }
-            }
-        };
+        let download_result = Self::handle_thread_join(download_thread, "download");
+        let parse_result = Self::handle_thread_join(parse_thread, "parse");
+        let db_result = Self::handle_thread_join(db_thread, "db");
 
+        if let Err(e) = download_result {
+            warn!("Download thread failed: {:?}", e);
+            return Err(e);
+        }
+
+        if let Err(e) = parse_result {
+            warn!("Parse thread failed: {:?}", e);
+            return Err(e);
+        }
+
+        let block_header = db_result?;
         if block_header.block_height < end_block {
             warn!(
                 "Try synchronizing the burn chain again: final snapshot {} < {}",
@@ -1763,5 +1832,175 @@ impl Burnchain {
         }
         update_burnchain_height(block_header.block_height as i64);
         Ok(block_header)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use regex::Regex;
+
+    use super::*;
+    use crate::burnchains::*;
+
+    #[test]
+    fn test_creation_by_new_for_bitcoin_mainnet() {
+        let burn_chain = Burnchain::new("workdir/path", "bitcoin", "mainnet");
+        assert!(burn_chain.is_ok());
+
+        let burn_chain = burn_chain.unwrap();
+        let first_block_hash =
+            BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH).unwrap();
+        assert_eq!(PEER_VERSION_MAINNET, burn_chain.peer_version);
+        assert_eq!(BITCOIN_NETWORK_ID_MAINNET, burn_chain.network_id);
+        assert_eq!(BITCOIN_MAINNET_NAME, burn_chain.network_name);
+        assert_eq!("workdir/path", burn_chain.working_dir);
+        assert_eq!(24, burn_chain.consensus_hash_lifetime);
+        assert_eq!(7, burn_chain.stable_confirmations);
+        assert_eq!(
+            BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT,
+            burn_chain.first_block_height
+        );
+        assert_eq!(first_block_hash, burn_chain.first_block_hash);
+        assert_eq!(
+            BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP,
+            burn_chain.first_block_timestamp
+        );
+        assert_eq!(PoxConstants::mainnet_default(), burn_chain.pox_constants);
+        assert_eq!(
+            BITCOIN_MAINNET_INITIAL_REWARD_START_BLOCK,
+            burn_chain.initial_reward_start_block
+        );
+    }
+
+    #[test]
+    fn test_creation_by_new_for_bitcoin_testnet() {
+        let burn_chain = Burnchain::new("workdir/path", "bitcoin", "testnet");
+        assert!(burn_chain.is_ok());
+
+        let burn_chain = burn_chain.unwrap();
+        let first_block_hash =
+            BurnchainHeaderHash::from_hex(BITCOIN_TESTNET_FIRST_BLOCK_HASH).unwrap();
+        assert_eq!(PEER_VERSION_TESTNET, burn_chain.peer_version);
+        assert_eq!(BITCOIN_NETWORK_ID_TESTNET, burn_chain.network_id);
+        assert_eq!(BITCOIN_TESTNET_NAME, burn_chain.network_name);
+        assert_eq!("workdir/path", burn_chain.working_dir);
+        assert_eq!(24, burn_chain.consensus_hash_lifetime);
+        assert_eq!(7, burn_chain.stable_confirmations);
+        assert_eq!(
+            BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
+            burn_chain.first_block_height
+        );
+        assert_eq!(first_block_hash, burn_chain.first_block_hash);
+        assert_eq!(
+            BITCOIN_TESTNET_FIRST_BLOCK_TIMESTAMP,
+            burn_chain.first_block_timestamp
+        );
+        assert_eq!(PoxConstants::testnet_default(), burn_chain.pox_constants);
+        assert_eq!(1_990_000, burn_chain.initial_reward_start_block);
+    }
+
+    #[test]
+    fn test_creation_by_new_for_bitcoin_regtest() {
+        let burn_chain = Burnchain::new("workdir/path", "bitcoin", "regtest");
+        assert!(burn_chain.is_ok());
+
+        let burn_chain = burn_chain.unwrap();
+        let first_block_hash =
+            BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
+        assert_eq!(PEER_VERSION_TESTNET, burn_chain.peer_version);
+        assert_eq!(BITCOIN_NETWORK_ID_REGTEST, burn_chain.network_id);
+        assert_eq!(BITCOIN_REGTEST_NAME, burn_chain.network_name);
+        assert_eq!("workdir/path", burn_chain.working_dir);
+        assert_eq!(24, burn_chain.consensus_hash_lifetime);
+        assert_eq!(1, burn_chain.stable_confirmations);
+        assert_eq!(
+            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
+            burn_chain.first_block_height
+        );
+        assert_eq!(first_block_hash, burn_chain.first_block_hash);
+        assert_eq!(
+            BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
+            burn_chain.first_block_timestamp
+        );
+        assert_eq!(PoxConstants::regtest_default(), burn_chain.pox_constants);
+        assert_eq!(
+            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
+            burn_chain.initial_reward_start_block
+        );
+    }
+
+    #[test]
+    fn test_creation_by_new_failure() {
+        //case: wrong chain name
+        let burn_chain = Burnchain::new("workdir/path", "wrong_chain_name", "regtest");
+        assert!(burn_chain.is_err());
+        assert!(matches!(
+            burn_chain.unwrap_err(),
+            burnchain_error::UnsupportedBurnchain
+        ));
+
+        //case: wrong network name
+        let burn_chain = Burnchain::new("workdir/path", "bitcoin", "wrong_net_name");
+        assert!(burn_chain.is_err());
+        assert!(matches!(
+            burn_chain.unwrap_err(),
+            burnchain_error::UnsupportedBurnchain
+        ));
+
+        //case: wrong chain name + wrong network name
+        let burn_chain = Burnchain::new("workdir/path", "wrong_chain_name", "wrong_net_name");
+        assert!(burn_chain.is_err());
+        assert!(matches!(
+            burn_chain.unwrap_err(),
+            burnchain_error::UnsupportedBurnchain
+        ));
+    }
+
+    #[test]
+    fn test_creation_by_default_unittest() {
+        let first_block_height = 0;
+        let first_block_hash = BurnchainHeaderHash([0u8; 32]);
+        let burn_chain = Burnchain::default_unittest(first_block_height, &first_block_hash);
+
+        let workdir_re = Regex::new(r"^/tmp/stacks-node-tests/unit-tests-[0-9a-f]{32}$").unwrap();
+
+        assert_eq!(PEER_VERSION_MAINNET, burn_chain.peer_version);
+        assert_eq!(BITCOIN_NETWORK_ID_MAINNET, burn_chain.network_id);
+        assert_eq!(BITCOIN_MAINNET_NAME, burn_chain.network_name);
+        assert!(workdir_re.is_match(&burn_chain.working_dir));
+        assert_eq!(24, burn_chain.consensus_hash_lifetime);
+        assert_eq!(7, burn_chain.stable_confirmations);
+        assert_eq!(first_block_height, burn_chain.first_block_height);
+        assert_eq!(first_block_hash, burn_chain.first_block_hash);
+        assert_eq!(
+            BITCOIN_MAINNET_FIRST_BLOCK_TIMESTAMP,
+            burn_chain.first_block_timestamp
+        );
+        assert_eq!(PoxConstants::mainnet_default(), burn_chain.pox_constants);
+        assert_eq!(first_block_height, burn_chain.initial_reward_start_block);
+    }
+
+    #[test]
+    fn test_nakamoto_reward_cycle_boundaries() {
+        let first_block_height = 0;
+        let first_block_hash = BurnchainHeaderHash([0u8; 32]);
+        let burn_chain = Burnchain::default_unittest(first_block_height, &first_block_hash);
+
+        //making obvious the reward cycle length used
+        assert_eq!(2100, burn_chain.pox_constants.reward_cycle_length);
+
+        //Reward Cycle: 0
+        let rc = 0;
+        let rc_first_block = burn_chain.nakamoto_first_block_of_cycle(rc);
+        let rc_last_block = burn_chain.nakamoto_last_block_of_cycle(rc);
+        assert_eq!(0, rc_first_block);
+        assert_eq!(2099, rc_last_block);
+
+        //Reward Cycle: 1
+        let rc = 1;
+        let rc_first_block = burn_chain.nakamoto_first_block_of_cycle(rc);
+        let rc_last_block = burn_chain.nakamoto_last_block_of_cycle(rc);
+        assert_eq!(2100, rc_first_block);
+        assert_eq!(4199, rc_last_block);
     }
 }

@@ -16,7 +16,6 @@
 
 use std::io;
 use std::io::{Read, Write};
-use std::net::SocketAddr;
 
 use hashbrown::HashMap;
 use stacks_common::codec::MAX_MESSAGE_LEN;
@@ -108,8 +107,7 @@ pub fn decode_http_request(payload: &[u8]) -> Result<SignerHttpRequest, EventErr
                 let key = req.headers[i].name.to_string().to_lowercase();
                 if headers.get(&key).is_some() {
                     return Err(EventError::MalformedRequest(format!(
-                        "Invalid HTTP request: duplicate header \"{}\"",
-                        key
+                        "Invalid HTTP request: duplicate header \"{key}\""
                     )));
                 }
                 headers.insert(key, value);
@@ -153,8 +151,7 @@ pub fn decode_http_response(payload: &[u8]) -> Result<(HashMap<String, String>, 
             if let Some(version) = resp.version {
                 if version != 0 && version != 1 {
                     return Err(RPCError::MalformedResponse(format!(
-                        "Unrecognized HTTP code {}",
-                        version
+                        "Unrecognized HTTP code {version}"
                     )));
                 }
             } else {
@@ -181,8 +178,7 @@ pub fn decode_http_response(payload: &[u8]) -> Result<(HashMap<String, String>, 
                 let key = resp.headers[i].name.to_string().to_lowercase();
                 if headers.contains_key(&key) {
                     return Err(RPCError::MalformedResponse(format!(
-                        "Invalid HTTP respuest: duplicate header \"{}\"",
-                        key
+                        "Invalid HTTP respuest: duplicate header \"{key}\""
                     )));
                 }
                 headers.insert(key, value);
@@ -238,13 +234,11 @@ pub fn run_http_request<S: Read + Write>(
 
     let req_txt = if let Some(content_type) = content_type {
         format!(
-            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Type: {}\r\n{}User-Agent: libsigner/0.1\r\nAccept: */*\r\n\r\n",
-            verb, path, host, content_type, content_length_hdr
+            "{verb} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\nContent-Type: {content_type}\r\n{content_length_hdr}User-Agent: libsigner/0.1\r\nAccept: */*\r\n\r\n"
         )
     } else {
         format!(
-            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n{}User-Agent: libsigner/0.1\r\nAccept: */*\r\n\r\n",
-            verb, path, host, content_length_hdr
+            "{verb} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n{content_length_hdr}User-Agent: libsigner/0.1\r\nAccept: */*\r\n\r\n"
         )
     };
     debug!("HTTP request\n{}", &req_txt);

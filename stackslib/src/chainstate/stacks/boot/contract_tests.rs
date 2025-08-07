@@ -1,24 +1,17 @@
-use std::collections::{HashMap, VecDeque};
+use std::ops::Deref;
 
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
+use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::OwnedEnvironment;
-use clarity::vm::contracts::Contract;
-use clarity::vm::costs::CostOverflowingMath;
 use clarity::vm::database::*;
-use clarity::vm::errors::{
-    CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
-    RuntimeErrorType,
-};
-use clarity::vm::eval;
-use clarity::vm::representations::SymbolicExpression;
+use clarity::vm::errors::{CheckErrors, Error};
 use clarity::vm::test_util::{execute, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB};
 use clarity::vm::tooling::mem_type_check;
 use clarity::vm::types::Value::Response;
 use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
-    TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
+    TupleData, Value,
 };
 use clarity::vm::version::ClarityVersion;
 use lazy_static::lazy_static;
@@ -26,18 +19,17 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
 };
-use stacks_common::util::hash::{to_hex, Sha256Sum, Sha512Trunc256Sum};
+use stacks_common::util::hash::to_hex;
 
 use super::SIGNERS_MAX_LIST_SIZE;
-use crate::burnchains::{Burnchain, PoxConstants};
+use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
     POX_2_TESTNET_CODE,
 };
-use crate::chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId, TrieMerkleProof};
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *};
 use crate::clarity_vm::clarity::{ClarityBlockConnection, Error as ClarityError};
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
@@ -45,10 +37,9 @@ use crate::core::{
     StacksEpoch, StacksEpochId, BITCOIN_REGTEST_FIRST_BLOCK_HASH,
     BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT, BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, PEER_VERSION_EPOCH_1_0,
-    POX_REWARD_CYCLE_LENGTH, POX_TESTNET_CYCLE_LENGTH,
+    POX_TESTNET_CYCLE_LENGTH,
 };
 use crate::util_lib::boot::{boot_code_addr, boot_code_id};
-use crate::util_lib::db::{DBConn, FromRow};
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
@@ -1184,7 +1175,7 @@ fn pox_2_delegate_extend_units() {
                     Value::UInt(25),
                     Value::UInt(0),
                 ],
-                |_, _| false,
+                |_, _| None,
                 None,
             )
         })

@@ -29,7 +29,7 @@ jobs:
         id: lock_threads
         uses: stacks-network/actions/lock-threads@main
         with:
-          github-token: ${{ secrets.GH_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           issue-inactive-days: 7
           pr-inactive-days: 7
           discussion-inactive-days: 7

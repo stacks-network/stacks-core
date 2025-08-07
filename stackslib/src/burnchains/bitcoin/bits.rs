@@ -13,18 +13,13 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-use sha2::{Digest, Sha256};
-use stacks_common::address::{public_keys_to_address_hash, AddressHashMode};
 use stacks_common::deps_common::bitcoin::blockdata::opcodes::{All as btc_opcodes, Class};
-use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Instruction, Script};
+use stacks_common::deps_common::bitcoin::blockdata::script::{Instruction, Script};
 use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     TxIn as BtcTxIn, TxOut as BtcTxOut,
 };
-use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::util::hash::{hex_bytes, Hash160};
-use stacks_common::util::log;
+#[cfg(test)]
+use stacks_common::util::hash::hex_bytes;
 
 use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
@@ -32,11 +27,7 @@ use crate::burnchains::bitcoin::{
     BitcoinInputType, BitcoinNetworkType, BitcoinTxInput, BitcoinTxInputRaw,
     BitcoinTxInputStructured, BitcoinTxOutput, Error as btc_error,
 };
-use crate::burnchains::{PublicKey, Txid};
-use crate::chainstate::stacks::{
-    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
+use crate::burnchains::Txid;
 
 /// Parse a script into its structured constituant opcodes and data and collect them
 pub fn parse_script(script: &Script) -> Vec<Instruction<'_>> {
@@ -55,8 +46,8 @@ impl BitcoinTxInputStructured {
             return None;
         }
 
-        let i1 = &instructions[0];
-        let i2 = &instructions[1];
+        let i1 = instructions.get(0)?;
+        let i2 = instructions.get(1)?;
 
         match (i1, i2) {
             (Instruction::PushBytes(_data1), Instruction::PushBytes(data2)) => {
@@ -107,14 +98,11 @@ impl BitcoinTxInputStructured {
         // public keys.
         let mut keys: Vec<BitcoinPublicKey> = Vec::with_capacity(pubkey_pushbytes.len());
 
-        for i in 0..pubkey_pushbytes.len() {
-            let payload = match &pubkey_pushbytes[i] {
-                Instruction::PushBytes(payload) => payload,
-                _ => {
-                    // not pushbytes, so this can't be a multisig script
-                    test_debug!("Not a multisig script: Instruction {i} is not a PushBytes");
-                    return None;
-                }
+        for (i, pk_bytes) in pubkey_pushbytes.iter().enumerate() {
+            let Instruction::PushBytes(payload) = pk_bytes else {
+                // not pushbytes, so this can't be a multisig script
+                debug!("Not a multisig script: Instruction {i} is not a PushBytes");
+                return None;
             };
 
             let pubk = BitcoinPublicKey::from_slice(payload)
@@ -159,8 +147,7 @@ impl BitcoinTxInputStructured {
         // intermediate values are all valid public keys.
         let mut keys: Vec<BitcoinPublicKey> = Vec::with_capacity(pubkey_vecs.len());
 
-        for i in 0..pubkey_vecs.len() {
-            let payload = &pubkey_vecs[i];
+        for (i, payload) in pubkey_vecs.iter().enumerate() {
             let pubk = BitcoinPublicKey::from_slice(&payload[..])
                 .inspect_err(|&e| {
                     // not a public key
@@ -202,9 +189,9 @@ impl BitcoinTxInputStructured {
                 }
 
                 match (
-                    &multisig_instructions[0],
-                    &multisig_instructions[multisig_instructions.len() - 2],
-                    &multisig_instructions[multisig_instructions.len() - 1],
+                    multisig_instructions.get(0)?,
+                    multisig_instructions.get(multisig_instructions.len() - 2)?,
+                    multisig_instructions.get(multisig_instructions.len() - 1)?,
                 ) {
                     (
                         Instruction::Op(op1),
@@ -224,8 +211,8 @@ impl BitcoinTxInputStructured {
                                     return None;
                                 }
 
-                                let pubkey_pushbytes =
-                                    &multisig_instructions[1..multisig_instructions.len() - 2];
+                                let pubkey_pushbytes = &multisig_instructions
+                                    .get(1..multisig_instructions.len() - 2)?;
                                 if pubkey_pushbytes.len() as i32 != num_pubkeys {
                                     test_debug!("Not a multisig script: num_pubkeys = {}, num pushbytes = {}", num_sigs, num_pubkeys);
                                     return None;
@@ -268,31 +255,31 @@ impl BitcoinTxInputStructured {
     ) -> Option<BitcoinTxInputStructured> {
         // format: OP_0 <sig1> <sig2> ... <sig_m> OP_m <pubkey1> <pubkey2> ... <pubkey_n> OP_n OP_CHECKMULTISIG
         // the "OP_m <pubkey1> <pubkey2> ... <pubkey_n> OP_N OP_CHECKMULTISIG" is a single PushBytes
-        if instructions.len() < 3 || instructions[0] != Instruction::PushBytes(&[]) {
+        if instructions.len() < 3 || instructions.first()? != &Instruction::PushBytes(&[]) {
             test_debug!(
                 "Not a multisig script: {} instructions -- the first is {:?}",
                 instructions.len(),
-                instructions[0]
+                instructions.first(),
             );
             return None;
         }
 
         // verify that we got PUSHBYTES(<sig1>) PUSHBYTES(<sig2>) ... PUSHBYTES(<sigm>) PUSHBYTES(redeem script)
-        for i in 1..instructions.len() {
-            match instructions[i] {
+        for (_i, instr) in instructions.iter().skip(1).enumerate() {
+            match instr {
                 Instruction::PushBytes(_script) => {}
                 _ => {
                     test_debug!(
                         "Not a multisig script: instruction {} is not a PushBytes: {:?}",
-                        i,
-                        instructions[i]
+                        _i.saturating_add(1),
+                        instr
                     );
                     return None;
                 }
             }
         }
 
-        let redeem_script = &instructions[instructions.len() - 1];
+        let redeem_script = &instructions.last()?;
         let tx_input = BitcoinTxInputStructured::from_bitcoin_multisig_redeem_script(
             redeem_script,
             false,
@@ -329,7 +316,7 @@ impl BitcoinTxInputStructured {
             return None;
         }
 
-        match &instructions[0] {
+        match &instructions.first()? {
             Instruction::PushBytes(witness_hash) => {
                 // is this a viable witness hash?  00 <len> <hash>
                 if witness_hash.len() != 22 {
@@ -338,18 +325,18 @@ impl BitcoinTxInputStructured {
                     );
                     return None;
                 }
-                if witness_hash[0] != 0 {
+                if *witness_hash.get(0)? != 0 {
                     test_debug!("Not a p2wpkh-over-p2sh script: not a version-0 witness program");
                     return None;
                 }
-                if witness_hash[1] != 20 {
+                if *witness_hash.get(1)? != 20 {
                     test_debug!("Not a p2wpkh-over-p2sh script: not a 20-byte pushdata");
                     return None;
                 }
 
                 BitcoinTxInputStructured::from_bitcoin_witness_pubkey_vecs(
                     1,
-                    &witness[1..],
+                    &witness.get(1..)?,
                     input_txid,
                 )
             }
@@ -379,7 +366,7 @@ impl BitcoinTxInputStructured {
             return None;
         }
 
-        match &instructions[0] {
+        match &instructions.first()? {
             Instruction::PushBytes(witness_hash) => {
                 // is this a viable witness hash?
                 // 00 32 <hash>
@@ -389,18 +376,18 @@ impl BitcoinTxInputStructured {
                     );
                     return None;
                 }
-                if witness_hash[0] != 0 {
+                if *witness_hash.get(0)? != 0 {
                     test_debug!("Not a p2wsh-over-p2sh script: not a version-0 witness program");
                     return None;
                 }
-                if witness_hash[1] != 32 {
+                if *witness_hash.get(1)? != 32 {
                     test_debug!("Not a p2wsh-over-p2sh script: not a 32-byte pushdata");
                     return None;
                 }
 
                 // witness program should be OP_0 <sig1> <sig2> ... <sig_n> MULTISIG_REDEEM_SCRIPT
                 let num_expected_sigs = witness.len() - 2;
-                let redeem_script = &witness[witness.len() - 1];
+                let redeem_script = witness.last()?;
 
                 let tx_input = BitcoinTxInputStructured::from_bitcoin_multisig_redeem_script(
                     &Instruction::PushBytes(&redeem_script[..]),
@@ -558,13 +545,13 @@ impl BitcoinTxOutput {
             BitcoinAddress::from_bytes_legacy(
                 network_id,
                 LegacyBitcoinAddressType::PublicKeyHash,
-                &script_bytes[3..23],
+                &script_bytes.get(3..23)?,
             )
         } else if script_pubkey.is_p2sh() {
             BitcoinAddress::from_bytes_legacy(
                 network_id,
                 LegacyBitcoinAddressType::ScriptHash,
-                &script_bytes[2..22],
+                &script_bytes.get(2..22)?,
             )
         } else {
             Err(btc_error::InvalidByteSequence)
@@ -624,14 +611,12 @@ mod tests {
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize as bitcoinlib_deserialize;
     use stacks_common::util::hash::hex_bytes;
-    use stacks_common::util::log;
 
     use super::{
-        parse_script, to_txid, BitcoinTxInput, BitcoinTxInputRaw, BitcoinTxInputStructured,
-        BitcoinTxOutput,
+        parse_script, to_txid, BitcoinTxInputRaw, BitcoinTxInputStructured, BitcoinTxOutput,
     };
     use crate::burnchains::bitcoin::address::{
-        BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
+        BitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
     };
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::bitcoin::{BitcoinInputType, BitcoinNetworkType};

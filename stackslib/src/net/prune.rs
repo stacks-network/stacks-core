@@ -15,24 +15,20 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::net::{Shutdown, SocketAddr};
+use std::collections::{HashMap, HashSet};
 
 use rand::prelude::*;
 use rand::thread_rng;
 use stacks_common::types::net::PeerAddress;
-use stacks_common::util::{get_epoch_time_secs, log};
+use stacks_common::util::get_epoch_time_secs;
 
 use crate::net::chat::NeighborStats;
-use crate::net::connection::ConnectionOptions;
-use crate::net::db::{LocalPeer, PeerDB};
-use crate::net::neighbors::*;
+use crate::net::db::PeerDB;
 use crate::net::p2p::*;
-use crate::net::poll::{NetworkPollState, NetworkState};
 /// This module contains the logic for pruning client and neighbor connections
 use crate::net::*;
 use crate::net::{DropReason, Error as net_error};
-use crate::util_lib::db::{DBConn, Error as db_error};
+use crate::util_lib::db::DBConn;
 
 impl PeerNetwork {
     /// Find out which organizations have which of our outbound neighbors.
@@ -220,10 +216,12 @@ impl PeerNetwork {
                             neighbor_infos.len(),
                             self.connection_opts.soft_max_neighbors_per_org
                         );
-                        for i in 0..((neighbor_infos.len() as u64)
-                            - self.connection_opts.soft_max_neighbors_per_org)
-                        {
-                            let (neighbor_key, _) = neighbor_infos[i as usize].clone();
+                        let prune_count = neighbor_infos.len().saturating_sub(
+                            self.connection_opts.soft_max_neighbors_per_org as usize,
+                        );
+                        let mut removed_count = 0;
+                        for neighbor_info in neighbor_infos.iter().take(prune_count) {
+                            let (neighbor_key, _) = neighbor_info.clone();
 
                             debug!(
                                 "{:?}: Prune {:?} because its org ({}) dominates our peer table",
@@ -231,6 +229,7 @@ impl PeerNetwork {
                             );
 
                             ret.push((neighbor_key, DropReason::OrgDominatesPeerTable));
+                            removed_count += 1;
 
                             // don't prune too many
                             if num_outbound - (ret.len() as u64)
@@ -239,7 +238,7 @@ impl PeerNetwork {
                                 break;
                             }
                         }
-                        for _ in 0..ret.len() {
+                        for _ in 0..removed_count {
                             neighbor_infos.remove(0);
                         }
                     }
@@ -283,7 +282,9 @@ impl PeerNetwork {
                     unreachable!();
                 }
                 Some(ref mut neighbor_info) => {
-                    let (neighbor_key, _) = neighbor_info[0].clone();
+                    let Some((neighbor_key, _)) = neighbor_info.first().cloned() else {
+                        continue;
+                    };
 
                     debug!(
                         "Prune {:?} because its org ({}) has too many members",
@@ -350,10 +351,11 @@ impl PeerNetwork {
         for (addrbytes, neighbor_info) in ip_neighbor.iter_mut() {
             if (neighbor_info.len() as u64) > self.connection_opts.soft_max_clients_per_host {
                 debug!("{:?}: Starting to have too many inbound connections from {:?}; will close the last {:?}", &self.local_peer, &addrbytes, (neighbor_info.len() as u64) - self.connection_opts.soft_max_clients_per_host);
-                for i in
-                    (self.connection_opts.soft_max_clients_per_host as usize)..neighbor_info.len()
+                for remove_peer in neighbor_info
+                    .iter()
+                    .skip(self.connection_opts.soft_max_clients_per_host as usize)
                 {
-                    to_remove.push(neighbor_info[i].1.clone());
+                    to_remove.push(remove_peer.1.clone());
                 }
             }
         }

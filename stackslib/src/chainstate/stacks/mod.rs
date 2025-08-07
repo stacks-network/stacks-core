@@ -14,9 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::prelude::*;
-use std::io::{Read, Write};
-use std::ops::{Deref, DerefMut};
+use std::hash::Hash;
 use std::{error, fmt, io};
 
 use clarity::vm::contexts::GlobalContext;
@@ -27,37 +25,27 @@ use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
 use clarity::vm::ClarityVersion;
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use rusqlite::Error as RusqliteError;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sha2::{Digest, Sha512_256};
 use stacks_common::address::AddressHashMode;
-use stacks_common::codec::{
-    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
-};
+use stacks_common::codec::Error as codec_error;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksWorkScore, TrieHash,
-    TRIEHASH_ENCODED_SIZE,
 };
-use stacks_common::util::hash::{
-    hex_bytes, to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE,
-};
-use stacks_common::util::secp256k1;
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::Txid;
-use crate::chainstate::burn::operations::LeaderBlockCommitOp;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::accounts::MinerReward;
-use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
 use crate::chainstate::stacks::index::Error as marf_error;
 use crate::clarity_vm::clarity::Error as clarity_error;
 use crate::net::Error as net_error;
-use crate::util_lib::db::{DBConn, Error as db_error};
+use crate::util_lib::db::Error as db_error;
 use crate::util_lib::strings::StacksString;
 
 pub mod address;
@@ -1097,19 +1085,13 @@ pub mod test {
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::ClarityVersion;
     use stacks_common::bitvec::BitVec;
+    use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::*;
-    use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-    use stacks_common::util::{get_epoch_time_secs, log};
 
     use super::*;
-    use crate::chainstate::burn::BlockSnapshot;
-    use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
     use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
-    use crate::chainstate::stacks::{StacksPublicKey as PubKey, *};
+    use crate::chainstate::stacks::StacksPublicKey as PubKey;
     use crate::core::*;
-    use crate::net::codec::test::check_codec_and_corruption;
-    use crate::net::codec::*;
-    use crate::net::*;
 
     /// Make a representative of each kind of transaction we support
     pub fn codec_all_transactions(

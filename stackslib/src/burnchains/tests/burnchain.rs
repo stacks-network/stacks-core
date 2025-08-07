@@ -15,27 +15,20 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use rand::rngs::ThreadRng;
-use rand::thread_rng;
-use rand_chacha::ChaChaRng;
-use rand_core::SeedableRng;
-use serde::Serialize;
-use sha2::Sha512;
+use rand::{thread_rng, RngCore as _};
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, TrieHash, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, TrieHash, VRFSeed,
 };
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::uint::{BitArray, Uint256, Uint512};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey};
-use stacks_common::util::{get_epoch_time_secs, log};
 
-use crate::burnchains::bitcoin::address::*;
 use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
 use crate::burnchains::bitcoin::*;
 use crate::burnchains::{Txid, *};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
-use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use crate::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
@@ -43,9 +36,7 @@ use crate::chainstate::burn::operations::{
 use crate::chainstate::burn::{
     BlockSnapshot, ConsensusHash, ConsensusHashExtensions, OpsHash, SortitionHash,
 };
-use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::StacksPublicKey;
-use crate::util_lib::db::Error as db_error;
 
 #[test]
 fn test_process_block_ops() {
@@ -699,7 +690,9 @@ fn test_burn_snapshot_sequence() {
 
     for i in 0..32 {
         let mut csprng: ThreadRng = thread_rng();
-        let vrf_privkey = VRFPrivateKey(ed25519_dalek::SigningKey::generate(&mut csprng));
+        let mut sk_bytes = [0u8; 32];
+        csprng.fill_bytes(&mut sk_bytes);
+        let vrf_privkey = VRFPrivateKey(ed25519_dalek::SigningKey::from_bytes(&sk_bytes));
         let vrf_pubkey = VRFPublicKey::from_private(&vrf_privkey);
 
         let pubkey_hex = vrf_pubkey.to_hex();

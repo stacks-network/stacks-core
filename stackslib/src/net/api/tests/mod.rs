@@ -15,7 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
@@ -23,12 +24,13 @@ use libstackerdb::SlotMetadata;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
     StacksPrivateKey, StacksPublicKey,
 };
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::pipe::Pipe;
+use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex};
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::Txid;
@@ -42,7 +44,6 @@ use crate::chainstate::stacks::{
     TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionVersion,
 };
 use crate::core::MemPoolDB;
-use crate::net::api::{prefix_hex, prefix_opt_hex};
 use crate::net::db::PeerDB;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::relay::Relayer;
@@ -51,11 +52,12 @@ use crate::net::test::{RPCHandlerArgsType, TestEventObserver, TestPeer, TestPeer
 use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs_ext;
 use crate::net::tests::NakamotoBootPlan;
 use crate::net::{
-    Attachment, AttachmentInstance, MemPoolEventDispatcher, RPCHandlerArgs, StackerDBConfig,
-    StacksNodeState, UrlString,
+    Attachment, AttachmentInstance, MemPoolEventDispatcher, StackerDBConfig, StacksNodeState,
+    UrlString,
 };
 
 mod callreadonly;
+mod fastcallreadonly;
 mod get_tenures_fork_info;
 mod getaccount;
 mod getattachment;
@@ -70,6 +72,7 @@ mod getcontractabi;
 mod getcontractsrc;
 mod getdatavar;
 mod getheaders;
+mod gethealth;
 mod getinfo;
 mod getistraitimplemented;
 mod getmapentry;
@@ -251,6 +254,28 @@ impl<'a> TestRPC<'a> {
         rpc_handler_args_opt_1: Option<RPCHandlerArgsType>,
         rpc_handler_args_opt_2: Option<RPCHandlerArgsType>,
     ) -> TestRPC<'a> {
+        Self::setup_ex_with_config(
+            test_name,
+            process_microblock,
+            rpc_handler_args_opt_1,
+            rpc_handler_args_opt_2,
+            |_| {},
+            |_| {},
+        )
+    }
+
+    pub fn setup_ex_with_config<F0, F1>(
+        test_name: &str,
+        process_microblock: bool,
+        rpc_handler_args_opt_1: Option<RPCHandlerArgsType>,
+        rpc_handler_args_opt_2: Option<RPCHandlerArgsType>,
+        with_peer_1_config: F0,
+        with_peer_2_config: F1,
+    ) -> TestRPC<'a>
+    where
+        F0: Fn(&mut TestPeerConfig),
+        F1: Fn(&mut TestPeerConfig),
+    {
         // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
         let privk1 = StacksPrivateKey::from_hex(
             "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
@@ -334,6 +359,9 @@ impl<'a> TestRPC<'a> {
         peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
 
         let burnchain = peer_1_config.burnchain.clone();
+
+        with_peer_1_config(&mut peer_1_config);
+        with_peer_2_config(&mut peer_2_config);
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
@@ -1060,16 +1088,20 @@ impl<'a> TestRPC<'a> {
     }
 
     pub fn run(self, requests: Vec<StacksHttpRequest>) -> Vec<StacksHttpResponse> {
-        self.run_with_observer(requests, None)
+        self.run_with_observer(requests, None, |_, _| true)
     }
 
     /// Run zero or more HTTP requests on this setup RPC test harness.
     /// Return the list of responses.
-    pub fn run_with_observer(
+    pub fn run_with_observer<F>(
         self,
         requests: Vec<StacksHttpRequest>,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-    ) -> Vec<StacksHttpResponse> {
+        wait_for: F,
+    ) -> Vec<StacksHttpResponse>
+    where
+        F: Fn(&mut TestPeer, &mut TestPeer) -> bool,
+    {
         let mut peer_1 = self.peer_1;
         let mut peer_2 = self.peer_2;
         let peer_1_indexer = self.peer_1_indexer;
@@ -1079,7 +1111,14 @@ impl<'a> TestRPC<'a> {
         let unconfirmed_state = self.unconfirmed_state;
 
         let mut responses = vec![];
-        for request in requests.into_iter() {
+        for (ix, request) in requests.into_iter().enumerate() {
+            let start = Instant::now();
+            while !wait_for(&mut peer_1, &mut peer_2) {
+                if start.elapsed() > Duration::from_secs(120) {
+                    panic!("Timed out waiting for wait_for check to pass");
+                }
+                thread::sleep(Duration::from_secs(1));
+            }
             peer_1.refresh_burnchain_view();
             peer_2.refresh_burnchain_view();
 
@@ -1267,6 +1306,21 @@ impl<'a> TestRPC<'a> {
 /// and will return the `StacksHttpResponse` generated by the second peer.
 pub fn test_rpc(test_name: &str, requests: Vec<StacksHttpRequest>) -> Vec<StacksHttpResponse> {
     let test = TestRPC::setup(test_name);
+    test.run(requests)
+}
+
+pub fn test_rpc_with_config<F0, F1>(
+    test_name: &str,
+    requests: Vec<StacksHttpRequest>,
+    peer_1_config: F0,
+    peer_2_config: F1,
+) -> Vec<StacksHttpResponse>
+where
+    F0: Fn(&mut TestPeerConfig),
+    F1: Fn(&mut TestPeerConfig),
+{
+    let test =
+        TestRPC::setup_ex_with_config(test_name, true, None, None, peer_1_config, peer_2_config);
     test.run(requests)
 }
 

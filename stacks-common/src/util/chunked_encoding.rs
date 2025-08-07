@@ -126,7 +126,7 @@ impl HttpChunkedTransferReaderState {
         if nr == 0 {
             return Ok(nr);
         }
-        trace!("Got {} bytes", nr);
+        trace!("Got {nr} bytes");
 
         self.chunk_buffer[self.i] = b[0];
         self.i += 1;
@@ -156,7 +156,7 @@ impl HttpChunkedTransferReaderState {
             }
         };
 
-        trace!("chunk offset: {}. chunk len: {}", offset, chunk_len);
+        trace!("chunk offset: {offset}. chunk len: {chunk_len}");
         if chunk_len > MAX_MESSAGE_LEN as u64 {
             trace!("chunk buffer: {:?}", &self.chunk_buffer[0..self.i]);
             return Err(io::Error::new(
@@ -186,12 +186,9 @@ impl HttpChunkedTransferReaderState {
         assert_eq!(self.parse_step, HttpChunkedTransferParseMode::Chunk);
 
         if self.total_size >= self.max_size && self.chunk_size > 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                ChunkedError::OverflowError(
-                    "HTTP body exceeds maximum expected length".to_string(),
-                ),
-            ));
+            return Err(io::Error::other(ChunkedError::OverflowError(
+                "HTTP body exceeds maximum expected length".to_string(),
+            )));
         }
 
         let remaining = if self.chunk_size - self.chunk_read <= (self.max_size - self.total_size) {
@@ -206,11 +203,11 @@ impl HttpChunkedTransferReaderState {
             fd.read(buf)? as u64
         } else {
             // will read up to a chunk boundary
-            trace!("Read {} bytes (fill remainder)", remaining);
+            trace!("Read {remaining} bytes (fill remainder)");
             fd.read(&mut buf[0..(remaining as usize)])? as u64
         };
 
-        trace!("Got {} bytes", nr);
+        trace!("Got {nr} bytes");
 
         self.chunk_read += nr;
 
@@ -267,7 +264,7 @@ impl HttpChunkedTransferReaderState {
             self.parse_step = HttpChunkedTransferParseMode::ChunkBoundary;
         }
 
-        trace!("Consumed {} bytes of chunk boundary (i = {})", nr, self.i);
+        trace!("Consumed {nr} bytes of chunk boundary (i = {})", self.i);
         Ok(nr)
     }
 
@@ -364,7 +361,7 @@ impl<'a, 'state, W: Write> HttpChunkedTransferWriter<'a, 'state, W> {
             bytes.len()
         };
 
-        fd.write_all(format!("{:x}\r\n", to_send).as_bytes())?;
+        fd.write_all(format!("{to_send:x}\r\n").as_bytes())?;
         fd.write_all(&bytes[0..to_send])?;
         fd.write_all("\r\n".as_bytes())?;
         Ok(to_send)
@@ -450,7 +447,7 @@ mod test {
     use std::io;
     use std::io::Read;
 
-    use rand::RngCore;
+    use rand::RngCore as _;
 
     use super::*;
 
@@ -676,7 +673,7 @@ mod test {
             ),
         ];
         for (encoded_vec, expected) in tests.iter() {
-            test_debug!("expect {:?}", &expected);
+            test_debug!("expect {expected:?}");
 
             let mut output = vec![];
             let mut cursor = SegmentReader::new((*encoded_vec).clone());
@@ -718,19 +715,17 @@ mod test {
             ),
         ];
         for (encoded, expected_len, expected) in tests.iter() {
-            test_debug!("expect '{}'", expected);
+            test_debug!("expect '{expected}'");
             let mut cursor = io::Cursor::new(encoded.as_bytes());
             let mut decoder = HttpChunkedTransferReader::from_reader(&mut cursor, 20);
             let mut output = vec![0u8; *expected_len as usize];
 
             let err = decoder.read_exact(&mut output).unwrap_err();
-            let errstr = format!("{:?}", &err);
+            let errstr = format!("{err:?}");
 
             assert!(
                 errstr.contains(expected),
-                "Expected '{}' in '{:?}'",
-                expected,
-                errstr
+                "Expected '{expected}' in '{errstr:?}'"
             );
         }
     }

@@ -27,6 +27,7 @@ pub mod pair;
 pub mod pipe;
 pub mod retry;
 pub mod secp256k1;
+pub mod serde_serializers;
 pub mod uint;
 #[cfg(feature = "vrf")]
 pub mod vrf;
@@ -34,8 +35,8 @@ pub mod vrf;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::{error, fmt, thread, time};
+use std::time::{self, SystemTime, UNIX_EPOCH};
+use std::{error, fmt, thread};
 
 /// Given a relative path inside the Cargo workspace, return the absolute path
 #[cfg(any(test, feature = "testing"))]
@@ -77,6 +78,15 @@ pub fn get_epoch_time_ms() -> u128 {
     since_the_epoch.as_millis()
 }
 
+#[cfg(any(test, feature = "testing"))]
+pub fn get_epoch_time_nanos() -> u128 {
+    let start = SystemTime::now();
+    let since_the_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards");
+    since_the_epoch.as_nanos()
+}
+
 pub fn sleep_ms(millis: u64) {
     let t = time::Duration::from_millis(millis);
     thread::sleep(t);
@@ -94,8 +104,8 @@ pub enum HexError {
 impl fmt::Display for HexError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            HexError::BadLength(n) => write!(f, "bad length {} for hex string", n),
-            HexError::BadCharacter(c) => write!(f, "bad character {} for hex string", c),
+            HexError::BadLength(n) => write!(f, "bad length {n} for hex string"),
+            HexError::BadCharacter(c) => write!(f, "bad character {c} for hex string"),
         }
     }
 }
@@ -110,6 +120,10 @@ impl error::Error for HexError {
             HexError::BadCharacter(_) => "bad hex character",
         }
     }
+}
+
+pub trait HexDeser: Sized {
+    fn try_from_hex(hex: &str) -> Result<Self, HexError>;
 }
 
 /// Write any `serde_json` object directly to a file
@@ -134,3 +148,5 @@ where
     let reader = BufReader::new(file);
     serde_json::from_reader::<_, J>(reader).map_err(std::io::Error::from)
 }
+#[cfg(all(feature = "rusqlite", target_family = "wasm"))]
+compile_error!("The `rusqlite` feature is not supported for wasm targets");

@@ -14,15 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{error, fmt};
-
 use clarity::vm::types::PrincipalData;
-use rusqlite::{Connection, Error as sqlite_error, Row};
-use serde_json::Error as serde_error;
+use rusqlite::{Connection, Row};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, TrieHash, VRFSeed,
 };
-use stacks_common::util::hash::{hex_bytes, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::*;
 
@@ -30,8 +27,6 @@ use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::{Address, Txid};
 use crate::chainstate::burn::{ConsensusHash, OpsHash, SortitionHash};
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::StacksPublicKey;
-use crate::util_lib::db;
 use crate::util_lib::db::{Error as db_error, FromColumn};
 
 pub mod processing;

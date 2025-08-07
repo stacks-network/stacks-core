@@ -14,23 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-
 use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::contexts::{
-    AssetMap, AssetMapEntry, Environment, GlobalContext, OwnedEnvironment,
-};
-use clarity::vm::contracts::Contract;
+use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{
-    compute_cost, parse_cost, ClarityCostFunctionEvaluator, ClarityCostFunctionReference,
-    CostErrors, DefaultVersion, ExecutionCost, LimitedCostTracker, COSTS_1_NAME, COSTS_2_NAME,
-    COSTS_3_NAME,
+    compute_cost, ClarityCostFunctionEvaluator, ClarityCostFunctionReference, CostErrors,
+    DefaultVersion, ExecutionCost, LimitedCostTracker, COSTS_1_NAME, COSTS_2_NAME, COSTS_3_NAME,
 };
-use clarity::vm::database::{ClarityDatabase, MemoryBackingStore};
-use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use clarity::vm::errors::Error;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::representations::SymbolicExpression;
@@ -39,16 +32,12 @@ use clarity::vm::test_util::{
     TEST_HEADER_DB,
 };
 use clarity::vm::tests::test_only_mainnet_to_chain_id;
-use clarity::vm::types::{
-    AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
-};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use clarity::vm::{ClarityVersion, ContractName};
 use lazy_static::lazy_static;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::hex_bytes;
 
-use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::ClarityInstance;
 use crate::clarity_vm::database::marf::MarfedKV;
@@ -1249,7 +1238,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
                     &analysis,
                     contract_src,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();
@@ -1535,7 +1524,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
                     &analysis,
                     contract_src,
                     None,
-                    |_, _| false,
+                    |_, _| None,
                     None,
                 )
                 .unwrap();

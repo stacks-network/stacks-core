@@ -1,0 +1,81 @@
+[package]
+name = "stacks-node"
+version = "0.1.0"
+authors = ["Jude Nelson <jude@stacks.org>", "Aaron Blankstein <aaron@blockstack.com>", "Ludo Galabru <ludovic@blockstack.com>"]
+edition = "2021"
+resolver = "2"
+rust-version = "1.61"
+
+[dependencies]
+lazy_static = "1.4.0"
+pico-args = "0.5.0"
+serde = "1"
+serde_derive = "1"
+serde_json = { version = "1.0", features = ["arbitrary_precision", "raw_value"] }
+stacks = { package = "stackslib", path = "../stackslib" }
+stx-genesis = { path = "../stx-genesis"}
+base64 = "0.12.0"
+backtrace = "0.3.50"
+libc = "0.2.151"
+slog = { version = "2.5.2", features = [ "max_level_trace" ] }
+clarity = { path = "../clarity" }
+stacks-common = { path = "../stacks-common" }
+chrono = "0.4.19"
+regex = "1"
+libsigner = { path = "../libsigner" }
+url = "2.1.0"
+rand = { workspace = true }
+hashbrown = { workspace = true }
+rusqlite = { workspace = true }
+async-h1 = { version = "2.3.2", optional = true }
+async-std = { version = "1.6", optional = true, features = ["attributes"] }
+http-types = { version = "2.12", default-features = false, optional = true }
+thiserror = { workspace = true }
+
+# This dependency is used for the multiversion integration tests which live behind the build-v3-1-0-0-13 feature flag
+signer_v3_1_0_0_13 = { package = "stacks-signer", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
+libsigner_v3_1_0_0_13 = { package = "libsigner", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true}
+stacks_v3_1_00_13 = { package = "stackslib", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
+stacks_common_v3_1_00_13 = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
+[target.'cfg(not(any(target_os = "macos", target_os="windows", target_arch = "arm")))'.dependencies]
+tikv-jemallocator = {workspace = true}
+
+[dev-dependencies]
+warp = "0.3.5"
+tokio = "1.15"
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls", "rustls-tls"] }
+clarity = { path = "../clarity", features = ["default", "testing"]}
+stacks-common = { path = "../stacks-common", features = ["default", "testing"] }
+stacks = { package = "stackslib", path = "../stackslib", features = ["default", "testing"] }
+stacks-signer = { path = "../stacks-signer", features = ["testing"] }
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+mutants = "0.0.3"
+tiny_http = "0.12.0"
+http-types =  { version = "2.12", default-features = false }
+tempfile = "3.3"
+mockito = "1.5"
+serial_test = "3.2.0"
+pinny = { git = "https://github.com/BitcoinL2-Labs/pinny-rs.git", rev = "54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49" } #v0.0.2
+madhouse = { git = "https://github.com/stacks-network/madhouse-rs.git", tag = "0.2.0" }
+proptest = "1.6.*"
+stdext = "0.3.1"
+
+[[bin]]
+name = "stacks-node"
+path = "src/main.rs"
+
+[[bin]]
+name = "stacks-events"
+path = "src/stacks_events.rs"
+
+[features]
+monitoring_prom = ["stacks/monitoring_prom", "async-h1", "async-std", "http-types"]
+slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
+prod-genesis-chainstate = []
+default = []
+testing = ["stacks-common/testing", "stacks/testing", "clarity/testing"]
+build-signer-v3-1-0-0-13 = ["signer_v3_1_0_0_13", "libsigner_v3_1_0_0_13", "stacks_v3_1_00_13", "stacks_common_v3_1_00_13"]
+
+[package.metadata.pinny]
+allowed = ["bitcoind", "flaky", "slow"]

@@ -23,8 +23,6 @@ use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, TrieHash,
 };
 use stacks_common::types::net::PeerAddress;
-use stacks_common::types::StacksEpochId;
-use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFProof;
@@ -36,7 +34,6 @@ use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConnRef,
 };
-use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksTransaction, TenureChangeCause,
     TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,

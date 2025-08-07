@@ -19,23 +19,15 @@ use std::marker::PhantomData;
 use std::{error, fmt, io};
 
 use rusqlite::Error as sqlite_error;
-use stacks_common::address::AddressHashMode;
-use stacks_common::types::chainstate::{
-    BurnchainHeaderHash, ConsensusHash, PoxId, StacksAddress, TrieHash,
-};
+use stacks_common::types::chainstate::{BurnchainHeaderHash, ConsensusHash, PoxId};
 pub use stacks_common::types::{Address, PrivateKey, PublicKey};
-use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::MessageSignature;
 
 use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
     BITCOIN_REGTEST as BITCOIN_NETWORK_ID_REGTEST, BITCOIN_REGTEST_NAME,
     BITCOIN_TESTNET as BITCOIN_NETWORK_ID_TESTNET, BITCOIN_TESTNET_NAME,
 };
-use self::bitcoin::{
-    BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
-    Error as btc_error,
-};
+use self::bitcoin::{BitcoinBlock, BitcoinTransaction, Error as btc_error};
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::{
     MissedBlockCommit, OUTPUTS_PER_COMMIT,
@@ -45,8 +37,8 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
-use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::*;
+#[cfg(test)]
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::util_lib::db::Error as db_error;
 
@@ -750,6 +742,8 @@ pub enum Error {
     ShutdownInitiated,
     /// No epoch defined at that height
     NoStacksEpoch,
+    /// Node error processing the operation
+    ProcessorError,
 }
 
 impl fmt::Display for Error {
@@ -779,6 +773,7 @@ impl fmt::Display for Error {
                 f,
                 "No Stacks epoch is defined at the height being evaluated"
             ),
+            Error::ProcessorError => write!(f, "Failure processing burn state"),
         }
     }
 }
@@ -803,6 +798,7 @@ impl error::Error for Error {
             Error::CoordinatorClosed => None,
             Error::ShutdownInitiated => None,
             Error::NoStacksEpoch => None,
+            Error::ProcessorError => None,
         }
     }
 }

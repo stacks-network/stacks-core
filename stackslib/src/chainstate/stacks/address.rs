@@ -14,21 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp::Ordering;
-use std::io::prelude::*;
-use std::io::{Read, Write};
-use std::{fmt, io};
-
-use clarity::vm::types::{PrincipalData, SequenceData, StandardPrincipalData, TupleData, Value};
+use clarity::vm::types::{SequenceData, TupleData, Value};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use stacks_common::address::c32::{c32_address, c32_address_decode};
-use stacks_common::address::{b58, public_keys_to_address_hash, AddressHashMode};
-use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::deps_common::bitcoin::blockdata::opcodes::All as BtcOp;
-use stacks_common::deps_common::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
+use stacks_common::address::{b58, AddressHashMode};
 use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut;
-use stacks_common::types::chainstate::{StacksAddress, STACKS_ADDRESS_ENCODED_SIZE};
-use stacks_common::util::hash::{to_hex, Hash160, HASH160_ENCODED_SIZE};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::hash::{to_hex, Hash160};
 
 use crate::burnchains::bitcoin::address::{
     legacy_address_type_to_version_byte, legacy_version_byte_to_address_type, to_b58_version_byte,
@@ -36,12 +27,7 @@ use crate::burnchains::bitcoin::address::{
     SegwitBitcoinAddress,
 };
 use crate::burnchains::bitcoin::BitcoinTxOutput;
-use crate::burnchains::{Address, PublicKey};
-use crate::chainstate::stacks::{
-    StacksPublicKey, C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
-use crate::net::Error as net_error;
+use crate::burnchains::Address;
 use crate::util_lib::boot::boot_code_addr;
 
 pub trait StacksAddressExtensions {
@@ -160,9 +146,8 @@ impl PoxAddress {
             return None;
         }
 
-        let mut hashbytes_20 = [0u8; 20];
-        hashbytes_20.copy_from_slice(&hashbytes[0..20]);
-        let bytes = Hash160(hashbytes_20);
+        let hashbytes_20: &[u8; 20] = hashbytes.try_into().ok()?;
+        let bytes = Hash160(*hashbytes_20);
 
         let version = if mainnet {
             hashmode.to_version_mainnet()
@@ -190,10 +175,9 @@ impl PoxAddress {
             return None;
         }
 
-        let mut hashbytes_20 = [0u8; 20];
-        hashbytes_20.copy_from_slice(&hashbytes[0..20]);
+        let hashbytes_20: &[u8; 20] = hashbytes.try_into().ok()?;
 
-        Some(PoxAddress::Addr20(mainnet, addrtype, hashbytes_20))
+        Some(PoxAddress::Addr20(mainnet, addrtype, *hashbytes_20))
     }
 
     /// Try to convert a Clarity value representation of the PoX address into a
@@ -210,10 +194,9 @@ impl PoxAddress {
             return None;
         }
 
-        let mut hashbytes_32 = [0u8; 32];
-        hashbytes_32.copy_from_slice(&hashbytes[0..32]);
+        let hashbytes_32: &[u8; 32] = hashbytes.get(0..32)?.try_into().ok()?;
 
-        Some(PoxAddress::Addr32(mainnet, addrtype, hashbytes_32))
+        Some(PoxAddress::Addr32(mainnet, addrtype, *hashbytes_32))
     }
 
     /// Try to convert a Clarity value representation of the PoX address into a PoxAddress.
@@ -231,7 +214,7 @@ impl PoxAddress {
         let hashmode_u8 = match hashmode_value {
             Value::Sequence(SequenceData::Buffer(data)) => {
                 if data.data.len() == 1 {
-                    data.data[0]
+                    *data.data.first()?
                 } else {
                     return None;
                 }
@@ -464,35 +447,15 @@ impl PoxAddress {
                 let pox_addr = PoxAddress::Standard(addr, None);
                 Some(pox_addr)
             }
-            BitcoinAddress::Segwit(ref segwit_addr) => {
-                if segwit_addr.is_p2wpkh() {
-                    let mut bytes20 = [0u8; 20];
-                    bytes20.copy_from_slice(&segwit_addr.bytes_ref()[0..20]);
-                    Some(PoxAddress::Addr20(
-                        segwit_addr.is_mainnet(),
-                        PoxAddressType20::P2WPKH,
-                        bytes20,
-                    ))
-                } else if segwit_addr.is_p2wsh() {
-                    let mut bytes32 = [0u8; 32];
-                    bytes32.copy_from_slice(&segwit_addr.bytes_ref()[0..32]);
-                    Some(PoxAddress::Addr32(
-                        segwit_addr.is_mainnet(),
-                        PoxAddressType32::P2WSH,
-                        bytes32,
-                    ))
-                } else if segwit_addr.is_p2tr() {
-                    let mut bytes32 = [0u8; 32];
-                    bytes32.copy_from_slice(&segwit_addr.bytes_ref()[0..32]);
-                    Some(PoxAddress::Addr32(
-                        segwit_addr.is_mainnet(),
-                        PoxAddressType32::P2TR,
-                        bytes32,
-                    ))
-                } else {
-                    None
-                }
-            }
+            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WPKH(is_mainnet, bytes_20)) => Some(
+                PoxAddress::Addr20(*is_mainnet, PoxAddressType20::P2WPKH, *bytes_20),
+            ),
+            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WSH(is_mainnet, bytes_32)) => Some(
+                PoxAddress::Addr32(*is_mainnet, PoxAddressType32::P2WSH, *bytes_32),
+            ),
+            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(is_mainnet, bytes_32)) => Some(
+                PoxAddress::Addr32(*is_mainnet, PoxAddressType32::P2TR, *bytes_32),
+            ),
         }
     }
 
@@ -546,8 +509,6 @@ mod test {
     use crate::burnchains::bitcoin::BitcoinNetworkType;
     use crate::chainstate::stacks::*;
     use crate::net::codec::test::check_codec_and_corruption;
-    use crate::net::codec::*;
-    use crate::net::*;
 
     #[test]
     fn tx_stacks_address_codec() {

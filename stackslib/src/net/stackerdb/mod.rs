@@ -110,7 +110,6 @@
 /// is ephemeral -- its longevity in the system depends on application endpoints re-replicating the
 /// state periodically (whereas Gaia stores data for as long as the back-end storage provider's SLA
 /// indicates).
-
 #[cfg(test)]
 pub mod tests;
 
@@ -122,12 +121,8 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
-use stacks_common::consts::SIGNER_SLOTS_PER_USER;
+use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
 use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoChainState;
@@ -137,9 +132,8 @@ use crate::net::connection::ConnectionOptions;
 use crate::net::neighbors::NeighborComms;
 use crate::net::p2p::PeerNetwork;
 use crate::net::{
-    Error as net_error, NackData, NackErrorCodes, Neighbor, NeighborAddress, NeighborKey, Preamble,
-    StackerDBChunkData, StackerDBChunkInvData, StackerDBGetChunkData, StackerDBPushChunkData,
-    StacksMessage, StacksMessageType,
+    Error as net_error, NackData, NackErrorCodes, NeighborAddress, Preamble, StackerDBChunkData,
+    StackerDBChunkInvData, StackerDBGetChunkData, StackerDBPushChunkData, StacksMessageType,
 };
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
@@ -584,7 +578,7 @@ impl PeerNetwork {
         expected_versions: &[u32],
     ) -> Result<bool, net_error> {
         // validate -- must be a valid chunk
-        if data.slot_id >= (expected_versions.len() as u32) {
+        let Some(expected_version) = expected_versions.get(data.slot_id as usize) else {
             info!(
                 "Received StackerDBChunk for {} ID {}, which is too big ({})",
                 smart_contract_id,
@@ -592,7 +586,7 @@ impl PeerNetwork {
                 expected_versions.len()
             );
             return Ok(false);
-        }
+        };
 
         // validate -- must be signed by the expected author
         let addr = match self
@@ -615,11 +609,10 @@ impl PeerNetwork {
         }
 
         // validate -- must be the current or newer version
-        let slot_idx = data.slot_id as usize;
-        if data.slot_version < expected_versions[slot_idx] {
+        if data.slot_version < *expected_version {
             info!(
                 "Received StackerDBChunk for {} ID {} version {}, which is stale (expected {})",
-                smart_contract_id, data.slot_id, data.slot_version, expected_versions[slot_idx]
+                smart_contract_id, data.slot_id, data.slot_version, *expected_version
             );
             return Ok(false);
         }
@@ -711,8 +704,19 @@ impl PeerNetwork {
                 }
 
                 // patch inventory -- we'll accept this chunk
-                data.slot_versions[chunk_data.chunk_data.slot_id as usize] =
-                    chunk_data.chunk_data.slot_version;
+                let Some(slot_version) = data
+                    .slot_versions
+                    .get_mut(chunk_data.chunk_data.slot_id as usize)
+                else {
+                    error!(
+                        "Chunk not accepted with slot_id {}, which is greater than our slot_versions array {} in {}",
+                        chunk_data.chunk_data.slot_id,
+                        data.slot_versions.len(),
+                        chunk_data.contract_id
+                    );
+                    return Ok((false, false));
+                };
+                *slot_version = chunk_data.chunk_data.slot_version;
 
                 // wake up the state machine -- force it to begin a new sync if it's asleep
                 if let Some(stackerdb_syncs) = self.stacker_db_syncs.as_mut() {

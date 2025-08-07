@@ -38,7 +38,6 @@ use rusqlite::params;
 ///
 /// This module contains shadow block-specific logic for the Nakamoto block header, Nakamoto block,
 /// Nakamoto chainstate, and Nakamoto miner structures.
-use rusqlite::Connection;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
@@ -50,9 +49,8 @@ use crate::burnchains::PoxConstants;
 use crate::chainstate::nakamoto::miner::{MinerTenureInfo, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::{
     BlockSnapshot, ChainstateError, LeaderBlockCommitOp, NakamotoBlock, NakamotoBlockHeader,
-    NakamotoBlockObtainMethod, NakamotoChainState, NakamotoStagingBlocksConn,
-    NakamotoStagingBlocksConnRef, NakamotoStagingBlocksTx, SetupBlockResult, SortitionDB,
-    SortitionHandleConn, StacksDBIndexed,
+    NakamotoBlockObtainMethod, NakamotoChainState, NakamotoStagingBlocksConnRef,
+    NakamotoStagingBlocksTx, SetupBlockResult, SortitionDB, SortitionHandleConn, StacksDBIndexed,
 };
 use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
@@ -526,6 +524,7 @@ impl NakamotoBlockBuilder {
 
         let mut miner_tenure_info =
             builder.shadow_load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?;
+        let burn_chain_height = miner_tenure_info.burn_tip_height;
         let mut tenure_tx = builder.shadow_tenure_begin(
             burn_dbconn,
             &mut miner_tenure_info,
@@ -578,7 +577,7 @@ impl NakamotoBlockBuilder {
                 }
             }
         }
-        let block = builder.mine_nakamoto_block(&mut tenure_tx);
+        let block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
         let size = builder.bytes_so_far;
         let cost = builder.tenure_finish(tenure_tx)?;
         Ok((block, size, cost))

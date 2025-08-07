@@ -14,56 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cell::RefCell;
-use std::collections::{HashSet, VecDeque};
-use std::path::{Path, PathBuf};
-use std::{fs, io};
-
-use clarity::util::hash::MerkleHashFunc;
 use clarity::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
-use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::types::*;
 use hashbrown::HashMap;
 use rand::distributions::Standard;
-use rand::seq::SliceRandom;
-use rand::{CryptoRng, Rng, RngCore, SeedableRng};
-use rand_chacha::ChaCha20Rng;
+use rand::Rng;
 use stacks_common::address::*;
-use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
-};
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::Hash160;
-use stacks_common::util::sleep_ms;
-use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
 
 use self::boot::RewardSet;
-use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::*;
-use crate::chainstate::burn::db::sortdb::*;
-use crate::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-};
-use crate::chainstate::burn::*;
-use crate::chainstate::coordinator::{
-    ChainsCoordinator, Error as CoordinatorError, OnChainRewardSetProvider,
-};
-use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
+use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{NakamotoSignerEntry, PoxStartCycleInfo};
-use crate::chainstate::stacks::db::*;
-use crate::chainstate::stacks::miner::*;
-use crate::chainstate::stacks::{
-    Error as ChainstateError, StacksBlock, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *,
-};
-use crate::core::{BOOT_BLOCK_HASH, STACKS_EPOCH_3_0_MARKER};
-use crate::cost_estimates::metrics::UnitMetric;
-use crate::cost_estimates::UnitEstimator;
-use crate::net::relay::Relayer;
-use crate::util_lib::boot::boot_code_addr;
-use crate::util_lib::db::Error as db_error;
+use crate::chainstate::stacks::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TestSigners {
@@ -156,8 +120,7 @@ impl TestSigners {
         let mut pox_addrs = vec![];
         for key in self.signer_keys.iter() {
             let signing_key_vec = Secp256k1PublicKey::from_private(key).to_bytes_compressed();
-            let mut signing_key = [0u8; 33];
-            signing_key[0..33].copy_from_slice(&signing_key_vec[0..33]);
+            let signing_key = signing_key_vec.try_into().unwrap();
 
             let nakamoto_signer_entry = NakamotoSignerEntry {
                 signing_key,

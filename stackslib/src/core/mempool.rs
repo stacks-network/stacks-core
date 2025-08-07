@@ -15,24 +15,19 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::{self, Ordering};
-use std::collections::{HashMap, HashSet, LinkedList, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hasher;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 use std::{fs, io, thread};
 
-use clarity::vm::types::PrincipalData;
 use rand::distributions::Uniform;
 use rand::prelude::Distribution;
 use rand::Rng;
-use rusqlite::types::ToSql;
-use rusqlite::{
-    params, Connection, Error as SqliteError, OpenFlags, OptionalExtension, Row, Rows, Statement,
-    Transaction,
-};
+use rusqlite::{params, OpenFlags, OptionalExtension, Row};
 use siphasher::sip::SipHasher; // this is SipHash-2-4
 use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
@@ -40,37 +35,36 @@ use stacks_common::codec::{
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::MempoolCollectionBehavior;
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
 use stacks_common::util::retry::{BoundReader, RetryReader};
-use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
-use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
-use crate::chainstate::stacks::events::StacksTransactionReceipt;
-use crate::chainstate::stacks::index::Error as MarfError;
+use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::miner::TransactionEvent;
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksBlock, StacksMicroblock, StacksTransaction, TransactionPayload,
 };
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::core::nonce_cache::NonceCache;
-use crate::core::{
-    ExecutionCost, StacksEpochId, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
-};
-use crate::cost_estimates::metrics::{CostMetric, UnitMetric};
-use crate::cost_estimates::{CostEstimator, EstimatorError, UnitEstimator};
+use crate::core::{ExecutionCost, StacksEpochId, FIRST_BURNCHAIN_CONSENSUS_HASH};
+use crate::cost_estimates::metrics::CostMetric;
+#[cfg(test)]
+use crate::cost_estimates::metrics::UnitMetric;
+#[cfg(test)]
+use crate::cost_estimates::UnitEstimator;
+use crate::cost_estimates::{CostEstimator, EstimatorError};
 use crate::monitoring::increment_stx_mempool_gc;
 use crate::net::api::postblock_proposal::{BlockValidateOk, BlockValidateReject};
 use crate::net::Error as net_error;
 use crate::util_lib::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
 use crate::util_lib::db::{
-    query_int, query_row, query_row_columns, query_rows, sql_pragma, sqlite_open, table_exists,
-    tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn, DBTx, Error as db_error, Error,
-    FromColumn, FromRow,
+    query_int, query_row, query_row_columns, query_rows, sqlite_open, table_exists,
+    tx_begin_immediate, u64_to_sql, DBConn, DBTx, Error as db_error, Error, FromColumn, FromRow,
 };
 use crate::{cost_estimates, monitoring};
 
@@ -575,7 +569,7 @@ pub struct MemPoolWalkSettings {
 impl Default for MemPoolWalkSettings {
     fn default() -> Self {
         MemPoolWalkSettings {
-            strategy: MemPoolWalkStrategy::GlobalFeeRate,
+            strategy: MemPoolWalkStrategy::NextNonceWithHighestFeeRate,
             max_walk_time_ms: u64::MAX,
             consider_no_estimate_tx_prob: 5,
             nonce_cache_size: 1024 * 1024,
@@ -589,7 +583,7 @@ impl Default for MemPoolWalkSettings {
 impl MemPoolWalkSettings {
     pub fn zero() -> MemPoolWalkSettings {
         MemPoolWalkSettings {
-            strategy: MemPoolWalkStrategy::GlobalFeeRate,
+            strategy: MemPoolWalkStrategy::NextNonceWithHighestFeeRate,
             max_walk_time_ms: u64::MAX,
             consider_no_estimate_tx_prob: 5,
             nonce_cache_size: 1024 * 1024,
@@ -1441,11 +1435,22 @@ impl MemPoolDB {
 
     #[cfg_attr(test, mutants::skip)]
     pub fn reset_mempool_caches(&mut self) -> Result<(), db_error> {
-        debug!("reset nonce cache");
-        // Delete all rows from the nonces table
-        self.db.execute("DELETE FROM nonces", NO_PARAMS)?;
-        // Also delete all rows from the considered_txs table
+        self.reset_nonce_cache()?;
+        self.reset_considered_txs_cache()?;
+        Ok(())
+    }
+
+    #[cfg_attr(test, mutants::skip)]
+    pub fn reset_considered_txs_cache(&mut self) -> Result<(), db_error> {
+        debug!("reset considered txs cache");
         self.db.execute("DELETE FROM considered_txs", NO_PARAMS)?;
+        Ok(())
+    }
+
+    #[cfg_attr(test, mutants::skip)]
+    pub fn reset_nonce_cache(&mut self) -> Result<(), db_error> {
+        debug!("reset nonce cache");
+        self.db.execute("DELETE FROM nonces", NO_PARAMS)?;
         Ok(())
     }
 
@@ -1690,7 +1695,7 @@ impl MemPoolDB {
                     break MempoolIterationStopReason::DeadlineReached;
                 }
 
-                // First, try to read from the retry list
+                // Get the next candidate transaction.
                 let (candidate, update_estimate) = match settings.strategy {
                     MemPoolWalkStrategy::GlobalFeeRate => {
                         // First, try to read from the retry list
@@ -1728,6 +1733,9 @@ impl MemPoolDB {
                                                 !start_with_no_estimate,
                                             ),
                                             None => {
+                                                monitoring::increment_miner_stop_reason(
+                                                    monitoring::MinerStopReason::NoTransactions,
+                                                );
                                                 break MempoolIterationStopReason::NoMoreCandidates;
                                             }
                                         }
@@ -1744,6 +1752,9 @@ impl MemPoolDB {
                                 (tx, update_estimate)
                             }
                             None => {
+                                monitoring::increment_miner_stop_reason(
+                                    monitoring::MinerStopReason::NoTransactions,
+                                );
                                 break MempoolIterationStopReason::NoMoreCandidates;
                             }
                         }

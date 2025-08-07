@@ -13,83 +13,28 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::ops::DerefMut;
+use std::collections::HashMap;
 
-use clarity::vm::ast::ASTRules;
-use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::database::{BurnStateDB, ClarityDatabase};
 use clarity::vm::events::StacksTransactionEvent;
-use clarity::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions, TupleData,
-};
-use clarity::vm::{ClarityVersion, ContractName, SymbolicExpression, Value};
-use lazy_static::{__Deref, lazy_static};
-use rusqlite::types::{FromSql, FromSqlError, ToSql};
-use rusqlite::{params, Connection, OptionalExtension};
-use sha2::{Digest as Sha2Digest, Sha512_256};
-use stacks_common::bitvec::BitVec;
-use stacks_common::codec::{
-    read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
-    MAX_PAYLOAD_LEN,
-};
-use stacks_common::consts::{
-    self, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
-};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
-    StacksPrivateKey, StacksPublicKey, TrieHash, VRFSeed,
-};
-use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::types::{PrivateKey, StacksEpochId};
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
-use stacks_common::util::retry::BoundReader;
-use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
+use clarity::vm::{SymbolicExpression, Value};
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::{to_hex, Hash160};
 
-use crate::burnchains::{Burnchain, PoxConstants, Txid};
-use crate::chainstate::burn::db::sortdb::{
-    get_ancestor_sort_id, get_ancestor_sort_id_tx, get_block_commit_by_txid, SortitionDB,
-    SortitionHandle, SortitionHandleConn, SortitionHandleTx,
-};
-use crate::chainstate::burn::operations::{
-    DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, StackStxOp, TransferStxOp,
-};
-use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
-use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
+use crate::burnchains::PoxConstants;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
-    PoxVersions, RawRewardSetEntry, RewardSet, BOOT_TEST_POX_4_AGG_KEY_CONTRACT,
-    BOOT_TEST_POX_4_AGG_KEY_FNAME, POX_4_NAME, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
+    PoxVersions, RawRewardSetEntry, RewardSet, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
     SIGNERS_UPDATE_STATE, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
-use crate::chainstate::stacks::db::{
-    ChainstateTx, ClarityTx, DBConfig as ChainstateConfig, MinerPaymentSchedule,
-    MinerPaymentTxFees, MinerRewardInfo, StacksBlockHeaderTypes, StacksChainState, StacksDBTx,
-    StacksEpochReceipt, StacksHeaderInfo,
-};
-use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
-use crate::chainstate::stacks::{
-    Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
-    TenureChangeCause, TenureChangeError, TenureChangePayload, TransactionPayload,
-    MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
-};
+use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
+use crate::chainstate::stacks::{Error as ChainstateError, StacksTransaction, TransactionPayload};
 use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
-use crate::clarity_vm::clarity::{
-    ClarityInstance, ClarityTransactionConnection, PreCommitClarityBlock,
-};
-use crate::clarity_vm::database::SortitionDBRef;
-use crate::core::BOOT_BLOCK_HASH;
-use crate::net::stackerdb::StackerDBConfig;
-use crate::net::Error as net_error;
+use crate::clarity_vm::clarity::ClarityTransactionConnection;
 use crate::util_lib::boot;
 use crate::util_lib::boot::boot_code_id;
-use crate::util_lib::db::{
-    query_int, query_row, query_row_panic, query_rows, u64_to_sql, DBConn, Error as DBError,
-    FromRow,
-};
-use crate::{chainstate, monitoring};
 
 pub struct NakamotoSigners();
 
@@ -335,7 +280,7 @@ impl NakamotoSigners {
                         )
                     })
                 },
-                |_, _| false,
+                |_, _| None,
             )
             .expect("FATAL: failed to update signer stackerdb");
 

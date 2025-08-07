@@ -5,6 +5,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [3.2.0.0.0.0]
+
+### Added
+
+- Added `info` logs to the signer to provide more visibility into the block approval/rejection status
+- Introduced `capitulate_miner_view_timeout_secs`: the duration (in seconds) for the signer to wait between updating the local state machine viewpoint and capitulating to other signers' miner views.
+- Added codepath to enable signers to evaluate block proposals and miner activity against global signer state for improved consistency and correctness. Currently feature gated behind the `SUPPORTED_SIGNER_PROTOCOL_VERSION`
+
+### Changed
+
+- Do not count both a block acceptance and a block rejection for the same signer/block. Also ignore repeated responses (mainly for logging purposes).
+- Database schema updated to version 16
+
+## [3.1.0.0.13.0]
+
+### Changed
+
+- Database schema update (requires stacks-node >= 3.1.0.0.13)
+
+
+## [3.1.0.0.12.0]
+
+### Changed
+
+- Refactor / cleanup signerDB migrations code
+- Signers should not infinitely loop when pushing a block to stacks-node
+- Logging improvements and cleanup
+
+### Fixed
+
+- Fix `capitulate_miner_view` so stacks-node won't swap between multiple miners
+- Mark current miner as invalid on capitulation
+- Fix flaky `miner_recovers_when_broadcast_block_delay_across_tenures_occurs` test
+
+## [3.1.0.0.10.0]
+
+### Added
+- Persisted tracking of StackerDB slot versions. This improves signer p2p performance.
+
+## [3.1.0.0.9.0]
+
+### Changed
+
+- Upgraded `SUPPORTED_SIGNER_PROTOCOL_VERSION` to 1
+
+## [3.1.0.0.8.1]
+
+### Added
+
+- The signer will now check if their associated stacks-node has processed the parent block for a block proposal before submitting that block proposal. If it cannot confirm that the parent block has been processed, it waits a default time of 15s before submitting, configurable via `proposal_wait_for_parent_time_secs` in the signer config.toml.
+
+
 ## [3.1.0.0.8.0]
 
 ### Changed

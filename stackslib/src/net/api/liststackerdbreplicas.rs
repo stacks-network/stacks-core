@@ -14,38 +14,22 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::{fs, io};
-
-use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::representations::{
-    CONTRACT_NAME_REGEX_STRING, PRINCIPAL_DATA_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING,
-};
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
-use clarity::vm::{ClarityName, ContractName};
+use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
+use clarity::vm::types::QualifiedContractIdentifier;
 use regex::{Captures, Regex};
-use serde::de::Error as de_Error;
-use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
-use stacks_common::types::chainstate::StacksBlockId;
+use serde_json;
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::to_hex;
-use {serde, serde_json};
 
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::{Error as ChainError, StacksBlock};
 use crate::net::db::PeerDB;
 use crate::net::http::{
-    parse_json, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType, HttpNotFound,
-    HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
-    HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+    parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
+    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
 use crate::net::httpcore::{
-    request, HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp,
-    StacksHttpRequest, StacksHttpResponse,
+    request, HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
-use crate::net::{Error as NetError, NeighborAddress, StacksNodeState, TipRequest, MAX_HEADERS};
-use crate::util_lib::db::{DBConn, Error as DBError};
+use crate::net::{Error as NetError, NeighborAddress, StacksNodeState};
 
 /// Largest number of replicas returned
 pub const MAX_LIST_REPLICAS: usize = 64;
@@ -78,7 +62,7 @@ impl HttpRequest for RPCListStackerDBReplicasRequestHandler {
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/stackedb/:principal/:contract_name/replicas"
+        "/v2/stackerdb/:principal/:contract_name/replicas"
     }
 
     /// Try to decode this request.

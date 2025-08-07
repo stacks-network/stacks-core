@@ -14,45 +14,30 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cell::RefCell;
-use std::collections::{HashSet, VecDeque};
-use std::path::{Path, PathBuf};
-use std::{fs, io};
+use std::collections::HashSet;
 
-use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::*;
-use hashbrown::HashMap;
-use rand::seq::SliceRandom;
-use rand::{CryptoRng, RngCore, SeedableRng};
-use rand_chacha::ChaCha20Rng;
 use rusqlite::params;
 use stacks_common::address::*;
-use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
-};
-use stacks_common::util::hash::{hex_bytes, Hash160};
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId, VRFSeed};
+use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::sleep_ms;
-use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
+use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::tests::*;
-use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::tests::NullEventDispatcher;
-use crate::chainstate::coordinator::{
-    ChainsCoordinator, Error as CoordinatorError, OnChainRewardSetProvider,
-};
+use crate::chainstate::coordinator::{ChainsCoordinator, OnChainRewardSetProvider};
 use crate::chainstate::nakamoto::coordinator::{
     get_nakamoto_next_recipients, load_nakamoto_reward_set,
 };
-use crate::chainstate::nakamoto::miner::{MinerTenureInfo, NakamotoBlockBuilder};
+use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::staging_blocks::{
     NakamotoBlockObtainMethod, NakamotoStagingBlocksConnRef,
 };
@@ -62,21 +47,14 @@ use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, StacksDBIndexed,
 };
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::db::blocks::test::store_staging_block;
-use crate::chainstate::stacks::db::test::*;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::TestStacksNode;
-use crate::chainstate::stacks::{
-    Error as ChainstateError, StacksBlock, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *,
-};
+use crate::chainstate::stacks::{Error as ChainstateError, StacksBlock, *};
 use crate::core::{BOOT_BLOCK_HASH, STACKS_EPOCH_3_0_MARKER};
-use crate::cost_estimates::metrics::UnitMetric;
-use crate::cost_estimates::UnitEstimator;
 use crate::net::relay::{BlockAcceptResponse, Relayer};
-use crate::net::test::{TestPeer, TestPeerConfig, *};
-use crate::util_lib::boot::boot_code_addr;
-use crate::util_lib::db::{query_row, Error as db_error};
+use crate::net::test::{TestPeer, *};
+use crate::util_lib::db::query_row;
 
 #[derive(Debug, Clone)]
 pub struct TestStacker {
@@ -1028,6 +1006,7 @@ impl TestStacksNode {
 
         let mut miner_tenure_info =
             builder.load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?;
+        let burn_chain_height = miner_tenure_info.burn_tip_height;
         let mut tenure_tx = builder.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
         for tx in txs.into_iter() {
             let tx_len = tx.tx_len();
@@ -1076,7 +1055,7 @@ impl TestStacksNode {
                 }
             }
         }
-        let block = builder.mine_nakamoto_block(&mut tenure_tx);
+        let block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
         let size = builder.bytes_so_far;
         let cost = builder.tenure_finish(tenure_tx).unwrap();
         Ok((block, size, cost))

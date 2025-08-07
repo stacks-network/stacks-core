@@ -233,7 +233,7 @@ impl fmt::Display for Error {
 
 impl fmt::Display for RuntimeErrorType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 

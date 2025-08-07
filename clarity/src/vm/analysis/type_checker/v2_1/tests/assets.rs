@@ -215,14 +215,14 @@ fn test_bad_asset_usage() {
     ];
 
     for (script, expected_err) in bad_scripts.iter().zip(expected.iter()) {
-        let tokens_contract = format!("{}\n{}", FIRST_CLASS_TOKENS, script);
+        let tokens_contract = format!("{FIRST_CLASS_TOKENS}\n{script}");
         let actual_err = mem_run_analysis(
             &tokens_contract,
             ClarityVersion::Clarity2,
             StacksEpochId::latest(),
         )
         .unwrap_err();
-        println!("{}", script);
+        println!("{script}");
         assert_eq!(&actual_err.err, expected_err);
     }
 }

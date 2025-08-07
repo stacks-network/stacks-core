@@ -21,8 +21,8 @@
 Usage documentation can be found in the [README](https://github.com/stacks-network/stacks-blockchain/libsigner/README.md).
 */
 
-#![allow(unused_imports)]
 #![allow(dead_code)]
+#[allow(unused_imports)]
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
@@ -57,8 +57,8 @@ use stacks_common::versions::STACKS_SIGNER_VERSION;
 
 pub use crate::error::{EventError, RPCError};
 pub use crate::events::{
-    BlockProposal, BlockProposalData, EventReceiver, EventStopSignaler, SignerEvent,
-    SignerEventReceiver, SignerEventTrait, SignerStopSignaler,
+    BlockProposal, BlockProposalData, BurnBlockEvent, EventReceiver, EventStopSignaler,
+    SignerEvent, SignerEventReceiver, SignerEventTrait, SignerStopSignaler, StacksBlockEvent,
 };
 pub use crate::runloop::{RunningSigner, Signer, SignerRunLoop};
 pub use crate::session::{SignerSession, StackerDBSession};
@@ -88,5 +88,5 @@ lazy_static! {
 
 #[test]
 fn test_version_string() {
-    assert!(VERSION_STRING.contains(format!("stacks-signer {}", STACKS_SIGNER_VERSION).as_str()));
+    assert!(VERSION_STRING.contains(format!("stacks-signer {STACKS_SIGNER_VERSION}").as_str()));
 }

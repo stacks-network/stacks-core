@@ -14,58 +14,17 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::convert::TryFrom;
-use std::fmt;
-use std::hash::{Hash, Hasher};
-use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr};
-use std::time::{Duration, Instant};
+use std::hash::Hash;
 
-use rand::seq::SliceRandom;
-use rand::{thread_rng, RngCore};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, ConsensusHash, PoxId, SortitionId, StacksBlockId,
-};
-use stacks_common::types::net::{PeerAddress, PeerHost};
-use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
+use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common::util::get_epoch_time_secs;
 
-use crate::burnchains::{Burnchain, BurnchainView, PoxConstants};
-use crate::chainstate::burn::db::sortdb::{
-    BlockHeaderCache, SortitionDB, SortitionDBConn, SortitionHandleConn,
-};
-use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::coordinator::{PoxAnchorBlockStatus, RewardCycleInfo};
-use crate::chainstate::nakamoto::{
-    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConnRef,
-};
-use crate::chainstate::stacks::boot::RewardSet;
-use crate::chainstate::stacks::db::{blocks, StacksChainState};
-use crate::chainstate::stacks::{
-    Error as chainstate_error, StacksBlockHeader, TenureChangePayload,
-};
-use crate::core::{
-    EMPTY_MICROBLOCK_PARENT_HASH, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
-};
-use crate::net::api::gettenureinfo::RPCGetTenureInfo;
-use crate::net::chat::ConversationP2P;
-use crate::net::db::{LocalPeer, PeerDB};
-use crate::net::download::nakamoto::{
-    AvailableTenures, NakamotoTenureDownloadState, NakamotoTenureDownloader,
-    NakamotoUnconfirmedTenureDownloader, TenureStartEnd, WantedTenure,
-};
-use crate::net::http::HttpRequestContents;
-use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
-use crate::net::inv::epoch2x::InvState;
-use crate::net::inv::nakamoto::{NakamotoInvStateMachine, NakamotoTenureInv};
+use crate::chainstate::nakamoto::NakamotoBlock;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::net::download::nakamoto::{AvailableTenures, NakamotoTenureDownloader, TenureStartEnd};
 use crate::net::neighbors::rpc::NeighborRPC;
-use crate::net::neighbors::NeighborComms;
 use crate::net::p2p::{CurrentRewardSet, DropReason, DropSource, PeerNetwork};
-use crate::net::server::HttpPeer;
-use crate::net::{Error as NetError, Neighbor, NeighborAddress, NeighborKey};
-use crate::util_lib::db::{DBConn, Error as DBError};
+use crate::net::NeighborAddress;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct CompletedTenure {
@@ -175,7 +134,12 @@ impl NakamotoTenureDownloaderSet {
             &downloader.tenure_id_consensus_hash
         );
         if let Some(idx) = self.peers.get(&naddr) {
-            self.downloaders[*idx] = Some(downloader);
+            if let Some(downloader_slot) = self.downloaders.get_mut(*idx) {
+                *downloader_slot = Some(downloader);
+            } else {
+                error!("TenureDownloader had a mistaken peer pointer while setting the downloader");
+                return;
+            }
         } else {
             self.downloaders.push(Some(downloader));
             self.peers.insert(naddr, self.downloaders.len() - 1);
@@ -198,7 +162,11 @@ impl NakamotoTenureDownloaderSet {
         let Some(index) = self.peers.remove(naddr) else {
             return;
         };
-        self.downloaders[index] = None;
+        if let Some(downloader) = self.downloaders.get_mut(index) {
+            *downloader = None;
+        } else {
+            error!("TenureDownloader had a mistaken peer pointer while clearing the downloader");
+        }
     }
 
     /// How many downloaders are there?

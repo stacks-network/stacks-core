@@ -171,7 +171,7 @@ impl<const MAX_SIZE: u16> BitVec<MAX_SIZE> {
         Ok(bitvec)
     }
 
-    pub fn iter(&self) -> BitVecIter<MAX_SIZE> {
+    pub fn iter(&self) -> BitVecIter<'_, MAX_SIZE> {
         let byte = self.data.first();
         BitVecIter {
             index: 0,
@@ -246,7 +246,7 @@ impl<const MAX_SIZE: u16> BitVec<MAX_SIZE> {
             .data
             .into_iter()
             .fold(String::new(), |acc, byte| {
-                acc + &format!("{:08b}", byte).chars().rev().collect::<String>()
+                acc + &format!("{byte:08b}").chars().rev().collect::<String>()
             })
             .chars()
             .take(self.len() as usize)
