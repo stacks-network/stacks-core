@@ -167,7 +167,6 @@ impl BurnchainController for MocknetController {
         _epoch_id: StacksEpochId,
         operation: BlockstackOperationType,
         _op_signer: &mut BurnchainOpSigner,
-        _attempt: u64,
     ) -> Result<Txid, BurnchainControllerError> {
         let txid = operation.txid();
         self.queued_operations.push_back(operation);
