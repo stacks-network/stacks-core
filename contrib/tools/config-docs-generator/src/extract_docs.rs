@@ -243,10 +243,10 @@ fn extract_config_docs_from_rustdoc(
             // Check if this item is a struct by looking for the "struct" field
             if get_json_object(item, &["inner", "struct"]).is_some() {
                 // Check if this struct is in our target list (if specified)
-                if let Some(targets) = target_structs {
-                    if !targets.contains(&name.to_string()) {
-                        continue;
-                    }
+                if let Some(targets) = target_structs
+                    && !targets.contains(&name.to_string())
+                {
+                    continue;
                 }
 
                 let (struct_doc_opt, referenced_constants) =
@@ -814,14 +814,12 @@ fn resolve_constant_reference(
 
     for lib_name in &additional_crate_libs {
         let json_file_path = format!("target/rustdoc-json/doc/{lib_name}.json");
-        if let Ok(json_content) = std::fs::read_to_string(&json_file_path) {
-            if let Ok(rustdoc_json) = serde_json::from_str::<serde_json::Value>(&json_content) {
-                if let Some(index) = get_json_object(&rustdoc_json, &["index"]) {
-                    if let Some(value) = resolve_constant_in_index(name, index) {
-                        return Some(value);
-                    }
-                }
-            }
+        if let Ok(json_content) = std::fs::read_to_string(&json_file_path)
+            && let Ok(rustdoc_json) = serde_json::from_str::<serde_json::Value>(&json_content)
+            && let Some(index) = get_json_object(&rustdoc_json, &["index"])
+            && let Some(value) = resolve_constant_in_index(name, index)
+        {
+            return Some(value);
         }
     }
 
@@ -835,60 +833,56 @@ fn resolve_constant_in_index(
     // Look for a constant with the given name in the rustdoc index
     for (_item_id, item) in rustdoc_index {
         // Check if this item's name matches the constant we're looking for
-        if let Some(item_name) = get_json_string(item, &["name"]) {
-            if item_name == name {
-                // Check if this item is a constant by looking for the "constant" field
-                if let Some(constant_data) = get_json_object(item, &["inner", "constant"]) {
-                    // Try newer rustdoc JSON structure first (with nested 'const' field)
-                    let constant_data_value = serde_json::Value::Object(constant_data.clone());
-                    if get_json_object(&constant_data_value, &["const"]).is_some() {
-                        // For literal constants, prefer expr which doesn't have type suffix
-                        if get_json_path(&constant_data_value, &["const", "is_literal"])
-                            .and_then(|v| v.as_bool())
-                            == Some(true)
-                        {
-                            // Access the expression field for literal constant values
-                            if let Some(expr) =
-                                get_json_string(&constant_data_value, &["const", "expr"])
-                            {
-                                if expr != "_" {
-                                    return Some(expr.to_string());
-                                }
-                            }
-                        }
-
-                        // For computed constants or when expr is "_", use value but strip type suffix
-                        if let Some(value) =
-                            get_json_string(&constant_data_value, &["const", "value"])
-                        {
-                            return Some(strip_type_suffix(value));
-                        }
-
-                        // Fallback to expr if value is not available
+        if let Some(item_name) = get_json_string(item, &["name"])
+            && item_name == name
+        {
+            // Check if this item is a constant by looking for the "constant" field
+            if let Some(constant_data) = get_json_object(item, &["inner", "constant"]) {
+                // Try newer rustdoc JSON structure first (with nested 'const' field)
+                let constant_data_value = serde_json::Value::Object(constant_data.clone());
+                if get_json_object(&constant_data_value, &["const"]).is_some() {
+                    // For literal constants, prefer expr which doesn't have type suffix
+                    if get_json_path(&constant_data_value, &["const", "is_literal"])
+                        .and_then(|v| v.as_bool())
+                        == Some(true)
+                    {
+                        // Access the expression field for literal constant values
                         if let Some(expr) =
                             get_json_string(&constant_data_value, &["const", "expr"])
+                            && expr != "_"
                         {
-                            if expr != "_" {
-                                return Some(expr.to_string());
-                            }
-                        }
-                    }
-
-                    // Fall back to older rustdoc JSON structure for compatibility
-                    if let Some(value) = get_json_string(&constant_data_value, &["value"]) {
-                        return Some(strip_type_suffix(value));
-                    }
-                    if let Some(expr) = get_json_string(&constant_data_value, &["expr"]) {
-                        if expr != "_" {
                             return Some(expr.to_string());
                         }
                     }
 
-                    // For some constants, the value might be in the type field if it's a simple literal
-                    if let Some(type_str) = get_json_string(&constant_data_value, &["type"]) {
-                        // Handle simple numeric or string literals embedded in type
-                        return Some(type_str.to_string());
+                    // For computed constants or when expr is "_", use value but strip type suffix
+                    if let Some(value) = get_json_string(&constant_data_value, &["const", "value"])
+                    {
+                        return Some(strip_type_suffix(value));
                     }
+
+                    // Fallback to expr if value is not available
+                    if let Some(expr) = get_json_string(&constant_data_value, &["const", "expr"])
+                        && expr != "_"
+                    {
+                        return Some(expr.to_string());
+                    }
+                }
+
+                // Fall back to older rustdoc JSON structure for compatibility
+                if let Some(value) = get_json_string(&constant_data_value, &["value"]) {
+                    return Some(strip_type_suffix(value));
+                }
+                if let Some(expr) = get_json_string(&constant_data_value, &["expr"])
+                    && expr != "_"
+                {
+                    return Some(expr.to_string());
+                }
+
+                // For some constants, the value might be in the type field if it's a simple literal
+                if let Some(type_str) = get_json_string(&constant_data_value, &["type"]) {
+                    // Handle simple numeric or string literals embedded in type
+                    return Some(type_str.to_string());
                 }
             }
         }
