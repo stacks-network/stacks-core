@@ -51,10 +51,7 @@ use stacks::chainstate::nakamoto::coordinator::{load_nakamoto_reward_set, TEST_C
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::shadow::shadow_chainstate_repair;
 use stacks::chainstate::nakamoto::test_signers::TestSigners;
-use stacks::chainstate::nakamoto::{
-    set_test_sip_031_emission_schedule, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
-    SIP031EmissionInterval,
-};
+use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use stacks::chainstate::stacks::boot::{
     MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME, SIP_031_TESTNET_ADDR,
@@ -105,7 +102,10 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
     TrieHash,
 };
-use stacks_common::types::{set_test_coinbase_schedule, CoinbaseInterval, StacksPublicKeyBuffer};
+use stacks_common::types::{
+    set_test_coinbase_schedule, set_test_sip_031_emission_schedule, CoinbaseInterval,
+    SIP031EmissionInterval, StacksPublicKeyBuffer,
+};
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
@@ -3563,7 +3563,6 @@ fn vote_for_aggregate_key_burn_op() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::PreStx(pre_stx_op),
                 &mut miner_signer,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -3633,7 +3632,6 @@ fn vote_for_aggregate_key_burn_op() {
                 StacksEpochId::Epoch30,
                 vote_for_aggregate_key_op,
                 &mut signer_burnop_signer,
-                1
             )
             .is_ok(),
         "Vote for aggregate key operation should submit successfully"
@@ -4667,7 +4665,6 @@ fn burn_ops_integration_test() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::PreStx(pre_stx_op),
                 &mut miner_signer_1,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -4691,7 +4688,6 @@ fn burn_ops_integration_test() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::PreStx(pre_stx_op_2),
                 &mut miner_signer_2,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -4712,7 +4708,6 @@ fn burn_ops_integration_test() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::PreStx(pre_stx_op_3),
                 &mut miner_signer_3,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -4733,7 +4728,6 @@ fn burn_ops_integration_test() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::PreStx(pre_stx_op_4),
                 &mut miner_signer_4,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -4864,7 +4858,6 @@ fn burn_ops_integration_test() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::TransferStx(transfer_stx_op),
                 &mut stacker_burnop_signer_1,
-                1
             )
             .is_ok(),
         "Transfer STX operation should submit successfully"
@@ -4890,7 +4883,6 @@ fn burn_ops_integration_test() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::DelegateStx(del_stx_op),
                 &mut stacker_burnop_signer_2,
-                1
             )
             .is_ok(),
         "Delegate STX operation should submit successfully"
@@ -4920,7 +4912,6 @@ fn burn_ops_integration_test() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::StackStx(stack_stx_op_with_some_signer_key),
                 &mut signer_burnop_signer_1,
-                1
             )
             .is_ok(),
         "Stack STX operation should submit successfully"
@@ -4947,7 +4938,6 @@ fn burn_ops_integration_test() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::StackStx(stack_stx_op_with_no_signer_key),
                 &mut signer_burnop_signer_2,
-                1
             )
             .is_ok(),
         "Stack STX operation should submit successfully"
@@ -12701,6 +12691,7 @@ fn write_signer_update(
 /// - check sip031 boot contract has a balance of 200_000_000 STX
 #[test]
 #[ignore]
+#[serial]
 fn test_sip_031_activation() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -12826,10 +12817,16 @@ fn test_sip_031_activation() {
     );
 
     // check for Epoch 3.2 in clarity db
-    let latest_stacks_block_id = get_latest_block_proposal(&naka_conf, &sortdb)
-        .unwrap()
-        .0
-        .block_id();
+    let latest_stacks_block_id = StacksBlockId::from_hex(
+        &test_observer::get_blocks()
+            .last()
+            .unwrap()
+            .get("index_block_hash")
+            .unwrap()
+            .as_str()
+            .unwrap()[2..],
+    )
+    .unwrap();
 
     let epoch_version = chainstate.with_read_only_clarity_tx(
         &sortdb
@@ -13122,10 +13119,16 @@ fn test_sip_031_last_phase() {
         get_chain_info_opt(&naka_conf).unwrap().burn_block_height
     );
 
-    let latest_stacks_block_id = get_latest_block_proposal(&naka_conf, &sortdb)
-        .unwrap()
-        .0
-        .block_id();
+    let latest_stacks_block_id = StacksBlockId::from_hex(
+        &test_observer::get_blocks()
+            .last()
+            .unwrap()
+            .get("index_block_hash")
+            .unwrap()
+            .as_str()
+            .unwrap()[2..],
+    )
+    .unwrap();
 
     // check if sip-031 boot contract has a balance of 200_000_000 STX
     let sip_031_boot_contract_balance = chainstate.with_read_only_clarity_tx(
@@ -13244,10 +13247,16 @@ fn test_sip_031_last_phase() {
     // (100_000 + 200_000 + 300_000) * 10
     assert_eq!(total_minted_and_transferred, 6_000_000);
 
-    let latest_stacks_block_id = get_latest_block_proposal(&naka_conf, &sortdb)
-        .unwrap()
-        .0
-        .block_id();
+    let latest_stacks_block_id = StacksBlockId::from_hex(
+        &test_observer::get_blocks()
+            .last()
+            .unwrap()
+            .get("index_block_hash")
+            .unwrap()
+            .as_str()
+            .unwrap()[2..],
+    )
+    .unwrap();
 
     // get sip-031 boot contract balance (will be checked for 200_000_000 STX + total_minted_and_transferred)
     let sip_031_boot_contract_balance = chainstate.with_read_only_clarity_tx(
@@ -13430,10 +13439,16 @@ fn test_sip_031_last_phase_out_of_epoch() {
         get_chain_info_opt(&naka_conf).unwrap().burn_block_height
     );
 
-    let latest_stacks_block_id = get_latest_block_proposal(&naka_conf, &sortdb)
-        .unwrap()
-        .0
-        .block_id();
+    let latest_stacks_block_id = StacksBlockId::from_hex(
+        &test_observer::get_blocks()
+            .last()
+            .unwrap()
+            .get("index_block_hash")
+            .unwrap()
+            .as_str()
+            .unwrap()[2..],
+    )
+    .unwrap();
 
     // check if sip-031 boot contract has a balance of 200_000_000 STX
     let sip_031_boot_contract_balance = chainstate.with_read_only_clarity_tx(
@@ -13620,10 +13635,16 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
         get_chain_info_opt(&naka_conf).unwrap().burn_block_height
     );
 
-    let latest_stacks_block_id = get_latest_block_proposal(&naka_conf, &sortdb)
-        .unwrap()
-        .0
-        .block_id();
+    let latest_stacks_block_id = StacksBlockId::from_hex(
+        &test_observer::get_blocks()
+            .last()
+            .unwrap()
+            .get("index_block_hash")
+            .unwrap()
+            .as_str()
+            .unwrap()[2..],
+    )
+    .unwrap();
 
     // check if sip-031 boot contract has a balance of 200_000_000 STX + coinbase-mint-and-transfer
     let sip_031_boot_contract_balance = chainstate.with_read_only_clarity_tx(
@@ -13801,10 +13822,16 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
     // 100_000
     assert_eq!(total_minted_and_transferred, 100_000);
 
-    let latest_stacks_block_id = get_latest_block_proposal(&naka_conf, &sortdb)
-        .unwrap()
-        .0
-        .block_id();
+    let latest_stacks_block_id = StacksBlockId::from_hex(
+        &test_observer::get_blocks()
+            .last()
+            .unwrap()
+            .get("index_block_hash")
+            .unwrap()
+            .as_str()
+            .unwrap()[2..],
+    )
+    .unwrap();
 
     // get sip-031 boot contract balance (will be checked for 200_000_000 STX + 100_000 + total_minted_and_transferred)
     let sip_031_boot_contract_balance = chainstate.with_read_only_clarity_tx(

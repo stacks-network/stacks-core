@@ -199,7 +199,7 @@ impl CostOverflowingMath<u64> for u64 {
 
 #[cfg(feature = "rusqlite")]
 impl ToSql for ExecutionCost {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         let val = serde_json::to_string(self)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
         Ok(ToSqlOutput::from(val))
