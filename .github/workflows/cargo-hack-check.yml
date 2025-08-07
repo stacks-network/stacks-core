@@ -78,11 +78,12 @@ jobs:
           - name: "Clarity & Stacks-Common WASM Web"
             command: |
               cargo hack check \
+                -p clarity \
                 -p clarity-serialization \
                 -p stacks-common \
                 --each-feature \
                 --no-dev-deps \
-                --exclude-features=default,rusqlite,ctrlc-handler,wasm-deterministic \
+                --exclude-features=default,rusqlite,ctrlc-handler,wasm-deterministic,testing \
                 --features=wasm-web
 
           - name: "Clarity & Stacks-Common WASM Deterministic"
