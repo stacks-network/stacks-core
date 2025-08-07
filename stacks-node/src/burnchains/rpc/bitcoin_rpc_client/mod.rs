@@ -31,6 +31,8 @@ use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::Txid;
 use stacks::config::Config;
 use stacks::types::chainstate::BurnchainHeaderHash;
+use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+use stacks_common::deps_common::bitcoin::network::serialize::serialize_hex;
 
 use crate::burnchains::rpc::rpc_transport::{RpcAuth, RpcError, RpcTransport};
 
@@ -213,8 +215,6 @@ pub enum BitcoinRpcClientError {
     Serialization(serde_json::Error),
     // Bitcoin serialization errors
     BitcoinSerialization(stacks_common::deps_common::bitcoin::network::serialize::Error),
-    // Hex conversion errors
-    Hex(stacks_common::util::HexError),
 }
 
 impl From<RpcError> for BitcoinRpcClientError {
@@ -234,12 +234,6 @@ impl From<stacks_common::deps_common::bitcoin::network::serialize::Error>
 {
     fn from(err: stacks_common::deps_common::bitcoin::network::serialize::Error) -> Self {
         BitcoinRpcClientError::BitcoinSerialization(err)
-    }
-}
-
-impl From<stacks_common::util::HexError> for BitcoinRpcClientError {
-    fn from(err: stacks_common::util::HexError) -> Self {
-        BitcoinRpcClientError::Hex(err)
     }
 }
 
@@ -463,7 +457,7 @@ impl BitcoinRpcClient {
     ///
     /// # Arguments
     ///
-    /// * `tx` - A hex-encoded string representing the raw transaction.
+    /// * `tx` - A [`Transaction`], that will be hex-encoded, representing the raw transaction.
     /// * `max_fee_rate` - Optional maximum fee rate (in BTC/kvB). If `None`, defaults to `0.10` BTC/kvB.
     ///     - Bitcoin Core will reject transactions exceeding this rate unless explicitly overridden.
     ///     - Set to `0.0` to disable fee rate limiting entirely.
@@ -472,24 +466,25 @@ impl BitcoinRpcClient {
     ///     - If `None`, defaults to `0`, meaning burning is not allowed.
     ///
     /// # Returns
-    /// A transaction ID as a `String`.
+    /// A [`Txid`] as a transaction ID.
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.7.0**.
     /// - `maxburnamount` parameter is available starting from **v25.0**.
     pub fn send_raw_transaction(
         &self,
-        tx: &str,
+        tx: &Transaction,
         max_fee_rate: Option<f64>,
         max_burn_amount: Option<u64>,
-    ) -> BitcoinRpcClientResult<String> {
+    ) -> BitcoinRpcClientResult<Txid> {
+        let tx_hex = serialize_hex(tx)?;
         let max_fee_rate = max_fee_rate.unwrap_or(0.10);
         let max_burn_amount = max_burn_amount.unwrap_or(0);
 
         Ok(self.global_ep.send(
             &self.client_id,
             "sendrawtransaction",
-            vec![tx.into(), max_fee_rate.into(), max_burn_amount.into()],
+            vec![tx_hex.into(), max_fee_rate.into(), max_burn_amount.into()],
         )?)
     }
 

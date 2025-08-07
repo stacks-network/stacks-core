@@ -21,8 +21,7 @@ use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::Address;
-use stacks_common::deps_common::bech32;
-use stacks_common::deps_common::bitcoin::network::serialize::serialize_hex;
+use stacks_common::deps_common::bitcoin::network::serialize::{deserialize_hex, serialize_hex};
 
 use super::*;
 
@@ -31,8 +30,9 @@ mod utils {
     use super::*;
 
     pub const BITCOIN_ADDRESS_LEGACY_STR: &str = "mp7gy5VhHzBzk1tJUtP7Qwdrp87XEWnxd4";
-    pub const BITCOIN_TXID_HEX: &str =
+    pub const BITCOIN_TX1_TXID_HEX: &str =
         "b9a0d01a3e21809e920fa022dfdd85368d56d1cacc5229f7a704c4d5fbccc6bd";
+    pub const BITCOIN_TX1_RAW_HEX: &str = "0100000001b1f2f67426d26301f0b20467e9fdd93557cb3cbbcb8d79f3a9c7b6c8ec7f69e8000000006a47304402206369d5eb2b7c99f540f4cf3ff2fd6f4b90f89c4328bfa0b6db0c30bb7f2c3d4c022015a1c0e5f6a0b08c271b2d218e6a7a29f5441dbe39d9a5cbcc223221ad5dbb59012103a34e84c8c7ebc8ecb7c2e59ff6672f392c792fc1c4f3c6fa2e7d3d314f1f38c9ffffffff0200e1f505000000001976a9144621d7f4ce0c956c80e6f0c1b9f78fe0c49cb82088ac80fae9c7000000001976a91488ac1f0f01c2a5c2e8f4b4f1a3b1a04d2f35b4c488ac00000000";
     pub const BITCOIN_BLOCK_HASH: &str =
         "0000000000000000011f5b3c4e7e9f4dc2c88f0b6c3a3b17e5a7d0dfeb3bb3cd";
 
@@ -439,7 +439,7 @@ fn test_generate_to_address_fails_for_invalid_block_hash() {
 
 #[test]
 fn test_get_transaction_ok() {
-    let txid_hex = utils::BITCOIN_TXID_HEX;
+    let txid_hex = utils::BITCOIN_TX1_TXID_HEX;
 
     let expected_request = json!({
         "jsonrpc": "2.0",
@@ -474,8 +474,8 @@ fn test_get_transaction_ok() {
 
 #[test]
 fn test_get_raw_transaction_ok() {
-    let txid_hex = utils::BITCOIN_TXID_HEX;
-    let expected_tx_hex = "0100000001b1f2f67426d26301f0b20467e9fdd93557cb3cbbcb8d79f3a9c7b6c8ec7f69e8000000006a47304402206369d5eb2b7c99f540f4cf3ff2fd6f4b90f89c4328bfa0b6db0c30bb7f2c3d4c022015a1c0e5f6a0b08c271b2d218e6a7a29f5441dbe39d9a5cbcc223221ad5dbb59012103a34e84c8c7ebc8ecb7c2e59ff6672f392c792fc1c4f3c6fa2e7d3d314f1f38c9ffffffff0200e1f505000000001976a9144621d7f4ce0c956c80e6f0c1b9f78fe0c49cb82088ac80fae9c7000000001976a91488ac1f0f01c2a5c2e8f4b4f1a3b1a04d2f35b4c488ac00000000";
+    let txid_hex = utils::BITCOIN_TX1_TXID_HEX;
+    let expected_tx_hex = utils::BITCOIN_TX1_RAW_HEX;
 
     let expected_request = json!({
         "jsonrpc": "2.0",
@@ -592,14 +592,14 @@ fn test_generate_block_fails_for_invalid_block_hash() {
 
 #[test]
 fn test_send_raw_transaction_ok_with_defaults() {
-    let raw_tx = "raw_tx_hex";
-    let expected_txid = "txid1";
+    let raw_tx_hex = utils::BITCOIN_TX1_RAW_HEX;
+    let expected_txid = utils::BITCOIN_TX1_TXID_HEX;
 
     let expected_request = json!({
         "jsonrpc": "2.0",
         "id": "stacks",
         "method": "sendrawtransaction",
-        "params": [raw_tx, 0.10, 0]
+        "params": [raw_tx_hex, 0.10, 0]
     });
 
     let mock_response = json!({
@@ -618,22 +618,24 @@ fn test_send_raw_transaction_ok_with_defaults() {
         .create();
 
     let client = utils::setup_client(&server);
+
+    let raw_tx = deserialize_hex(&raw_tx_hex).unwrap();
     let txid = client
-        .send_raw_transaction(raw_tx, None, None)
+        .send_raw_transaction(&raw_tx, None, None)
         .expect("Should work!");
-    assert_eq!(txid, expected_txid);
+    assert_eq!(expected_txid, txid.to_hex());
 }
 
 #[test]
 fn test_send_raw_transaction_ok_with_custom_params() {
-    let raw_tx = "raw_tx_hex";
-    let expected_txid = "txid1";
+    let raw_tx_hex = utils::BITCOIN_TX1_RAW_HEX;
+    let expected_txid = utils::BITCOIN_TX1_TXID_HEX;
 
     let expected_request = json!({
         "jsonrpc": "2.0",
         "id": "stacks",
         "method": "sendrawtransaction",
-        "params": [raw_tx, 0.0, 5_000]
+        "params": [raw_tx_hex, 0.0, 5_000]
     });
 
     let mock_response = json!({
@@ -652,10 +654,12 @@ fn test_send_raw_transaction_ok_with_custom_params() {
         .create();
 
     let client = utils::setup_client(&server);
+
+    let raw_tx = deserialize_hex(raw_tx_hex).unwrap();
     let txid = client
-        .send_raw_transaction(raw_tx, Some(0.0), Some(5_000))
+        .send_raw_transaction(&raw_tx, Some(0.0), Some(5_000))
         .expect("Should work!");
-    assert_eq!(txid, expected_txid);
+    assert_eq!(expected_txid, txid.to_hex());
 }
 
 #[test]
@@ -846,7 +850,7 @@ fn test_get_new_address_fails_for_invalid_address() {
 fn test_send_to_address_ok() {
     let address_str = utils::BITCOIN_ADDRESS_LEGACY_STR;
     let amount = 0.5;
-    let expected_txid_str = utils::BITCOIN_TXID_HEX;
+    let expected_txid_str = utils::BITCOIN_TX1_TXID_HEX;
 
     let expected_request = json!({
         "jsonrpc": "2.0",
@@ -982,17 +986,4 @@ fn test_get_block_hash_ok() {
 
     let hash = client.get_block_hash(height).expect("Should be ok!");
     assert_eq!(expected_hash, hash);
-}
-
-#[test]
-fn test_addr() {
-    let regtest_hrp = "bcrt1qhzhzvy2v4ykg877s87nwuh37teqzxj95ecutjf";
-
-    let decoded = bech32::decode(regtest_hrp).unwrap();
-    println!("WHAT: {decoded:?}");
-
-    let f = bech32::encode("tb", decoded.1, decoded.2).unwrap();
-    println!("F===: {f:?}");
-
-    BitcoinAddress::from_string(&f).unwrap();
 }

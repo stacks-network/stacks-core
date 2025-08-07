@@ -22,9 +22,8 @@ use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::Address;
-use stacks::util::hash::hex_bytes;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
-use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
+use stacks_common::deps_common::bitcoin::network::serialize::deserialize_hex;
 
 use crate::burnchains::rpc::bitcoin_rpc_client::{BitcoinRpcClient, BitcoinRpcClientResult};
 
@@ -184,9 +183,7 @@ impl BitcoinRpcClient {
             "getrawtransaction",
             vec![txid.to_string().into()],
         )?;
-        let raw_bytes = hex_bytes(&raw_hex)?;
-        let tx = btc_deserialize(&raw_bytes)?;
-        Ok(tx)
+        Ok(deserialize_hex(&raw_hex)?)
     }
 
     /// Mines a new block including the given transactions to a specified address.
