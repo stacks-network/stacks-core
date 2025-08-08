@@ -1825,7 +1825,7 @@ mod test {
             TransactionVersion::Mainnet,
             order_independent_origin_auth_p2sh,
             TransactionPayload::TokenTransfer(
-                stx_address.into(),
+                stx_address.clone().into(),
                 123,
                 TokenTransferMemo([1u8; 34]),
             ),
@@ -1835,7 +1835,7 @@ mod test {
             TransactionVersion::Mainnet,
             order_independent_origin_auth_p2wsh,
             TransactionPayload::TokenTransfer(
-                stx_address.into(),
+                stx_address.clone().into(),
                 123,
                 TokenTransferMemo([1u8; 34]),
             ),
@@ -1845,7 +1845,7 @@ mod test {
             TransactionVersion::Mainnet,
             order_independent_sponsored_auth_p2sh,
             TransactionPayload::TokenTransfer(
-                stx_address.into(),
+                stx_address.clone().into(),
                 123,
                 TokenTransferMemo([1u8; 34]),
             ),
@@ -1928,7 +1928,7 @@ mod test {
             TransactionVersion::Testnet,
             origin_auth.clone(),
             TransactionPayload::TokenTransfer(
-                stx_address.into(),
+                stx_address.clone().into(),
                 123,
                 TokenTransferMemo([1u8; 34]),
             ),
@@ -1937,7 +1937,7 @@ mod test {
             TransactionVersion::Mainnet,
             origin_auth.clone(),
             TransactionPayload::TokenTransfer(
-                stx_address.into(),
+                stx_address.clone().into(),
                 123,
                 TokenTransferMemo([1u8; 34]),
             ),
@@ -1946,7 +1946,7 @@ mod test {
             TransactionVersion::Testnet,
             origin_auth.clone(),
             TransactionPayload::TokenTransfer(
-                stx_address.into(),
+                stx_address.clone().into(),
                 123,
                 TokenTransferMemo([1u8; 34]),
             ),

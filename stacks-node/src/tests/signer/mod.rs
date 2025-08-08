@@ -243,7 +243,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
         // Add initial balances to the config
         for (address, amount) in initial_balances.iter() {
-            naka_conf.add_initial_balance(PrincipalData::from(*address).to_string(), *amount);
+            naka_conf
+                .add_initial_balance(PrincipalData::from(address.clone()).to_string(), *amount);
         }
 
         // So the combination is... one, two, three, four, five? That's the stupidest combination I've ever heard in my life!

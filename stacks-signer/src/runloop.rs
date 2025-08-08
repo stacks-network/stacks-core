@@ -316,7 +316,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             signer_entries,
             signer_slot_ids: signer_slot_ids.into_values().collect(),
             first_proposal_burn_block_timing: self.config.first_proposal_burn_block_timing,
-            stacks_private_key: self.config.stacks_private_key,
+            stacks_private_key: self.config.stacks_private_key.clone(),
             node_host: self.config.node_host.to_string(),
             mainnet: self.config.network.is_mainnet(),
             db_path: self.config.db_path.clone(),

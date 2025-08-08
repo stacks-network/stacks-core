@@ -629,11 +629,11 @@ impl BitcoinRegtestController {
         let filter_addresses = vec![addr2str(&address)];
 
         let pubk = if self.config.miner.segwit {
-            let mut p = *public_key;
+            let mut p = public_key.clone();
             p.set_compressed(true);
             p
         } else {
-            *public_key
+            public_key.clone()
         };
 
         test_debug!("Import public key '{}'", &pubk.to_hex());
@@ -736,11 +736,11 @@ impl BitcoinRegtestController {
         block_height: u64,
     ) -> Option<UTXOSet> {
         let pubk = if self.config.miner.segwit && epoch_id >= StacksEpochId::Epoch21 {
-            let mut p = *public_key;
+            let mut p = public_key.clone();
             p.set_compressed(true);
             p
         } else {
-            *public_key
+            public_key.clone()
         };
 
         // Configure UTXO filter

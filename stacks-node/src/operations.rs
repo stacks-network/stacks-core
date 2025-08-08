@@ -116,7 +116,7 @@ impl BurnchainOpSigner {
     /// This is useful in testing scenarios where you need a fresh, undisposed copy
     /// of a signer without recreating the private key.
     pub fn undisposed(&self) -> Self {
-        Self::new(self.secret_key)
+        Self::new(self.secret_key.clone())
     }
 }
 
