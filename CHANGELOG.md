@@ -7,9 +7,17 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## Unreleased
 
+### Fixed
+
+- Fixed a typo in the metrics_identifier route from `/v2/stackedb/:principal/:contract_name/replicas` to `/v2/stackerdb/:principal/:contract_name/replicas`. Note: This may be a breaking change for systems relying on the incorrect route. Please update any metrics tools accordingly.
+
+## [3.2.0.0.0]
+
 ### Added
 
+- Added the `clarity-serialization` crate: A lightweight crate for serializing and deserializing Clarity values. This crate decouples core data types from the Clarity VM, making it easier to build off-chain tooling, and other applications that interact with Clarity data. It includes support for `wasm32-unknown-unknown` targets via the `wasm-web` and `wasm-deterministic` features.
 - Added `/v3/contracts/fast-call-read/:principal/:contract_name/:func_name` api endpoint. It allows to run read-only calls faster by disabling the cost and memory trackers. This endpoint requires authentication.
+- **SIP-031 consensus rules, activating in epoch 3.2 at block 907_740**
 
 ### Changed
 

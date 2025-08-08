@@ -254,6 +254,181 @@ impl CoinbaseInterval {
     }
 }
 
+/// Struct describing the intervals in which SIP-031 emission are applied.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SIP031EmissionInterval {
+    /// amount of uSTX to emit
+    pub amount: u128,
+    /// height of the burn chain in which the interval starts
+    pub start_height: u64,
+}
+
+// From SIP-031:
+//
+// | Bitcoin Height | STX Emission |
+// |----------------|------------  |
+// |   907,740      |     475      |
+// |   960,300      |   1,140      |
+// | 1,012,860      |   1,705      |
+// | 1,065,420      |   1,305      |
+// | 1,117,980      |   1,155      |
+// | 1,170,540      |       0      |
+
+/// Mainnet sip-031 emission intervals
+pub static SIP031_EMISSION_INTERVALS_MAINNET: LazyLock<[SIP031EmissionInterval; 6]> =
+    LazyLock::new(|| {
+        let emissions_schedule = [
+            SIP031EmissionInterval {
+                amount: 0,
+                start_height: 1_170_540,
+            },
+            SIP031EmissionInterval {
+                amount: 1_155 * u128::from(MICROSTACKS_PER_STACKS),
+                start_height: 1_117_980,
+            },
+            SIP031EmissionInterval {
+                amount: 1_305 * u128::from(MICROSTACKS_PER_STACKS),
+                start_height: 1_065_420,
+            },
+            SIP031EmissionInterval {
+                amount: 1_705 * u128::from(MICROSTACKS_PER_STACKS),
+                start_height: 1_012_860,
+            },
+            SIP031EmissionInterval {
+                amount: 1_140 * u128::from(MICROSTACKS_PER_STACKS),
+                start_height: 960_300,
+            },
+            SIP031EmissionInterval {
+                amount: 475 * u128::from(MICROSTACKS_PER_STACKS),
+                start_height: 907_740,
+            },
+        ];
+        assert!(SIP031EmissionInterval::check_inversed_order(
+            &emissions_schedule
+        ));
+        emissions_schedule
+    });
+
+/// Testnet sip-031 emission intervals (starting from 71_525, 1 interval every 360 bitcoin blocks)
+pub static SIP031_EMISSION_INTERVALS_TESTNET: LazyLock<[SIP031EmissionInterval; 6]> =
+    LazyLock::new(|| {
+        let emissions_schedule = [
+            SIP031EmissionInterval {
+                amount: 0,
+                start_height: 71_525 + (360 * 6),
+            },
+            SIP031EmissionInterval {
+                amount: 5_000,
+                start_height: 71_525 + (360 * 5),
+            },
+            SIP031EmissionInterval {
+                amount: 4_000,
+                start_height: 71_525 + (360 * 4),
+            },
+            SIP031EmissionInterval {
+                amount: 3_000,
+                start_height: 71_525 + (360 * 3),
+            },
+            SIP031EmissionInterval {
+                amount: 2_000,
+                start_height: 71_525 + (360 * 2),
+            },
+            SIP031EmissionInterval {
+                amount: 1_000,
+                start_height: 71_525 + 360,
+            },
+        ];
+        assert!(SIP031EmissionInterval::check_inversed_order(
+            &emissions_schedule
+        ));
+        emissions_schedule
+    });
+
+/// Used for testing to substitute a sip-031 emission schedule
+#[cfg(any(test, feature = "testing"))]
+pub static SIP031_EMISSION_INTERVALS_TEST: std::sync::Mutex<Option<Vec<SIP031EmissionInterval>>> =
+    std::sync::Mutex::new(None);
+
+#[cfg(any(test, feature = "testing"))]
+pub fn set_test_sip_031_emission_schedule(emission_schedule: Option<Vec<SIP031EmissionInterval>>) {
+    if let Some(emission_schedule_vec) = &emission_schedule {
+        assert!(SIP031EmissionInterval::check_inversed_order(
+            emission_schedule_vec
+        ));
+    }
+    match SIP031_EMISSION_INTERVALS_TEST.lock() {
+        Ok(mut schedule_guard) => {
+            *schedule_guard = emission_schedule;
+        }
+        Err(_e) => {
+            panic!("SIP031_EMISSION_INTERVALS_TEST mutex poisoned");
+        }
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+fn get_sip_031_emission_schedule(_mainnet: bool) -> Vec<SIP031EmissionInterval> {
+    match SIP031_EMISSION_INTERVALS_TEST.lock() {
+        Ok(schedule_opt) => {
+            if let Some(schedule) = (*schedule_opt).as_ref() {
+                info!("Use overridden SIP-031 emission schedule {:?}", &schedule);
+                schedule.clone()
+            } else {
+                vec![]
+            }
+        }
+        Err(_e) => {
+            panic!("COINBASE_INTERVALS_TEST mutex poisoned");
+        }
+    }
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+fn get_sip_031_emission_schedule(mainnet: bool) -> Vec<SIP031EmissionInterval> {
+    if mainnet {
+        SIP031_EMISSION_INTERVALS_MAINNET.to_vec()
+    } else {
+        SIP031_EMISSION_INTERVALS_TESTNET.to_vec()
+    }
+}
+
+impl SIP031EmissionInterval {
+    /// Look up the amount of STX to emit at the start of the tenure at the specified height.
+    /// Precondition: `intervals` must be sorted in descending order by `start_height`
+    pub fn get_sip_031_emission_at_height(burn_height: u64, mainnet: bool) -> u128 {
+        let intervals = get_sip_031_emission_schedule(mainnet);
+
+        if intervals.is_empty() {
+            return 0;
+        }
+
+        for interval in intervals {
+            if burn_height >= interval.start_height {
+                return interval.amount;
+            }
+        }
+
+        // default emission (out of SIP-031 ranges)
+        0
+    }
+
+    /// Verify that a list of intervals is sorted in descending order by `start_height`
+    pub fn check_inversed_order(intervals: &[SIP031EmissionInterval]) -> bool {
+        let Some(mut ht) = intervals.first().map(|x| x.start_height) else {
+            // if the interval list is empty, its sorted
+            return true;
+        };
+
+        for interval in intervals.iter().skip(1) {
+            if interval.start_height > ht {
+                return false;
+            }
+            ht = interval.start_height;
+        }
+        true
+    }
+}
+
 impl StacksEpochId {
     pub fn latest() -> StacksEpochId {
         StacksEpochId::Epoch32
@@ -547,6 +722,23 @@ impl StacksEpochId {
                 first_burnchain_height,
                 current_burnchain_height,
             ),
+        }
+    }
+
+    /// Whether or not this epoch is part of the SIP-031 schedule
+    pub fn includes_sip_031(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31 => false,
+            StacksEpochId::Epoch32 => true,
         }
     }
 }

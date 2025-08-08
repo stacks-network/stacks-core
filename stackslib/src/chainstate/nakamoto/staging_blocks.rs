@@ -184,7 +184,7 @@ impl DerefMut for NakamotoStagingBlocksConn {
 }
 
 impl NakamotoStagingBlocksConn {
-    pub fn conn(&self) -> NakamotoStagingBlocksConnRef {
+    pub fn conn(&self) -> NakamotoStagingBlocksConnRef<'_> {
         NakamotoStagingBlocksConnRef(&self.0)
     }
 }
@@ -211,7 +211,7 @@ impl NakamotoStagingBlocksTx<'_> {
         self.0.commit()
     }
 
-    pub fn conn(&self) -> NakamotoStagingBlocksConnRef {
+    pub fn conn(&self) -> NakamotoStagingBlocksConnRef<'_> {
         NakamotoStagingBlocksConnRef(self.0.deref())
     }
 }
@@ -746,7 +746,7 @@ impl StacksChainState {
     }
 
     /// Get a ref to the nakamoto staging blocks connection
-    pub fn nakamoto_blocks_db(&self) -> NakamotoStagingBlocksConnRef {
+    pub fn nakamoto_blocks_db(&self) -> NakamotoStagingBlocksConnRef<'_> {
         NakamotoStagingBlocksConnRef(&self.nakamoto_staging_blocks_conn)
     }
 

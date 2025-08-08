@@ -20,7 +20,7 @@ use std::ops::{Deref, DerefMut, Range};
 use clarity::util::secp256k1::Secp256k1PublicKey;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::events::StacksTransactionEvent;
+use clarity::vm::events::{STXEventType, STXMintEventData, StacksTransactionEvent};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityVersion, Value};
 use lazy_static::lazy_static;
@@ -37,7 +37,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
     StacksPrivateKey, StacksPublicKey, TrieHash, VRFSeed,
 };
-use stacks_common::types::{PrivateKey, StacksEpochId};
+use stacks_common::types::{PrivateKey, SIP031EmissionInterval, StacksEpochId};
 use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
@@ -74,6 +74,7 @@ use crate::chainstate::nakamoto::tenure::{
     NakamotoTenureEventId, NAKAMOTO_TENURES_SCHEMA_1, NAKAMOTO_TENURES_SCHEMA_2,
     NAKAMOTO_TENURES_SCHEMA_3,
 };
+use crate::chainstate::stacks::boot::SIP_031_NAME;
 use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use crate::chainstate::stacks::db::{
     DBConfig as ChainstateConfig, StacksChainState, StacksDBConn, StacksDBTx,
@@ -518,6 +519,13 @@ impl MaturedMinerPaymentSchedules {
             parent_miner: MinerPaymentSchedule::genesis(mainnet),
         }
     }
+}
+
+/// Struct for the transaction events associated with
+/// any operations handled in finish_block()
+pub struct FinishBlockEvents {
+    pub lockup_events: Vec<StacksTransactionEvent>,
+    pub sip31_event: Option<StacksTransactionEvent>,
 }
 
 /// Struct containing information about the miners assigned in the
@@ -4171,7 +4179,9 @@ impl NakamotoChainState {
     pub fn finish_block(
         clarity_tx: &mut ClarityTx,
         miner_payouts: Option<&MaturedMinerRewards>,
-    ) -> Result<Vec<StacksTransactionEvent>, ChainstateError> {
+        new_tenure: bool,
+        chain_tip_burn_header_height: u32,
+    ) -> Result<FinishBlockEvents, ChainstateError> {
         // add miner payments
         if let Some(rewards) = miner_payouts {
             // grant in order by miner, then users
@@ -4190,7 +4200,17 @@ impl NakamotoChainState {
 
         clarity_tx.increment_ustx_liquid_supply(new_unlocked_ustx);
 
-        Ok(lockup_events)
+        // process SIP-031 mint/transfers
+        let sip31_event = if new_tenure {
+            Self::sip_031_mint_and_transfer_on_new_tenure(clarity_tx, chain_tip_burn_header_height)
+        } else {
+            None
+        };
+
+        Ok(FinishBlockEvents {
+            lockup_events,
+            sip31_event,
+        })
     }
 
     /// Verify that the PoX bitvector from the block header is consistent with the block-commit's
@@ -4613,15 +4633,22 @@ impl NakamotoChainState {
             .map(|matured_miner_rewards| matured_miner_rewards.consolidate())
             .unwrap_or_default();
 
-        let mut lockup_events =
-            match Self::finish_block(&mut clarity_tx, matured_miner_rewards_opt.as_ref()) {
-                Err(ChainstateError::InvalidStacksBlock(e)) => {
-                    clarity_tx.rollback_block();
-                    return Err(ChainstateError::InvalidStacksBlock(e));
-                }
-                Err(e) => return Err(e),
-                Ok(lockup_events) => lockup_events,
-            };
+        let FinishBlockEvents {
+            mut lockup_events,
+            sip31_event,
+        } = match Self::finish_block(
+            &mut clarity_tx,
+            matured_miner_rewards_opt.as_ref(),
+            new_tenure,
+            chain_tip_burn_header_height,
+        ) {
+            Err(ChainstateError::InvalidStacksBlock(e)) => {
+                clarity_tx.rollback_block();
+                return Err(ChainstateError::InvalidStacksBlock(e));
+            }
+            Err(e) => return Err(e),
+            Ok(finish_events) => finish_events,
+        };
 
         // If any, append lockups events to the coinbase receipt
         if let Some(receipt) = tx_receipts.get_mut(0) {
@@ -4647,6 +4674,20 @@ impl NakamotoChainState {
                 }
             } else {
                 warn!("Unable to attach auto unlock events, block's first transaction is not a coinbase transaction")
+            }
+        }
+
+        // for sip-031 we append the mint event to the coinbase
+        // note that the above coinbase checks are left with index assumptions (get_mut(0))
+        // for backward compatibility (even if since nakamoto the coinbase is at index 1)
+        if let Some(event) = sip31_event {
+            if let Some(coinbase_receipt) = tx_receipts
+                .iter_mut()
+                .find(|tx_receipt| tx_receipt.is_coinbase_tx())
+            {
+                coinbase_receipt.events.push(event);
+            } else {
+                error!("Unable to attach SIP-031 mint events, block's coinbase transaction not available")
             }
         }
 
@@ -4827,6 +4868,56 @@ impl NakamotoChainState {
             reward_set_data,
             lockup_events,
         ))
+    }
+
+    pub fn sip_031_mint_and_transfer_on_new_tenure(
+        clarity_tx: &mut ClarityTx,
+        chain_tip_burn_header_height: u32,
+    ) -> Option<StacksTransactionEvent> {
+        let evaluated_epoch = clarity_tx.get_epoch();
+        if evaluated_epoch.includes_sip_031() {
+            let mainnet = clarity_tx.config.mainnet;
+
+            let sip_031_mint_and_transfer_amount =
+                SIP031EmissionInterval::get_sip_031_emission_at_height(
+                    chain_tip_burn_header_height.into(),
+                    mainnet,
+                );
+
+            if sip_031_mint_and_transfer_amount > 0 {
+                let recipient = PrincipalData::Contract(boot_code_id(SIP_031_NAME, mainnet));
+
+                info!(
+                    "SIP-031 minting and transferring on new tenure";
+                    "mint_and_transfer_amount" => sip_031_mint_and_transfer_amount,
+                    "recipient" => recipient.to_string(),
+                    "burnchain_height" => chain_tip_burn_header_height
+                );
+
+                clarity_tx.connection().as_transaction(|tx_conn| {
+                    tx_conn
+                        .with_clarity_db(|db| {
+                            db.increment_ustx_liquid_supply(sip_031_mint_and_transfer_amount)
+                                .map_err(|e| e.into())
+                        })
+                        .expect("FATAL: `SIP-031 mint` overflowed");
+                    StacksChainState::account_credit(
+                        tx_conn,
+                        &recipient,
+                        u64::try_from(sip_031_mint_and_transfer_amount)
+                            .expect("FATAL: transferred more STX than exist"),
+                    );
+                });
+
+                return Some(StacksTransactionEvent::STXEvent(
+                    STXEventType::STXMintEvent(STXMintEventData {
+                        recipient,
+                        amount: sip_031_mint_and_transfer_amount,
+                    }),
+                ));
+            }
+        }
+        None
     }
 
     /// Create a StackerDB config for the .miners contract.
