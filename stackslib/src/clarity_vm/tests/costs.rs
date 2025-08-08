@@ -23,6 +23,7 @@ use clarity::vm::costs::{
     compute_cost, ClarityCostFunctionEvaluator, ClarityCostFunctionReference, CostErrors,
     DefaultVersion, ExecutionCost, LimitedCostTracker, COSTS_1_NAME, COSTS_2_NAME, COSTS_3_NAME,
 };
+use clarity::vm::database::MemoryBackingStore;
 use clarity::vm::errors::Error;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;

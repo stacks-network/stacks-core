@@ -17,10 +17,9 @@
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::analysis_db;
-use crate::vm::ast::ASTRules;
-use crate::vm::contexts::{AssetMap, AssetMapEntry, OwnedEnvironment};
+use crate::vm::contexts::{AssetMap, OwnedEnvironment};
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use crate::vm::errors::Error;
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::tests::{test_clarity_versions, test_epochs};

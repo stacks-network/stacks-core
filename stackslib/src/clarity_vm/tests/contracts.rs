@@ -230,7 +230,7 @@ fn test_get_block_info_eval_v210() {
                 .analyze_smart_contract(&contract_identifier, clarity_version, contract, ASTRules::PrecheckSize)
                 .unwrap();
             clarity_db
-                .initialize_smart_contract(&contract_identifier, clarity_version, &mut ast, &analysis, contract, None, |_, _| false, None)
+                .initialize_smart_contract(&contract_identifier, clarity_version, &mut ast, &analysis, contract, None, |_, _| None, None)
                 .unwrap();
         });
         let mut tx = conn.start_transaction_processing();
