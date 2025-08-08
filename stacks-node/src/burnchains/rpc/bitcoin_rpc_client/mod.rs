@@ -31,6 +31,8 @@ use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::Txid;
 use stacks::config::Config;
 use stacks::types::chainstate::BurnchainHeaderHash;
+use stacks::util::hash::hex_bytes;
+use stacks_common::deps_common::bitcoin::blockdata::script::Script;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
 use stacks_common::deps_common::bitcoin::network::serialize::serialize_hex;
 
@@ -134,31 +136,117 @@ pub struct ImportDescriptorsResponse {
 /// This struct supports a subset of available fields to match current usage.
 /// Additional fields can be added in the future as needed.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ListUnspentResponse {
     /// The transaction ID of the UTXO.
-    pub txid: String,
+    #[serde(deserialize_with = "deserialize_string_to_txid")]
+    pub txid: Txid,
     /// The index of the output in the transaction.
     pub vout: u32,
     /// The script associated with the output.
-    pub script_pub_key: String,
+    #[serde(
+        rename = "scriptPubKey",
+        deserialize_with = "deserialize_string_to_script"
+    )]
+    pub script_pub_key: Script,
     /// The amount in BTC, deserialized as a string to preserve full precision.
-    #[serde(deserialize_with = "serde_raw_to_string")]
-    pub amount: String,
+    #[serde(deserialize_with = "deserialize_btc_string_to_sat")]
+    pub amount: u64,
     /// The number of confirmations for the transaction.
     pub confirmations: u32,
 }
 
-/// Deserializes any raw JSON value into its unprocessed string representation.
+/// Deserializes a JSON string (hex-encoded in big-endian order) into [`Txid`],
+/// storing bytes in little-endian order
+fn deserialize_string_to_txid<'de, D>(deserializer: D) -> Result<Txid, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let hex_str: String = Deserialize::deserialize(deserializer)?;
+    let txid = Txid::from_bitcoin_hex(&hex_str).map_err(serde::de::Error::custom)?;
+    Ok(txid)
+}
+
+/// Deserializes a JSON string into [`Script`]
+fn deserialize_string_to_script<'de, D>(deserializer: D) -> Result<Script, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let string: String = Deserialize::deserialize(deserializer)?;
+    let bytes = hex_bytes(&string)
+        .map_err(|e| serde::de::Error::custom(format!("invalid hex string for script: {e}")))?;
+    Ok(bytes.into())
+}
+
+/// Deserializes a raw JSON value containing a BTC amount string into satoshis (`u64`).
 ///
-/// Useful when you need to defer parsing, preserve exact formatting (e.g., precision),
-/// or handle heterogeneous value types dynamically.
-fn serde_raw_to_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+/// First captures the value as unprocessed JSON to preserve exact formatting (e.g., float precision),
+/// then convert the BTC string to its integer value in satoshis using [`convert_btc_string_to_sat`].
+fn deserialize_btc_string_to_sat<'de, D>(deserializer: D) -> Result<u64, D::Error>
 where
     D: Deserializer<'de>,
 {
     let raw: Box<RawValue> = Deserialize::deserialize(deserializer)?;
-    Ok(raw.get().to_string())
+    let raw_str = raw.get();
+    let sat_amount = convert_btc_string_to_sat(raw_str).map_err(serde::de::Error::custom)?;
+    Ok(sat_amount)
+}
+
+/// Converts a BTC amount string (e.g. "1.12345678") into satoshis (u64).
+///
+/// # Arguments
+/// * `amount` - A string slice containing the BTC amount in decimal notation.
+///              Expected format: `<integer>.<fractional>` with up to 8 decimal places.
+///              Examples: "1.00000000", "0.00012345", "0.5", "1".
+///
+/// # Returns
+/// On success return the equivalent amount in satoshis (as u64).
+fn convert_btc_string_to_sat(amount: &str) -> Result<u64, String> {
+    const BTC_TO_SAT: u64 = 100_000_000;
+    const MAX_DECIMAL_COUNT: usize = 8;
+    let comps: Vec<&str> = amount.split('.').collect();
+    match comps[..] {
+        [lhs, rhs] => {
+            let rhs_len = rhs.len();
+            if rhs_len > MAX_DECIMAL_COUNT {
+                return Err(format!("Unexpected amount of decimals ({rhs_len}) in '{amount}'"));
+            }
+
+            match (lhs.parse::<u64>(), rhs.parse::<u64>()) {
+                (Ok(integer), Ok(decimal)) => {
+                    let mut sat_amount = integer * BTC_TO_SAT;
+                    let base: u64 = 10;
+                    let sat = decimal * base.pow((MAX_DECIMAL_COUNT - rhs.len()) as u32);
+                    sat_amount += sat;
+                    Ok(sat_amount)
+                }
+                (lhs, rhs) => {
+                    return Err(format!("Cannot convert BTC '{amount}' to sat integer: {lhs:?} - fractional: {rhs:?}"));
+                }
+            }
+        },
+        [lhs] => match lhs.parse::<u64>() {
+            Ok(btc) => Ok(btc * BTC_TO_SAT),
+            Err(_) => Err(format!("Cannot convert BTC '{amount}' integer part to sat: '{lhs}'")),
+        },
+
+        _ => Err(format!("Invalid BTC amount format: '{amount}'. Expected '<integer>.<fractional>' with up to 8 decimals.")),
+    }
+}
+
+/// Converts a satoshi amount (u64) into a BTC string with exactly 8 decimal places.
+///
+/// # Arguments
+/// * `amount` - The amount in satoshis.
+///
+/// # Returns
+/// * A `String` representing the BTC value in the format `<integer>.<fractional>`,
+///   always padded to 8 decimal places (e.g. "1.00000000", "0.50000000").
+fn convert_sat_to_btc_string(amount: u64) -> String {
+    let base: u64 = 10;
+    let int_part = amount / base.pow(8);
+    let frac_part = amount % base.pow(8);
+    let amount = format!("{int_part}.{frac_part:08}");
+    amount
 }
 
 /// Represents an error message returned when importing descriptors fails.
@@ -361,7 +449,7 @@ impl BitcoinRpcClient {
     /// * `max_confirmations` - Maximum number of confirmations allowed (Default: 9.999.999).
     /// * `addresses` - Optional list of addresses to filter UTXOs by (Default: no filtering).
     /// * `include_unsafe` - Whether to include UTXOs from unconfirmed unsafe transactions (Default: `true`).
-    /// * `minimum_amount` - Minimum amount (in BTC. As String to preserve full precision) a UTXO must have to be included (Default: "0").
+    /// * `minimum_amount` - Minimum amount in satoshis (internally converted to BTC string to preserve full precision) a UTXO must have to be included (Default: 0).
     /// * `maximum_count` - Maximum number of UTXOs to return. Use `None` for effectively unlimited (Default: 9.999.999).
     ///
     /// # Returns
@@ -374,17 +462,20 @@ impl BitcoinRpcClient {
         &self,
         min_confirmations: Option<u64>,
         max_confirmations: Option<u64>,
-        addresses: Option<&[&str]>,
+        addresses: Option<&[&BitcoinAddress]>,
         include_unsafe: Option<bool>,
-        minimum_amount: Option<&str>,
+        minimum_amount: Option<u64>,
         maximum_count: Option<u64>,
     ) -> BitcoinRpcClientResult<Vec<ListUnspentResponse>> {
         let min_confirmations = min_confirmations.unwrap_or(0);
-        let max_confirmations = max_confirmations.unwrap_or(9999999);
+        let max_confirmations = max_confirmations.unwrap_or(9_999_999);
         let addresses = addresses.unwrap_or(&[]);
         let include_unsafe = include_unsafe.unwrap_or(true);
-        let minimum_amount = minimum_amount.unwrap_or("0");
-        let maximum_count = maximum_count.unwrap_or(9999999);
+        let minimum_amount = minimum_amount.unwrap_or(0);
+        let maximum_count = maximum_count.unwrap_or(9_999_999);
+
+        let addr_as_strings: Vec<String> = addresses.iter().map(|addr| addr.to_string()).collect();
+        let min_amount_btc_str = convert_sat_to_btc_string(minimum_amount);
 
         Ok(self.wallet_ep.send(
             &self.client_id,
@@ -392,10 +483,10 @@ impl BitcoinRpcClient {
             vec![
                 min_confirmations.into(),
                 max_confirmations.into(),
-                addresses.into(),
+                addr_as_strings.into(),
                 include_unsafe.into(),
                 json!({
-                    "minimumAmount": minimum_amount,
+                    "minimumAmount": min_amount_btc_str,
                     "maximumCount": maximum_count
                 }),
             ],

@@ -343,7 +343,7 @@ fn test_list_unspent_ok() {
         .expect("Should work!");
 
     let utxos = client
-        .list_unspent(None, None, None, Some(false), Some("1"), Some(10))
+        .list_unspent(None, None, None, Some(false), Some(1), Some(10))
         .expect("list_unspent should be ok!");
     assert_eq!(0, utxos.len());
 
@@ -352,12 +352,12 @@ fn test_list_unspent_ok() {
         .expect("generate to address ok!");
 
     let utxos = client
-        .list_unspent(None, None, None, Some(false), Some("1"), Some(10))
+        .list_unspent(None, None, None, Some(false), Some(1), Some(10))
         .expect("list_unspent should be ok!");
     assert_eq!(2, utxos.len());
 
     let utxos = client
-        .list_unspent(None, None, None, Some(false), Some("1"), Some(1))
+        .list_unspent(None, None, None, Some(false), Some(1), Some(1))
         .expect("list_unspent should be ok!");
     assert_eq!(1, utxos.len());
 }

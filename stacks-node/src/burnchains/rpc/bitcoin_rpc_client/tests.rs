@@ -35,6 +35,7 @@ mod utils {
     pub const BITCOIN_TX1_RAW_HEX: &str = "0100000001b1f2f67426d26301f0b20467e9fdd93557cb3cbbcb8d79f3a9c7b6c8ec7f69e8000000006a47304402206369d5eb2b7c99f540f4cf3ff2fd6f4b90f89c4328bfa0b6db0c30bb7f2c3d4c022015a1c0e5f6a0b08c271b2d218e6a7a29f5441dbe39d9a5cbcc223221ad5dbb59012103a34e84c8c7ebc8ecb7c2e59ff6672f392c792fc1c4f3c6fa2e7d3d314f1f38c9ffffffff0200e1f505000000001976a9144621d7f4ce0c956c80e6f0c1b9f78fe0c49cb82088ac80fae9c7000000001976a91488ac1f0f01c2a5c2e8f4b4f1a3b1a04d2f35b4c488ac00000000";
     pub const BITCOIN_BLOCK_HASH: &str =
         "0000000000000000011f5b3c4e7e9f4dc2c88f0b6c3a3b17e5a7d0dfeb3bb3cd";
+    pub const BITCOIN_UTXO_SCRIPT_HEX: &str = "76a914e450fe826cb8f7a2efed518c7b22c47515abdd5388ac";
 
     pub fn setup_client(server: &mockito::ServerGuard) -> BitcoinRpcClient {
         let url = server.url();
@@ -288,6 +289,9 @@ fn test_list_wallets_ok() {
 
 #[test]
 fn test_list_unspent_ok() {
+    let expected_txid_str = utils::BITCOIN_TX1_TXID_HEX;
+    let expected_script_hex = utils::BITCOIN_UTXO_SCRIPT_HEX;
+
     let expected_request = json!({
         "jsonrpc": "2.0",
         "id": "stacks",
@@ -295,7 +299,7 @@ fn test_list_unspent_ok() {
         "params": [
             1,
             10,
-            ["BTC_ADDRESS_1"],
+            [utils::BITCOIN_ADDRESS_LEGACY_STR],
             true,
             {
                 "minimumAmount": "0.00001000",
@@ -307,9 +311,9 @@ fn test_list_unspent_ok() {
     let mock_response = json!({
         "id": "stacks",
         "result": [{
-            "txid": "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
+            "txid": expected_txid_str,
             "vout": 0,
-            "scriptPubKey": "76a91489abcdefabbaabbaabbaabbaabbaabbaabbaabba88ac",
+            "scriptPubKey": expected_script_hex,
             "amount": 0.00001,
             "confirmations": 6
         }],
@@ -327,30 +331,26 @@ fn test_list_unspent_ok() {
 
     let client = utils::setup_client(&server);
 
+    let addr = BitcoinAddress::from_string(utils::BITCOIN_ADDRESS_LEGACY_STR).unwrap();
+
     let result = client
         .list_unspent(
             Some(1),
             Some(10),
-            Some(&["BTC_ADDRESS_1"]),
+            Some(&[&addr]),
             Some(true),
-            Some("0.00001000"), // 1000 sats = 0.00001000 BTC
+            Some(1_000), // 1000 sats = 0.00001000 BTC
             Some(5),
         )
         .expect("Should parse unspent outputs");
 
     assert_eq!(1, result.len());
     let utxo = &result[0];
-    assert_eq!("0.00001", utxo.amount);
+    assert_eq!(1_000, utxo.amount);
     assert_eq!(0, utxo.vout);
     assert_eq!(6, utxo.confirmations);
-    assert_eq!(
-        "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
-        utxo.txid,
-    );
-    assert_eq!(
-        "76a91489abcdefabbaabbaabbaabbaabbaabbaabbaabba88ac",
-        utxo.script_pub_key,
-    );
+    assert_eq!(expected_txid_str, utxo.txid.to_bitcoin_hex(),);
+    assert_eq!(expected_script_hex, format!("{:x}", utxo.script_pub_key),);
 }
 
 #[test]
@@ -986,4 +986,35 @@ fn test_get_block_hash_ok() {
 
     let hash = client.get_block_hash(height).expect("Should be ok!");
     assert_eq!(expected_hash, hash);
+}
+
+#[test]
+pub fn test_convert_btc_to_sat() {
+    use convert_btc_string_to_sat as to_sat;
+
+    // Valid conversions
+    assert_eq!(100_000_000, to_sat("1.0").unwrap(), "BTC 1.0 ok!");
+    assert_eq!(
+        100_000_000,
+        to_sat("1.00000000").unwrap(),
+        "BTC 1.00000000 ok!"
+    );
+    assert_eq!(100_000_000, to_sat("1").unwrap(), "BTC 1 ok!");
+    assert_eq!(50_000_000, to_sat("0.500").unwrap(), "BTC 0.500 ok!");
+    assert_eq!(1, to_sat("0.00000001").unwrap(), "BTC 0.00000001 ok!");
+
+    // Invalid conversions
+    to_sat("0.123456789").expect_err("BTC 0.123456789 fails: decimals > 8");
+    to_sat("NAN.1").expect_err("BTC NAN.1 fails: integer part is not a number");
+    to_sat("1.NAN").expect_err("BTC 1.NAN fails: decimal part is not a number");
+    to_sat("1.23.45").expect_err("BTC 1.23.45 fails: dots > 1");
+}
+
+#[test]
+pub fn test_convert_sat_to_btc() {
+    use convert_sat_to_btc_string as to_btc;
+
+    assert_eq!("1.00000000", to_btc(100_000_000), "SAT 1_000_000_000 ok!");
+    assert_eq!("0.50000000", to_btc(50_000_000), "SAT 50_000_000 ok!");
+    assert_eq!("0.00000001", to_btc(1), "SAT 1 ok!");
 }
