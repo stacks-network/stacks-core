@@ -12732,7 +12732,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
     info!("Submitted tx {tx} in attempt to mine block N");
     let mut new_signature_hash = None;
     wait_for(30, || {
-        let accepted_signers = test_observer::get_stackerdb_chunks()
+        let accepted_signers: HashSet<_> = test_observer::get_stackerdb_chunks()
             .into_iter()
             .flat_map(|chunk| chunk.modified_slots)
             .filter_map(|chunk| {
@@ -12742,12 +12742,13 @@ fn injected_signatures_are_ignored_across_boundaries() {
                     new_signature_hash = Some(accepted.signer_signature_hash);
                     return non_ignoring_signers.iter().find(|key| {
                         key.verify(accepted.signer_signature_hash.bits(), &accepted.signature)
-                            .is_ok()
+                            .unwrap()
                     });
                 }
                 None
-            });
-        Ok(accepted_signers.count() + ignoring_signers.len() == new_num_signers)
+            })
+            .collect();
+        Ok(accepted_signers.len() + ignoring_signers.len() == new_num_signers)
     })
     .expect("FAIL: Timed out waiting for block proposal acceptance");
     let new_signature_hash = new_signature_hash.expect("Failed to get new signature hash");
