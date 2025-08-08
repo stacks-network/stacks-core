@@ -25,7 +25,9 @@ use stacks::types::Address;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize_hex;
 
-use crate::burnchains::rpc::bitcoin_rpc_client::{BitcoinRpcClient, BitcoinRpcClientResult};
+use crate::burnchains::rpc::bitcoin_rpc_client::{
+    BitcoinRpcClient, BitcoinRpcClientResult, TxidWrapperResponse,
+};
 
 /// Represents the response returned by the `getblockchaininfo` RPC call.
 ///
@@ -138,21 +140,6 @@ impl<'de> Deserialize<'de> for GetNewAddressResponse {
     }
 }
 
-/// Response for `sendtoaddress` rpc, mainly used as deserialization wrapper for `Txid`
-struct SendToAddressResponse(pub Txid);
-
-/// Deserializes a JSON string into [`Txid`] and wrap it into [`SendToAddressResponse`]
-impl<'de> Deserialize<'de> for SendToAddressResponse {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let hex_str: String = Deserialize::deserialize(deserializer)?;
-        let txid = Txid::from_hex(&hex_str).map_err(serde::de::Error::custom)?;
-        Ok(SendToAddressResponse(txid))
-    }
-}
-
 impl BitcoinRpcClient {
     /// Retrieve general information about the current state of the blockchain.
     ///
@@ -170,7 +157,8 @@ impl BitcoinRpcClient {
     /// Retrieves and deserializes a raw Bitcoin transaction by its ID.
     ///
     /// # Arguments
-    /// * `txid` - Transaction ID to fetch.
+    /// * `txid` - Transaction ID to fetch, which is intended to be created with [`Txid::from_bitcoin_hex`],
+    ///            or an analogous process.
     ///
     /// # Returns
     /// A [`Transaction`] struct representing the decoded transaction.
@@ -178,10 +166,12 @@ impl BitcoinRpcClient {
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.7.0**.
     pub fn get_raw_transaction(&self, txid: &Txid) -> BitcoinRpcClientResult<Transaction> {
+        let btc_txid = txid.to_bitcoin_hex();
+
         let raw_hex = self.global_ep.send::<String>(
             &self.client_id,
             "getrawtransaction",
-            vec![txid.to_string().into()],
+            vec![btc_txid.to_string().into()],
         )?;
         Ok(deserialize_hex(&raw_hex)?)
     }
@@ -273,7 +263,7 @@ impl BitcoinRpcClient {
     /// * `amount` - Amount to send in BTC (not in satoshis).
     ///
     /// # Returns
-    /// A [`Txid`] struct representing the transaction ID
+    /// A [`Txid`] struct representing the transaction ID (storing internally bytes in **little-endian** order)
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.1.0**.
@@ -282,7 +272,7 @@ impl BitcoinRpcClient {
         address: &BitcoinAddress,
         amount: f64,
     ) -> BitcoinRpcClientResult<Txid> {
-        let response = self.wallet_ep.send::<SendToAddressResponse>(
+        let response = self.wallet_ep.send::<TxidWrapperResponse>(
             &self.client_id,
             "sendtoaddress",
             vec![address.to_string().into(), amount.into()],

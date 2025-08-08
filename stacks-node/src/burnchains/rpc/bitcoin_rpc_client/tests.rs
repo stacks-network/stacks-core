@@ -467,7 +467,7 @@ fn test_get_transaction_ok() {
 
     let client = utils::setup_client(&server);
 
-    let txid = Txid::from_hex(&txid_hex).unwrap();
+    let txid = Txid::from_bitcoin_hex(&txid_hex).unwrap();
     let info = client.get_transaction(&txid).expect("Should be ok!");
     assert_eq!(6, info.confirmations);
 }
@@ -501,7 +501,7 @@ fn test_get_raw_transaction_ok() {
 
     let client = utils::setup_client(&server);
 
-    let txid = Txid::from_hex(txid_hex).unwrap();
+    let txid = Txid::from_bitcoin_hex(txid_hex).unwrap();
     let raw_tx = client.get_raw_transaction(&txid).expect("Should be ok!");
     assert_eq!(txid_hex, raw_tx.txid().to_string());
     assert_eq!(expected_tx_hex, serialize_hex(&raw_tx).unwrap());
@@ -623,7 +623,7 @@ fn test_send_raw_transaction_ok_with_defaults() {
     let txid = client
         .send_raw_transaction(&raw_tx, None, None)
         .expect("Should work!");
-    assert_eq!(expected_txid, txid.to_hex());
+    assert_eq!(expected_txid, txid.to_bitcoin_hex());
 }
 
 #[test]
@@ -659,7 +659,7 @@ fn test_send_raw_transaction_ok_with_custom_params() {
     let txid = client
         .send_raw_transaction(&raw_tx, Some(0.0), Some(5_000))
         .expect("Should work!");
-    assert_eq!(expected_txid, txid.to_hex());
+    assert_eq!(expected_txid, txid.to_bitcoin_hex());
 }
 
 #[test]
@@ -880,7 +880,7 @@ fn test_send_to_address_ok() {
     let txid = client
         .send_to_address(&address, amount)
         .expect("Should be ok!");
-    assert_eq!(expected_txid_str, txid.to_hex());
+    assert_eq!(expected_txid_str, txid.to_bitcoin_hex());
 }
 
 #[test]

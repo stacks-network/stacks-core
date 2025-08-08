@@ -283,6 +283,21 @@ impl<'de> Deserialize<'de> for GenerateToAddressResponse {
     }
 }
 
+/// Response mainly used as deserialization wrapper for [`Txid`]
+struct TxidWrapperResponse(pub Txid);
+
+/// Deserializes a JSON string (hex-encoded, big-endian) into [`Txid`] and wrap it into [`TxidWrapperResponse`]
+impl<'de> Deserialize<'de> for TxidWrapperResponse {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let hex_str: String = Deserialize::deserialize(deserializer)?;
+        let txid = Txid::from_bitcoin_hex(&hex_str).map_err(serde::de::Error::custom)?;
+        Ok(TxidWrapperResponse(txid))
+    }
+}
+
 /// Client for interacting with a Bitcoin RPC service.
 #[derive(Debug)]
 pub struct BitcoinRpcClient {
@@ -526,7 +541,9 @@ impl BitcoinRpcClient {
     /// hex-encoded transaction, and other metadata for a transaction tracked by the wallet.
     ///
     /// # Arguments
-    /// * `txid` - The transaction ID (as [`Txid`]) to query.
+    /// * `txid` - The transaction ID (as [`Txid`]) to query,
+    ///            which is intended to be created with [`Txid::from_bitcoin_hex`],
+    ///            or an analogous process.
     ///
     /// # Returns
     /// A [`GetTransactionResponse`] containing detailed metadata for the specified transaction.
@@ -534,11 +551,11 @@ impl BitcoinRpcClient {
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.10.0**.
     pub fn get_transaction(&self, txid: &Txid) -> BitcoinRpcClientResult<GetTransactionResponse> {
-        Ok(self.wallet_ep.send(
-            &self.client_id,
-            "gettransaction",
-            vec![txid.to_string().into()],
-        )?)
+        let btc_txid = txid.to_bitcoin_hex();
+
+        Ok(self
+            .wallet_ep
+            .send(&self.client_id, "gettransaction", vec![btc_txid.into()])?)
     }
 
     /// Broadcasts a raw transaction to the Bitcoin network.
@@ -557,7 +574,7 @@ impl BitcoinRpcClient {
     ///     - If `None`, defaults to `0`, meaning burning is not allowed.
     ///
     /// # Returns
-    /// A [`Txid`] as a transaction ID.
+    /// A [`Txid`] as a transaction ID (storing internally bytes in **little-endian** order)
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.7.0**.
@@ -572,11 +589,12 @@ impl BitcoinRpcClient {
         let max_fee_rate = max_fee_rate.unwrap_or(0.10);
         let max_burn_amount = max_burn_amount.unwrap_or(0);
 
-        Ok(self.global_ep.send(
+        let response = self.global_ep.send::<TxidWrapperResponse>(
             &self.client_id,
             "sendrawtransaction",
             vec![tx_hex.into(), max_fee_rate.into(), max_burn_amount.into()],
-        )?)
+        )?;
+        Ok(response.0)
     }
 
     /// Returns information about a descriptor, including its checksum.

@@ -430,7 +430,7 @@ fn test_get_raw_transaction_ok() {
         .get_raw_transaction(&txid)
         .expect("get raw transaction ok!");
 
-    assert_eq!(txid.to_string(), raw_tx.txid().to_string());
+    assert_eq!(txid.to_bitcoin_hex(), raw_tx.txid().to_string());
 }
 
 #[ignore]
