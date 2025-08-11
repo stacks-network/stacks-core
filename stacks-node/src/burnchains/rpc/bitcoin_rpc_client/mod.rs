@@ -586,8 +586,9 @@ impl BitcoinRpcClient {
         max_fee_rate: Option<f64>,
         max_burn_amount: Option<u64>,
     ) -> BitcoinRpcClientResult<Txid> {
+        const DEFAULT_FEE_RATE_BTC_KVB: f64 = 0.10;
         let tx_hex = serialize_hex(tx)?;
-        let max_fee_rate = max_fee_rate.unwrap_or(0.10);
+        let max_fee_rate = max_fee_rate.unwrap_or(DEFAULT_FEE_RATE_BTC_KVB);
         let max_burn_amount = max_burn_amount.unwrap_or(0);
 
         let response = self.global_ep.send::<TxidWrapperResponse>(
