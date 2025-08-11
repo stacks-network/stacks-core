@@ -230,34 +230,18 @@
 /// and then mining an anchor block that does _not_ affirm the missing anchor block would solve this for future
 /// bootstrapping nodes.
 ///
-use std::cmp;
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::fmt::Write;
-use std::sync::mpsc::SyncSender;
-use std::time::Duration;
 
 use serde::de::Error as de_Error;
-use serde::ser::Error as ser_Error;
 use serde::{Deserialize, Serialize};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
-};
 
-use crate::burnchains::db::{
-    BurnchainBlockData, BurnchainDB, BurnchainDBTransaction, BurnchainHeaderReader,
-};
-use crate::burnchains::{Address, Burnchain, BurnchainBlockHeader, Error, PoxConstants, Txid};
-use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::operations::leader_block_commit::{
-    RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
-};
+use crate::burnchains::db::{BurnchainDB, BurnchainDBTransaction, BurnchainHeaderReader};
+use crate::burnchains::{Burnchain, Error, PoxConstants};
+use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
-use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::core::StacksEpochId;
-use crate::util_lib::boot::boot_code_id;
-use crate::util_lib::db::{DBConn, Error as DBError};
+use crate::util_lib::db::Error as DBError;
 
 /// Affirmation map entries.  By building on a PoX-mined block,
 /// a PoB-mined block (in a PoX reward cycle),
@@ -416,8 +400,13 @@ impl AffirmationMap {
     /// Return the index into `other` where the affirmation differs from `self`.
     /// Return `None` if no difference exists.
     pub fn find_divergence(&self, other: &AffirmationMap) -> Option<u64> {
-        for i in 0..cmp::min(self.len(), other.len()) {
-            if self.affirmations[i] != other.affirmations[i] {
+        for (i, (self_aff, other_aff)) in self
+            .affirmations
+            .iter()
+            .zip(other.affirmations.iter())
+            .enumerate()
+        {
+            if self_aff != other_aff {
                 return Some(i as u64);
             }
         }
@@ -442,53 +431,55 @@ impl AffirmationMap {
     /// For `ppppp` and `ppppp`, it's 4.
     pub fn find_inv_search(&self, heaviest: &AffirmationMap) -> u64 {
         let mut highest_p = None;
-        for i in 0..cmp::min(self.len(), heaviest.len()) {
-            if self.affirmations[i] == heaviest.affirmations[i]
-                && self.affirmations[i] == AffirmationMapEntry::PoxAnchorBlockPresent
-            {
+        for (i, (self_aff, heaviest_aff)) in self
+            .affirmations
+            .iter()
+            .zip(heaviest.affirmations.iter())
+            .enumerate()
+        {
+            if self_aff == heaviest_aff && *self_aff == AffirmationMapEntry::PoxAnchorBlockPresent {
                 highest_p = Some(i);
             }
         }
-        if let Some(highest_p) = highest_p {
-            for i in highest_p..cmp::min(self.len(), heaviest.len()) {
-                if self.affirmations[i] == heaviest.affirmations[i]
-                    && self.affirmations[i] == AffirmationMapEntry::PoxAnchorBlockAbsent
-                {
-                    return i as u64;
-                }
-                if self.affirmations[i] != heaviest.affirmations[i] {
-                    return i as u64;
-                }
-            }
-            return highest_p as u64;
-        } else {
+        let Some(highest_p) = highest_p else {
             // no agreement on any anchor block
             return 0;
+        };
+        let remainder_self = self.affirmations.iter().skip(highest_p);
+        let remainder_heaviest = heaviest.affirmations.iter().skip(highest_p);
+        for (i, (self_aff, heaviest_aff)) in remainder_self.zip(remainder_heaviest).enumerate() {
+            let inv_index = u64::try_from(i.saturating_add(highest_p))
+                .expect("FATAL: usize is larger than u64. Unsupported system type");
+            if self_aff == heaviest_aff && *self_aff == AffirmationMapEntry::PoxAnchorBlockAbsent {
+                return inv_index;
+            }
+            if self_aff != heaviest_aff {
+                return inv_index;
+            }
         }
+        u64::try_from(highest_p).expect("FATAL: usize is larger than u64. Unsupported system type")
     }
 
     /// Is `other` a prefix of `self`?
     /// Returns true if so; false if not
     pub fn has_prefix(&self, prefix: &AffirmationMap) -> bool {
-        if self.len() < prefix.len() {
+        let Some(self_prefix) = self.affirmations.get(..prefix.len()) else {
+            return false;
+        };
+
+        if self_prefix.len() != prefix.len() {
             return false;
         }
 
-        for i in 0..prefix.len() {
-            if self.affirmations[i] != prefix.affirmations[i] {
-                return false;
-            }
-        }
-
-        true
+        self_prefix == &prefix.affirmations
     }
 
     /// What is the weight of this affirmation map?
     /// i.e. how many times did the network either affirm an anchor block, or make no election?
     pub fn weight(&self) -> u64 {
         let mut weight = 0;
-        for i in 0..self.len() {
-            match self.affirmations[i] {
+        for affirmation in self.affirmations.iter() {
+            match affirmation {
                 AffirmationMapEntry::PoxAnchorBlockAbsent => {}
                 _ => {
                     weight += 1;
@@ -1197,7 +1188,10 @@ pub fn update_pox_affirmation_maps<B: BurnchainHeaderReader>(
         // mark the prepare-phase commits that elected this next reward cycle's anchor block as
         // having descended or not descended from this anchor block.
         for (block_idx, block_ops) in prepare_ops.iter().enumerate() {
-            assert_eq!(block_ops.len(), descendancy[block_idx].len());
+            let descendancy = descendancy
+                .get(block_idx)
+                .ok_or_else(|| Error::ProcessorError)?;
+            assert_eq!(block_ops.len(), descendancy.len());
 
             for (tx_idx, tx_op) in block_ops.iter().enumerate() {
                 test_debug!(
@@ -1205,13 +1199,16 @@ pub fn update_pox_affirmation_maps<B: BurnchainHeaderReader>(
                     tx_op.block_height,
                     tx_op.vtxindex
                 );
+                let is_tx_descendant = descendancy
+                    .get(tx_idx)
+                    .ok_or_else(|| Error::ProcessorError)?;
                 tx.make_prepare_phase_affirmation_map(
                     indexer,
                     burnchain,
                     reward_cycle + 1,
                     tx_op,
                     Some(&anchor_block),
-                    descendancy[block_idx][tx_idx],
+                    *is_tx_descendant,
                 )?;
             }
         }

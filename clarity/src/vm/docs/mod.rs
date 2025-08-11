@@ -749,13 +749,13 @@ the `<`-comparable types are expanded to include `string-ascii`, `string-utf8` a
 
 pub fn get_input_type_string(function_type: &FunctionType) -> String {
     match function_type {
-        FunctionType::Variadic(ref in_type, _) => format!("{}, ...", in_type),
+        FunctionType::Variadic(ref in_type, _) => format!("{in_type}, ..."),
         FunctionType::Fixed(FixedFunction { ref args, .. }) => {
             let in_types: Vec<String> = args.iter().map(|x| format!("{}", x.signature)).collect();
             in_types.join(", ")
         }
         FunctionType::UnionArgs(ref in_types, _) => {
-            let in_types: Vec<String> = in_types.iter().map(|x| format!("{}", x)).collect();
+            let in_types: Vec<String> = in_types.iter().map(|x| format!("{x}")).collect();
             in_types.join(" | ")
         }
         FunctionType::ArithmeticVariadic => "int, ... | uint, ...".to_string(),
@@ -769,11 +769,11 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
                 FunctionArgSignature::Single(left) => {
                     match right_sig {
                         FunctionArgSignature::Single(right) => {
-                            in_types.push(format!("{}, {}", left, right));
+                            in_types.push(format!("{left}, {right}"));
                         },
                         FunctionArgSignature::Union(right_types) => {
                             for right in right_types.iter() {
-                                in_types.push(format!("{}, {}", left, right));
+                                in_types.push(format!("{left}, {right}"));
                             }
                         }
                     }
@@ -782,11 +782,11 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
                     for left in left_types.iter() {
                         match right_sig {
                             FunctionArgSignature::Single(right) => {
-                                in_types.push(format!("{}, {}", left, right));
+                                in_types.push(format!("{left}, {right}"));
                             },
                             FunctionArgSignature::Union(right_types) => {
                                 for right in right_types.iter() {
-                                    in_types.push(format!("{}, {}", left, right));
+                                    in_types.push(format!("{left}, {right}"));
                                 }
                             }
                         }
@@ -801,15 +801,15 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
 #[allow(clippy::panic)]
 pub fn get_output_type_string(function_type: &FunctionType) -> String {
     match function_type {
-        FunctionType::Variadic(_, ref out_type) => format!("{}", out_type),
-        FunctionType::Fixed(FixedFunction { ref returns, .. }) => format!("{}", returns),
-        FunctionType::UnionArgs(_, ref out_type) => format!("{}", out_type),
+        FunctionType::Variadic(_, ref out_type) => format!("{out_type}"),
+        FunctionType::Fixed(FixedFunction { ref returns, .. }) => format!("{returns}"),
+        FunctionType::UnionArgs(_, ref out_type) => format!("{out_type}"),
         FunctionType::ArithmeticVariadic
         | FunctionType::ArithmeticUnary
         | FunctionType::ArithmeticBinary => "int | uint".to_string(),
         FunctionType::ArithmeticComparison => "bool".to_string(),
         FunctionType::Binary(left, right, ref out_sig) => match out_sig {
-            FunctionReturnsSignature::Fixed(out_type) => format!("{}", out_type),
+            FunctionReturnsSignature::Fixed(out_type) => format!("{out_type}"),
             FunctionReturnsSignature::TypeOfArgAtPosition(pos) => {
                 let arg_sig = match pos {
                     0 => left,
@@ -835,10 +835,8 @@ pub fn get_signature(function_name: &str, function_type: &FunctionType) -> Optio
         let in_names: Vec<String> = args.iter().map(|x| x.name.to_string()).collect();
         let arg_examples = in_names.join(" ");
         Some(format!(
-            "({}{}{})",
-            function_name,
-            if arg_examples.is_empty() { "" } else { " " },
-            arg_examples
+            "({function_name}{}{arg_examples})",
+            if arg_examples.is_empty() { "" } else { " " }
         ))
     } else {
         None
@@ -861,10 +859,7 @@ fn make_for_simple_native(
             let output_type = get_output_type_string(&function_type);
             (input_type, output_type)
         } else {
-            panic!(
-                "Attempted to auto-generate docs for non-simple native function: {:?}",
-                name
-            )
+            panic!("Attempted to auto-generate docs for non-simple native function: {name:?}")
         }
     };
 
@@ -3005,7 +3000,7 @@ mod test {
         {
             let mut analysis_db = store.as_analysis_db();
             let whole_contract = segments.join("\n");
-            eprintln!("{}", whole_contract);
+            eprintln!("{whole_contract}");
             let mut parsed = ast::build_ast(
                 &contract_id,
                 &whole_contract,
@@ -3082,7 +3077,7 @@ mod test {
                         None
                     };
 
-                    eprintln!("{}", segment);
+                    eprintln!("{segment}");
 
                     let result = {
                         let parsed = ast::build_ast(
@@ -3245,7 +3240,7 @@ mod test {
             let the_throws = example.lines().filter(|x| x.contains(";; Throws"));
             docs_execute(&mut store, &without_throws);
             for expect_err in the_throws {
-                eprintln!("{}", expect_err);
+                eprintln!("{expect_err}");
                 execute(expect_err).unwrap_err();
             }
         }

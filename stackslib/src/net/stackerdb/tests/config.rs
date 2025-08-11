@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::{ClarityVersion, ContractName};
+use clarity::vm::ContractName;
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{
     BurnchainHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
@@ -24,9 +24,7 @@ use stacks_common::types::StacksEpoch;
 use stacks_common::util::hash::Hash160;
 
 use crate::burnchains::Burnchain;
-use crate::chainstate::stacks::boot::test::{
-    instantiate_pox_peer, instantiate_pox_peer_with_epoch,
-};
+use crate::chainstate::stacks::boot::test::instantiate_pox_peer_with_epoch;
 use crate::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAuth, TransactionPayload,
     TransactionVersion,

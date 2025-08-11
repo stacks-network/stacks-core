@@ -254,6 +254,12 @@ lazy_static! {
         "stacks_node_miner_current_median_commitment_low",
         "Low 64 bits of a miner's median commitment over the mining commitment window."
     )).unwrap();
+
+    pub static ref MINER_STOP_REASON_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "stacks_node_miner_stop_reason_total",
+        "Total number of times the miner stopped for each reason",
+        &["reason"]
+    ).unwrap();
 }
 
 pub fn new_rpc_call_timer(path: &str) -> HistogramTimer {

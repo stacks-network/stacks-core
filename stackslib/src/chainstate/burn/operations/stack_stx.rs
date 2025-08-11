@@ -16,34 +16,19 @@
 
 use std::io::{Read, Write};
 
-use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::deps_common::bitcoin::blockdata::script::Builder;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, TrieHash, VRFSeed,
-};
+use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
 use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
-use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
-use crate::burnchains::bitcoin::bits::parse_script;
-use crate::burnchains::bitcoin::{BitcoinTxInput, BitcoinTxInputStructured};
-use crate::burnchains::{
-    Address, Burnchain, BurnchainBlockHeader, BurnchainTransaction, PoxConstants, PublicKey, Txid,
-};
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
+use crate::burnchains::{BurnchainBlockHeader, BurnchainTransaction, PoxConstants, Txid};
 use crate::chainstate::burn::operations::{
-    parse_u128_from_be, parse_u32_from_be, parse_u64_from_be, BlockstackOperationType,
-    Error as op_error, PreStxOp, StackStxOp,
+    parse_u128_from_be, parse_u32_from_be, Error as op_error, PreStxOp, StackStxOp,
 };
-use crate::chainstate::burn::{ConsensusHash, Opcodes};
+use crate::chainstate::burn::Opcodes;
+#[cfg(test)]
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::index::storage::TrieFileStorage;
-use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::core::{StacksEpochId, POX_MAX_NUM_CYCLES};
-use crate::net::Error as net_error;
 
 // return type from parse_data below
 struct ParsedData {
@@ -121,7 +106,12 @@ impl PreStxOp {
         let outputs = tx.get_recipients();
         assert!(!outputs.is_empty());
 
-        let output = outputs[0]
+        let output = outputs
+            .get(0)
+            .ok_or_else(|| {
+                warn!("Invalid tx: first output not found");
+                op_error::InvalidInput
+            })?
             .as_ref()
             .ok_or_else(|| {
                 warn!("Invalid tx: first output cannot be decoded");
@@ -207,24 +197,24 @@ impl StackStxOp {
             return None;
         }
 
-        let stacked_ustx = parse_u128_from_be(&data[0..16]).unwrap();
-        let num_cycles = data[16];
+        let stacked_ustx = parse_u128_from_be(data.get(0..16)?).unwrap();
+        let num_cycles = *data.get(16)?;
 
         let mut signer_key: Option<StacksPublicKeyBuffer> = None;
         let mut max_amount: Option<u128> = None;
         let mut auth_id: Option<u32> = None;
 
         if data.len() >= 50 {
-            signer_key = Some(StacksPublicKeyBuffer::from(&data[17..50]));
+            signer_key = Some(StacksPublicKeyBuffer::from(data.get(17..50)?));
         }
         if data.len() >= 66 {
-            let Some(amt) = parse_u128_from_be(&data[50..66]) else {
+            let Some(amt) = parse_u128_from_be(data.get(50..66)?) else {
                 return None;
             };
             max_amount = Some(amt);
         }
         if data.len() >= 70 {
-            let Some(id) = parse_u32_from_be(&data[66..70]) else {
+            let Some(id) = parse_u32_from_be(data.get(66..70)?) else {
                 return None;
             };
             auth_id = Some(id);
@@ -319,10 +309,17 @@ impl StackStxOp {
         let outputs = tx.get_recipients();
         assert!(!outputs.is_empty());
 
-        let first_output = outputs[0].as_ref().ok_or_else(|| {
-            warn!("Invalid tx: failed to decode first output");
-            op_error::InvalidInput
-        })?;
+        let first_output = outputs
+            .get(0)
+            .ok_or_else(|| {
+                warn!("Invalid tx: no first output");
+                op_error::InvalidInput
+            })?
+            .as_ref()
+            .ok_or_else(|| {
+                warn!("Invalid tx: failed to decode first output");
+                op_error::InvalidInput
+            })?;
 
         // coerce a hash mode for this address if need be, since we'll need it when we feed this
         // address into the .pox contract
@@ -426,25 +423,19 @@ impl StackStxOp {
 mod tests {
     use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG};
     use stacks_common::deps_common::bitcoin::blockdata::opcodes;
+    use stacks_common::deps_common::bitcoin::blockdata::script::Builder;
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
-    use stacks_common::deps_common::bitcoin::network::serialize::{deserialize, serialize_hex};
-    use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
-    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
+    use stacks_common::types::chainstate::StacksAddress;
     use stacks_common::util::hash::*;
-    use stacks_common::util::vrf::VRFPublicKey;
 
     use super::*;
     use crate::burnchains::bitcoin::address::*;
-    use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::bitcoin::*;
     use crate::burnchains::*;
-    use crate::chainstate::burn::db::sortdb::*;
-    use crate::chainstate::burn::db::*;
     use crate::chainstate::burn::operations::*;
-    use crate::chainstate::burn::{ConsensusHash, *};
+    use crate::chainstate::burn::*;
     use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
-    use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::StacksEpochId;
 
     struct OpFixture {

@@ -14,31 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{error, fmt, fs, io};
+use std::{error, fmt};
 
 use clarity::vm::types::PrincipalData;
-use serde::Deserialize;
+use serde::de::Error as DeError;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::json;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, TrieHash, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed,
 };
 use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::vrf::VRFPublicKey;
 
 use self::leader_block_commit::Treatment;
-use crate::burnchains::{
-    Address, Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainSigner,
-    BurnchainTransaction, Error as BurnchainError, PublicKey, Txid,
-};
-use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
-use crate::chainstate::burn::operations::leader_block_commit::{
-    MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
-};
+use crate::burnchains::{BurnchainSigner, Txid};
+use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
+use crate::util_lib::db::Error as db_error;
 
 pub mod delegate_stx;
 pub mod leader_block_commit;
@@ -374,6 +368,132 @@ pub fn stacks_addr_serialize(addr: &StacksAddress) -> serde_json::Value {
     })
 }
 
+fn normalize_stacks_addr_fields<'de, D>(
+    inner: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), D::Error>
+where
+    D: Deserializer<'de>,
+{
+    // Rename `address_version` to `version`
+    if let Some(address_version) = inner.remove("address_version") {
+        inner.insert("version".to_string(), address_version);
+    }
+
+    // Rename `address_hash_bytes` to `bytes` and convert to bytes
+    if let Some(address_bytes) = inner
+        .remove("address_hash_bytes")
+        .and_then(|addr| serde_json::Value::as_str(&addr).map(|x| x.to_string()))
+    {
+        let address_hex: String = address_bytes.chars().skip(2).collect(); // Remove "0x" prefix
+        inner.insert(
+            "bytes".to_string(),
+            serde_json::to_value(&address_hex).map_err(DeError::custom)?,
+        );
+    }
+
+    Ok(())
+}
+
+/// Serialization function for serializing extended information within the BlockstackOperationType
+/// that is not printed via the standard serde implementation. Specifically, serializes additional
+/// StacksAddress information.
+pub fn blockstack_op_extended_serialize_opt<S: Serializer>(
+    op: &Option<BlockstackOperationType>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    match op {
+        Some(op) => {
+            let value = op.blockstack_op_to_json();
+            value.serialize(s)
+        }
+        None => s.serialize_none(),
+    }
+}
+
+/// Deserialize the burnchain op that was serialized with blockstack_op_to_json
+pub fn blockstack_op_extended_deserialize<'de, D>(
+    deserializer: D,
+) -> Result<Option<BlockstackOperationType>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error as DeError;
+    use serde_json::{Map, Value};
+
+    let raw: Option<Value> = Option::deserialize(deserializer)?;
+    let Some(Value::Object(mut obj)) = raw else {
+        return Ok(None);
+    };
+
+    let Some((key, value)) = obj.iter_mut().next() else {
+        return Ok(None);
+    };
+
+    let inner = value
+        .as_object_mut()
+        .ok_or_else(|| DeError::custom("Expected blockstack op to be an object"))?;
+
+    let normalized_key = match key.as_str() {
+        "pre_stx" => {
+            BlockstackOperationType::normalize_pre_stx_fields::<D>(inner)?;
+            "PreStx"
+        }
+        "stack_stx" => {
+            BlockstackOperationType::normalize_stack_stx_fields::<D>(inner)?;
+            "StackStx"
+        }
+        "transfer_stx" => {
+            BlockstackOperationType::normalize_transfer_stx_fields::<D>(inner)?;
+            "TransferStx"
+        }
+        "delegate_stx" => {
+            BlockstackOperationType::normalize_delegate_stx_fields::<D>(inner)?;
+            "DelegateStx"
+        }
+        "vote_for_aggregate_key" => {
+            BlockstackOperationType::normalize_vote_for_aggregate_key_fields::<D>(inner)?;
+            "VoteForAggregateKey"
+        }
+        "leader_key_register" => "LeaderKeyRegister",
+        "leader_block_commit" => "LeaderBlockCommit",
+        other => other,
+    };
+
+    let mut map = Map::new();
+    map.insert(normalized_key.to_string(), value.clone());
+
+    let normalized = Value::Object(map);
+
+    serde_json::from_value(normalized)
+        .map(Some)
+        .map_err(serde::de::Error::custom)
+}
+
+fn normalize_common_fields<'de, D>(
+    map: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), D::Error>
+where
+    D: Deserializer<'de>,
+{
+    if let Some(hex_str) = map
+        .get("burn_header_hash")
+        .and_then(serde_json::Value::as_str)
+    {
+        let cleaned = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+        let val = BurnchainHeaderHash::from_hex(cleaned).map_err(DeError::custom)?;
+        let ser_val = serde_json::to_value(val).map_err(DeError::custom)?;
+        map.insert("burn_header_hash".to_string(), ser_val);
+    }
+
+    if let Some(val) = map.remove("burn_txid") {
+        map.insert("txid".to_string(), val);
+    }
+    if let Some(val) = map.remove("burn_block_height") {
+        map.insert("block_height".to_string(), val);
+    }
+    Ok(())
+}
+
 impl BlockstackOperationType {
     pub fn opcode(&self) -> Opcodes {
         match *self {
@@ -473,6 +593,118 @@ impl BlockstackOperationType {
                 data.burn_header_hash = hash
             }
         };
+    }
+
+    // Replace all the normalize_* functions with minimal implementations
+    fn normalize_pre_stx_fields<'de, D>(
+        map: &mut serde_json::Map<String, serde_json::Value>,
+    ) -> Result<(), D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        normalize_common_fields::<D>(map)?;
+        if let Some(serde_json::Value::Object(obj)) = map.get_mut("output") {
+            normalize_stacks_addr_fields::<D>(obj)?;
+        }
+        Ok(())
+    }
+
+    fn normalize_stack_stx_fields<'de, D>(
+        map: &mut serde_json::Map<String, serde_json::Value>,
+    ) -> Result<(), D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        normalize_common_fields::<D>(map)?;
+        if let Some(serde_json::Value::Object(obj)) = map.get_mut("sender") {
+            normalize_stacks_addr_fields::<D>(obj)?;
+        }
+        if let Some(reward_val) = map.get("reward_addr") {
+            let b58_str = reward_val
+                .as_str()
+                .ok_or_else(|| DeError::custom("Expected base58 string in reward_addr"))?;
+            let addr = PoxAddress::from_b58(b58_str)
+                .ok_or_else(|| DeError::custom("Invalid stacks address"))?;
+            let val = serde_json::to_value(addr).map_err(DeError::custom)?;
+            map.insert("reward_addr".into(), val);
+        }
+        Ok(())
+    }
+
+    fn normalize_transfer_stx_fields<'de, D>(
+        map: &mut serde_json::Map<String, serde_json::Value>,
+    ) -> Result<(), D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        normalize_common_fields::<D>(map)?;
+        for field in ["recipient", "sender"] {
+            if let Some(serde_json::Value::Object(obj)) = map.get_mut(field) {
+                normalize_stacks_addr_fields::<D>(obj)?;
+            }
+        }
+        if let Some(memo_str) = map.get("memo").and_then(serde_json::Value::as_str) {
+            let memo_hex = memo_str.trim_start_matches("0x");
+            let memo_bytes = hex_bytes(memo_hex).map_err(DeError::custom)?;
+            let val = serde_json::to_value(memo_bytes).map_err(DeError::custom)?;
+            map.insert("memo".into(), val);
+        }
+        Ok(())
+    }
+
+    fn normalize_delegate_stx_fields<'de, D>(
+        map: &mut serde_json::Map<String, serde_json::Value>,
+    ) -> Result<(), D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        normalize_common_fields::<D>(map)?;
+        if let Some(serde_json::Value::Array(arr)) = map.get("reward_addr") {
+            if arr.len() == 2 {
+                let index = arr
+                    .get(0)
+                    .unwrap()
+                    .as_u64()
+                    .ok_or_else(|| DeError::custom("Expected u64 index"))?
+                    as u32;
+                let b58_str = arr
+                    .get(1)
+                    .unwrap()
+                    .as_str()
+                    .ok_or_else(|| DeError::custom("Expected base58 string"))?;
+                let addr = PoxAddress::from_b58(b58_str)
+                    .ok_or_else(|| DeError::custom("Invalid stacks address"))?;
+                let val = serde_json::to_value((index, addr)).map_err(DeError::custom)?;
+                map.insert("reward_addr".into(), val);
+            }
+        }
+        for field in ["delegate_to", "sender"] {
+            if let Some(serde_json::Value::Object(obj)) = map.get_mut(field) {
+                normalize_stacks_addr_fields::<D>(obj)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn normalize_vote_for_aggregate_key_fields<'de, D>(
+        map: &mut serde_json::Map<String, serde_json::Value>,
+    ) -> Result<(), D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        normalize_common_fields::<D>(map)?;
+        for field in ["aggregate_key", "signer_key"] {
+            if let Some(hex_str) = map.get(field).and_then(serde_json::Value::as_str) {
+                let cleaned = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+                let val = StacksPublicKeyBuffer::from_hex(cleaned).map_err(DeError::custom)?;
+                let ser_val = serde_json::to_value(val).map_err(DeError::custom)?;
+                map.insert(field.to_string(), ser_val);
+            }
+        }
+        if let Some(serde_json::Value::Object(obj)) = map.get_mut("sender") {
+            normalize_stacks_addr_fields::<D>(obj)?;
+        }
+        Ok(())
     }
 
     pub fn pre_stx_to_json(op: &PreStxOp) -> serde_json::Value {

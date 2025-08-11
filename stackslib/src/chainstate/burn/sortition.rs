@@ -14,33 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::BTreeMap;
-
-use rusqlite::Connection;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, PoxId, SortitionId, StacksBlockId, TrieHash, VRFSeed,
 };
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::log;
-use stacks_common::util::uint::{BitArray, Uint256, Uint512};
+use stacks_common::util::uint::{BitArray, Uint256};
 
 use crate::burnchains::{
-    Address, Burnchain, BurnchainBlock, BurnchainBlockHeader, BurnchainSigner,
-    BurnchainStateTransition, PublicKey, Txid,
+    Burnchain, BurnchainBlockHeader, BurnchainSigner, BurnchainStateTransition, Txid,
 };
 use crate::chainstate::burn::atc::{AtcRational, ATC_LOOKUP};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::distribution::BurnSamplePoint;
-use crate::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-};
+use crate::chainstate::burn::operations::LeaderBlockCommitOp;
 use crate::chainstate::burn::{
     BlockSnapshot, BurnchainHeaderHash, ConsensusHash, ConsensusHashExtensions, OpsHash,
     SortitionHash,
 };
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId};
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::core::*;
 use crate::util_lib::db::Error as db_error;
 
@@ -142,11 +134,11 @@ impl BlockSnapshot {
         }
 
         let index = sortition_hash.mix_VRF_seed(VRF_seed).to_uint256();
-        for i in 0..dist.len() {
-            if (dist[i].range_start <= index) && (index < dist[i].range_end) {
+        for (i, dist_elem) in dist.iter().enumerate() {
+            if (dist_elem.range_start <= index) && (index < dist_elem.range_end) {
                 debug!(
                     "Sampled {}: i = {}, sortition index = {}",
-                    dist[i].candidate.block_header_hash, i, &index
+                    dist_elem.candidate.block_header_hash, i, &index
                 );
                 return Some(i);
             }
@@ -215,7 +207,14 @@ impl BlockSnapshot {
             }
             Some(win_idx) => {
                 // winner!
-                Ok(Some((burn_dist[win_idx].candidate.clone(), win_idx)))
+                Ok(Some((
+                    burn_dist
+                        .get(win_idx)
+                        .expect("FATAL: the block winner index must be in the burn distribution")
+                        .candidate
+                        .clone(),
+                    win_idx,
+                )))
             }
         }
     }
@@ -654,11 +653,16 @@ impl BlockSnapshot {
         // sortition.  This happens if the assumed total commit with carry-over is sufficiently low.
         let mut reject_winner_reason = None;
         if epoch_id >= StacksEpochId::Epoch30 {
+            let winner_frequency = state_transition
+                .burn_dist
+                .get(winning_block_burn_dist_index)
+                .expect("FATAL: the winner index must be in the burn distribution")
+                .frequency;
             if !Self::check_miner_is_active(
                 epoch_id,
                 state_transition.windowed_block_commits.len(),
                 &winning_block.apparent_sender,
-                state_transition.burn_dist[winning_block_burn_dist_index].frequency,
+                winner_frequency,
             ) {
                 reject_winner_reason = Some("Miner did not mine often enough to win".to_string());
             }
@@ -769,15 +773,12 @@ mod test {
     use stacks_common::address::*;
     use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
     use stacks_common::util::get_epoch_time_secs;
-    use stacks_common::util::hash::hex_bytes;
-    use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey};
+    use stacks_common::util::vrf::VRFPrivateKey;
 
     use super::*;
-    use crate::burnchains::tests::*;
     use crate::burnchains::{BurnchainSigner, *};
     use crate::chainstate::burn::atc::AtcRational;
     use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot_with_winner;
-    use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
     use crate::chainstate::burn::operations::*;
     use crate::chainstate::stacks::*;

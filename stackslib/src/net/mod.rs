@@ -13,89 +13,53 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-#[warn(unused_imports)]
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::io::prelude::*;
 use std::io::{Read, Write};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::ops::Deref;
-use std::str::FromStr;
+use std::net::{IpAddr, SocketAddr};
 use std::{error, fmt, io};
 
-use clarity::vm::analysis::contract_interface_builder::ContractInterface;
-use clarity::vm::costs::ExecutionCost;
 use clarity::vm::errors::Error as InterpreterError;
-use clarity::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier,
-};
-use clarity::vm::{ClarityName, ContractName, Value};
-use libstackerdb::{
-    Error as libstackerdb_error, SlotMetadata, StackerDBChunkAckData, StackerDBChunkData,
-};
-use p2p::{DropPeer, DropReason, DropSource};
-use rand::{thread_rng, RngCore};
-use regex::Regex;
-use rusqlite::types::{ToSql, ToSqlOutput};
-use serde::de::Error as de_Error;
-use serde::ser::Error as ser_Error;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use libstackerdb::{Error as libstackerdb_error, StackerDBChunkData};
+use p2p::{DropReason, DropSource};
 use serde::{Deserialize, Serialize};
 use stacks_common::bitvec::BitVec;
-use stacks_common::codec::{
-    read_next, write_next, Error as codec_error, StacksMessageCodec,
-    BURNCHAIN_HEADER_HASH_ENCODED_SIZE,
-};
+use stacks_common::codec::{Error as codec_error, StacksMessageCodec};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksAddress, StacksBlockId,
 };
 use stacks_common::types::net::{Error as AddrError, PeerAddress, PeerHost};
 use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::hash::{
-    hex_bytes, to_hex, Hash160, Sha256Sum, DOUBLE_SHA256_ENCODED_SIZE, HASH160_ENCODED_SIZE,
-};
-use stacks_common::util::secp256k1::{
-    MessageSignature, Secp256k1PublicKey, MESSAGE_SIGNATURE_ENCODED_SIZE,
-};
-use stacks_common::util::{get_epoch_time_secs, log};
-use {rusqlite, serde_json, url};
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::{Hash160, Sha256Sum};
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
+use {rusqlite, url};
 
 use self::dns::*;
 use crate::burnchains::affirmation::AffirmationMap;
-use crate::burnchains::{Error as burnchain_error, Txid};
+use crate::burnchains::{Burnchain, Error as burnchain_error, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::{ConsensusHash, Opcodes};
+use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
-use crate::chainstate::coordinator::Error as coordinator_error;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use crate::chainstate::stacks::boot::{
-    BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME,
-};
-use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::Error as marf_error;
 use crate::chainstate::stacks::{
-    Error as chainstate_error, Error as chain_error, StacksBlock, StacksBlockHeader,
-    StacksMicroblock, StacksPublicKey, StacksTransaction, TransactionPayload,
+    Error as chainstate_error, Error as chain_error, StacksBlock, StacksMicroblock,
+    StacksPublicKey, StacksTransaction,
 };
 use crate::clarity_vm::clarity::Error as clarity_error;
 use crate::core::mempool::*;
-use crate::core::{StacksEpoch, POX_REWARD_CYCLE_LENGTH};
 use crate::cost_estimates::metrics::CostMetric;
-use crate::cost_estimates::{CostEstimator, FeeEstimator, FeeRateEstimate};
+use crate::cost_estimates::{CostEstimator, FeeEstimator};
 use crate::net::atlas::{Attachment, AttachmentInstance};
-use crate::net::dns::*;
 use crate::net::http::error::{HttpNotFound, HttpServerError};
-use crate::net::http::{
-    Error as HttpErr, HttpRequestContents, HttpRequestPreamble, HttpResponsePreamble,
-};
+use crate::net::http::{Error as HttpErr, HttpRequestContents, HttpRequestPreamble};
 use crate::net::httpcore::{
     HttpRequestContentsExtensions, StacksHttp, StacksHttpRequest, StacksHttpResponse, TipRequest,
 };
 use crate::net::p2p::{PeerNetwork, PendingMessages};
-use crate::util_lib::bloom::{BloomFilter, BloomNodeHasher};
-use crate::util_lib::boot::boot_code_tx_auth;
 use crate::util_lib::db::{DBConn, Error as db_error};
 use crate::util_lib::strings::UrlString;
 
@@ -143,7 +107,7 @@ pub mod stackerdb;
 pub mod unsolicited;
 
 pub use crate::net::neighbors::{NeighborComms, PeerNetworkComms};
-use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBSyncResult, StackerDBs};
+use crate::net::stackerdb::{StackerDBConfig, StackerDBSyncResult};
 
 #[cfg(test)]
 pub mod tests;
@@ -2244,54 +2208,65 @@ pub trait Requestable: std::fmt::Display {
     fn make_request_type(&self, peer_host: PeerHost) -> StacksHttpRequest;
 }
 
+// TODO: DRY up from PoxSyncWatchdog
+pub fn infer_initial_burnchain_block_download(
+    burnchain: &Burnchain,
+    last_processed_height: u64,
+    burnchain_height: u64,
+) -> bool {
+    let ibd = last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
+    if ibd {
+        debug!(
+            "PoX watchdog: {} + {} < {}, so initial block download",
+            last_processed_height, burnchain.stable_confirmations, burnchain_height
+        );
+    } else {
+        debug!(
+            "PoX watchdog: {} + {} >= {}, so steady-state",
+            last_processed_height, burnchain.stable_confirmations, burnchain_height
+        );
+    }
+    ibd
+}
+
 #[cfg(test)]
 pub mod test {
     use std::collections::HashMap;
     use std::io::{Cursor, ErrorKind, Read, Write};
     use std::net::*;
     use std::ops::{Deref, DerefMut};
-    use std::sync::mpsc::sync_channel;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Mutex;
     use std::{fs, io, thread};
 
-    use clarity::boot_util::boot_code_id;
     use clarity::types::sqlite::NO_PARAMS;
     use clarity::vm::ast::parser::v1::CONTRACT_MAX_NAME_LENGTH;
     use clarity::vm::ast::ASTRules;
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::database::STXBalance;
     use clarity::vm::types::*;
-    use clarity::vm::ClarityVersion;
-    use rand::{Rng, RngCore};
+    use clarity::vm::ContractName;
+    use rand::{thread_rng, Rng, RngCore};
     use stacks_common::address::*;
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
-    use stacks_common::types::chainstate::TrieHash;
     use stacks_common::types::StacksEpochId;
-    use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::*;
     use stacks_common::util::secp256k1::*;
-    use stacks_common::util::uint::*;
     use stacks_common::util::vrf::*;
     use {mio, rand};
 
     use self::nakamoto::test_signers::TestSigners;
     use super::*;
-    use crate::burnchains::bitcoin::address::*;
     use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
-    use crate::burnchains::bitcoin::keys::*;
     use crate::burnchains::bitcoin::spv::BITCOIN_GENESIS_BLOCK_HASH_REGTEST;
-    use crate::burnchains::bitcoin::*;
-    use crate::burnchains::burnchain::*;
     use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
     use crate::burnchains::tests::*;
     use crate::burnchains::*;
-    use crate::chainstate::burn::db::sortdb;
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::operations::*;
     use crate::chainstate::burn::*;
     use crate::chainstate::coordinator::tests::*;
-    use crate::chainstate::coordinator::*;
+    use crate::chainstate::coordinator::{Error as coordinator_error, *};
     use crate::chainstate::nakamoto::tests::node::TestStacker;
     use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::boot::test::get_parent_tip;
@@ -2299,28 +2274,23 @@ pub mod test {
     use crate::chainstate::stacks::db::accounts::MinerReward;
     use crate::chainstate::stacks::db::{StacksChainState, *};
     use crate::chainstate::stacks::events::{StacksBlockEventData, StacksTransactionReceipt};
-    use crate::chainstate::stacks::miner::*;
     use crate::chainstate::stacks::tests::chain_histories::mine_smart_contract_block_contract_call_microblock;
     use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::{StacksMicroblockHeader, *};
     use crate::chainstate::*;
-    use crate::clarity::vm::clarity::TransactionConnection;
-    use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, NETWORK_P2P_PORT};
+    use crate::core::{EpochList, StacksEpoch, StacksEpochExtension};
     use crate::cost_estimates::metrics::UnitMetric;
     use crate::cost_estimates::tests::fee_rate_fuzzer::ConstantFeeEstimator;
     use crate::cost_estimates::UnitEstimator;
     use crate::net::asn::*;
     use crate::net::atlas::*;
     use crate::net::chat::*;
-    use crate::net::codec::*;
     use crate::net::connection::*;
     use crate::net::db::*;
-    use crate::net::neighbors::*;
-    use crate::net::p2p::*;
-    use crate::net::poll::*;
     use crate::net::relay::*;
-    use crate::net::{Error as net_error, ProtocolFamily, TipRequest};
-    use crate::util_lib::boot::boot_code_test_addr;
+    use crate::net::stackerdb::{StackerDBSync, StackerDBs};
+    use crate::net::Error as net_error;
+    use crate::util_lib::boot::{boot_code_test_addr, boot_code_tx_auth};
     use crate::util_lib::strings::*;
 
     impl StacksMessageCodec for BlockstackOperationType {
@@ -2576,6 +2546,7 @@ pub mod test {
             _burns: u64,
             _reward_recipients: Vec<PoxAddress>,
             _consensus_hash: &ConsensusHash,
+            _parent_burn_block_hash: &BurnchainHeaderHash,
         ) {
             // pass
         }
@@ -3348,28 +3319,6 @@ pub mod test {
             tx.commit().unwrap();
         }
 
-        // TODO: DRY up from PoxSyncWatchdog
-        pub fn infer_initial_burnchain_block_download(
-            burnchain: &Burnchain,
-            last_processed_height: u64,
-            burnchain_height: u64,
-        ) -> bool {
-            let ibd =
-                last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
-            if ibd {
-                debug!(
-                    "PoX watchdog: {} + {} < {}, so initial block download",
-                    last_processed_height, burnchain.stable_confirmations, burnchain_height
-                );
-            } else {
-                debug!(
-                    "PoX watchdog: {} + {} >= {}, so steady-state",
-                    last_processed_height, burnchain.stable_confirmations, burnchain_height
-                );
-            }
-            ibd
-        }
-
         pub fn step(&mut self) -> Result<NetworkResult, net_error> {
             let sortdb = self.sortdb.take().unwrap();
             let stacks_node = self.stacks_node.take().unwrap();
@@ -3383,7 +3332,7 @@ pub mod test {
             .unwrap()
             .map(|hdr| hdr.anchored_header.height())
             .unwrap_or(0);
-            let ibd = TestPeer::infer_initial_burnchain_block_download(
+            let ibd = infer_initial_burnchain_block_download(
                 &self.config.burnchain,
                 stacks_tip_height,
                 burn_tip_height,
@@ -3514,7 +3463,7 @@ pub mod test {
             .unwrap()
             .map(|hdr| hdr.anchored_header.height())
             .unwrap_or(0);
-            let ibd = TestPeer::infer_initial_burnchain_block_download(
+            let ibd = infer_initial_burnchain_block_download(
                 &self.config.burnchain,
                 stacks_tip_height,
                 burn_tip_height,
@@ -4714,9 +4663,7 @@ pub mod test {
 
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
             let epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
-            let epoch_3_idx =
-                StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap();
-            let epoch_3 = epochs[epoch_3_idx].clone();
+            let epoch_3 = epochs.get(StacksEpochId::Epoch30).unwrap().clone();
 
             let mut all_chain_tips = sortdb.get_all_stacks_chain_tips().unwrap();
             let mut all_preprocessed_reward_sets =

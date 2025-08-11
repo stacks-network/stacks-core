@@ -14,76 +14,36 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
-use std::io::{Read, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread::ThreadId;
-use std::{cmp, fs, mem};
-
-use clarity::vm::analysis::{CheckError, CheckErrors};
-use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::costs::{ExecutionCost, LimitedCostTracker, TrackerData};
-use clarity::vm::database::BurnStateDB;
-use clarity::vm::errors::Error as InterpreterError;
-use clarity::vm::types::{
-    QualifiedContractIdentifier, StacksAddressExtensions as ClarityStacksAddressExtensions,
-    TypeSignature,
-};
-use libstackerdb::StackerDBChunkData;
-use serde::Deserialize;
-use stacks_common::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
+use clarity::vm::costs::ExecutionCost;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, TrieHash,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId,
 };
-use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::hash::{hex_bytes, Hash160, MerkleTree, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
-use stacks_common::util::vrf::VRFProof;
+use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 
-use crate::burnchains::{PrivateKey, PublicKey};
-use crate::chainstate::burn::db::sortdb::{
-    SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
-};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::operations::*;
-use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::OnChainRewardSetProvider;
 use crate::chainstate::nakamoto::{
     MaturedMinerRewards, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::chainstate::stacks::boot::MINERS_NAME;
-use crate::chainstate::stacks::db::accounts::MinerReward;
-use crate::chainstate::stacks::db::blocks::{DummyEventDispatcher, MemPoolRejection};
-use crate::chainstate::stacks::db::transactions::{
-    handle_clarity_runtime_error, ClarityRuntimeTxError,
-};
+use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use crate::chainstate::stacks::db::{
-    ChainstateTx, ClarityTx, MinerRewardInfo, StacksAccount, StacksBlockHeaderTypes,
-    StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
+    ChainstateTx, ClarityTx, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
-use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
 use crate::chainstate::stacks::miner::{
-    BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionError, TransactionEvent,
-    TransactionProblematic, TransactionResult, TransactionSkipped,
+    BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionEvent, TransactionResult,
 };
 use crate::chainstate::stacks::{Error, StacksBlockHeader, *};
-use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
+use crate::clarity_vm::clarity::ClarityInstance;
 use crate::core::mempool::*;
 use crate::core::*;
-use crate::cost_estimates::metrics::CostMetric;
-use crate::cost_estimates::CostEstimator;
 use crate::monitoring::{
     set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed,
 };
 use crate::net::relay::Relayer;
-use crate::net::stackerdb::StackerDBs;
-use crate::net::Error as net_error;
-use crate::util_lib::boot::boot_code_id;
-use crate::util_lib::db::Error as DBError;
 
 /// Nakamaoto tenure information
 #[derive(Debug, Default)]
@@ -518,9 +478,19 @@ impl NakamotoBlockBuilder {
     }
 
     /// Finish building the Nakamoto block
-    pub fn mine_nakamoto_block(&mut self, clarity_tx: &mut ClarityTx) -> NakamotoBlock {
-        NakamotoChainState::finish_block(clarity_tx, self.matured_miner_rewards_opt.as_ref())
-            .expect("FATAL: call to `finish_block` failed");
+    pub fn mine_nakamoto_block(
+        &mut self,
+        clarity_tx: &mut ClarityTx,
+        burn_block_height: u32,
+    ) -> NakamotoBlock {
+        let is_new_tenure = self.coinbase_tx.is_some();
+        NakamotoChainState::finish_block(
+            clarity_tx,
+            self.matured_miner_rewards_opt.as_ref(),
+            is_new_tenure,
+            burn_block_height,
+        )
+        .expect("FATAL: call to `finish_block` failed");
         self.finalize_block(clarity_tx)
     }
 
@@ -541,6 +511,7 @@ impl NakamotoBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         signer_bitvec_len: u16,
+        replay_transactions: &[StacksTransaction],
     ) -> Result<BlockMetadata, Error> {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
@@ -569,6 +540,7 @@ impl NakamotoBlockBuilder {
 
         let mut miner_tenure_info =
             builder.load_tenure_info(&mut chainstate, burn_dbconn, tenure_info.cause())?;
+        let burn_chain_height = miner_tenure_info.burn_tip_height;
         let mut tenure_tx = builder.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
 
         let tenure_budget = tenure_tx
@@ -622,10 +594,11 @@ impl NakamotoBlockBuilder {
             settings,
             event_observer,
             ASTRules::PrecheckSize,
+            replay_transactions,
         ) {
             Ok(x) => x,
             Err(e) => {
-                warn!("Failure building block: {}", e);
+                warn!("Failure building block: {e}");
                 tenure_tx.rollback_block();
                 return Err(e);
             }
@@ -640,11 +613,12 @@ impl NakamotoBlockBuilder {
         }
 
         if builder.txs.is_empty() {
+            set_last_mined_block_transaction_count(0);
             return Err(Error::NoTransactionsToMine);
         }
 
         // save the block so we can build microblocks off of it
-        let block = builder.mine_nakamoto_block(&mut tenure_tx);
+        let block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
         let tenure_size = builder.bytes_so_far;
         let tenure_consumed = builder.tenure_finish(tenure_tx)?;
 

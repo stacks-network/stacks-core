@@ -13,54 +13,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::convert::TryFrom;
 use std::fmt;
-use std::hash::{Hash, Hasher};
-use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr};
-use std::time::{Duration, Instant};
 
-use rand::seq::SliceRandom;
-use rand::{thread_rng, RngCore};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, ConsensusHash, PoxId, SortitionId, StacksBlockId,
-};
-use stacks_common::types::net::{PeerAddress, PeerHost};
-use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
+use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common::types::net::PeerHost;
+use stacks_common::util::get_epoch_time_ms;
 
-use crate::burnchains::{Burnchain, BurnchainView, PoxConstants};
-use crate::chainstate::burn::db::sortdb::{
-    BlockHeaderCache, SortitionDB, SortitionDBConn, SortitionHandleConn,
-};
-use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::nakamoto::{
-    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConnRef,
-};
+use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::{
-    Error as chainstate_error, StacksBlockHeader, TenureChangePayload, TransactionPayload,
-};
-use crate::core::{
-    EMPTY_MICROBLOCK_PARENT_HASH, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
-};
-use crate::net::api::gettenureinfo::RPCGetTenureInfo;
-use crate::net::chat::ConversationP2P;
-use crate::net::db::{LocalPeer, PeerDB};
-use crate::net::http::HttpRequestContents;
+use crate::chainstate::stacks::TransactionPayload;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
-use crate::net::inv::epoch2x::InvState;
-use crate::net::inv::nakamoto::{NakamotoInvStateMachine, NakamotoTenureInv};
 use crate::net::neighbors::rpc::NeighborRPC;
-use crate::net::neighbors::NeighborComms;
-use crate::net::p2p::{CurrentRewardSet, DropReason, DropSource, PeerNetwork};
-use crate::net::server::HttpPeer;
-use crate::net::{Error as NetError, Neighbor, NeighborAddress, NeighborKey};
-use crate::util_lib::db::{DBConn, Error as DBError};
+use crate::net::p2p::{DropReason, DropSource, PeerNetwork};
+use crate::net::{Error as NetError, NeighborAddress};
 
 /// Download states for an historic tenure.  This is a tenure for which we know the hashes of the
 /// start and end block.  This includes all tenures except for the two most recent ones.
@@ -194,12 +160,12 @@ impl NakamotoTenureDownloader {
         }
     }
 
-    /// Follow-on constructor used to instantiate a machine for downloading the highest-confirmed
-    /// tenure.  This supplies the tenure end-block if known in advance.
-    pub fn with_tenure_end_block(mut self, tenure_end_block: NakamotoBlock) -> Self {
-        self.tenure_end_block = Some(tenure_end_block);
-        self
-    }
+    // /// Follow-on constructor used to instantiate a machine for downloading the highest-confirmed
+    // /// tenure.  This supplies the tenure end-block if known in advance.
+    // pub fn with_tenure_end_block(mut self, tenure_end_block: NakamotoBlock) -> Self {
+    //     self.tenure_end_block = Some(tenure_end_block);
+    //     self
+    // }
 
     /// Validate and accept a given tenure-start block.  If accepted, then advance the state.
     /// Returns Ok(()) if the start-block is valid.
@@ -217,7 +183,7 @@ impl NakamotoTenureDownloader {
 
         if self.tenure_start_block_id != tenure_start_block.header.block_id() {
             // not the block we were expecting
-            warn!("Invalid tenure-start block: unexpected"; 
+            warn!("Invalid tenure-start block: unexpected";
                   "tenure_id" => %self.tenure_id_consensus_hash,
                   "tenure_id_start_block" => %self.tenure_start_block_id,
                   "tenure_start_block ID" => %tenure_start_block.header.block_id(),

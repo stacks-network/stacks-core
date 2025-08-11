@@ -602,11 +602,11 @@ impl<'a> ClarityDatabase<'a> {
         data: StoreType,
         var_name: &str,
     ) -> String {
-        format!("vm::{}::{}::{}", contract_identifier, data as u8, var_name)
+        format!("vm::{contract_identifier}::{}::{var_name}", data as u8)
     }
 
     pub fn make_metadata_key(data: StoreType, var_name: &str) -> String {
-        format!("vm-metadata::{}::{}", data as u8, var_name)
+        format!("vm-metadata::{}::{var_name}", data as u8)
     }
 
     fn clarity_state_epoch_key() -> &'static str {
@@ -620,8 +620,8 @@ impl<'a> ClarityDatabase<'a> {
         key_value: &str,
     ) -> String {
         format!(
-            "vm::{}::{}::{}::{}",
-            contract_identifier, data as u8, var_name, key_value
+            "vm::{contract_identifier}::{}::{var_name}::{key_value}",
+            data as u8
         )
     }
 
@@ -699,8 +699,7 @@ impl<'a> ClarityDatabase<'a> {
     ) -> Result<()> {
         if self.store.has_metadata_entry(contract_identifier, key) {
             Err(InterpreterError::Expect(format!(
-                "Metadata entry '{}' already exists for contract: {}",
-                key, contract_identifier
+                "Metadata entry '{key}' already exists for contract: {contract_identifier}"
             ))
             .into())
         } else {
@@ -1086,8 +1085,7 @@ impl ClarityDatabase<'_> {
             self.get_burnchain_block_height(&last_mined_bhh)
                 .ok_or_else(|| {
                     InterpreterError::Expect(format!(
-                        "Block header hash '{}' must return for provided stacks block height {}",
-                        &last_mined_bhh, cur_stacks_height
+                        "Block header hash '{last_mined_bhh}' must return for provided stacks block height {cur_stacks_height}"
                     ))
                     .into()
                 })
@@ -1177,8 +1175,7 @@ impl ClarityDatabase<'_> {
                 .get_consensus_hash_for_block(&parent_id_bhh, &epoch)
                 .ok_or_else(|| {
                     InterpreterError::Expect(format!(
-                        "FATAL: no consensus hash found for StacksBlockId {}",
-                        &parent_id_bhh
+                        "FATAL: no consensus hash found for StacksBlockId {parent_id_bhh}"
                     ))
                 })?;
 
@@ -1188,8 +1185,7 @@ impl ClarityDatabase<'_> {
                 .get_sortition_id_from_consensus_hash(&consensus_hash)
                 .ok_or_else(|| {
                     InterpreterError::Expect(format!(
-                        "FATAL: no SortitionID found for consensus hash {}",
-                        &consensus_hash
+                        "FATAL: no SortitionID found for consensus hash {consensus_hash}"
                     ))
                 })?;
 
@@ -1330,11 +1326,11 @@ impl ClarityDatabase<'_> {
 
 impl ClarityDatabase<'_> {
     pub fn make_microblock_pubkey_height_key(pubkey_hash: &Hash160) -> String {
-        format!("microblock-pubkey-hash::{}", pubkey_hash)
+        format!("microblock-pubkey-hash::{pubkey_hash}")
     }
 
     pub fn make_microblock_poison_key(height: u32) -> String {
-        format!("microblock-poison::{}", height)
+        format!("microblock-poison::{height}")
     }
 
     pub fn insert_microblock_pubkey_hash_height(
@@ -1343,7 +1339,7 @@ impl ClarityDatabase<'_> {
         height: u32,
     ) -> Result<()> {
         let key = ClarityDatabase::make_microblock_pubkey_height_key(pubkey_hash);
-        let value = format!("{}", &height);
+        let value = format!("{height}");
         self.put_data(&key, &value)
     }
 
@@ -2215,7 +2211,7 @@ impl ClarityDatabase<'_> {
 // load/store STX token state and account nonces
 impl<'a> ClarityDatabase<'a> {
     fn make_key_for_account(principal: &PrincipalData, data: StoreType) -> String {
-        format!("vm-account::{}::{}", principal, data as u8)
+        format!("vm-account::{principal}::{}", data as u8)
     }
 
     pub fn make_key_for_account_balance(principal: &PrincipalData) -> String {
@@ -2241,12 +2237,10 @@ impl<'a> ClarityDatabase<'a> {
         let stx_balance = self.get_account_stx_balance(principal)?;
         let cur_burn_height = u64::from(self.get_current_burnchain_block_height()?);
 
-        test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_unlockable_tokens_at_burn_block={})",
-            principal,
+        test_debug!("Balance of {principal} (raw={},locked={},unlock-height={},current-height={cur_burn_height}) is {} (has_unlockable_tokens_at_burn_block={})",
             stx_balance.amount_unlocked(),
             stx_balance.amount_locked(),
             stx_balance.unlock_height(),
-            cur_burn_height,
             stx_balance.get_available_balance_at_burn_block(cur_burn_height, self.get_v1_unlock_height(), self.get_v2_unlock_height()?, self.get_v3_unlock_height()?)?,
             stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height, self.get_v1_unlock_height(), self.get_v2_unlock_height()?, self.get_v3_unlock_height()?));
 
@@ -2265,12 +2259,10 @@ impl<'a> ClarityDatabase<'a> {
         let stx_balance = self.get_account_stx_balance(principal)?;
         let cur_burn_height = 0;
 
-        test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_unlockable_tokens_at_burn_block={})",
-            principal,
+        test_debug!("Balance of {principal} (raw={},locked={},unlock-height={},current-height={cur_burn_height}) is {} (has_unlockable_tokens_at_burn_block={})",
             stx_balance.amount_unlocked(),
             stx_balance.amount_locked(),
             stx_balance.unlock_height(),
-            cur_burn_height,
             stx_balance.get_available_balance_at_burn_block(cur_burn_height, self.get_v1_unlock_height(), self.get_v2_unlock_height()?, self.get_v3_unlock_height()?)?,
             stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height, self.get_v1_unlock_height(), self.get_v2_unlock_height()?, self.get_v3_unlock_height()?));
 
@@ -2316,8 +2308,7 @@ impl ClarityDatabase<'_> {
     pub fn get_stacks_epoch_for_block(&self, id_bhh: &StacksBlockId) -> Result<StacksEpochId> {
         let burn_block = self.get_burnchain_block_height(id_bhh).ok_or_else(|| {
             InterpreterError::Expect(format!(
-                "FATAL: no burnchain block height found for Stacks block {}",
-                id_bhh
+                "FATAL: no burnchain block height found for Stacks block {id_bhh}"
             ))
         })?;
         let epoch = self

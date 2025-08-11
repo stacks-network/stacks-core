@@ -14,33 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::{Read, Write};
-
 use clarity::vm::costs::ExecutionCost;
 use regex::{Captures, Regex};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, ConsensusHash, StacksBlockId, StacksPublicKey,
-};
 use stacks_common::types::net::PeerHost;
-use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::hash::{Hash160, Sha256Sum};
-use url::form_urlencoded;
 
-use crate::burnchains::affirmation::AffirmationMap;
-use crate::burnchains::Txid;
-use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::core::mempool::MemPoolDB;
 use crate::net::api::postfeerate::RPCPostFeeRateRequestHandler;
 use crate::net::http::{
-    parse_json, Error, HttpBadRequest, HttpRequest, HttpRequestContents, HttpRequestPreamble,
-    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
+    parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
+    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
     HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
-use crate::net::p2p::PeerNetwork;
 use crate::net::{Error as NetError, HttpServerError, StacksNodeState};
 
 pub(crate) const SINGLESIG_TX_TRANSFER_LEN: u64 = 180;
@@ -128,8 +114,15 @@ impl RPCRequestHandler for RPCGetStxTransferCostRequestHandler {
                     ));
                 }
 
-                // safety -- checked estimations.len() == 3 above
-                let median_estimation = &estimations[1];
+                let Some(median_estimation) = estimations.get(1) else {
+                    // logic bug, but treat as runtime error
+                    return Err(StacksHttpResponse::new_error(
+                        &preamble,
+                        &HttpServerError::new(
+                            "Logic error in fee estimation: did not get three estimates".into(),
+                        ),
+                    ));
+                };
 
                 // NOTE: this returns the fee _rate_
                 Ok(median_estimation.fee / estimated_len)

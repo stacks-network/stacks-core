@@ -78,18 +78,17 @@ impl std::fmt::Display for SerializationError {
                 write!(f, "Serialization error caused by IO: {}", e.err)
             }
             SerializationError::BadTypeError(e) => {
-                write!(f, "Deserialization error, bad type, caused by: {}", e)
+                write!(f, "Deserialization error, bad type, caused by: {e}")
             }
             SerializationError::DeserializationError(e) => {
-                write!(f, "Deserialization error: {}", e)
+                write!(f, "Deserialization error: {e}")
             }
             SerializationError::SerializationError(e) => {
-                write!(f, "Serialization error: {}", e)
+                write!(f, "Serialization error: {e}")
             }
             SerializationError::DeserializeExpected(e) => write!(
                 f,
-                "Deserialization expected the type of the input to be: {}",
-                e
+                "Deserialization expected the type of the input to be: {e}"
             ),
             SerializationError::UnexpectedSerialization => {
                 write!(f, "The serializer handled an input in an unexpected way")
@@ -560,10 +559,7 @@ impl Value {
             if bytes_read > expect_size as u64 {
                 // this can happen due to sanitization, so its no longer indicative of a *problem* with the node.
                 debug!(
-                    "Deserialized more bytes than expected size during deserialization. Expected size = {}, bytes read = {}, type = {}",
-                    expect_size,
-                    bytes_read,
-                    expected_type,
+                    "Deserialized more bytes than expected size during deserialization. Expected size = {expect_size}, bytes read = {bytes_read}, type = {expected_type}"
                 );
             }
         }
@@ -1183,18 +1179,14 @@ struct WriteCounter {
 
 impl Write for WriteCounter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let input: u32 = buf.len().try_into().map_err(|_e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Serialization size would overflow u32",
-            )
-        })?;
-        self.count = self.count.checked_add(input).ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Serialization size would overflow u32",
-            )
-        })?;
+        let input: u32 = buf
+            .len()
+            .try_into()
+            .map_err(|_e| std::io::Error::other("Serialization size would overflow u32"))?;
+        self.count = self
+            .count
+            .checked_add(input)
+            .ok_or_else(|| std::io::Error::other("Serialization size would overflow u32"))?;
         Ok(input as usize)
     }
 
@@ -1362,7 +1354,7 @@ impl StacksMessageCodec for Value {
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Value, codec_error> {
         Value::deserialize_read(fd, None, false).map_err(|e| match e {
             SerializationError::IOError(e) => codec_error::ReadError(e.err),
-            _ => codec_error::DeserializeError(format!("Failed to decode clarity value: {:?}", &e)),
+            _ => codec_error::DeserializeError(format!("Failed to decode clarity value: {e:?}")),
         })
     }
 }
@@ -1522,9 +1514,9 @@ pub mod tests {
             Err(eres) => match eres {
                 SerializationError::IOError(ioe) => match ioe.err.kind() {
                     std::io::ErrorKind::UnexpectedEof => {}
-                    _ => panic!("Invalid I/O error: {:?}", &ioe),
+                    _ => panic!("Invalid I/O error: {ioe:?}"),
                 },
-                _ => panic!("Invalid deserialize error: {:?}", &eres),
+                _ => panic!("Invalid deserialize error: {eres:?}"),
             },
         }
     }
@@ -2054,10 +2046,7 @@ pub mod tests {
         ];
 
         for (input_val, expected_out, good_type, bad_types) in test_cases.iter() {
-            eprintln!(
-                "Testing {}. Expected sanitization = {}",
-                input_val, expected_out
-            );
+            eprintln!("Testing {input_val}. Expected sanitization = {expected_out}");
             let serialized = input_val.serialize_to_hex().unwrap();
 
             let result =
@@ -2071,7 +2060,7 @@ pub mod tests {
             }
 
             for bad_type in bad_types.iter() {
-                eprintln!("Testing bad type: {}", bad_type);
+                eprintln!("Testing bad type: {bad_type}");
                 let result = RollbackWrapper::deserialize_value(&serialized, bad_type, &epoch);
                 let error = result.unwrap_err();
                 assert!(matches!(error, SerializationError::DeserializeExpected(_)));
@@ -2090,7 +2079,7 @@ pub mod tests {
             }
 
             for bad_type in bad_types.iter() {
-                eprintln!("Testing bad type: {}", bad_type);
+                eprintln!("Testing bad type: {bad_type}");
                 let result = Value::sanitize_value(&epoch, bad_type, input_val.clone());
                 if epoch < StacksEpochId::Epoch24 {
                     let (value, did_sanitize) = result.unwrap();
@@ -2145,7 +2134,7 @@ pub mod tests {
             assert_eq!(expected, &Value::try_deserialize_hex_untyped(test));
             assert_eq!(
                 expected,
-                &Value::try_deserialize_hex_untyped(&format!("0x{}", test))
+                &Value::try_deserialize_hex_untyped(&format!("0x{test}"))
             );
         }
 

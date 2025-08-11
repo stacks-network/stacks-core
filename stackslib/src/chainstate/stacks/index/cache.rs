@@ -14,39 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::char::from_digit;
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::hash::{Hash, Hasher};
-use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
-use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
-use std::{cmp, env, error, fmt, fs, io, os};
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::hash::Hash;
 
-use rusqlite::types::{FromSql, ToSql};
-use rusqlite::{
-    Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OpenFlags, OptionalExtension,
-    Transaction,
-};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
-};
-use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_common::types::chainstate::TrieHash;
 
-use crate::chainstate::stacks::index::bits::{
-    get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes, read_node_hash_bytes,
-    read_nodetype, read_root_hash, write_nodetype_bytes,
-};
-use crate::chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
-    TrieNode48, TrieNodeID, TrieNodeType, TriePtr,
-};
-use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, Error, MarfTrieId, TrieLeaf};
-use crate::util_lib::db::{
-    sql_pragma, sqlite_open, tx_begin_immediate, tx_busy_handler, Error as db_error,
-    SQLITE_MMAP_SIZE,
-};
+use crate::chainstate::stacks::index::node::{is_backptr, TrieNodeID, TrieNodeType, TriePtr};
+use crate::chainstate::stacks::index::MarfTrieId;
 
 /// Fully-qualified address of a Trie node.  Includes both the block's blob rowid and the pointer within the
 /// block's blob as to where it is stored.
@@ -135,6 +110,25 @@ impl<T: MarfTrieId> TrieCacheState<T> {
     /// Load up a block hash, given its ID
     pub fn load_block_hash(&self, block_id: u32) -> Option<T> {
         self.block_hash_cache.get(&block_id).cloned()
+    }
+
+    /// Get cached entry for a block hash, given its ID, or, if not
+    ///  found, use `lookup` to get the corresponding block hash and
+    ///  store it in the cache
+    pub fn get_block_hash_caching<E, F: FnOnce(u32) -> Result<T, E>>(
+        &mut self,
+        id: u32,
+        lookup: F,
+    ) -> Result<&T, E> {
+        match self.block_hash_cache.entry(id) {
+            Entry::Occupied(occupied_entry) => Ok(occupied_entry.into_mut()),
+            Entry::Vacant(vacant_entry) => {
+                let block_hash = lookup(id)?;
+                let block_hash_ref = vacant_entry.insert(block_hash.clone());
+                self.block_id_cache.insert(block_hash, id);
+                Ok(block_hash_ref)
+            }
+        }
     }
 
     /// Cache a block hash, given its ID
@@ -309,6 +303,17 @@ impl<T: MarfTrieId> TrieCache<T> {
         self.state_mut().load_block_hash(block_id)
     }
 
+    /// Get cached entry for a block hash, given its ID, or, if not
+    ///  found, use `lookup` to get the corresponding block hash and
+    ///  store it in the cache
+    pub fn get_block_hash_caching<E, F: FnOnce(u32) -> Result<T, E>>(
+        &mut self,
+        id: u32,
+        lookup: F,
+    ) -> Result<&T, E> {
+        self.state_mut().get_block_hash_caching(id, lookup)
+    }
+
     /// Store a block's ID and hash to teh cache.
     pub fn store_block_hash(&mut self, block_id: u32, block_hash: T) {
         self.state_mut().store_block_hash(block_id, block_hash)
@@ -327,17 +332,14 @@ impl<T: MarfTrieId> TrieCache<T> {
 
 #[cfg(test)]
 pub mod test {
-    use std::collections::VecDeque;
-    use std::fs;
     use std::time::SystemTime;
+    use std::{cmp, fs};
 
-    use rand::{thread_rng, Rng};
-    use sha2::Digest;
+    use clarity::util::hash::to_hex;
     use stacks_common::util::hash::Sha512Trunc256Sum;
 
     use super::*;
     use crate::chainstate::stacks::index::marf::*;
-    use crate::chainstate::stacks::index::node::*;
     use crate::chainstate::stacks::index::storage::*;
     use crate::chainstate::stacks::index::*;
 

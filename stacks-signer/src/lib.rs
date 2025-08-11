@@ -1,4 +1,5 @@
 #![forbid(missing_docs)]
+#![allow(clippy::result_large_err)]
 /*!
 # stacks-signer: a library for creating a Stacks compliant signer. A default implementation binary is also provided.
 Usage documentation can be found in the [README](https://github.com/Trust-Machines/core-eng/stacks-signer-api/README.md).
@@ -48,10 +49,11 @@ mod tests;
 use std::fmt::{Debug, Display};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
-use chainstate::SortitionsView;
+use chainstate::v1::SortitionsView;
 use config::GlobalConfig;
 use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait, VERSION_STRING};
 use runloop::SignerResult;
+use signerdb::BlockInfo;
 use stacks_common::{info, warn};
 use v0::signer_state::LocalStateMachine;
 
@@ -78,6 +80,10 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
     fn has_unprocessed_blocks(&self) -> bool;
     /// Get a reference to the local state machine of the signer
     fn get_local_state_machine(&self) -> &LocalStateMachine;
+    /// Get the number of pending block proposals
+    fn get_pending_proposals_count(&self) -> u64;
+    /// Get canonical block according to this signer's db
+    fn get_canonical_tip(&self) -> Option<BlockInfo>;
 }
 
 /// A wrapper around the running signer type for the signer

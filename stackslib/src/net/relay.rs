@@ -15,49 +15,37 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::{cmp, mem};
+use std::mem;
 
-use clarity::vm::ast::errors::{ParseError, ParseErrors};
+use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::ast::{ast_check_size, ASTRules};
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::errors::RuntimeErrorType;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityVersion;
 use rand::prelude::*;
 use rand::{thread_rng, Rng};
-use stacks_common::address::public_keys_to_address_hash;
 use stacks_common::codec::MAX_PAYLOAD_LEN;
-use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId};
-use stacks_common::types::{MempoolCollectionBehavior, StacksEpochId};
+use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
-use crate::burnchains::{Burnchain, BurnchainView};
-use crate::chainstate::burn::db::sortdb::{
-    SortitionDB, SortitionDBConn, SortitionHandle, SortitionHandleConn,
-};
+use crate::burnchains::Burnchain;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn};
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
-use crate::chainstate::coordinator::{
-    BlockEventDispatcher, Error as CoordinatorError, OnChainRewardSetProvider,
-};
+use crate::chainstate::coordinator::{Error as CoordinatorError, OnChainRewardSetProvider};
 use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
-use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
-use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{StacksBlockHeader, TransactionPayload};
-use crate::clarity_vm::clarity::Error as clarity_error;
 use crate::core::mempool::{MemPoolDB, *};
 use crate::monitoring::update_stacks_tip_height;
 use crate::net::chat::*;
 use crate::net::connection::*;
 use crate::net::db::*;
-use crate::net::httpcore::*;
 use crate::net::p2p::*;
-use crate::net::poll::*;
-use crate::net::rpc::*;
 use crate::net::stackerdb::{
     StackerDBConfig, StackerDBEventDispatcher, StackerDBSyncResult, StackerDBs,
 };
@@ -516,11 +504,10 @@ impl RelayerStats {
 
         if norm <= 1 {
             // there is one or zero options
-            if rankings_vec.is_empty() {
-                return vec![];
-            } else {
-                return vec![rankings_vec[0].0.clone()];
-            }
+            return match rankings_vec.first() {
+                Some(ranking) => vec![ranking.0.clone()],
+                None => vec![],
+            };
         }
 
         for l in 0..count {
@@ -532,19 +519,19 @@ impl RelayerStats {
             let target: usize = rng.gen::<usize>() % norm; // slightly biased, but it doesn't really matter
             let mut w = 0;
 
-            for i in 0..rankings_vec.len() {
-                if rankings_vec[i].1 == 0 {
+            for ranking in rankings_vec.iter_mut() {
+                if ranking.1 == 0 {
                     continue;
                 }
 
-                w += rankings_vec[i].1;
+                w += ranking.1;
                 if w >= target {
-                    ret.insert(rankings_vec[i].0.clone());
+                    ret.insert(ranking.0.clone());
                     sampled += 1;
 
                     // sample without replacement
-                    norm = norm.saturating_sub(rankings_vec[i].1);
-                    rankings_vec[i].1 = 0;
+                    norm = norm.saturating_sub(ranking.1);
+                    ranking.1 = 0;
                     break;
                 }
             }
@@ -1123,7 +1110,11 @@ impl Relayer {
             ) {
                 Ok(x) => x,
                 Err(e) => {
-                    warn!("Failed to process Nakamoto block {}: {:?}", &block_id, &e);
+                    warn!("Failed to process Nakamoto block: {e:?}";
+                        "block_id" => %block_id,
+                        "consensus_hash" => %block.header.consensus_hash,
+                        "stacks_block_hash" => %block.header.block_hash(),
+                    );
                     continue;
                 }
             };
@@ -1432,10 +1423,10 @@ impl Relayer {
         for (consensus_hash, microblock_stream, _download_time) in
             network_result.confirmed_microblocks.iter()
         {
-            if microblock_stream.is_empty() {
+            let Some(microblock_stream_first) = microblock_stream.first() else {
                 continue;
-            }
-            let anchored_block_hash = microblock_stream[0].header.prev_block.clone();
+            };
+            let anchored_block_hash = microblock_stream_first.header.prev_block.clone();
 
             let block_snapshot =
                 match SortitionDB::get_block_snapshot_consensus(sort_ic, consensus_hash) {
@@ -2446,16 +2437,10 @@ impl Relayer {
             let mut all_events: HashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
                 HashMap::new();
             for chunk in uploaded_chunks.into_iter() {
-                if let Some(events) = all_events.get_mut(&chunk.contract_id) {
-                    events.push(chunk.chunk_data.clone());
-                } else {
-                    all_events.insert(chunk.contract_id.clone(), vec![chunk.chunk_data.clone()]);
-                }
-
                 // forward if not stale
                 if chunk.rc_consensus_hash != *rc_consensus_hash {
                     debug!("Drop stale uploaded StackerDB chunk";
-                           "stackerdb_contract_id" => &format!("{}", &chunk.contract_id),
+                           "stackerdb_contract_id" => %chunk.contract_id,
                            "slot_id" => chunk.chunk_data.slot_id,
                            "slot_version" => chunk.chunk_data.slot_version,
                            "chunk.rc_consensus_hash" => %chunk.rc_consensus_hash,
@@ -2463,11 +2448,17 @@ impl Relayer {
                     continue;
                 }
 
-                debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => &format!("{}", &chunk.contract_id), "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
+                if let Some(events) = all_events.get_mut(&chunk.contract_id) {
+                    events.push(chunk.chunk_data.clone());
+                } else {
+                    all_events.insert(chunk.contract_id.clone(), vec![chunk.chunk_data.clone()]);
+                }
+
+                debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => %chunk.contract_id, "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
 
                 let msg = StacksMessageType::StackerDBPushChunk(chunk);
                 if let Err(e) = self.p2p.broadcast_message(vec![], msg) {
-                    warn!("Failed to broadcast Nakamoto blocks: {:?}", &e);
+                    warn!("Failed to broadcast Nakamoto blocks: {e:?}");
                 }
             }
             for (contract_id, new_chunks) in all_events.into_iter() {
@@ -2512,7 +2503,7 @@ impl Relayer {
                                 // to distinguish it from other message types.
                                 debug!(
                                     "Dropping stale StackerDB chunk";
-                                    "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id),
+                                    "stackerdb_contract_id" => %sync_result.contract_id,
                                     "slot_id" => md.slot_id,
                                     "slot_version" => md.slot_version,
                                     "num_bytes" => chunk.data.len(),
@@ -2521,7 +2512,7 @@ impl Relayer {
                             } else {
                                 warn!(
                                     "Failed to store chunk for StackerDB";
-                                    "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id),
+                                    "stackerdb_contract_id" => %sync_result.contract_id,
                                     "slot_id" => md.slot_id,
                                     "slot_version" => md.slot_version,
                                     "num_bytes" => chunk.data.len(),
@@ -2530,7 +2521,7 @@ impl Relayer {
                             }
                             continue;
                         } else {
-                            debug!("Stored chunk"; "stackerdb_contract_id" => &format!("{}", &sync_result.contract_id), "slot_id" => md.slot_id, "slot_version" => md.slot_version);
+                            debug!("Stored chunk"; "stackerdb_contract_id" => %sync_result.contract_id, "slot_id" => md.slot_id, "slot_version" => md.slot_version);
                         }
 
                         if let Some(event_list) = all_events.get_mut(&sync_result.contract_id) {
@@ -2538,19 +2529,20 @@ impl Relayer {
                         } else {
                             all_events.insert(sync_result.contract_id.clone(), vec![chunk.clone()]);
                         }
+
                         let msg = StacksMessageType::StackerDBPushChunk(StackerDBPushChunkData {
                             contract_id: sc.clone(),
                             rc_consensus_hash: rc_consensus_hash.clone(),
                             chunk_data: chunk,
                         });
                         if let Err(e) = self.p2p.broadcast_message(vec![], msg) {
-                            warn!("Failed to broadcast StackerDB chunk: {:?}", &e);
+                            warn!("Failed to broadcast StackerDB chunk: {e:?}");
                         }
                     }
                 }
                 tx.commit()?;
             } else {
-                info!("Got chunks for unconfigured StackerDB replica"; "stackerdb_contract_id" => &format!("{}", &sc));
+                debug!("Got chunks for unconfigured StackerDB replica"; "stackerdb_contract_id" => %sc);
             }
         }
 
@@ -2575,7 +2567,7 @@ impl Relayer {
         let sync_results = stackerdb_chunks
             .into_iter()
             .map(|chunk_data| {
-                debug!("Received pushed StackerDB chunk {:?}", &chunk_data);
+                debug!("Received pushed StackerDB chunk {chunk_data:?}");
                 let sync_result = StackerDBSyncResult::from_pushed_chunk(chunk_data);
                 sync_result
             })
@@ -3099,7 +3091,8 @@ impl PeerNetwork {
         let inbound_recipients =
             if inbound_recipients_unshuffled.len() > MAX_BROADCAST_INBOUND_RECEIVERS {
                 let _ = &mut inbound_recipients_unshuffled[..].shuffle(&mut thread_rng());
-                inbound_recipients_unshuffled[0..MAX_BROADCAST_INBOUND_RECEIVERS].to_vec()
+                inbound_recipients_unshuffled.truncate(MAX_BROADCAST_INBOUND_RECEIVERS);
+                inbound_recipients_unshuffled
             } else {
                 inbound_recipients_unshuffled
             };
@@ -3117,15 +3110,11 @@ impl PeerNetwork {
     ) where
         S: FnMut(BlocksAvailableData) -> StacksMessageType,
     {
-        for i in (0..wanted.len()).step_by(BLOCKS_AVAILABLE_MAX_LEN as usize) {
-            let to_send = if i + (BLOCKS_AVAILABLE_MAX_LEN as usize) < wanted.len() {
-                wanted[i..(i + (BLOCKS_AVAILABLE_MAX_LEN as usize))].to_vec()
-            } else {
-                wanted[i..].to_vec()
-            };
-
+        for to_send in wanted.chunks(BLOCKS_AVAILABLE_MAX_LEN as usize) {
             let num_blocks = to_send.len();
-            let payload = BlocksAvailableData { available: to_send };
+            let payload = BlocksAvailableData {
+                available: to_send.to_vec(),
+            };
             let message = match self.sign_for_neighbor(recipient, msg_builder(payload)) {
                 Ok(m) => m,
                 Err(e) => {

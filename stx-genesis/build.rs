@@ -86,7 +86,7 @@ fn write_chainstate_archive(
         .skip(2)
         .take_while(|line| !line.eq(&section_footer))
     {
-        encoder.write_all(&[line.as_bytes(), &[b'\n']].concat())?;
+        encoder.write_all(&[line.as_bytes(), b"\n"].concat())?;
     }
 
     let mut out_file = encoder.finish().into_result().unwrap();
@@ -133,7 +133,7 @@ fn sha256_digest<R: Read>(mut reader: R) -> String {
 fn encode_hex(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len() * 2);
     for &b in bytes {
-        write!(&mut s, "{:02x}", b).unwrap();
+        write!(&mut s, "{b:02x}").unwrap();
     }
     s
 }

@@ -222,7 +222,7 @@ impl TryFrom<&str> for Vote {
         match input.to_lowercase().as_str() {
             "yes" => Ok(Vote::Yes),
             "no" => Ok(Vote::No),
-            _ => Err(format!("Invalid vote: {}. Must be `yes` or `no`.", input)),
+            _ => Err(format!("Invalid vote: {input}. Must be `yes` or `no`.")),
         }
     }
 }
@@ -230,7 +230,7 @@ impl TryFrom<&str> for Vote {
 impl TryFrom<u8> for Vote {
     type Error = String;
     fn try_from(input: u8) -> Result<Vote, Self::Error> {
-        Vote::from_u8(input).ok_or_else(|| format!("Invalid vote: {}. Must be 0 or 1.", input))
+        Vote::from_u8(input).ok_or_else(|| format!("Invalid vote: {input}. Must be 0 or 1."))
     }
 }
 
@@ -287,7 +287,7 @@ impl ValueEnum for StackingSignatureMethod {
             method => match Pox4SignatureTopic::lookup_by_name(method) {
                 Some(topic) => topic,
                 None => {
-                    return Err(format!("Invalid topic: {}", input));
+                    return Err(format!("Invalid topic: {input}"));
                 }
             },
         };
@@ -328,7 +328,7 @@ pub struct GenerateStackingSignatureArgs {
 
 /// Parse the contract ID
 fn parse_contract(contract: &str) -> Result<QualifiedContractIdentifier, String> {
-    QualifiedContractIdentifier::parse(contract).map_err(|e| format!("Invalid contract: {}", e))
+    QualifiedContractIdentifier::parse(contract).map_err(|e| format!("Invalid contract: {e}"))
 }
 
 /// Parse a BTC address argument and return a `PoxAddress`.
@@ -355,12 +355,12 @@ pub fn parse_pox_addr(pox_address_literal: &str) -> Result<PoxAddress, String> {
 
 /// Parse the hexadecimal Stacks private key
 fn parse_private_key(private_key: &str) -> Result<StacksPrivateKey, String> {
-    StacksPrivateKey::from_hex(private_key).map_err(|e| format!("Invalid private key: {}", e))
+    StacksPrivateKey::from_hex(private_key).map_err(|e| format!("Invalid private key: {e}"))
 }
 
 /// Parse the hexadecimal Stacks public key
 fn parse_public_key(public_key: &str) -> Result<StacksPublicKey, String> {
-    StacksPublicKey::from_hex(public_key).map_err(|e| format!("Invalid public key: {}", e))
+    StacksPublicKey::from_hex(public_key).map_err(|e| format!("Invalid public key: {e}"))
 }
 
 /// Parse the vote
@@ -370,7 +370,7 @@ fn parse_vote(vote: &str) -> Result<Vote, String> {
 
 /// Parse the hexadecimal encoded message signature
 fn parse_message_signature(signature: &str) -> Result<MessageSignature, String> {
-    MessageSignature::from_hex(signature).map_err(|e| format!("Invalid message signature: {}", e))
+    MessageSignature::from_hex(signature).map_err(|e| format!("Invalid message signature: {e}"))
 }
 
 /// Parse the input data
@@ -384,7 +384,7 @@ fn parse_data(data: &str) -> Result<Vec<u8>, String> {
         data.to_string()
     };
     let data =
-        b58::from(&encoded_data).map_err(|e| format!("Failed to decode provided data: {}", e))?;
+        b58::from(&encoded_data).map_err(|e| format!("Failed to decode provided data: {e}"))?;
     Ok(data)
 }
 

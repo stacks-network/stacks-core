@@ -33,6 +33,8 @@ use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPu
 use stacks_common::util::hash::Hash160;
 
 use crate::client::SignerSlotID;
+#[cfg(any(test, feature = "testing"))]
+use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
 const BLOCK_PROPOSAL_TIMEOUT_MS: u64 = 120_000;
@@ -45,6 +47,13 @@ const DEFAULT_REORG_ATTEMPTS_ACTIVITY_TIMEOUT_MS: u64 = 200_000;
 /// Default number of seconds to add to the tenure extend time, after computing the idle timeout,
 /// to allow for clock skew between the signer and the miner
 const DEFAULT_TENURE_IDLE_TIMEOUT_BUFFER_SECS: u64 = 2;
+/// Default time (in ms) to wait before submitting a proposal if we
+///  cannot determine that our stacks-node has processed the parent
+///  block
+const DEFAULT_PROPOSAL_WAIT_TIME_FOR_PARENT_SECS: u64 = 15;
+/// Default time (in secs) to wait between updating our local state
+/// machine view point and capitulating to other signers tenure view
+const DEFAULT_CAPITULATE_MINER_VIEW_SECS: u64 = 20;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -175,6 +184,16 @@ pub struct SignerConfig {
     pub reorg_attempts_activity_timeout: Duration,
     /// The running mode for the signer (dry-run or normal)
     pub signer_mode: SignerConfigMode,
+    /// Time to wait before submitting a block proposal to the stacks-node if we cannot
+    ///  determine that the stacks-node has processed the parent
+    pub proposal_wait_for_parent_time: Duration,
+    /// Whether or not to validate blocks with replay transactions
+    pub validate_with_replay_tx: bool,
+    /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
+    pub capitulate_miner_view_timeout: Duration,
+    #[cfg(any(test, feature = "testing"))]
+    /// Only used for testing purposes to enable overriding the signer version
+    pub supported_signer_protocol_version: u64,
 }
 
 /// The parsed configuration for the signer
@@ -221,8 +240,18 @@ pub struct GlobalConfig {
     /// Time following the last block of the previous tenure's global acceptance that a signer will consider an attempt by
     /// the new miner to reorg it as valid towards miner activity
     pub reorg_attempts_activity_timeout: Duration,
+    /// Time to wait before submitting a block proposal to the stacks-node if we cannot
+    ///  determine that the stacks-node has processed the parent
+    pub proposal_wait_for_parent_time: Duration,
     /// Is this signer binary going to be running in dry-run mode?
     pub dry_run: bool,
+    /// Whether or not to validate blocks with replay transactions
+    pub validate_with_replay_tx: bool,
+    /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
+    pub capitulate_miner_view_timeout: Duration,
+    #[cfg(any(test, feature = "testing"))]
+    /// Only used for testing to enable specific signer protocol versions
+    pub supported_signer_protocol_version: u64,
 }
 
 /// Internal struct for loading up the config file
@@ -268,8 +297,17 @@ struct RawConfigFile {
     /// Time (in millisecs) following a block's global acceptance that a signer will consider an attempt by a miner
     /// to reorg the block as valid towards miner activity
     pub reorg_attempts_activity_timeout_ms: Option<u64>,
+    /// Time to wait (in millisecs) before submitting a block proposal to the stacks-node
+    pub proposal_wait_for_parent_time_secs: Option<u64>,
     /// Is this signer binary going to be running in dry-run mode?
     pub dry_run: Option<bool>,
+    /// Whether or not to validate blocks with replay transactions
+    pub validate_with_replay_tx: Option<bool>,
+    /// Time to wait (in secs) between updating our local state machine view point and capitulating to other signers miner view
+    pub capitulate_miner_view_timeout_secs: Option<u64>,
+    #[cfg(any(test, feature = "testing"))]
+    /// Only used for testing to enable specific signer protocol versions
+    pub supported_signer_protocol_version: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -385,6 +423,27 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(DEFAULT_TENURE_IDLE_TIMEOUT_BUFFER_SECS),
         );
 
+        let proposal_wait_for_parent_time = Duration::from_secs(
+            raw_data
+                .proposal_wait_for_parent_time_secs
+                .unwrap_or(DEFAULT_PROPOSAL_WAIT_TIME_FOR_PARENT_SECS),
+        );
+
+        // TODO: remove this before going to mainnet
+        // https://github.com/stacks-network/stacks-core/issues/6087
+        let validate_with_replay_tx = raw_data.validate_with_replay_tx.unwrap_or(false);
+
+        let capitulate_miner_view_timeout = Duration::from_secs(
+            raw_data
+                .capitulate_miner_view_timeout_secs
+                .unwrap_or(DEFAULT_CAPITULATE_MINER_VIEW_SECS),
+        );
+
+        #[cfg(any(test, feature = "testing"))]
+        let supported_signer_protocol_version = raw_data
+            .supported_signer_protocol_version
+            .unwrap_or(SUPPORTED_SIGNER_PROTOCOL_VERSION);
+
         Ok(Self {
             node_host: raw_data.node_host,
             endpoint,
@@ -405,6 +464,11 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             reorg_attempts_activity_timeout,
             dry_run,
             tenure_idle_timeout_buffer,
+            proposal_wait_for_parent_time,
+            validate_with_replay_tx,
+            capitulate_miner_view_timeout,
+            #[cfg(any(test, feature = "testing"))]
+            supported_signer_protocol_version,
         })
     }
 }
@@ -446,6 +510,7 @@ Network: {network}
 Chain ID: 0x{chain_id}
 Database path: {db_path}
 Metrics endpoint: {metrics_endpoint}
+Dry run: {dry_run}
 "#,
             node_host = self.node_host,
             endpoint = self.endpoint,
@@ -456,6 +521,7 @@ Metrics endpoint: {metrics_endpoint}
             network = self.network,
             db_path = self.db_path.to_str().unwrap_or_default(),
             metrics_endpoint = metrics_endpoint,
+            dry_run = self.dry_run,
         )
     }
 
@@ -498,7 +564,7 @@ pub fn build_signer_config_tomls(
     let mut signer_config_tomls = vec![];
 
     for stacks_private_key in stacks_private_keys {
-        let endpoint = format!("localhost:{}", port_start);
+        let endpoint = format!("localhost:{port_start}");
         port_start += 1;
 
         let stacks_public_key = StacksPublicKey::from_private(stacks_private_key).to_hex();
@@ -549,7 +615,7 @@ tx_fee_ustx = {tx_fee_ustx}
         }
 
         if let Some(metrics_port) = metrics_port_start {
-            let metrics_endpoint = format!("localhost:{}", metrics_port);
+            let metrics_endpoint = format!("localhost:{metrics_port}");
             signer_config_toml = format!(
                 r#"
 {signer_config_toml}
@@ -626,10 +692,10 @@ Network: testnet
 Chain ID: 0x80000000
 Database path: :memory:
 Metrics endpoint: 0.0.0.0:9090
-Chain ID: 2147483648
+Dry run: false
 "#;
 
-        let expected_str_v6 = r#"
+        let expected_str_v6: &'static str = r#"
 Stacks node host: 127.0.0.1:20443
 Signer endpoint: [::1]:30000
 Stacks address: ST3FPN8KBZ3YPBP0ZJGAAHTVFMQDTJCR5QPS7VTNJ
@@ -638,12 +704,12 @@ Network: testnet
 Chain ID: 0x80000000
 Database path: :memory:
 Metrics endpoint: 0.0.0.0:9090
+Dry run: false
 "#;
 
         assert!(
             config_str == expected_str_v4 || config_str == expected_str_v6,
-            "Config string does not match expected output. Actual:\n{}",
-            config_str
+            "Config string does not match expected output. Actual:\n{config_str}",
         );
     }
 
@@ -668,7 +734,11 @@ db_path = ":memory:"
         );
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
         assert_eq!(config.stacks_address.to_string(), expected_addr);
-
+        assert!(!config.validate_with_replay_tx);
+        assert_eq!(
+            config.capitulate_miner_view_timeout,
+            Duration::from_secs(DEFAULT_CAPITULATE_MINER_VIEW_SECS)
+        );
         // 65 bytes (with compression flag)
         let sk_hex = "2de4e77aab89c0c2570bb8bb90824f5cf2a5204a975905fee450ff9dad0fcf2801";
 
@@ -680,11 +750,18 @@ endpoint = "localhost:30000"
 network = "mainnet"
 auth_password = "abcd"
 db_path = ":memory:"
+validate_with_replay_tx = true
+capitulate_miner_view_timeout_secs = 1000
             "#
         );
         let config = GlobalConfig::load_from_str(&config_toml).unwrap();
         assert_eq!(config.stacks_address.to_string(), expected_addr);
         assert_eq!(config.to_chain_id(), CHAIN_ID_MAINNET);
+        assert!(config.validate_with_replay_tx);
+        assert_eq!(
+            config.capitulate_miner_view_timeout,
+            Duration::from_secs(1000)
+        );
     }
 
     #[test]

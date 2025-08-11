@@ -15,16 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::hash::Hash;
-use std::io::{Seek, SeekFrom};
-use std::{error, fmt, io, ptr};
+use std::{error, fmt, io};
 
 use sha2::{Digest, Sha512_256 as TrieHasher};
+#[cfg(test)]
+use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId, TrieHash,
-    TRIEHASH_ENCODED_SIZE,
+    BurnchainHeaderHash, SortitionId, StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE,
 };
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
 
 use crate::util_lib::db::Error as db_error;
 
@@ -123,11 +121,9 @@ macro_rules! impl_clarity_marf_trie_id {
             fn from(m: MARFValue) -> Self {
                 let h = m.0;
                 let mut d = [0u8; 32];
-                for i in 0..32 {
-                    d[i] = h[i];
-                }
-                for i in 32..h.len() {
-                    if h[i] != 0 {
+                d.copy_from_slice(&h[..32]);
+                for x in &h[32..] {
+                    if *x != 0 {
                         panic!(
                             "Failed to convert MARF value into BHH: data stored after 32nd byte"
                         );
@@ -168,7 +164,9 @@ impl From<u32> for MARFValue {
         if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
             panic!("Cannot convert a u32 into a MARF Value.");
         }
-        d[..h.len()].copy_from_slice(&h[..]);
+        d.get_mut(..h.len())
+            .expect("Cannot convert a u32 into a MARF Value")
+            .copy_from_slice(&h);
         MARFValue(d)
     }
 }
@@ -180,7 +178,9 @@ impl<T: MarfTrieId> From<T> for MARFValue {
         if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
             panic!("Cannot convert a BHH into a MARF Value.");
         }
-        d[..h.len()].copy_from_slice(&h[..]);
+        d.get_mut(..h.len())
+            .expect("Cannot convert a BHH into a MARF Value")
+            .copy_from_slice(&h);
         MARFValue(d)
     }
 }
@@ -190,9 +190,10 @@ impl From<MARFValue> for u32 {
         let h = m.0;
         let mut d = [0u8; 4];
 
-        d[..4].copy_from_slice(&h[..4]);
-        for i in 4..h.len() {
-            if h[i] != 0 {
+        d.copy_from_slice(&h[..4]);
+
+        for h_i in &h[4..] {
+            if *h_i != 0 {
                 panic!("Failed to convert MARF value into u32: data stored after 4th byte");
             }
         }
@@ -215,11 +216,9 @@ impl MARFValue {
 
     /// Construct from a String that encodes a value inserted into the underlying data store
     pub fn from_value(s: &str) -> MARFValue {
-        let mut tmp = [0u8; 32];
-
         let mut hasher = TrieHasher::new();
         hasher.update(s.as_bytes());
-        tmp.copy_from_slice(hasher.finalize().as_slice());
+        let tmp = hasher.finalize().into();
 
         MARFValue::from_value_hash_bytes(&tmp)
     }

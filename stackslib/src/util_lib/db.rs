@@ -14,16 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::backtrace::Backtrace;
 use std::io::Error as IOError;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
 use std::{error, fmt, fs, io};
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use rand::{thread_rng, Rng, RngCore};
-use rusqlite::types::{FromSql, ToSql};
+use rusqlite::types::ToSql;
 use rusqlite::{
     params, Connection, Error as sqlite_error, OpenFlags, OptionalExtension, Params, Row,
     Transaction, TransactionBehavior,
@@ -35,12 +32,9 @@ use stacks_common::types::Address;
 use stacks_common::util::db::update_lock_table;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_common::util::sleep_ms;
 
-use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
 use crate::chainstate::stacks::index::{Error as MARFError, MARFValue, MarfTrieId};
-use crate::core::{StacksEpoch, StacksEpochId};
 
 pub type DBConn = rusqlite::Connection;
 pub type DBTx<'a> = rusqlite::Transaction<'a>;
@@ -340,7 +334,7 @@ macro_rules! impl_byte_array_from_column {
         }
 
         impl rusqlite::types::ToSql for $thing {
-            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput> {
+            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
                 let hex_str = self.to_hex();
                 Ok(hex_str.into())
             }
@@ -497,6 +491,36 @@ where
     Ok(row_data)
 }
 
+/// boilerplate code for querying a column out of a sequence of rows,
+///  expecting exactly 0 or 1 results. panics if more.
+pub fn query_one_row_column<T, P>(
+    conn: &Connection,
+    sql_query: &str,
+    sql_args: P,
+    column_name: &str,
+    panic_msg: &str,
+) -> Result<Option<T>, Error>
+where
+    P: Params,
+    T: FromColumn<T>,
+{
+    log_sql_eqp(conn, sql_query);
+    let mut stmt = conn.prepare(sql_query)?;
+    let mut rows = stmt.query(sql_args)?;
+
+    // gather
+    let mut result = None;
+    while let Some(row) = rows.next().map_err(Error::SqliteError)? {
+        if result.is_some() {
+            panic!("{panic_msg}");
+        }
+        let next_row = T::from_column(row, column_name)?;
+        result = Some(next_row);
+    }
+
+    Ok(result)
+}
+
 /// Boilerplate for querying a single integer (first and only item of the query must be an int)
 pub fn query_int<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
@@ -505,20 +529,16 @@ where
     log_sql_eqp(conn, sql_query);
     let mut stmt = conn.prepare(sql_query)?;
     let mut rows = stmt.query(sql_args)?;
-    let mut row_data = vec![];
+    let mut row_data = None;
     while let Some(row) = rows.next().map_err(Error::SqliteError)? {
-        if !row_data.is_empty() {
+        if row_data.is_some() {
             return Err(Error::Overflow);
         }
         let i: i64 = row.get(0)?;
-        row_data.push(i);
+        row_data = Some(i);
     }
 
-    if row_data.is_empty() {
-        return Err(Error::NotFoundError);
-    }
-
-    Ok(row_data[0])
+    row_data.ok_or_else(|| Error::NotFoundError)
 }
 
 pub fn query_count<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
@@ -613,13 +633,13 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
         ancestor_block_hash: &T,
         tip_block_hash: &T,
     ) -> Result<Option<u64>, Error> {
-        get_ancestor_block_height(self.index, ancestor_block_hash, tip_block_hash)
+        get_ancestor_block_height(&self.index, ancestor_block_hash, tip_block_hash)
     }
 
     /// Get a value from the fork index
     pub fn get_indexed(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
-        let mut ro_index = self.index.reopen_readonly()?;
-        get_indexed(&mut ro_index, header_hash, key)
+        let mut connection = self.index.reopen_connection()?;
+        get_indexed(&mut connection, header_hash, key)
     }
 
     pub fn conn(&self) -> &DBConn {
@@ -677,7 +697,7 @@ pub fn tx_begin_immediate_sqlite(conn: &mut Connection) -> Result<DBTx<'_>, sqli
 }
 
 #[cfg(feature = "profile-sqlite")]
-fn trace_profile(query: &str, duration: Duration) {
+fn trace_profile(query: &str, duration: std::time::Duration) {
     use serde_json::json;
     let obj = json!({"millis":duration.as_millis(), "query":query});
     debug!(
@@ -727,7 +747,7 @@ pub fn get_ancestor_block_hash<T: MarfTrieId>(
     tip_block_hash: &T,
 ) -> Result<Option<T>, Error> {
     assert!(block_height <= u32::MAX as u64);
-    let mut read_only = index.reopen_readonly()?;
+    let mut read_only = index.reopen_connection()?;
     let bh = read_only.get_block_at_height(block_height as u32, tip_block_hash)?;
     Ok(bh)
 }
@@ -738,7 +758,7 @@ pub fn get_ancestor_block_height<T: MarfTrieId>(
     ancestor_block_hash: &T,
     tip_block_hash: &T,
 ) -> Result<Option<u64>, Error> {
-    let mut read_only = index.reopen_readonly()?;
+    let mut read_only = index.reopen_connection()?;
     let height_opt = read_only
         .get_block_height(ancestor_block_hash, tip_block_hash)?
         .map(|height| height as u64);
@@ -913,8 +933,8 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         }
 
         let mut marf_values = Vec::with_capacity(values.len());
-        for i in 0..values.len() {
-            let marf_value = self.store_indexed(&values[i])?;
+        for value in values.iter() {
+            let marf_value = self.store_indexed(value)?;
             marf_values.push(marf_value);
         }
 

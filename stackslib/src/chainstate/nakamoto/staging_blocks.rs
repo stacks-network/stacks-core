@@ -18,24 +18,20 @@ use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::{fmt, fs};
 
-use lazy_static::lazy_static;
 use rusqlite::blob::Blob;
-use rusqlite::types::{FromSql, FromSqlError, ToSql};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId};
 use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::util::{get_epoch_time_secs, sleep_ms};
+use stacks_common::util::get_epoch_time_secs;
 
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
-use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::marf::MarfConnection;
-use crate::chainstate::stacks::{Error as ChainstateError, StacksBlock, StacksBlockHeader};
+use crate::chainstate::stacks::Error as ChainstateError;
 use crate::stacks_common::codec::StacksMessageCodec;
 use crate::util_lib::db::{
-    query_int, query_row, query_row_columns, query_row_panic, query_rows, sqlite_open,
-    table_exists, tx_begin_immediate, u64_to_sql, DBConn, Error as DBError, FromRow,
+    query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
+    Error as DBError,
 };
 
 /// The means by which a block is obtained.
@@ -160,7 +156,17 @@ pub const NAKAMOTO_STAGING_DB_SCHEMA_3: &[&str] = &[
     r#"UPDATE db_version SET version = 3"#,
 ];
 
-pub const NAKAMOTO_STAGING_DB_SCHEMA_LATEST: u32 = 3;
+pub const NAKAMOTO_STAGING_DB_SCHEMA_4: &[&str] = &[
+    r#"CREATE INDEX nakamoto_staging_blocks_by_ready_and_height ON nakamoto_staging_blocks(burn_attachable, orphaned, processed, height);"#,
+    r#"UPDATE db_version SET version = 4"#,
+];
+
+pub const NAKAMOTO_STAGING_DB_SCHEMA_5: &[&str] = &[
+    r#"CREATE INDEX nakamoto_staging_blocks_by_consensus_hash_and_processed ON nakamoto_staging_blocks(consensus_hash, processed);"#,
+    r#"UPDATE db_version SET version = 5"#,
+];
+
+pub const NAKAMOTO_STAGING_DB_SCHEMA_LATEST: u32 = 5;
 
 pub struct NakamotoStagingBlocksConn(rusqlite::Connection);
 
@@ -178,7 +184,7 @@ impl DerefMut for NakamotoStagingBlocksConn {
 }
 
 impl NakamotoStagingBlocksConn {
-    pub fn conn(&self) -> NakamotoStagingBlocksConnRef {
+    pub fn conn(&self) -> NakamotoStagingBlocksConnRef<'_> {
         NakamotoStagingBlocksConnRef(&self.0)
     }
 }
@@ -205,7 +211,7 @@ impl NakamotoStagingBlocksTx<'_> {
         self.0.commit()
     }
 
-    pub fn conn(&self) -> NakamotoStagingBlocksConnRef {
+    pub fn conn(&self) -> NakamotoStagingBlocksConnRef<'_> {
         NakamotoStagingBlocksConnRef(self.0.deref())
     }
 }
@@ -411,6 +417,30 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         consensus_hash: &ConsensusHash,
     ) -> Result<Vec<NakamotoBlock>, ChainstateError> {
         let qry = "SELECT data FROM nakamoto_staging_blocks WHERE is_tenure_start = 1 AND consensus_hash = ?1";
+        let args = params![consensus_hash];
+        let block_data: Vec<Vec<u8>> = query_rows(self, qry, args)?;
+        Ok(block_data
+            .into_iter()
+            .filter_map(|block_vec| {
+                NakamotoBlock::consensus_deserialize(&mut &block_vec[..])
+                    .map_err(|e| {
+                        error!("Failed to deserialize block from DB, likely database corruption";
+                               "consensus_hash" => %consensus_hash,
+                               "error" => ?e);
+                        e
+                    })
+                    .ok()
+            })
+            .collect())
+    }
+
+    /// Get all nakamoto blocks in a tenure
+    pub fn get_nakamoto_blocks_in_tenure(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Vec<NakamotoBlock>, ChainstateError> {
+        let qry =
+            "SELECT data FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND processed = 1";
         let args = params![consensus_hash];
         let block_data: Vec<Vec<u8>> = query_rows(self, qry, args)?;
         Ok(block_data
@@ -716,7 +746,7 @@ impl StacksChainState {
     }
 
     /// Get a ref to the nakamoto staging blocks connection
-    pub fn nakamoto_blocks_db(&self) -> NakamotoStagingBlocksConnRef {
+    pub fn nakamoto_blocks_db(&self) -> NakamotoStagingBlocksConnRef<'_> {
         NakamotoStagingBlocksConnRef(&self.nakamoto_staging_blocks_conn)
     }
 
@@ -795,6 +825,24 @@ impl StacksChainState {
                     let version = Self::get_nakamoto_staging_blocks_db_version(conn)?;
                     assert_eq!(version, 3, "Nakamoto staging DB migration failure");
                     debug!("Migrated Nakamoto staging blocks DB to schema 3");
+                }
+                3 => {
+                    debug!("Migrate Nakamoto staging blocks DB to schema 3");
+                    for cmd in NAKAMOTO_STAGING_DB_SCHEMA_4.iter() {
+                        conn.execute(cmd, NO_PARAMS)?;
+                    }
+                    let version = Self::get_nakamoto_staging_blocks_db_version(conn)?;
+                    assert_eq!(version, 4, "Nakamoto staging DB migration failure");
+                    debug!("Migrated Nakamoto staging blocks DB to schema 3");
+                }
+                4 => {
+                    debug!("Migrate Nakamoto staging blocks DB to schema 5");
+                    for cmd in NAKAMOTO_STAGING_DB_SCHEMA_5.iter() {
+                        conn.execute(cmd, NO_PARAMS)?;
+                    }
+                    let version = Self::get_nakamoto_staging_blocks_db_version(conn)?;
+                    assert_eq!(version, 5, "Nakamoto staging DB migration failure");
+                    debug!("Migrated Nakamoto staging blocks DB to schema 5");
                 }
                 NAKAMOTO_STAGING_DB_SCHEMA_LATEST => {
                     break;

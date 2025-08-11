@@ -3,7 +3,7 @@ use std::path::Path;
 
 use clarity::types::sqlite::NO_PARAMS;
 use clarity::vm::costs::ExecutionCost;
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql};
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult};
 use rusqlite::{
     params, Connection, Error as SqliteError, OpenFlags, OptionalExtension,
     Transaction as SqliteTransaction,
@@ -14,9 +14,7 @@ use super::metrics::PROPORTION_RESOLUTION;
 use super::{CostEstimator, EstimatorError};
 use crate::chainstate::stacks::TransactionPayload;
 use crate::core::StacksEpochId;
-use crate::util_lib::db::{
-    sql_pragma, sqlite_open, table_exists, tx_begin_immediate_sqlite, u64_to_sql,
-};
+use crate::util_lib::db::{sqlite_open, table_exists, tx_begin_immediate_sqlite, u64_to_sql};
 
 /// This struct pessimistically estimates the `ExecutionCost` of transaction payloads.
 ///
@@ -102,20 +100,12 @@ impl Samples {
             return true;
         }
 
-        let (min_index, min_val) = match self
-            .items
-            .iter()
-            .enumerate()
-            .min_by_key(|(_i, value)| *value)
-        {
-            None => {
-                unreachable!("Should find minimum if len() >= SAMPLE_SIZE");
-            }
-            Some(x) => x,
+        let Some(min_val) = self.items.iter_mut().min_by_key(|value| **value) else {
+            unreachable!("Should find minimum if len() >= SAMPLE_SIZE");
         };
 
         if sample > *min_val {
-            self.items[min_index] = sample;
+            *min_val = sample;
             return true;
         }
 
@@ -232,6 +222,8 @@ impl PessimisticEstimator {
                     StacksEpochId::Epoch30 => ":2.1",
                     // reuse cost estimates in Epoch31
                     StacksEpochId::Epoch31 => ":2.1",
+                    // reuse cost estimates in Epoch32
+                    StacksEpochId::Epoch32 => ":2.1",
                 };
                 format!(
                     "cc{}:{}:{}.{}",

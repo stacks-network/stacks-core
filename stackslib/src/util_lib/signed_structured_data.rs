@@ -16,10 +16,9 @@
 
 use clarity::vm::types::TupleData;
 use clarity::vm::Value;
-use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::types::PrivateKey;
-use stacks_common::util::hash::{to_hex, Sha256Sum};
+use stacks_common::util::hash::Sha256Sum;
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
 use crate::chainstate::stacks::address::PoxAddress;
@@ -168,7 +167,7 @@ pub mod pox4 {
         use clarity::vm::ast::ASTRules;
         use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
         use clarity::vm::costs::LimitedCostTracker;
-        use clarity::vm::types::{PrincipalData, StandardPrincipalData};
+        use clarity::vm::types::PrincipalData;
         use clarity::vm::ClarityVersion;
         use stacks_common::address::AddressHashMode;
         use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -177,7 +176,6 @@ pub mod pox4 {
         use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
         use super::*;
-        use crate::chainstate::stacks::address::pox_addr_b58_serialize;
         use crate::chainstate::stacks::boot::contract_tests::ClarityTestSim;
         use crate::chainstate::stacks::boot::{POX_4_CODE, POX_4_NAME};
         use crate::util_lib::boot::boot_code_id;
@@ -253,7 +251,7 @@ pub mod pox4 {
                             &analysis,
                             body,
                             None,
-                            |_, _| false,
+                            |_, _| None,
                             None,
                         )
                         .unwrap();

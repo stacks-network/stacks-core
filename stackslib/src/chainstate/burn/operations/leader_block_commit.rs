@@ -16,35 +16,28 @@
 
 use std::io::{Read, Write};
 
-use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, TrieHash, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, StacksBlockId, VRFSeed,
 };
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
-use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::{
-    Address, Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainSigner,
-    BurnchainTransaction, PoxConstants, PublicKey, Txid,
+    Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainSigner, BurnchainTransaction,
+    PoxConstants, Txid,
 };
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle, SortitionHandleTx};
+#[cfg(test)]
+use crate::chainstate::burn::operations::LeaderKeyRegisterOp;
 use crate::chainstate::burn::operations::{
-    parse_u16_from_be, parse_u32_from_be, BlockstackOperationType, Error as op_error,
-    LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    parse_u16_from_be, parse_u32_from_be, Error as op_error, LeaderBlockCommitOp,
 };
-use crate::chainstate::burn::{ConsensusHash, Opcodes, SortitionId};
+use crate::chainstate::burn::{Opcodes, SortitionId};
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::index::storage::TrieFileStorage;
-use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::core::{
-    StacksEpoch, StacksEpochId, STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER,
-    STACKS_EPOCH_2_2_MARKER, STACKS_EPOCH_2_3_MARKER, STACKS_EPOCH_2_4_MARKER,
-    STACKS_EPOCH_2_5_MARKER, STACKS_EPOCH_3_0_MARKER, STACKS_EPOCH_3_1_MARKER,
+    StacksEpochId, STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER, STACKS_EPOCH_2_2_MARKER,
+    STACKS_EPOCH_2_3_MARKER, STACKS_EPOCH_2_4_MARKER, STACKS_EPOCH_2_5_MARKER,
+    STACKS_EPOCH_3_0_MARKER, STACKS_EPOCH_3_1_MARKER, STACKS_EPOCH_3_2_MARKER,
 };
-use crate::net::Error as net_error;
 
 // return type from parse_data below
 #[derive(Debug)]
@@ -226,14 +219,14 @@ impl LeaderBlockCommitOp {
             return None;
         }
 
-        let block_header_hash = BlockHeaderHash::from_bytes(&data[0..32]).unwrap();
-        let new_seed = VRFSeed::from_bytes(&data[32..64]).unwrap();
-        let parent_block_ptr = parse_u32_from_be(&data[64..68]).unwrap();
-        let parent_vtxindex = parse_u16_from_be(&data[68..70]).unwrap();
-        let key_block_ptr = parse_u32_from_be(&data[70..74]).unwrap();
-        let key_vtxindex = parse_u16_from_be(&data[74..76]).unwrap();
+        let block_header_hash = BlockHeaderHash::from_bytes(data.get(0..32)?).unwrap();
+        let new_seed = VRFSeed::from_bytes(data.get(32..64)?).unwrap();
+        let parent_block_ptr = parse_u32_from_be(data.get(64..68)?).unwrap();
+        let parent_vtxindex = parse_u16_from_be(data.get(68..70)?).unwrap();
+        let key_block_ptr = parse_u32_from_be(data.get(70..74)?).unwrap();
+        let key_vtxindex = parse_u16_from_be(data.get(74..76)?).unwrap();
 
-        let burn_parent_modulus_and_memo_byte = data[76];
+        let burn_parent_modulus_and_memo_byte = *data.get(76)?;
 
         let burn_parent_modulus = u8::try_from(
             u64::from(burn_parent_modulus_and_memo_byte & 0b111) % BURN_BLOCK_MINED_AT_MODULUS,
@@ -293,14 +286,14 @@ impl LeaderBlockCommitOp {
             return Err(op_error::InvalidInput);
         }
 
-        if outputs.is_empty() {
+        let Some(output_0) = outputs.first() else {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
                 tx.num_signers(),
                 outputs.len()
             );
             return Err(op_error::InvalidInput);
-        }
+        };
 
         if tx.opcode() != Opcodes::LeaderBlockCommit as u8 {
             warn!("Invalid tx: invalid opcode {}", tx.opcode());
@@ -350,7 +343,7 @@ impl LeaderBlockCommitOp {
             // PoX is disabled by sunset (not possible in epoch 2.1 or later), OR,
             // we're in the prepare phase.
             // should be only one burn output.
-            let output_0 = outputs[0].clone().ok_or_else(|| {
+            let output_0 = output_0.clone().ok_or_else(|| {
                 warn!("Invalid commit tx: unrecognized output 0");
                 op_error::InvalidInput
             })?;
@@ -810,7 +803,11 @@ impl LeaderBlockCommitOp {
             warn!("Invalid prepare-phase block commit, should have 1 commit out");
             return Err(op_error::BlockCommitBadOutputs);
         }
-        if !self.commit_outs[0].is_burn() {
+        let commit_out = self.commit_outs.first().ok_or_else(|| {
+            warn!("Invalid prepare-phase block commit, should have 1 commit out");
+            op_error::BlockCommitBadOutputs
+        })?;
+        if !commit_out.is_burn() {
             warn!("Invalid prepare-phase block commit, should have burn address output");
             return Err(op_error::BlockCommitBadOutputs);
         }
@@ -828,18 +825,18 @@ impl LeaderBlockCommitOp {
     /// Check the epoch marker in a block-commit to make sure it matches the right epoch.
     /// Valid in Stacks 2.05+
     fn check_epoch_commit_marker(&self, marker: u8) -> Result<(), op_error> {
-        if self.memo.is_empty() {
+        let Some(memo_0) = self.memo.first() else {
             debug!(
                 "Invalid block commit";
                 "reason" => "no epoch marker byte given",
             );
             return Err(op_error::BlockCommitBadEpoch);
-        }
-        if self.memo[0] < marker {
+        };
+        if *memo_0 < marker {
             debug!(
                 "Invalid block commit";
                 "reason" => "invalid epoch marker byte",
-                "marker_byte" => self.memo[0],
+                "marker_byte" => memo_0,
                 "expected_marker_byte" => marker,
             );
             return Err(op_error::BlockCommitBadEpoch);
@@ -856,16 +853,18 @@ impl LeaderBlockCommitOp {
             }
             StacksEpochId::Epoch20 => {
                 // no-op, but log for helping node operators watch for old nodes
-                if self.memo.is_empty() {
+                let Some(memo_0) = self.memo.first() else {
                     debug!(
                         "Soon-to-be-invalid block commit";
                         "reason" => "no epoch marker byte given",
                     );
-                } else if self.memo[0] < STACKS_EPOCH_2_05_MARKER {
+                    return Ok(());
+                };
+                if *memo_0 < STACKS_EPOCH_2_05_MARKER {
                     debug!(
                         "Soon-to-be-invalid block commit";
                         "reason" => "invalid epoch marker byte",
-                        "marker_byte" => self.memo[0],
+                        "marker_byte" => memo_0,
                     );
                 }
                 Ok(())
@@ -878,6 +877,7 @@ impl LeaderBlockCommitOp {
             StacksEpochId::Epoch25 => self.check_epoch_commit_marker(STACKS_EPOCH_2_5_MARKER),
             StacksEpochId::Epoch30 => self.check_epoch_commit_marker(STACKS_EPOCH_3_0_MARKER),
             StacksEpochId::Epoch31 => self.check_epoch_commit_marker(STACKS_EPOCH_3_1_MARKER),
+            StacksEpochId::Epoch32 => self.check_epoch_commit_marker(STACKS_EPOCH_3_2_MARKER),
         }
     }
 
@@ -898,7 +898,8 @@ impl LeaderBlockCommitOp {
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31 => {
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => {
                 // correct behavior -- uses *sortition height* to find the intended sortition ID
                 let sortition_height = self
                     .block_height
@@ -1159,7 +1160,8 @@ impl LeaderBlockCommitOp {
 #[cfg(test)]
 mod tests {
     use clarity::vm::costs::ExecutionCost;
-    use rand::{thread_rng, RngCore};
+    use rand::RngCore;
+    use rusqlite::Connection;
     use stacks_common::address::AddressHashMode;
     use stacks_common::deps_common::bitcoin::blockdata::transaction::{Transaction, TxOut};
     use stacks_common::deps_common::bitcoin::network::serialize::{deserialize, serialize_hex};
@@ -1171,17 +1173,11 @@ mod tests {
     use super::*;
     use crate::burnchains::bitcoin::address::*;
     use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::bitcoin::*;
     use crate::burnchains::*;
-    use crate::chainstate::burn::db::sortdb::tests::{
-        test_append_snapshot, test_append_snapshot_with_winner,
-    };
-    use crate::chainstate::burn::db::sortdb::*;
-    use crate::chainstate::burn::db::*;
+    use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot;
     use crate::chainstate::burn::operations::*;
     use crate::chainstate::burn::{ConsensusHash, *};
-    use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::{
         StacksEpoch, StacksEpochExtension, StacksEpochId, PEER_VERSION_EPOCH_1_0,

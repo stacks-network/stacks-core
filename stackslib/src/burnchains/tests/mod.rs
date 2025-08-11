@@ -17,27 +17,28 @@
 pub mod affirmation;
 pub mod burnchain;
 pub mod db;
+pub mod thread_join;
 
 use std::collections::HashMap;
 
+use clarity::types::chainstate::{StacksAddress, TrieHash};
 use stacks_common::address::*;
 use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::*;
-use stacks_common::util::secp256k1::*;
 use stacks_common::util::vrf::*;
 
 use super::*;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::db::*;
-use crate::burnchains::{Burnchain, *};
+use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::{BlockstackOperationType, *};
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::comm::*;
 use crate::chainstate::coordinator::*;
 use crate::chainstate::stacks::*;
-use crate::core::{STACKS_EPOCH_2_4_MARKER, STACKS_EPOCH_3_0_MARKER};
+use crate::core::STACKS_EPOCH_2_4_MARKER;
 use crate::cost_estimates::{CostEstimator, FeeEstimator};
 use crate::stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
 use crate::util_lib::db::*;

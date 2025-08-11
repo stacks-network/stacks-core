@@ -14,43 +14,27 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::{fs, io};
 
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::types::*;
-use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng};
-use stacks_common::address::*;
 use stacks_common::consts::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks_common::types::chainstate::SortitionId;
-use stacks_common::util::sleep_ms;
-use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
+use stacks_common::util::vrf::VRFPublicKey;
 
 use crate::burnchains::tests::*;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::*;
-use crate::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-};
+use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
 use crate::chainstate::burn::*;
-use crate::chainstate::coordinator::Error as CoordinatorError;
 use crate::chainstate::nakamoto::NakamotoBlock;
-use crate::chainstate::stacks::db::blocks::test::store_staging_block;
 use crate::chainstate::stacks::db::test::*;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::*;
-use crate::chainstate::stacks::{
-    Error as ChainstateError, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *,
-};
-use crate::cost_estimates::metrics::UnitMetric;
-use crate::cost_estimates::UnitEstimator;
+use crate::chainstate::stacks::*;
 use crate::net::test::*;
-use crate::util_lib::boot::boot_code_addr;
-use crate::util_lib::db::Error as db_error;
 
 pub mod accounting;
 pub mod block_construction;

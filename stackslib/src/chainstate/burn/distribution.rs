@@ -15,22 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
-use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash::Hash160;
-use stacks_common::util::log;
 use stacks_common::util::uint::{BitArray, Uint256, Uint512};
-use stacks_common::util::vrf::VRFPublicKey;
 
-use crate::burnchains::{
-    Address, Burnchain, BurnchainRecipient, BurnchainSigner, BurnchainTransaction, PublicKey, Txid,
-};
+use crate::burnchains::Txid;
 use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
-use crate::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-};
-use crate::chainstate::stacks::StacksPublicKey;
+use crate::chainstate::burn::operations::LeaderBlockCommitOp;
 use crate::monitoring;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -171,6 +163,7 @@ impl BurnSamplePoint {
     ///     The latter occurs everywhere else, and must have `OUTPUTS_PER_COMMIT` outputs after the
     ///     `OP_RETURN` payload.  The length of this vector must be equal to the length of the
     ///     `block_commits` vector.  `burn_blocks[i]` is `true` if the `ith` block-commit must be PoB.
+    #[allow(clippy::indexing_slicing)] // this method panics on bad inputs, it should panic on bad indexes as well
     pub fn make_min_median_distribution(
         mining_commitment_window: u8,
         mut block_commits: Vec<Vec<LeaderBlockCommitOp>>,
@@ -372,8 +365,11 @@ impl BurnSamplePoint {
         }
         if burn_sample.len() == 1 {
             // sample that covers the whole range
-            burn_sample[0].range_start = Uint256::zero();
-            burn_sample[0].range_end = Uint256::max();
+            let sample_step = burn_sample
+                .first_mut()
+                .expect("FATAL: expected non-zero burn sample");
+            sample_step.range_start = Uint256::zero();
+            sample_step.range_end = Uint256::max();
             return;
         }
 
@@ -387,27 +383,25 @@ impl BurnSamplePoint {
         //   * the upper 256 bits are the integer
         //   * the lower 256 bits are the fraction
         // These range fields correspond to ranges in the 32-byte hash space
-        let mut burn_acc = Uint512::from_u128(burn_sample[0].burns);
+        let mut burn_acc = Uint512::zero();
+        let mut last_sample_range_end = Uint256::zero();
+        for sample_step in burn_sample.iter_mut() {
+            sample_step.range_start = last_sample_range_end;
 
-        burn_sample[0].range_start = Uint256::zero();
-        burn_sample[0].range_end =
-            ((Uint512::from_uint256(&Uint256::max()) * burn_acc) / total_burns).to_uint256();
-        for i in 1..burn_sample.len() {
-            burn_sample[i].range_start = burn_sample[i - 1].range_end;
-
-            burn_acc = burn_acc + Uint512::from_u128(burn_sample[i].burns);
-            burn_sample[i].range_end =
+            burn_acc = burn_acc + Uint512::from_u128(sample_step.burns);
+            sample_step.range_end =
                 ((Uint512::from_uint256(&Uint256::max()) * burn_acc) / total_burns).to_uint256();
+            last_sample_range_end = sample_step.range_end;
         }
 
-        for _i in 0..burn_sample.len() {
+        for _sample in burn_sample.iter() {
             test_debug!(
                 "Range for block {}: {} / {}: {} - {}",
-                burn_sample[_i].candidate.block_header_hash,
-                burn_sample[_i].burns,
+                _sample.candidate.block_header_hash,
+                _sample.burns,
                 total_burns_u128,
-                burn_sample[_i].range_start,
-                burn_sample[_i].range_end
+                _sample.range_start,
+                _sample.range_end
             );
         }
     }
@@ -426,30 +420,21 @@ impl BurnSamplePoint {
 
 #[cfg(test)]
 mod tests {
-    use std::marker::PhantomData;
-
     use stacks_common::address::AddressHashMode;
     use stacks_common::types::chainstate::{
-        BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, VRFSeed,
+        BlockHeaderHash, BurnchainHeaderHash, SortitionId, VRFSeed,
     };
-    use stacks_common::util::hash::{hex_bytes, Hash160};
-    use stacks_common::util::log;
-    use stacks_common::util::uint::{BitArray, Uint256, Uint512};
+    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::util::uint::{BitArray, Uint256};
     use stacks_common::util::vrf::*;
 
     use super::BurnSamplePoint;
-    use crate::burnchains::bitcoin::address::BitcoinAddress;
-    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
-    use crate::burnchains::bitcoin::BitcoinNetworkType;
-    use crate::burnchains::{Address, Burnchain, BurnchainSigner, PublicKey, Txid};
+    use crate::burnchains::{BurnchainSigner, Txid};
     use crate::chainstate::burn::operations::leader_block_commit::{
         MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
     };
-    use crate::chainstate::burn::operations::{
-        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-    };
+    use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
     use crate::chainstate::burn::ConsensusHash;
-    use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::MINING_COMMITMENT_WINDOW;
 

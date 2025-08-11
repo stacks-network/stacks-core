@@ -7,33 +7,47 @@ genesis:
     - name: deployer
       address: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
       balance: "100000000000000"
+      sbtc-balance: "1000000000"
     - name: wallet_1
       address: ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5
       balance: "100000000000000"
+      sbtc-balance: "1000000000"
+    - name: wallet_10
+      address: ST3FFKYTTB975A3JC3F99MM7TXZJ406R3GKE6JV56
+      balance: "200000000000000"
+      sbtc-balance: "1000000000"
     - name: wallet_2
       address: ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG
       balance: "100000000000000"
+      sbtc-balance: "1000000000"
     - name: wallet_3
       address: ST2JHG361ZXG51QTKY2NQCVBPPRRE2KZB1HR05NNC
       balance: "100000000000000"
+      sbtc-balance: "1000000000"
     - name: wallet_4
       address: ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND
       balance: "100000000000000"
+      sbtc-balance: "1000000000"
     - name: wallet_5
       address: ST2REHHS5J3CERCRBEPMGH7921Q6PYKAADT7JP2VB
       balance: "100000000000000"
+      sbtc-balance: "1000000000"
     - name: wallet_6
       address: ST3AM1A56AK2C1XAFJ4115ZSV26EB49BVQ10MGCS0
       balance: "100000000000000"
+      sbtc-balance: "1000000000"
     - name: wallet_7
       address: ST3PF13W7Z0RRM42A8VZRVFQ75SV1K26RXEP8YGKJ
       balance: "100000000000000"
+      sbtc-balance: "1000000000"
     - name: wallet_8
       address: ST3NBRSFKX28FQ2ZJ1MAKX58HKHSDGNV5N7R21XCP
       balance: "100000000000000"
+      sbtc-balance: "1000000000"
     - name: wallet_9
       address: STNHKEPYEPJ8ET55ZZ0M5A34J0R3N5FM2CMMMAZ6
       balance: "100000000000000"
+      sbtc-balance: "1000000000"
   contracts:
     - costs
     - pox
@@ -85,3 +99,16 @@ plan:
             path: "../../stackslib/src/chainstate/stacks/boot/signers-voting.clar"
             clarity-version: 2
       epoch: "2.4"
+    - id: 1
+      transactions:
+        - emulated-contract-publish:
+            contract-name: sip-031
+            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
+            path: "../../stackslib/src/chainstate/stacks/boot/sip-031.clar"
+            clarity-version: 3
+        - emulated-contract-publish:
+            contract-name: sip-031-indirect
+            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
+            path: contracts/sip-031-indirect.clar
+            clarity-version: 3
+      epoch: "3.1"

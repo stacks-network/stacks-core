@@ -433,7 +433,7 @@ fn test_names_tokens_contracts_interface() {
         "clarity_version": "Clarity3"
     }"#).unwrap();
 
-    eprintln!("{}", test_contract_json_str);
+    eprintln!("{test_contract_json_str}");
 
     assert_json_eq!(test_contract_json, test_contract_json_expected);
 }
@@ -468,9 +468,8 @@ fn test_names_tokens_contracts_bad(#[case] version: ClarityVersion, #[case] epoc
                (err 1)))";
 
     let names_contract = format!(
-        "{}
-                 {}",
-        SIMPLE_NAMES, broken_public
+        "{SIMPLE_NAMES}
+                 {broken_public}"
     );
 
     let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
@@ -622,23 +621,23 @@ fn test_expects() {
 
     for unmatched_return_types in bad_return_types_tests.iter() {
         let err = mem_type_check(unmatched_return_types).unwrap_err();
-        eprintln!("unmatched_return_types returned check error: {}", err);
+        eprintln!("unmatched_return_types returned check error: {err}");
         assert!(matches!(err.err, CheckErrors::ReturnTypesMustMatch(_, _)));
     }
 
     let err = mem_type_check(bad_default_type).unwrap_err();
-    eprintln!("bad_default_types returned check error: {}", err);
+    eprintln!("bad_default_types returned check error: {err}");
     assert!(matches!(err.err, CheckErrors::DefaultTypesMustMatch(_, _)));
 
     let err = mem_type_check(notype_response_type).unwrap_err();
-    eprintln!("notype_response_type returned check error: {}", err);
+    eprintln!("notype_response_type returned check error: {err}");
     assert!(matches!(
         err.err,
         CheckErrors::CouldNotDetermineResponseErrType
     ));
 
     let err = mem_type_check(notype_response_type_2).unwrap_err();
-    eprintln!("notype_response_type_2 returned check error: {}", err);
+    eprintln!("notype_response_type_2 returned check error: {err}");
     assert!(matches!(
         err.err,
         CheckErrors::CouldNotDetermineResponseOkType
@@ -1707,7 +1706,7 @@ fn test_traits_multi_contract(#[case] version: ClarityVersion) {
             assert_eq!(function.as_str(), "do-it");
         }
         Ok(_) if version >= ClarityVersion::Clarity2 => (),
-        res => panic!("{:?}", res),
+        res => panic!("{res:?}"),
     }
 }
 
@@ -1720,9 +1719,8 @@ fn load_versioned(
     epoch: StacksEpochId,
 ) -> Result<ContractAnalysis, String> {
     let source = read_to_string(format!(
-        "{}/src/vm/analysis/type_checker/v2_1/tests/contracts/{}.clar",
-        env!("CARGO_MANIFEST_DIR"),
-        name
+        "{}/src/vm/analysis/type_checker/v2_1/tests/contracts/{name}.clar",
+        env!("CARGO_MANIFEST_DIR")
     ))
     .unwrap();
     let contract_id = QualifiedContractIdentifier::local(name).unwrap();
@@ -1740,7 +1738,7 @@ fn call_versioned(
     version: ClarityVersion,
     epoch: StacksEpochId,
 ) -> Result<ContractAnalysis, String> {
-    let source = format!("(contract-call? .{} {} {})", contract, function, args);
+    let source = format!("(contract-call? .{contract} {function} {args})");
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract =
         parse(&contract_id, source.as_str(), version, epoch).map_err(|e| e.to_string())?;
@@ -1759,7 +1757,7 @@ fn clarity_trait_experiments_impl(#[case] version: ClarityVersion, #[case] epoch
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -1774,7 +1772,7 @@ fn clarity_trait_experiments_use(#[case] version: ClarityVersion, #[case] epoch:
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -1790,7 +1788,7 @@ fn clarity_trait_experiments_empty_trait(
     let result = db.execute(|db| load_versioned(db, "empty-trait", version, epoch));
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -1809,7 +1807,7 @@ fn clarity_trait_experiments_duplicate_trait(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -1875,7 +1873,7 @@ fn clarity_trait_experiments_out_of_order(
     let result = db.execute(|db| load_versioned(db, "out-of-order-traits", version, epoch));
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -1893,7 +1891,7 @@ fn clarity_trait_experiments_double_trait(
         Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     }
 }
 
@@ -1914,7 +1912,7 @@ fn clarity_trait_experiments_impl_double_trait_both(
         Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     }
 }
 
@@ -1937,7 +1935,7 @@ fn clarity_trait_experiments_impl_double_trait_1(
         Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     }
 }
 
@@ -1958,7 +1956,7 @@ fn clarity_trait_experiments_impl_double_trait_2(
         Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     }
 }
 
@@ -1982,7 +1980,7 @@ fn clarity_trait_experiments_use_double_trait(
         Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     }
 }
 
@@ -2006,7 +2004,7 @@ fn clarity_trait_experiments_use_partial_double_trait_1(
         Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     }
 }
 
@@ -2028,7 +2026,7 @@ fn clarity_trait_experiments_use_partial_double_trait_2(
         Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     }
 }
 
@@ -2046,7 +2044,7 @@ fn clarity_trait_experiments_identical_double_trait(
         Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     }
 }
 
@@ -2067,7 +2065,7 @@ fn clarity_trait_experiments_impl_identical_double_trait(
         Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     }
 }
 
@@ -2125,7 +2123,7 @@ fn clarity_trait_experiments_use_math_trait_transitive_name(
         Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("TraitReferenceUnknown(\"math-alias\")"))
         }
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     }
 }
 
@@ -2147,7 +2145,7 @@ fn clarity_trait_experiments_use_original_and_define_a_trait(
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TraitMethodUnknown(\"a\", \"do-it\")"))
         }
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -2169,7 +2167,7 @@ fn clarity_trait_experiments_use_redefined_and_define_a_trait(
         Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("TraitMethodUnknown(\"a\", \"do-that\")"))
         }
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     }
 }
 
@@ -2208,7 +2206,7 @@ fn clarity_trait_experiments_use_a_trait_transitive_redefined(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -2230,7 +2228,7 @@ fn clarity_trait_experiments_nested_traits(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -2263,7 +2261,7 @@ fn clarity_trait_experiments_call_nested_trait_1(
             assert!(err.starts_with("TypeError"))
         }
         Ok(_) if version >= ClarityVersion::Clarity2 => (),
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     };
 }
 
@@ -2289,7 +2287,7 @@ fn clarity_trait_experiments_call_nested_trait_2(
             assert!(err.starts_with("TypeError"))
         }
         Ok(_) if version >= ClarityVersion::Clarity2 => (),
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     };
 }
 
@@ -2315,7 +2313,7 @@ fn clarity_trait_experiments_call_nested_trait_3_ok(
             assert!(err.starts_with("TypeError"))
         }
         Ok(_) if version >= ClarityVersion::Clarity2 => (),
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     };
 }
 
@@ -2338,7 +2336,7 @@ fn clarity_trait_experiments_call_nested_trait_3_err(
     });
     match result {
         Ok(_) => (),
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     };
 }
 
@@ -2371,7 +2369,7 @@ fn clarity_trait_experiments_call_nested_trait_4(
             assert!(err.starts_with("TypeError"))
         }
         Ok(_) if version >= ClarityVersion::Clarity2 => (),
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     };
 }
 
@@ -2409,7 +2407,7 @@ fn clarity_trait_experiments_trait_literal(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -2428,7 +2426,7 @@ fn clarity_trait_experiments_pass_let_rename_trait(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -2469,7 +2467,7 @@ fn clarity_trait_experiments_call_let_rename_trait(
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TraitReferenceUnknown(\"new-math-contract\")"))
         }
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -2591,7 +2589,7 @@ fn clarity_trait_experiments_return_trait(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -2637,7 +2635,7 @@ fn clarity_trait_experiments_constant_call(
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TraitReferenceUnknown(\"principal-value\")"))
         }
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -2663,7 +2661,7 @@ fn clarity_trait_experiments_constant_to_trait(
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
         }
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -2690,7 +2688,7 @@ fn clarity_trait_experiments_constant_to_constant_call(
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
         }
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -2712,7 +2710,7 @@ fn clarity_trait_experiments_downcast_literal_1(
         })
         .unwrap_err();
     if epoch <= StacksEpochId::Epoch2_05 {
-        println!("err: {}", err);
+        println!("err: {err}");
         assert!(err.starts_with("TypeError(TraitReferenceType(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } }), PrincipalType)"));
     } else {
         assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
@@ -2879,7 +2877,7 @@ fn clarity_trait_experiments_identical_trait_cast(
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
         }
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -2905,7 +2903,7 @@ fn clarity_trait_experiments_trait_cast(
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
         }
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     };
 }
 
@@ -2954,7 +2952,7 @@ fn clarity_trait_experiments_renamed_trait_cast(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -2973,7 +2971,7 @@ fn clarity_trait_experiments_readonly_use_trait(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -2992,7 +2990,7 @@ fn clarity_trait_experiments_readonly_pass_trait(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -3032,7 +3030,7 @@ fn clarity_trait_experiments_readonly_static_call(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -3079,7 +3077,7 @@ fn clarity_trait_experiments_dyn_call_trait(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -3152,7 +3150,7 @@ fn clarity_trait_experiments_call_use_principal(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -3180,7 +3178,7 @@ fn clarity_trait_experiments_call_return_trait(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -3211,7 +3209,7 @@ fn clarity_trait_experiments_call_full_double_trait(
         Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     };
 }
 
@@ -3242,7 +3240,7 @@ fn clarity_trait_experiments_call_partial_double_trait(
         Err(err) if version >= ClarityVersion::Clarity2 => {
             assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
         }
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     };
 }
 
@@ -3270,7 +3268,7 @@ fn clarity_trait_experiments_trait_recursion(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -3294,7 +3292,7 @@ fn clarity_trait_experiments_principals_list_to_traits_list(
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError(SequenceType(ListType"))
         }
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     };
 }
 
@@ -3314,7 +3312,7 @@ fn clarity_trait_experiments_traits_list_to_traits_list(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -3340,7 +3338,7 @@ fn clarity_trait_experiments_mixed_list_to_traits_list(
         Err(err) if version == ClarityVersion::Clarity1 => {
             assert!(err.starts_with("TypeError(SequenceType(ListType"))
         }
-        res => panic!("got {:?}", res),
+        res => panic!("got {res:?}"),
     };
 }
 
@@ -3411,7 +3409,7 @@ fn clarity_trait_experiments_double_trait_method2_v1(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -3482,7 +3480,7 @@ fn clarity_trait_experiments_double_trait_method2_v1_v2(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }
 
@@ -3539,6 +3537,6 @@ fn clarity_trait_experiments_cross_epochs(
     });
     match result {
         Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        res => panic!("expected success, got {res:?}"),
     };
 }

@@ -5,6 +5,104 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## Unreleased
+
+### Fixed
+
+- Fixed a typo in the metrics_identifier route from `/v2/stackedb/:principal/:contract_name/replicas` to `/v2/stackerdb/:principal/:contract_name/replicas`. Note: This may be a breaking change for systems relying on the incorrect route. Please update any metrics tools accordingly.
+
+## [3.2.0.0.0]
+
+### Added
+
+- Added the `clarity-serialization` crate: A lightweight crate for serializing and deserializing Clarity values. This crate decouples core data types from the Clarity VM, making it easier to build off-chain tooling, and other applications that interact with Clarity data. It includes support for `wasm32-unknown-unknown` targets via the `wasm-web` and `wasm-deterministic` features.
+- Added `/v3/contracts/fast-call-read/:principal/:contract_name/:func_name` api endpoint. It allows to run read-only calls faster by disabling the cost and memory trackers. This endpoint requires authentication.
+- **SIP-031 consensus rules, activating in epoch 3.2 at block 907_740**
+
+### Changed
+
+- The HTTP `Date` header in responses now strictly follows RFC7231.
+- When a previous block commit is unable to be RBFed, the miner will now just wait for it to be confirmed instead of submitting a new block commit which breaks the miner's UTXO chain.
+- When mining, only log new block proposal responses, not duplicates.
+
+### Fixed
+
+- Fixed tenure downloader logic on reward cycle boundaries (#6234).
+- Do not send events to event observers for stale StackerDB chunks.
+
+## [3.1.0.0.13]
+
+### Added
+
+- Added a new RPC endpoint `/v3/health` to query the node's health status. The endpoint returns a 200 status code with relevant synchronization information (including the node's current Stacks tip height, the maximum Stacks tip height among its neighbors, and the difference between these two). A user can use the `difference_from_max_peer` value to decide what is a good threshold for them before considering the node out of sync. The endpoint returns a 500 status code if the query cannot retrieve viable data.
+- Improve prometheus metrics to gain more insights into the current state of the mempool
+  - `stacks_node_miner_stop_reason_total`: Counts the number of times the miner stopped mining due to various reasons.
+  - Always report the number of transactions mined in the last attempt, even if there were 0
+
+- Added a new option `--hex-file <file_path>` to `blockstack-cli contract-call` command, that allows to pass a serialized Clarity value by file.
+- Added a new option `--postcondition-mode [allow, deny]` to `blockstack-cli publish` command, to set the post-condition mode to allow or deny on the transaction (default is deny)
+
+### Changed
+
+- Changed default mempool walk strategy to `NextNonceWithHighestFeeRate`
+
+### Fixed
+
+- Fixed an issue that prevented the correct usage of anchor mode options (`--microblock-only`, `--block-only`) when using `blockstack-cli publish` command.
+- Fix several bugs in the mock-miner that caused it to fail to mine blocks in certain conditions
+
+## [3.1.0.0.12]
+
+### Added
+
+- Document missing config structs
+- Document MinerConfig parameters
+- Document BurnchainConfig parameters
+- Document NodeConfig parameters
+
+### Changed
+
+- `get_fresh_random_neighbors` to include allowed neigbors
+- Logging improvements and cleanup
+- Move serde serializers to stacks_common
+- Depend on clarity backing store interface
+- Updated `./docs/event-dispacher.md`
+
+### Fixed
+
+- Handle Bitcoin reorgs during Stacks tenure extend
+
+## [3.1.0.0.11]
+
+- Hotfix for p2p stack misbehavior in mempool syncing conditions
+
+## [3.1.0.0.10]
+
+### Added
+
+- Persisted tracking of StackerDB slot versions for mining. This improves miner p2p performance.
+
+## [3.1.0.0.9]
+
+### Added
+
+- Added field `vm_error` to EventObserver transaction outputs
+- Added new `ValidateRejectCode` values to the `/v3/block_proposal` endpoint
+- Added `StateMachineUpdateContent::V1` to support a vector of `StacksTransaction` expected to be replayed in subsequent Stacks blocks
+- Include a reason string in the transaction receipt when a transaction is rolled back due to a post-condition. This should help users in understanding what went wrong.
+- Updated `StackerDBListener` to monitor signer state machine updates and store signer global state information, enabling miners to perform transaction replays.
+- Added a testnet `replay_transactions` flag to the miner configuration to feature-gate transaction replay. When enabled, the miner will construct a replay block if a threshold of signers signals that a transaction set requires replay.
+
+### Changed
+
+- Reduce the default `block_rejection_timeout_steps` configuration so that miners will retry faster when blocks fail to reach 70% approved or 30% rejected.
+- Added index for `next_ready_nakamoto_block()` which improves block processing performance.
+- Added a new field, `parent_burn_block_hash`, to the payload that is included in the `/new_burn_block` event observer payload.
+
+### Fixed
+
+- Fix regression in mock-mining, allowing the mock miner to continue mining blocks throughout a tenure instead of failing after mining the tenure change block.
+
 ## [3.1.0.0.8]
 
 ### Added
@@ -19,8 +117,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - When a miner times out waiting for signatures, it will re-propose the same block instead of building a new block ([#5877](https://github.com/stacks-network/stacks-core/pull/5877))
 - Improve tenure downloader trace verbosity applying proper logging level depending on the tenure state ("debug" if unconfirmed, "info" otherwise) ([#5871](https://github.com/stacks-network/stacks-core/issues/5871))
-- Remove warning log about missing UTXOs when a node is configured as `miner` with `mock_mining` mode enabled ([#5841](https://github.com/stacks-network/stacks-core/issues/5841)) 
-- Deprecated the `wait_on_interim_blocks` option in the miner config file. This option is no longer needed, as the miner will always wait for interim blocks to be processed before mining a new block. To wait extra time in between blocks, use the `min_time_between_blocks_ms` option instead.
+- Remove warning log about missing UTXOs when a node is configured as `miner` with `mock_mining` mode enabled ([#5841](https://github.com/stacks-network/stacks-core/issues/5841))
+- Deprecated the `wait_on_interim_blocks` option in the miner config file. This option is no longer needed, as the miner will always wait for interim blocks to be processed before mining a new block. To wait extra time in between blocks, use the `min_time_between_blocks_ms` option instead. ([#5979](https://github.com/stacks-network/stacks-core/pull/5979))
+- Added `empty_mempool_sleep_ms` to the miner config file to control the time to wait in between mining attempts when the mempool is empty. If not set, the default sleep time is 2.5s. ([#5997](https://github.com/stacks-network/stacks-core/pull/5997))
 
 ## [3.1.0.0.7]
 

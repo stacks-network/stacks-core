@@ -14,10 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::io::{Read, Write};
-use std::ops::Deref;
 
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::deps_common::httparse;
@@ -31,7 +30,7 @@ use {serde, serde_json};
 use crate::net::http::common::{
     HttpReservedHeader, HTTP_PREAMBLE_MAX_ENCODED_SIZE, HTTP_PREAMBLE_MAX_NUM_HEADERS,
 };
-use crate::net::http::request::{HttpRequestContents, HttpRequestPreamble};
+use crate::net::http::request::HttpRequestPreamble;
 use crate::net::http::stream::HttpChunkGenerator;
 use crate::net::http::{http_reason, write_headers, Error, HttpContentType, HttpVersion};
 
@@ -347,27 +346,24 @@ impl HttpResponsePreamble {
 }
 
 /// Get an RFC 7231 date that represents the current time
-fn rfc7231_now() -> String {
-    let now_utc = time::OffsetDateTime::now_utc();
-    let format = time::macros::format_description!(
-        "[weekday repr:short], [month repr:short] [day] [year] [hour] [minute] [second] GMT"
-    );
-    now_utc.format(&format).unwrap()
+fn rfc7231_now() -> Result<String, CodecError> {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc2822)
+        .map(|date| date.replace("+0000", "GMT"))
+        .map_err(|e| CodecError::GenericError(format!("Failed to format RFC 7231 date: {:?}", e)))
 }
 
 /// Read from a stream until we see '\r\n\r\n', with the purpose of reading an HTTP preamble.
 /// It's gonna be important here that R does some bufferring, since this reads byte by byte.
 /// EOF if we read 0 bytes.
-fn read_to_crlf2<R: Read>(fd: &mut R) -> Result<Vec<u8>, CodecError> {
+pub fn read_to_crlf2<R: Read>(fd: &mut R) -> Result<Vec<u8>, CodecError> {
     let mut ret = Vec::with_capacity(HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize);
     while ret.len() < HTTP_PREAMBLE_MAX_ENCODED_SIZE as usize {
         let mut b = [0u8];
         fd.read_exact(&mut b).map_err(CodecError::ReadError)?;
         ret.push(b[0]);
 
-        if ret.len() > 4 {
-            let last_4 = &ret[(ret.len() - 4)..ret.len()];
-
+        if let Some(last_4) = ret.last_chunk::<4>() {
             // '\r\n\r\n' is [0x0d, 0x0a, 0x0d, 0x0a]
             if last_4 == &[0x0d, 0x0a, 0x0d, 0x0a] {
                 break;
@@ -392,7 +388,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
         if !self.headers.contains_key("date") {
             fd.write_all("Date: ".as_bytes())
                 .map_err(CodecError::WriteError)?;
-            fd.write_all(rfc7231_now().as_bytes())
+            fd.write_all(rfc7231_now()?.as_bytes())
                 .map_err(CodecError::WriteError)?;
             fd.write_all("\r\n".as_bytes())
                 .map_err(CodecError::WriteError)?;
@@ -514,13 +510,12 @@ impl StacksMessageCodec for HttpResponsePreamble {
                 let mut chunked_encoding = false;
                 let mut keep_alive = true;
 
-                for i in 0..resp.headers.len() {
-                    let value =
-                        String::from_utf8(resp.headers[i].value.to_vec()).map_err(|_e| {
-                            CodecError::DeserializeError(
-                                "Invalid HTTP header value: not utf-8".to_string(),
-                            )
-                        })?;
+                for resp_header in resp.headers.iter() {
+                    let value = String::from_utf8(resp_header.value.to_vec()).map_err(|_e| {
+                        CodecError::DeserializeError(
+                            "Invalid HTTP header value: not utf-8".to_string(),
+                        )
+                    })?;
                     if !value.is_ascii() {
                         return Err(CodecError::DeserializeError(
                             "Invalid HTTP request: header value is not ASCII-US".to_string(),
@@ -532,7 +527,7 @@ impl StacksMessageCodec for HttpResponsePreamble {
                         ));
                     }
 
-                    let key = resp.headers[i].name.to_string().to_lowercase();
+                    let key = resp_header.name.to_string().to_lowercase();
 
                     if seen_headers.contains(&key) {
                         return Err(CodecError::DeserializeError(format!(

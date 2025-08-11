@@ -13,32 +13,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::{fs, io};
-
 use regex::{Captures, Regex};
-use serde::de::Error as de_Error;
-use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
-use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use serde_json;
+use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
-use {serde, serde_json};
 
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NakamotoStagingBlocksConn};
-use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
-use crate::chainstate::stacks::Error as ChainError;
-use crate::net::api::getblock_v3::NakamotoBlockStream;
+use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::stacks::db::StacksBlockHeaderTypes;
 use crate::net::http::{
-    parse_bytes, parse_json, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType,
-    HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
-    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError, HttpVersion,
+    parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
+    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{
-    request, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
-    StacksHttpResponse,
-};
-use crate::net::{Error as NetError, StacksNodeState, TipRequest, MAX_HEADERS};
-use crate::util_lib::db::{DBConn, Error as DBError};
+use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
+use crate::net::{Error as NetError, StacksNodeState};
 
 #[derive(Clone)]
 pub struct RPCNakamotoTenureTipRequestHandler {
@@ -105,34 +92,37 @@ impl RPCRequestHandler for RPCNakamotoTenureTipRequestHandler {
             .take()
             .ok_or(NetError::SendError("`consensus_hash` not set".into()))?;
 
-        let tenure_tip_resp = node.with_node_state(|_network, _sortdb, chainstate, _mempool, _rpc_args| {
-            let header_info = match NakamotoChainState::get_highest_known_block_header_in_tenure(chainstate.db(), &consensus_hash) {
-                Ok(Some(header)) => header,
-                Ok(None) => {
-                    let msg = format!(
-                        "No blocks in tenure {}",
-                        &consensus_hash
-                    );
-                    debug!("{}", &msg);
-                    return Err(StacksHttpResponse::new_error(
-                        &preamble,
-                        &HttpNotFound::new(msg),
-                    ));
-                }
-                Err(e) => {
-                    let msg = format!(
-                        "Failed to query tenure blocks by consensus '{}': {:?}",
-                        consensus_hash, &e
-                    );
-                    error!("{}", &msg);
-                    return Err(StacksHttpResponse::new_error(
-                        &preamble,
-                        &HttpServerError::new(msg),
-                    ));
-                }
-            };
-            Ok(header_info.anchored_header)
-        });
+        let tenure_tip_resp =
+            node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
+                let header_info =
+                    match NakamotoChainState::find_highest_known_block_header_in_tenure(
+                        &chainstate,
+                        sortdb,
+                        &consensus_hash,
+                    ) {
+                        Ok(Some(header)) => header,
+                        Ok(None) => {
+                            let msg = format!("No blocks in tenure {}", &consensus_hash);
+                            debug!("{}", &msg);
+                            return Err(StacksHttpResponse::new_error(
+                                &preamble,
+                                &HttpNotFound::new(msg),
+                            ));
+                        }
+                        Err(e) => {
+                            let msg = format!(
+                                "Failed to query tenure blocks by consensus '{}': {:?}",
+                                consensus_hash, &e
+                            );
+                            error!("{}", &msg);
+                            return Err(StacksHttpResponse::new_error(
+                                &preamble,
+                                &HttpServerError::new(msg),
+                            ));
+                        }
+                    };
+                Ok(header_info.anchored_header)
+            });
 
         let tenure_tip = match tenure_tip_resp {
             Ok(tenure_tip) => tenure_tip,

@@ -15,15 +15,16 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::net::Shutdown;
-use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use std::{cmp, fs, net, path, time};
+use std::{cmp, fs, net};
 
 use rand::{thread_rng, Rng};
+#[cfg(test)]
 use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
+#[cfg(test)]
 use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
 use stacks_common::deps_common::bitcoin::network::message::NetworkMessage;
 use stacks_common::deps_common::bitcoin::network::serialize::{
@@ -31,7 +32,7 @@ use stacks_common::deps_common::bitcoin::network::serialize::{
 };
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::util::{get_epoch_time_secs, log};
+use stacks_common::util::get_epoch_time_secs;
 
 use crate::burnchains::bitcoin::blocks::{
     BitcoinBlockDownloader, BitcoinBlockParser, BitcoinHeaderIPC,
@@ -42,7 +43,7 @@ use crate::burnchains::bitcoin::{BitcoinNetworkType, Error as btc_error};
 use crate::burnchains::db::BurnchainHeaderReader;
 use crate::burnchains::indexer::{BurnchainIndexer, *};
 use crate::burnchains::{
-    Burnchain, BurnchainBlockHeader, Error as burnchain_error, MagicBytes, BLOCKSTACK_MAGIC_MAINNET,
+    BurnchainBlockHeader, Error as burnchain_error, MagicBytes, BLOCKSTACK_MAGIC_MAINNET,
 };
 use crate::core::{
     EpochList, StacksEpoch, StacksEpochExtension, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST,
@@ -730,14 +731,17 @@ impl BitcoinIndexer {
             // scan for common ancestor, but excluding the block we wrote to bootstrap the
             // reorg_spv_client.
             for i in (start_block + 1..max_height).rev() {
-                if canonical_headers[(i - start_block) as usize].header
-                    == reorg_headers[(i - start_block) as usize].header
-                {
+                let canonical_header = canonical_headers
+                    .get((i - start_block) as usize)
+                    .ok_or_else(|| btc_error::MissingHeader)?;
+                let reorg_header = reorg_headers
+                    .get((i - start_block) as usize)
+                    .ok_or_else(|| btc_error::MissingHeader)?;
+                if canonical_header.header == reorg_header.header {
                     // found common ancestor
                     debug!(
                         "Found common Bitcoin block ancestor at height {}: {:?}",
-                        i,
-                        &canonical_headers[(i - start_block) as usize].header
+                        i, &canonical_header.header
                     );
                     new_tip = i;
                     found_common_ancestor = true;
@@ -745,9 +749,7 @@ impl BitcoinIndexer {
                 } else {
                     debug!(
                         "Diverged headers at {}: {:?} != {:?}",
-                        i,
-                        &canonical_headers[(i - start_block) as usize].header,
-                        &reorg_headers[(i - start_block) as usize].header
+                        i, &canonical_header.header, &reorg_header.header
                     );
                 }
             }
@@ -1002,9 +1004,9 @@ impl BurnchainIndexer for BitcoinIndexer {
             false,
         )?;
         let first_block_height = self.get_first_block_height();
-        let first_header = spv_client
-            .read_block_header(first_block_height)?
-            .expect("BUG: no first block header timestamp");
+        let Ok(Some(first_header)) = spv_client.read_block_header(first_block_height) else {
+            return Err(burnchain_error::MissingHeaders);
+        };
 
         let first_block_header_timestamp = first_header.header.time as u64;
         Ok(first_block_header_timestamp)
@@ -1039,10 +1041,10 @@ impl BurnchainIndexer for BitcoinIndexer {
 
         let headers = spv_client.read_block_headers(start_block, end_block)?;
         let mut ret_headers: Vec<BitcoinHeaderIPC> = vec![];
-        for i in 0..headers.len() {
+        for (i, block_header) in headers.iter().enumerate() {
             ret_headers.push({
                 BitcoinHeaderIPC {
-                    block_header: headers[i].clone(),
+                    block_header: block_header.clone(),
                     block_height: (i as u64) + start_block,
                 }
             });
@@ -1181,15 +1183,12 @@ mod test {
 
     use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
     use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
-    use stacks_common::deps_common::bitcoin::network::serialize::{
-        deserialize, serialize, BitcoinHash,
-    };
     use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::uint::Uint256;
 
     use super::*;
-    use crate::burnchains::bitcoin::{Error as btc_error, *};
+    use crate::burnchains::bitcoin::*;
     use crate::burnchains::{Error as burnchain_error, *};
 
     #[test]

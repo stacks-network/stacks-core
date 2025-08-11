@@ -15,27 +15,20 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, VecDeque};
+use std::io;
 use std::io::{Read, Write};
-use std::ops::{Deref, DerefMut};
-use std::sync::mpsc::{
-    sync_channel, Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError,
-};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError};
 use std::time::Duration;
-use std::{io, net};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{QualifiedContractIdentifier, BOUND_VALUE_SERIALIZATION_HEX};
-use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
+use stacks_common::codec::MAX_MESSAGE_LEN;
 use stacks_common::types::net::PeerAddress;
-use stacks_common::util::hash::to_hex;
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::pipe::*;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
-use stacks_common::util::{get_epoch_time_secs, log, sleep_ms};
 
-use crate::chainstate::burn::ConsensusHash;
-use crate::core::mempool::MAX_BLOOM_COUNTER_TXS;
 use crate::monitoring::{update_inbound_bandwidth, update_outbound_bandwidth};
-use crate::net::codec::*;
 use crate::net::download::BLOCK_DOWNLOAD_INTERVAL;
 use crate::net::inv::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
 use crate::net::neighbors::{
@@ -44,8 +37,7 @@ use crate::net::neighbors::{
     WALK_SEED_PROBABILITY, WALK_STATE_TIMEOUT,
 };
 use crate::net::{
-    Error as net_error, MessageSequence, NeighborAddress, Preamble, ProtocolFamily, RelayData,
-    StacksHttp, StacksP2P,
+    Error as net_error, MessageSequence, NeighborAddress, ProtocolFamily, StacksHttp, StacksP2P,
 };
 
 /// The default maximum age in seconds of a block that can be validated by the block proposal endpoint
@@ -490,6 +482,9 @@ pub struct ConnectionOptions {
     /// Do not require that an unsolicited message originate from an authenticated, connected
     /// neighbor
     pub test_disable_unsolicited_message_authentication: bool,
+
+    /// max execution time of readonly calls when cost tracking is disabled
+    pub read_only_max_execution_time_secs: u64,
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -600,6 +595,8 @@ impl std::default::Default for ConnectionOptions {
 
             // no test facilitations on by default
             test_disable_unsolicited_message_authentication: false,
+
+            read_only_max_execution_time_secs: 30,
         }
     }
 }
@@ -630,20 +627,24 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
 
     /// Fill up the preamble buffer, up to P::preamble_size_hint().
     /// Return the number of bytes consumed.
-    fn buffer_preamble_bytes(&mut self, protocol: &mut P, bytes: &[u8]) -> usize {
+    fn buffer_preamble_bytes(
+        &mut self,
+        protocol: &mut P,
+        bytes: &[u8],
+    ) -> Result<usize, net_error> {
         let max_preamble_len = protocol.preamble_size_hint();
-        if self.buf.len() >= max_preamble_len {
-            return 0;
-        }
-
-        let to_consume = if self.buf.len() + bytes.len() <= max_preamble_len {
-            bytes.len()
-        } else {
-            max_preamble_len - self.buf.len()
+        let Some(preamble_remaining) = max_preamble_len.checked_sub(self.buf.len()) else {
+            return Ok(0);
         };
 
+        let to_consume = bytes.len().min(preamble_remaining);
+
         let _len = self.buf.len();
-        self.buf.extend_from_slice(&bytes[0..to_consume]);
+        self.buf.extend_from_slice(
+            bytes
+                .get(..to_consume)
+                .expect("FATAL: bad buffer length check"),
+        );
 
         trace!(
             "Buffer {} bytes out of max {} for preamble (buf went from {} to {} bytes)",
@@ -652,7 +653,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             _len,
             self.buf.len()
         );
-        to_consume
+        Ok(to_consume)
     }
 
     /// try to consume buffered data to form a message preamble.
@@ -663,7 +664,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
         protocol: &mut P,
         bytes: &[u8],
     ) -> Result<(Option<P::Preamble>, usize), net_error> {
-        let bytes_consumed = self.buffer_preamble_bytes(protocol, bytes);
+        let bytes_consumed = self.buffer_preamble_bytes(protocol, bytes)?;
         let preamble_opt = match protocol.read_preamble(&self.buf) {
             Ok((preamble, preamble_len)) => {
                 assert!((preamble_len as u32) < MAX_MESSAGE_LEN); // enforced by protocol family
@@ -720,31 +721,35 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
 
     /// buffer up bytes for a message
     #[cfg_attr(test, mutants::skip)]
-    fn buffer_message_bytes(&mut self, bytes: &[u8], message_len_opt: Option<usize>) -> usize {
+    fn buffer_message_bytes(
+        &mut self,
+        bytes: &[u8],
+        message_len_opt: Option<usize>,
+    ) -> Result<usize, net_error> {
         let message_len = message_len_opt.unwrap_or(MAX_MESSAGE_LEN as usize);
-        let buffered_so_far = self.buf[self.message_ptr..].len();
-        let mut to_consume = bytes.len();
-        let total_avail: u128 = (buffered_so_far as u128) + (to_consume as u128); // can't overflow
-        if total_avail > message_len as u128 {
-            trace!(
-                "self.message_ptr = {}, message_len = {}, to_consume = {}",
-                self.message_ptr,
-                message_len,
-                to_consume
-            );
+        let buffered_so_far = self
+            .buf
+            .len()
+            .checked_sub(self.message_ptr)
+            .ok_or_else(|| {
+                net_error::RecvError(format!("Message ptr {} overran buffer", self.message_ptr))
+            })?;
 
-            to_consume = if message_len > buffered_so_far {
-                message_len - buffered_so_far
-            } else {
-                // can happen if we receive so much data when parsing the preamble that we've
-                // also already received the message, and part of the next preamble (or more).
-                0
-            };
-        }
+        let Some(message_remaining) = message_len.checked_sub(buffered_so_far) else {
+            // can happen if we receive so much data when parsing the preamble that we've
+            // also already received the message, and part of the next preamble (or more).
+            return Ok(0);
+        };
+
+        let to_consume = bytes.len().min(message_remaining);
 
         trace!("Consume {} bytes from input buffer", to_consume);
-        self.buf.extend_from_slice(&bytes[0..to_consume]);
-        to_consume
+        self.buf.extend_from_slice(
+            bytes
+                .get(..to_consume)
+                .expect("FATAL: bad length check in buffer handling"),
+        );
+        Ok(to_consume)
     }
 
     /// Try and consume a payload from our internal buffer when the length of the payload is given
@@ -756,16 +761,19 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
     ) -> Result<Option<P::Message>, net_error> {
         let payload_len_opt = protocol.payload_len(preamble);
         let payload_len = payload_len_opt.expect("BUG: payload length assumed to be known");
+        let buf_bytes = self.buf.get(self.message_ptr..).ok_or_else(|| {
+            net_error::RecvError(format!("Message ptr {} overran buffer", self.message_ptr))
+        })?;
 
         // reading a payload of known length
-        if self.buf[self.message_ptr..].len() >= payload_len {
+        if buf_bytes.len() >= payload_len {
             // definitely have enough data to form a message
             if let Some(ref pubk) = self.public_key {
-                protocol.verify_payload_bytes(pubk, preamble, &self.buf[self.message_ptr..])?;
+                protocol.verify_payload_bytes(pubk, preamble, buf_bytes)?;
             }
 
             // consume the message
-            let message_opt = match protocol.read_payload(preamble, &self.buf[self.message_ptr..]) {
+            let message_opt = match protocol.read_payload(preamble, buf_bytes) {
                 Ok((message, message_len)) => {
                     test_debug!("Got message of {} bytes with {:?}", message_len, preamble);
                     let next_message_ptr = self.message_ptr.checked_add(message_len).ok_or(
@@ -773,12 +781,15 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                     )?;
 
                     // begin parsing at the end of this message
-                    let mut trailer = vec![];
-                    trailer.extend_from_slice(&self.buf[next_message_ptr..]);
+                    let data = self.buf.get(next_message_ptr..).ok_or_else(|| {
+                        net_error::RecvError(format!(
+                            "Next message ptr {next_message_ptr} overran buffer"
+                        ))
+                    })?;
 
                     self.message_ptr = 0;
                     self.payload_ptr = 0;
-                    self.buf = trailer;
+                    self.buf = data.to_vec();
 
                     if !self.buf.is_empty() {
                         test_debug!(
@@ -813,11 +824,12 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
         protocol: &mut P,
         preamble: &P::Preamble,
     ) -> Result<Option<P::Message>, net_error> {
-        let to_buffer = &self.buf[self.payload_ptr..];
-        let mut cursor = io::Cursor::new(to_buffer);
+        let mut to_buffer = self.buf.get(self.payload_ptr..).ok_or_else(|| {
+            net_error::RecvError(format!("Payload ptr {} overran buffer", self.payload_ptr))
+        })?;
 
         trace!("Stream up to {} payload bytes", to_buffer.len());
-        let (message_opt, bytes_consumed) = protocol.stream_payload(preamble, &mut cursor)?;
+        let (message_opt, bytes_consumed) = protocol.stream_payload(preamble, &mut to_buffer)?;
 
         trace!("Streamed {} payload bytes", bytes_consumed);
         self.payload_ptr =
@@ -838,12 +850,15 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                 let next_message_ptr = self.payload_ptr;
 
                 // begin parsing at the end of this message
-                let mut trailer = vec![];
-                trailer.extend_from_slice(&self.buf[next_message_ptr..]);
+                let data = self.buf.get(next_message_ptr..).ok_or_else(|| {
+                    net_error::RecvError(format!(
+                        "Next message ptr {next_message_ptr} overran buffer"
+                    ))
+                })?;
 
+                self.buf = data.to_vec();
                 self.message_ptr = 0;
                 self.payload_ptr = 0;
-                self.buf = trailer;
 
                 trace!("Input buffer reset to {} bytes", self.buf.len());
                 trace!("buf is now: {:?}", &self.buf);
@@ -873,7 +888,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
         bytes: &[u8],
     ) -> Result<(Option<P::Message>, usize), net_error> {
         let payload_len_opt = protocol.payload_len(preamble);
-        let bytes_consumed = self.buffer_message_bytes(bytes, payload_len_opt);
+        let bytes_consumed = self.buffer_message_bytes(bytes, payload_len_opt)?;
 
         if payload_len_opt.is_some() {
             let message_opt = self.consume_payload_known_length(protocol, preamble)?;
@@ -901,13 +916,15 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             }
 
             let bytes_consumed_preamble = if self.preamble.is_none() {
-                trace!(
-                    "Try to consume a preamble from {} bytes",
-                    buf[offset..].len()
-                );
+                let Some(preamble) = buf.get(offset..) else {
+                    return Err(net_error::RecvError(format!(
+                        "Failed to consum from buf at offset {offset}"
+                    )));
+                };
 
-                let (preamble_opt, bytes_consumed) =
-                    self.consume_preamble(protocol, &buf[offset..])?;
+                trace!("Try to consume a preamble from {} bytes", preamble.len());
+
+                let (preamble_opt, bytes_consumed) = self.consume_preamble(protocol, preamble)?;
                 self.preamble = preamble_opt;
 
                 trace!("Consumed message preamble in {} bytes", bytes_consumed);
@@ -925,8 +942,13 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
             let bytes_consumed_message = {
                 let mut preamble_opt = self.preamble.take();
                 let bytes_consumed = if let Some(ref mut preamble) = preamble_opt {
+                    let Some(payload) = buf.get(offset..) else {
+                        return Err(net_error::RecvError(format!(
+                            "Failed to consum from buf at offset {offset}"
+                        )));
+                    };
                     let (message_opt, bytes_consumed) =
-                        self.consume_payload(protocol, preamble, &buf[offset..])?;
+                        self.consume_payload(protocol, preamble, payload)?;
                     if let Some(message) = message_opt {
                         // queue up
                         test_debug!(
@@ -937,7 +959,10 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
                         );
                         self.inbox.push_back(message);
                         consumed_message = true;
-                    };
+                    } else if bytes_consumed == 0 {
+                        warn!("0 bytes consumed, but no message parsed");
+                        return Err(net_error::ConnectionBroken);
+                    }
 
                     bytes_consumed
                 } else {
@@ -1059,7 +1084,12 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
 
             if num_read > 0 {
                 // decode into message stream
-                self.consume_messages(protocol, &buf[0..num_read])?;
+                let Some(message_bytes) = buf.get(..num_read) else {
+                    return Err(net_error::RecvError(format!(
+                        "Failed to read {num_read} bytes after read() returned"
+                    )));
+                };
+                self.consume_messages(protocol, message_bytes)?;
             }
         }
 
@@ -1204,7 +1234,11 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
                         },
                     };
 
-                    self.socket_out_buf.extend_from_slice(&buf[0..nr_input]);
+                    let Some(read_bytes) = buf.get(..nr_input) else {
+                        error!("Could not fetch {nr_input} bytes from read buffer when read() returned");
+                        return Err(net_error::InvalidState);
+                    };
+                    self.socket_out_buf.extend_from_slice(read_bytes);
 
                     test_debug!(
                         "Connection buffered {} bytes from pipe ({} total, ptr = {}, blocked = {})",
@@ -1222,10 +1256,14 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
                 }
             };
 
-            if self.socket_out_ptr < self.socket_out_buf.len() {
+            if let Some(pending_bytes) = self
+                .socket_out_buf
+                .get(self.socket_out_ptr..)
+                .filter(|bytes| !bytes.is_empty())
+            {
                 // have pending bytes.
                 // send as many bytes as we can
-                let num_written_res = fd.write(&self.socket_out_buf[self.socket_out_ptr..]);
+                let num_written_res = fd.write(pending_bytes);
                 let num_written = match num_written_res {
                     Ok(0) => {
                         // indicates that the remote peer is no longer receiving
@@ -1509,23 +1547,36 @@ pub type ReplyHandleHttp = NetworkReplyHandle<StacksHttp>;
 
 #[cfg(test)]
 mod test {
-    use std::io::prelude::*;
-    use std::io::{Read, Write};
+    use std::io::Write;
     use std::sync::{Arc, Mutex};
     use std::{io, thread};
 
     use rand;
     use rand::RngCore;
-    use stacks_common::util::pipe::*;
     use stacks_common::util::secp256k1::*;
     use stacks_common::util::*;
 
     use super::*;
-    use crate::chainstate::stacks::test::make_codec_test_block;
-    use crate::net::http::*;
     use crate::net::test::{make_tcp_sockets, NetCursor};
     use crate::net::*;
     use crate::util_lib::test::*;
+
+    #[test]
+    /// Cover the eof/disconnect/read 0 bytes behavior of ConnectionOutbox::send_bytes.
+    fn connection_outbox_send_bytes() {
+        let mut outbox: ConnectionOutbox<StacksHttp> = ConnectionOutbox::new(1);
+        let (pipe_out, mut pipe_in_0) = Pipe::new();
+        outbox.queue_message(pipe_out, None).unwrap();
+        pipe_in_0.write_all(&[1; 32]).unwrap();
+        let mut out_buff = vec![];
+        let sent = outbox.send_bytes(&mut out_buff).unwrap();
+        assert_eq!(sent, 32);
+        drop(pipe_in_0);
+        let sent = outbox.send_bytes(&mut out_buff).unwrap();
+        assert_eq!(sent, 0);
+        let sent = outbox.send_bytes(&mut out_buff).unwrap();
+        assert_eq!(sent, 0);
+    }
 
     fn test_connection_relay_producer_consumer<P, F>(
         mut protocol: P,

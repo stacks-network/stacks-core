@@ -36,16 +36,12 @@
 ///         uint))
 /// )
 /// ```
-use std::collections::{HashMap, HashSet};
-use std::mem;
-
 use clarity::vm::analysis::ContractAnalysis;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::types::{
-    BufferLength, FixedFunction, FunctionType, ListTypeData, PrincipalData,
-    QualifiedContractIdentifier, SequenceData, SequenceSubtype, StandardPrincipalData,
-    TupleTypeSignature, TypeSignature, Value as ClarityValue,
+    BufferLength, FunctionType, ListTypeData, PrincipalData, QualifiedContractIdentifier,
+    SequenceSubtype, TupleTypeSignature, TypeSignature, Value as ClarityValue,
 };
 use clarity::vm::ClarityName;
 use lazy_static::lazy_static;
@@ -54,15 +50,12 @@ use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Hash160;
 
-use super::{STACKERDB_MAX_PAGE_COUNT, STACKERDB_PAGE_LIST_MAX, STACKERDB_SLOTS_FUNCTION};
+use super::{STACKERDB_PAGE_LIST_MAX, STACKERDB_SLOTS_FUNCTION};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::Error as chainstate_error;
-use crate::clarity_vm::clarity::{ClarityReadOnlyConnection, Error as clarity_error};
 use crate::net::stackerdb::{
-    StackerDBConfig, StackerDBs, STACKERDB_CONFIG_FUNCTION, STACKERDB_INV_MAX,
-    STACKERDB_MAX_CHUNK_SIZE,
+    StackerDBConfig, STACKERDB_CONFIG_FUNCTION, STACKERDB_INV_MAX, STACKERDB_MAX_CHUNK_SIZE,
 };
 use crate::net::{Error as NetError, NeighborAddress};
 
@@ -350,8 +343,14 @@ impl StackerDBConfig {
             }
             // NOTE: port is now known to be in range [1024, 65535]
 
-            let mut pubkey_hash_slice = [0u8; 20];
-            pubkey_hash_slice.copy_from_slice(&pubkey_hash_bytes[0..20]);
+            let pubkey_hash_slice: &[u8; 20] = pubkey_hash_bytes
+                .get(0..20)
+                .and_then(|bytes| bytes.try_into().ok())
+                .ok_or_else(|| {
+                    let reason = format!("{contract_id} stipulates pubkey hash bytes length < 20");
+                    warn!("{reason}");
+                    NetError::InvalidStackerDBContract(contract_id.clone(), reason)
+                })?;
 
             let peer_addr = PeerAddress::from_slice(&addr_bytes).expect("FATAL: not 16 bytes");
             if peer_addr.is_in_private_range() {
@@ -365,7 +364,7 @@ impl StackerDBConfig {
             let naddr = NeighborAddress {
                 addrbytes: peer_addr,
                 port: port as u16,
-                public_key_hash: Hash160(pubkey_hash_slice),
+                public_key_hash: Hash160(*pubkey_hash_slice),
             };
             hint_replicas.push(naddr);
         }

@@ -112,6 +112,7 @@ pub struct SnippetEvaluationResult {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum EvaluationResult {
     Contract(ContractEvaluationResult),
     Snippet(SnippetEvaluationResult),
@@ -170,8 +171,7 @@ pub trait EvalHook {
 fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
         Err(InterpreterError::BadSymbolicRepresentation(format!(
-            "Unexpected variable name: {}",
-            name
+            "Unexpected variable name: {name}"
         ))
         .into())
     } else if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
@@ -516,8 +516,7 @@ pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Val
 
     assert_eq!(
         epoch_200_result, epoch_205_result,
-        "Epoch 2.0 and 2.05 should have same execution result, but did not for program `{}`",
-        program
+        "Epoch 2.0 and 2.05 should have same execution result, but did not for program `{program}`"
     );
     epoch_205_result
 }

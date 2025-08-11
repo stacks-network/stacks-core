@@ -14,18 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(unused_imports)]
-
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::StacksEpochId;
 
 pub use super::test_util::*;
+#[cfg(test)]
 use super::ClarityVersion;
 use crate::vm::contexts::OwnedEnvironment;
 pub use crate::vm::database::BurnStateDB;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::Error;
-use crate::vm::types::Value;
+#[cfg(test)]
+use crate::{vm::errors::Error, vm::types::Value};
 
 mod assets;
 mod contracts;
@@ -126,6 +125,7 @@ epochs_template! {
     Epoch25,
     Epoch30,
     Epoch31,
+    Epoch32,
 }
 
 clarity_template! {
@@ -147,6 +147,9 @@ clarity_template! {
     (Epoch31, Clarity1),
     (Epoch31, Clarity2),
     (Epoch31, Clarity3),
+    (Epoch32, Clarity1),
+    (Epoch32, Clarity2),
+    (Epoch32, Clarity3),
 }
 
 #[cfg(test)]
@@ -168,7 +171,7 @@ pub fn tl_env_factory() -> TopLevelMemoryEnvironmentGenerator {
 
 pub struct MemoryEnvironmentGenerator(MemoryBackingStore);
 impl MemoryEnvironmentGenerator {
-    fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment {
+    fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment<'_> {
         let mut db = self.0.as_clarity_db();
         db.begin();
         db.set_clarity_epoch_version(epoch).unwrap();
@@ -187,7 +190,7 @@ impl MemoryEnvironmentGenerator {
 
 pub struct TopLevelMemoryEnvironmentGenerator(MemoryBackingStore);
 impl TopLevelMemoryEnvironmentGenerator {
-    pub fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment {
+    pub fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment<'_> {
         let mut db = self.0.as_clarity_db();
         db.begin();
         db.set_clarity_epoch_version(epoch).unwrap();

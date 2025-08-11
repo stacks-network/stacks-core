@@ -19,18 +19,11 @@ use std::path::Path;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
-use libstackerdb::SlotMetadata;
-use rusqlite::params;
-use stacks_common::address::{
-    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-};
-use stacks_common::types::chainstate::{
-    ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
-};
+use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG};
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 
-use crate::net::stackerdb::db::SlotValidation;
 use crate::net::stackerdb::{StackerDBConfig, StackerDBs};
 use crate::net::{Error as net_error, StackerDBChunkData};
 

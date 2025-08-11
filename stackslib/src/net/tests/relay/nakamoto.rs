@@ -16,58 +16,29 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError};
 use std::thread;
-use std::thread::JoinHandle;
 
-use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
-use clarity::vm::ast::ASTRules;
-use clarity::vm::costs::LimitedCostTracker;
-use clarity::vm::database::ClarityDatabase;
 use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::{ClarityVersion, MAX_CALL_STACK_DEPTH};
-use rand::Rng;
+use rand::{thread_rng, Rng};
 use stacks_common::address::AddressHashMode;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, StacksWorkScore, TrieHash};
+use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use stacks_common::types::Address;
-use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
-use stacks_common::util::sleep_ms;
-use stacks_common::util::vrf::VRFProof;
+use stacks_common::util::hash::Sha512Trunc256Sum;
 
-use super::*;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::tests::TestMiner;
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::nakamoto::coordinator::tests::make_token_transfer;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::NakamotoBlockHeader;
-use crate::chainstate::stacks::boot::test::{
-    key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature, with_sortdb,
-};
-use crate::chainstate::stacks::db::blocks::{MINIMUM_TX_FEE, MINIMUM_TX_FEE_RATE_PER_BYTE};
-use crate::chainstate::stacks::miner::{BlockBuilderSettings, StacksMicroblockBuilder};
-use crate::chainstate::stacks::test::{
-    codec_all_transactions, make_codec_test_block, make_codec_test_microblock,
-};
-use crate::chainstate::stacks::tests::{
-    make_coinbase, make_coinbase_with_nonce, make_smart_contract_with_version,
-    make_user_stacks_transfer, TestStacksNode,
-};
-use crate::chainstate::stacks::{Error as ChainstateError, *};
-use crate::clarity_vm::clarity::ClarityConnection;
+use crate::chainstate::stacks::test::{make_codec_test_block, make_codec_test_microblock};
+use crate::chainstate::stacks::tests::TestStacksNode;
+use crate::chainstate::stacks::*;
 use crate::core::*;
-use crate::net::asn::*;
-use crate::net::chat::*;
-use crate::net::codec::*;
-use crate::net::download::*;
-use crate::net::http::{HttpRequestContents, HttpRequestPreamble};
-use crate::net::httpcore::StacksHttpMessage;
-use crate::net::inv::inv2x::*;
 use crate::net::relay::{AcceptedNakamotoBlocks, ProcessedNetReceipts, Relayer};
+use crate::net::stackerdb::StackerDBs;
 use crate::net::test::*;
-use crate::net::tests::download::epoch2x::run_get_blocks_and_microblocks;
 use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs;
-use crate::net::tests::relay::epoch2x::broadcast_message;
 use crate::net::{Error as NetError, *};
-use crate::util_lib::test::*;
 
 /// Everything in a TestPeer, except the coordinator (which is encumbered by the lifetime of its
 /// chains coordinator's event observer)
@@ -216,7 +187,7 @@ impl SeedNode {
 
         // have the peer mine some blocks for two reward cycles
         for i in 0..(2 * rc_len) {
-            debug!("Tenure {}", i);
+            debug!("Producing tenure {i}");
             let (burn_ops, mut tenure_change, miner_key) =
                 peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
             let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
@@ -241,11 +212,11 @@ impl SeedNode {
                 .make_nakamoto_tenure_change(tenure_change.clone());
             let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
 
-            debug!("Next burnchain block: {}", &consensus_hash);
-
             let num_blocks: usize = (thread_rng().gen::<usize>() % 10) + 1;
 
             let block_height = peer.get_burn_block_height();
+
+            debug!("Next burnchain block"; "consensus_hash" => %consensus_hash, "block_height" => %block_height);
 
             // do a stx transfer in each block to a given recipient
             let recipient_addr =

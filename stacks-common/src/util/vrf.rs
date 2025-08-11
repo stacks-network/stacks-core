@@ -28,7 +28,6 @@ use std::{error, fmt};
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 use curve25519_dalek::scalar::{clamp_integer, Scalar as ed25519_Scalar};
-use rand;
 use sha2::{Digest, Sha512};
 
 use super::hash::Sha512Trunc256Sum;
@@ -73,7 +72,7 @@ impl Eq for VRFPublicKey {}
 
 impl PartialOrd for VRFPublicKey {
     fn partial_cmp(&self, other: &VRFPublicKey) -> Option<Ordering> {
-        Some(self.as_bytes().to_vec().cmp(&other.as_bytes().to_vec()))
+        Some(self.cmp(other))
     }
 }
 
@@ -103,6 +102,7 @@ impl PartialEq for VRFPrivateKey {
     }
 }
 
+#[cfg(any(test, feature = "testing"))]
 impl Default for VRFPrivateKey {
     fn default() -> Self {
         Self::new()
@@ -110,9 +110,13 @@ impl Default for VRFPrivateKey {
 }
 
 impl VRFPrivateKey {
+    #[cfg(any(test, feature = "testing"))]
     pub fn new() -> VRFPrivateKey {
+        use rand::RngCore as _;
         let mut rng = rand::thread_rng();
-        let signing_key = ed25519_dalek::SigningKey::generate(&mut rng);
+        let mut sk_bytes = [0u8; 32];
+        rng.fill_bytes(&mut sk_bytes);
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&sk_bytes);
         VRFPrivateKey(signing_key)
     }
 
@@ -186,7 +190,6 @@ pub enum Error {
     InvalidPublicKey,
     InvalidDataError,
     InvalidHashPoints,
-    OSRNGError(rand::Error),
 }
 
 impl fmt::Display for Error {
@@ -195,7 +198,6 @@ impl fmt::Display for Error {
             Error::InvalidPublicKey => write!(f, "Invalid public key"),
             Error::InvalidDataError => write!(f, "No data could be found"),
             Error::InvalidHashPoints => write!(f, "VRF hash points did not yield a valid scalar"),
-            Error::OSRNGError(ref e) => fmt::Display::fmt(e, f),
         }
     }
 }
@@ -206,7 +208,6 @@ impl error::Error for Error {
             Error::InvalidPublicKey => None,
             Error::InvalidDataError => None,
             Error::InvalidHashPoints => None,
-            Error::OSRNGError(ref e) => Some(e),
         }
     }
 }
@@ -580,8 +581,7 @@ impl VRFSeed {
 
 #[cfg(test)]
 mod tests {
-    use rand;
-    use rand::RngCore;
+    use rand::RngCore as _;
 
     use super::*;
     use crate::util::hash::hex_bytes;

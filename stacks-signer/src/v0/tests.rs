@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
@@ -25,6 +26,11 @@ use stacks_common::{info, warn};
 
 use super::signer::Signer;
 use crate::signerdb::BlockInfo;
+
+/// A global variable that can be used to pin a signer's highest supported protocol version if the signer's public key is in the provided list
+pub static TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION: LazyLock<
+    TestFlag<HashMap<StacksPublicKey, u64>>,
+> = LazyLock::new(TestFlag::default);
 
 /// A global variable that can be used to reject all block proposals if the signer's public key is in the provided list
 pub static TEST_REJECT_ALL_BLOCK_PROPOSAL: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
@@ -150,5 +156,17 @@ impl Signer {
             }
             warn!("{self}: Block validation submission is no longer stalled due to testing directive. Continuing...");
         }
+    }
+
+    /// Get the pinned signer version for the signer
+    pub fn test_get_signer_protocol_version(&self) -> u64 {
+        let public_keys = TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.get();
+        if let Some(version) = public_keys.get(
+            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
+        ) {
+            warn!("{self}: signer version is pinned to {version}");
+            return *version;
+        }
+        self.supported_signer_protocol_version
     }
 }

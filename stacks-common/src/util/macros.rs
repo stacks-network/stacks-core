@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -613,6 +613,12 @@ macro_rules! impl_byte_array_newtype {
                 Self(o)
             }
         }
+
+        impl $crate::util::HexDeser for $thing {
+            fn try_from_hex(hex_str: &str) -> Result<Self, $crate::util::HexError> {
+                $thing::from_hex(hex_str)
+            }
+        }
     };
 }
 
@@ -743,7 +749,7 @@ macro_rules! impl_byte_array_rusqlite_only {
         }
 
         impl rusqlite::types::ToSql for $thing {
-            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput> {
+            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
                 let hex_str = self.to_hex();
                 Ok(hex_str.into())
             }

@@ -15,33 +15,20 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cell::RefCell;
-use std::{thread, time};
 
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::MAX_CALL_STACK_DEPTH;
-use rand;
-use rand::RngCore;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::{log, sleep_ms};
+use rand::thread_rng;
 
 use super::*;
-use crate::burnchains::burnchain::*;
-use crate::burnchains::*;
 use crate::chainstate::nakamoto::coordinator::tests::make_token_transfer;
-use crate::chainstate::stacks::test::*;
 use crate::chainstate::stacks::*;
 use crate::core::test_util::to_addr;
-use crate::core::StacksEpochExtension;
-use crate::net::atlas::*;
-use crate::net::codec::*;
-use crate::net::db::*;
 use crate::net::test::*;
 use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs_and_balances;
 use crate::net::tests::relay::epoch2x::make_contract_tx;
 use crate::net::*;
-use crate::util_lib::test::*;
 
 #[test]
 fn test_mempool_sync_2_peers() {

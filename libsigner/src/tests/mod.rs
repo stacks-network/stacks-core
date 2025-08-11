@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,34 +15,28 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 mod http;
+mod signer_state;
 
-use std::fmt::Debug;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::time::Duration;
+use std::net::{SocketAddr, TcpStream};
+use std::sync::mpsc::{channel, Sender};
+use std::time::{Duration, SystemTime};
 use std::{mem, thread};
 
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
-use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
-use blockstack_lib::util_lib::boot::boot_code_id;
-use clarity::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
+use clarity::types::chainstate::{ConsensusHash, StacksBlockId, StacksPublicKey, TrieHash};
 use clarity::util::hash::Sha512Trunc256Sum;
 use clarity::util::secp256k1::MessageSignature;
-use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::StackerDBChunkData;
 use stacks_common::bitvec::BitVec;
-use stacks_common::codec::{
-    read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
-    StacksMessageCodec,
-};
+use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::sleep_ms;
 
 use crate::events::{BlockProposalData, SignerEvent, SignerEventTrait};
-use crate::v0::messages::{BlockRejection, SignerMessage};
+use crate::v0::messages::SignerMessage;
 use crate::{BlockProposal, Signer, SignerEventReceiver, SignerRunLoop};
 
 /// Simple runloop implementation.  It receives `max_events` events and returns `events` from the
@@ -177,23 +171,48 @@ fn test_simple_signer() {
     sleep_ms(5000);
     let accepted_events = running_signer.stop().unwrap();
 
-    chunks.sort_by(|ev1, ev2| {
-        ev1.modified_slots[0]
-            .slot_id
-            .partial_cmp(&ev2.modified_slots[0].slot_id)
-            .unwrap()
-    });
-
     let sent_events: Vec<SignerEvent<SignerMessage>> = chunks
         .iter()
-        .map(|chunk| {
-            let msg = chunk.modified_slots[0].data.clone();
-            let signer_message = read_next::<SignerMessage, _>(&mut &msg[..]).unwrap();
-            SignerEvent::SignerMessages(0, vec![signer_message])
+        .map(|event| {
+            let messages: Vec<(StacksPublicKey, SignerMessage)> = event
+                .modified_slots
+                .iter()
+                .filter_map(|chunk| {
+                    Some((
+                        chunk.recover_pk().ok()?,
+                        read_next::<SignerMessage, _>(&mut &chunk.data[..]).ok()?,
+                    ))
+                })
+                .collect();
+            SignerEvent::SignerMessages {
+                signer_set: 0,
+                messages,
+                received_time: SystemTime::now(),
+            }
         })
         .collect();
 
-    assert_eq!(sent_events, accepted_events);
+    for event in sent_events {
+        let SignerEvent::SignerMessages {
+            signer_set: sent_signer_set,
+            messages: sent_messages,
+            ..
+        } = event
+        else {
+            panic!("We expect ONLY signer messages");
+        };
+        assert!(accepted_events.iter().any(|e| {
+            let SignerEvent::SignerMessages {
+                signer_set: accepted_signer_set,
+                messages: accepted_messages,
+                ..
+            } = e
+            else {
+                panic!("We expect ONLY signer messages");
+            };
+            *accepted_signer_set == sent_signer_set && *accepted_messages == sent_messages
+        }))
+    }
     mock_stacks_node.join().unwrap();
 }
 
@@ -210,15 +229,12 @@ fn test_status_endpoint() {
         let mut sock = match TcpStream::connect(endpoint) {
             Ok(sock) => sock,
             Err(e) => {
-                eprint!("Error connecting to {}: {}", endpoint, e);
+                eprint!("Error connecting to {endpoint}: {e}");
                 sleep_ms(100);
                 return;
             }
         };
-        let req = format!(
-            "GET /status HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-            endpoint
-        );
+        let req = format!("GET /status HTTP/1.1\r\nHost: {endpoint}\r\nConnection: close\r\n\r\n");
 
         sock.write_all(req.as_bytes()).unwrap();
         let mut buf = [0; 128];

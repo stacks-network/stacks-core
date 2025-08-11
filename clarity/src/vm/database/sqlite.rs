@@ -44,14 +44,14 @@ fn sqlite_put(conn: &Connection, key: &str, value: &str) -> Result<()> {
     match conn.execute("REPLACE INTO data_table (key, value) VALUES (?, ?)", params) {
         Ok(_) => Ok(()),
         Err(e) => {
-            error!("Failed to insert/replace ({},{}): {:?}", key, value, &e);
+            error!("Failed to insert/replace ({key},{value}): {e:?}");
             Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
         }
     }
 }
 
 fn sqlite_get(conn: &Connection, key: &str) -> Result<Option<String>> {
-    trace!("sqlite_get {}", key);
+    trace!("sqlite_get {key}");
     let params = params![key];
     let res = match conn
         .query_row(
@@ -63,12 +63,12 @@ fn sqlite_get(conn: &Connection, key: &str) -> Result<Option<String>> {
     {
         Ok(x) => Ok(x),
         Err(e) => {
-            error!("Failed to query '{}': {:?}", key, &e);
+            error!("Failed to query '{key}': {e:?}");
             Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
         }
     };
 
-    trace!("sqlite_get {}: {:?}", key, &res);
+    trace!("sqlite_get {key}: {res:?}");
     res
 }
 
@@ -148,20 +148,14 @@ impl SqliteConnection {
         key: &str,
         value: &str,
     ) -> Result<()> {
-        let key = format!("clr-meta::{}::{}", contract_hash, key);
+        let key = format!("clr-meta::{contract_hash}::{key}");
         let params = params![bhh, key, value];
 
         if let Err(e) = conn.execute(
             "INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)",
             params,
         ) {
-            error!(
-                "Failed to insert ({},{},{}): {:?}",
-                &bhh,
-                &key,
-                &value.to_string(),
-                &e
-            );
+            error!("Failed to insert ({bhh},{key},{value}): {e:?}");
             return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
         Ok(())
@@ -177,7 +171,7 @@ impl SqliteConnection {
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
             params,
         ) {
-            error!("Failed to update {} to {}: {:?}", &from, &to, &e);
+            error!("Failed to update {from} to {to}: {e:?}");
             return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
         Ok(())
@@ -188,7 +182,7 @@ impl SqliteConnection {
             "DELETE FROM metadata_table WHERE blockhash = ?",
             params![from],
         ) {
-            error!("Failed to drop metadata from {}: {:?}", &from, &e);
+            error!("Failed to drop metadata from {from}: {e:?}");
             return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
         Ok(())
@@ -200,7 +194,7 @@ impl SqliteConnection {
         contract_hash: &str,
         key: &str,
     ) -> Result<Option<String>> {
-        let key = format!("clr-meta::{}::{}", contract_hash, key);
+        let key = format!("clr-meta::{contract_hash}::{key}");
         let params = params![bhh, key];
 
         match conn
@@ -213,7 +207,7 @@ impl SqliteConnection {
         {
             Ok(x) => Ok(x),
             Err(e) => {
-                error!("Failed to query ({},{}): {:?}", &bhh, &key, &e);
+                error!("Failed to query ({bhh},{key}): {e:?}");
                 Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
             }
         }
@@ -254,16 +248,13 @@ impl SqliteConnection {
 
         Ok(())
     }
+
     pub fn memory() -> Result<Connection> {
         let contract_db = SqliteConnection::inner_open(":memory:")?;
         SqliteConnection::initialize_conn(&contract_db)?;
         Ok(contract_db)
     }
-    pub fn open(filename: &str) -> Result<Connection> {
-        let contract_db = SqliteConnection::inner_open(filename)?;
-        SqliteConnection::check_schema(&contract_db)?;
-        Ok(contract_db)
-    }
+
     pub fn check_schema(conn: &Connection) -> Result<()> {
         let sql = "SELECT sql FROM sqlite_master WHERE name=?";
         let _: String = conn
@@ -272,10 +263,13 @@ impl SqliteConnection {
         let _: String = conn
             .query_row(sql, params!["metadata_table"], |row| row.get(0))
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+        let _: String = conn
+            .query_row(sql, params!["md_blockhashes"], |row| row.get(0))
+            .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
         Ok(())
     }
 
-    pub fn inner_open(filename: &str) -> Result<Connection> {
+    fn inner_open(filename: &str) -> Result<Connection> {
         let conn = Connection::open(filename)
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 
@@ -308,11 +302,11 @@ impl MemoryBackingStore {
         memory_marf
     }
 
-    pub fn as_clarity_db(&mut self) -> ClarityDatabase {
+    pub fn as_clarity_db(&mut self) -> ClarityDatabase<'_> {
         ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
     }
 
-    pub fn as_analysis_db(&mut self) -> AnalysisDatabase {
+    pub fn as_analysis_db(&mut self) -> AnalysisDatabase<'_> {
         AnalysisDatabase::new(self)
     }
 }
@@ -411,7 +405,7 @@ impl ClarityBackingStore for MemoryBackingStore {
 }
 
 impl ToSql for ExecutionCost {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         let val = serde_json::to_string(self)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
         Ok(ToSqlOutput::from(val))

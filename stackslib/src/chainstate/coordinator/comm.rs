@@ -15,9 +15,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, LockResult, Mutex, MutexGuard, RwLock, TryLockResult};
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread;
 use std::time::{Duration, Instant};
-use std::{process, thread};
 
 /// Trait for use by the ChainsCoordinator
 ///

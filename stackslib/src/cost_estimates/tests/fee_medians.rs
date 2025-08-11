@@ -1,23 +1,16 @@
 use std::env;
 
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::{PrincipalData, StandardPrincipalData};
 use clarity::vm::Value;
-use rand::seq::SliceRandom;
 use rand::Rng;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore,
-};
-use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::hash::{to_hex, Hash160};
 
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::{
-    CoinbasePayload, StacksBlockHeader, StacksTransaction, TokenTransferMemo, TransactionAuth,
-    TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
+    CoinbasePayload, StacksTransaction, TransactionAuth, TransactionContractCall,
+    TransactionPayload, TransactionSpendingCondition, TransactionVersion,
 };
-use crate::core::StacksEpochId;
 use crate::cost_estimates::fee_medians::{
     fee_rate_estimate_from_sorted_weighted_fees, FeeRateAndWeight, WeightedMedianFeeRateEstimator,
 };
@@ -78,6 +71,7 @@ fn make_dummy_cc_tx(fee: u64, execution_cost: &ExecutionCost) -> StacksTransacti
         Value::okay(Value::Bool(true)).unwrap(),
         0,
         execution_cost.clone(),
+        None,
     )
 }
 
@@ -295,7 +289,8 @@ fn test_fee_rate_estimate_5_vs_95() {
                 fee_rate: 10f64,
                 weight: 95u64,
             },
-        ]),
+        ])
+        .unwrap(),
         FeeRateEstimate {
             high: 10.0f64,
             middle: 9.549999999999999f64,
@@ -316,7 +311,8 @@ fn test_fee_rate_estimate_50_vs_50() {
                 fee_rate: 10f64,
                 weight: 50u64,
             },
-        ]),
+        ])
+        .unwrap(),
         FeeRateEstimate {
             high: 10.0f64,
             middle: 5.5f64,
@@ -337,7 +333,8 @@ fn test_fee_rate_estimate_95_vs_5() {
                 fee_rate: 10f64,
                 weight: 5u64,
             },
-        ]),
+        ])
+        .unwrap(),
         FeeRateEstimate {
             high: 9.549999999999999f64,
             middle: 1.4500000000000004f64,
@@ -357,7 +354,7 @@ fn test_fee_rate_estimate_20() {
     }
 
     assert_eq!(
-        fee_rate_estimate_from_sorted_weighted_fees(&pairs),
+        fee_rate_estimate_from_sorted_weighted_fees(&pairs).unwrap(),
         FeeRateEstimate {
             high: 19.5f64,
             middle: 10.5f64,
@@ -377,7 +374,7 @@ fn test_fee_rate_estimate_100() {
     }
 
     assert_eq!(
-        fee_rate_estimate_from_sorted_weighted_fees(&pairs),
+        fee_rate_estimate_from_sorted_weighted_fees(&pairs).unwrap(),
         FeeRateEstimate {
             high: 95.5f64,
             middle: 50.5f64,

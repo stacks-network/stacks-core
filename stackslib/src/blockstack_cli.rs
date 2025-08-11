@@ -1,4 +1,3 @@
-#![allow(unused_imports)]
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020 Stacks Open Internet Foundation
 //
@@ -23,6 +22,7 @@ extern crate blockstack_lib;
 extern crate clarity;
 extern crate stacks_common;
 
+#[cfg(test)]
 use std::io::prelude::*;
 use std::io::Read;
 use std::{env, fs, io};
@@ -34,9 +34,9 @@ use blockstack_lib::burnchains::Address;
 use blockstack_lib::chainstate::stacks::{
     StacksBlock, StacksBlockHeader, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
     StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
-    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionSmartContract,
-    TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
+    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use blockstack_lib::clarity_cli::vm_execute;
 use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
@@ -90,6 +90,10 @@ is that the miner chooses, but you can decide which with the following options:
 
   --microblock-only  indicates to mine this transaction only in a microblock
   --block-only       indicates to mine this transaction only in a block
+
+The post-condition mode for the transaction can be controlled with the following option:
+  
+  --postcondition-mode  indicates the post-condition mode for the contract. Allowed values: [`allow`, `deny`]. Default: `deny`.
 ";
 
 const CALL_USAGE: &str = "blockstack-cli (options) contract-call [origin-secret-key-hex] [fee-rate] [nonce] [contract-publisher-address] [contract-name] [function-name] [args...]
@@ -108,8 +112,9 @@ Arguments are supplied in one of two ways: through script evaluation or via hex 
 of the value serialization format. The method for supplying arguments is chosen by
 prefacing each argument with a flag:
 
-  -e  indicates the argument should be _evaluated_
-  -x  indicates the argument that a serialized Clarity value is being passed (hex-serialized)
+  -e                     indicates the argument should be _evaluated_
+  -x                     indicates the argument that a serialized Clarity value is being passed (hex-serialized)
+ --hex-file <file_path>  same as `-x`, but reads the serialized Clarity value from a file
 
 e.g.,
 
@@ -117,7 +122,8 @@ e.g.,
       transfer-fookens -e \\'SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4 \\
                        -e \"(+ 1 2)\" \\
                        -x 0000000000000000000000000000000001 \\
-                       -x 050011deadbeef11ababffff11deadbeef11ababffff
+                       -x 050011deadbeef11ababffff11deadbeef11ababffff \\
+                       --hex-file /path/to/value.hex
 ";
 
 const TOKEN_TRANSFER_USAGE: &str = "blockstack-cli (options) token-transfer [origin-secret-key-hex] [fee-rate] [nonce] [recipient-address] [amount] [memo] [args...]
@@ -329,44 +335,192 @@ fn sign_transaction_single_sig_standard(
         .ok_or("TX did not finish signing -- was this a standard single signature transaction?")?)
 }
 
+/// Counts how many times a specific flag appears in the argument list.
+///
+/// # Arguments
+///
+/// * `args` - A reference to a vector of argument strings.
+/// * `flag` - The flag to count occurrences of.
+///
+/// # Returns
+///
+/// The number of times `flag` appears in `args`.
+fn count_flag(args: &Vec<String>, flag: &str) -> usize {
+    args.iter().filter(|&arg| arg == flag).count()
+}
+
+/// Removes the first occurrence of a flag from the argument list.
+///
+/// # Arguments
+///
+/// * `args` - A mutable reference to a vector of argument strings.
+/// * `flag` - The flag to remove.
+///
+/// # Returns
+///
+/// `true` if the flag was found and removed; `false` otherwise.
+fn extract_flag(args: &mut Vec<String>, flag: &str) -> bool {
+    args.iter()
+        .position(|arg| arg == flag)
+        .map(|flag_index| {
+            args.remove(flag_index);
+        })
+        .is_some()
+}
+
+/// Removes a flag and its following value from the argument list.
+///
+/// # Arguments
+///
+/// * `args` - A mutable reference to a vector of argument strings.
+/// * `flag` - The flag whose value to extract and remove.
+///
+/// # Returns
+///
+/// An `Option<String>` containing the value following the flag if both were found and removed;  
+/// returns `None` if the flag was not found or no value follows the flag.
+fn extract_flag_with_value(args: &mut Vec<String>, flag: &str) -> Option<String> {
+    args.iter()
+        .position(|arg| arg == flag)
+        .and_then(|flag_index| {
+            if flag_index + 1 < args.len() {
+                let value = args.remove(flag_index + 1);
+                args.remove(flag_index);
+                Some(value)
+            } else {
+                None
+            }
+        })
+}
+
+/// Parses anchor mode flags from the CLI arguments.
+///
+/// This function checks for the presence of `--microblock-only` and `--block-only` flags
+/// in the provided `args` vector, and returns the corresponding `TransactionAnchorMode`.
+///
+/// The user may specify **at most one** of these flags:
+/// - `--microblock-only` maps to `TransactionAnchorMode::OffChainOnly`
+/// - `--block-only` maps to `TransactionAnchorMode::OnChainOnly`
+///
+/// If **neither flag is provided**, the default mode `TransactionAnchorMode::Any` is returned.
+///
+/// Both flags are removed from the `args` vector if present.
+///
+/// # Arguments
+///
+/// * `args` - A mutable reference to a vector of CLI arguments.
+/// * `usage` - A usage string displayed in error messages.
+///
+/// # Returns
+///
+/// * `Ok(TransactionAnchorMode)` - On successful parsing or if no anchor mode is specified.
+/// * `Err(CliError)` - If either flag is duplicated, or if both are present simultaneously.
+///
+/// # Errors
+///
+/// Returns a `CliError::Message` if:
+/// - `--microblock-only` or `--block-only` appears more than once.
+/// - Both flags are specified together (mutually exclusive).
+///
+/// # Side Effects
+///
+/// Removes `--microblock-only` or `--block-only` from the `args` vector if found.
 fn parse_anchor_mode(
     args: &mut Vec<String>,
     usage: &str,
 ) -> Result<TransactionAnchorMode, CliError> {
-    let num_args = args.len();
-    let mut offchain_only = false;
-    let mut onchain_only = false;
-    let mut idx = 0;
-    for i in 0..num_args {
-        if args[i] == "--microblock-only" {
-            if idx > 0 {
-                return Err(CliError::Message(format!("USAGE:\n {}", usage,)));
-            }
+    const FLAG_MICROBLOCK: &str = "--microblock-only";
+    const FLAG_BLOCK: &str = "--block-only";
 
-            offchain_only = true;
-            idx = i;
-        }
-        if args[i] == "--block-only" {
-            if idx > 0 {
-                return Err(CliError::Message(format!("USAGE:\n {}", usage,)));
-            }
+    let count_micro = count_flag(args, FLAG_MICROBLOCK);
+    let count_block = count_flag(args, FLAG_BLOCK);
 
-            onchain_only = true;
-            idx = i;
-        }
+    if count_micro > 1 || count_block > 1 {
+        return Err(CliError::Message(format!(
+            "Duplicated anchor mode detected.\n\nUSAGE:\n{}",
+            usage,
+        )));
     }
-    if idx > 0 {
-        args.remove(idx);
-    }
-    if onchain_only {
-        Ok(TransactionAnchorMode::OnChainOnly)
-    } else if offchain_only {
-        Ok(TransactionAnchorMode::OffChainOnly)
-    } else {
-        Ok(TransactionAnchorMode::Any)
+
+    let has_microblock = extract_flag(args, FLAG_MICROBLOCK);
+    let has_block = extract_flag(args, FLAG_BLOCK);
+
+    match (has_microblock, has_block) {
+        (true, true) => Err(CliError::Message(format!(
+            "Both anchor modes detected.\n\nUSAGE:\n{}",
+            usage
+        ))),
+        (true, false) => Ok(TransactionAnchorMode::OffChainOnly),
+        (false, true) => Ok(TransactionAnchorMode::OnChainOnly),
+        (false, false) => Ok(TransactionAnchorMode::Any),
     }
 }
 
+/// Parses the `--postcondition-mode` flag from the CLI arguments.
+///
+/// This function looks for the `--postcondition-mode` flag in the provided `args` vector
+/// and extracts its associated value. The flag must be specified at most once, and the value
+/// must be either `"allow"` or `"deny"`. If the flag is not present, the default mode
+/// `TransactionPostConditionMode::Deny` is returned.
+///
+/// The flag and its value are removed from `args` if found.
+///
+/// # Arguments
+///
+/// * `args` - A mutable reference to a vector of CLI arguments.
+/// * `usage` - A usage string that is displayed in error messages.
+///
+/// # Returns
+///
+/// * `Ok(TransactionPostConditionMode)` - If the flag is parsed successfully or not present (defaults to `Deny`).
+/// * `Err(CliError)` - If the flag is duplicated, missing a value, or contains an invalid value.
+///
+/// # Errors
+///
+/// Returns a `CliError::Message` if:
+/// - The flag appears more than once.
+/// - The flag is present but missing a value.
+/// - The flag value is not `"allow"` or `"deny"`.
+///
+/// # Side Effects
+///
+/// This function modifies the `args` vector by removing the parsed flag and its value if found.
+fn parse_postcondition_mode(
+    args: &mut Vec<String>,
+    usage: &str,
+) -> Result<TransactionPostConditionMode, CliError> {
+    const FLAG_POSTCONDITION: &str = "--postcondition-mode";
+    const VALUE_ALLOW: &str = "allow";
+    const VALUE_DENY: &str = "deny";
+
+    match count_flag(args, FLAG_POSTCONDITION) {
+        0 => return Ok(TransactionPostConditionMode::Deny),
+        1 => { /* continue below */ }
+        _ => {
+            return Err(CliError::Message(format!(
+                "Duplicated `{}`.\n\nUSAGE:\n{}",
+                FLAG_POSTCONDITION, usage
+            )));
+        }
+    }
+
+    match extract_flag_with_value(args, FLAG_POSTCONDITION) {
+        Some(value) => match value.as_str() {
+            VALUE_ALLOW => Ok(TransactionPostConditionMode::Allow),
+            VALUE_DENY => Ok(TransactionPostConditionMode::Deny),
+            _ => Err(CliError::Message(format!(
+                "Invalid value for `{}`.\n\nUSAGE:\n{}",
+                FLAG_POSTCONDITION, usage
+            ))),
+        },
+        None => Err(CliError::Message(format!(
+            "Missing value for `{}`.\n\nUSAGE:\n{}",
+            FLAG_POSTCONDITION, usage
+        ))),
+    }
+}
+
+#[allow(clippy::indexing_slicing)]
 fn handle_contract_publish(
     args_slice: &[String],
     version: TransactionVersion,
@@ -375,15 +529,16 @@ fn handle_contract_publish(
     let mut args = args_slice.to_vec();
 
     if !args.is_empty() && args[0] == "-h" {
-        return Err(CliError::Message(format!("USAGE:\n {}", PUBLISH_USAGE)));
+        return Err(CliError::Message(format!("USAGE:\n{}", PUBLISH_USAGE)));
     }
-    if args.len() != 5 {
+    if args.len() < 5 {
         return Err(CliError::Message(format!(
-            "Incorrect argument count supplied \n\nUSAGE:\n {}",
+            "Incorrect argument count supplied \n\nUSAGE:\n{}",
             PUBLISH_USAGE
         )));
     }
     let anchor_mode = parse_anchor_mode(&mut args, PUBLISH_USAGE)?;
+    let postcond_mode = parse_postcondition_mode(&mut args, PUBLISH_USAGE)?;
     let sk_publisher = &args[0];
     let tx_fee = args[1].parse()?;
     let nonce = args[2].parse()?;
@@ -410,6 +565,7 @@ fn handle_contract_publish(
         tx_fee,
     );
     unsigned_tx.anchor_mode = anchor_mode;
+    unsigned_tx.post_condition_mode = postcond_mode;
 
     let mut unsigned_tx_bytes = vec![];
     unsigned_tx
@@ -425,6 +581,7 @@ fn handle_contract_publish(
     Ok(to_hex(&signed_tx_bytes))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn handle_contract_call(
     args_slice: &[String],
     version: TransactionVersion,
@@ -453,7 +610,7 @@ fn handle_contract_call(
 
     if val_args.len() % 2 != 0 {
         return Err(
-            "contract-call arguments must be supplied as a list of `-e ...` or `-x 0000...` pairs"
+            "contract-call arguments must be supplied as a list of `-e ...` or `-x 0000...` or `--hex-file <file_path>` pairs"
                 .into(),
         );
     }
@@ -471,8 +628,16 @@ fn handle_contract_call(
                 vm_execute(input, clarity_version)?
                     .ok_or("Supplied argument did not evaluate to a Value")?
             },
+            "--hex-file" => {
+                let content = fs::read_to_string(input)
+                    .map_err(|e| {
+                        let err_msg = format!("Cannot read file: {input}. Reason: {e}");
+                        CliError::Message(err_msg)
+                    })?;
+                Value::try_deserialize_hex_untyped(&content)?
+            }
             _ => {
-                return Err("contract-call arguments must be supplied as a list of `-e ...` or `-x 0000...` pairs".into())
+                return Err("contract-call arguments must be supplied as a list of `-e ...` or `-x 0000...` or `--hex-file <file_path>` pairs".into())
             }
         };
 
@@ -511,6 +676,7 @@ fn handle_contract_call(
     Ok(to_hex(&signed_tx_bytes))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn handle_token_transfer(
     args_slice: &[String],
     version: TransactionVersion,
@@ -573,6 +739,7 @@ fn handle_token_transfer(
     Ok(to_hex(&signed_tx_bytes))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
     if !args.is_empty() && args[0] == "-h" {
         return Err(CliError::Message(format!("USAGE:\n {}", GENERATE_USAGE)));
@@ -604,6 +771,7 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<S
     ))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!("USAGE:\n {}", ADDRESSES_USAGE)));
@@ -643,6 +811,7 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
     ))
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -681,6 +850,7 @@ fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<S
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -720,6 +890,7 @@ fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -757,6 +928,7 @@ fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String,
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -796,6 +968,7 @@ fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<St
     }
 }
 
+#[allow(clippy::indexing_slicing)]
 fn decode_microblocks(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -896,9 +1069,26 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
 
 #[cfg(test)]
 mod test {
+    use std::panic;
+
+    use blockstack_lib::chainstate::stacks::TransactionPostCondition;
     use stacks_common::util::cargo_workspace;
+    use tempfile::NamedTempFile;
 
     use super::*;
+
+    mod utils {
+        use super::*;
+        pub fn tx_deserialize(hex_str: &str) -> StacksTransaction {
+            let tx_str = hex_bytes(&hex_str).expect("Failed to get hex byte from tx str!");
+            let mut cursor = io::Cursor::new(&tx_str);
+            StacksTransaction::consensus_deserialize(&mut cursor).expect("Failed deserialize tx!")
+        }
+
+        pub fn file_read(file_path: &str) -> String {
+            fs::read_to_string(file_path).expect("Failed to read file contents")
+        }
+    }
 
     #[test]
     fn generate_should_work() {
@@ -912,20 +1102,54 @@ mod test {
     }
 
     #[test]
-    fn simple_publish() {
+    fn test_contract_publish_ok_with_mandatory_params() {
+        let contract_path = cargo_workspace("sample/contracts/tokens.clar")
+            .display()
+            .to_string();
         let publish_args = [
             "publish",
             "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
             "1",
             "0",
             "foo-contract",
-            &cargo_workspace("sample/contracts/tokens.clar")
-                .display()
-                .to_string(),
+            &contract_path,
         ];
 
-        assert!(main_handler(to_string_vec(&publish_args)).is_ok());
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_ok());
 
+        let serial_tx = result.unwrap();
+        let deser_tx = utils::tx_deserialize(&serial_tx);
+
+        assert_eq!(TransactionVersion::Mainnet, deser_tx.version);
+        assert_eq!(CHAIN_ID_MAINNET, deser_tx.chain_id);
+        assert!(matches!(deser_tx.auth, TransactionAuth::Standard(..)));
+        assert_eq!(1, deser_tx.get_tx_fee());
+        assert_eq!(0, deser_tx.get_origin_nonce());
+        assert_eq!(TransactionAnchorMode::Any, deser_tx.anchor_mode);
+        assert_eq!(
+            TransactionPostConditionMode::Deny,
+            deser_tx.post_condition_mode
+        );
+        assert_eq!(
+            Vec::<TransactionPostCondition>::new(),
+            deser_tx.post_conditions
+        );
+
+        let (contract, clarity) = match deser_tx.payload {
+            TransactionPayload::SmartContract(a, b) => (a, b),
+            _ => panic!("Should not happen!"),
+        };
+        assert_eq!("foo-contract", contract.name.as_str());
+        assert_eq!(
+            utils::file_read(&contract_path),
+            contract.code_body.to_string()
+        );
+        assert_eq!(None, clarity);
+    }
+
+    #[test]
+    fn test_contract_publish_fails_on_unexistent_file() {
         let publish_args = [
             "publish",
             "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
@@ -937,11 +1161,198 @@ mod test {
                 .to_string(),
         ];
 
-        assert!(format!(
-            "{}",
-            main_handler(to_string_vec(&publish_args)).unwrap_err()
-        )
-        .contains("IO error"));
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.starts_with("IO error reading CLI input:"));
+    }
+
+    #[test]
+    fn test_contract_publish_ok_with_anchor_mode() {
+        let contract_path = cargo_workspace("sample/contracts/tokens.clar")
+            .display()
+            .to_string();
+
+        let mut publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--microblock-only",
+        ];
+
+        // Scenario OK with anchor mode = `offchain`
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_ok());
+
+        let serial_tx = result.unwrap();
+        let deser_tx = utils::tx_deserialize(&serial_tx);
+        assert_eq!(TransactionAnchorMode::OffChainOnly, deser_tx.anchor_mode);
+
+        // Scenario OK with anchor mode = `onchain`
+        publish_args[6] = "--block-only";
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_ok());
+
+        let serial_tx = result.unwrap();
+        let deser_tx = utils::tx_deserialize(&serial_tx);
+        assert_eq!(TransactionAnchorMode::OnChainOnly, deser_tx.anchor_mode);
+    }
+
+    #[test]
+    fn test_contract_publish_fails_with_anchor_mode() {
+        let contract_path = cargo_workspace("sample/contracts/tokens.clar")
+            .display()
+            .to_string();
+
+        // Scenario FAIL using both anchor modes
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--microblock-only",
+            "--block-only",
+        ];
+
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let exp_err_msg = format!(
+            "{}\n\nUSAGE:\n{}",
+            "Both anchor modes detected.", PUBLISH_USAGE
+        );
+        assert_eq!(exp_err_msg, result.unwrap_err().to_string());
+
+        // Scenario FAIL using duplicated anchor mode
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--microblock-only",
+            "--microblock-only",
+        ];
+
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let exp_err_msg = format!(
+            "{}\n\nUSAGE:\n{}",
+            "Duplicated anchor mode detected.", PUBLISH_USAGE
+        );
+        assert_eq!(exp_err_msg, result.unwrap_err().to_string());
+    }
+
+    #[test]
+    fn test_contract_publish_ok_with_postcond_mode() {
+        let contract_path = cargo_workspace("sample/contracts/tokens.clar")
+            .display()
+            .to_string();
+
+        let mut publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--postcondition-mode",
+            "allow",
+        ];
+
+        // Scenario OK with post-condition = `allow`
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_ok());
+
+        let serial_tx = result.unwrap();
+        let deser_tx = utils::tx_deserialize(&serial_tx);
+        assert_eq!(
+            TransactionPostConditionMode::Allow,
+            deser_tx.post_condition_mode
+        );
+
+        // Scenario OK with post-condition = `deny`
+        publish_args[7] = "deny";
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_contract_publish_fails_with_postcond_mode() {
+        let contract_path = cargo_workspace("sample/contracts/tokens.clar")
+            .display()
+            .to_string();
+
+        // Scenario FAIL with invalid post-condition
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--postcondition-mode",
+            "invalid",
+        ];
+
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let exp_err_msg = format!(
+            "{}\n\nUSAGE:\n{}",
+            "Invalid value for `--postcondition-mode`.", PUBLISH_USAGE
+        );
+        assert_eq!(exp_err_msg, result.unwrap_err().to_string());
+
+        // Scenario FAIL with missing post-condition value
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--postcondition-mode",
+        ];
+
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let exp_err_msg = format!(
+            "{}\n\nUSAGE:\n{}",
+            "Missing value for `--postcondition-mode`.", PUBLISH_USAGE
+        );
+        assert_eq!(exp_err_msg, result.unwrap_err().to_string());
+
+        // Scenario FAIL with duplicated post-condition
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--postcondition-mode",
+            "allow",
+            "--postcondition-mode",
+        ];
+
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let exp_err_msg = format!(
+            "{}\n\nUSAGE:\n{}",
+            "Duplicated `--postcondition-mode`.", PUBLISH_USAGE
+        );
+        assert_eq!(exp_err_msg, result.unwrap_err().to_string());
     }
 
     #[test]
@@ -1182,6 +1593,106 @@ mod test {
             format!("{}", main_handler(to_string_vec(&cc_args)).unwrap_err())
                 .contains("deserialize")
         );
+    }
+
+    #[test]
+    fn test_contract_call_with_serialized_arg_from_file_ok() {
+        let mut file = NamedTempFile::new().expect("Cannot create tempfile!");
+        write!(file, "0000000000000000000000000000000001").expect("Cannot Write to temp file");
+
+        let file_path = file.path().to_str().unwrap();
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "--hex-file",
+            file_path,
+        ];
+
+        let result = main_handler(to_string_vec(&cc_args));
+        assert!(result.is_ok(), "Result should be ok!");
+
+        let expected_tx = "0000000001040021a3c334fc0ee50359353799e8b2605ac6be1fe400000000000000000000000000000001010011db0868db0cd44c463b3a8a8b3b428ddaad15661e7b7d8c92c814c142c526e30abffe74e1e098f517037a1ee74969f4db27630407f4c958cb0d6e1d7485fe06030200000000021625a2a51cf0712a9d228e2788e2fe7acf8917ec810c666f6f2d636f6e7472616374107472616e736665722d666f6f6b656e73000000010000000000000000000000000000000001";
+        assert_eq!(expected_tx, result.unwrap());
+    }
+
+    #[test]
+    fn test_contract_call_with_serialized_arg_from_file_fails_due_to_file() {
+        let file_path = "/tmp/this-file-not-exists";
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "--hex-file",
+            file_path,
+        ];
+
+        let result = main_handler(to_string_vec(&cc_args));
+        assert!(result.is_err(), "Result should be err!");
+
+        let expected_msg = format!("Cannot read file: {}. Reason: ", file_path);
+        assert!(result.unwrap_err().to_string().starts_with(&expected_msg));
+    }
+
+    #[test]
+    fn test_contract_call_with_serialized_arg_from_file_fails_due_to_bad_hex() {
+        let mut file = NamedTempFile::new().expect("Cannot create tempfile!");
+        // Bad hex string but (good except for the \n)
+        write!(file, "0000000000000000000000000000000001\n").expect("Cannot Write to temp file");
+        let file_path = file.path().to_str().unwrap();
+
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "--hex-file",
+            &file_path,
+        ];
+
+        let result = main_handler(to_string_vec(&cc_args));
+        assert!(result.is_err(), "Result should be err!");
+
+        let expected_msg = "Failed to deserialize: Deserialization error: Bad hex string";
+        assert_eq!(expected_msg, result.unwrap_err().to_string());
+    }
+
+    #[test]
+    fn test_contract_call_with_serialized_arg_from_file_fails_due_to_short_buffer() {
+        let mut file = NamedTempFile::new().expect("Cannot create tempfile!");
+        // hex buffer is short
+        write!(file, "0101").expect("Cannot Write to temp file");
+        let file_path = file.path().to_str().unwrap();
+
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "--hex-file",
+            &file_path,
+        ];
+
+        let result = main_handler(to_string_vec(&cc_args));
+        assert!(result.is_err(), "Result should be err!");
+
+        let expected_msg =
+            "Failed to deserialize: Serialization error caused by IO: failed to fill whole buffer";
+        assert_eq!(expected_msg, result.unwrap_err().to_string());
     }
 
     #[test]

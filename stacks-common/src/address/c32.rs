@@ -369,7 +369,7 @@ pub fn c32_address_decode(c32_address_str: &str) -> Result<(u8, Vec<u8>), Error>
 
 pub fn c32_address(version: u8, data: &[u8]) -> Result<String, Error> {
     let c32_string = c32_check_encode(version, data)?;
-    Ok(format!("S{}", c32_string))
+    Ok(format!("S{c32_string}"))
 }
 
 #[cfg(test)]
@@ -534,7 +534,7 @@ mod test {
                 let c32_encoded = c32_encode(&bytes);
                 let decoded_bytes = c32_decode(&c32_encoded).unwrap();
                 let result = (bytes, c32_encoded, decoded_bytes, expected);
-                println!("{:?}", result);
+                println!("{result:?}");
                 result
             })
             .collect();

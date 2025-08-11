@@ -1,14 +1,162 @@
 openapi: 3.1.0
 servers:
   - url: http://localhost:20443
-    description: Local
+    description: Local Stacks Node
 info:
   title: Stacks 3.0+ RPC API
-  version: '1.0.0'
+  version: "1.0.0"
   description: |
     This is the documentation for the `stacks-node` RPC interface.
   license:
     name: CC-0
+    url: https://creativecommons.org/publicdomain/zero/1.0/
+
+tags:
+  - name: Transactions
+    description: Operations related to broadcasting and retrieving transactions.
+  - name: Smart Contracts
+    description: Endpoints for interacting with Clarity smart contracts.
+  - name: Accounts
+    description: Endpoints for retrieving account information.
+  - name: Fees
+    description: Endpoints for fee estimation.
+  - name: Info
+    description: General informational endpoints about the node.
+  - name: Mining
+    description: Endpoints related to Stacks block production and mining.
+  - name: Blocks
+    description: Operations for retrieving block and microblock data.
+  - name: Signers
+    description: Endpoints for retrieving signer information.
+  - name: Atlas
+    description: Operations related to the Atlas global namespace.
+  - name: Microblocks
+    description: Operations for retrieving and submitting microblocks.
+  - name: StackerDB
+    description: Endpoints for interacting with StackerDB instances.
+
+components:
+  securitySchemes:
+    rpcAuth:
+      type: apiKey
+      in: header
+      name: authorization
+      description: |
+        Plain-text secret value that must exactly equal the node's
+        configured password.
+  responses:
+    Unauthorized:
+      description: Unauthorized. Invalid or missing authentication token.
+      content:
+        text/plain:
+          schema:
+            type: string
+          example: "Unauthorized"
+    BadRequest:
+      description: Bad request
+      content:
+        text/plain:
+          schema:
+            type: string
+          example: "Bad request"
+    NotFound:
+      description: Not found
+      content:
+        text/plain:
+          schema:
+            type: string
+          example: "Not found"
+    InternalServerError:
+      description: Internal Server Error
+      content:
+        text/plain:
+          schema:
+            type: string
+          example: "Internal Server Error"
+    Timeout:
+      description: Timeout
+      content:
+        text/plain:
+          schema:
+            type: string
+          example: "Timeout"
+  schemas:
+    NodeInfo:
+      $ref: ./components/schemas/node-info.schema.yaml
+    PoxInfo:
+      $ref: ./components/schemas/pox-info.schema.yaml
+    Sortitions:
+      $ref: ./components/schemas/sortitions.schema.yaml
+    GetHealth:
+      $ref: ./components/schemas/get-health.schema.yaml
+    AccountData:
+      $ref: ./components/schemas/account-data.schema.yaml
+
+    # Transaction Schemas
+    TransactionSubmissionError:
+      $ref: ./components/schemas/transaction-submission-error.schema.yaml
+    FeeTransactionRequest:
+      $ref: ./components/schemas/fee-transaction-request.schema.yaml
+    FeeTransactionResponse:
+      $ref: ./components/schemas/fee-transaction-response.schema.yaml
+    FeeTransactionError:
+      $ref: ./components/schemas/fee-transaction-error.schema.yaml
+
+    # Contract & Clarity Schemas
+    ContractInterface:
+      $ref: ./components/schemas/contract-interface.schema.yaml
+    ContractSource:
+      $ref: ./components/schemas/contract-source.schema.yaml
+    ReadOnlyFunctionArgs:
+      $ref: ./components/schemas/read-only-function-args.schema.yaml
+    ReadOnlyFunctionResult:
+      $ref: ./components/schemas/read-only-function-result.schema.yaml
+    ClarityName:
+      $ref: ./components/schemas/clarity-name.schema.yaml
+    ClarityMetadata:
+      $ref: ./components/schemas/clarity-metadata.schema.yaml
+    ConstantValue:
+      $ref: ./components/schemas/constant-value.schema.yaml
+    IsTraitImplemented:
+      $ref: ./components/schemas/is-trait-implemented.schema.yaml
+
+    # Other Schemas
+    SignerBlocksSigned:
+      $ref: ./components/schemas/signer-blocks-signed.schema.yaml
+    UnconfirmedTransaction:
+      $ref: ./components/schemas/unconfirmed-transaction.schema.yaml
+    BlockUploadResponse:
+      $ref: ./components/schemas/block-upload-response.schema.yaml
+    AttachmentInventory:
+      $ref: ./components/schemas/attachment-inventory.schema.yaml
+    AttachmentData:
+      $ref: ./components/schemas/attachment-data.schema.yaml
+    StackerDbMetadata:
+      $ref: ./components/schemas/stackerdb-metadata.schema.yaml
+    StackerDbReplicas:
+      $ref: ./components/schemas/stackerdb-replicas.schema.yaml
+    StackerDbChunkData:
+      $ref: ./components/schemas/stackerdb-chunk-data.schema.yaml
+    StackerDbChunkAckData:
+      $ref: ./components/schemas/stackerdb-chunk-ack-data.schema.yaml
+    ClarityData:
+      $ref: ./components/schemas/clarity-data.schema.yaml
+    BlockHeaders:
+      $ref: ./components/schemas/block-headers.schema.yaml
+    BlockProposalResponse:
+      $ref: ./components/schemas/block-proposal.schema.yaml
+    NetworkPeers:
+      $ref: ./components/schemas/network-peers.schema.yaml
+    TransactionInfo:
+      $ref: ./components/schemas/get-transaction.schema.yaml
+    TenureForkInfo:
+      $ref: ./components/schemas/tenure-fork-info.schema.yaml
+    TenureInfo:
+      $ref: ./components/schemas/tenure-info.schema.yaml
+    TenureTip:
+      $ref: ./components/schemas/tenure-tip.schema.yaml
+    GetStackerSet:
+      $ref: ./components/schemas/get-stacker-set.schema.yaml
 
 paths:
   /v2/transactions:
@@ -16,8 +164,18 @@ paths:
       summary: Broadcast raw transaction
       tags:
         - Transactions
-      description: Broadcast raw transactions on the network. You can use the [@stacks/transactions](https://github.com/blockstack/stacks.js) project to generate a raw transaction payload.
-      operationId: post_core_node_transactions
+      security: []
+      description: |
+        Broadcast raw transactions on the network. You can use the [@stacks/transactions](https://github.com/blockstack/stacks.js)
+        project to generate a raw transaction payload.
+
+        The node performs static validation checks on transactions before accepting them into the mempool, including:
+        - Transaction format validation
+        - Signature verification
+        - Nonce checking
+        - Fee validation
+        - Size limits
+      operationId: broadcastTransaction
       requestBody:
         content:
           application/octet-stream:
@@ -25,22 +183,41 @@ paths:
               type: string
               format: binary
             example: binary format of 00000000010400bed38c2aadffa348931bcb542880ff79d607afec000000000000000000000000000000c800012b0b1fff6cccd0974966dcd665835838f0985be508e1322e09fb3d751eca132c492bda720f9ef1768d14fdabed6127560ba52d5e3ac470dcb60b784e97dc88c9030200000000000516df0ba3e79792be7be5e50a370289accfc8c9e032000000000000303974657374206d656d6f00000000000000000000000000000000000000000000000000
+          application/json:
+            schema:
+              type: object
+              required: ["tx"]
+              properties:
+                tx:
+                  type: string
+                  pattern: "^[0-9a-f]+$"
+                  description: Hex-encoded transaction
+                attachment:
+                  type: string
+                  pattern: "^[0-9a-f]+$"
+                  description: Optional hex-encoded attachment for contract-call transactions
+            example:
+              tx: "00000000010400bed38c2aadffa348931bcb542880ff79d607afec000000000000000000000000000000c800012b0b1fff6cccd0974966dcd665835838f0985be508e1322e09fb3d751eca132c492bda720f9ef1768d14fdabed6127560ba52d5e3ac470dcb60b784e97dc88c9030200000000000516df0ba3e79792be7be5e50a370289accfc8c9e032000000000000303974657374206d656d6f00000000000000000000000000000000000000000000000000"
+              attachment: "68656c6c6f20776f726c64"
       responses:
         "200":
-          description: Transaction ID of successful post of a raw tx to the node's mempool
-          content:
-            text/plain:
-              schema:
-                type: string
-                example: '"e161978626f216b2141b156ade10501207ae535fa365a13ef5d7a7c9310a09f2"'
-        "400":
-          description: Rejections result in a 400 error
+          description: Transaction ID of successful post of a raw tx to the node's mempool.
           content:
             application/json:
               schema:
-                $ref: ./api/transaction/post-core-node-transactions-error.schema.json
+                type: string
+                pattern: "^[0-9a-f]{64}$"
+                example: "e161978626f216b2141b156ade10501207ae535fa365a13ef5d7a7c9310a09f2"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionSubmissionError"
               example:
-                $ref: ./api/transaction/post-core-node-transactions-error.example.json
+                $ref: "./components/examples/transaction-submission-error.example.json"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /v2/contracts/interface/{contract_address}/{contract_name}:
     get:
@@ -48,88 +225,61 @@ paths:
       description: Get contract interface using a `contract_address` and `contract name`
       tags:
         - Smart Contracts
-      operationId: get_contract_interface
+      security: []
+      operationId: getContractInterface
+      parameters:
+        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/contract-name.yaml
+        - $ref: ./components/parameters/tip.yaml
       responses:
         "200":
           description: Contract interface
           content:
             application/json:
               schema:
-                $ref: ./api/core-node/get-contract-interface.schema.json
+                $ref: "#/components/schemas/ContractInterface"
               example:
-                $ref: ./api/core-node/get-contract-interface.example.json
-    parameters:
-      - name: contract_address
-        in: path
-        required: true
-        description: Stacks address
-        schema:
-          type: string
-      - name: contract_name
-        in: path
-        required: true
-        description: Contract name
-        schema:
-          type: string
-      - name: tip
-        in: query
-        schema:
-          type: string
-        description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-          known tip (includes unconfirmed state).
+                $ref: "./components/examples/contract-interface.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
   /v2/map_entry/{contract_address}/{contract_name}/{map_name}:
     post:
       summary: Get specific data-map inside a contract
       tags:
         - Smart Contracts
-      operationId: get_contract_data_map_entry
+      security: []
+      operationId: getContractDataMapEntry
       description: |
-        Attempt to fetch data from a contract data map. The contract is identified with [Stacks Address] and [Contract Name] in the URL path. The map is identified with [Map Name].
+        Attempt to fetch data from a contract data map. The contract is
+        identified with [Stacks Address] and [Contract Name] in the URL path.
+        The map is identified with [Map Name].
 
-        The key to lookup in the map is supplied via the POST body. This should be supplied as the hex string serialization of the key (which should be a Clarity value). Note, this is a JSON string atom.
+        The key to lookup in the map is supplied via the POST body. This should
+        be supplied as the hex string serialization of the key (which should be
+        a Clarity value). Note, this is a JSON string.
 
-        In the response, `data` is the hex serialization of the map response. Note that map responses are Clarity option types, for non-existent values, this is a serialized none, and for all other responses, it is a serialized (some ...) object.
-      responses:
-        "200":
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: ./api/core-node/get-contract-data-map-entry.schema.json
-              example:
-                $ref: ./api/core-node/get-contract-data-map-entry.example.json
-        "400":
-          description: Failed loading data map
+        The response is a JSON object with the following properties:
+        - `data`: The hex serialization of the map response. Note that map
+          responses are Clarity option types, for non-existent values, this is
+          a serialized none, and for all other responses, it is a serialized
+          (some ...) object.
+        - `proof`: The hex serialization of the Merkle proof for the data.
+
       parameters:
-        - name: contract_address
-          in: path
-          required: true
-          description: Stacks address
-          schema:
-            type: string
-        - name: contract_name
-          in: path
-          required: true
-          description: Contract name
-          schema:
-            type: string
+        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/contract-name.yaml
         - name: map_name
           in: path
           required: true
-          description: Map name
           schema:
-            type: string
-        - name: proof
-          in: query
-          description: Returns object without the proof field when set to 0
-          schema:
-            type: integer
-        - name: tip
-          in: query
-          schema:
-            type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-            known tip (includes unconfirmed state).
+            $ref: "#/components/schemas/ClarityName"
+        - $ref: ./components/parameters/proof.yaml
+        - $ref: ./components/parameters/tip.yaml
       x-codegen-request-body-name: key
       requestBody:
         description: Hex string serialization of the lookup key (which should be a Clarity value)
@@ -138,116 +288,177 @@ paths:
           application/json:
             schema:
               type: string
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClarityData"
+              example:
+                $ref: "./components/examples/clarity-data.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /v2/contracts/source/{contract_address}/{contract_name}:
     get:
       summary: Get contract source
       tags:
         - Smart Contracts
-      operationId: get_contract_source
-      description: Returns the Clarity source code of a given contract, along with the block height it was published in, and the MARF proof for the data
+      security: []
+      operationId: getContractSource
+      description: |
+        Returns the Clarity source code of a given contract, along with the
+        block height it was published in, and the MARF proof for the data.
+      parameters:
+        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/contract-name.yaml
+        - $ref: ./components/parameters/proof.yaml
+        - $ref: ./components/parameters/tip.yaml
       responses:
         "200":
           description: Success
           content:
             application/json:
               schema:
-                $ref: ./api/core-node/get-contract-source.schema.json
+                $ref: "#/components/schemas/ContractSource"
               example:
-                $ref: ./api/core-node/get-contract-source.example.json
-    parameters:
-      - name: contract_address
-        in: path
-        required: true
-        description: Stacks address
-        schema:
-          type: string
-      - name: contract_name
-        in: path
-        required: true
-        description: Contract name
-        schema:
-          type: string
-      - name: proof
-        in: query
-        description: Returns object without the proof field if set to 0
-        schema:
-          type: integer
-      - name: tip
-        in: query
-        schema:
-          type: string
-        description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-          known tip (includes unconfirmed state).
-        required: false
+                $ref: "./components/examples/contract-source.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /v2/contracts/call-read/{contract_address}/{contract_name}/{function_name}:
     post:
       summary: Call read-only function
+      description: |
+        Call a read-only public function on a given contract.
+
+        The contract is identified with [Stacks Address] and [Contract Name] in the URL path.
+        The function is identified with [Function Name].
+
+        The arguments to the function are supplied via the POST body.
+        This should be a JSON object with two main properties:
+        - `sender` which should be a standard Stacks address
+        - `arguments` which should be an array of hex-encoded Clarity values.
       tags:
         - Smart Contracts
-      operationId: call_read_only_function
-      description: |
-        Call a read-only public function on a given smart contract.
-
-        The smart contract and function are specified using the URL path. The arguments and the simulated tx-sender are supplied via the POST body in the following JSON format:
-      responses:
-        "200":
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: ./api/contract/post-call-read-only-fn.schema.json
-              examples:
-                success:
-                  $ref: ./api/contract/post-call-read-only-fn-success.example.json
-                fail:
-                  $ref: ./api/contract/post-call-read-only-fn-fail.example.json
+      security: []
+      operationId: callReadOnlyFunction
       parameters:
-        - name: contract_address
-          in: path
-          required: true
-          description: Stacks address
-          schema:
-            type: string
-        - name: contract_name
-          in: path
-          required: true
-          description: Contract name
-          schema:
-            type: string
+        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/contract-name.yaml
         - name: function_name
           in: path
           required: true
-          description: Function name
           schema:
-            type: string
-        - name: tip
-          in: query
+            $ref: "#/components/schemas/ClarityName"
+        - $ref: ./components/parameters/tip.yaml
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReadOnlyFunctionArgs"
+      responses:
+        "200":
+          description: Function executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadOnlyFunctionResult"
+              examples:
+                success:
+                  summary: Successful function call
+                  externalValue: "./components/examples/read-only-function-success.example.json"
+                failure:
+                  summary: Failed function call
+                  externalValue: "./components/examples/read-only-function-failure.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v3/contracts/fast-call-read/{contract_address}/{contract_name}/{function_name}:
+    post:
+      summary: Call read-only function in fast mode (no cost and memory tracking)
+      description: |
+        Call a read-only public function on a given smart contract without cost tracking.
+
+        The contract is identified with [Stacks Address] and [Contract Name] in the URL path.
+        The function is identified with [Function Name].
+
+        The arguments to the function are supplied via the POST body.
+        This should be a JSON object with two main properties:
+        - `sender` which should be a standard Stacks address
+        - `arguments` which should be an array of hex-encoded Clarity values.
+
+        **This API endpoint requires a basic Authorization header.**
+      tags:
+        - Smart Contracts
+      security:
+        - rpcAuth: []
+      operationId: fastCallReadOnlyFunction
+      parameters:
+        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/contract-name.yaml
+        - name: function_name
+          in: path
+          required: true
           schema:
-            type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-            known tip (includes unconfirmed state).
-          required: false
+            $ref: "#/components/schemas/ClarityName"
+        - $ref: ./components/parameters/tip.yaml
       requestBody:
         description: map of arguments and the simulated tx-sender where sender is either a Contract identifier or a normal Stacks address, and arguments is an array of hex serialized Clarity values.
         required: true
         content:
           application/json:
             schema:
-              $ref: './entities/contracts/read-only-function-args.schema.json'
+              $ref: "#/components/schemas/ReadOnlyFunctionArgs"
               example:
-                sender: 'SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info'
+                sender: "SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info"
                 arguments:
-                  - '0x0011...'
-                  - '0x00231...'
+                  - "0x0011..."
+                  - "0x00231..."
+      responses:
+        "200":
+          description: Function executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadOnlyFunctionResult"
+              examples:
+                success:
+                  summary: Successful function call
+                  externalValue: "./components/examples/read-only-function-success.example.json"
+                failure:
+                  summary: Failed function call
+                  externalValue: "./components/examples/read-only-function-failure.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "408":
+          $ref: "#/components/responses/Timeout"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /v2/accounts/{principal}:
     get:
       summary: Get account info
       tags:
         - Accounts
-      operationId: get_account_info
+      security: []
+      operationId: getAccountInfo
       description: |
         Get the account data for the provided principal
 
@@ -255,38 +466,31 @@ paths:
 
         For non-existent accounts, this does not 404, rather it returns an object with balance and nonce of 0.
       parameters:
-        - name: principal
-          in: path
-          description: Stacks address or a Contract identifier (e.g. `SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info`)
-          required: true
-          schema:
-            type: string
-        - name: proof
-          in: query
-          description: Returns object without the proof field if set to 0
-          schema:
-            type: integer
-        - name: tip
-          in: query
-          schema:
-            type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-            known tip (includes unconfirmed state).
+        - $ref: ./components/parameters/principal.yaml
+        - $ref: ./components/parameters/proof.yaml
+        - $ref: ./components/parameters/tip.yaml
       responses:
         "200":
           description: Success
           content:
             application/json:
               schema:
-                $ref: ./api/core-node/get-account-data.schema.json
+                $ref: "#/components/schemas/AccountData"
               example:
-                $ref: ./api/core-node/get-account-data.example.json
+                $ref: "./components/examples/account-data.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /v2/fees/transaction:
     post:
       summary: Get approximate fees for the given transaction
       tags:
         - Fees
+      security: []
       description: |
         Get an estimated fee for the supplied transaction.  This
         estimates the execution cost of the transaction, the current
@@ -328,7 +532,7 @@ paths:
           execution cost of the transaction. The range of this integer
           may vary between different Stacks nodes. In order to compute
           an estimate of total fee amount for the transaction, this
-          value is multiplied by the same Stacks node's estimated fee
+          value is multiplied by the same Stacks node"s estimated fee
           rate.
         * `cost_scalar_change_by_byte` - a float value that indicates how
           much the `estimated_cost_scalar` value would increase for every
@@ -348,46 +552,60 @@ paths:
               fee will be returned here instead.
 
 
-        Note: If the final transaction's byte size is larger than
+        Note: If the final transaction"s byte size is larger than
         supplied to `estimated_len`, then applications should increase
         this fee amount by:
 
           `fee_rate` x `cost_scalar_change_by_byte` x (`final_size` - `estimated_size`)
 
-      operationId: post_fee_transaction
+      operationId: getFeeTransaction
       requestBody:
         content:
           application/json:
             schema:
-              $ref: ./api/core-node/post-fee-transaction.schema.json
+              $ref: "#/components/schemas/FeeTransactionRequest"
             example:
-              $ref: ./api/core-node/post-fee-transaction.example.json
+              $ref: "./components/examples/fee-transaction-request.example.json"
       responses:
         "200":
           description: Estimated fees for the transaction
           content:
             application/json:
               schema:
-                $ref: ./api/core-node/post-fee-transaction-response.schema.json
+                $ref: "#/components/schemas/FeeTransactionResponse"
               example:
-                $ref: ./api/core-node/post-fee-transaction-response.example.json
+                $ref: "./components/examples/fee-transaction-response.example.json"
+        "400":
+          description: Fee estimation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeeTransactionError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /v2/fees/transfer:
     get:
       summary: Get estimated fee
       tags:
         - Fees
-      operationId: get_fee_transfer
-      description: Get an estimated fee rate for STX transfer transactions. This a a fee rate / byte, and is returned as a JSON integer
+      security: []
+      operationId: getFeeTransfer
+      description: |
+        Get an estimated fee rate for STX transfer transactions. This is a fee
+        rate per byte, returned as a JSON integer (microSTX per byte).
       responses:
         "200":
-          description: Success
+          description: Fee rate in microSTX per byte
           content:
             application/json:
               schema:
-                $ref: ./api/core-node/get-fee-transfer.schema.json
-              example:
-                $ref: ./api/core-node/get-fee-transfer.example.json
+                type: integer
+                minimum: 1
+                description: Fee rate in microSTX per byte
+              example: 3
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /v2/info:
     get:
@@ -395,16 +613,19 @@ paths:
       description: Get Core API information
       tags:
         - Info
-      operationId: get_core_api_info
+      security: []
+      operationId: getNodeInfo
       responses:
         "200":
           description: Success
           content:
             application/json:
               schema:
-                $ref: ./api/core-node/get-info.schema.json
+                $ref: "#/components/schemas/NodeInfo"
               example:
-                $ref: ./api/core-node/get-info.example.json
+                $ref: "./components/examples/node-info.example.json"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /v2/pox:
     get:
@@ -412,175 +633,161 @@ paths:
       description: Get Proof of Transfer (PoX) information. Can be used for Stacking.
       tags:
         - Info
-      operationId: get_pox_info
+      security: []
+      operationId: getPoxInfo
       responses:
         "200":
           description: Success
           content:
             application/json:
               schema:
-                $ref: ./api/core-node/get-pox.schema.json
+                $ref: "#/components/schemas/PoxInfo"
               example:
-                $ref: ./api/core-node/get-pox.example.json
+                $ref: "./components/examples/pox-info.example.json"
       parameters:
-        - name: tip
-          in: query
-          schema:
-            type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-            known tip (includes unconfirmed state).
+        - $ref: ./components/parameters/tip.yaml
 
   /v2/traits/{contract_address}/{contract_name}/{trait_contract_address}/{trait_contract_name}/{trait_name}:
     get:
       summary: Get trait implementation details
-      description: Determine whether or not a specified trait is implemented (either explicitly or implicitly) within a given contract.
+      description: |
+        Determine whether or not a specified trait is implemented (either
+        explicitly or implicitly) within a given contract.
       tags:
         - Smart Contracts
-      operationId: get_is_trait_implemented
+      security: []
+      operationId: checkTraitImplementation
+      parameters:
+        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/contract-name.yaml
+        - name: trait_contract_address
+          in: path
+          required: true
+          description: |
+            Stacks address of the trait-defining contract.
+          schema:
+            type: string
+            pattern: "^[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}$"
+            minLength: 28
+            maxLength: 41
+            example: "SP2Z1K16238380NBP4T38A4G10A90Q03JJ2C2003"
+        - name: trait_contract_name
+          in: path
+          required: true
+          description: Contract name of the trait-defining contract.
+          schema:
+            type: string
+            pattern: "^[a-zA-Z]([a-zA-Z0-9]|[-_]){0,127}$"
+            minLength: 1
+            maxLength: 128
+            example: "some-trait"
+        - name: trait_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/ClarityName"
+          example: "some-trait"
+        - $ref: ./components/parameters/tip.yaml
       responses:
         "200":
           description: Success
           content:
             application/json:
               schema:
-                $ref: ./api/trait/get-is-trait-implemented.schema.json
+                $ref: "#/components/schemas/IsTraitImplemented"
               example:
-                $ref: ./api/trait/get-is-trait-implemented.example.json
-    parameters:
-      - name: contract_address
-        in: path
-        required: true
-        description: Stacks address
-        schema:
-          type: string
-      - name: contract_name
-        in: path
-        required: true
-        description: Contract name
-        schema:
-          type: string
-      - name: trait_contract_address
-        in: path
-        required: true
-        description: Trait Stacks address
-        schema:
-          type: string
-      - name: trait_contract_name
-        in: path
-        required: true
-        description: Trait contract name
-        schema:
-          type: string
-      - name: trait_name
-        in: path
-        required: true
-        description: Trait name
-        schema:
-          type: string
-      - name: tip
-        in: query
-        schema:
-          type: string
-        description: |
-          The Stacks chain tip to query from.
-          If tip == "latest", the query will be run from the latest known tip (includes unconfirmed state).
-          If the tip is left unspecified, the stacks chain tip will be selected (only includes confirmed state).
+                $ref: "./components/examples/is-trait-implemented.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
-  /v2/clarity/marf/{clarity_marf_key}:
-    post:
+  /v2/clarity/marf/{marf_key_hash}:
+    get:
       summary: Get the MARF value for a given key
       tags:
         - Smart Contracts
-      operationId: get_clarity_marf_value
+      security: []
+      operationId: getClarityMarfValue
       description: |
-        Attempt to fetch the value of a MARF key.
-
-        In the response, `data` is the hex serialization of the value.
+        Attempt to fetch the value of a MARF key. The key is a 64-character
+        hex string representing the MARF node hash.
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
               schema:
-                $ref: ./api/core-node/get-clarity-marf-value.schema.json
+                $ref: "#/components/schemas/ClarityData"
               example:
-                $ref: ./api/core-node/get-clarity-marf-value.example.json
-        400:
-          description: Failed to retrieve MARF key
+                $ref: "./components/examples/clarity-data.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
       parameters:
-        - name: clarity_marf_key
+        - name: marf_key_hash
           in: path
           required: true
-          description: MARF key
+          description: The 64-character hex-encoded hash of the MARF key.
           schema:
             type: string
-        - name: proof
-          in: query
-          description: Returns object without the proof field when set to 0
-          schema:
-            type: integer
-        - name: tip
-          in: query
-          schema:
-            type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-            known tip (includes unconfirmed state).
+            pattern: "^[0-9a-f]{64}$"
+            minLength: 64
+            maxLength: 64
+        - $ref: ./components/parameters/proof.yaml
+        - $ref: ./components/parameters/tip.yaml
 
   /v2/clarity/metadata/{contract_address}/{contract_name}/{clarity_metadata_key}:
-    post:
+    get:
       summary: Get the contract metadata for the metadata key
       tags:
         - Smart Contracts
-      operationId: get_clarity_metadata_key
+      security: []
+      operationId: getClarityMetadata
       description: |
-        Attempt to fetch the metadata of a contract. The contract is identified with [Contract Address] and [Contract Name] in the URL path. The metadata key is identified with [Clarity Metadata Key].
+        Attempt to fetch the metadata of a contract. The contract is identified
+        with [Contract Address] and [Contract Name] in the URL path. The metadata
+        key is identified with [Clarity Metadata Key].
 
         In the response, `data` is formatted as JSON.
       responses:
-        200:
+        "200":
           description: Success
           content:
             application/json:
               schema:
-                $ref: ./api/core-node/get-clarity-metadata.schema.json
+                $ref: "#/components/schemas/ClarityMetadata"
               example:
-                $ref: ./api/core-node/get-clarity-metadata.example.json
-        400:
-          description: Failed to retrieve constant value from contract
+                $ref: "./components/examples/clarity-metadata.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
       parameters:
-        - name: contract_address
-          in: path
-          required: true
-          description: Stacks address
-          schema:
-            type: string
-        - name: contract_name
-          in: path
-          required: true
-          description: Contract name
-          schema:
-            type: string
+        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/contract-name.yaml
         - name: clarity_metadata_key
           in: path
           required: true
           description: Metadata key
           schema:
             type: string
-        - name: tip
-          in: query
-          schema:
-            type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-            known tip (includes unconfirmed state).
+        - $ref: ./components/parameters/tip.yaml
 
   /v2/constant_val/{contract_address}/{contract_name}/{constant_name}:
-    post:
+    get:
       summary: Get the value of a constant inside a contract
       tags:
         - Smart Contracts
-      operationId: get_constant_val
+      security: []
+      operationId: getConstantValue
       description: |
-        Attempt to fetch the value of a constant inside a contract. The contract is identified with [Stacks Address] and [Contract Name] in the URL path. The constant is identified with [Constant Name].
+        Attempt to fetch the value of a constant inside a contract. The contract
+        is identified with [Stacks Address] and [Contract Name] in the URL path.
+        The constant is identified with [Constant Name].
 
         In the response, `data` is the hex serialization of the constant value.
       responses:
@@ -589,82 +796,103 @@ paths:
           content:
             application/json:
               schema:
-                $ref: ./api/core-node/get-constant-val.schema.json
+                $ref: "#/components/schemas/ConstantValue"
               example:
-                $ref: ./api/core-node/get-constant-val.example.json
+                $ref: "./components/examples/constant-value.example.json"
         "400":
-          description: Failed to retrieve constant value from contract
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
       parameters:
-        - name: contract_address
-          in: path
-          required: true
-          description: Stacks address
-          schema:
-            type: string
-        - name: contract_name
-          in: path
-          required: true
-          description: Contract name
-          schema:
-            type: string
+        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/contract-name.yaml
         - name: constant_name
           in: path
           required: true
-          description: Constant name
           schema:
-            type: string
-        - name: tip
-          in: query
-          schema:
-            type: string
-          description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
-            known tip (includes unconfirmed state).
+            $ref: "#/components/schemas/ClarityName"
+        - $ref: ./components/parameters/tip.yaml
 
   /v3/block_proposal:
     post:
       summary: Validate a proposed Stacks block
       tags:
         - Mining
-      operationId: post_block_proposal
+      operationId: postBlockProposal
       description: |
         Used by stackers to validate a proposed Stacks block from a miner.
-
         **This API endpoint requires a basic Authorization header.**
+      security:
+        - rpcAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["block", "chain_id"]
+              properties:
+                block:
+                  type: string
+                  description: Hex-encoded block data
+                chain_id:
+                  type: integer
+                  description: Chain ID for the block
+            example:
+              $ref: "./components/examples/post-block-proposal-request.example.json"
       responses:
         "202":
-          description: Block proposal has been accepted for processing.
+          description: |
+            Block proposal has been accepted for processing.
             The result will be returned via the event observer.
           content:
             application/json:
+              schema:
+                $ref: "#/components/schemas/BlockProposalResponse"
               example:
-                $ref: ./api/core-node/post-block-proposal-response.example.json
+                $ref: "./components/examples/post-block-proposal-response.example.json"
         "400":
-          description: Endpoint not enabled.
-        "401":
-          description: Unauthorized.
-        "429":
-          description: There is an ongoing proposal validation being processed,
-            the new request cannot be accepted until the prior request has been processed.
+          description: Bad Request
           content:
             application/json:
+              schema:
+                $ref: "#/components/schemas/BlockProposalResponse"
               example:
-                $ref: ./api/core-node/post-block-proposal-response.429.json
-      requestBody:
-        content:
-          application/json:
-            example:
-              $ref: ./api/core-node/post-block-proposal-req.example.json
+                result: "Error"
+                message: "Bad Request."
+            text/plain:
+              schema:
+                type: string
+              example: "Bad request."
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          description: |
+            There is an ongoing proposal validation being processed, the new
+            request cannot be accepted until the prior request has been processed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockProposalResponse"
+              example:
+                $ref: "./components/examples/post-block-proposal-response.429.example.json"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /v3/stacker_set/{cycle_number}:
     get:
       summary: Fetch the stacker and signer set information for a given cycle.
       tags:
-        - Mining
-      operationId: get_stacker_set
+        - Signers
+      security: []
+      operationId: getStackerSet
       description: |
         Used to get stacker and signer set information for a given cycle.
 
-        This will only return information for cycles started in Epoch-2.5 where PoX-4 was active and subsequent cycles.
+        This will only return information for cycles started in Epoch-2.5
+        where PoX-4 was active and subsequent cycles.
       parameters:
         - name: cycle_number
           in: path
@@ -672,32 +900,56 @@ paths:
           description: reward cycle number
           schema:
             type: integer
+        - $ref: ./components/parameters/tip.yaml
       responses:
         "200":
           description: Information for the given reward cycle
           content:
             application/json:
+              schema:
+                $ref: "#/components/schemas/GetStackerSet"
               example:
-                $ref: ./api/core-node/get_stacker_set.example.json
+                $ref: "./components/examples/get-stacker-set.example.json"
         "400":
           description: Could not fetch the given reward set
           content:
             application/json:
+              schema:
+                type: object
+                required:
+                  - response
+                  - err_msg
+                properties:
+                  response:
+                    type: string
+                    enum: ["error"]
+                    description: Response status
+                  err_type:
+                    type: string
+                    description: Error type classification
+                  err_msg:
+                    type: string
+                    description: Detailed error message
               example:
-                $ref: ./api/core-node/get_stacker_set.400.example.json
+                $ref: "./components/examples/get-stacker-set-400.example.json"
 
   /v3/blocks/{block_id}:
     get:
-      summary: Fetch a Nakamoto block
+      summary: Get Nakamoto block by ID
       tags:
         - Blocks
-      operationId: get_block_v3
-      description:
-        Fetch a Nakamoto block by its index block hash.
+      security: []
+      operationId: getNakamotoBlockById
+      description: |
+        Get a specific Nakamoto block (Stacks 3.x+) by its index block hash. This endpoint streams
+        the block data from the Nakamoto staging blocks database where Nakamoto blocks are stored
+        with additional metadata including tenure information.
+
+        **Compatibility**: Works with Nakamoto blocks only. For Stacks 2.x blocks, use `/v2/blocks/{block_id}`.
       parameters:
         - name: block_id
           in: path
-          description: The block's ID hash
+          description: The block"s ID hash
           required: true
           schema:
             type: string
@@ -709,19 +961,21 @@ paths:
               schema:
                 type: string
                 format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
-          description: The block could not be found
-          content:
-            application/text-plain: {}
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /v3/blocks/height/{block_height}:
     get:
       summary: Fetch a Nakamoto block by its height and optional tip
       tags:
         - Blocks
-      operationId: get_block_v3_by_height
-      description:
-        Fetch a Nakamoto block by its height and optional tip.
+      security: []
+      operationId: getNakamotoBlockByHeight
+      description: Fetch a Nakamoto block by its height and optional tip.
       parameters:
         - name: block_height
           in: path
@@ -729,12 +983,7 @@ paths:
           required: true
           schema:
             type: integer
-        - name: tip
-          in: query
-          schema:
-            type: string
-          description: The Stacks chain tip to query from. If tip == latest or empty, the query will be run
-            from the latest known tip.
+        - $ref: ./components/parameters/tip.yaml
       responses:
         "200":
           description: The raw SIP-003-encoded block will be returned.
@@ -743,35 +992,62 @@ paths:
               schema:
                 type: string
                 format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
-          description: The block could not be found
-          content:
-            application/text-plain: {}
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /v3/tenures/info:
     get:
       summary: Fetch metadata about the ongoing Nakamoto tenure
       tags:
         - Blocks
-      operationId: get_tenure_info
-      description:
-        Fetch metadata about the ongoing Nakamoto tenure. This information is sufficient to obtain and authenticate the highest complete tenure, as well as obtain new tenure blocks.
+      security: []
+      operationId: getTenureInfo
+      description: |
+        Fetch metadata about the ongoing Nakamoto tenure. This information is
+        sufficient to obtain and authenticate the highest complete tenure, as
+        well as obtain new tenure blocks.
       responses:
         "200":
           description: Metadata about the ongoing tenure
           content:
             application/json:
+              schema:
+                $ref: "#/components/schemas/TenureInfo"
               example:
-                $ref: ./api/core-node/get_tenure_info.json
+                $ref: "./components/examples/get-tenure-info.example.json"
 
   /v3/tenures/{block_id}:
     get:
       summary: Fetch a sequence of Nakamoto blocks in a tenure
       tags:
         - Blocks
-      operationId: get_tenures
-      description:
-        Fetch a sequence of Nakamoto blocks in a tenure.  The blocks will be served in order from highest to lowest.  The blocks will be encoded in their SIP-003 wire format, and concatenated together.
+      security: []
+      operationId: getTenures
+      description: |
+        Fetch a sequence of Nakamoto blocks in a tenure. The blocks will be
+        served in order from highest to lowest. The blocks will be encoded in
+        their SIP-003 wire format, and concatenated together.
+      parameters:
+        - name: block_id
+          in: path
+          description: The tenure-start block ID of the tenure to query
+          required: true
+          schema:
+            type: string
+        - name: stop
+          in: query
+          description: |
+            The block ID hash of the highest block in this tenure that is already
+            known to the caller. Neither the corresponding block nor any of its
+            ancestors will be served. This is used to fetch tenure blocks that the
+            caller does not have.
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: SIP-003-encoded Nakamoto blocks, concatenated together
@@ -780,118 +1056,1057 @@ paths:
               schema:
                 type: string
                 format: binary
-    parameters:
-      - name: block_id
-        in: path
-        description:
-          The tenure-start block ID of the tenure to query
-        required: true
-        schema:
-          type: string
-      - name: stop
-        in: query
-        description:
-          The block ID hash of the highest block in this tenure that is already known to the caller.  Neither the corresponding block nor any of its ancestors will be served.  This is used to fetch tenure blocks that the caller does not have.
-        required: false
-        schema:
-          type: string
 
-  /v3/sortitions/{lookup_kind}/{lookup}:
+  /v3/sortitions:
     get:
-      summary: Fetch information about evaluated burnchain blocks (i.e., sortitions).
+      summary: Get latest sortition information
       tags:
         - Blocks
-      operationId: get_sortitions
-      description:
-        Fetch sortition information about a burnchain block. If the `lookup_kind` and `lookup` parameters are empty, it will return information about the latest burn block.
+      security: []
+      operationId: getLatestSortitions
+      description: |
+        Get sortition information about the latest burnchain block processed by this node.
+        Returns a single-element array with the latest sortition.
       responses:
         "200":
-          description: Information for the burn block or in the case of `latest_and_last`, multiple burn blocks
+          description: Latest sortition information
           content:
             application/json:
-              examples:
-                Latest:
-                  description: A single element list is returned when just one sortition is requested
-                  value:
-                    $ref: ./api/core-node/get_sortitions.example.json
-                LatestAndLast:
-                  description: Sortition information about the latest burn block with a winning miner, and the previous such burn block.
-                  value:
-                    $ref: ./api/core-node/get_sortitions_latest_and_prior.example.json
-    parameters:
-      - name: lookup_kind
-        in: path
-        description: |-
-          The style of lookup that should be performed. If not given, the most recent burn block processed will be returned.
-          Otherwise, the `lookup_kind` should be one of the following strings:
-            * `consensus` - find the burn block using the consensus hash supplied in the `lookup` field.
-            * `burn_height` - find the burn block using the burn block height supplied in the `lookup` field.
-            * `burn` - find the burn block using the burn block hash supplied in the `lookup` field.
-            * `latest_and_last` - return information about the latest burn block with a winning miner *and* the previous such burn block
-        required: false
-        schema:
-          type: string
-      - name: lookup
-        in: path
-        description: The value to use for the lookup if `lookup_kind` is `consensus`, `burn_height`, or `burn`
-        required: false
-        schema:
-          type: string
-  /v3/signer/{signer}/{cycle_number}:
+              schema:
+                $ref: "#/components/schemas/Sortitions"
+              example:
+                $ref: "./components/examples/get-sortitions.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v3/sortitions/latest_and_last:
+    get:
+      summary: Get latest and last winning sortitions
+      tags:
+        - Blocks
+      security: []
+      operationId: getLatestAndLastWinningSortitions
+      description: |
+        Get sortition information about the latest burn block with a winning miner
+        AND the previous such burn block. Returns an array with two sortition objects.
+      responses:
+        "200":
+          description: Latest and last sortition information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sortitions"
+              example:
+                $ref: "./components/examples/get-sortitions-latest-and-prior.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v3/sortitions/consensus/{consensus_hash}:
+    get:
+      summary: Get sortition by consensus hash
+      tags:
+        - Blocks
+      security: []
+      operationId: getSortitionByConsensusHash
+      description: |
+        Get sortition information for a specific consensus hash.
+        Returns a single-element array with the matching sortition.
+      parameters:
+        - name: consensus_hash
+          in: path
+          required: true
+          description: Hex-encoded consensus hash (40 characters)
+          schema:
+            type: string
+            pattern: "^(0x)?[0-9a-f]{40}$"
+      responses:
+        "200":
+          description: Sortition information for the consensus hash
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sortitions"
+              example:
+                $ref: "./components/examples/get-sortitions.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v3/sortitions/burn/{burn_header_hash}:
+    get:
+      summary: Get sortition by burn header hash
+      tags:
+        - Blocks
+      security: []
+      operationId: getSortitionByBurnHeaderHash
+      description: |
+        Get sortition information for a specific burn header hash.
+        Returns a single-element array with the matching sortition.
+      parameters:
+        - name: burn_header_hash
+          in: path
+          required: true
+          description: Hex-encoded burn header hash (64 characters)
+          schema:
+            type: string
+            pattern: "^(0x)?[0-9a-f]{64}$"
+      responses:
+        "200":
+          description: Sortition information for the burn header hash
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sortitions"
+              example:
+                $ref: "./components/examples/get-sortitions.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v3/sortitions/burn_height/{height}:
+    get:
+      summary: Get sortition by burn block height
+      tags:
+        - Blocks
+      security: []
+      operationId: getSortitionByBurnBlockHeight
+      description: |
+        Get sortition information for a specific burn block height.
+        Returns a single-element array with the matching sortition.
+      parameters:
+        - name: height
+          in: path
+          required: true
+          description: Burn block height (integer)
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Sortition information for the burn block height
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sortitions"
+              example:
+                $ref: "./components/examples/get-sortitions.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v3/signer/{signer_pubkey}/{cycle_number}:
     get:
       summary: Get number of blocks signed by signer during a given reward cycle
       tags:
         - Blocks
         - Signers
-      operationId: get_signer
+      security: []
+      operationId: getSignerBlocksSigned
       description: Get number of blocks signed by signer during a given reward cycle
       parameters:
-        - name: signer
+        - name: signer_pubkey
           in: path
           required: true
           description: Hex-encoded compressed Secp256k1 public key of signer
           schema:
             type: string
+            pattern: "^0[23][0-9a-f]{64}$"
         - name: cycle_number
           in: path
           required: true
           description: Reward cycle number
           schema:
             type: integer
+            minimum: 0
+        - $ref: ./components/parameters/tip.yaml
       responses:
-        200:
+        "200":
           description: Number of blocks signed
           content:
-            text/plain:
+            application/json:
               schema:
-                type: integer
-                example: 7
+                $ref: "#/components/schemas/SignerBlocksSigned"
+              example:
+                blocks_signed: 7
+
   /v3/transaction/{txid}:
-    post:
+    get:
       summary: Retrieve transaction details by TXID
       tags:
         - Transactions
-      description: Get a JSON with the transaction details including the `index_block_hash`, the hex-encoded transaction body, and the `result`.
-      operationId: get_transaction
+      security: []
+      description: |
+        Get a JSON with the transaction details including the `index_block_hash`,
+        the hex-encoded transaction body, and the `result`.
+      operationId: getTransactionById
       parameters:
-      - name: txid
-        in: path
-        required: true
-        description: Transaction ID
-        schema:
-          type: string
+        - name: txid
+          in: path
+          required: true
+          description: Transaction ID (64 hexadecimal characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
       responses:
         "200":
           description: Transaction JSON with index_block_hash, transaction body and result
           content:
             application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionInfo"
               example:
-                $ref: ./api/core-node/get_transaction.json
+                $ref: "./components/examples/get-transaction.example.json"
         "404":
-          description: Transaction not found
-          content:
-            application/text-plain: {}
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
         "501":
           description: Transaction indexing not enabled
           content:
-            application/text-plain: {}
+            text/plain:
+              schema:
+                type: string
+              example: "Transaction indexing is not enabled"
+
+  /v3/health:
+    get:
+      summary: Query the health of the node.
+      description: |
+        Get node health information.
+        A node is considered healthy if its Stacks tip height matches the maximum Stacks tip height observed among its connected peers.
+        This endpoint returns:
+        - `difference_from_max_peer`: The difference in Stacks height between this node and its most advanced peer.
+        - `max_stacks_height_of_neighbors`: The maximum Stacks height observed among the node"s connected peers.
+        - `node_stacks_tip_height`: The current Stacks tip height of this node.
+      tags:
+        - Info
+      security: []
+      operationId: getNodeHealth
+      parameters:
+        - in: query
+          name: neighbors
+          description: |
+            Specifies the set of peers to use for health checks.
+            - `initial` (default): Use only the initial bootstrap peers.
+            - `all`: Use all connected peers.
+          required: false
+          schema:
+            type: string
+            enum:
+              - initial
+              - all
+            default: initial
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetHealth"
+              example:
+                $ref: "./components/examples/node-health.example.json"
+        "400":
+          description: Bad request, such as an invalid `neighbors` query parameter.
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          description: |
+            Failed to query for health (e.g., no data or no valid peers to query from).
+          $ref: "#/components/responses/InternalServerError"
+
+  /v2/attachments/{hash}:
+    get:
+      summary: Get attachment by hash
+      tags:
+        - Atlas
+      security: []
+      operationId: getAttachment
+      description: |
+        Get an attachment by its hash. Attachments are content stored in the Atlas network.
+
+        The attachment hash is a 40-character hex string (SHA-1 hash).
+      parameters:
+        - name: hash
+          in: path
+          required: true
+          description: Hex-encoded SHA-1 hash of the attachment (40 characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{40}$"
+      responses:
+        "200":
+          description: The attachment content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentData"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v2/attachments/inv:
+    get:
+      summary: Get attachment inventory
+      tags:
+        - Atlas
+      security: []
+      operationId: getAttachmentsInventory
+      description: |
+        Get inventory of attachments for a given index block hash and page range.
+        This returns a bitfield indicating which attachments are available.
+      parameters:
+        - name: index_block_hash
+          in: query
+          required: true
+          description: Hex-encoded index block hash (64 characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+        - name: pages_indexes
+          in: query
+          required: true
+          description: Comma-separated list of page indexes to query
+          schema:
+            type: string
+            example: "1,2,3"
+            pattern: "^[0-9]+(,[0-9]+){0,7}$"
+            description: max 8 pages per request
+      responses:
+        "200":
+          description: Attachment inventory bitfield
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentInventory"
+                example:
+                  block_id: "0123456789abcdef0123456789abcdef0123456789abcdef"
+                  pages:
+                    - index: 1
+                      inventory: [255, 0, 255, 0]
+                    - index: 2
+                      inventory: [0, 255, 0, 255]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v2/microblocks/confirmed/{block_id}:
+    get:
+      summary: Get stream of confirmed microblocks (Epoch 2.x)
+      tags:
+        - Blocks
+        - Microblocks
+      security: []
+      operationId: getConfirmedMicroblocks
+      description: |
+        Get microblocks that were confirmed by the given anchored block.
+        The microblocks are returned as a binary stream of concatenated microblock data.
+      parameters:
+        - name: block_id
+          in: path
+          required: true
+          description: Hex-encoded Stacks block ID (64 characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+        - $ref: ./components/parameters/tip.yaml
+      responses:
+        "200":
+          description: Stream of confirmed microblocks
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v2/microblocks/{microblock_id}:
+    get:
+      summary: |
+        Get a stream of microblocks beginning
+        with the given microblock (Epoch 2.x).
+      tags:
+        - Blocks
+        - Microblocks
+      security: []
+      operationId: getMicroblockById
+      parameters:
+        - name: microblock_id
+          in: path
+          required: true
+          description: Hex-encoded microblock hash (64 characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+      responses:
+        "200":
+          description: The microblock data
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v2/microblocks/unconfirmed/{block_id}/{seq}:
+    get:
+      summary: Get stream of unconfirmed microblocks (Epoch 2.x)
+      tags:
+        - Blocks
+        - Microblocks
+      security: []
+      operationId: getUnconfirmedMicroblocks
+      description: |
+        Get unconfirmed microblocks starting from a specific sequence number.
+        The microblocks are returned as a binary stream.
+      parameters:
+        - name: block_id
+          in: path
+          required: true
+          description: Hex-encoded parent block ID (64 characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+        - name: seq
+          in: path
+          required: true
+          description: Starting sequence number (0-65535)
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 65535
+      responses:
+        "200":
+          description: Stream of unconfirmed microblocks
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v2/microblocks:
+    post:
+      summary: Submit a microblock (Epoch 2.x)
+      tags:
+        - Blocks
+        - Microblocks
+      security: []
+      operationId: postMicroblock
+      description: |
+        Submit a microblock to the node for validation and relay.
+        The body **must** be the SIP-003 binary serialization of a `Microblock`
+        and sent with `Content-Type: application/octet-stream`.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Index-block hash of the accepted microblock
+          content:
+            application/json:
+              schema:
+                type: string
+                description: 32-byte block-header hash (hex)
+                pattern: "^[0-9a-f]{64}$"
+              example: "3e4f5d6b7c8a9e0ff1122303445566778899aabbccddeeff0011223344556677"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v2/stackerdb/{principal}/{contract_name}/{slot_id}:
+    get:
+      summary: Get StackerDB chunk (latest version)
+      tags:
+        - StackerDB
+      security: []
+      operationId: getStackerDbChunk
+      description: |
+        Get the latest version of a chunk of data from a StackerDB instance.
+      parameters:
+        - $ref: ./components/parameters/principal.yaml
+        - $ref: ./components/parameters/contract-name.yaml
+        - name: slot_id
+          in: path
+          required: true
+          description: Slot ID
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: StackerDB chunk data
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v2/stackerdb/{principal}/{contract_name}/{slot_id}/{slot_version}:
+    get:
+      summary: Get StackerDB chunk (specific version)
+      tags:
+        - StackerDB
+      security: []
+      operationId: getStackerDbChunkVersioned
+      description: |
+        Get a specific version of a chunk of data from a StackerDB instance.
+      parameters:
+        - $ref: ./components/parameters/principal.yaml
+        - $ref: ./components/parameters/contract-name.yaml
+        - name: slot_id
+          in: path
+          required: true
+          description: Slot ID
+          schema:
+            type: integer
+            minimum: 0
+        - name: slot_version
+          in: path
+          required: true
+          description: Specific slot version
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: StackerDB chunk data
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v2/stackerdb/{principal}/{contract_name}:
+    get:
+      summary: Get StackerDB metadata
+      tags:
+        - StackerDB
+      security: []
+      operationId: getStackerDbMetadata
+      description: |
+        Get metadata about a StackerDB instance, including slot information.
+      parameters:
+        - $ref: ./components/parameters/principal.yaml
+        - $ref: ./components/parameters/contract-name.yaml
+      responses:
+        "200":
+          description: StackerDB metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StackerDbMetadata"
+                example:
+                  - slot_id: 0
+                    slot_version: 1
+                    data_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    signature: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v2/stackerdb/{principal}/{contract_name}/chunks:
+    post:
+      summary: Write StackerDB chunk
+      tags:
+        - StackerDB
+      security: []
+      operationId: postStackerDbChunk
+      description: |
+        Write a chunk of data to a StackerDB instance.
+
+        The request body should contain a JSON object with the chunk data including
+        slot_id, slot_version, signature, and hex-encoded data.
+
+        The response indicates whether the chunk was accepted, and if not, provides
+        detailed error information. Note that failed writes return HTTP 200 with
+        accepted: false, not HTTP error codes.
+      parameters:
+        - $ref: ./components/parameters/principal.yaml
+        - $ref: ./components/parameters/contract-name.yaml
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StackerDbChunkData"
+            example:
+              $ref: "./components/examples/stackerdb-chunk-data-request.example.json"
+      responses:
+        "200":
+          description: Chunk submission result (both success and failure cases)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StackerDbChunkAckData"
+              examples:
+                success:
+                  summary: Successful chunk write
+                  externalValue: "./components/examples/stackerdb-chunk-ack-success.example.json"
+                failure:
+                  summary: Failed chunk write
+                  externalValue: "./components/examples/stackerdb-chunk-ack-failure.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v2/stackerdb/{principal}/{contract_name}/replicas:
+    get:
+      summary: List StackerDB replicas
+      tags:
+        - StackerDB
+      security: []
+      operationId: listStackerDbReplicas
+      description: |
+        Get a list of replicas for a StackerDB instance.
+      parameters:
+        - $ref: ./components/parameters/principal.yaml
+        - $ref: ./components/parameters/contract-name.yaml
+      responses:
+        "200":
+          description: List of StackerDB replicas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StackerDbReplicas"
+                example:
+                  - ip: "127.0.0.1"
+                    port: 20444
+                    public_key_hash: "03abc123..."
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v2/data_var/{principal}/{contract_name}/{var_name}:
+    get:
+      summary: Get contract data variable
+      tags:
+        - Smart Contracts
+      security: []
+      operationId: getContractDataVariable
+      description: |
+        Fetch a data variable from a smart contract.
+        Returns the raw hex-encoded value of the variable.
+      parameters:
+        - $ref: ./components/parameters/principal.yaml
+        - $ref: ./components/parameters/contract-name.yaml
+        - name: var_name
+          in: path
+          required: true
+          description: Variable name
+          schema:
+            type: string
+        - $ref: ./components/parameters/proof.yaml
+        - $ref: ./components/parameters/tip.yaml
+      responses:
+        "200":
+          description: The data variable value
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClarityData"
+                example:
+                  $ref: "./components/examples/clarity-data.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v2/headers/{quantity}:
+    get:
+      summary: Get recent 2.x block headers
+      tags:
+        - Blocks
+      security: []
+      operationId: getBlockHeaders
+      description: |
+        **Deprecated**: This endpoint is deprecated since Nakamoto.**
+        Stream (as a JSON array) up to `quantity` most recent anchored Stacks block headers.
+        The result is ordered from the current tip backwards.
+      parameters:
+        - name: quantity
+          in: path
+          required: true
+          description: Number of headers to return (max 256)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 256
+        - $ref: ./components/parameters/tip.yaml
+      responses:
+        "200":
+          description: Array of block headers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockHeaders"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v2/blocks/{block_id}:
+    get:
+      summary: Get Stacks 2.x block by ID
+      tags:
+        - Blocks
+      security: []
+      operationId: getLegacyBlockById
+      description: |
+        Get a specific Stacks 2.x era block by its block ID. This endpoint streams the block data
+        from the filesystem storage where traditional Stacks blocks are stored as individual files.
+
+        **Compatibility**: Works with all Stacks 2.x blocks. For Nakamoto blocks (Stacks 3.x+), use `/v3/blocks/{block_id}`.
+      parameters:
+        - name: block_id
+          in: path
+          required: true
+          description: Hex-encoded block ID (64 characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+      responses:
+        "200":
+          description: The block data
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v2/neighbors:
+    get:
+      summary: Get neighbor peers
+      tags:
+        - Info
+      security: []
+      operationId: getNetworkPeers
+      description: |
+        Get information about the node"s neighbor peers in the network.
+      responses:
+        "200":
+          description: List of neighbor peers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NetworkPeers"
+              example:
+                $ref: ./components/examples/network-peers.example.json
+
+  /v3/tenures/fork_info/{start}/{stop}:
+    get:
+      summary: Get tenure fork information
+      tags:
+        - Blocks
+      security: []
+      operationId: getTenureForkInfo
+      description: |
+        Get information about tenure forking between two consensus hashes.
+        This is used to identify conflicting tenures in the Nakamoto consensus.
+      parameters:
+        - name: start
+          in: path
+          required: true
+          description: Starting consensus hash (40 hexadecimal characters, without 0x prefix)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{40}$"
+        - name: stop
+          in: path
+          required: true
+          description: Stopping consensus hash (40 hexadecimal characters, without 0x prefix)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{40}$"
+      responses:
+        "200":
+          description: Ordered list of tenure fork events from `stop` back to (and including) `start`
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TenureForkInfo"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v3/tenures/tip/{consensus_hash}:
+    get:
+      summary: Get tenure tip
+      tags:
+        - Blocks
+      security: []
+      operationId: getTenureTip
+      description: |
+        Get the tip block of a tenure identified by consensus hash.
+      parameters:
+        - name: consensus_hash
+          in: path
+          required: true
+          description: Consensus hash (40 characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{40}$"
+      responses:
+        "200":
+          description: Tenure tip block information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenureTip"
+              example:
+                $ref: "./components/examples/get-tenure-tip.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v2/transactions/unconfirmed/{txid}:
+    get:
+      summary: Get unconfirmed transaction
+      tags:
+        - Transactions
+      security: []
+      operationId: getUnconfirmedTransactionById
+      description: |
+        Get an unconfirmed transaction by its transaction ID.
+        This looks in both the mempool and unconfirmed microblock stream.
+      parameters:
+        - name: txid
+          in: path
+          required: true
+          description: Transaction ID (64 hexadecimal characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+      responses:
+        "200":
+          description: Unconfirmed transaction details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnconfirmedTransaction"
+                example:
+                  tx: "800000000004..."
+                  status: "Mempool"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v2/blocks/upload/{consensus_hash}:
+    post:
+      summary: Upload a Stacks block
+      tags:
+        - Mining
+      security: []
+      operationId: uploadLegacyBlock
+      description: |
+        Upload a Stacks block to the node for processing.
+        The block must be in binary format and associated with the given consensus hash.
+      parameters:
+        - name: consensus_hash
+          in: path
+          required: true
+          description: Consensus hash (40 hex characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{40}$"
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              description: Binary-encoded Stacks block
+      responses:
+        "200":
+          description: Block upload result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockUploadResponse"
+                example:
+                  stacks_block_id: "abc123..."
+                  accepted: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v2/mempool/query:
+    post:
+      summary: Query mempool for missing transactions
+      tags:
+        - Transactions
+      security: []
+      operationId: queryMempool
+      description: |
+        Query the mempool for transactions that might be missing from the requesting node.
+        This endpoint supports pagination and streaming of transaction data.
+      parameters:
+        - name: page_id
+          in: query
+          description: Transaction ID to start pagination from
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              description: |
+                Binary SIP-003 encoding of `MemPoolSyncData`
+                (`BloomFilter` or `TxTags` variants).
+              properties:
+                transactions:
+                  type: array
+                  items:
+                    type: string
+                    description: Transaction IDs
+      responses:
+        "200":
+          description: Stream of missing transactions
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+                description: |
+                  Binary stream of transactions and pagination data.
+                  The stream contains serialized transactions followed by a page ID for continuation.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v3/blocks/upload:
+    post:
+      summary: Upload a Nakamoto block
+      tags:
+        - Blocks
+      # Two alternative security requirements:
+      #   - With `rpcAuth` when broadcast=1
+      #   - No auth when broadcast is absent
+      security:
+        - rpcAuth: []
+        - {}
+      operationId: uploadNakamotoBlock
+      description: |
+        Upload a Nakamoto block to the node for processing.
+
+        - **Body** - must be the binary (SIP-003) serialization of a `NakamotoBlock`.
+        - **Authentication** - only required when the query parameter `broadcast=1` is supplied.
+          In that case the caller **must** include an `Authorization` header.
+      parameters:
+        - name: broadcast
+          in: query
+          description: |
+            If set to `"1"` the node will broadcast the uploaded block to peers.
+            When present the request must include a valid `Authorization` header.
+          schema:
+            type: string
+            enum: ["1"]
+          required: false
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              description: Binary SIP-003 encoding of a `NakamotoBlock`
+      responses:
+        "200":
+          description: Block upload result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockUploadResponse"
+                example:
+                  stacks_block_id: "abc123..."
+                  accepted: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"

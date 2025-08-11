@@ -22,15 +22,17 @@ use hashbrown::HashMap;
 use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
 use stacks_common::{debug, error, info, warn};
 
-use crate::chainstate::SortitionsView;
+use crate::chainstate::v1::SortitionsView;
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, SignerConfig, SignerConfigMode};
+use crate::signerdb::BlockInfo;
 use crate::v0::signer_state::LocalStateMachine;
 #[cfg(any(test, feature = "testing"))]
 use crate::v0::tests::TEST_SKIP_SIGNER_CLEANUP;
 use crate::Signer as SignerTrait;
 
 #[derive(thiserror::Error, Debug)]
+#[allow(clippy::large_enum_variant)]
 /// Configuration error type
 pub enum ConfigurationError {
     /// Error occurred while fetching data from the stacks node
@@ -56,6 +58,11 @@ pub struct StateInfo {
     /// The local state machines for the running signers
     ///  as a pair of (reward-cycle, state-machine)
     pub signer_state_machines: Vec<(u64, Option<LocalStateMachine>)>,
+    /// The number of pending block proposals for this signer
+    pub pending_proposals_count: u64,
+    /// The canonical tip block info according to the running signers
+    /// as a pair of (reward-cycle, block-info)
+    pub signer_canonical_tips: Vec<(u64, Option<BlockInfo>)>,
 }
 
 /// The signer result that can be sent across threads
@@ -320,6 +327,11 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             tenure_idle_timeout_buffer: self.config.tenure_idle_timeout_buffer,
             block_proposal_max_age_secs: self.config.block_proposal_max_age_secs,
             reorg_attempts_activity_timeout: self.config.reorg_attempts_activity_timeout,
+            proposal_wait_for_parent_time: self.config.proposal_wait_for_parent_time,
+            validate_with_replay_tx: self.config.validate_with_replay_tx,
+            capitulate_miner_view_timeout: self.config.capitulate_miner_view_timeout,
+            #[cfg(any(test, feature = "testing"))]
+            supported_signer_protocol_version: self.config.supported_signer_protocol_version,
         }))
     }
 
@@ -466,9 +478,15 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
                 // We are either the current or a future reward cycle, so we are not stale.
                 continue;
             }
-            if let ConfiguredSigner::RegisteredSigner(signer) = signer {
-                if !signer.has_unprocessed_blocks() {
-                    debug!("{signer}: Signer's tenure has completed.");
+            match signer {
+                ConfiguredSigner::RegisteredSigner(signer) => {
+                    if !signer.has_unprocessed_blocks() {
+                        debug!("{signer}: Signer's tenure has completed.");
+                        to_delete.push(*idx);
+                    }
+                }
+                ConfiguredSigner::NotRegistered { .. } => {
+                    debug!("{signer}: Unregistered signer's tenure has completed.");
                     to_delete.push(*idx);
                 }
             }
@@ -521,6 +539,27 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                             *reward_cycle,
                             Some(signer.get_local_state_machine().clone()),
                         )
+                    })
+                    .collect(),
+                pending_proposals_count: self
+                    .stacks_signers
+                    .values()
+                    .find_map(|signer| {
+                        if let ConfiguredSigner::RegisteredSigner(signer) = signer {
+                            Some(signer.get_pending_proposals_count())
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(0),
+                signer_canonical_tips: self
+                    .stacks_signers
+                    .iter()
+                    .map(|(reward_cycle, signer)| {
+                        let ConfiguredSigner::RegisteredSigner(ref signer) = signer else {
+                            return (*reward_cycle, None);
+                        };
+                        (*reward_cycle, signer.get_canonical_tip())
                     })
                     .collect(),
             };
@@ -579,7 +618,7 @@ mod tests {
     use blockstack_lib::chainstate::stacks::boot::NakamotoSignerEntry;
     use libsigner::SignerEntries;
     use rand::{thread_rng, Rng, RngCore};
-    use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
+    use stacks_common::types::chainstate::StacksPublicKey;
 
     use super::RewardCycleInfo;
 
@@ -589,8 +628,7 @@ mod tests {
         let weight = 10;
         let mut signer_entries = Vec::with_capacity(nmb_signers);
         for _ in 0..nmb_signers {
-            let key =
-                StacksPublicKey::from_private(&StacksPrivateKey::random()).to_bytes_compressed();
+            let key = StacksPublicKey::new().to_bytes_compressed();
             let mut signing_key = [0u8; 33];
             signing_key.copy_from_slice(&key);
             signer_entries.push(NakamotoSignerEntry {

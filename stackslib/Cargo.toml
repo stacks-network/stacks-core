@@ -52,6 +52,8 @@ pox-locking = { path = "../pox-locking" }
 libstackerdb = { path = "../libstackerdb" }
 siphasher = "0.3.7"
 hashbrown = { workspace = true }
+rusqlite = { workspace = true }
+time = { version = "0.3.41", features = ["std"] }
 toml = { workspace = true }
 clar2wasm = { git = "https://github.com/stacks-network/clarity-wasm.git", branch = "main"}
 
@@ -75,16 +77,8 @@ features = ["arbitrary_precision", "unbounded_depth"]
 version = "0.24.3"
 features = ["serde", "recovery"]
 
-[dependencies.rusqlite]
-workspace = true
-features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
-
 [dependencies.ed25519-dalek]
 workspace = true
-
-[dependencies.time]
-version = "0.3.34"
-features = ["std"]
 
 [dev-dependencies]
 assert-json-diff = "1.0.0"
@@ -97,6 +91,8 @@ rstest_reuse = "0.5.0"
 mutants = "0.0.3"
 rlimit = "0.10.2"
 chrono = "0.4.19"
+tempfile = "3.3"
+proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 
 [features]
 default = ["clarity-wasm"]
@@ -105,8 +101,8 @@ disable-costs = []
 developer-mode = ["clarity/developer-mode"]
 monitoring_prom = ["prometheus"]
 slog_json = ["stacks-common/slog_json", "clarity/slog_json", "pox-locking/slog_json"]
-testing = ["chrono"]
 clarity-wasm = []
+testing = ["chrono", "stacks-common/testing", "clarity/testing"]
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }

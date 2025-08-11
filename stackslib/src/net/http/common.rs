@@ -15,18 +15,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::io::Read;
-use std::net::SocketAddr;
-use std::str::FromStr;
-use std::{fmt, io};
 
-use stacks_common::codec::{read_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN};
+use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::net::PeerHost;
-use stacks_common::util::chunked_encoding::*;
-use stacks_common::util::retry::BoundReader;
 
-use crate::net::http::{
-    Error, HttpContentType, HttpRequestContents, HttpResponseContents, HttpResponsePreamble,
-};
+use crate::net::http::{Error, HttpContentType, HttpResponsePreamble};
 
 /// HTTP version (1.0 or 1.1)
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
@@ -126,13 +119,11 @@ pub fn parse_raw_bytes(
             expected_content_type
         )));
     }
-    if (body.len() as u64) < max_len {
-        let buf = body.to_vec();
-        Ok(buf)
-    } else {
-        let buf = body[0..(max_len as usize)].to_vec();
-        Ok(buf)
-    }
+    let out_len = usize::try_from(max_len).unwrap().min(body.len());
+    let out_bytes = body
+        .get(..out_len)
+        .ok_or_else(|| Error::DecodeError("Unexpected body size".into()))?;
+    Ok(out_bytes.to_vec())
 }
 
 /// Helper function to read `application/octet-stream` content

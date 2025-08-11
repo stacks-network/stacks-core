@@ -28,7 +28,6 @@ use std::io::Write;
 use std::str::FromStr;
 use std::{fmt, io};
 
-use regex::{Captures, Regex};
 use serde_json;
 use stacks_common::codec::Error as CodecError;
 
@@ -38,8 +37,8 @@ pub use crate::net::http::common::{
 };
 pub use crate::net::http::error::{
     http_error_from_code_and_text, http_reason, HttpBadRequest, HttpError, HttpErrorResponse,
-    HttpForbidden, HttpNotFound, HttpNotImplemented, HttpPaymentRequired, HttpServerError,
-    HttpServiceUnavailable, HttpUnauthorized,
+    HttpForbidden, HttpNotFound, HttpNotImplemented, HttpPaymentRequired, HttpRequestTimeout,
+    HttpServerError, HttpServiceUnavailable, HttpUnauthorized,
 };
 pub use crate::net::http::request::{
     HttpRequest, HttpRequestContents, HttpRequestPayload, HttpRequestPreamble,

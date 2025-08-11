@@ -20,9 +20,7 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
 
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MarfTransaction, MARF};
-use crate::chainstate::stacks::index::{
-    ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieMerkleProof,
-};
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, Error, MARFValue};
 use crate::clarity_vm::special::handle_contract_call_special_cases;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::db::{Error as DatabaseError, IndexDBConn};
@@ -113,8 +111,6 @@ impl MarfedKV {
 
     // used by benchmarks
     pub fn temporary() -> MarfedKV {
-        use std::env;
-
         use rand::Rng;
         use stacks_common::util::hash::to_hex;
 
@@ -194,7 +190,6 @@ impl MarfedKV {
     ///     blockhash would already have committed and no longer exist in the save point stack.
     /// this is a "lower-level" rollback than the roll backs performed in
     ///   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
-
     pub fn begin<'a>(
         &'a mut self,
         current: &StacksBlockId,
@@ -263,10 +258,7 @@ impl MarfedKV {
     }
 
     pub fn index_conn<C>(&self, context: C) -> IndexDBConn<'_, C, StacksBlockId> {
-        IndexDBConn {
-            index: &self.marf,
-            context,
-        }
+        IndexDBConn::new(&self.marf, context)
     }
 }
 

@@ -14,42 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
-use std::collections::{HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::sync_channel;
-use std::sync::{Arc, RwLock};
-
-use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::Value;
-use rusqlite::Connection;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
-};
-use stacks_common::util::hash::{hex_bytes, Hash160};
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::vrf::*;
-use stacks_common::{address, types, util};
 
 use crate::burnchains::affirmation::*;
-use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddress};
-use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
-use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::db::*;
 use crate::burnchains::tests::db::*;
-use crate::burnchains::{BurnchainBlock, BurnchainBlockHeader, Txid, *};
-use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::burnchains::{BurnchainBlockHeader, *};
 use crate::chainstate::burn::operations::leader_block_commit::*;
 use crate::chainstate::burn::operations::*;
-use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::tests::*;
-use crate::chainstate::coordinator::{Error as CoordError, *};
-use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::chainstate::stacks::*;
-use crate::clarity_vm::clarity::ClarityConnection;
-use crate::core::*;
-use crate::monitoring::increment_stx_blocks_processed_counter;
-use crate::{chainstate, core};
 
 fn make_test_pox(
     cycle_len: u32,

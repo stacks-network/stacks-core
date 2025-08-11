@@ -16,28 +16,12 @@
 
 use std::io::{Read, Write};
 
-use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, TrieHash, VRFSeed,
-};
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
+use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
 
-use crate::burnchains::{
-    Address, Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainTransaction, PublicKey,
-    Txid,
-};
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
-use crate::chainstate::burn::operations::{
-    parse_u128_from_be, BlockstackOperationType, Error as op_error, TransferStxOp,
-};
-use crate::chainstate::burn::{ConsensusHash, Opcodes};
-use crate::chainstate::stacks::index::storage::TrieFileStorage;
-use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
-use crate::core::POX_MAX_NUM_CYCLES;
-use crate::net::Error as net_error;
+use crate::burnchains::{BurnchainBlockHeader, BurnchainTransaction, Txid};
+use crate::chainstate::burn::operations::{parse_u128_from_be, Error as op_error, TransferStxOp};
+use crate::chainstate::burn::Opcodes;
 
 // return type from parse_data below
 struct ParsedData {
@@ -97,8 +81,8 @@ impl TransferStxOp {
             return None;
         }
 
-        let transfered_ustx = parse_u128_from_be(&data[0..16]).unwrap();
-        let memo = Vec::from(&data[16..]);
+        let transfered_ustx = parse_u128_from_be(data.get(0..16)?).unwrap();
+        let memo = Vec::from(data.get(16..)?);
 
         Some(ParsedData {
             transfered_ustx,
@@ -179,7 +163,12 @@ impl TransferStxOp {
         let outputs = tx.get_recipients();
         assert!(!outputs.is_empty());
 
-        let output = outputs[0]
+        let output = outputs
+            .get(0)
+            .ok_or_else(|| {
+                warn!("Invalid tx: No first output");
+                op_error::InvalidInput
+            })?
             .as_ref()
             .ok_or_else(|| {
                 warn!("Invalid tx: could not decode the first output");
@@ -240,26 +229,16 @@ impl TransferStxOp {
 
 #[cfg(test)]
 mod tests {
-    use stacks_common::address::AddressHashMode;
-    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
-    use stacks_common::deps_common::bitcoin::network::serialize::{deserialize, serialize_hex};
-    use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
-    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::types::chainstate::StacksAddress;
     use stacks_common::util::hash::*;
-    use stacks_common::util::vrf::VRFPublicKey;
 
     use super::*;
     use crate::burnchains::bitcoin::address::*;
-    use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::bitcoin::*;
     use crate::burnchains::*;
-    use crate::chainstate::burn::db::sortdb::*;
-    use crate::chainstate::burn::db::*;
     use crate::chainstate::burn::operations::*;
-    use crate::chainstate::burn::{ConsensusHash, *};
+    use crate::chainstate::burn::*;
     use crate::chainstate::stacks::address::StacksAddressExtensions;
-    use crate::chainstate::stacks::StacksPublicKey;
 
     #[test]
     fn test_parse_transfer_stx() {

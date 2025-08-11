@@ -16,50 +16,38 @@
 
 use std::cmp;
 use std::collections::BTreeMap;
+use std::sync::LazyLock;
 
+use clarity::types::Address;
 use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::{Error as ClarityError, TransactionConnection};
-use clarity::vm::contexts::ContractContext;
-use clarity::vm::costs::cost_functions::ClarityCostFunction;
-use clarity::vm::costs::{ClarityCostFunctionReference, CostStateSummary, LimitedCostTracker};
-use clarity::vm::database::{
-    ClarityDatabase, DataVariableMetadata, NULL_BURN_STATE_DB, NULL_HEADER_DB,
-};
-use clarity::vm::errors::{Error as VmError, InterpreterError, InterpreterResult};
+use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use clarity::vm::errors::Error as VmError;
 use clarity::vm::events::StacksTransactionEvent;
-use clarity::vm::representations::{ClarityName, ContractName};
-use clarity::vm::types::TypeSignature::UIntType;
+use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
-    TypeSignature, Value,
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData, Value,
 };
 use clarity::vm::{ClarityVersion, Environment, SymbolicExpression};
 use lazy_static::lazy_static;
 use serde::Deserialize;
-use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, StacksAddress, StacksBlockId, StacksPublicKey,
-};
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
+use stacks_common::util::hash::{hex_bytes, to_hex};
+#[cfg(test)]
+use stacks_common::util::tests::TestFlag;
 
-use crate::burnchains::bitcoin::address::BitcoinAddress;
-use crate::burnchains::{Address, Burnchain, PoxConstants};
+use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::{StacksChainState, StacksDBConn};
-use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::Error;
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
 use crate::clarity_vm::database::HeadersDBConn;
-use crate::core::{
-    StacksEpochId, BITCOIN_REGTEST_FIRST_BLOCK_HASH, CHAIN_ID_MAINNET, POX_MAXIMAL_SCALING,
-    POX_THRESHOLD_STEPS_USTX,
-};
+use crate::core::{StacksEpochId, CHAIN_ID_MAINNET, POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
 use crate::util_lib::boot;
-use crate::util_lib::strings::VecDisplay;
 
 const BOOT_CODE_POX_BODY: &str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &str = std::include_str!("pox-testnet.clar");
@@ -79,6 +67,7 @@ pub const POX_4_NAME: &str = "pox-4";
 pub const SIGNERS_NAME: &str = "signers";
 pub const SIGNERS_VOTING_NAME: &str = "signers-voting";
 pub const SIGNERS_VOTING_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
+pub const SIP_031_NAME: &str = "sip-031";
 /// This is the name of a variable in the `.signers` contract which tracks the most recently updated
 /// reward cycle number.
 pub const SIGNERS_UPDATE_STATE: &str = "last-set-cycle";
@@ -92,6 +81,8 @@ pub const SIGNERS_BODY: &str = std::include_str!("signers.clar");
 pub const SIGNERS_DB_0_BODY: &str = std::include_str!("signers-0-xxx.clar");
 pub const SIGNERS_DB_1_BODY: &str = std::include_str!("signers-1-xxx.clar");
 pub const SIGNERS_VOTING_BODY: &str = std::include_str!("signers-voting.clar");
+/// Not public - be sure to use [make_sip_031_body]
+const SIP_031_BODY: &str = std::include_str!("sip-031.clar");
 
 pub const COSTS_1_NAME: &str = "costs";
 pub const COSTS_2_NAME: &str = "costs-2";
@@ -103,6 +94,20 @@ pub const BOOT_TEST_POX_4_AGG_KEY_CONTRACT: &str = "pox-4-agg-test-booter";
 pub const BOOT_TEST_POX_4_AGG_KEY_FNAME: &str = "aggregate-key";
 
 pub const MINERS_NAME: &str = "miners";
+
+/// The initial recipient address for SIP-031 on mainnet.
+pub const SIP_031_MAINNET_ADDR: LazyLock<StacksAddress> = LazyLock::new(|| {
+    StacksAddress::from_string("SM1Z6BP8PDKYKXTZXXSKXFEY6NQ7RAM7DAEAYR045").unwrap()
+});
+
+/// The initial recipient address for SIP-031 on testnet.
+pub const SIP_031_TESTNET_ADDR: LazyLock<StacksAddress> = LazyLock::new(|| {
+    StacksAddress::from_string("ST1QCN9YMXMJPJ0Y5EMR627FCWDXQWT1CRK9CWN23").unwrap()
+});
+
+#[cfg(test)]
+pub static TEST_SIP_031_ADDR: LazyLock<TestFlag<Option<StacksAddress>>> =
+    LazyLock::new(TestFlag::default);
 
 pub mod docs;
 
@@ -151,6 +156,40 @@ fn make_testnet_cost_voting() -> String {
             "(define-constant REQUIRED_VETOES u25)",
             1,
         )
+}
+
+#[cfg(test)]
+pub fn get_sip_031_recipient_addr(is_mainnet: bool) -> StacksAddress {
+    if is_mainnet {
+        SIP_031_MAINNET_ADDR.clone()
+    } else {
+        TEST_SIP_031_ADDR
+            .get()
+            .unwrap_or(SIP_031_TESTNET_ADDR.clone())
+    }
+}
+
+#[cfg(not(test))]
+pub fn get_sip_031_recipient_addr(is_mainnet: bool) -> StacksAddress {
+    if is_mainnet {
+        SIP_031_MAINNET_ADDR.clone()
+    } else {
+        SIP_031_TESTNET_ADDR.clone()
+    }
+}
+
+/// Generate the contract body for the SIP-031 contract.
+///
+/// When on mainnet, only the constant [SIP_031_MAINNET_ADDR] is used.
+/// Otherwise, on testnet, you can provide a configurable address.
+pub fn make_sip_031_body(is_mainnet: bool) -> String {
+    let addr = get_sip_031_recipient_addr(is_mainnet).to_string();
+
+    SIP_031_BODY.replacen(
+        "(define-data-var recipient principal tx-sender)",
+        &format!("(define-data-var recipient principal '{addr})"),
+        1,
+    )
 }
 
 pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractIdentifier {
@@ -562,7 +601,7 @@ impl StacksChainState {
                             )
                         })
                     },
-                    |_, _| false,
+                    |_, _| None,
                 )
                 .expect("FATAL: failed to handle PoX unlock");
 
@@ -1379,39 +1418,24 @@ pub mod signers_tests;
 
 #[cfg(test)]
 pub mod test {
-    use std::collections::{HashMap, HashSet};
-    use std::fs;
+    use std::collections::HashSet;
 
-    use clarity::boot_util::boot_code_addr;
     use clarity::vm::contracts::Contract;
-    use clarity::vm::tests::symbols_from_values;
     use clarity::vm::types::*;
-    use stacks_common::util::hash::to_hex;
     use stacks_common::util::secp256k1::Secp256k1PublicKey;
-    use stacks_common::util::*;
 
     use self::signers_tests::readonly_call;
     use super::*;
-    use crate::burnchains::{Address, PublicKey};
-    use crate::chainstate::burn::db::sortdb::*;
-    use crate::chainstate::burn::db::*;
+    use crate::burnchains::Address;
     use crate::chainstate::burn::operations::BlockstackOperationType;
-    use crate::chainstate::burn::*;
-    use crate::chainstate::stacks::db::test::*;
     use crate::chainstate::stacks::db::*;
-    use crate::chainstate::stacks::miner::*;
     use crate::chainstate::stacks::tests::*;
-    use crate::chainstate::stacks::{
-        Error as chainstate_error, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *,
-    };
+    use crate::chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *};
     use crate::core::{StacksEpochId, *};
     use crate::net::test::*;
     use crate::util_lib::boot::{boot_code_id, boot_code_test_addr};
     use crate::util_lib::signed_structured_data::pox4::{
         make_pox_4_signer_key_signature, Pox4SignatureTopic,
-    };
-    use crate::util_lib::signed_structured_data::{
-        make_structured_data_domain, sign_structured_data,
     };
 
     pub const TESTNET_STACKING_THRESHOLD_25: u128 = 8000;
@@ -2660,7 +2684,7 @@ pub mod test {
             )
             (begin
                 ;; take the stx from the tx-sender
-                
+
                 (unwrap-panic (stx-transfer? amount-ustx tx-sender this-contract))
 
                 ;; this contract stacks the stx given to it
@@ -5874,6 +5898,35 @@ pub mod test {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_sip031_addrs() {
+        assert_eq!(
+            SIP_031_MAINNET_ADDR.to_string(),
+            "SM1Z6BP8PDKYKXTZXXSKXFEY6NQ7RAM7DAEAYR045"
+        );
+        assert_eq!(
+            SIP_031_TESTNET_ADDR.to_string(),
+            "ST1QCN9YMXMJPJ0Y5EMR627FCWDXQWT1CRK9CWN23"
+        );
+
+        assert_eq!(
+            get_sip_031_recipient_addr(true),
+            SIP_031_MAINNET_ADDR.clone()
+        );
+        assert_eq!(
+            get_sip_031_recipient_addr(false),
+            SIP_031_TESTNET_ADDR.clone()
+        );
+
+        let transient = StacksAddress::from(StandardPrincipalData::transient().clone());
+        TEST_SIP_031_ADDR.set(Some(transient.clone()));
+        assert_eq!(get_sip_031_recipient_addr(false), transient.clone());
+        assert_eq!(
+            get_sip_031_recipient_addr(true),
+            SIP_031_MAINNET_ADDR.clone()
+        );
     }
 
     // TODO: need Stacking-rejection with a BTC address -- contract name in OP_RETURN? (NEXT)
