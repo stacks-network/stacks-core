@@ -81,7 +81,7 @@ mutants = { workspace = true }
 rlimit = { version = "0.10.2", default-features = false }
 chrono = { workspace = true }
 tempfile = { workspace = true }
-proptest = { workspace = true, features = ["std"] }
+proptest = { workspace = true }
 
 [features]
 default = []
