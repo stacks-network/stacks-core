@@ -1652,4 +1652,9 @@ impl<T: MarfTrieId> MARF<T> {
     pub fn into_sqlite_conn(self) -> Connection {
         self.storage.into_sqlite_conn()
     }
+
+    /// Get the underlying storage DB path
+    pub fn get_db_path(&self) -> &str {
+        &self.storage.db_path
+    }
 }
