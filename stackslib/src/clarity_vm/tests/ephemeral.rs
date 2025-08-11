@@ -430,3 +430,7 @@ fn test_ephemeral_nakamoto_block_replay_simple() {
         replay_block(&sortdb, &mut stacks_node.chainstate, naka_block, &observer);
     }
 }
+
+// Test TODO:
+// * nakamoto boot plan with Clarity smart contracts which exercise the Clarity DB thoroghly 
+// * stacks 2.x test
