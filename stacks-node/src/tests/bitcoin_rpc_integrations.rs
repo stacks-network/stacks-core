@@ -617,3 +617,49 @@ fn test_get_block_hash_ok() {
         .expect("Should return regtest genesis block hash!");
     assert_eq!(BITCOIN_REGTEST_FIRST_BLOCK_HASH, hash);
 }
+
+#[ignore]
+#[test]
+fn test_send_raw_transaction_rebroadcast_ok() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut config = utils::create_stx_config();
+    config.burnchain.wallet_name = "my_wallet".to_string();
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(config.clone());
+    btcd_controller
+        .add_arg("-fallbackfee=0.0002")
+        .start_bitcoind_v2()
+        .expect("bitcoind should be started!");
+
+    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    client
+        .create_wallet("my_wallet", Some(false))
+        .expect("create wallet ok!");
+
+    let address = client
+        .get_new_address(None, Some(AddressType::Legacy))
+        .expect("get new address ok!");
+
+    //Create 1 UTXO
+    _ = client
+        .generate_to_address(101, &address)
+        .expect("generate to address ok!");
+
+    //Need `fallbackfee` arg
+    let txid = client
+        .send_to_address(&address, 2.0)
+        .expect("send to address ok!");
+
+    let raw_tx = client
+        .get_raw_transaction(&txid)
+        .expect("get raw transaction ok!");
+
+    let txid = client
+        .send_raw_transaction(&raw_tx, None, None)
+        .expect("send raw transaction (rebroadcast) ok!");
+
+    assert_eq!(txid.to_bitcoin_hex(), raw_tx.txid().to_string());
+}
