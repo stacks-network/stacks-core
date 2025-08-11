@@ -237,13 +237,8 @@ impl MarfedKV {
             )
         });
 
-        let chain_tip = tx
-            .get_open_chain_tip()
-            .expect("ERROR: Failed to get open MARF")
-            .clone();
-
         WritableMarfStore {
-            chain_tip,
+            chain_tip: next.clone(),
             marf: tx,
         }
     }

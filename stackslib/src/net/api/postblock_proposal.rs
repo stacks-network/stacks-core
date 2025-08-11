@@ -562,7 +562,7 @@ impl NakamotoBlockProposal {
         let mut miner_tenure_info =
             builder.load_tenure_info(chainstate, &burn_dbconn, tenure_cause)?;
         let burn_chain_height = miner_tenure_info.burn_tip_height;
-        let mut tenure_tx = builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info)?;
+        let mut tenure_tx = builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info, false)?;
 
         for (i, tx) in self.block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
@@ -709,7 +709,7 @@ impl NakamotoBlockProposal {
         let mut replay_miner_tenure_info =
             replay_builder.load_tenure_info(&mut replay_chainstate, &burn_dbconn, tenure_cause)?;
         let mut replay_tenure_tx =
-            replay_builder.tenure_begin(&burn_dbconn, &mut replay_miner_tenure_info)?;
+            replay_builder.tenure_begin(&burn_dbconn, &mut replay_miner_tenure_info, false)?;
 
         for (i, tx) in self.block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();

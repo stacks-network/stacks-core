@@ -304,7 +304,7 @@ impl StacksBlockHeaderTypes {
             StacksBlockHeaderTypes::Nakamoto(x) => x.block_hash(),
         }
     }
-
+    
     pub fn is_first_mined(&self) -> bool {
         match self {
             StacksBlockHeaderTypes::Epoch2(x) => x.is_first_mined(),
@@ -2023,6 +2023,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
+        simulated: bool,
     ) -> ClarityTx<'a, 'b> {
         let conf = chainstate_tx.config.clone();
         StacksChainState::inner_clarity_tx_begin(
@@ -2034,6 +2035,7 @@ impl StacksChainState {
             parent_block,
             new_consensus_hash,
             new_block,
+            simulated,
         )
     }
 
@@ -2057,6 +2059,7 @@ impl StacksChainState {
             parent_block,
             new_consensus_hash,
             new_block,
+            false,
         )
     }
 
@@ -2326,6 +2329,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
+        simulated: bool,
     ) -> ClarityTx<'a, 'b> {
         // mix consensus hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the pair is)
@@ -2353,12 +2357,21 @@ impl StacksChainState {
             parent_block
         );
 
-        let inner_clarity_tx = clarity_instance.begin_block(
-            &parent_index_block,
-            &new_index_block,
-            headers_db,
-            burn_dbconn,
-        );
+        let inner_clarity_tx = if simulated {
+            clarity_instance.begin_simulated_block(
+                &parent_index_block,
+                &new_index_block,
+                headers_db,
+                burn_dbconn,
+            )
+        } else {
+            clarity_instance.begin_block(
+                &parent_index_block,
+                &new_index_block,
+                headers_db,
+                burn_dbconn,
+            )
+        };
 
         test_debug!("Got clarity TX!");
         ClarityTx {

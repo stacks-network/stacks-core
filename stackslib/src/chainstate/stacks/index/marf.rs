@@ -1404,6 +1404,14 @@ impl<T: MarfTrieId> MARF<T> {
         })
     }
 
+    pub fn begin_simulated_tx(&mut self) -> Result<MarfTransaction<'_, T>, Error> {
+        let storage = self.storage.transaction()?;
+        Ok(MarfTransaction {
+            storage,
+            open_chain_tip: &mut self.open_chain_tip,
+        })
+    }
+
     /// Target the MARF's storage at a given block.
     pub fn open_block(&mut self, block_hash: &T) -> Result<(), Error> {
         self.storage.connection().open_block(block_hash)

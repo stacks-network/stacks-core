@@ -24,10 +24,12 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::Txid;
-use crate::chainstate::nakamoto::NakamotoBlock;
+use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::events::TransactionOrigin;
-use crate::chainstate::stacks::{Error as ChainError, StacksTransaction};
+use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
+use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
 use crate::net::http::{
     parse_bytes, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
@@ -71,6 +73,7 @@ pub struct RPCSimulatedBlock {
     pub miner_signature: MessageSignature,
     pub signer_signature: Vec<MessageSignature>,
     pub transactions: Vec<RPCSimulatedBlockTransaction>,
+    pub valid_state_index_root: bool,
 }
 
 /// Decode the HTTP request
@@ -175,35 +178,76 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
                     Err(_) => return Err(ChainError::NoSuchBlockError),
                 };
 
-                let (block_fees, txs_receipts) = chainstate
-                    .with_simulated_clarity_tx(
-                        &burn_dbconn,
-                        &parent_block_id,
-                        &block_id,
-                        |clarity_tx| {
-                            let (block_fees, txs_receipts) =
-                                match StacksChainState::process_block_transactions(
-                                    clarity_tx,
-                                    &block.txs,
-                                    0,
-                                    ASTRules::PrecheckSize,
-                                ) {
-                                    Err(e) => {
-                                        let msg =
-                                            format!("Invalid Stacks block {}: {:?}", &block_id, &e);
-                                        warn!("{}", &msg);
+                let tenure_change = block
+                    .txs
+                    .iter()
+                    .find(|tx| matches!(tx.payload, TransactionPayload::TenureChange(..)));
+                let coinbase = block
+                    .txs
+                    .iter()
+                    .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
+                let tenure_cause = tenure_change.and_then(|tx| match &tx.payload {
+                    TransactionPayload::TenureChange(tc) => Some(tc.cause),
+                    _ => None,
+                });
 
-                                        return Err(ChainError::InvalidStacksBlock(msg));
-                                    }
-                                    Ok((block_fees, _block_burns, txs_receipts)) => {
-                                        (block_fees, txs_receipts)
-                                    }
-                                };
-                            Ok((block_fees, txs_receipts))
-                        },
-                    )
-                    .unwrap()
+                // let (block_fees, txs_receipts) = chainstate
+                //     .with_simulated_clarity_tx(&burn_dbconn, &parent_block_id, &block_id, |_| {
+                let parent_stacks_header =
+                    NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id)
+                        .unwrap()
+                        .unwrap();
+                let mut builder = NakamotoBlockBuilder::new(
+                    &parent_stacks_header,
+                    &block.header.consensus_hash,
+                    block.header.burn_spent,
+                    tenure_change,
+                    coinbase,
+                    block.header.pox_treatment.len(),
+                    None,
+                )
+                .unwrap();
+
+                let mut miner_tenure_info = builder
+                    .load_tenure_info(chainstate, &burn_dbconn, tenure_cause)
                     .unwrap();
+                let burn_chain_height = miner_tenure_info.burn_tip_height;
+                let mut tenure_tx = builder
+                    .tenure_begin(&burn_dbconn, &mut miner_tenure_info, true)
+                    .unwrap();
+
+                let mut block_fees: u128 = 0;
+                let mut txs_receipts = vec![];
+
+                for (i, tx) in block.txs.iter().enumerate() {
+                    let tx_len = tx.tx_len();
+
+                    let tx_result = builder.try_mine_tx_with_len(
+                        &mut tenure_tx,
+                        tx,
+                        tx_len,
+                        &BlockLimitFunction::NO_LIMIT_HIT,
+                        ASTRules::PrecheckSize,
+                        None,
+                    );
+                    let err = match tx_result {
+                        TransactionResult::Success(tx_result) => {
+                            txs_receipts.push(tx_result.receipt);
+                            Ok(())
+                        }
+                        _ => Err(format!("Problematic tx {i}")),
+                    };
+                    if let Err(reason) = err {
+                        panic!("Rejected block tx");
+                    }
+
+                    block_fees += tx.get_tx_fee() as u128;
+                }
+
+                let simulated_block =
+                    builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
+
+                tenure_tx.rollback_block();
 
                 let block_hash = block.header.block_hash();
 
@@ -219,6 +263,8 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
                     miner_signature: block.header.miner_signature,
                     signer_signature: block.header.signer_signature,
                     transactions: vec![],
+                    valid_state_index_root: block.header.state_index_root
+                        == simulated_block.header.state_index_root,
                 };
                 for receipt in txs_receipts {
                     let events = receipt
