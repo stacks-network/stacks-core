@@ -87,7 +87,7 @@ developer-mode = []
 # Enables graceful shutdown handling for Ctrl+C (SIGINT) signals.
 # This pulls in the `nix` or `winapi` dependency.
 ctrlc-handler = ["dep:nix", "dep:winapi"]
-slog_json = ["slog-json"]
+slog_json = ["dep:slog-json"]
 rusqlite = ["dep:rusqlite", "rand"]
 # Enables the rand module. This flag must be off on deterministic
 # platforms such as CosmWasm

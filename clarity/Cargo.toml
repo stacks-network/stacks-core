@@ -20,6 +20,7 @@ path = "./src/libclarity.rs"
 [dependencies]
 serde = { workspace = true }
 serde_derive = { workspace = true }
+serde_json = { workspace = true, features = ["std", "arbitrary_precision", "unbounded_depth"] }
 regex = { workspace = true }
 lazy_static = { workspace = true }
 integer-sqrt = { version = "0.1.3", default-features = false }
@@ -29,7 +30,6 @@ rstest = { workspace = true, optional = true }
 rstest_reuse = { workspace = true, optional = true }
 hashbrown = { workspace = true }
 rusqlite = { workspace = true, optional = true }
-serde_json = { workspace = true, features = ["std", "arbitrary_precision", "unbounded_depth"] }
 
 [dev-dependencies]
 assert-json-diff = { workspace = true }

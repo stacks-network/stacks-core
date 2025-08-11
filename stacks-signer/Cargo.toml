@@ -22,7 +22,7 @@ path = "src/main.rs"
 [dependencies]
 backoff = { version = "0.4", default-features = false }
 clarity = { path = "../clarity" }
-clap = { version = "4.1.1", default-features = false, features = ["std", "derive", "env"] }
+clap = { version = "4.1.1", features = ["derive", "env"] }
 hashbrown = { workspace = true }
 lazy_static = { workspace = true }
 libsigner = { path = "../libsigner" }
@@ -49,7 +49,6 @@ rusqlite = { workspace = true, features = ["functions"] }
 [dev-dependencies]
 clarity = { path = "../clarity", features = ["testing"] }
 stacks-common = { path = "../stacks-common", features = ["testing"] }
-num-traits = { version = "0.2.18", default-features = false }
 stdext = { workspace = true }
 
 [features]

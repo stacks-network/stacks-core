@@ -19,7 +19,7 @@ path = "tests/integration.rs"
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["std"] }
-clap = { version = "4.0", default-features = false, features = ["std", "derive"] }
+clap = { version = "4.0", features = ["derive"] }
 regex = { workspace = true }
 anyhow = { version = "1.0", default-features = false, features = ["std"] }
 once_cell = { version = "1.18", default-features = false, features = ["std"] }

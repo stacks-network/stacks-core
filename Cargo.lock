@@ -1754,7 +1754,6 @@ dependencies = [
  "libstackerdb 0.0.1",
  "mutants",
  "rand 0.8.5",
- "rand_core 0.6.4",
  "serde",
  "serde_json",
  "slog",
@@ -3192,7 +3191,6 @@ dependencies = [
  "base64 0.12.3",
  "chrono",
  "clarity 0.0.1",
- "hashbrown 0.15.2",
  "http-types",
  "lazy_static",
  "libc",
@@ -3243,7 +3241,6 @@ dependencies = [
  "lazy_static",
  "libsigner 0.0.1",
  "libstackerdb 0.0.1",
- "num-traits",
  "prometheus",
  "rand 0.8.5",
  "rand_core 0.6.4",
@@ -3308,7 +3305,6 @@ dependencies = [
  "libstackerdb 0.0.1",
  "mio 0.6.23",
  "mutants",
- "nix",
  "percent-encoding",
  "pox-locking 2.4.0",
  "prometheus",
@@ -3336,7 +3332,6 @@ dependencies = [
  "time 0.3.41",
  "toml",
  "url",
- "winapi 0.3.9",
 ]
 
 [[package]]

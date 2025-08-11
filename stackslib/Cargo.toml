@@ -60,15 +60,6 @@ toml = { workspace = true }
 [target.'cfg(not(any(target_os = "macos",target_os="windows", target_arch = "arm" )))'.dependencies]
 tikv-jemallocator = { workspace = true }
 
-[target.'cfg(unix)'.dependencies]
-nix = { workspace = true }
-
-[target.'cfg(windows)'.dependencies]
-winapi = { workspace = true, features = ["consoleapi", "handleapi", "synchapi", "winbase"] }
-
-[target.'cfg(windows)'.dev-dependencies]
-winapi = { workspace = true, features = ["fileapi", "processenv", "winnt"] }
-
 [dev-dependencies]
 assert-json-diff = { workspace = true }
 stdext = { workspace = true }
