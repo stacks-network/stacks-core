@@ -958,7 +958,7 @@ fn test_invalidate_block_ok() {
 #[test]
 fn test_get_block_hash_ok() {
     let height = 1;
-    let expected_hash = "0000";
+    let expected_hash = utils::BITCOIN_BLOCK_HASH;
 
     let expected_request = json!({
         "jsonrpc": "2.0",
@@ -984,8 +984,8 @@ fn test_get_block_hash_ok() {
 
     let client = utils::setup_client(&server);
 
-    let hash = client.get_block_hash(height).expect("Should be ok!");
-    assert_eq!(expected_hash, hash);
+    let bhh = client.get_block_hash(height).expect("Should be ok!");
+    assert_eq!(expected_hash, bhh.to_hex());
 }
 
 #[test]

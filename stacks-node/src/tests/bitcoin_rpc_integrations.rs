@@ -612,10 +612,10 @@ fn test_get_block_hash_ok() {
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
 
-    let hash = client
+    let bhh = client
         .get_block_hash(0)
         .expect("Should return regtest genesis block hash!");
-    assert_eq!(BITCOIN_REGTEST_FIRST_BLOCK_HASH, hash);
+    assert_eq!(BITCOIN_REGTEST_FIRST_BLOCK_HASH, bhh.to_hex());
 }
 
 #[ignore]

@@ -298,6 +298,22 @@ impl<'de> Deserialize<'de> for TxidWrapperResponse {
     }
 }
 
+/// Response mainly used as deserialization wrapper for [`BurnchainHeaderHash`]
+struct BurnchainHeaderHashWrapperResponse(pub BurnchainHeaderHash);
+
+/// Deserializes a JSON string (hex-encoded, big-endian) into [`BurnchainHeaderHash`],
+/// and wrap it into [`BurnchainHeaderHashWrapperResponse`]
+impl<'de> Deserialize<'de> for BurnchainHeaderHashWrapperResponse {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let hex_str: String = Deserialize::deserialize(deserializer)?;
+        let bhh = BurnchainHeaderHash::from_hex(&hex_str).map_err(serde::de::Error::custom)?;
+        Ok(BurnchainHeaderHashWrapperResponse(bhh))
+    }
+}
+
 /// Client for interacting with a Bitcoin RPC service.
 #[derive(Debug)]
 pub struct BitcoinRpcClient {
@@ -651,13 +667,16 @@ impl BitcoinRpcClient {
     /// * `height` - The height (block number) of the block whose hash is requested.
     ///
     /// # Returns
-    /// A `String` representing the block hash in hexadecimal format.
+    /// A [`BurnchainHeaderHash`] representing the block hash.
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.9.0**.
-    pub fn get_block_hash(&self, height: u64) -> BitcoinRpcClientResult<String> {
-        Ok(self
-            .global_ep
-            .send(&self.client_id, "getblockhash", vec![height.into()])?)
+    pub fn get_block_hash(&self, height: u64) -> BitcoinRpcClientResult<BurnchainHeaderHash> {
+        let response = self.global_ep.send::<BurnchainHeaderHashWrapperResponse>(
+            &self.client_id,
+            "getblockhash",
+            vec![height.into()],
+        )?;
+        Ok(response.0)
     }
 }
