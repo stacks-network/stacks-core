@@ -28,7 +28,7 @@ rand = { workspace = true }
 hashbrown = { workspace = true }
 rusqlite = { workspace = true }
 async-h1 = { version = "2.3.2", default-features = false, optional = true }
-async-std = { version = "1.6", default-features = false, optional = true, features = ["attributes"] }
+async-std = { version = "1.6", optional = true, features = ["attributes"] }
 http-types = { version = "2.12", default-features = false, optional = true }
 thiserror = { workspace = true }
 

@@ -29,7 +29,7 @@ rstest = { workspace = true, optional = true }
 rstest_reuse = { workspace = true, optional = true }
 hashbrown = { workspace = true }
 rusqlite = { workspace = true, optional = true }
-serde_json = { workspace = true, features = ["arbitrary_precision", "unbounded_depth"] }
+serde_json = { workspace = true, features = ["std", "arbitrary_precision", "unbounded_depth"] }
 
 [dev-dependencies]
 assert-json-diff = { workspace = true }

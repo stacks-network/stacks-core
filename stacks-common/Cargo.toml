@@ -38,14 +38,14 @@ lazy_static = { workspace = true }
 ripemd = { workspace = true }
 serde = { workspace = true , features = ["derive"] }
 serde_derive = { workspace = true }
-serde_json = { workspace = true, features = ["arbitrary_precision", "unbounded_depth"] }
+serde_json = { workspace = true, features = ["std", "arbitrary_precision", "unbounded_depth"] }
 sha3 = { version = "0.10.1", default-features = false }
 slog = { workspace = true }
 slog-term = { workspace = true }
 
 # Optional dependencies
 getrandom = { version = "0.2", default-features = false, optional = true }
-rand = { workspace = true, optional = true }
+rand = { workspace = true, optional = true, features = ["std", "std_rng"] }
 slog-json = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]

@@ -34,7 +34,7 @@ serde = { version = "1", default-features = false }
 serde_derive = { version = "1", default-features = false }
 serde_json = { version = "1.0", default-features = false }
 sha2 = { version = "0.10", default-features = false, features = ["std"] }
-slog = { version = "2.5.2", default-features = false,  features = [ "max_level_trace" ] }
+slog = { version = "2.5.2", default-features = false, features = [ "max_level_trace" ] }
 slog-json = { version = "2.3.0", default-features = false }
 slog-term = { version = "2.6.0", default-features = false }
 stdext = { version = "0.3.1", default-features = false }
@@ -45,7 +45,7 @@ tempfile = { version = "3.3", default-features = false }
 tikv-jemallocator = { version = "0.5.4", default-features = false }
 thiserror = { version = "1.0.65", default-features = false }
 tracing = { version = "0.1.37", default-features = false }
-tracing-subscriber = { version = "0.3.17", default-features = false }
+tracing-subscriber = { version = "0.3.17", default-features = false, features = ["env-filter"] }
 tiny_http = { version = "0.12.0", default-features = false }
 toml = { version = "0.5.6", default-features = false }
 url = { version = "2.1.0", default-features = false }
