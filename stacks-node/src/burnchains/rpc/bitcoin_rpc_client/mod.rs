@@ -34,7 +34,9 @@ use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::util::hash::hex_bytes;
 use stacks_common::deps_common::bitcoin::blockdata::script::Script;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
-use stacks_common::deps_common::bitcoin::network::serialize::serialize_hex;
+use stacks_common::deps_common::bitcoin::network::serialize::{
+    serialize_hex, Error as bitcoin_serialize_error,
+};
 
 use crate::burnchains::rpc::rpc_transport::{RpcAuth, RpcError, RpcTransport};
 
@@ -326,34 +328,17 @@ pub struct BitcoinRpcClient {
 }
 
 /// Represents errors that can occur when using [`BitcoinRpcClient`].
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum BitcoinRpcClientError {
     // RPC Transport errors
-    Rpc(RpcError),
+    #[error("Rcp error: {0}")]
+    Rpc(#[from] RpcError),
     // JSON serialization errors
-    Serialization(serde_json::Error),
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
     // Bitcoin serialization errors
-    BitcoinSerialization(stacks_common::deps_common::bitcoin::network::serialize::Error),
-}
-
-impl From<RpcError> for BitcoinRpcClientError {
-    fn from(err: RpcError) -> Self {
-        BitcoinRpcClientError::Rpc(err)
-    }
-}
-
-impl From<serde_json::Error> for BitcoinRpcClientError {
-    fn from(err: serde_json::Error) -> Self {
-        BitcoinRpcClientError::Serialization(err)
-    }
-}
-
-impl From<stacks_common::deps_common::bitcoin::network::serialize::Error>
-    for BitcoinRpcClientError
-{
-    fn from(err: stacks_common::deps_common::bitcoin::network::serialize::Error) -> Self {
-        BitcoinRpcClientError::BitcoinSerialization(err)
-    }
+    #[error("Bitcoin Serialization error: {0}")]
+    BitcoinSerialization(#[from] bitcoin_serialize_error),
 }
 
 /// Alias for results returned from client operations.
