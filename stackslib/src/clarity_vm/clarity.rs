@@ -598,6 +598,46 @@ impl ClarityInstance {
         }
     }
 
+    /// Begin an ephemeral block, which will not be persisted and which may even already exist in
+    /// the chainstate.
+    pub fn begin_ephemeral<'a, 'b>(
+        &'a mut self,
+        base_tip: &StacksBlockId,
+        ephemeral_next: &StacksBlockId,
+        header_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a, 'b> {
+        let mut datastore = self
+            .datastore
+            .begin_ephemeral(base_tip, ephemeral_next)
+            .expect("FATAL: failed to begin ephemeral block connection");
+
+        let epoch = Self::get_epoch_of(base_tip, header_db, burn_state_db);
+        let cost_track = {
+            let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            Some(
+                LimitedCostTracker::new(
+                    self.mainnet,
+                    self.chain_id,
+                    epoch.block_limit.clone(),
+                    &mut clarity_db,
+                    epoch.epoch_id,
+                )
+                .expect("FAIL: problem instantiating cost tracking"),
+            )
+        };
+
+        ClarityBlockConnection {
+            datastore,
+            header_db,
+            burn_state_db,
+            cost_track,
+            mainnet: self.mainnet,
+            chain_id: self.chain_id,
+            epoch: epoch.epoch_id,
+        }
+    }
+
     /// Open a read-only connection at `at_block`. This will be evaluated in the Stacks epoch that
     ///  was active *during* the evaluation of `at_block`
     pub fn read_only_connection<'a>(
