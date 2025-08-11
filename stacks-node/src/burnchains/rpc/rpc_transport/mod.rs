@@ -58,42 +58,61 @@ struct JsonRpcResponse<T> {
     /// Result returned from the RPC method, if successful.
     result: Option<T>,
     /// Error object returned by the RPC server, if the call failed.
-    error: Option<Value>,
+    error: Option<JsonRpcError>,
+}
+
+/// Represents the JSON-RPC response error received from the endpoint
+#[derive(Deserialize, Debug, thiserror::Error)]
+#[error("JsonRpcError code {code}: {message}")]
+pub struct JsonRpcError {
+    /// error code
+    code: i32,
+    /// human-readable error message
+    message: String,
+    /// data can be any JSON value or omitted
+    data: Option<Value>,
 }
 
 /// Represents a JSON-RPC error encountered during a transport operation.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, thiserror::Error)]
 pub enum RpcError {
-    /// Represents a network-level error, such as connection failures or timeouts.
-    Network(String),
-    /// Indicates that the request could not be encoded properly
-    Encode(String),
-    /// Indicates that the response could not be decoded properly.
-    Decode(String),
+    // Serde decoding error
+    #[error("JSON decoding error: {0}")]
+    DecodeJson(serde_json::Error),
+    // Serde encoding error
+    #[error("JSON encoding error: {0}")]
+    EncodeJson(serde_json::Error),
+    /// Indicates that the response doesn't contain a json payload
+    #[error("Invalid JSON payload error")]
+    InvalidJsonPayload,
+    // RPC Id mismatch between request and response
+    #[error("Id Mismatch! Request: {0}, Response: {1}")]
+    MismatchedId(String, String),
+    // Stacks common network error
+    #[error("Stacks Net error: {0}")]
+    NetworkStacksCommon(#[from] stacks_common::types::net::Error),
+    // Stacks network lib error
+    #[error("IO error: {0}")]
+    NetworkIO(#[from] io::Error),
+    // Stacks lib network error
+    #[error("Stacks Net error: {0}")]
+    NetworkStacksLib(#[from] stacks::net::Error),
     /// Represents an error returned by the RPC service itself.
-    Service(String),
+    #[error("Service JSON error: {0}")]
+    Service(JsonRpcError),
+    // URL missing host error
+    #[error("URL missing host error: {0}")]
+    UrlMissingHost(Url),
+    // URL missing port error
+    #[error("URL missing port error: {0}")]
+    UrlMissingPort(Url),
+    // URL parse error
+    #[error("URL error: {0}")]
+    UrlParse(#[from] url::ParseError),
 }
 
 /// Alias for results returned from RPC operations using `RpcTransport`.
 pub type RpcResult<T> = Result<T, RpcError>;
-
-impl From<url::ParseError> for RpcError {
-    fn from(e: url::ParseError) -> Self {
-        Self::Network(format!("Url Error: {e:?}"))
-    }
-}
-
-impl From<stacks_common::types::net::Error> for RpcError {
-    fn from(e: stacks_common::types::net::Error) -> Self {
-        Self::Network(format!("Net Error: {e:?}"))
-    }
-}
-
-impl From<io::Error> for RpcError {
-    fn from(e: io::Error) -> Self {
-        Self::Network(format!("IO Error: {e:?}"))
-    }
-}
 
 /// Represents supported authentication mechanisms for RPC requests.
 #[derive(Debug, Clone)]
@@ -136,10 +155,10 @@ impl RpcTransport {
         let url_obj = Url::parse(&url)?;
         let host = url_obj
             .host_str()
-            .ok_or(RpcError::Network(format!("Missing host in url: {url}")))?;
+            .ok_or(RpcError::UrlMissingHost(url_obj.clone()))?;
         let port = url_obj
             .port_or_known_default()
-            .ok_or(RpcError::Network(format!("Missing port in url: {url}")))?;
+            .ok_or(RpcError::UrlMissingHost(url_obj.clone()))?;
 
         let peer: PeerHost = format!("{host}:{port}").parse()?;
         let path = url_obj.path().to_string();
@@ -177,20 +196,15 @@ impl RpcTransport {
             params: Value::Array(params),
         };
 
-        let json_payload = serde_json::to_value(payload)
-            .map_err(|e| RpcError::Encode(format!("Failed to encode request as JSON: {e:?}")))?;
+        let json_payload = serde_json::to_value(payload).map_err(RpcError::EncodeJson)?;
 
         let mut request = StacksHttpRequest::new_for_peer(
             self.peer.clone(),
             "POST".to_string(),
             self.path.clone(),
             HttpRequestContents::new().payload_json(json_payload),
-        )
-        .map_err(|e| {
-            RpcError::Encode(format!(
-                "Failed to encode infallible data as HTTP request {e:?}"
-            ))
-        })?;
+        )?;
+
         request.add_header("Connection".into(), "close".into());
 
         if let Some(auth_header) = self.auth_header() {
@@ -203,27 +217,24 @@ impl RpcTransport {
         let response = send_http_request(&host, port, request, self.timeout)?;
         let json_response = match response.destruct().1 {
             HttpResponsePayload::JSON(js) => Ok(js),
-            _ => Err(RpcError::Decode("Did not get a JSON response".to_string())),
+            _ => Err(RpcError::InvalidJsonPayload),
         }?;
 
-        let parsed_response: JsonRpcResponse<T> = serde_json::from_value(json_response)
-            .map_err(|e| RpcError::Decode(format!("Json Parse Error: {e:?}")))?;
+        let parsed_response: JsonRpcResponse<T> =
+            serde_json::from_value(json_response).map_err(RpcError::DecodeJson)?;
 
         if id != parsed_response.id {
-            return Err(RpcError::Decode(format!(
-                "Invalid response: mismatched 'id': expected '{}', got '{}'",
-                id, parsed_response.id
-            )));
+            return Err(RpcError::MismatchedId(id.to_string(), parsed_response.id));
         }
 
         if let Some(error) = parsed_response.error {
-            return Err(RpcError::Service(format!("{:#}", error)));
+            return Err(RpcError::Service(error));
         }
 
         if let Some(result) = parsed_response.result {
             Ok(result)
         } else {
-            Ok(serde_json::from_value(Value::Null).unwrap())
+            Ok(serde_json::from_value(Value::Null).map_err(RpcError::DecodeJson)?)
         }
     }
 

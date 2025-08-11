@@ -176,7 +176,7 @@ fn test_get_blockchain_info_fails_for_unknown_network() {
 
     assert!(matches!(
         error,
-        BitcoinRpcClientError::Rpc(RpcError::Decode(_))
+        BitcoinRpcClientError::Rpc(RpcError::DecodeJson(_))
     ));
 }
 
@@ -433,7 +433,7 @@ fn test_generate_to_address_fails_for_invalid_block_hash() {
         .expect_err("Should fail!");
     assert!(matches!(
         error,
-        BitcoinRpcClientError::Rpc(RpcError::Decode(_))
+        BitcoinRpcClientError::Rpc(RpcError::DecodeJson(_))
     ));
 }
 
@@ -586,7 +586,7 @@ fn test_generate_block_fails_for_invalid_block_hash() {
         .expect_err("Should fail!");
     assert!(matches!(
         error,
-        BitcoinRpcClientError::Rpc(RpcError::Decode(_))
+        BitcoinRpcClientError::Rpc(RpcError::DecodeJson(_))
     ));
 }
 
@@ -842,7 +842,7 @@ fn test_get_new_address_fails_for_invalid_address() {
         .expect_err("Should fail!");
     assert!(matches!(
         error,
-        BitcoinRpcClientError::Rpc(RpcError::Decode(_))
+        BitcoinRpcClientError::Rpc(RpcError::DecodeJson(_))
     ))
 }
 
@@ -919,7 +919,7 @@ fn test_send_to_address_fails_for_invalid_tx_id() {
         .expect_err("Should fail!");
     assert!(matches!(
         error,
-        BitcoinRpcClientError::Rpc(RpcError::Decode(_))
+        BitcoinRpcClientError::Rpc(RpcError::DecodeJson(_))
     ));
 }
 

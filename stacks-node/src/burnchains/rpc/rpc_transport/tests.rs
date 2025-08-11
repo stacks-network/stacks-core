@@ -110,13 +110,19 @@ fn test_send_with_string_result_with_basic_auth_ok() {
 }
 
 #[test]
-fn test_send_fails_with_network_error() {
-    let transport = RpcTransport::new("http://127.0.0.1:65535".to_string(), RpcAuth::None, None)
+fn test_send_fails_due_to_unreachable_endpoint() {
+    let unreachable_endpoint = "http://127.0.0.1:65535".to_string();
+    let transport = RpcTransport::new(unreachable_endpoint, RpcAuth::None, None)
         .expect("Should be created properly!");
 
     let result: RpcResult<Value> = transport.send("client_id", "dummy_method", vec![]);
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), RpcError::Network(_)));
+
+    let err = result.unwrap_err();
+    assert!(
+        matches!(err, RpcError::NetworkIO(_)),
+        "Expected NetworkIO error, got: {err:?}"
+    );
 }
 
 #[test]
@@ -133,10 +139,11 @@ fn test_send_fails_with_http_500() {
 
     assert!(result.is_err());
     match result {
-        Err(RpcError::Network(msg)) => {
-            assert!(msg.contains("500"))
+        Err(RpcError::NetworkIO(e)) => {
+            let msg = e.to_string();
+            assert!(msg.contains("500"), "Should contain error 500!");
         }
-        _ => panic!("Expected error 500"),
+        other => panic!("Expected NetworkIO error, got: {other:?}"),
     }
 }
 
@@ -155,10 +162,14 @@ fn test_send_fails_with_invalid_json() {
 
     assert!(result.is_err());
     match result {
-        Err(RpcError::Network(msg)) => {
-            assert!(msg.contains("invalid message"))
+        Err(RpcError::NetworkIO(e)) => {
+            let msg = e.to_string();
+            assert!(
+                msg.contains("invalid message"),
+                "Should contain 'invalid message'!"
+            )
         }
-        _ => panic!("Expected network error"),
+        other => panic!("Expected NetworkIO error, got: {other:?}"),
     }
 }
 
@@ -184,7 +195,7 @@ fn test_send_ok_if_missing_both_result_and_error() {
 #[test]
 fn test_send_fails_with_invalid_id() {
     let response_body = json!({
-        "id": "wrong_client_id",
+        "id": "res_client_id_wrong",
         "result": true,
     });
 
@@ -197,14 +208,14 @@ fn test_send_fails_with_invalid_id() {
         .create();
 
     let transport = utils::rpc_no_auth(&server);
-    let result: RpcResult<Value> = transport.send("client_id", "dummy", vec![]);
+    let result: RpcResult<Value> = transport.send("req_client_id", "dummy", vec![]);
 
     match result {
-        Err(RpcError::Decode(msg)) => assert_eq!(
-            "Invalid response: mismatched 'id': expected 'client_id', got 'wrong_client_id'",
-            msg
-        ),
-        _ => panic!("Expected missing result/error error"),
+        Err(RpcError::MismatchedId(req_id, res_id)) => {
+            assert_eq!("req_client_id", req_id);
+            assert_eq!("res_client_id_wrong", res_id);
+        }
+        other => panic!("Expected MismatchedId, got {other:?}"),
     }
 }
 
@@ -231,11 +242,11 @@ fn test_send_fails_with_service_error() {
     let result: RpcResult<Value> = transport.send("client_id", "unknown_method", vec![]);
 
     match result {
-        Err(RpcError::Service(msg)) => assert_eq!(
-            "{\n  \"code\": -32601,\n  \"message\": \"Method not found\"\n}",
-            msg
-        ),
-        _ => panic!("Expected service error"),
+        Err(RpcError::Service(err)) => {
+            assert_eq!(-32601, err.code);
+            assert_eq!("Method not found", err.message);
+        }
+        other => panic!("Expected Service error, got {other:?}"),
     }
 }
 
@@ -275,9 +286,10 @@ fn test_send_fails_due_to_timeout() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        RpcError::Network(msg) => {
-            assert!(msg.contains("Timed out"));
+        RpcError::NetworkIO(e) => {
+            let msg = e.to_string();
+            assert!(msg.contains("Timed out"), "Should contain 'Timed out'!");
         }
-        err => panic!("Expected network error, got: {:?}", err),
+        other => panic!("Expected NetworkIO error, got: {other:?}"),
     }
 }

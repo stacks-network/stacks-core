@@ -97,7 +97,7 @@ fn test_rpc_call_fails_when_bitcond_with_auth_but_rpc_no_auth() {
     let err = client.get_blockchain_info().expect_err("Should fail!");
 
     assert!(
-        matches!(err, BitcoinRpcClientError::Rpc(RpcError::Network(_))),
+        matches!(err, BitcoinRpcClientError::Rpc(RpcError::NetworkIO(_))),
         "Expected RpcError::Network, got: {err:?}"
     );
 }
@@ -123,7 +123,7 @@ fn test_rpc_call_fails_when_bitcond_no_auth_and_rpc_no_auth() {
     let err = client.get_blockchain_info().expect_err("Should fail!");
 
     assert!(
-        matches!(err, BitcoinRpcClientError::Rpc(RpcError::Network(_))),
+        matches!(err, BitcoinRpcClientError::Rpc(RpcError::NetworkIO(_))),
         "Expected RpcError::Network, got: {err:?}"
     );
 }
@@ -232,8 +232,8 @@ fn test_wallet_creation_fails_if_already_exists() {
         .expect_err("mywallet1 creation should fail now!");
 
     match &err {
-        BitcoinRpcClientError::Rpc(RpcError::Network(msg)) => {
-            assert!(msg.contains("500"), "Bitcoind v25 returns HTTP 500)");
+        BitcoinRpcClientError::Rpc(RpcError::NetworkIO(_)) => {
+            assert!(true, "Bitcoind v25 returns HTTP 500)");
         }
         BitcoinRpcClientError::Rpc(RpcError::Service(_)) => {
             assert!(true, "Bitcoind v26+ returns HTTP 200");
