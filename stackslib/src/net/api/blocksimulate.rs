@@ -73,7 +73,7 @@ pub struct RPCSimulatedBlock {
     pub miner_signature: MessageSignature,
     pub signer_signature: Vec<MessageSignature>,
     pub transactions: Vec<RPCSimulatedBlockTransaction>,
-    pub valid_state_index_root: bool,
+    pub valid: bool,
 }
 
 /// Decode the HTTP request
@@ -263,8 +263,8 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
                     miner_signature: block.header.miner_signature,
                     signer_signature: block.header.signer_signature,
                     transactions: vec![],
-                    valid_state_index_root: block.header.state_index_root
-                        == simulated_block.header.state_index_root,
+                    valid: block.header.state_index_root == simulated_block.header.state_index_root
+                        && block.header.tx_merkle_root == simulated_block.header.tx_merkle_root,
                 };
                 for receipt in txs_receipts {
                     let events = receipt

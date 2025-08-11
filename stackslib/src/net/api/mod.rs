@@ -51,6 +51,7 @@ pub mod getstackers;
 pub mod getstxtransfercost;
 pub mod gettenure;
 pub mod gettenureblocks;
+pub mod gettenureblocksbyhash;
 pub mod gettenureblocksbyheight;
 pub mod gettenureinfo;
 pub mod gettenuretip;
@@ -123,6 +124,9 @@ impl StacksHttp {
         self.register_rpc_endpoint(gettenureinfo::RPCNakamotoTenureInfoRequestHandler::new());
         self.register_rpc_endpoint(gettenuretip::RPCNakamotoTenureTipRequestHandler::new());
         self.register_rpc_endpoint(gettenureblocks::RPCNakamotoTenureBlocksRequestHandler::new());
+        self.register_rpc_endpoint(
+            gettenureblocksbyhash::RPCNakamotoTenureBlocksByHashRequestHandler::new(),
+        );
         self.register_rpc_endpoint(
             gettenureblocksbyheight::RPCNakamotoTenureBlocksByHeightRequestHandler::new(),
         );

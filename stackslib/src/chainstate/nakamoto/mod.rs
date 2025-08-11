@@ -65,6 +65,7 @@ use super::stacks::{
     Error as ChainstateError, StacksBlock, StacksTransaction, TenureChangePayload,
     TokenTransferMemo, TransactionPayload, TransactionVersion,
 };
+use crate::burnchains::db::BurnchainHeaderReader;
 use crate::burnchains::{PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::LeaderBlockCommitOp;
@@ -3163,6 +3164,34 @@ impl NakamotoChainState {
         Ok(None)
     }
 
+    pub fn find_highest_known_block_header_in_tenure_by_block_hash(
+        chainstate: &StacksChainState,
+        sort_db: &SortitionDB,
+        tenure_block_hash: &BurnchainHeaderHash,
+    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
+        let chainstate_db_conn = chainstate.db();
+
+        let candidates = Self::get_highest_known_block_header_in_tenure_by_block_hash_at_each_burnview(
+            chainstate_db_conn,
+            tenure_block_hash,
+        )?;
+
+        let canonical_sortition_handle = sort_db.index_handle_at_tip();
+        for candidate in candidates.into_iter() {
+            let Some(ref candidate_ch) = candidate.burn_view else {
+                // this is an epoch 2.x header, no burn view to check
+                return Ok(Some(candidate));
+            };
+            let in_canonical_fork = canonical_sortition_handle.processed_block(&candidate_ch)?;
+            if in_canonical_fork {
+                return Ok(Some(candidate));
+            }
+        }
+
+        // did not find any blocks in the tenure
+        Ok(None)
+    }
+
     /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
     /// tenure.
     ///
@@ -3188,6 +3217,34 @@ impl NakamotoChainState {
         ORDER BY h.block_height DESC, h.timestamp
         ";
         let args = params![tenure_height];
+        let out = query_rows(db, qry, args)?;
+        if !out.is_empty() {
+            return Ok(out);
+        }
+
+        Err(ChainstateError::NoSuchBlockError)
+    }
+
+    fn get_highest_known_block_header_in_tenure_by_block_hash_at_each_burnview(
+        db: &Connection,
+        tenure_block_hash: &BurnchainHeaderHash,
+    ) -> Result<Vec<StacksHeaderInfo>, ChainstateError> {
+        // see if we have a nakamoto block in this tenure
+        let qry = "
+        SELECT h.*
+        FROM nakamoto_block_headers h
+        JOIN (
+            SELECT burn_view, MAX(block_height) AS max_height
+            FROM nakamoto_block_headers
+            WHERE burn_header_hash = ?1
+            GROUP BY burn_view
+        ) maxed
+        ON h.burn_view = maxed.burn_view
+        AND h.block_height = maxed.max_height
+        WHERE h.burn_header_hash = ?1
+        ORDER BY h.block_height DESC, h.timestamp
+        ";
+        let args = params![tenure_block_hash];
         let out = query_rows(db, qry, args)?;
         if !out.is_empty() {
             return Ok(out);
