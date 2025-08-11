@@ -15,20 +15,41 @@ members = [
 
 # Dependencies we want to keep the same between workspace members
 [workspace.dependencies]
+assert-json-diff = { version = "1.0.0", default-features = false }
+chrono = { version = "0.4.41", default-features = false }
 ed25519-dalek = { version = "2.1.1", default-features = false }
 hashbrown = { version = "0.15.2", features = ["serde"] }
-lazy_static = "1.4.0"
-rand_core = "0.6.4"
-rand = "0.8"
-rand_chacha = "0.3.1"
-serde = "1"
-serde_derive = "1"
-serde_json = { version = "1.0", features = ["arbitrary_precision", "unbounded_depth"] }
-slog = { version = "2.5.2", features = [ "max_level_trace" ] }
-rusqlite = { version = "0.31.0", features = ["blob", "serde_json", "i128_blob", "bundled", "trace"] }
-tikv-jemallocator = "0.5.4"
-thiserror = "1.0.65"
-toml = "0.5.6"
+lazy_static = { version = "1.4.0", default-features = false }
+libc = { version = "0.2.151", default-features = false }
+mutants = { version = "0.0.3", default-features = false }
+nix = { version = "0.23", default-features = false }
+rand_core = { version = "0.6.4", default-features = false }
+rand = { version = "0.8", default-features = false }
+prometheus = { version = "0.9", default-features = false }
+proptest = { version = "1.6.*", default-features = false }
+regex = { version = "1", default-features = false }
+reqwest = { version = "0.11.22", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+ripemd = { version = "0.1.1", default-features = false }
+serde = { version = "1", default-features = false }
+serde_derive = { version = "1", default-features = false }
+serde_json = { version = "1.0", default-features = false }
+sha2 = { version = "0.10", default-features = false, features = ["std"] }
+slog = { version = "2.5.2", default-features = false,  features = [ "max_level_trace" ] }
+slog-json = { version = "2.3.0", default-features = false }
+slog-term = { version = "2.6.0", default-features = false }
+stdext = { version = "0.3.1", default-features = false }
+rstest = { version = "0.17.0", default-features = false }
+rstest_reuse = { version = "0.5.0", default-features = false }
+rusqlite = { version = "0.31.0", default-features = false, features = ["blob", "serde_json", "i128_blob", "bundled", "trace"] }
+tempfile = { version = "3.3", default-features = false }
+tikv-jemallocator = { version = "0.5.4", default-features = false }
+thiserror = { version = "1.0.65", default-features = false }
+tracing = { version = "0.1.37", default-features = false }
+tracing-subscriber = { version = "0.3.17", default-features = false }
+tiny_http = { version = "0.12.0", default-features = false }
+toml = { version = "0.5.6", default-features = false }
+url = { version = "2.1.0", default-features = false }
+winapi = { version = "0.3", default-features = false }
 
 # Use a bit more than default optimization for
 # dev builds to speed up test execution

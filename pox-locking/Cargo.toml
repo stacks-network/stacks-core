@@ -21,10 +21,10 @@ path = "src/lib.rs"
 [dependencies]
 clarity = { package = "clarity", path = "../clarity", default-features = false}
 stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false}
-slog = { version = "2.5.2", features = [ "max_level_trace" ] }
+slog = { workspace = true }
 
 [dev-dependencies]
-mutants = "0.0.3"
+mutants = { workspace = true }
 
 [features]
 slog_json = ["stacks_common/slog_json", "clarity/slog_json"]

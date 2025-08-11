@@ -30,29 +30,29 @@ name = "stacks_common"
 path = "./src/libcommon.rs"
 
 [dependencies]
-chrono = { version = "0.4.41", default-features = false, features = ["clock"] }
+chrono = { workspace = true , features = ["clock"] }
 curve25519-dalek = { version = "4.1.3", default-features = false, features = ["serde"] }
 ed25519-dalek = { workspace = true }
 hashbrown = { workspace = true }
 lazy_static = { workspace = true }
-ripemd = { version = "0.1.1", default-features = false }
+ripemd = { workspace = true }
 serde = { workspace = true , features = ["derive"] }
 serde_derive = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["arbitrary_precision", "unbounded_depth"] }
 sha3 = { version = "0.10.1", default-features = false }
 slog = { workspace = true }
-slog-term = { version = "2.6.0", default-features = false }
+slog-term = { workspace = true }
 
 # Optional dependencies
 getrandom = { version = "0.2", default-features = false, optional = true }
 rand = { workspace = true, optional = true }
-slog-json = { version = "2.3.0", default-features = false, optional = true }
+slog-json = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
-nix = {version = "0.23", default-features = false, optional = true}
+nix = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = [
+winapi = { workspace = true, features = [
     "consoleapi",
     "handleapi",
     "synchapi",
@@ -67,16 +67,16 @@ rusqlite = { workspace = true, optional = true }
 libsecp256k1 = { version = "0.7.0", default-features = false, features = ["hmac"] }
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
-sha2 = { version = "0.10", features = ["asm"] }
+sha2 = { workspace = true, features = ["asm"] }
 
 [target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), any(target_os="windows")))'.dependencies]
-sha2 = { version = "0.10" }
+sha2 = { workspace = true }
 
 [dev-dependencies]
-proptest = "1.6.0"
+proptest = { workspace = true }
 
 [target.'cfg(windows)'.dev-dependencies]
-winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
+winapi = { workspace = true, features = ["fileapi", "processenv", "winnt"] }
 
 [build-dependencies]
 toml = { workspace = true }

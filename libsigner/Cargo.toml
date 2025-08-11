@@ -18,29 +18,21 @@ path = "./src/libsigner.rs"
 [dependencies]
 clarity = { path = "../clarity" }
 hashbrown = { workspace = true }
-lazy_static = "1.4.0"
-libc = "0.2"
+lazy_static = { workspace = true }
+libc = { workspace = true }
 libstackerdb = { path = "../libstackerdb" }
-serde = "1"
-slog = { version = "2.5.2", features = [ "max_level_trace" ] }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["arbitrary_precision", "unbounded_depth"] }
+slog = { workspace = true }
 stacks-common = { path = "../stacks-common" }
 stackslib = { path = "../stackslib"}
 thiserror = { workspace = true }
-tiny_http = "0.12"
+tiny_http = { workspace = true }
 
 [dev-dependencies]
-mutants = "0.0.3"
+mutants = { workspace = true }
 rand_core = { workspace = true }
 rand = { workspace = true }
 stacks-common = { path = "../stacks-common", features = ["testing"] }
 
 
-[dependencies.serde_json]
-version = "1.0"
-features = ["arbitrary_precision", "unbounded_depth"]
-
-[target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
-sha2 = { version = "0.10", features = ["asm"] }
-
-[target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), any(target_os = "windows")))'.dependencies]
-sha2 = { version = "0.10" }

@@ -31,66 +31,57 @@ name = "blockstack-cli"
 path = "src/blockstack_cli.rs"
 
 [dependencies]
+ed25519-dalek = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true }
-rand_chacha = { workspace = true }
-serde = "1"
-serde_derive = "1"
-ripemd = "0.1.1"
-regex = "1"
-mio = "0.6"
-lazy_static = "1.4.0"
-url = "2.1.0"
-percent-encoding = "2.1.0"
-prometheus = { version = "0.9", optional = true }
-slog = { version = "2.5.2", features = [ "max_level_trace" ] }
-chrono = { version = "0.4.19", optional = true }
+rand_chacha = { version = "0.3.1", default-features = false }
+serde = { workspace = true }
+serde_derive = { workspace = true }
+serde_json = { workspace = true, features = ["arbitrary_precision", "unbounded_depth"] }
+ripemd = { workspace = true }
+regex = { workspace = true }
+mio = { version = "0.6", default-features = false }
+lazy_static = { workspace = true }
+url = { workspace = true }
+percent-encoding = { version = "2.1.0", default-features = false }
+prometheus = { workspace = true, optional = true }
+slog = { workspace = true }
+chrono = { workspace = true, optional = true }
 clarity = { path = "../clarity" }
 stacks-common = { path = "../stacks-common" }
 pox-locking = { path = "../pox-locking" }
 libstackerdb = { path = "../libstackerdb" }
-siphasher = "0.3.7"
+siphasher = { version = "0.3.7", default-features = false }
 hashbrown = { workspace = true }
 rusqlite = { workspace = true }
-time = "0.3.41"
+time = { version = "0.3.41", default-features = false }
 toml = { workspace = true }
 
 [target.'cfg(not(any(target_os = "macos",target_os="windows", target_arch = "arm" )))'.dependencies]
-tikv-jemallocator = {workspace = true}
+tikv-jemallocator = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
-nix = "0.23"
+nix = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["consoleapi", "handleapi", "synchapi", "winbase"] }
+winapi = { workspace = true, features = ["consoleapi", "handleapi", "synchapi", "winbase"] }
 
 [target.'cfg(windows)'.dev-dependencies]
-winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
-
-[dependencies.serde_json]
-version = "1.0"
-features = ["arbitrary_precision", "unbounded_depth"]
-
-[dependencies.secp256k1]
-version = "0.24.3"
-features = ["serde", "recovery"]
-
-[dependencies.ed25519-dalek]
-workspace = true
+winapi = { workspace = true, features = ["fileapi", "processenv", "winnt"] }
 
 [dev-dependencies]
-assert-json-diff = "1.0.0"
-stdext = "0.3.1"
+assert-json-diff = { workspace = true }
+stdext = { workspace = true }
 stx-genesis = { path = "../stx-genesis"}
 clarity = { features = ["default", "testing"], path = "../clarity" }
 stacks-common = { features = ["default", "testing"], path = "../stacks-common" }
-rstest = "0.17.0"
-rstest_reuse = "0.5.0"
-mutants = "0.0.3"
-rlimit = "0.10.2"
-chrono = "0.4.19"
-tempfile = "3.3"
-proptest = { version = "1.6.0", default-features = false, features = ["std"] }
+rstest = { workspace = true }
+rstest_reuse = { workspace = true }
+mutants = { workspace = true }
+rlimit = { version = "0.10.2", default-features = false }
+chrono = { workspace = true }
+tempfile = { workspace = true }
+proptest = { workspace = true, features = ["std"] }
 
 [features]
 default = []
@@ -102,7 +93,7 @@ slog_json = ["stacks-common/slog_json", "clarity/slog_json", "pox-locking/slog_j
 testing = ["chrono", "stacks-common/testing", "clarity/testing"]
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
-sha2 = { version = "0.10", features = ["asm"] }
+sha2 = { workspace = true, features = ["asm"] }
 
 [target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), any(target_os="windows")))'.dependencies]
-sha2 = { version = "0.10" }
+sha2 = { workspace = true }

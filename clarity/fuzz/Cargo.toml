@@ -8,16 +8,10 @@ edition = "2021"
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
+libfuzzer-sys = { version = "0.4", default-features = false }
 # clarity_2_1 = { git = "https://github.com/stacks-network/stacks-blockchain.git", tag = "2.1.0.0.0", package="clarity"}
-
-[dependencies.clarity]
-path = ".."
-features = ["testing"]
-
-[dependencies.stacks-common]
-path = "../../stacks-common"
-features = ["testing"]
+clarity = { path = "..", features = ["testing"] }
+stacks-common = { path = "../../stacks-common", features = ["testing"] }
 
 # Prevent this from interfering with workspaces
 [workspace]

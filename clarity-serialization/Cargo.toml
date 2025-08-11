@@ -11,7 +11,7 @@ readme = "README.md"
 
 [dependencies]
 lazy_static = { workspace = true }
-regex = { version = "1", default-features = false }
+regex = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
 slog = { workspace = true }
@@ -19,8 +19,8 @@ stacks_common = { package = "stacks-common", path = "../stacks-common", default-
 thiserror = { workspace = true }
 
 [dev-dependencies]
-mutants = "0.0.3"
-rstest = "0.17.0"
+mutants = { workspace = true }
+rstest = { workspace = true }
 
 [features]
 default = []
