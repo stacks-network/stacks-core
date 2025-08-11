@@ -290,6 +290,7 @@ fn test_list_wallets_ok() {
 fn test_list_unspent_ok() {
     let expected_txid_str = utils::BITCOIN_TX1_TXID_HEX;
     let expected_script_hex = utils::BITCOIN_UTXO_SCRIPT_HEX;
+    let expected_address = utils::BITCOIN_ADDRESS_LEGACY_STR;
 
     let expected_request = json!({
         "jsonrpc": "2.0",
@@ -312,6 +313,7 @@ fn test_list_unspent_ok() {
         "result": [{
             "txid": expected_txid_str,
             "vout": 0,
+            "address": expected_address,
             "scriptPubKey": expected_script_hex,
             "amount": 0.00001,
             "confirmations": 6
@@ -347,6 +349,7 @@ fn test_list_unspent_ok() {
     let utxo = &result[0];
     assert_eq!(1_000, utxo.amount);
     assert_eq!(0, utxo.vout);
+    assert_eq!(expected_address, utxo.address.to_string());
     assert_eq!(6, utxo.confirmations);
     assert_eq!(expected_txid_str, utxo.txid.to_bitcoin_hex(),);
     assert_eq!(expected_script_hex, format!("{:x}", utxo.script_pub_key),);

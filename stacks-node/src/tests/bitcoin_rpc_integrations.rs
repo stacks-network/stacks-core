@@ -322,7 +322,7 @@ fn test_generate_to_address_ok() {
 
 #[ignore]
 #[test]
-fn test_list_unspent_ok() {
+fn test_list_unspent_one_address_ok() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -341,24 +341,104 @@ fn test_list_unspent_ok() {
         .get_new_address(None, Some(AddressType::Legacy))
         .expect("Should work!");
 
-    let utxos = client
+    let no_utxos = client
         .list_unspent(None, None, None, Some(false), Some(1), Some(10))
-        .expect("list_unspent should be ok!");
-    assert_eq!(0, utxos.len());
+        .expect("list_unspent empty should be ok!");
+    assert_eq!(0, no_utxos.len());
 
     _ = client
         .generate_to_address(102, &address)
         .expect("generate to address ok!");
 
-    let utxos = client
+    let all_utxos = client
         .list_unspent(None, None, None, Some(false), Some(1), Some(10))
-        .expect("list_unspent should be ok!");
-    assert_eq!(2, utxos.len());
+        .expect("all list_unspent should be ok!");
+    assert_eq!(2, all_utxos.len());
+    assert_eq!(address, all_utxos[0].address);
+    assert_eq!(address, all_utxos[1].address);
 
-    let utxos = client
+    let addr_utxos = client
+        .list_unspent(
+            None,
+            None,
+            Some(&[&address]),
+            Some(false),
+            Some(1),
+            Some(10),
+        )
+        .expect("list_unspent per address should be ok!");
+    assert_eq!(2, addr_utxos.len());
+    assert_eq!(address, addr_utxos[0].address);
+    assert_eq!(address, addr_utxos[1].address);
+
+    let max1_utxos = client
         .list_unspent(None, None, None, Some(false), Some(1), Some(1))
-        .expect("list_unspent should be ok!");
-    assert_eq!(1, utxos.len());
+        .expect("list_unspent per address and max count should be ok!");
+    assert_eq!(1, max1_utxos.len());
+    assert_eq!(address, max1_utxos[0].address);
+}
+
+#[ignore]
+#[test]
+fn test_list_unspent_two_addresses_ok() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut config = utils::create_stx_config();
+    config.burnchain.wallet_name = "my_wallet".to_string();
+
+    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("bitcoind should be started!");
+
+    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    client.create_wallet("my_wallet", Some(false)).expect("OK");
+    let address1 = client
+        .get_new_address(None, Some(AddressType::Legacy))
+        .expect("address 1 ok!");
+
+    let address2 = client
+        .get_new_address(None, Some(AddressType::Legacy))
+        .expect("address 2 ok!");
+
+    _ = client
+        .generate_to_address(2, &address1)
+        .expect("generate to address 1 ok!");
+    _ = client
+        .generate_to_address(101, &address2)
+        .expect("generate to address 2 ok!");
+
+    let all_utxos = client
+        .list_unspent(None, None, None, Some(false), None, None)
+        .expect("all list_unspent should be ok!");
+    assert_eq!(3, all_utxos.len());
+
+    let addr1_utxos = client
+        .list_unspent(None, None, Some(&[&address1]), Some(false), None, None)
+        .expect("list_unspent per address1 should be ok!");
+    assert_eq!(2, addr1_utxos.len());
+    assert_eq!(address1, addr1_utxos[0].address);
+    assert_eq!(address1, addr1_utxos[1].address);
+
+    let addr2_utxos = client
+        .list_unspent(None, None, Some(&[&address2]), Some(false), None, None)
+        .expect("list_unspent per address2 should be ok!");
+    assert_eq!(1, addr2_utxos.len());
+    assert_eq!(address2, addr2_utxos[0].address);
+
+    let all2_utxos = client
+        .list_unspent(
+            None,
+            None,
+            Some(&[&address1, &address2]),
+            Some(false),
+            None,
+            None,
+        )
+        .expect("all list_unspent for both addresses should be ok!");
+    assert_eq!(3, all2_utxos.len());
 }
 
 #[ignore]

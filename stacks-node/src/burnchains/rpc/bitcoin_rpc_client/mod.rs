@@ -31,6 +31,7 @@ use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::Txid;
 use stacks::config::Config;
 use stacks::types::chainstate::BurnchainHeaderHash;
+use stacks::types::Address;
 use stacks::util::hash::hex_bytes;
 use stacks_common::deps_common::bitcoin::blockdata::script::Script;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
@@ -144,6 +145,9 @@ pub struct ListUnspentResponse {
     pub txid: Txid,
     /// The index of the output in the transaction.
     pub vout: u32,
+    /// The Bitcoin destination address
+    #[serde(deserialize_with = "deserialize_string_to_bitcoin_address")]
+    pub address: BitcoinAddress,
     /// The script associated with the output.
     #[serde(
         rename = "scriptPubKey",
@@ -166,6 +170,30 @@ where
     let hex_str: String = Deserialize::deserialize(deserializer)?;
     let txid = Txid::from_bitcoin_hex(&hex_str).map_err(serde::de::Error::custom)?;
     Ok(txid)
+}
+
+/// Deserializes a JSON string into [`BitcoinAddress`]
+fn deserialize_string_to_bitcoin_address<'de, D>(
+    deserializer: D,
+) -> Result<BitcoinAddress, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let addr_str: String = Deserialize::deserialize(deserializer)?;
+    if addr_str.starts_with("bcrt") {
+        //Currently BitcoinAddress doesn't manage Regtest HRP
+        return Err(serde::de::Error::custom(
+            "BitcoinAddress cannot manage Regtest HRP ('bcrt')",
+        ));
+    }
+
+    if let Some(addr) = BitcoinAddress::from_string(&addr_str) {
+        Ok(addr)
+    } else {
+        Err(serde::de::Error::custom(
+            "BitcoinAddress failed to create from string",
+        ))
+    }
 }
 
 /// Deserializes a JSON string into [`Script`]
