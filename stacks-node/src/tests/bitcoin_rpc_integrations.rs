@@ -68,7 +68,6 @@ mod utils {
         BitcoinRpcClient::new(
             config.burnchain.peer_host,
             config.burnchain.rpc_port,
-            config.burnchain.rpc_ssl,
             RpcAuth::None,
             config.burnchain.wallet_name,
             config.burnchain.timeout,
@@ -141,7 +140,7 @@ fn test_client_creation_fails_due_to_stx_config_missing_auth() {
 
     let err = BitcoinRpcClient::from_stx_config(&config_no_auth).expect_err("Client should fail!");
 
-    assert_eq!("Missing RPC credentials!", err);
+    assert!(matches!(err, BitcoinRpcClientError::MissingCredentials));
 }
 
 #[ignore]

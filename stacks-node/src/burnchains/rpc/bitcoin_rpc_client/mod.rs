@@ -330,6 +330,9 @@ pub struct BitcoinRpcClient {
 /// Represents errors that can occur when using [`BitcoinRpcClient`].
 #[derive(Debug, thiserror::Error)]
 pub enum BitcoinRpcClientError {
+    // Missing credential error
+    #[error("Missing credential error")]
+    MissingCredentials,
     // RPC Transport errors
     #[error("Rcp error: {0}")]
     Rpc(#[from] RpcError),
@@ -346,10 +349,9 @@ pub type BitcoinRpcClientResult<T> = Result<T, BitcoinRpcClientError>;
 
 impl BitcoinRpcClient {
     /// Create a [`BitcoinRpcClient`] from Stacks Configuration, mainly using [`stacks::config::BurnchainConfig`]
-    pub fn from_stx_config(config: &Config) -> Result<Self, String> {
+    pub fn from_stx_config(config: &Config) -> BitcoinRpcClientResult<Self> {
         let host = config.burnchain.peer_host.clone();
         let port = config.burnchain.rpc_port;
-        let ssl = config.burnchain.rpc_ssl;
         let username_opt = &config.burnchain.username;
         let password_opt = &config.burnchain.password;
         let wallet_name = config.burnchain.wallet_name.clone();
@@ -361,10 +363,10 @@ impl BitcoinRpcClient {
                 username: username.clone(),
                 password: password.clone(),
             },
-            _ => return Err("Missing RPC credentials!".to_string()),
+            _ => return Err(BitcoinRpcClientError::MissingCredentials),
         };
 
-        Self::new(host, port, ssl, rpc_auth, wallet_name, timeout, client_id)
+        Self::new(host, port, rpc_auth, wallet_name, timeout, client_id)
     }
 
     /// Creates a new instance of the Bitcoin RPC client with both global and wallet-specific endpoints.
@@ -373,7 +375,6 @@ impl BitcoinRpcClient {
     ///
     /// * `host` - Hostname or IP address of the Bitcoin RPC server (e.g., `localhost`).
     /// * `port` - Port number the RPC server is listening on.
-    /// * `ssl` - If `true`, uses HTTPS for communication; otherwise, uses HTTP.
     /// * `auth` - RPC authentication credentials (`RpcAuth::None` or `RpcAuth::Basic`).
     /// * `wallet_name` - Name of the wallet to target for wallet-specific RPC calls.
     /// * `timeout` - Timeout for RPC requests, in seconds.
@@ -386,24 +387,20 @@ impl BitcoinRpcClient {
     pub fn new(
         host: String,
         port: u16,
-        ssl: bool,
         auth: RpcAuth,
         wallet_name: String,
         timeout: u32,
         client_id: String,
-    ) -> Result<Self, String> {
-        let protocol = if ssl { "https" } else { "http" };
-        let rpc_global_path = format!("{protocol}://{host}:{port}");
+    ) -> BitcoinRpcClientResult<Self> {
+        let rpc_global_path = format!("http://{host}:{port}");
         let rpc_wallet_path = format!("{rpc_global_path}/wallet/{wallet_name}");
         let rpc_auth = auth;
 
         let rpc_timeout = Duration::from_secs(u64::from(timeout));
 
         let global_ep =
-            RpcTransport::new(rpc_global_path, rpc_auth.clone(), Some(rpc_timeout.clone()))
-                .map_err(|e| format!("Failed to create global RpcTransport: {e:?}"))?;
-        let wallet_ep = RpcTransport::new(rpc_wallet_path, rpc_auth, Some(rpc_timeout))
-            .map_err(|e| format!("Failed to create wallet RpcTransport: {e:?}"))?;
+            RpcTransport::new(rpc_global_path, rpc_auth.clone(), Some(rpc_timeout.clone()))?;
+        let wallet_ep = RpcTransport::new(rpc_wallet_path, rpc_auth, Some(rpc_timeout))?;
 
         Ok(Self {
             client_id,

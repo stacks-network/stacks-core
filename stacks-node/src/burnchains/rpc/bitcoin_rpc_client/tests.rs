@@ -44,7 +44,6 @@ mod utils {
         BitcoinRpcClient::new(
             parsed.host_str().unwrap().to_string(),
             parsed.port_or_known_default().unwrap(),
-            parsed.scheme() == "https",
             RpcAuth::None,
             "mywallet".into(),
             30,
