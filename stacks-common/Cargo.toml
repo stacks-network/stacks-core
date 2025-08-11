@@ -98,5 +98,5 @@ bech32_std = []
 bech32_strict = []
 
 # Wasm-specific features for easier configuration
-wasm-web = ["rand", "getrandom/js", "libsecp256k1/static-context"]
+wasm-web = ["rand", "getrandom/js", "libsecp256k1/static-context", "serde_json/std"]
 wasm-deterministic = ["getrandom/custom"]
