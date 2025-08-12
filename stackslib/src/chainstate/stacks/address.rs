@@ -26,7 +26,7 @@ use crate::burnchains::bitcoin::address::{
     to_c32_version_byte, BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType,
     SegwitBitcoinAddress,
 };
-use crate::burnchains::bitcoin::BitcoinTxOutput;
+use crate::burnchains::bitcoin::{BitcoinNetworkType, BitcoinTxOutput};
 use crate::burnchains::Address;
 use crate::util_lib::boot::boot_code_addr;
 
@@ -375,23 +375,37 @@ impl PoxAddress {
         }
     }
 
+    /// Fallback to convert `mainnet` bool to a BitcoinNetworkType
+    /// preserving previous behaviour where a method was expecting the
+    /// `mainnet' flag
+    fn network_type_from_mainnet_fallback(mainnet: bool) -> BitcoinNetworkType {
+        if mainnet {
+            BitcoinNetworkType::Mainnet
+        } else {
+            BitcoinNetworkType::Testnet
+        }
+    }
+
     /// Convert this PoxAddress into a base58check string
     pub fn to_b58(self) -> String {
         match self {
             PoxAddress::Standard(addr, _) => addr.to_b58(),
             PoxAddress::Addr20(mainnet, addrtype, addrbytes) => match addrtype {
                 PoxAddressType20::P2WPKH => {
-                    let btc_addr = SegwitBitcoinAddress::P2WPKH(mainnet, addrbytes);
+                    let network = PoxAddress::network_type_from_mainnet_fallback(mainnet);
+                    let btc_addr = SegwitBitcoinAddress::P2WPKH(network, addrbytes);
                     btc_addr.to_bech32()
                 }
             },
             PoxAddress::Addr32(mainnet, addrtype, addrbytes) => match addrtype {
                 PoxAddressType32::P2WSH => {
-                    let btc_addr = SegwitBitcoinAddress::P2WSH(mainnet, addrbytes);
+                    let network = PoxAddress::network_type_from_mainnet_fallback(mainnet);
+                    let btc_addr = SegwitBitcoinAddress::P2WSH(network, addrbytes);
                     btc_addr.to_bech32()
                 }
                 PoxAddressType32::P2TR => {
-                    let btc_addr = SegwitBitcoinAddress::P2TR(mainnet, addrbytes);
+                    let network = PoxAddress::network_type_from_mainnet_fallback(mainnet);
+                    let btc_addr = SegwitBitcoinAddress::P2TR(network, addrbytes);
                     btc_addr.to_bech32()
                 }
             },
@@ -447,14 +461,14 @@ impl PoxAddress {
                 let pox_addr = PoxAddress::Standard(addr, None);
                 Some(pox_addr)
             }
-            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WPKH(is_mainnet, bytes_20)) => Some(
-                PoxAddress::Addr20(*is_mainnet, PoxAddressType20::P2WPKH, *bytes_20),
+            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WPKH(network, bytes_20)) => Some(
+                PoxAddress::Addr20(network.is_mainnet(), PoxAddressType20::P2WPKH, *bytes_20),
             ),
-            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WSH(is_mainnet, bytes_32)) => Some(
-                PoxAddress::Addr32(*is_mainnet, PoxAddressType32::P2WSH, *bytes_32),
+            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WSH(network, bytes_32)) => Some(
+                PoxAddress::Addr32(network.is_mainnet(), PoxAddressType32::P2WSH, *bytes_32),
             ),
-            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(is_mainnet, bytes_32)) => Some(
-                PoxAddress::Addr32(*is_mainnet, PoxAddressType32::P2TR, *bytes_32),
+            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(network, bytes_32)) => Some(
+                PoxAddress::Addr32(network.is_mainnet(), PoxAddressType32::P2TR, *bytes_32),
             ),
         }
     }
