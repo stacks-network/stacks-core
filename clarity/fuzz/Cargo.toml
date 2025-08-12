@@ -31,3 +31,9 @@ name = "fuzz_sanitize"
 path = "fuzz_targets/fuzz_sanitize.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_value_sanitize"
+path = "fuzz_targets/fuzz_value_sanitize.rs"
+test = false
+doc = false
