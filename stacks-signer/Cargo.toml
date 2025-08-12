@@ -28,7 +28,6 @@ lazy_static = { workspace = true }
 libsigner = { path = "../libsigner" }
 libstackerdb = { path = "../libstackerdb" }
 prometheus = { workspace = true, optional = true }
-rand_core = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["arbitrary_precision", "unbounded_depth"] }
@@ -48,6 +47,7 @@ rusqlite = { workspace = true, features = ["functions"] }
 
 [dev-dependencies]
 clarity = { path = "../clarity", features = ["testing"] }
+rand_core = { version = "0.6.4", default-features = false }
 stacks-common = { path = "../stacks-common", features = ["testing"] }
 stdext = { workspace = true }
 
