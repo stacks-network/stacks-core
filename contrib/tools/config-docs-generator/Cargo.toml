@@ -17,14 +17,14 @@ name = "integration"
 path = "tests/integration.rs"
 
 [dependencies]
-serde = { version = "1", default-features=false, features = ["derive"] }
-serde_json = { version = "1.0", default-features = false, features = ["std"] }
-clap = { version = "4.1.1", features = ["derive"] }
-regex = { version = "1", default-features = false }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["std"] }
+clap = { version = "4.0", features = ["derive"] }
+regex = { workspace = true }
 anyhow = { version = "1.0", default-features = false, features = ["std"] }
 once_cell = { version = "1.18", default-features = false, features = ["std"] }
 
 # Add test dependencies
 [dev-dependencies]
-tempfile = { version = "3.3", default-features = false }
+tempfile = { workspace = true }
 assert_cmd = { version = "2.0", default-features = false }
