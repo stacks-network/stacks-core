@@ -59,6 +59,9 @@ sha2 = { workspace = true, features = ["asm"] }
 [target.'cfg(not(any(target_os = "macos",target_os="windows", target_arch = "arm" )))'.dependencies]
 tikv-jemallocator.workspace = true
 
+[target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), any(target_os="windows")))'.dependencies]
+sha2.workspace = true
+
 [dependencies]
 chrono = { workspace = true, optional = true }
 clarity = { workspace = true, features = ["rusqlite"] }
@@ -84,9 +87,6 @@ stacks-common.workspace = true
 time.workspace = true
 toml.workspace = true
 url.workspace = true
-
-[target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), any(target_os="windows")))'.dependencies]
-sha2.workspace = true
 
 [dev-dependencies]
 assert-json-diff.workspace = true
