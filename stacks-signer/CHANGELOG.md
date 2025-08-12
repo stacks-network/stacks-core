@@ -7,9 +7,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [3.2.0.0.1.0]
 
-### Added
-
 ### Changed
+
+- Repurposes the `capitulate_miner_view` timeout to prevent needlessly checking for capitulation when blocks are globally accepted (#6307)
+- Consider the local state machine update regardless of local vs global paths (#6325)
 
 ## [3.2.0.0.0.0]
 

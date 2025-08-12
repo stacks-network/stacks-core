@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
 ## [3.2.0.0.1]
+### Added
+
+- Adds node-config-docsgen to automatically create config documentation (#6227)
 
 ### Fixed
 
