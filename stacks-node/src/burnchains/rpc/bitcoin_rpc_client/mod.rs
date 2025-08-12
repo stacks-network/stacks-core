@@ -491,7 +491,7 @@ impl BitcoinRpcClient {
     /// * `addresses` - Optional list of addresses to filter UTXOs by (Default: no filtering).
     /// * `include_unsafe` - Whether to include UTXOs from unconfirmed unsafe transactions (Default: `true`).
     /// * `minimum_amount` - Minimum amount in satoshis (internally converted to BTC string to preserve full precision) a UTXO must have to be included (Default: 0).
-    /// * `maximum_count` - Maximum number of UTXOs to return. Use `None` for effectively unlimited (Default: 9.999.999).
+    /// * `maximum_count` - Maximum number of UTXOs to return. Use `None` for effectively 'unlimited' (Default: 0).
     ///
     /// # Returns
     /// A Vec<[`ListUnspentResponse`]> containing the matching UTXOs.
@@ -513,7 +513,7 @@ impl BitcoinRpcClient {
         let addresses = addresses.unwrap_or(&[]);
         let include_unsafe = include_unsafe.unwrap_or(true);
         let minimum_amount = minimum_amount.unwrap_or(0);
-        let maximum_count = maximum_count.unwrap_or(9_999_999);
+        let maximum_count = maximum_count.unwrap_or(0);
 
         let addr_as_strings: Vec<String> = addresses.iter().map(|addr| addr.to_string()).collect();
         let min_amount_btc_str = convert_sat_to_btc_string(minimum_amount);

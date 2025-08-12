@@ -322,6 +322,62 @@ fn test_generate_to_address_ok() {
 
 #[ignore]
 #[test]
+fn test_list_unspent_empty_with_empty_wallet() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut config = utils::create_stx_config();
+    config.burnchain.wallet_name = "my_wallet".to_string();
+
+    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("bitcoind should be started!");
+
+    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    client.create_wallet("my_wallet", Some(false)).expect("OK");
+
+    let utxos = client
+        .list_unspent(None, None, None, None, None, None)
+        .expect("all list_unspent should be ok!");
+    assert_eq!(0, utxos.len());
+}
+
+#[ignore]
+#[test]
+fn test_list_unspent_with_defaults() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut config = utils::create_stx_config();
+    config.burnchain.wallet_name = "my_wallet".to_string();
+
+    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("bitcoind should be started!");
+
+    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    client.create_wallet("my_wallet", Some(false)).expect("OK");
+
+    let address = client
+        .get_new_address(None, Some(AddressType::Legacy))
+        .expect("Should work!");
+
+    _ = client
+        .generate_to_address(102, &address)
+        .expect("generate to address ok!");
+
+    let utxos = client
+        .list_unspent(None, None, None, None, None, None)
+        .expect("all list_unspent should be ok!");
+    assert_eq!(2, utxos.len());
+}
+
+#[ignore]
+#[test]
 fn test_list_unspent_one_address_ok() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -340,11 +396,6 @@ fn test_list_unspent_one_address_ok() {
     let address = client
         .get_new_address(None, Some(AddressType::Legacy))
         .expect("Should work!");
-
-    let no_utxos = client
-        .list_unspent(None, None, None, Some(false), Some(1), Some(10))
-        .expect("list_unspent empty should be ok!");
-    assert_eq!(0, no_utxos.len());
 
     _ = client
         .generate_to_address(102, &address)
@@ -395,10 +446,10 @@ fn test_list_unspent_two_addresses_ok() {
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
     client.create_wallet("my_wallet", Some(false)).expect("OK");
+
     let address1 = client
         .get_new_address(None, Some(AddressType::Legacy))
         .expect("address 1 ok!");
-
     let address2 = client
         .get_new_address(None, Some(AddressType::Legacy))
         .expect("address 2 ok!");
