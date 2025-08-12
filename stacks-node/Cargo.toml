@@ -1,65 +1,20 @@
 [package]
 name = "stacks-node"
 version = "0.1.0"
-authors = ["Jude Nelson <jude@stacks.org>", "Aaron Blankstein <aaron@blockstack.com>", "Ludo Galabru <ludovic@blockstack.com>"]
+authors = [
+    "Jude Nelson <jude@stacks.org>",
+    "Aaron Blankstein <aaron@blockstack.com>",
+    "Ludo Galabru <ludovic@blockstack.com>",
+]
 edition = "2021"
-resolver = "2"
+resolver = "3"
 rust-version = "1.61"
 
-[dependencies]
-lazy_static = { workspace = true }
-pico-args = {version = "0.5.0", default-features = false }
-serde = { workspace = true }
-serde_derive = { workspace = true }
-serde_json = { workspace = true, features = ["arbitrary_precision", "raw_value"] }
-stacks = { package = "stackslib", path = "../stackslib" }
-stx-genesis = { path = "../stx-genesis"}
-base64 = { version = "0.12.0", default-features = false, features = ["std"] }
-backtrace = { version = "0.3.50", default-features = false , features = ["std"] }
-libc = { workspace = true }
-slog = { workspace = true }
-clarity = { path = "../clarity" }
-stacks-common = { path = "../stacks-common" }
-chrono = { workspace = true }
-regex = { workspace = true }
-libsigner = { path = "../libsigner" }
-url = { workspace = true }
-rand = { workspace = true }
-rusqlite = { workspace = true }
-async-h1 = { version = "2.3.2", default-features = false, optional = true }
-async-std = { version = "1.6", optional = true, features = ["attributes"] }
-http-types = { version = "2.12", default-features = false, optional = true }
-thiserror = { workspace = true }
-
-# This dependency is used for the multiversion integration tests which live behind the build-v3-1-0-0-13 feature flag
-signer_v3_1_0_0_13 = { package = "stacks-signer", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
-libsigner_v3_1_0_0_13 = { package = "libsigner", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true}
-stacks_v3_1_00_13 = { package = "stackslib", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
-stacks_common_v3_1_00_13 = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
+[package.metadata.pinny]
+allowed = ["bitcoind", "flaky", "slow"]
 
 [target.'cfg(not(any(target_os = "macos", target_os="windows", target_arch = "arm")))'.dependencies]
-tikv-jemallocator = { workspace = true }
-
-[dev-dependencies]
-warp = { version = "0.3.5", default-features = false }
-tokio = { version = "1.15", default-features = false }
-reqwest = { workspace = true, features = ["rustls"] }
-clarity = { path = "../clarity", features = ["default", "testing"]}
-stacks-common = { path = "../stacks-common", features = ["default", "testing"] }
-stacks = { package = "stackslib", path = "../stackslib", features = ["default", "testing"] }
-stacks-signer = { path = "../stacks-signer", features = ["testing"] }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-mutants = { workspace = true }
-tiny_http = { workspace = true }
-http-types =  { version = "2.12", default-features = false }
-tempfile = { workspace = true }
-mockito = { version = "1.5", default-features = false }
-serial_test = { version = "3.2.0", default-features = false }
-pinny = { git = "https://github.com/BitcoinL2-Labs/pinny-rs.git", rev = "54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49" } #v0.0.2
-madhouse = { git = "https://github.com/stacks-network/madhouse-rs.git", tag = "0.2.0" }
-proptest = { workspace = true }
-stdext = { workspace = true }
+tikv-jemallocator.workspace = true
 
 [[bin]]
 name = "stacks-node"
@@ -75,7 +30,61 @@ slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []
 testing = ["stacks-common/testing", "stacks/testing", "clarity/testing"]
-build-signer-v3-1-0-0-13 = ["signer_v3_1_0_0_13", "libsigner_v3_1_0_0_13", "stacks_v3_1_00_13", "stacks_common_v3_1_00_13"]
+build-signer-v3-1-0-0-13 = [
+    "signer_v3_1_0_0_13",
+    "libsigner_v3_1_0_0_13",
+    "stacks_v3_1_00_13",
+    "stacks_common_v3_1_00_13",
+]
 
-[package.metadata.pinny]
-allowed = ["bitcoind", "flaky", "slow"]
+[dependencies]
+async-h1 = { workspace = true, optional = true }
+async-std = { workspace = true, optional = true }
+backtrace.workspace = true
+base64.workspace = true
+chrono.workspace = true
+clarity.workspace = true
+http-types = { workspace = true, optional = true }
+lazy_static.workspace = true
+libc.workspace = true
+libsigner.workspace = true
+pico-args.workspace = true
+rand.workspace = true
+regex.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_derive.workspace = true
+serde_json = { workspace = true, features = ["arbitrary_precision", "raw_value"] }
+slog.workspace = true
+stacks.workspace = true
+stacks-common.workspace = true
+stx-genesis.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+# This dependency is used for the multiversion integration tests which live behind the build-v3-1-0-0-13 feature flag
+libsigner_v3_1_0_0_13 = { package = "libsigner", git = "https://github.com/stacks-network/stacks-core.git", rev = "8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true }
+signer_v3_1_0_0_13 = { package = "stacks-signer", git = "https://github.com/stacks-network/stacks-core.git", rev = "8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"] }
+stacks_common_v3_1_00_13 = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core.git", rev = "8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"] }
+stacks_v3_1_00_13 = { package = "stackslib", git = "https://github.com/stacks-network/stacks-core.git", rev = "8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"] }
+
+[dev-dependencies]
+clarity = { workspace = true, features = ["rusqlite", "testing"] }
+http-types.workspace = true
+madhouse.workspace = true
+mockito.workspace = true
+mutants.workspace = true
+pinny.workspace = true
+proptest.workspace = true
+reqwest = { workspace = true, features = ["rustls"] }
+serial_test.workspace = true
+stacks = { workspace = true, features = ["default", "testing"] }
+stacks-common = { workspace = true, features = ["testing"] }
+stacks-signer = { workspace = true, features = ["testing"] }
+stdext.workspace = true
+tempfile.workspace = true
+tiny_http.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+warp.workspace = true

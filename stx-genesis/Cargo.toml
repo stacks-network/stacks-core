@@ -2,16 +2,15 @@
 name = "stx-genesis"
 version = "0.1.0"
 authors = ["Matthew Little <matthew@blockstack.com>"]
-edition = "2018"
-resolver = "2"
-
-[dependencies]
-libflate = { version = "1.0.3", default-features = false }
+edition = "2024"
 
 [lib]
 name = "stx_genesis"
 path = "src/lib.rs"
 
+[dependencies]
+libflate.workspace = true
+
 [build-dependencies]
-libflate = { version = "1.0.3", default-features = false }
-sha2 = { workspace = true }
+libflate.workspace = true
+sha2.workspace = true

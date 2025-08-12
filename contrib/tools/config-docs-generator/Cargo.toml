@@ -11,20 +11,20 @@ path = "src/extract_docs.rs"
 name = "generate-markdown"
 path = "src/generate_markdown.rs"
 
+[dependencies]
+anyhow = { version = "1.0", default-features = false, features = ["std"] }
+clap = { version = "4.0", features = ["derive"] }
+once_cell = { version = "1.18", default-features = false, features = ["std"] }
+regex = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["std"] }
+
+# Add test dependencies
+[dev-dependencies]
+assert_cmd = { version = "2.0", default-features = false }
+tempfile = { workspace = true }
+
 # Add integration test configuration
 [[test]]
 name = "integration"
 path = "tests/integration.rs"
-
-[dependencies]
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true, features = ["std"] }
-clap = { version = "4.0", features = ["derive"] }
-regex = { workspace = true }
-anyhow = { version = "1.0", default-features = false, features = ["std"] }
-once_cell = { version = "1.18", default-features = false, features = ["std"] }
-
-# Add test dependencies
-[dev-dependencies]
-tempfile = { workspace = true }
-assert_cmd = { version = "2.0", default-features = false }

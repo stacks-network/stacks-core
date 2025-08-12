@@ -6,21 +6,17 @@ description = "Serialization and deserialization for Stacks Clarity smart contra
 license = "GPLv3"
 homepage = "https://github.com/stacks-network/stacks-core"
 repository = "https://github.com/stacks-network/stacks-core"
-keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
+keywords = [
+    "stacks",
+    "stx",
+    "bitcoin",
+    "crypto",
+    "blockstack",
+    "decentralized",
+    "dapps",
+    "blockchain",
+]
 readme = "README.md"
-
-[dependencies]
-lazy_static = { workspace = true }
-regex = { workspace = true }
-serde = { workspace = true }
-serde_derive = { workspace = true }
-slog = { workspace = true }
-stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false }
-thiserror = { workspace = true }
-
-[dev-dependencies]
-mutants = { workspace = true }
-rstest = { workspace = true }
 
 [features]
 default = []
@@ -30,3 +26,16 @@ slog_json = ["stacks_common/slog_json"]
 # Wasm-specific features for easier configuration
 wasm-web = ["stacks_common/wasm-web"]
 wasm-deterministic = ["stacks_common/wasm-deterministic"]
+
+[dependencies]
+lazy_static.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_derive.workspace = true
+slog.workspace = true
+stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false }
+thiserror.workspace = true
+
+[dev-dependencies]
+mutants.workspace = true
+rstest.workspace = true
