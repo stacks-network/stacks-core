@@ -436,7 +436,7 @@ fn check_sortition_timeout() {
     let address = StacksAddress::p2pkh(false, &StacksPublicKey::new());
     let mut address_weights = HashMap::new();
     address_weights.insert(address, 10);
-    let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
+    let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights, false);
     // We have not yet timed out
     assert!(!SortitionState::is_timed_out(
         &consensus_hash,

@@ -3032,7 +3032,7 @@ pub mod nakamoto_block_signatures {
         header.signer_signature = signer_signature;
 
         header
-            .verify_signer_signatures(&reward_set)
+            .verify_signer_signatures(&reward_set, false)
             .expect("Failed to verify signatures");
     }
 
@@ -3058,7 +3058,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, false) {
             Ok(_) => panic!("Expected insufficient signatures to fail"),
             Err(ChainstateError::InvalidStacksBlock(msg)) => {
                 assert!(msg.contains("Not enough signatures"));
@@ -3092,7 +3092,7 @@ pub mod nakamoto_block_signatures {
         header.signer_signature = signer_signature;
 
         header
-            .verify_signer_signatures(&reward_set)
+            .verify_signer_signatures(&reward_set, false)
             .expect("Failed to verify signatures");
         // assert!(&header.verify_signer_signatures(&reward_set).is_ok());
     }
@@ -3119,7 +3119,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, false) {
             Ok(_) => panic!("Expected out of order signatures to fail"),
             Err(ChainstateError::InvalidStacksBlock(msg)) => {
                 assert!(msg.contains("out of order"));
@@ -3150,7 +3150,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, false) {
             Ok(_) => panic!("Expected insufficient signatures to fail"),
             Err(ChainstateError::InvalidStacksBlock(msg)) => {
                 assert!(msg.contains("Not enough signatures"));
@@ -3184,7 +3184,7 @@ pub mod nakamoto_block_signatures {
         header.signer_signature = signer_signature;
 
         header
-            .verify_signer_signatures(&reward_set)
+            .verify_signer_signatures(&reward_set, false)
             .expect("Failed to verify signatures");
     }
 
@@ -3213,7 +3213,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, false) {
             Ok(_) => panic!("Expected invalid signature to fail"),
             Err(ChainstateError::InvalidStacksBlock(msg)) => {
                 assert!(msg.contains("not found in the reward set"));
@@ -3252,7 +3252,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, false) {
             Ok(_) => panic!("Expected duplicate signature to fail"),
             Err(ChainstateError::InvalidStacksBlock(msg)) => {
                 assert!(msg.contains("Signatures are out of order"));
@@ -3295,7 +3295,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, false) {
             Ok(_) => panic!("Expected invalid message to fail"),
             Err(ChainstateError::InvalidStacksBlock(msg)) => {}
             _ => panic!("Expected InvalidStacksBlock error"),
@@ -3329,7 +3329,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, false) {
             Ok(_) => panic!("Expected invalid message to fail"),
             Err(ChainstateError::InvalidStacksBlock(msg)) => {
                 if !msg.contains("Unable to recover public key") {
@@ -3338,34 +3338,5 @@ pub mod nakamoto_block_signatures {
             }
             _ => panic!("Expected InvalidStacksBlock error"),
         }
-    }
-
-    #[test]
-    pub fn test_compute_voting_weight_threshold() {
-        assert_eq!(
-            NakamotoBlockHeader::compute_voting_weight_threshold(100_u32).unwrap(),
-            70_u32,
-        );
-
-        assert_eq!(
-            NakamotoBlockHeader::compute_voting_weight_threshold(10_u32).unwrap(),
-            7_u32,
-        );
-
-        assert_eq!(
-            NakamotoBlockHeader::compute_voting_weight_threshold(3000_u32).unwrap(),
-            2100_u32,
-        );
-
-        assert_eq!(
-            NakamotoBlockHeader::compute_voting_weight_threshold(4000_u32).unwrap(),
-            2800_u32,
-        );
-
-        // Round-up check
-        assert_eq!(
-            NakamotoBlockHeader::compute_voting_weight_threshold(511_u32).unwrap(),
-            358_u32,
-        );
     }
 }

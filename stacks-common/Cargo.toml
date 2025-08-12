@@ -74,6 +74,7 @@ sha2 = { version = "0.10" }
 
 [dev-dependencies]
 proptest = "1.6.0"
+serial_test = "3.2.0"
 
 [target.'cfg(windows)'.dev-dependencies]
 winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }

@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 
+use clarity::consts::CHAIN_ID_MAINNET;
 use stacks_common::types::chainstate::ConsensusHash;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -824,7 +825,10 @@ impl PeerNetwork {
             return false;
         };
 
-        if let Err(e) = nakamoto_block.header.verify_signer_signatures(reward_set) {
+        if let Err(e) = nakamoto_block.header.verify_signer_signatures(
+            reward_set,
+            self.get_local_peer().network_id != CHAIN_ID_MAINNET,
+        ) {
             info!(
                 "{:?}: signature verification failure for Nakamoto block {}/{} in reward cycle {}: {:?}", self.get_local_peer(), &nakamoto_block.header.consensus_hash, &nakamoto_block.header.block_hash(), reward_cycle, &e
             );

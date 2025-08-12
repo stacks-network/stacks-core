@@ -725,7 +725,10 @@ impl Relayer {
                 return Err(net_error::NoPoXRewardSet(sn_rc));
             };
 
-            if let Err(e) = nakamoto_block.header.verify_signer_signatures(reward_set) {
+            if let Err(e) = nakamoto_block
+                .header
+                .verify_signer_signatures(reward_set, chainstate.mainnet)
+            {
                 warn!(
                     "Signature verification failure for Nakamoto block";
                     "consensus_hash" => %nakamoto_block.header.consensus_hash,

@@ -911,7 +911,7 @@ impl LocalStateMachine {
 
             let entry = miners.entry(miner_state).or_insert(0);
             *entry += weight;
-            if *entry <= eval.total_weight * 3 / 10 {
+            if !eval.reached_rejection(*entry) {
                 // We don't even see a blocking minority threshold. Ignore.
                 continue;
             }
@@ -919,7 +919,7 @@ impl LocalStateMachine {
             let nmb_blocks = signerdb
                 .get_globally_accepted_block_count_in_tenure(tenure_id)
                 .unwrap_or(0);
-            if nmb_blocks == 0 && !eval.reached_agreement(*entry) {
+            if nmb_blocks == 0 && !eval.reached_approval(*entry) {
                 continue;
             }
 

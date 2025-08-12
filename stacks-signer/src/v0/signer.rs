@@ -19,7 +19,7 @@ use std::sync::mpsc::Sender;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime};
 
-use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
     TOO_MANY_REQUESTS_STATUS,
@@ -274,6 +274,7 @@ impl SignerTrait<SignerMessage> for Signer {
         let global_state_evaluator = GlobalStateEvaluator::new(
             updates,
             signer_config.signer_entries.signer_addr_to_weight.clone(),
+            signer_config.mainnet,
         );
         #[cfg(any(test, feature = "testing"))]
         let version = signer_config.supported_signer_protocol_version;
@@ -1502,13 +1503,6 @@ impl Signer {
         )
     }
 
-    /// Compute the total signing weight
-    fn compute_signature_total_weight(&self) -> u32 {
-        self.signer_weights
-            .values()
-            .fold(0u32, |acc, val| acc.saturating_add(*val))
-    }
-
     /// Handle an observed rejection from another signer
     fn handle_block_rejection(
         &mut self,
@@ -1581,13 +1575,11 @@ impl Signer {
         };
         let total_reject_weight =
             self.compute_signature_signing_weight(rejection_addrs.iter().map(|(addr, _)| addr));
-        let total_weight = self.compute_signature_total_weight();
-
-        let min_weight = NakamotoBlockHeader::compute_voting_weight_threshold(total_weight)
-            .unwrap_or_else(|_| {
-                panic!("{self}: Failed to compute threshold weight for {total_weight}")
-            });
-        if total_reject_weight.saturating_add(min_weight) <= total_weight {
+        let total_weight = self.global_state_evaluator.total_weight;
+        if !self
+            .global_state_evaluator
+            .reached_rejection(total_reject_weight)
+        {
             // Not enough rejection signatures to make a decision
             info!("{self}: Received block rejection";
                 "signer_pubkey" => public_key.to_hex(),
@@ -1629,13 +1621,16 @@ impl Signer {
         }
 
         // NOTE: This is only used by active signer protocol versions < 2
-        // If 30% of the signers have rejected the block due to an invalid
+        // If a threshold of the signers have rejected the block due to an invalid
         // reorg, mark the miner as invalid.
         let total_reorg_reject_weight = self.compute_reject_code_signing_weight(
             rejection_addrs.iter(),
             RejectReasonPrefix::ReorgNotAllowed,
         );
-        if total_reorg_reject_weight.saturating_add(min_weight) > total_weight {
+        if self
+            .global_state_evaluator
+            .reached_rejection(total_reorg_reject_weight)
+        {
             // Mark the miner as invalid
             if let Some(sortition_state) = sortition_state {
                 let ch = block_info.block.header.consensus_hash;
@@ -1727,14 +1722,12 @@ impl Signer {
             .collect();
 
         let signature_weight = self.compute_signature_signing_weight(addrs_to_sigs.keys());
-        let total_weight = self.compute_signature_total_weight();
+        let total_weight = self.global_state_evaluator.total_weight;
 
-        let min_weight = NakamotoBlockHeader::compute_voting_weight_threshold(total_weight)
-            .unwrap_or_else(|_| {
-                panic!("{self}: Failed to compute threshold weight for {total_weight}")
-            });
-
-        if min_weight > signature_weight {
+        if !self
+            .global_state_evaluator
+            .reached_approval(signature_weight)
+        {
             info!("{self}: Received block acceptance";
                 "signer_pubkey" => public_key.to_hex(),
                 "signer_signature_hash" => %block_hash,

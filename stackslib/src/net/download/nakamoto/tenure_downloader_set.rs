@@ -358,6 +358,7 @@ impl NakamotoTenureDownloaderSet {
         tenure_block_ids: &HashMap<NeighborAddress, AvailableTenures>,
         count: usize,
         current_reward_cycles: &BTreeMap<u64, CurrentRewardSet>,
+        mainnet: bool,
     ) {
         test_debug!("make_tenure_downloaders";
                "schedule" => ?schedule,
@@ -489,6 +490,7 @@ impl NakamotoTenureDownloaderSet {
                 start_reward_set.clone(),
                 end_reward_set.clone(),
                 false,
+                mainnet,
             );
 
             debug!("Request tenure {ch} from neighbor {naddr}");

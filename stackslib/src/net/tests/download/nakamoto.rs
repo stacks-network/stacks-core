@@ -291,6 +291,7 @@ fn test_nakamoto_tenure_downloader() {
         reward_set.clone(),
         reward_set,
         false,
+        false,
     );
 
     // must be first block
@@ -520,7 +521,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         let mut empty_downloaders = HashMap::new();
         let mut full_downloaders = {
             let mut dl = HashMap::new();
-            let utd = NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), Some(tip_block_id));
+            let utd =
+                NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), Some(tip_block_id), false);
             dl.insert(naddr.clone(), utd);
             dl
         };
@@ -529,7 +531,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 &mut empty_schedule,
                 10,
                 &mut empty_downloaders,
-                None
+                None,
+                false
             ),
             0
         );
@@ -538,7 +541,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 &mut empty_schedule,
                 10,
                 &mut full_downloaders,
-                None
+                None,
+                false
             ),
             0
         );
@@ -547,7 +551,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 &mut full_schedule,
                 10,
                 &mut full_downloaders,
-                None
+                None,
+                false
             ),
             0
         );
@@ -557,7 +562,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
                 &mut full_schedule,
                 10,
                 &mut empty_downloaders,
-                None
+                None,
+                false
             ),
             1
         );
@@ -567,7 +573,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
 
     // we've processed the tip already, so we transition straight to the Done state
     {
-        let mut utd = NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), Some(tip_block_id));
+        let mut utd =
+            NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), Some(tip_block_id), false);
         assert_eq!(utd.state, NakamotoUnconfirmedDownloadState::GetTenureInfo);
 
         utd.confirmed_signer_keys = Some(
@@ -642,7 +649,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         let mid_tip_block_id = unconfirmed_tenure.first().as_ref().unwrap().block_id();
 
         let mut utd =
-            NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), Some(mid_tip_block_id));
+            NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), Some(mid_tip_block_id), false);
         utd.confirmed_signer_keys = Some(
             current_reward_sets
                 .get(&tip_rc)
@@ -741,7 +748,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         let mid_tip_block_id = unconfirmed_tenure.get(5).unwrap().block_id();
 
         let mut utd =
-            NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), Some(mid_tip_block_id));
+            NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), Some(mid_tip_block_id), false);
         utd.confirmed_signer_keys = Some(
             current_reward_sets
                 .get(&tip_rc)
@@ -839,7 +846,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
     // we haven't processed anything yet.
     // serve all of the unconfirmed blocks in one shot.
     {
-        let mut utd = NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), None);
+        let mut utd = NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), None, false);
         utd.confirmed_signer_keys = Some(
             current_reward_sets
                 .get(&tip_rc)
@@ -916,7 +923,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
 
     // bad block signature
     {
-        let mut utd = NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), None);
+        let mut utd = NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), None, false);
         utd.confirmed_signer_keys = Some(
             current_reward_sets
                 .get(&tip_rc)
@@ -979,7 +986,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
 
     // Does not consume blocks beyond the highest processed block ID
     {
-        let mut utd = NakamotoUnconfirmedTenureDownloader::new(naddr, None);
+        let mut utd = NakamotoUnconfirmedTenureDownloader::new(naddr, None, false);
         utd.confirmed_signer_keys = Some(
             current_reward_sets
                 .get(&tip_rc)
@@ -2002,6 +2009,7 @@ fn test_make_tenure_downloaders() {
             &tenure_block_ids,
             6,
             &current_reward_sets,
+            false,
         );
 
         // made all 6 downloaders
@@ -2040,6 +2048,7 @@ fn test_make_tenure_downloaders() {
             &tenure_block_ids,
             12,
             &current_reward_sets,
+            false,
         );
 
         // only made 4 downloaders got created

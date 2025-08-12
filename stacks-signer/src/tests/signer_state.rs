@@ -95,7 +95,7 @@ fn check_capitulate_miner_view() {
     for address in address_weights.keys() {
         address_updates.insert(*address, old_update.clone());
     }
-    let mut global_eval = GlobalStateEvaluator::new(address_updates, address_weights);
+    let mut global_eval = GlobalStateEvaluator::new(address_updates, address_weights, false);
 
     let addresses: Vec<_> = global_eval.address_weights.keys().cloned().collect();
     // Let's say we are the very first signer in the list
@@ -376,7 +376,7 @@ fn check_miner_inactivity_timeout() {
     let address = *stacks_client.get_signer_address();
     address_weights.insert(address, 10_u32);
 
-    let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
+    let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights, false);
     // This local state machine should not change as an uninitialized local state cannot be modified
     let mut local_state_machine = LocalStateMachine::Uninitialized;
     local_state_machine

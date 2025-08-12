@@ -879,7 +879,10 @@ impl TestStacksNode {
             let mut malleablized_blocks = vec![];
             loop {
                 // don't process if we don't have enough signatures
-                if let Err(e) = block_to_store.header.verify_signer_signatures(&reward_set) {
+                if let Err(e) = block_to_store
+                    .header
+                    .verify_signer_signatures(&reward_set, chainstate.mainnet)
+                {
                     info!(
                         "Will stop processing malleablized blocks for {}: {:?}",
                         &block_id, &e

@@ -120,6 +120,7 @@ fn setup_and_run_nakamoto_health_test(
     let mut downloader = NakamotoDownloadStateMachine::new(
         epoch.start_height,
         rpc_test.peer_1.network.stacks_tip.block_id(), // Initial tip for the downloader state machine
+        false,
     );
     match nakamoto_download_state {
         NakamotoDownloadState::Confirmed => {
@@ -132,6 +133,7 @@ fn setup_and_run_nakamoto_health_test(
                 peer_1_address.clone(),
                 RewardSet::empty(),
                 RewardSet::empty(),
+                false,
                 false,
             );
 
@@ -154,6 +156,7 @@ fn setup_and_run_nakamoto_health_test(
             let mut unconfirmed_tenure = NakamotoUnconfirmedTenureDownloader::new(
                 peer_1_address.clone(),
                 Some(peer_1_tenure_tip.tip_block_id.clone()),
+                false,
             );
             unconfirmed_tenure.tenure_tip = Some(peer_1_tenure_tip);
             downloader
@@ -316,7 +319,10 @@ fn test_get_health_500_no_initial_neighbors() {
     let test_observer = TestEventObserver::new();
     let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
     rpc_test.peer_2.refresh_burnchain_view();
-    rpc_test.peer_2.network.init_nakamoto_block_downloader();
+    rpc_test
+        .peer_2
+        .network
+        .init_nakamoto_block_downloader(false);
 
     // Mock the PeerDB::get_valid_initial_neighbors to return empty vec by
     // clearing all peers from the peer DB
@@ -408,7 +414,10 @@ fn test_get_health_500_no_download_state() {
 fn test_get_health_500_no_peers_stats() {
     let test_observer = TestEventObserver::new();
     let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
-    rpc_test.peer_2.network.init_nakamoto_block_downloader();
+    rpc_test
+        .peer_2
+        .network
+        .init_nakamoto_block_downloader(false);
     // --- Invoke the Handler ---
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let request = StacksHttpRequest::new_gethealth(addr.into(), NeighborsScope::Initial);

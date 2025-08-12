@@ -97,10 +97,12 @@ pub struct NakamotoDownloadStateMachine {
     last_unconfirmed_download_check_ms: u128,
     /// last time an unconfirmed downloader was run
     last_unconfirmed_download_run_ms: u128,
+    /// Whether the downloader is operating on mainnet
+    mainnet: bool,
 }
 
 impl NakamotoDownloadStateMachine {
-    pub fn new(nakamoto_start_height: u64, nakamoto_tip: StacksBlockId) -> Self {
+    pub fn new(nakamoto_start_height: u64, nakamoto_tip: StacksBlockId, mainnet: bool) -> Self {
         Self {
             nakamoto_start_height,
             reward_cycle: 0, // will be calculated at runtime
@@ -119,6 +121,7 @@ impl NakamotoDownloadStateMachine {
             fetch_unconfirmed_tenures: false,
             last_unconfirmed_download_check_ms: 0,
             last_unconfirmed_download_run_ms: 0,
+            mainnet,
         }
     }
 
@@ -915,6 +918,7 @@ impl NakamotoDownloadStateMachine {
         &mut self,
         count: usize,
         current_reward_sets: &BTreeMap<u64, CurrentRewardSet>,
+        mainnet: bool,
     ) {
         self.tenure_downloads.make_tenure_downloaders(
             &mut self.tenure_download_schedule,
@@ -922,6 +926,7 @@ impl NakamotoDownloadStateMachine {
             &self.tenure_block_ids,
             count,
             current_reward_sets,
+            mainnet,
         )
     }
 
@@ -1098,6 +1103,7 @@ impl NakamotoDownloadStateMachine {
         count: usize,
         downloaders: &mut HashMap<NeighborAddress, NakamotoUnconfirmedTenureDownloader>,
         highest_processed_block_id: Option<StacksBlockId>,
+        mainnet: bool,
     ) -> usize {
         let mut added = 0;
         schedule.retain(|naddr| {
@@ -1111,6 +1117,7 @@ impl NakamotoDownloadStateMachine {
             let unconfirmed_tenure_download = NakamotoUnconfirmedTenureDownloader::new(
                 naddr.clone(),
                 highest_processed_block_id.clone(),
+                mainnet,
             );
 
             debug!("Request unconfirmed tenure state from neighbor {}", &naddr);
@@ -1146,6 +1153,7 @@ impl NakamotoDownloadStateMachine {
             count,
             &mut self.unconfirmed_tenure_downloads,
             highest_processed_block_id,
+            self.mainnet,
         );
         self.last_unconfirmed_download_run_ms = get_epoch_time_ms();
     }
@@ -1374,7 +1382,7 @@ impl NakamotoDownloadStateMachine {
         max_count: usize,
     ) -> HashMap<ConsensusHash, Vec<NakamotoBlock>> {
         // queue up more downloaders
-        self.update_tenure_downloaders(max_count, &network.current_reward_sets);
+        self.update_tenure_downloaders(max_count, &network.current_reward_sets, chainstate.mainnet);
 
         // run all downloaders
         let new_blocks = self

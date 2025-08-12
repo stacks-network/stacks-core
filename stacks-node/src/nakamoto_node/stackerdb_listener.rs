@@ -140,13 +140,6 @@ impl StackerDBListener {
             warn!("Replaced the miner/coordinator receiver of a prior thread. Prior thread may have crashed.");
         }
 
-        let total_weight = reward_set.total_signing_weight().map_err(|e| {
-            warn!("Failed to calculate total weight for the reward set: {e:?}");
-            ChainstateError::NoRegisteredSigners(0)
-        })?;
-
-        let weight_threshold = NakamotoBlockHeader::compute_voting_weight_threshold(total_weight)?;
-
         let reward_cycle_id = burnchain
             .block_height_to_reward_cycle(burn_tip.block_height)
             .expect("FATAL: tried to initialize coordinator before first burn block height");
@@ -191,7 +184,8 @@ impl StackerDBListener {
             .get_latest_chunks(&slot_ids)
             .inspect_err(|e| warn!("Unable to read the latest signer state from signer db: {e}."))
             .unwrap_or_default();
-        let mut global_state_evaluator = GlobalStateEvaluator::new(HashMap::new(), address_weights);
+        let mut global_state_evaluator =
+            GlobalStateEvaluator::new(HashMap::new(), address_weights, config.is_mainnet());
         for (chunk, slot_id) in chunks.into_iter().zip(slot_ids) {
             let Some(chunk) = chunk else {
                 continue;
@@ -216,8 +210,8 @@ impl StackerDBListener {
             node_keep_running,
             keep_running,
             signer_set,
-            total_weight,
-            weight_threshold,
+            total_weight: global_state_evaluator.total_weight,
+            weight_threshold: global_state_evaluator.approval_weight,
             signer_entries,
             blocks: Arc::new((Mutex::new(HashMap::new()), Condvar::new())),
             signer_idle_timestamps: Arc::new(Mutex::new(HashMap::new())),

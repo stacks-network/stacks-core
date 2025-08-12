@@ -90,12 +90,19 @@ pub struct NakamotoUnconfirmedTenureDownloader {
     pub unconfirmed_tenure_start_block: Option<NakamotoBlock>,
     /// Unconfirmed tenure blocks obtained
     pub unconfirmed_tenure_blocks: Option<Vec<NakamotoBlock>>,
+
+    /// Whether the downloader is operating on mainnet
+    pub mainnet: bool,
 }
 
 impl NakamotoUnconfirmedTenureDownloader {
     /// Make a new downloader which will download blocks from the tip back down to the optional
     /// `highest_processed_block_id` (so we don't re-download the same blocks over and over).
-    pub fn new(naddr: NeighborAddress, highest_processed_block_id: Option<StacksBlockId>) -> Self {
+    pub fn new(
+        naddr: NeighborAddress,
+        highest_processed_block_id: Option<StacksBlockId>,
+        mainnet: bool,
+    ) -> Self {
         Self {
             state: NakamotoUnconfirmedDownloadState::GetTenureInfo,
             naddr,
@@ -106,6 +113,7 @@ impl NakamotoUnconfirmedTenureDownloader {
             tenure_tip: None,
             unconfirmed_tenure_start_block: None,
             unconfirmed_tenure_blocks: None,
+            mainnet,
         }
     }
 
@@ -394,7 +402,7 @@ impl NakamotoUnconfirmedTenureDownloader {
         // stacker signature has to match the current reward set
         if let Err(e) = unconfirmed_tenure_start_block
             .header
-            .verify_signer_signatures(unconfirmed_signer_keys)
+            .verify_signer_signatures(unconfirmed_signer_keys, self.mainnet)
         {
             warn!("Invalid tenure-start block: bad signer signature";
                   "tenure_start_block.header.consensus_hash" => %unconfirmed_tenure_start_block.header.consensus_hash,
@@ -477,7 +485,7 @@ impl NakamotoUnconfirmedTenureDownloader {
             }
             if let Err(e) = block
                 .header
-                .verify_signer_signatures(unconfirmed_signer_keys)
+                .verify_signer_signatures(unconfirmed_signer_keys, self.mainnet)
             {
                 warn!("Invalid block: bad signer signature";
                       "tenure_id" => %tenure_tip.consensus_hash,
@@ -719,6 +727,7 @@ impl NakamotoUnconfirmedTenureDownloader {
             confirmed_signer_keys.clone(),
             unconfirmed_signer_keys.clone(),
             true,
+            self.mainnet,
         );
 
         Ok(ntd)

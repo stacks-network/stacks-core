@@ -1823,7 +1823,7 @@ impl SignerDb {
             let weight = eval.address_weights.get(&address).copied().unwrap_or(0);
             vote_weight = vote_weight.saturating_add(weight);
 
-            if eval.reached_agreement(vote_weight) {
+            if eval.reached_approval(vote_weight) {
                 return Ok(Some(received_time));
             }
         }
@@ -3286,7 +3286,7 @@ pub mod tests {
         address_weights.insert(address_1, 10);
         address_weights.insert(address_2, 10);
         address_weights.insert(address_3, 10);
-        let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
+        let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights, false);
 
         assert!(db
             .get_burn_block_received_time_from_signers(&eval, &burn_block_1, &local_address)

@@ -140,13 +140,16 @@ pub use crate::net::download::nakamoto::tenure_downloader_unconfirmed::{
 
 impl PeerNetwork {
     /// Set up the Nakamoto block downloader
-    pub fn init_nakamoto_block_downloader(&mut self) {
+    pub fn init_nakamoto_block_downloader(&mut self, mainnet: bool) {
         if self.block_downloader_nakamoto.is_some() {
             return;
         }
         let epoch = self.get_epoch_by_epoch_id(StacksEpochId::Epoch30);
-        let downloader =
-            NakamotoDownloadStateMachine::new(epoch.start_height, self.stacks_tip.block_id());
+        let downloader = NakamotoDownloadStateMachine::new(
+            epoch.start_height,
+            self.stacks_tip.block_id(),
+            mainnet,
+        );
         self.block_downloader_nakamoto = Some(downloader);
     }
 
@@ -159,7 +162,7 @@ impl PeerNetwork {
         ibd: bool,
     ) -> Result<HashMap<ConsensusHash, Vec<NakamotoBlock>>, NetError> {
         if self.block_downloader_nakamoto.is_none() {
-            self.init_nakamoto_block_downloader();
+            self.init_nakamoto_block_downloader(chainstate.mainnet);
         }
         let Some(mut block_downloader) = self.block_downloader_nakamoto.take() else {
             return Ok(HashMap::new());

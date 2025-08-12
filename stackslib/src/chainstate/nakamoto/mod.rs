@@ -17,6 +17,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut, Range};
 
+use clarity::util::compute_voting_weight_threshold;
 use clarity::util::secp256k1::Secp256k1PublicKey;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
@@ -85,9 +86,7 @@ use crate::chainstate::stacks::{
 use crate::clarity::vm::clarity::TransactionConnection;
 use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
 use crate::clarity_vm::database::SortitionDBRef;
-use crate::core::{
-    BOOT_BLOCK_HASH, BURNCHAIN_TX_SEARCH_WINDOW, NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD,
-};
+use crate::core::{BOOT_BLOCK_HASH, BURNCHAIN_TX_SEARCH_WINDOW};
 use crate::monitoring;
 use crate::net::stackerdb::{StackerDBConfig, MINER_SLOT_COUNT};
 use crate::net::Error as net_error;
@@ -821,7 +820,11 @@ impl NakamotoBlockHeader {
     /// Returns the signing weight on success.
     /// Returns ChainstateError::InvalidStacksBlock on error
     #[cfg_attr(test, mutants::skip)]
-    pub fn verify_signer_signatures(&self, reward_set: &RewardSet) -> Result<u32, ChainstateError> {
+    pub fn verify_signer_signatures(
+        &self,
+        reward_set: &RewardSet,
+        mainnet: bool,
+    ) -> Result<u32, ChainstateError> {
         let message = self.signer_signature_hash();
         let Some(signers) = &reward_set.signers else {
             return Err(ChainstateError::InvalidStacksBlock(
@@ -891,33 +894,15 @@ impl NakamotoBlockHeader {
                 .expect("FATAL: overflow while computing signer set threshold");
         }
 
-        let threshold = Self::compute_voting_weight_threshold(total_weight)?;
+        let approval_threshold = compute_voting_weight_threshold(total_weight, mainnet);
 
-        if total_weight_signed < threshold {
+        if total_weight_signed < approval_threshold {
             return Err(ChainstateError::InvalidStacksBlock(format!(
-                "Not enough signatures. Needed at least {} but got {} (out of {})",
-                threshold, total_weight_signed, total_weight,
+                "Not enough signatures. Needed at least {approval_threshold} but got {total_weight_signed} (out of {total_weight})"
             )));
         }
 
-        return Ok(total_weight_signed);
-    }
-
-    /// Compute the threshold for the minimum number of signers (by weight) required
-    /// to approve a Nakamoto block.
-    pub fn compute_voting_weight_threshold(total_weight: u32) -> Result<u32, ChainstateError> {
-        let threshold = NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD;
-        let total_weight = u64::from(total_weight);
-        let ceil = if (total_weight * threshold) % 10 == 0 {
-            0
-        } else {
-            1
-        };
-        u32::try_from((total_weight * threshold) / 10 + ceil).map_err(|_| {
-            ChainstateError::InvalidStacksBlock(
-                "Overflow when computing nakamoto block approval threshold".to_string(),
-            )
-        })
+        Ok(total_weight_signed)
     }
 
     /// Make an "empty" header whose block data needs to be filled in.
@@ -2546,7 +2531,10 @@ impl NakamotoChainState {
             return Ok(false);
         };
 
-        let signing_weight = match block.header.verify_signer_signatures(reward_set) {
+        let signing_weight = match block
+            .header
+            .verify_signer_signatures(reward_set, config.mainnet)
+        {
             Ok(x) => x,
             Err(e) => {
                 warn!("Received block, but the signer signatures are invalid";

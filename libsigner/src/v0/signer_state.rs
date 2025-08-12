@@ -18,6 +18,7 @@ use std::hash::{Hash, Hasher};
 
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use clarity::types::chainstate::StacksAddress;
+use clarity::util::compute_voting_weight_threshold;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks_common::util::hash::Hash160;
@@ -33,6 +34,10 @@ pub struct GlobalStateEvaluator {
     pub address_updates: HashMap<StacksAddress, StateMachineUpdate>,
     /// The total weight of all signers
     pub total_weight: u32,
+    /// The threshold weight required to reach rejection
+    pub rejection_weight: u32,
+    /// The threshold weight required to reach approval
+    pub approval_weight: u32,
 }
 
 impl GlobalStateEvaluator {
@@ -40,14 +45,19 @@ impl GlobalStateEvaluator {
     pub fn new(
         address_updates: HashMap<StacksAddress, StateMachineUpdate>,
         address_weights: HashMap<StacksAddress, u32>,
+        mainnet: bool,
     ) -> Self {
         let total_weight = address_weights
             .values()
             .fold(0u32, |acc, val| acc.saturating_add(*val));
+        let approval_weight = compute_voting_weight_threshold(total_weight, mainnet);
+        let rejection_weight = total_weight.saturating_sub(approval_weight);
         Self {
             address_weights,
             address_updates,
             total_weight,
+            approval_weight,
+            rejection_weight,
         }
     }
 
@@ -69,7 +79,7 @@ impl GlobalStateEvaluator {
         let mut total_weight_support = 0;
         for (version, weight_support) in protocol_versions.into_iter().rev() {
             total_weight_support += weight_support;
-            if total_weight_support >= self.total_weight * 7 / 10 {
+            if self.reached_approval(total_weight_support) {
                 return Some(version);
             }
         }
@@ -89,7 +99,7 @@ impl GlobalStateEvaluator {
                 .entry((burn_block, burn_block_height))
                 .or_insert_with(|| 0);
             *entry += weight;
-            if self.reached_agreement(*entry) {
+            if self.reached_approval(*entry) {
                 return Some((*burn_block, burn_block_height));
             }
         }
@@ -124,7 +134,7 @@ impl GlobalStateEvaluator {
             let entry = state_views.entry(key).or_insert_with(|| 0);
             *entry += weight;
 
-            if self.reached_agreement(*entry) {
+            if self.reached_approval(*entry) {
                 found_state_view = Some(state_machine);
             }
 
@@ -133,7 +143,7 @@ impl GlobalStateEvaluator {
                 .or_insert_with(|| 0);
             *replay_entry += weight;
 
-            if self.reached_agreement(*replay_entry) {
+            if self.reached_approval(*replay_entry) {
                 found_replay_set = Some(tx_replay_set);
             }
             if found_replay_set.is_some() && found_state_view.is_some() {
@@ -159,8 +169,14 @@ impl GlobalStateEvaluator {
 
     /// Check if the supplied vote weight crosses the global agreement threshold.
     /// Returns true if it has, false otherwise.
-    pub fn reached_agreement(&self, vote_weight: u32) -> bool {
-        vote_weight >= self.total_weight * 7 / 10
+    pub fn reached_approval(&self, vote_weight: u32) -> bool {
+        vote_weight >= self.approval_weight
+    }
+
+    /// Check if the supplied vote weight crosses the global disagreement threshold.
+    /// Returns true if it has, false otherwise.
+    pub fn reached_rejection(&self, vote_weight: u32) -> bool {
+        vote_weight >= self.rejection_weight
     }
 
     /// Get the global transaction replay set. Returns `None` if there

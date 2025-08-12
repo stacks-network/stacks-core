@@ -117,6 +117,9 @@ pub struct NakamotoTenureDownloader {
     pub tenure_blocks: Option<Vec<NakamotoBlock>>,
     /// Whether this tenure is unconfirmed
     pub is_tenure_unconfirmed: bool,
+
+    /// Whether this is operating on mainnet
+    pub mainnet: bool,
 }
 
 impl NakamotoTenureDownloader {
@@ -130,6 +133,7 @@ impl NakamotoTenureDownloader {
         start_signer_keys: RewardSet,
         end_signer_keys: RewardSet,
         is_tenure_unconfirmed: bool,
+        mainnet: bool,
     ) -> Self {
         debug!(
             "Instantiate downloader to {}-{} for tenure {}: {}-{}",
@@ -157,6 +161,7 @@ impl NakamotoTenureDownloader {
             tenure_end_block: None,
             tenure_blocks: None,
             is_tenure_unconfirmed,
+            mainnet,
         }
     }
 
@@ -193,7 +198,7 @@ impl NakamotoTenureDownloader {
 
         if let Err(e) = tenure_start_block
             .header
-            .verify_signer_signatures(&self.start_signer_keys)
+            .verify_signer_signatures(&self.start_signer_keys, self.mainnet)
         {
             // signature verification failed
             warn!("Invalid tenure-start block: bad signer signature";
@@ -266,7 +271,7 @@ impl NakamotoTenureDownloader {
 
         if let Err(e) = tenure_end_block
             .header
-            .verify_signer_signatures(&self.end_signer_keys)
+            .verify_signer_signatures(&self.end_signer_keys, self.mainnet)
         {
             // bad signature
             warn!("Invalid tenure-end block: bad signer signature";
@@ -389,7 +394,7 @@ impl NakamotoTenureDownloader {
 
             if let Err(e) = block
                 .header
-                .verify_signer_signatures(&self.start_signer_keys)
+                .verify_signer_signatures(&self.start_signer_keys, self.mainnet)
             {
                 warn!("Invalid block: bad signer signature";
                       "tenure_id" => %self.tenure_id_consensus_hash,

@@ -55,7 +55,7 @@ fn generate_global_state_evaluator(num_addresses: u32) -> GlobalStateEvaluator {
     for address in address_weights.keys() {
         address_updates.insert(*address, update.clone());
     }
-    GlobalStateEvaluator::new(address_updates, address_weights)
+    GlobalStateEvaluator::new(address_updates, address_weights, false)
 }
 
 fn generate_random_address_with_equal_weights(num_addresses: u32) -> HashMap<StacksAddress, u32> {
