@@ -20,8 +20,8 @@ use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, Con
 use stacks_common::types::net::PeerHost;
 
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::db::StacksBlockHeaderTypes;
-use crate::net::api::gettenureblocks::RPCTenureBlock;
+use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
+use crate::net::api::gettenureblocks::{RPCTenure, RPCTenureBlock};
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
@@ -154,34 +154,45 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksByHeightRequestHandler {
                     }
                 };
 
-                Ok(blocks)
+                Ok((blocks, header_info))
             });
 
-        let tenure_blocks: Vec<RPCTenureBlock> = match tenure_blocks_resp {
-            Ok(tenure_blocks) => tenure_blocks
-                .into_iter()
-                .map(|header| RPCTenureBlock {
-                    block_id: header.index_block_hash(),
-                    block_hash: header.anchored_header.block_hash(),
-                    parent_block_id: match header.anchored_header {
-                        StacksBlockHeaderTypes::Nakamoto(nakamoto) => {
-                            nakamoto.parent_block_id.to_hex()
-                        }
-                        StacksBlockHeaderTypes::Epoch2(epoch2) => epoch2.parent_block.to_hex(),
-                    },
-                    consensus_hash: header.consensus_hash,
-                    height: header.stacks_block_height,
-                    burn_block_height: header.burn_header_height.into(),
-                    burn_block_hash: header.burn_header_hash.to_hex(),
-                })
-                .collect(),
-            Err(response) => {
-                return response.try_into_contents().map_err(NetError::from);
-            }
+        let (tenure_blocks, header_info): (Vec<RPCTenureBlock>, StacksHeaderInfo) =
+            match tenure_blocks_resp {
+                Ok((tenure_blocks, header_info)) => (
+                    tenure_blocks
+                        .into_iter()
+                        .map(|header| RPCTenureBlock {
+                            block_id: header.index_block_hash(),
+                            block_hash: header.anchored_header.block_hash(),
+                            parent_block_id: match header.anchored_header {
+                                StacksBlockHeaderTypes::Nakamoto(nakamoto) => {
+                                    nakamoto.parent_block_id.to_hex()
+                                }
+                                StacksBlockHeaderTypes::Epoch2(epoch2) => {
+                                    epoch2.parent_block.to_hex()
+                                }
+                            },
+
+                            height: header.stacks_block_height,
+                        })
+                        .collect(),
+                    header_info,
+                ),
+                Err(response) => {
+                    return response.try_into_contents().map_err(NetError::from);
+                }
+            };
+
+        let tenure = RPCTenure {
+            consensus_hash: header_info.consensus_hash,
+            burn_block_height: header_info.burn_header_height.into(),
+            burn_block_hash: header_info.burn_header_hash.to_hex(),
+            stacks_blocks: tenure_blocks,
         };
 
         let preamble = HttpResponsePreamble::ok_json(&preamble);
-        let body = HttpResponseContents::try_from_json(&tenure_blocks)?;
+        let body = HttpResponseContents::try_from_json(&tenure)?;
         Ok((preamble, body))
     }
 }
