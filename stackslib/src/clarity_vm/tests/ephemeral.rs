@@ -16,6 +16,7 @@
 use std::fs;
 
 use clarity::vm::ast::ASTRules;
+use proptest::prelude::*;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use stacks_common::types::chainstate::StacksBlockId;
@@ -429,6 +430,50 @@ fn test_ephemeral_nakamoto_block_replay_simple() {
     for naka_block in all_nakamoto_blocks {
         replay_block(&sortdb, &mut stacks_node.chainstate, naka_block, &observer);
     }
+}
+
+#[test]
+fn prop_ephemeral_tip_height_matches_current() {
+    proptest!(|(n in 1usize..=12)| {
+        let path = format!("/tmp/{}.marf", function_name!());
+        if fs::metadata(&path).is_ok() {
+            fs::remove_dir_all(&path).unwrap();
+        }
+
+        let mut marfed_kv = MarfedKV::open(
+            &path,
+            None,
+            Some(MARFOpenOpts::new(
+                TrieHashCalculationMode::Deferred,
+                "noop",
+                false,
+            )),
+        )
+        .unwrap();
+
+        let target_block_id = StacksBlockId([0xf0; 32]);
+        let mut tip = StacksBlockId::sentinel();
+        for blk in 0..n {
+            let final_block_id = StacksBlockId([(blk as u8) + 1; 32]);
+            let mut marf = marfed_kv.begin(&tip, &target_block_id);
+            let keys_and_values = vec![(
+                format!("key-{}", blk),
+                format!("value-{}", blk)
+            )];
+            marf.put_all_data(keys_and_values).unwrap();
+            marf.commit_to(&final_block_id).unwrap();
+            tip = final_block_id;
+        }
+
+        let ephemeral_tip = StacksBlockId([0xee; 32]);
+        let mut marf_ephemeral =
+            marfed_kv.begin_ephemeral(&tip, &ephemeral_tip).unwrap();
+
+        // Invariant: ephemeral tip height equals current height.
+        let height = marf_ephemeral.get_current_block_height();
+        let open_height = marf_ephemeral.get_open_chain_tip_height();
+        prop_assert_eq!(height, open_height);
+    });
 }
 
 // Test TODO:
