@@ -1,8 +1,11 @@
 [package]
 name = "stx-genesis"
 version = "0.1.0"
-authors = ["Matthew Little <matthew@blockstack.com>"]
 edition = "2024"
+authors = ["Matthew Little <matthew@blockstack.com>"]
+
+[package.metadata.cargo-machete]
+ignored = ["sha2"]
 
 [lib]
 name = "stx_genesis"

@@ -20,6 +20,9 @@ readme = "README.md"
 resolver = "3"
 edition = "2021"
 
+[package.metadata.cargo-machete]
+ignored = ["stdext"]
+
 [lib]
 name = "stacks_signer"
 path = "src/lib.rs"
@@ -49,13 +52,11 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["arbitrary_precision", "unbounded_depth"] }
 slog.workspace = true
 slog-json = { workspace = true, optional = true }
-slog-term.workspace = true
 stacks-common.workspace = true
 stackslib.workspace = true
 thiserror.workspace = true
 tiny_http = { workspace = true, optional = true }
 toml.workspace = true
-tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["registry", "fmt", "std", "env-filter"] }
 url.workspace = true
 

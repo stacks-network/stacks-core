@@ -10,6 +10,9 @@ edition = "2021"
 resolver = "3"
 rust-version = "1.61"
 
+[package.metadata.cargo-machete]
+ignored = ["stdext"]
+
 [package.metadata.pinny]
 allowed = ["bitcoind", "flaky", "slow"]
 

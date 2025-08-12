@@ -25,6 +25,9 @@ keywords = [
 readme = "README.md"
 rust-version = "1.80"
 
+[package.metadata.cargo-machete]
+ignored = ["stdext"]
+
 [lib]
 name = "blockstack_lib"
 path = "src/lib.rs"

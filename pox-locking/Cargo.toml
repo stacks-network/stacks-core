@@ -25,6 +25,9 @@ resolver = "3"
 edition = "2021"
 rust-version = "1.61"
 
+[package.metadata.cargo-machete]
+ignored = ["slog"]
+
 [lib]
 name = "pox_locking"
 path = "src/lib.rs"

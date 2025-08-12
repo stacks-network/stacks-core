@@ -25,6 +25,9 @@ resolver = "3"
 edition = "2021"
 build = "build.rs"
 
+[package.metadata.cargo-machete]
+ignored = ["getrandom", "toml"]
+
 [lib]
 name = "stacks_common"
 path = "./src/libcommon.rs"
