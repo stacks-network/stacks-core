@@ -35,7 +35,7 @@ mod tests;
 
 /// The JSON-RPC protocol version used in all requests.
 /// Latest specification is `2.0`
-const RCP_VERSION: &str = "2.0";
+const RPC_VERSION: &str = "2.0";
 
 /// Represents a JSON-RPC request payload sent to the server.
 #[derive(Serialize)]
@@ -190,7 +190,7 @@ impl RpcTransport {
         params: Vec<Value>,
     ) -> RpcResult<T> {
         let payload = JsonRpcRequest {
-            jsonrpc: RCP_VERSION.to_string(),
+            jsonrpc: RPC_VERSION.to_string(),
             id: id.to_string(),
             method: method.to_string(),
             params: Value::Array(params),
