@@ -1016,7 +1016,7 @@ pub fn test_convert_btc_to_sat() {
 pub fn test_convert_sat_to_btc() {
     use convert_sat_to_btc_string as to_btc;
 
-    assert_eq!("1.00000000", to_btc(100_000_000), "SAT 1_000_000_000 ok!");
+    assert_eq!("1.00000000", to_btc(100_000_000), "SAT 100_000_000 ok!");
     assert_eq!("0.50000000", to_btc(50_000_000), "SAT 50_000_000 ok!");
     assert_eq!("0.00000001", to_btc(1), "SAT 1 ok!");
 }
