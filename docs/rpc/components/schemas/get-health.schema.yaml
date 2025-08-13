@@ -16,4 +16,7 @@ properties:
     type: integer
     minimum: 0
     description: The current Stacks tip height of this node
+  max_stacks_neighbor_address:
+    type: [string, "null"]
+    description: The address of the most advanced peer
 description: Health information about the node's synchronization status

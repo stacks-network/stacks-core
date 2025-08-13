@@ -1295,6 +1295,7 @@ paths:
         - `difference_from_max_peer`: The difference in Stacks height between this node and its most advanced peer.
         - `max_stacks_height_of_neighbors`: The maximum Stacks height observed among the node"s connected peers.
         - `node_stacks_tip_height`: The current Stacks tip height of this node.
+        - `max_stacks_neighbor_address`: The address of the most advanced peer. Null if no peer data is available.
       tags:
         - Info
       security: []
