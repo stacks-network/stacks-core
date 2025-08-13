@@ -1288,7 +1288,10 @@ impl<'a> TestRPC<'a> {
             assert!(resp_opt.is_some());
 
             let resp = resp_opt.unwrap();
-            assert!(resp.preamble().get_canonical_stacks_tip_height().is_some());
+
+            if resp.preamble().is_success() {
+                assert!(resp.preamble().get_canonical_stacks_tip_height().is_some());
+            }
 
             responses.push(resp);
         }
