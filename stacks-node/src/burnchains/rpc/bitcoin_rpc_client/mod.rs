@@ -650,7 +650,7 @@ impl BitcoinRpcClient {
     /// Imports one or more descriptors into the currently loaded wallet.
     ///
     /// # Arguments
-    /// * `descriptors` – A slice of `ImportDescriptorsRequest` items. Each item defines a single
+    /// * `descriptors` – A slice of [`ImportDescriptorsRequest`] items. Each item defines a single
     ///   descriptor and optional metadata for how it should be imported.
     ///
     /// # Returns
