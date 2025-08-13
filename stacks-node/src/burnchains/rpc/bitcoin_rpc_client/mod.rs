@@ -632,7 +632,7 @@ impl BitcoinRpcClient {
     /// * `descriptor` - The descriptor string to analyze.
     ///
     /// # Returns
-    /// A `DescriptorInfoResponse` containing parsed descriptor information such as the checksum.
+    /// A [`DescriptorInfoResponse`] containing parsed descriptor information such as the checksum.
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.18.0**.
