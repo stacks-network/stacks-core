@@ -116,8 +116,8 @@ impl PoxAddress {
     /// Used only in tests, and even then, only in ones that expect a legacy Bitcoin address.
     #[cfg(any(test, feature = "testing"))]
     pub fn hash160(&self) -> Hash160 {
-        match *self {
-            PoxAddress::Standard(addr, _) => addr.bytes().clone(),
+        match self {
+            PoxAddress::Standard(addr, _) => *addr.bytes(),
             _ => panic!("Called hash160 on a non-standard PoX address"),
         }
     }
@@ -125,7 +125,7 @@ impl PoxAddress {
     /// Get the data portion of this address.  This does not include the address or witness
     /// version.
     pub fn bytes(&self) -> Vec<u8> {
-        match *self {
+        match self {
             PoxAddress::Standard(addr, _) => addr.bytes().0.to_vec(),
             PoxAddress::Addr20(_, _, bytes) => bytes.to_vec(),
             PoxAddress::Addr32(_, _, bytes) => bytes.to_vec(),
@@ -409,7 +409,7 @@ impl PoxAddress {
 
     /// Convert this PoxAddress into a Bitcoin tx output
     pub fn to_bitcoin_tx_out(&self, value: u64) -> TxOut {
-        match *self {
+        match self {
             PoxAddress::Standard(addr, _) => {
                 // legacy Bitcoin address
                 let btc_version = to_b58_version_byte(addr.version()).expect(

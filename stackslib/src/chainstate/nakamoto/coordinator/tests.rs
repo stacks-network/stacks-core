@@ -449,7 +449,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
-        vec![(addr.into(), 100_000_000)],
+        vec![(addr.clone().into(), 100_000_000)],
         &mut test_signers,
         &test_stackers,
         None,
@@ -823,7 +823,7 @@ fn block_descendant() {
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
         .with_test_stackers(test_stackers)
         .with_test_signers(test_signers)
-        .with_private_key(private_key);
+        .with_private_key(private_key.clone());
     boot_plan.pox_constants = pox_constants;
 
     let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], None);
@@ -918,7 +918,7 @@ fn block_info_tests(use_primary_testnet: bool) {
         NakamotoBootPlan::new(&format!("{}.{use_primary_testnet}", function_name!()))
             .with_test_stackers(test_stackers)
             .with_test_signers(test_signers)
-            .with_private_key(private_key)
+            .with_private_key(private_key.clone())
             .with_network_id(chain_id);
     boot_plan.pox_constants = pox_constants;
 
@@ -1341,7 +1341,7 @@ fn pox_treatment() {
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
         .with_test_stackers(test_stackers.clone())
         .with_test_signers(test_signers)
-        .with_private_key(private_key);
+        .with_private_key(private_key.clone());
     boot_plan.pox_constants = pox_constants;
 
     let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], None);
@@ -1594,7 +1594,7 @@ fn transactions_indexing() {
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
         .with_test_stackers(test_stackers.clone())
         .with_test_signers(test_signers.clone())
-        .with_private_key(private_key)
+        .with_private_key(private_key.clone())
         .with_txindex(true);
     boot_plan.pox_constants = pox_constants;
 
@@ -1659,7 +1659,7 @@ fn transactions_not_indexing() {
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
         .with_test_stackers(test_stackers.clone())
         .with_test_signers(test_signers.clone())
-        .with_private_key(private_key)
+        .with_private_key(private_key.clone())
         .with_txindex(false);
     boot_plan.pox_constants = pox_constants;
 
@@ -1708,7 +1708,7 @@ fn test_nakamoto_chainstate_getters() {
     let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
-        vec![(addr.into(), 100_000_000)],
+        vec![(addr.clone().into(), 100_000_000)],
         &mut test_signers,
         &test_stackers,
         None,
@@ -2196,7 +2196,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
-        vec![(addr.into(), 100_000_000)],
+        vec![(addr.clone().into(), 100_000_000)],
         &mut test_signers,
         &test_stackers,
         None,
@@ -2541,7 +2541,7 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
     let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
-        vec![(addr.into(), 100_000_000)],
+        vec![(addr.clone().into(), 100_000_000)],
         &mut test_signers,
         &test_stackers,
         None,
@@ -2894,7 +2894,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
     ]);
     let mut peer = boot_nakamoto(
         function_name!(),
-        vec![(addr.into(), 100_000_000)],
+        vec![(addr.clone().into(), 100_000_000)],
         &mut test_signers,
         &test_stackers,
         None,
@@ -3212,7 +3212,7 @@ fn process_next_nakamoto_block_deadlock() {
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
         .with_test_stackers(test_stackers)
         .with_test_signers(test_signers)
-        .with_private_key(private_key);
+        .with_private_key(private_key.clone());
     boot_plan.pox_constants = pox_constants;
 
     info!("Creating peer");
@@ -3301,7 +3301,7 @@ fn test_stacks_on_burnchain_ops() {
     let observer = TestEventObserver::new();
     let mut peer = boot_nakamoto(
         function_name!(),
-        vec![(addr.into(), 100_000_000)],
+        vec![(addr.clone().into(), 100_000_000)],
         &mut test_signers,
         &test_stackers,
         Some(&observer),

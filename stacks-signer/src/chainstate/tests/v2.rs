@@ -97,7 +97,7 @@ fn setup_test_environment(
     };
 
     let stacks_client = StacksClient::new(
-        StacksPrivateKey::random(),
+        &StacksPrivateKey::random(),
         SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 10000).to_string(),
         "FOO".into(),
         false,
@@ -435,7 +435,7 @@ fn check_sortition_timeout() {
     std::thread::sleep(Duration::from_secs(3));
     let address = StacksAddress::p2pkh(false, &StacksPublicKey::new());
     let mut address_weights = HashMap::new();
-    address_weights.insert(address, 10);
+    address_weights.insert(address.clone(), 10);
     let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
     // We have not yet timed out
     assert!(!SortitionState::is_timed_out(
