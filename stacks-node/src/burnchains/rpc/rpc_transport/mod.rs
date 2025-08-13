@@ -111,7 +111,7 @@ pub enum RpcError {
     UrlParse(#[from] url::ParseError),
 }
 
-/// Alias for results returned from RPC operations using `RpcTransport`.
+/// Alias for results returned from RPC operations using [`RpcTransport`].
 pub type RpcResult<T> = Result<T, RpcError>;
 
 /// Represents supported authentication mechanisms for RPC requests.
