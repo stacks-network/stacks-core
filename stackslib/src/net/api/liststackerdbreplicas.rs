@@ -60,7 +60,7 @@ impl HttpRequest for RPCListStackerDBReplicasRequestHandler {
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v2/stackedb/:principal/:contract_name/replicas"
+        "/v2/stackerdb/:principal/:contract_name/replicas"
     }
 
     /// Try to decode this request.

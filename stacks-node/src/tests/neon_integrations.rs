@@ -2010,7 +2010,6 @@ fn stx_transfer_btc_integration_test() {
                 StacksEpochId::Epoch2_05,
                 BlockstackOperationType::PreStx(pre_stx_op),
                 &mut miner_signer,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -2040,7 +2039,6 @@ fn stx_transfer_btc_integration_test() {
                 StacksEpochId::Epoch2_05,
                 BlockstackOperationType::TransferStx(transfer_stx_op),
                 &mut spender_signer,
-                1
             )
             .is_ok(),
         "Transfer operation should submit successfully"
@@ -2279,7 +2277,6 @@ fn stx_delegate_btc_integration_test() {
                 StacksEpochId::Epoch21,
                 BlockstackOperationType::PreStx(pre_stx_op),
                 &mut miner_signer,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -2308,7 +2305,6 @@ fn stx_delegate_btc_integration_test() {
                 StacksEpochId::Epoch21,
                 BlockstackOperationType::DelegateStx(del_stx_op),
                 &mut spender_signer,
-                1
             )
             .is_ok(),
         "Delegate operation should submit successfully"
@@ -2568,7 +2564,6 @@ fn stack_stx_burn_op_test() {
                 StacksEpochId::Epoch25,
                 BlockstackOperationType::PreStx(pre_stx_op_1),
                 &mut miner_signer_1,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -2589,7 +2584,6 @@ fn stack_stx_burn_op_test() {
                 StacksEpochId::Epoch25,
                 BlockstackOperationType::PreStx(pre_stx_op_2),
                 &mut miner_signer_2,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -2676,7 +2670,6 @@ fn stack_stx_burn_op_test() {
                 StacksEpochId::Epoch25,
                 stack_stx_op_with_some_signer_key,
                 &mut spender_signer_1,
-                1
             )
             .is_ok(),
         "Stack STX operation with some signer key should submit successfully"
@@ -2704,7 +2697,6 @@ fn stack_stx_burn_op_test() {
                 StacksEpochId::Epoch25,
                 stack_stx_op_with_no_signer_key,
                 &mut spender_signer_2,
-                1
             )
             .is_ok(),
         "Stack STX operation with no signer key should submit successfully"
@@ -3004,7 +2996,6 @@ fn vote_for_aggregate_key_burn_op_test() {
                 StacksEpochId::Epoch25,
                 BlockstackOperationType::PreStx(pre_stx_op),
                 &mut miner_signer,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -3061,7 +3052,6 @@ fn vote_for_aggregate_key_burn_op_test() {
                 StacksEpochId::Epoch25,
                 vote_for_aggregate_key_op,
                 &mut spender_signer,
-                1
             )
             .is_ok(),
         "Vote for aggregate key operation should submit successfully"

@@ -3805,7 +3805,6 @@ fn tx_replay_btc_on_stx_invalidation() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::PreStx(pre_stx_op),
                 &mut miner_keychain,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -3834,8 +3833,7 @@ fn tx_replay_btc_on_stx_invalidation() {
             .submit_operation(
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::TransferStx(transfer_stx_op),
-                &mut sender_burnop_signer,
-                1
+                &mut sender_burnop_signer
             )
             .is_ok(),
         "Transfer STX operation should submit successfully"
@@ -18194,4 +18192,161 @@ fn multiversioned_signer_protocol_version_calculation() {
     })
     .unwrap();
     signer_test.shutdown();
+}
+
+/// Ensure that signers can immediately start participating in signing when starting up
+/// after crashing mid reward cycle.
+///
+/// Test scenario:
+/// - Miner A wins Tenure A
+/// - Miner A proposes block N (Tenure Change)
+/// - All signers sign block N.
+/// - Miner B wins Tenure B.
+/// - Shutdown one signer.
+/// - Shutdown signer is restarted.
+/// - Miner B proposes block N+1 (TenureChange).
+/// - All signers sign the block without issue
+/// -> Verifies that updates are loaded from signerdb on init
+/// - Same signer is shutdown.
+/// - Shutdown signers db is cleared.
+/// - Signer is restarted.
+/// - Miner B proposes block N+2 (Transfer).
+/// - All signers including the restarted signer sign block N+2
+/// -> Verifies that updates are loaded from stackerdb on init
+#[test]
+#[ignore]
+fn signer_loads_stackerdb_updates_on_startup() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let mut miners = MultipleMinerTest::new(num_signers, 1);
+
+    let skip_commit_op_rl1 = miners
+        .signer_test
+        .running_nodes
+        .counters
+        .naka_skip_commit_op
+        .clone();
+    let skip_commit_op_rl2 = miners.rl2_counters.naka_skip_commit_op.clone();
+
+    let (conf_1, _conf_2) = miners.get_node_configs();
+    let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
+    let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
+
+    let all_signers = miners.signer_test.signer_test_pks();
+
+    // Pause Miner 2's commits to ensure Miner 1 wins the first sortition.
+    skip_commit_op_rl2.set(true);
+    miners.boot_to_epoch_3();
+
+    let sortdb = conf_1.get_burnchain().open_sortition_db(true).unwrap();
+
+    info!("Pausing miner 1's block commit submissions");
+    skip_commit_op_rl1.set(true);
+
+    info!("------------------------- Miner A Wins Tenure A -------------------------");
+    let info_before = get_chain_info(&conf_1);
+    // Let's not mine anything until we see consensus on new tenure start.
+    TEST_MINE_SKIP.set(true);
+    next_block_and(&miners.btc_regtest_controller_mut(), 60, || {
+        let info = get_chain_info(&conf_1);
+        Ok(info.burn_block_height > info_before.burn_block_height)
+    })
+    .unwrap();
+    let chain_after = get_chain_info(&conf_1);
+    wait_for_state_machine_update_by_miner_tenure_id(
+        30,
+        &chain_after.pox_consensus,
+        &miners.signer_test.signer_addresses_versions(),
+    )
+    .expect("Timed out waiting for the signers to update their state");
+    verify_sortition_winner(&sortdb, &miner_pkh_1);
+
+    info!(
+        "------------------------- Miner A Mines Block N (Tenure Change) -------------------------"
+    );
+    TEST_MINE_SKIP.set(false);
+    let block_n =
+        wait_for_block_pushed_by_miner_key(30, chain_after.stacks_tip_height + 1, &miner_pk_1)
+            .expect("Failed to mine block N");
+    wait_for_block_acceptance_from_signers(
+        30,
+        &block_n.header.signer_signature_hash(),
+        &all_signers,
+    )
+    .expect("Not all signers accepted the block");
+
+    info!("------------------------- Miner B Wins Tenure B -------------------------");
+    miners.submit_commit_miner_2(&sortdb);
+    let chain_before = get_chain_info(&conf_1);
+    // Let's not mine anything until we see consensus on new tenure start.
+    TEST_MINE_SKIP.set(true);
+    next_block_and(&miners.btc_regtest_controller_mut(), 60, || {
+        let info = get_chain_info(&conf_1);
+        Ok(info.burn_block_height > chain_before.burn_block_height)
+    })
+    .unwrap();
+    let chain_after = get_chain_info(&conf_1);
+    wait_for_state_machine_update_by_miner_tenure_id(
+        30,
+        &chain_after.pox_consensus,
+        &miners.signer_test.signer_addresses_versions(),
+    )
+    .expect("Signers failed to update their state");
+    verify_sortition_winner(&sortdb, &miner_pkh_2);
+
+    let stop_idx = 0;
+    info!("------------------------- Shutdown Signer at idx {stop_idx} -------------------------");
+    let stopped_signer_config = miners.signer_test.stop_signer(stop_idx);
+    info!("------------------------- Restart Signer at idx {stop_idx} -------------------------");
+    miners
+        .signer_test
+        .restart_signer(stop_idx, stopped_signer_config);
+
+    info!("------------------------- Miner B Mines Block N+1 (Tenure Change) -------------------------");
+    TEST_MINE_SKIP.set(false);
+    let block_n_1 =
+        wait_for_block_pushed_by_miner_key(30, chain_after.stacks_tip_height + 1, &miner_pk_2)
+            .expect("Failed to mine block N+1");
+    wait_for_block_acceptance_from_signers(
+        30,
+        &block_n_1.header.signer_signature_hash(),
+        &all_signers,
+    )
+    .expect("Not all signers accepted the block");
+
+    info!("------------------------- Shutdown Signer at idx {stop_idx} -------------------------");
+    let stopped_signer_config = miners.signer_test.stop_signer(stop_idx);
+    {
+        let mut signer_db = SignerDb::new(stopped_signer_config.db_path.clone()).unwrap();
+        signer_db
+            .clear_state_machine_updates()
+            .expect("Failed to clear state machine updates");
+    }
+    info!("------------------------- Restart Signer at idx {stop_idx} -------------------------");
+    miners
+        .signer_test
+        .restart_signer(stop_idx, stopped_signer_config);
+
+    // Wait until signer boots up BEFORE proposing the next block
+    miners.signer_test.wait_for_registered();
+    info!("------------------------- Miner B Mines Block N+2 (Transfer) -------------------------");
+    let (accepting, ignoring) = all_signers.split_at(4);
+    // Make some of the signers ignore so that we CANNOT advance without approval from the restarted signer (its at index 0)
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(ignoring.into());
+    miners.send_transfer_tx();
+    let block_n_2 =
+        wait_for_block_pushed_by_miner_key(30, chain_after.stacks_tip_height + 2, &miner_pk_2)
+            .expect("Failed to mine block N+2");
+    wait_for_block_acceptance_from_signers(
+        30,
+        &block_n_2.header.signer_signature_hash(),
+        &accepting,
+    )
+    .expect("Not all signers accepted the block");
+
+    info!("------------------------- Shutdown -------------------------");
+    miners.shutdown();
 }
