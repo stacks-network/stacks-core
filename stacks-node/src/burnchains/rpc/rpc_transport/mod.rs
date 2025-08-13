@@ -182,7 +182,7 @@ impl RpcTransport {
     /// # Returns
     ///
     /// Returns `RpcResult<T>`, which is a result containing either the successfully deserialized response of type `T`
-    /// or an `RpcError` otherwise
+    /// or an [`RpcError`] otherwise
     pub fn send<T: for<'de> Deserialize<'de>>(
         &self,
         id: &str,
