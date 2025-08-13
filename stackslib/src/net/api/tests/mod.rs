@@ -45,7 +45,7 @@ use crate::chainstate::stacks::{
 };
 use crate::core::MemPoolDB;
 use crate::net::db::PeerDB;
-use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
+use crate::net::httpcore::{HttpPreambleExtensions as _, StacksHttpRequest, StacksHttpResponse};
 use crate::net::relay::Relayer;
 use crate::net::rpc::ConversationHttp;
 use crate::net::test::{RPCHandlerArgsType, TestEventObserver, TestPeer, TestPeerConfig};
@@ -1288,6 +1288,8 @@ impl<'a> TestRPC<'a> {
             assert!(resp_opt.is_some());
 
             let resp = resp_opt.unwrap();
+            assert!(resp.preamble().get_canonical_stacks_tip_height().is_some());
+
             responses.push(resp);
         }
 
