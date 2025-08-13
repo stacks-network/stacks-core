@@ -70,11 +70,11 @@ name = "stacks-events"
 path = "src/stacks_events.rs"
 
 [features]
-monitoring_prom = ["stacks/monitoring_prom", "stacks-signer/monitoring_prom", "async-h1", "async-std", "http-types"]
+monitoring_prom = ["stacks/monitoring_prom", "async-h1", "async-std", "http-types"]
 slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []
-testing = ["stacks-common/testing", "stacks/testing", "clarity/testing", "stacks-signer/testing"]
+testing = ["stacks-common/testing", "stacks/testing", "clarity/testing"]
 build-signer-v3-1-0-0-13 = ["signer_v3_1_0_0_13", "libsigner_v3_1_0_0_13", "stacks_v3_1_00_13", "stacks_common_v3_1_00_13"]
 
 [package.metadata.pinny]

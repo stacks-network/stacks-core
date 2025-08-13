@@ -961,7 +961,7 @@ impl RelayerThread {
         let mut op_signer = self.keychain.generate_op_signer();
         if let Ok(txid) = self
             .bitcoin_controller
-            .submit_operation(cur_epoch, op, &mut op_signer, 1)
+            .submit_operation(cur_epoch, op, &mut op_signer)
         {
             // advance key registration state
             self.last_vrf_key_burn_height = Some(burn_block.block_height);
@@ -1664,7 +1664,6 @@ impl RelayerThread {
             *last_committed.get_epoch_id(),
             BlockstackOperationType::LeaderBlockCommit(last_committed.get_block_commit().clone()),
             &mut op_signer,
-            1,
         );
         let txid = match res {
             Ok(txid) => txid,
