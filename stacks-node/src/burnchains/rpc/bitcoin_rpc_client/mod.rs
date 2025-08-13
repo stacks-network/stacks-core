@@ -495,6 +495,9 @@ impl BitcoinRpcClient {
     /// # Returns
     /// A Vec<[`ListUnspentResponse`]> containing the matching UTXOs.
     ///
+    /// # Availability
+    /// - **Since**: Bitcoin Core **v0.7.0**.
+    ///
     /// # Notes
     /// This method supports a subset of available RPC arguments to match current usage.
     /// Additional parameters can be added in the future as needed.
