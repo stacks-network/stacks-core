@@ -639,8 +639,9 @@ pub struct PeerNetwork {
     /// Thread handle for the async block proposal endpoint.
     block_proposal_thread: Option<JoinHandle<()>>,
 
-    /// Highest stacks block height received from RPC responses from neighbors
-    pub highest_stacks_height_of_neighbors: u64,
+    /// Address and height of the neighbor that reported the highest Stacks block height
+    /// via RPC responses
+    pub highest_stacks_neighbor: Option<(SocketAddr, u64)>,
 }
 
 impl PeerNetwork {
@@ -803,7 +804,7 @@ impl PeerNetwork {
 
             block_proposal_thread: None,
 
-            highest_stacks_height_of_neighbors: 0,
+            highest_stacks_neighbor: None,
         };
 
         network.init_block_downloader();

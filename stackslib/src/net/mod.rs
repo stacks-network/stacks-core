@@ -807,11 +807,23 @@ impl<'a> StacksNodeState<'a> {
         })
     }
 
-    pub fn update_highest_stacks_height_of_neighbors(&mut self, new_height: Option<u64>) {
+    pub fn update_highest_stacks_neighbor(
+        &mut self,
+        new_address: &SocketAddr,
+        new_height: Option<u64>,
+    ) {
         self.with_node_state(|network, _, _, _, _| {
-            network.highest_stacks_height_of_neighbors = network
-                .highest_stacks_height_of_neighbors
-                .max(new_height.unwrap_or(0));
+            if let Some(new_height) = new_height {
+                let current_height = network
+                    .highest_stacks_neighbor
+                    .as_ref()
+                    .map(|(_addr, height)| *height)
+                    .unwrap_or(0);
+
+                if new_height > current_height {
+                    network.highest_stacks_neighbor = Some((new_address.clone(), new_height));
+                }
+            }
         });
     }
 }

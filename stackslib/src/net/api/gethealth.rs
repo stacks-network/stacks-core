@@ -35,6 +35,8 @@ pub struct RPCGetHealthResponse {
     pub difference_from_max_peer: u64,
     /// the max height of the node's most advanced neighbor
     pub max_stacks_height_of_neighbors: u64,
+    /// the address of the node's most advanced neighbor
+    pub max_stacks_neighbor_address: Option<String>,
     /// the height of this node
     pub node_stacks_tip_height: u64,
 }
@@ -105,11 +107,15 @@ impl RPCRequestHandler for RPCGetHealthRequestHandler {
         let (max_stacks_height_of_neighbors, node_stacks_tip_height) =
             node.with_node_state(|network, _sortdb, _chainstate, _mempool, _rpc_args| {
                 (
-                    network.highest_stacks_height_of_neighbors,
+                    network.highest_stacks_neighbor,
                     network.stacks_tip.height,
                 )
             });
 
+        let (max_stacks_neighbor_address, max_stacks_height_of_neighbors) = match max_stacks_height_of_neighbors {
+            Some((addr, height)) => (Some(addr.to_string()), height),
+            None => (None, 0),
+        };
         // There could be a edge case where our node is ahead of all peers.
         let difference_from_max_peer =
             max_stacks_height_of_neighbors.saturating_sub(node_stacks_tip_height);
@@ -118,6 +124,7 @@ impl RPCRequestHandler for RPCGetHealthRequestHandler {
         let data = RPCGetHealthResponse {
             difference_from_max_peer,
             max_stacks_height_of_neighbors,
+            max_stacks_neighbor_address,
             node_stacks_tip_height,
         };
         let body = HttpResponseContents::try_from_json(&data)?;

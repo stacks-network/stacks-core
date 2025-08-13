@@ -56,6 +56,7 @@ fn test_get_health(
     #[case] expected_difference_from_max_peer: u64,
 ) {
     // `rpc_test` will have peer_1 (client) and peer_2 (server/node)
+
     let test_observer = TestEventObserver::new();
     let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
 
@@ -69,7 +70,8 @@ fn test_get_health(
     } else {
         node_stacks_tip_height + (peer_1_height_relative_to_node as u64)
     };
-    rpc_test.peer_2.network.highest_stacks_height_of_neighbors = peer_1_actual_height;
+    let peer_1_addr: SocketAddr = rpc_test.peer_1.config.data_url.parse().unwrap();
+    rpc_test.peer_2.network.highest_stacks_neighbor = Some((peer_1_addr.clone(), peer_1_actual_height));
 
     // --- Invoke the Handler ---
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
@@ -98,6 +100,12 @@ fn test_get_health(
     assert_eq!(
         health_response.difference_from_max_peer, expected_difference_from_max_peer,
         "Mismatch in difference_from_max_peer"
+    );
+
+    assert_eq!(
+        health_response.max_stacks_neighbor_address,
+        Some(peer_1_addr.to_string()),
+        "Mismatch in max_stacks_neighbor_address"
     );
 }
 

@@ -23,6 +23,7 @@ pub mod neighbors;
 pub mod relay;
 
 use std::collections::{HashMap, HashSet};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libstackerdb::StackerDBChunkData;
@@ -1808,19 +1809,23 @@ fn test_network_result_update() {
 }
 
 #[rstest]
-#[case::zero_to_none(0, None, 0)]
-#[case::zero_to_some(0, Some(10), 10)]
-#[case::some_to_none(10, None, 10)]
-#[case::new_height_higher(10, Some(20), 20)]
-#[case::new_height_lower(20, Some(10), 20)]
+#[case::none_to_none(None, None, 0)]
+#[case::none_to_some(None, Some(10), 10)]
+#[case::some_to_none(Some(10), None, 10)]
+#[case::new_height_higher(Some(10), Some(20), 20)]
+#[case::new_height_lower(Some(20), Some(10), 20)]
 fn test_update_highest_stacks_height_of_neighbors(
-    #[case] old_height: u64,
+    #[case] old_height: Option<u64>,
     #[case] new_height: Option<u64>,
     #[case] expected_height: u64,
 ) {
     let peer_config = TestPeerConfig::new(function_name!(), 0, 0);
     let mut peer = TestPeer::new(peer_config);
-    peer.network.highest_stacks_height_of_neighbors = old_height;
+    if let Some(old_height) = old_height {
+        peer.network.highest_stacks_neighbor = Some((SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080), old_height));
+    } else {
+        peer.network.highest_stacks_neighbor = None;
+    }
     let peer_sortdb = peer.sortdb.take().unwrap();
     let mut peer_stacks_node = peer.stacks_node.take().unwrap();
     let mut peer_mempool = peer.mempool.take().unwrap();
@@ -1835,9 +1840,14 @@ fn test_update_highest_stacks_height_of_neighbors(
         false,
     );
 
-    node_state.update_highest_stacks_height_of_neighbors(new_height);
+    let new_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081);
+    node_state.update_highest_stacks_neighbor(&new_addr, new_height);
+    if let Some(new_height) = new_height {
     assert_eq!(
-        peer.network.highest_stacks_height_of_neighbors,
-        expected_height
-    );
+        peer.network.highest_stacks_neighbor,
+            Some((new_addr, expected_height))
+        );
+    } else {
+        assert_eq!(peer.network.highest_stacks_neighbor, None);
+    }
 }
