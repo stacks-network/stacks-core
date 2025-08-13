@@ -71,7 +71,8 @@ fn test_get_health(
         node_stacks_tip_height + (peer_1_height_relative_to_node as u64)
     };
     let peer_1_addr: SocketAddr = rpc_test.peer_1.config.data_url.parse().unwrap();
-    rpc_test.peer_2.network.highest_stacks_neighbor = Some((peer_1_addr.clone(), peer_1_actual_height));
+    rpc_test.peer_2.network.highest_stacks_neighbor =
+        Some((peer_1_addr.clone(), peer_1_actual_height));
 
     // --- Invoke the Handler ---
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);

@@ -1822,7 +1822,10 @@ fn test_update_highest_stacks_height_of_neighbors(
     let peer_config = TestPeerConfig::new(function_name!(), 0, 0);
     let mut peer = TestPeer::new(peer_config);
     if let Some(old_height) = old_height {
-        peer.network.highest_stacks_neighbor = Some((SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080), old_height));
+        peer.network.highest_stacks_neighbor = Some((
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080),
+            old_height,
+        ));
     } else {
         peer.network.highest_stacks_neighbor = None;
     }
@@ -1843,8 +1846,8 @@ fn test_update_highest_stacks_height_of_neighbors(
     let new_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081);
     node_state.update_highest_stacks_neighbor(&new_addr, new_height);
     if let Some(new_height) = new_height {
-    assert_eq!(
-        peer.network.highest_stacks_neighbor,
+        assert_eq!(
+            peer.network.highest_stacks_neighbor,
             Some((new_addr, expected_height))
         );
     } else {
