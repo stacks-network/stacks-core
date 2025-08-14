@@ -68,7 +68,7 @@ impl Eq for VRFPublicKey {}
 
 impl PartialOrd for VRFPublicKey {
     fn partial_cmp(&self, other: &VRFPublicKey) -> Option<Ordering> {
-        Some(self.as_bytes().to_vec().cmp(&other.as_bytes().to_vec()))
+        Some(self.cmp(other))
     }
 }
 

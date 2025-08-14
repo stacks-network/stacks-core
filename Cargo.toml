@@ -4,15 +4,16 @@ members = [
     "stackslib",
     "stacks-common",
     "pox-locking",
+    "clarity-serialization",
     "clarity",
     "stx-genesis",
     "libstackerdb",
     "libsigner",
     "stacks-signer",
     "stacks-node",
-    "contrib/tools/config-docs-generator"]
+]
 
-exclude = ["contrib/clarity-serialization"]
+exclude = ["contrib/tools/config-docs-generator"]
 
 # Dependencies we want to keep the same between workspace members
 [workspace.dependencies]

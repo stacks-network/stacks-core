@@ -475,10 +475,10 @@ impl MemPoolTxMetadata {
     pub fn get_unknown_nonces(&self) -> Vec<StacksAddress> {
         let mut needs_nonces = vec![];
         if self.last_known_origin_nonce.is_none() {
-            needs_nonces.push(self.origin_address);
+            needs_nonces.push(self.origin_address.clone());
         }
         if self.last_known_sponsor_nonce.is_none() {
-            needs_nonces.push(self.sponsor_address);
+            needs_nonces.push(self.sponsor_address.clone());
         }
         needs_nonces
     }

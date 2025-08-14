@@ -1012,7 +1012,7 @@ fn delegate_stack_increase() {
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
     let bob_principal = PrincipalData::from(bob_address.clone());
-    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes().clone());
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *bob_address.bytes());
     let mut alice_nonce = 0;
     let mut bob_nonce = 0;
 
@@ -2756,10 +2756,7 @@ fn delegate_extend_pox_3() {
         "delegate-stack-extend",
         vec![
             PrincipalData::from(bob_address.clone()).into(),
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(1),
         ],
     );
@@ -2849,10 +2846,7 @@ fn delegate_extend_pox_3() {
         "delegate-stack-extend",
         vec![
             PrincipalData::from(bob_address.clone()).into(),
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
             Value::UInt(3),
         ],
     );
@@ -3837,7 +3831,7 @@ fn stack_aggregation_increase() {
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
     let bob_principal = PrincipalData::from(bob_address.clone());
-    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes().clone());
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *bob_address.bytes());
     let charlie = keys.pop().unwrap();
     let charlie_address = key_to_stacks_addr(&charlie);
     let charlie_pox_addr = make_pox_addr(
@@ -3847,7 +3841,7 @@ fn stack_aggregation_increase() {
     let dan = keys.pop().unwrap();
     let dan_address = key_to_stacks_addr(&dan);
     let dan_principal = PrincipalData::from(dan_address.clone());
-    let dan_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, dan_address.bytes().clone());
+    let dan_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *dan_address.bytes());
     let alice_nonce = 0;
     let mut bob_nonce = 0;
     let mut charlie_nonce = 0;
