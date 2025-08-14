@@ -477,5 +477,5 @@ fn prop_ephemeral_tip_height_matches_current() {
 }
 
 // Test TODO:
-// * nakamoto boot plan with Clarity smart contracts which exercise the Clarity DB thoroghly 
+// * nakamoto boot plan with Clarity smart contracts which exercise the Clarity DB thoroghly
 // * stacks 2.x test

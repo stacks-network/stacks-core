@@ -1628,7 +1628,8 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     /// Otherwise, use the disk-backed one.
     fn get_open_chain_tip_height(&mut self) -> u32 {
         if let EphemeralTip::RAM(..) = &self.open_tip {
-            return self.ephemeral_marf
+            return self
+                .ephemeral_marf
                 .get_open_chain_tip_height()
                 .expect("Attempted to get the open chain tip from an unopened context.")
                 + self.base_tip_height;
