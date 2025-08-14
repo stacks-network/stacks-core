@@ -654,7 +654,7 @@ impl BitcoinRpcClient {
     ///   descriptor and optional metadata for how it should be imported.
     ///
     /// # Returns
-    /// A vector of `ImportDescriptorsResponse` results, one for each descriptor import attempt.
+    /// A vector of [`ImportDescriptorsResponse`] results, one for each descriptor import attempt.
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.21.0**.
