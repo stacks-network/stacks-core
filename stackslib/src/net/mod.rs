@@ -2432,9 +2432,9 @@ pub mod test {
 
     /// make a TCP server and a pair of TCP client sockets
     pub fn make_tcp_sockets() -> (
-        mio::tcp::TcpListener,
-        mio::tcp::TcpStream,
-        mio::tcp::TcpStream,
+        mio::net::TcpListener,
+        mio::net::TcpStream,
+        mio::net::TcpStream,
     ) {
         let mut rng = rand::thread_rng();
         let (std_listener, port) = {
@@ -2465,14 +2465,14 @@ pub mod test {
                 .unwrap(),
         )
         .unwrap();
-        let sock_1 = mio::tcp::TcpStream::from_stream(std_sock_1).unwrap();
+        let sock_1 = mio::net::TcpStream::from_stream(std_sock_1).unwrap();
         let (std_sock_2, _) = std_listener.accept().unwrap();
-        let sock_2 = mio::tcp::TcpStream::from_stream(std_sock_2).unwrap();
+        let sock_2 = mio::net::TcpStream::from_stream(std_sock_2).unwrap();
 
         sock_1.set_nodelay(true).unwrap();
         sock_2.set_nodelay(true).unwrap();
 
-        let listener = mio::tcp::TcpListener::from_std(std_listener).unwrap();
+        let listener = mio::net::TcpListener::from_std(std_listener).unwrap();
 
         (listener, sock_1, sock_2)
     }

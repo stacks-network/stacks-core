@@ -26,11 +26,11 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512_256};
 use stacks_common::codec::{
-    read_next, read_next_at_most, write_next, Error as CodecError, StacksMessageCodec,
+    Error as CodecError, StacksMessageCodec, read_next, read_next_at_most, write_next,
 };
-use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::PrivateKey;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, hex_bytes, to_hex};
 use stacks_common::util::secp256k1::MessageSignature;
 
 /// maximum chunk size (16 MB; same as MAX_PAYLOAD_SIZE)

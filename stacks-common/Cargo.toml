@@ -21,65 +21,16 @@ keywords = [
     "blockchain",
 ]
 readme = "README.md"
-resolver = "2"
+resolver = "3"
 edition = "2021"
 build = "build.rs"
+
+[package.metadata.cargo-machete]
+ignored = ["getrandom", "toml"]
 
 [lib]
 name = "stacks_common"
 path = "./src/libcommon.rs"
-
-[dependencies]
-chrono = { version = "0.4.41", default-features = false, features = ["clock"] }
-curve25519-dalek = { version = "4.1.3", default-features = false, features = ["serde"] }
-ed25519-dalek = { workspace = true }
-hashbrown = { workspace = true }
-lazy_static = { workspace = true }
-ripemd = { version = "0.1.1", default-features = false }
-serde = { workspace = true , features = ["derive"] }
-serde_derive = { workspace = true }
-serde_json = { workspace = true }
-sha3 = { version = "0.10.1", default-features = false }
-slog = { workspace = true }
-slog-term = { version = "2.6.0", default-features = false }
-
-# Optional dependencies
-getrandom = { version = "0.2", default-features = false, optional = true }
-rand = { workspace = true, optional = true }
-slog-json = { version = "2.3.0", default-features = false, optional = true }
-
-[target.'cfg(unix)'.dependencies]
-nix = {version = "0.23", default-features = false, optional = true}
-
-[target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = [
-    "consoleapi",
-    "handleapi",
-    "synchapi",
-    "winbase",
-], optional = true }
-
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-secp256k1 = { version = "0.24.3", default-features = false, features = ["std","serde", "recovery"] }
-rusqlite = { workspace = true, optional = true }
-
-[target.'cfg(target_family = "wasm")'.dependencies]
-libsecp256k1 = { version = "0.7.0", default-features = false, features = ["hmac"] }
-
-[target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
-sha2 = { version = "0.10", features = ["asm"] }
-
-[target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), any(target_os="windows")))'.dependencies]
-sha2 = { version = "0.10" }
-
-[dev-dependencies]
-proptest = "1.6.0"
-
-[target.'cfg(windows)'.dev-dependencies]
-winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
-
-[build-dependencies]
-toml = { workspace = true }
 
 [features]
 default = ["developer-mode", "ctrlc-handler", "rand"]
@@ -87,7 +38,7 @@ developer-mode = []
 # Enables graceful shutdown handling for Ctrl+C (SIGINT) signals.
 # This pulls in the `nix` or `winapi` dependency.
 ctrlc-handler = ["dep:nix", "dep:winapi"]
-slog_json = ["slog-json"]
+slog_json = ["dep:slog-json"]
 rusqlite = ["dep:rusqlite", "rand"]
 # Enables the rand module. This flag must be off on deterministic
 # platforms such as CosmWasm
@@ -98,5 +49,57 @@ bech32_std = []
 bech32_strict = []
 
 # Wasm-specific features for easier configuration
-wasm-web = ["rand", "getrandom/js", "libsecp256k1/static-context"]
+wasm-web = ["rand", "getrandom/js", "libsecp256k1/static-context", "serde_json/std"]
 wasm-deterministic = ["getrandom/custom"]
+
+[target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
+sha2 = { workspace = true, features = ["asm"] }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+rusqlite = { workspace = true, optional = true }
+secp256k1.workspace = true
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+libsecp256k1.workspace = true
+
+[target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), any(target_os="windows")))'.dependencies]
+sha2.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true, optional = true }
+
+[target.'cfg(windows)'.dependencies]
+winapi = { workspace = true, features = [
+    "consoleapi",
+    "handleapi",
+    "synchapi",
+    "winbase",
+], optional = true }
+
+[dependencies]
+chrono = { workspace = true, features = ["clock"] }
+curve25519-dalek.workspace = true
+ed25519-dalek.workspace = true
+hashbrown.workspace = true
+lazy_static.workspace = true
+ripemd.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_derive.workspace = true
+serde_json = { workspace = true, features = ["std", "arbitrary_precision", "unbounded_depth"] }
+sha3.workspace = true
+slog.workspace = true
+slog-term.workspace = true
+
+# Optional dependencies
+getrandom = { workspace = true, optional = true }
+rand = { workspace = true, optional = true, features = ["std", "std_rng"] }
+slog-json = { workspace = true, optional = true }
+
+[build-dependencies]
+toml.workspace = true
+
+[target.'cfg(windows)'.dev-dependencies]
+winapi = { workspace = true, features = ["fileapi", "processenv", "winnt"] }
+
+[dev-dependencies]
+proptest.workspace = true

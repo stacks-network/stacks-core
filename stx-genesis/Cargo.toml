@@ -1,17 +1,19 @@
 [package]
 name = "stx-genesis"
 version = "0.1.0"
+edition = "2024"
 authors = ["Matthew Little <matthew@blockstack.com>"]
-edition = "2018"
-resolver = "2"
 
-[dependencies]
-libflate = "1.0.3"
+[package.metadata.cargo-machete]
+ignored = ["sha2"]
 
 [lib]
 name = "stx_genesis"
 path = "src/lib.rs"
 
+[dependencies]
+libflate.workspace = true
+
 [build-dependencies]
-libflate = "1.0.3"
-sha2 = { version = "0.10" }
+libflate.workspace = true
+sha2.workspace = true

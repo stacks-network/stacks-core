@@ -1,34 +1,100 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
-    "stackslib",
-    "stacks-common",
-    "pox-locking",
-    "clarity-serialization",
     "clarity",
-    "stx-genesis",
-    "libstackerdb",
+    "clarity-serialization",
+    "contrib/tools/config-docs-generator",
     "libsigner",
-    "stacks-signer",
+    "libstackerdb",
+    "pox-locking",
+    "stacks-common",
     "stacks-node",
-    "contrib/tools/config-docs-generator"]
+    "stacks-signer",
+    "stackslib",
+    "stx-genesis",
+]
 
-# Dependencies we want to keep the same between workspace members
 [workspace.dependencies]
+# Local Crates
+clarity = { path = "./clarity", default-features = false }
+clarity-serialization = { path = "./clarity-serialization", default-features = false }
+libsigner = { path = "./libsigner", default-features = false }
+libstackerdb = { path = "./libstackerdb", default-features = false }
+pox-locking = { path = "./pox-locking", default-features = false }
+stacks = { package = "stackslib", path = "./stackslib", default-features = false }  # Alias for stackslib
+stacks-common = { path = "./stacks-common", default-features = false }
+stacks-signer = { path = "./stacks-signer", default-features = false }
+stackslib = { path = "./stackslib", default-features = false }
+stx-genesis = { path = "./stx-genesis", default-features = false }
+
+# Stacks' dependencies
+madhouse = { git = "https://github.com/stacks-network/madhouse-rs.git", default-features = false, tag = "0.2.0" }
+pinny = { git = "https://github.com/BitcoinL2-Labs/pinny-rs.git", default-features = false, rev = "54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49" } #v0.0.2
+
+# Crates.io
+async-h1 = { version = "2.3.2", default-features = false }
+async-std = { version = "1.6", features = ["attributes"] }  # requires default features
+backoff = { version = "0.4", default-features = false }
+backtrace = { version = "0.3.50", default-features = false, features = ["std"] }
+base64 = { version = "0.12.0", default-features = false, features = ["std"] }
+chrono = { version = "0.4.41", default-features = false }
+clap = { version = "4.1.1", features = ["derive", "env"] }
+curve25519-dalek = { version = "4.1.3", default-features = false, features = ["serde"] }
 ed25519-dalek = { version = "2.1.1", default-features = false }
+getrandom = { version = "0.2", default-features = false }
 hashbrown = { version = "0.15.2", features = ["serde"] }
-lazy_static = "1.4.0"
-rand_core = "0.6.4"
-rand = "0.8"
-rand_chacha = "0.3.1"
-serde = "1"
-serde_derive = "1"
-serde_json = { version = "1.0", features = ["arbitrary_precision", "unbounded_depth"] }
-slog = { version = "2.5.2", features = [ "max_level_trace" ] }
-rusqlite = { version = "0.31.0", features = ["blob", "serde_json", "i128_blob", "bundled", "trace"] }
-tikv-jemallocator = "0.5.4"
-thiserror = "1.0.65"
-toml = "0.5.6"
+http-types = { version = "2.12", default-features = false }
+integer-sqrt = { version = "0.1.3", default-features = false }
+lazy_static = { version = "1.4.0", default-features = false }
+libc = { version = "0.2.151", default-features = false }
+libflate = { version = "1.0.3", default-features = false }
+libsecp256k1 = { version = "0.7.0", default-features = false, features = ["hmac"] }
+mio = { version = "0.6", default-features = false }
+nix = { version = "0.23", default-features = false }
+percent-encoding = { version = "2.1.0", default-features = false }
+pico-args = { version = "0.5.0", default-features = false }
+prometheus = { version = "0.9", default-features = false }
+rand = { version = "0.8", default-features = false }
+rand_chacha = { version = "0.3.1", default-features = false }
+regex = { version = "1", default-features = false }
+reqwest = { version = "0.11.22", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+ripemd = { version = "0.1.1", default-features = false }
+rusqlite = { version = "0.31.0", default-features = false, features = ["blob", "serde_json", "i128_blob", "bundled", "trace"] }
+secp256k1 = { version = "0.24.3", default-features = false, features = ["std","serde", "recovery"] }
+serde = { version = "1", default-features = false }
+serde_derive = { version = "1", default-features = false }
+serde_json = { version = "1.0", default-features = false }
+serde_stacker = { version = "0.1", default-features = false }
+sha2 = { version = "0.10", default-features = false, features = ["std"] }
+sha3 = { version = "0.10.1", default-features = false }
+siphasher = { version = "0.3.7", default-features = false }
+slog = { version = "2.5.2", default-features = false, features = [ "max_level_trace" ] }
+slog-json = { version = "2.3.0", default-features = false }
+slog-term = { version = "2.6.0", default-features = false }
+thiserror = { version = "1.0.65", default-features = false }
+tikv-jemallocator = { version = "0.5.4", default-features = false }
+time = { version = "0.3.41", default-features = false }
+tiny_http = { version = "0.12.0", default-features = false }
+toml = { version = "0.5.6", default-features = false }
+tracing = { version = "0.1.37", default-features = false }
+tracing-subscriber = { version = "0.3.17", default-features = false, features = ["env-filter"] }
+url = { version = "2.1.0", default-features = false }
+winapi = { version = "0.3", default-features = false }
+
+# Tests-only
+assert-json-diff = { version = "1.0.0", default-features = false }
+mockito = { version = "1.5", default-features = false }
+mutants = { version = "0.0.3", default-features = false }
+proptest = { version = "1.6.*", default-features = false, features = ["std"] }
+rand_core = { version = "0.6.4", default-features = false }
+rlimit = { version = "0.10.2", default-features = false }
+rstest = { version = "0.17.0", default-features = false }
+rstest_reuse = { version = "0.5.0", default-features = false }
+serial_test = { version = "3.2.0", default-features = false }
+stdext = { version = "0.3.1", default-features = false }
+tempfile = { version = "3.3", default-features = false }
+tokio = { version = "1.15", default-features = false }
+warp = { version = "0.3.5", default-features = false }
 
 # Use a bit more than default optimization for
 # dev builds to speed up test execution
