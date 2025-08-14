@@ -721,7 +721,7 @@ impl Signer {
             .try_into_update_message_with_version(local_version)
         {
             self.global_state_evaluator
-                .insert_update(self.stacks_address, update);
+                .insert_update(self.stacks_address.clone(), update);
         };
         let Some(latest_version) = self
             .global_state_evaluator

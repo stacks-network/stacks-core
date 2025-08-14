@@ -844,7 +844,7 @@ mod test {
                 .with_read_only_unconfirmed_clarity_tx(&iconn, |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
                         clarity_db
-                            .get_account_stx_balance(&recv_addr.into())
+                            .get_account_stx_balance(&recv_addr.clone().into())
                             .unwrap()
                     })
                 })
@@ -1082,7 +1082,7 @@ mod test {
                         |clarity_tx| {
                             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                                 clarity_db
-                                    .get_account_stx_balance(&recv_addr.into())
+                                    .get_account_stx_balance(&recv_addr.clone().into())
                                     .unwrap()
                             })
                         },
@@ -1108,7 +1108,7 @@ mod test {
                         |clarity_tx| {
                             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                                 clarity_db
-                                    .get_account_stx_balance(&recv_addr.into())
+                                    .get_account_stx_balance(&recv_addr.clone().into())
                                     .unwrap()
                             })
                         },

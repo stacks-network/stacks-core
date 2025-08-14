@@ -543,7 +543,7 @@ fn transition_fixes_bitcoin_rigidity() {
 
     let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
-    let spender_addr: PrincipalData = spender_stx_addr.into();
+    let spender_addr: PrincipalData = spender_stx_addr.clone().into();
     let _spender_btc_addr = BitcoinAddress::from_bytes_legacy(
         BitcoinNetworkType::Regtest,
         LegacyBitcoinAddressType::PublicKeyHash,
@@ -553,7 +553,7 @@ fn transition_fixes_bitcoin_rigidity() {
 
     let spender_2_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
     let spender_2_stx_addr: StacksAddress = to_addr(&spender_2_sk);
-    let spender_2_addr: PrincipalData = spender_2_stx_addr.into();
+    let spender_2_addr: PrincipalData = spender_2_stx_addr.clone().into();
 
     let epoch_2_05 = 210;
     let epoch_2_1 = 215;
@@ -654,7 +654,7 @@ fn transition_fixes_bitcoin_rigidity() {
 
     // okay, let's send a pre-stx op for a transfer-stx op that will get mined before the 2.1 epoch
     let pre_stx_op = PreStxOp {
-        output: spender_stx_addr,
+        output: spender_stx_addr.clone(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -685,8 +685,8 @@ fn transition_fixes_bitcoin_rigidity() {
     let recipient_sk = StacksPrivateKey::random();
     let recipient_addr = to_addr(&recipient_sk);
     let transfer_stx_op = TransferStxOp {
-        sender: spender_stx_addr,
-        recipient: recipient_addr,
+        sender: spender_stx_addr.clone(),
+        recipient: recipient_addr.clone(),
         transfered_ustx: 100_000,
         memo: vec![],
         // to be filled in
@@ -696,7 +696,7 @@ fn transition_fixes_bitcoin_rigidity() {
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
     };
 
-    let mut spender_signer = BurnchainOpSigner::new(spender_sk);
+    let mut spender_signer = BurnchainOpSigner::new(spender_sk.clone());
 
     assert!(
         btc_regtest_controller
@@ -808,7 +808,7 @@ fn transition_fixes_bitcoin_rigidity() {
 
     // okay, let's send a pre-stx op.
     let pre_stx_op = PreStxOp {
-        output: spender_stx_addr,
+        output: spender_stx_addr.clone(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -835,8 +835,8 @@ fn transition_fixes_bitcoin_rigidity() {
     let recipient_sk = StacksPrivateKey::random();
     let recipient_addr = to_addr(&recipient_sk);
     let transfer_stx_op = TransferStxOp {
-        sender: spender_stx_addr,
-        recipient: recipient_addr,
+        sender: spender_stx_addr.clone(),
+        recipient: recipient_addr.clone(),
         transfered_ustx: 100_000,
         memo: vec![],
         // to be filled in
@@ -879,7 +879,7 @@ fn transition_fixes_bitcoin_rigidity() {
 
     // okay, let's send a pre-stx op.
     let pre_stx_op = PreStxOp {
-        output: spender_2_stx_addr,
+        output: spender_2_stx_addr.clone(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -908,8 +908,8 @@ fn transition_fixes_bitcoin_rigidity() {
 
     // let's fire off our transfer op.
     let transfer_stx_op = TransferStxOp {
-        sender: spender_2_stx_addr,
-        recipient: recipient_addr,
+        sender: spender_2_stx_addr.clone(),
+        recipient: recipient_addr.clone(),
         transfered_ustx: 100_000,
         memo: vec![],
         // to be filled in
@@ -919,7 +919,7 @@ fn transition_fixes_bitcoin_rigidity() {
         burn_header_hash: BurnchainHeaderHash([0u8; 32]),
     };
 
-    let mut spender_signer = BurnchainOpSigner::new(spender_2_sk);
+    let mut spender_signer = BurnchainOpSigner::new(spender_2_sk.clone());
 
     btc_regtest_controller
         .submit_manual(
@@ -974,8 +974,8 @@ fn transition_fixes_bitcoin_rigidity() {
     };
 
     let transfer_stx_op = TransferStxOp {
-        sender: spender_stx_addr,
-        recipient: recipient_addr,
+        sender: spender_stx_addr.clone(),
+        recipient: recipient_addr.clone(),
         transfered_ustx: 123,
         memo: vec![],
         // to be filled in
@@ -1082,7 +1082,7 @@ fn transition_adds_get_pox_addr_recipients() {
     .iter()
     .enumerate()
     {
-        let spender_sk = spender_sks[i];
+        let spender_sk = spender_sks[i].clone();
         let pox_addr_tuple = execute(
             &format!(
                 "{{ hashbytes: 0x{pox_pubkey_hash}, version: 0x{:02x} }}",

@@ -689,7 +689,7 @@ fn test_cost_limit_switch_version205() {
     // Create three characters, `creator`, `alice` and `bob`.
     let creator_sk = StacksPrivateKey::random();
     let creator_addr = to_addr(&creator_sk);
-    let creator_pd: PrincipalData = creator_addr.into();
+    let creator_pd: PrincipalData = creator_addr.clone().into();
 
     let alice_sk = StacksPrivateKey::random();
     let alice_addr = to_addr(&alice_sk);

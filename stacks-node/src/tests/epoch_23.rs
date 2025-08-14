@@ -53,7 +53,7 @@ fn trait_invocation_behavior() {
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
     let impl_contract_id =
-        QualifiedContractIdentifier::new(contract_addr.into(), "impl-simple".into());
+        QualifiedContractIdentifier::new(contract_addr.clone().into(), "impl-simple".into());
 
     let mut spender_nonce = 0;
     let fee_amount = 10_000;
