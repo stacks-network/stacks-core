@@ -180,13 +180,9 @@ where
     D: Deserializer<'de>,
 {
     let addr_str: String = Deserialize::deserialize(deserializer)?;
-    if let Some(addr) = BitcoinAddress::from_string(&addr_str) {
-        Ok(addr)
-    } else {
-        Err(serde::de::Error::custom(
-            "BitcoinAddress failed to create from string",
-        ))
-    }
+    BitcoinAddress::from_string(&addr_str).ok_or(serde::de::Error::custom(
+        "BitcoinAddress failed to create from string",
+    ))
 }
 
 /// Deserializes a JSON string into [`Script`]

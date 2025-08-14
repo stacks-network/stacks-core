@@ -21,12 +21,12 @@ use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::types::chainstate::BurnchainHeaderHash;
-use stacks::types::Address;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize_hex;
 
 use crate::burnchains::rpc::bitcoin_rpc_client::{
-    BitcoinRpcClient, BitcoinRpcClientResult, TxidWrapperResponse,
+    deserialize_string_to_bitcoin_address, BitcoinRpcClient, BitcoinRpcClientResult,
+    TxidWrapperResponse,
 };
 
 /// Represents the response returned by the `getblockchaininfo` RPC call.
@@ -122,14 +122,7 @@ impl<'de> Deserialize<'de> for GetNewAddressResponse {
     where
         D: Deserializer<'de>,
     {
-        let addr_str: String = Deserialize::deserialize(deserializer)?;
-        if let Some(addr) = BitcoinAddress::from_string(&addr_str) {
-            Ok(GetNewAddressResponse(addr))
-        } else {
-            Err(serde::de::Error::custom(
-                "BitcoinAddress failed to create from string",
-            ))
-        }
+        deserialize_string_to_bitcoin_address(deserializer).map(GetNewAddressResponse)
     }
 }
 
