@@ -180,13 +180,6 @@ where
     D: Deserializer<'de>,
 {
     let addr_str: String = Deserialize::deserialize(deserializer)?;
-    if addr_str.starts_with("bcrt") {
-        //Currently BitcoinAddress doesn't manage Regtest HRP
-        return Err(serde::de::Error::custom(
-            "BitcoinAddress cannot manage Regtest HRP ('bcrt')",
-        ));
-    }
-
     if let Some(addr) = BitcoinAddress::from_string(&addr_str) {
         Ok(addr)
     } else {

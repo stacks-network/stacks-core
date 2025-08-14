@@ -259,16 +259,16 @@ fn test_get_new_address_for_each_address_type() {
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
     client.create_wallet("my_wallet", Some(false)).expect("OK");
 
-    //Check Legacy type OK
-    let legacy = client
+    // Check Legacy p2pkh type OK
+    let p2pkh = client
         .get_new_address(None, Some(AddressType::Legacy))
-        .expect("legacy address ok!");
+        .expect("p2pkh address ok!");
     assert_eq!(
         LegacyBitcoinAddressType::PublicKeyHash,
-        legacy.expect_legacy().addrtype
+        p2pkh.expect_legacy().addrtype
     );
 
-    //Check Legacy p2sh type OK
+    // Check Legacy p2sh type OK
     let p2sh = client
         .get_new_address(None, Some(AddressType::P2shSegwit))
         .expect("p2sh address ok!");
@@ -277,20 +277,23 @@ fn test_get_new_address_for_each_address_type() {
         p2sh.expect_legacy().addrtype
     );
 
-    //Bech32 currently failing due to BitcoinAddress not supporting Regtest HRP
-    client
+    // Check Bech32 p2wpkh OK
+    let p2wpkh = client
         .get_new_address(None, Some(AddressType::Bech32))
-        .expect_err("bech32 should fail!");
+        .expect("p2wpkh address ok!");
+    assert!(p2wpkh.expect_segwit().is_p2wpkh());
 
-    //Bech32m currently failing due to BitcoinAddress not supporting Regtest HRP
-    client
+    // Check Bech32m p2tr OK
+    let p2tr = client
         .get_new_address(None, Some(AddressType::Bech32m))
-        .expect_err("bech32m should fail!");
+        .expect("p2tr address ok!");
+    assert!(p2tr.expect_segwit().is_p2tr());
 
-    //None defaults to bech32 so fails as well
-    client
+    // Check default to be bech32 p2wpkh
+    let default = client
         .get_new_address(None, None)
-        .expect_err("default (bech32) should fail!");
+        .expect("default address ok!");
+    assert!(default.expect_segwit().is_p2wpkh());
 }
 
 #[ignore]
