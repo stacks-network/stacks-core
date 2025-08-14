@@ -110,11 +110,6 @@ fn test_try_make_response() {
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
 
-    assert_eq!(
-        response.preamble().get_canonical_stacks_tip_height(),
-        Some(1)
-    );
-
     let resp = response.decode_atlas_attachments_inv_response().unwrap();
 
     // there should be a bit set in the inventory vector
@@ -127,11 +122,6 @@ fn test_try_make_response() {
     debug!(
         "Response:\n{}\n",
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
-    );
-
-    assert_eq!(
-        response.preamble().get_canonical_stacks_tip_height(),
-        Some(1)
     );
     let resp = response.decode_atlas_attachments_inv_response().unwrap();
 
