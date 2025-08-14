@@ -1809,26 +1809,23 @@ fn test_network_result_update() {
 }
 
 #[rstest]
-#[case::none_to_none(None, None, 0)]
-#[case::none_to_some(None, Some(10), 10)]
-#[case::some_to_none(Some(10), None, 10)]
-#[case::new_height_higher(Some(10), Some(20), 20)]
-#[case::new_height_lower(Some(20), Some(10), 20)]
+#[case(None, None, false)]
+#[case(None, Some(10), true)]
+#[case(Some(10), None, false)]
+#[case(Some(10), Some(20), true)]
+#[case(Some(20), Some(10), false)]
 fn test_update_highest_stacks_height_of_neighbors(
     #[case] old_height: Option<u64>,
     #[case] new_height: Option<u64>,
-    #[case] expected_height: u64,
+    #[case] is_update_accepted: bool,
 ) {
     let peer_config = TestPeerConfig::new(function_name!(), 0, 0);
     let mut peer = TestPeer::new(peer_config);
-    if let Some(old_height) = old_height {
-        peer.network.highest_stacks_neighbor = Some((
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080),
-            old_height,
-        ));
-    } else {
-        peer.network.highest_stacks_neighbor = None;
-    }
+
+    let prev_highest_neighbor =
+        old_height.map(|h| (SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8080), h));
+    peer.network.highest_stacks_neighbor = prev_highest_neighbor.clone();
+
     let peer_sortdb = peer.sortdb.take().unwrap();
     let mut peer_stacks_node = peer.stacks_node.take().unwrap();
     let mut peer_mempool = peer.mempool.take().unwrap();
@@ -1843,14 +1840,14 @@ fn test_update_highest_stacks_height_of_neighbors(
         false,
     );
 
-    let new_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081);
-    node_state.update_highest_stacks_neighbor(&new_addr, new_height);
-    if let Some(new_height) = new_height {
-        assert_eq!(
-            peer.network.highest_stacks_neighbor,
-            Some((new_addr, expected_height))
-        );
+    let new_peer_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8081);
+    node_state.update_highest_stacks_neighbor(&new_peer_addr, new_height);
+
+    let expected_highest_peer = if is_update_accepted {
+        Some((new_peer_addr, new_height.unwrap()))
     } else {
-        assert_eq!(peer.network.highest_stacks_neighbor, None);
-    }
+        prev_highest_neighbor
+    };
+
+    assert_eq!(peer.network.highest_stacks_neighbor, expected_highest_peer);
 }
