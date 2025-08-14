@@ -16,8 +16,8 @@ use std::io::Write;
 
 use crate::errors::CodecError;
 use crate::types::{
-    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData, TypeSignature,
-    Value, MAX_VALUE_SIZE,
+    MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData,
+    TypeSignature, Value,
 };
 
 fn test_deser_ser(v: Value) {
@@ -51,12 +51,9 @@ fn test_bad_expectation(v: Value, e: TypeSignature) {
 
 #[test]
 fn test_lists() {
-    let list_list_int = Value::list_from(vec![Value::list_from(vec![
-        Value::Int(1),
-        Value::Int(2),
-        Value::Int(3),
+    let list_list_int = Value::list_from(vec![
+        Value::list_from(vec![Value::Int(1), Value::Int(2), Value::Int(3)]).unwrap(),
     ])
-    .unwrap()])
     .unwrap();
     test_deser_ser(list_list_int.clone());
     test_deser_ser(Value::list_from(vec![]).unwrap());
@@ -290,8 +287,8 @@ fn test_vectors() {
             Ok(StandardPrincipalData::new(
                 0x00,
                 [
-                    0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff, 0x11, 0xde,
-                    0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff,
+                    0x11, 0xde, 0xad, 0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff, 0x11, 0xde, 0xad,
+                    0xbe, 0xef, 0x11, 0xab, 0xab, 0xff, 0xff,
                 ],
             )
             .unwrap()

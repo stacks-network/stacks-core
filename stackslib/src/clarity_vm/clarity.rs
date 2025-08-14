@@ -1707,7 +1707,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
         })
     }
 
-    pub fn start_transaction_processing(&mut self) -> ClarityTransactionConnection {
+    pub fn start_transaction_processing(&mut self) -> ClarityTransactionConnection<'_, '_> {
         ClarityTransactionConnection::new(
             &mut self.datastore,
             self.header_db,

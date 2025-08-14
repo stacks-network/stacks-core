@@ -71,6 +71,15 @@ jobs:
           validate: "true"
           redocly-version: "1.34"
 
+  ## Generate and upload node configuration documentation
+  node-config-docsgen:
+    name: Node Configuration Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Node Configuration Documentation
+        id: node_config_docsgen
+        uses: stacks-network/actions/stacks-core/node-config-docsgen@main
+
   ## Disabled
   ##   - this test can take several hours to run
   nettest:
@@ -141,6 +150,7 @@ jobs:
     if: always()
     needs:
       - open-api-validation
+      - node-config-docsgen
       - core-contracts-clarinet-test
     steps:
       - name: Check Tests Status
