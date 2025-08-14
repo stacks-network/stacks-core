@@ -24,7 +24,7 @@ use crate::net::ProtocolFamily;
 
 #[test]
 fn test_try_parse_request() {
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 33333);
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
     let request = StacksHttpRequest::new_gethealth(addr.into());
@@ -70,12 +70,15 @@ fn test_get_health(
     } else {
         node_stacks_tip_height + (peer_1_height_relative_to_node as u64)
     };
-    let peer_1_addr: SocketAddr = rpc_test.peer_1.config.data_url.parse().unwrap();
+    let peer_1_addr = SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        rpc_test.peer_1.config.http_port,
+    );
     rpc_test.peer_2.network.highest_stacks_neighbor =
         Some((peer_1_addr.clone(), peer_1_actual_height));
 
     // --- Invoke the Handler ---
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 33333);
     let request = StacksHttpRequest::new_gethealth(addr.into());
     let mut responses = rpc_test.run(vec![request]);
     let response = responses.remove(0);
@@ -115,7 +118,7 @@ fn test_get_health_no_peers_stats() {
     let test_observer = TestEventObserver::new();
     let rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
     // --- Invoke the Handler ---
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 33333);
     let request = StacksHttpRequest::new_gethealth(addr.into());
     let mut responses = rpc_test.run(vec![request]);
     let response = responses.remove(0);
