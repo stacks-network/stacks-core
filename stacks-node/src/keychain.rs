@@ -354,7 +354,7 @@ mod tests {
                 }
             };
             sk.set_compress_public(true);
-            self.microblocks_secret_keys.push(sk);
+            self.microblocks_secret_keys.push(sk.clone());
 
             debug!("Microblock keypair rotated";
                    "burn_block_height" => %burn_block_height,
@@ -451,7 +451,7 @@ mod tests {
         }
 
         pub fn generate_op_signer(&self) -> BurnchainOpSigner {
-            BurnchainOpSigner::new(self.secret_keys[0])
+            BurnchainOpSigner::new(self.secret_keys[0].clone())
         }
     }
 
@@ -536,7 +536,7 @@ mod tests {
                 TransactionVersion::Testnet,
                 k1.get_transaction_auth().unwrap(),
                 TransactionPayload::TokenTransfer(
-                    recv_addr.into(),
+                    recv_addr.clone().into(),
                     123,
                     TokenTransferMemo([0u8; 34]),
                 ),

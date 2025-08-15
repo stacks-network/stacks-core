@@ -731,7 +731,7 @@ impl Signer {
             .try_into_update_message_with_version(local_version)
         {
             self.global_state_evaluator
-                .insert_update(self.stacks_address, update);
+                .insert_update(self.stacks_address.clone(), update);
         };
         let Some(latest_version) = self
             .global_state_evaluator
@@ -1401,7 +1401,7 @@ impl Signer {
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
             self.send_block_pre_commit(signer_signature_hash);
             // have to save the signature _after_ the block info
-            let address = self.stacks_address;
+            let address = self.stacks_address.clone();
             self.handle_block_pre_commit(stacks_client, &address, &signer_signature_hash);
         }
     }

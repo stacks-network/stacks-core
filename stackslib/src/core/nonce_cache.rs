@@ -138,7 +138,7 @@ impl NonceCache {
         let mut backoff = Duration::from_millis(rand::thread_rng().gen_range(50..200));
 
         loop {
-            let result = self.try_flush_with_evicted(conn, evicted);
+            let result = self.try_flush_with_evicted(conn, evicted.clone());
 
             match result {
                 Ok(_) => return, // Success: exit the loop

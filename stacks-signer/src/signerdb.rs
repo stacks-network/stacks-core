@@ -1812,7 +1812,7 @@ impl SignerDb {
 
         // Add our own vote if we received this consensus hash
         if let Some(local_received_time) = self.get_burn_block_receive_time_ch(ch)? {
-            entries.push((*local_address, local_received_time));
+            entries.push((local_address.clone(), local_received_time));
         }
 
         // Query other signer received times from the DB
@@ -2334,7 +2334,7 @@ pub mod tests {
             .unwrap());
         assert_eq!(
             db.get_block_rejection_signer_addrs(&block_id).unwrap(),
-            vec![(address1, RejectReasonPrefix::DuplicateBlockFound)]
+            vec![(address1.clone(), RejectReasonPrefix::DuplicateBlockFound)]
         );
 
         assert!(db
@@ -2371,7 +2371,7 @@ pub mod tests {
             .unwrap());
         assert_eq!(
             db.get_block_rejection_signer_addrs(&block_id).unwrap(),
-            vec![(address, RejectReasonPrefix::InvalidParentBlock)]
+            vec![(address.clone(), RejectReasonPrefix::InvalidParentBlock)]
         );
 
         assert!(db
@@ -2379,7 +2379,7 @@ pub mod tests {
             .unwrap());
         assert_eq!(
             db.get_block_rejection_signer_addrs(&block_id).unwrap(),
-            vec![(address, RejectReasonPrefix::InvalidMiner)]
+            vec![(address.clone(), RejectReasonPrefix::InvalidMiner)]
         );
 
         assert!(!db
@@ -2407,7 +2407,7 @@ pub mod tests {
             .unwrap());
         assert_eq!(
             db.get_block_rejection_signer_addrs(&block_id).unwrap(),
-            vec![(address, RejectReasonPrefix::InvalidParentBlock)]
+            vec![(address.clone(), RejectReasonPrefix::InvalidParentBlock)]
         );
 
         assert!(db.add_block_signature(&block_id, &address, &sig1).unwrap());
@@ -3365,10 +3365,10 @@ pub mod tests {
         .unwrap();
 
         let mut address_weights = HashMap::new();
-        address_weights.insert(local_address, 10);
-        address_weights.insert(address_1, 10);
-        address_weights.insert(address_2, 10);
-        address_weights.insert(address_3, 10);
+        address_weights.insert(local_address.clone(), 10);
+        address_weights.insert(address_1.clone(), 10);
+        address_weights.insert(address_2.clone(), 10);
+        address_weights.insert(address_3.clone(), 10);
         let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
 
         assert!(db
@@ -3500,7 +3500,7 @@ pub mod tests {
         db.add_block_pre_commit(&block_sighash1, &address1).unwrap();
         assert_eq!(
             db.get_block_pre_committers(&block_sighash1).unwrap(),
-            vec![address1]
+            vec![address1.clone()]
         );
 
         db.add_block_pre_commit(&block_sighash1, &address2).unwrap();

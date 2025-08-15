@@ -103,7 +103,7 @@ fn main() -> Result<()> {
     let mappings_path = matches.get_one::<String>("mappings").unwrap();
 
     let input_content = fs::read_to_string(input_path)
-        .with_context(|| format!("Failed to read input JSON file: {}", input_path))?;
+        .with_context(|| format!("Failed to read input JSON file: {input_path}"))?;
 
     let config_docs: ConfigDocs =
         serde_json::from_str(&input_content).with_context(|| "Failed to parse input JSON")?;
@@ -113,43 +113,32 @@ fn main() -> Result<()> {
     let markdown = generate_markdown(&config_docs, template_path, &custom_mappings)?;
 
     fs::write(output_path, markdown)
-        .with_context(|| format!("Failed to write output file: {}", output_path))?;
+        .with_context(|| format!("Failed to write output file: {output_path}"))?;
 
-    println!(
-        "Successfully generated Markdown documentation at {}",
-        output_path
-    );
+    println!("Successfully generated Markdown documentation at {output_path}");
     Ok(())
 }
 
 fn load_section_name_mappings(mappings_file: &str) -> Result<HashMap<String, String>> {
-    let content = fs::read_to_string(mappings_file).with_context(|| {
-        format!(
-            "Failed to read section name mappings file: {}",
-            mappings_file
-        )
-    })?;
+    let content = fs::read_to_string(mappings_file)
+        .with_context(|| format!("Failed to read section name mappings file: {mappings_file}"))?;
 
-    let mappings: HashMap<String, String> = serde_json::from_str(&content).with_context(|| {
-        format!(
-            "Failed to parse section name mappings JSON: {}",
-            mappings_file
-        )
-    })?;
+    let mappings: HashMap<String, String> = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse section name mappings JSON: {mappings_file}"))?;
 
     Ok(mappings)
 }
 
 fn load_template(template_path: &str) -> Result<String> {
     fs::read_to_string(template_path)
-        .with_context(|| format!("Failed to read template file: {}", template_path))
+        .with_context(|| format!("Failed to read template file: {template_path}"))
 }
 
 fn render_template(template: &str, variables: HashMap<String, String>) -> String {
     let mut result = template.to_string();
 
     for (key, value) in variables {
-        let placeholder = format!("{{{{{}}}}}", key);
+        let placeholder = format!("{{{{{key}}}}}");
         result = result.replace(&placeholder, &value);
     }
 
@@ -245,7 +234,7 @@ fn generate_struct_section(
     custom_mappings: &HashMap<String, String>,
 ) -> Result<()> {
     let section_name = struct_to_section_name(&struct_doc.name, custom_mappings);
-    output.push_str(&format!("## {}\n\n", section_name));
+    output.push_str(&format!("## {section_name}\n\n"));
 
     // Add struct description if available
     if let Some(description) = &struct_doc.description {
@@ -365,7 +354,7 @@ fn generate_field_row(
 
     // Add deprecation warning if present
     if let Some(deprecated) = &field.deprecated {
-        description_parts.push(format!("<br><br>**⚠️ DEPRECATED:** {}", deprecated));
+        description_parts.push(format!("<br><br>**⚠️ DEPRECATED:** {deprecated}"));
     }
 
     // Add TOML example if present
@@ -385,8 +374,7 @@ fn generate_field_row(
             .replace('\n', "&#10;"); // Use HTML entity for newline to avoid <br> conversion
 
         let example_section = format!(
-            "<br><br>**Example:**<br><pre><code>{}</code></pre>",
-            escaped_example // HTML entities will be rendered as newlines by <pre>
+            "<br><br>**Example:**<br><pre><code>{escaped_example}</code></pre>" // HTML entities will be rendered as newlines by <pre>
         );
         description_parts.push(example_section);
     }
@@ -394,7 +382,7 @@ fn generate_field_row(
     // Add units information if present
     if let Some(units) = &field.units {
         let units_text = process_intralinks_with_context(units, global_context, struct_name);
-        description_parts.push(format!("<br><br>**Units:** {}", units_text));
+        description_parts.push(format!("<br><br>**Units:** {units_text}"));
     }
 
     let description = if description_parts.is_empty() {
@@ -513,11 +501,11 @@ fn process_reference(
                 // Check if it's the same struct or different struct
                 if ref_struct_name == current_struct_name {
                     // Same struct: just show field name
-                    return format!("[{}](#{}) ", field_name, anchor_id);
+                    return format!("[{field_name}](#{anchor_id}) ");
                 } else {
                     // Different struct: show [config_section].field_name as a link
                     let config_section = section_name.trim_start_matches('[').trim_end_matches(']');
-                    return format!("[[{}].{}](#{}) ", config_section, field_name, anchor_id);
+                    return format!("[[{config_section}].{field_name}](#{anchor_id}) ");
                 }
             }
         }
@@ -540,11 +528,11 @@ fn process_reference(
             // Check if it's the same struct or different struct
             if field_struct_name == current_struct_name {
                 // Same struct: just show field name
-                return format!("[{}](#{}) ", reference, anchor_id);
+                return format!("[{reference}](#{anchor_id}) ");
             } else {
                 // Different struct: show [config_section].field_name as a link
                 let config_section = section_name.trim_start_matches('[').trim_end_matches(']');
-                return format!("[[{}].{}](#{}) ", config_section, reference, anchor_id);
+                return format!("[[{config_section}].{reference}](#{anchor_id}) ");
             }
         }
     }
@@ -577,7 +565,7 @@ fn process_hierarchical_lists(
             let processed_content =
                 process_intralinks_with_context(content, global_context, struct_name);
 
-            result.push(format!("{}{}", indent_html, processed_content));
+            result.push(format!("{indent_html}{processed_content}"));
         } else {
             // Process intra-links in non-bullet lines too
             let processed_line = process_intralinks_with_context(line, global_context, struct_name);

@@ -4768,7 +4768,7 @@ fn paramaterized_mempool_walk_test(
 
             let origin_address = tx.origin_address();
             let origin_nonce = tx.get_origin_nonce();
-            let sponsor_address = tx.sponsor_address().unwrap_or(origin_address);
+            let sponsor_address = tx.sponsor_address().unwrap_or(origin_address.clone());
             let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
 
             tx.set_tx_fee(100);
@@ -4998,7 +4998,7 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
         let mut mempool_tx = mempool.tx_begin().unwrap();
 
         let origin_address = tx.origin_address();
-        let sponsor_address = tx.sponsor_address().unwrap_or(origin_address);
+        let sponsor_address = tx.sponsor_address().unwrap_or(origin_address.clone());
         tx.set_tx_fee(fee_rate as u64);
         let txid = tx.txid();
         let tx_bytes = tx.serialize_to_vec();

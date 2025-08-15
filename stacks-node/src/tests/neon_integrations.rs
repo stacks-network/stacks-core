@@ -1566,7 +1566,7 @@ fn deep_contract() {
 
     let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
-    let spender_princ: PrincipalData = spender_addr.into();
+    let spender_princ: PrincipalData = spender_addr.clone().into();
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
@@ -1676,7 +1676,7 @@ fn liquid_ustx_integration() {
 
     let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
-    let spender_princ: PrincipalData = spender_addr.into();
+    let spender_princ: PrincipalData = spender_addr.clone().into();
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
@@ -1916,7 +1916,7 @@ fn stx_transfer_btc_integration_test() {
 
     let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
-    let spender_addr: PrincipalData = spender_stx_addr.into();
+    let spender_addr: PrincipalData = spender_stx_addr.clone().into();
     let _spender_btc_addr = BitcoinAddress::from_bytes_legacy(
         BitcoinNetworkType::Regtest,
         LegacyBitcoinAddressType::PublicKeyHash,
@@ -1926,7 +1926,7 @@ fn stx_transfer_btc_integration_test() {
 
     let spender_2_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
     let spender_2_stx_addr: StacksAddress = to_addr(&spender_2_sk);
-    let spender_2_addr: PrincipalData = spender_2_stx_addr.into();
+    let spender_2_addr: PrincipalData = spender_2_stx_addr.clone().into();
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
@@ -1981,7 +1981,7 @@ fn stx_transfer_btc_integration_test() {
 
     // okay, let's send a pre-stx op.
     let pre_stx_op = PreStxOp {
-        output: spender_stx_addr,
+        output: spender_stx_addr.clone(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -2008,7 +2008,7 @@ fn stx_transfer_btc_integration_test() {
     let recipient_addr = to_addr(&recipient_sk);
     let transfer_stx_op = TransferStxOp {
         sender: spender_stx_addr,
-        recipient: recipient_addr,
+        recipient: recipient_addr.clone(),
         transfered_ustx: 100_000,
         memo: vec![],
         // to be filled in
@@ -2048,7 +2048,7 @@ fn stx_transfer_btc_integration_test() {
 
     // okay, let's send a pre-stx op.
     let pre_stx_op = PreStxOp {
-        output: spender_2_stx_addr,
+        output: spender_2_stx_addr.clone(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -2078,7 +2078,7 @@ fn stx_transfer_btc_integration_test() {
     // let's fire off our transfer op.
     let transfer_stx_op = TransferStxOp {
         sender: spender_2_stx_addr,
-        recipient: recipient_addr,
+        recipient: recipient_addr.clone(),
         transfered_ustx: 100_000,
         memo: vec![],
         // to be filled in
@@ -2142,7 +2142,7 @@ fn stx_delegate_btc_integration_test() {
 
     let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
-    let spender_addr: PrincipalData = spender_stx_addr.into();
+    let spender_addr: PrincipalData = spender_stx_addr.clone().into();
 
     let recipient_sk = StacksPrivateKey::random();
     let recipient_addr = to_addr(&recipient_sk);
@@ -2159,7 +2159,7 @@ fn stx_delegate_btc_integration_test() {
         amount: 100300,
     });
     conf.initial_balances.push(InitialBalance {
-        address: recipient_addr.into(),
+        address: recipient_addr.clone().into(),
         amount: 300,
     });
 
@@ -2248,7 +2248,7 @@ fn stx_delegate_btc_integration_test() {
 
     // okay, let's send a pre-stx op.
     let pre_stx_op = PreStxOp {
-        output: spender_stx_addr,
+        output: spender_stx_addr.clone(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -2273,8 +2273,8 @@ fn stx_delegate_btc_integration_test() {
 
     // let's fire off our delegate op.
     let del_stx_op = DelegateStxOp {
-        sender: spender_stx_addr,
-        delegate_to: recipient_addr,
+        sender: spender_stx_addr.clone(),
+        delegate_to: recipient_addr.clone(),
         reward_addr: None,
         delegated_ustx: 100_000,
         // to be filled in
@@ -2392,7 +2392,7 @@ fn stack_stx_burn_op_test() {
 
     let spender_sk_1 = StacksPrivateKey::from_hex(SK_1).unwrap();
     let spender_stx_addr_1: StacksAddress = to_addr(&spender_sk_1);
-    let spender_addr_1: PrincipalData = spender_stx_addr_1.into();
+    let spender_addr_1: PrincipalData = spender_stx_addr_1.clone().into();
 
     let spender_sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
     let spender_stx_addr_2: StacksAddress = to_addr(&spender_sk_2);
@@ -2529,7 +2529,10 @@ fn stack_stx_burn_op_test() {
     let signer_sk_2 = spender_sk_2;
     let signer_pk_1 = StacksPublicKey::from_private(&signer_sk_1);
 
-    let pox_addr = PoxAddress::Standard(spender_stx_addr_1, Some(AddressHashMode::SerializeP2PKH));
+    let pox_addr = PoxAddress::Standard(
+        spender_stx_addr_1.clone(),
+        Some(AddressHashMode::SerializeP2PKH),
+    );
 
     let mut block_height = channel.get_sortitions_processed();
 
@@ -2538,7 +2541,7 @@ fn stack_stx_burn_op_test() {
     // Submitting 2 pre-stx operations
     let mut miner_signer_1 = Keychain::default(conf.node.seed.clone()).generate_op_signer();
     let pre_stx_op_1 = PreStxOp {
-        output: spender_stx_addr_1,
+        output: spender_stx_addr_1.clone(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -2558,7 +2561,7 @@ fn stack_stx_burn_op_test() {
 
     let mut miner_signer_2 = Keychain::default(conf.node.seed.clone()).generate_op_signer();
     let pre_stx_op_2 = PreStxOp {
-        output: spender_stx_addr_2,
+        output: spender_stx_addr_2.clone(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -2790,7 +2793,7 @@ fn vote_for_aggregate_key_burn_op_test() {
 
     let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
-    let spender_addr: PrincipalData = spender_stx_addr.into();
+    let spender_addr: PrincipalData = spender_stx_addr.clone().into();
 
     let pox_pubkey = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
@@ -2922,10 +2925,13 @@ fn vote_for_aggregate_key_burn_op_test() {
 
     // setup stack-stx tx
 
-    let signer_sk = spender_sk;
+    let signer_sk = spender_sk.clone();
     let signer_pk = StacksPublicKey::from_private(&signer_sk);
 
-    let pox_addr = PoxAddress::Standard(spender_stx_addr, Some(AddressHashMode::SerializeP2PKH));
+    let pox_addr = PoxAddress::Standard(
+        spender_stx_addr.clone(),
+        Some(AddressHashMode::SerializeP2PKH),
+    );
 
     let mut block_height = btc_regtest_controller.get_headers_height();
 
@@ -2969,7 +2975,7 @@ fn vote_for_aggregate_key_burn_op_test() {
 
     let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
     let pre_stx_op = PreStxOp {
-        output: spender_stx_addr,
+        output: spender_stx_addr.clone(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -3021,7 +3027,7 @@ fn vote_for_aggregate_key_burn_op_test() {
         BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
             signer_key,
             signer_index,
-            sender: spender_stx_addr,
+            sender: spender_stx_addr.clone(),
             round: 0,
             reward_cycle,
             aggregate_key,
@@ -4115,7 +4121,7 @@ fn cost_voting_integration() {
 
     let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
-    let spender_princ: PrincipalData = spender_addr.into();
+    let spender_princ: PrincipalData = spender_addr.clone().into();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
@@ -4446,11 +4452,11 @@ fn mining_events_integration_test() {
     let (mut conf, _) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
-        address: addr.into(),
+        address: addr.clone().into(),
         amount: 10000000,
     });
     conf.initial_balances.push(InitialBalance {
-        address: addr_2.into(),
+        address: addr_2.clone().into(),
         amount: 10000000,
     });
 
@@ -4726,15 +4732,15 @@ fn setup_block_limit_test(strategy: MemPoolWalkStrategy) -> (Vec<serde_json::Val
     conf.miner.mempool_walk_strategy = strategy;
 
     conf.initial_balances.push(InitialBalance {
-        address: addr.into(),
+        address: addr.clone().into(),
         amount: 10_000_000,
     });
     conf.initial_balances.push(InitialBalance {
-        address: second_spender_addr.into(),
+        address: second_spender_addr.clone().into(),
         amount: 10_000_000,
     });
     conf.initial_balances.push(InitialBalance {
-        address: third_spender_addr.into(),
+        address: third_spender_addr.clone().into(),
         amount: 10_000_000,
     });
 
@@ -4778,7 +4784,7 @@ fn setup_block_limit_test(strategy: MemPoolWalkStrategy) -> (Vec<serde_json::Val
         0,
         180,
         conf.burnchain.chain_id,
-        &PrincipalData::from(addr),
+        &PrincipalData::from(addr.clone()),
         100,
     );
 
@@ -5035,7 +5041,7 @@ fn block_large_tx_integration_test() {
     test_observer::register_any(&mut conf);
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr.into(),
+        address: spender_addr.clone().into(),
         amount: 10000000,
     });
 
@@ -5704,6 +5710,7 @@ fn atlas_integration_test() {
     let (bootstrap_node_tx, bootstrap_node_rx) = mpsc::channel();
     let (follower_node_tx, follower_node_rx) = mpsc::channel();
 
+    let moved_user_1 = user_1.clone();
     let bootstrap_node_thread = thread::spawn(move || {
         let burnchain_config = Burnchain::regtest(&conf_bootstrap_node.get_burn_db_path());
 
@@ -5759,7 +5766,7 @@ fn atlas_integration_test() {
         let salted_namespace = format!("{namespace}{salt}");
         let hashed_namespace = Hash160::from_data(salted_namespace.as_bytes());
         let tx_1 = make_contract_call(
-            &user_1,
+            &moved_user_1,
             0,
             260,
             conf_bootstrap_node.burnchain.chain_id,
@@ -5819,7 +5826,7 @@ fn atlas_integration_test() {
         //                                  (lifetime uint)
         //                                  (namespace-import principal))
         let tx_2 = make_contract_call(
-            &user_1,
+            &moved_user_1,
             1,
             1000,
             conf_bootstrap_node.burnchain.chain_id,
@@ -5882,7 +5889,7 @@ fn atlas_integration_test() {
         let zonefile_hex = "facade00";
         let hashed_zonefile = Hash160::from_data(&hex_bytes(zonefile_hex).unwrap());
         let tx_3 = make_contract_call(
-            &user_1,
+            &moved_user_1,
             2,
             500,
             conf_bootstrap_node.burnchain.chain_id,
@@ -5892,7 +5899,7 @@ fn atlas_integration_test() {
             &[
                 Value::buff_from(namespace.as_bytes().to_vec()).unwrap(),
                 Value::buff_from("johndoe".as_bytes().to_vec()).unwrap(),
-                Value::Principal(to_addr(&user_1).into()),
+                Value::Principal(to_addr(&moved_user_1).into()),
                 Value::buff_from(hashed_zonefile.as_bytes().to_vec()).unwrap(),
             ],
         );
@@ -7187,7 +7194,7 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
     conf.estimation.fee_rate_window_size = window_size;
 
     conf.initial_balances.push(InitialBalance {
-        address: spender_addr.into(),
+        address: spender_addr.clone().into(),
         amount: 10000000000,
     });
     test_observer::spawn();
@@ -7258,7 +7265,7 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
             let path = format!("{http_origin}/v2/fees/transaction");
 
             let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
-                address: spender_addr,
+                address: spender_addr.clone(),
                 contract_name: ContractName::from("increment-contract"),
                 function_name: ClarityName::from("increment-many"),
                 function_args: vec![],
@@ -7354,7 +7361,7 @@ fn use_latest_tip_integration_test() {
 
     let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let spender_stacks_addr = to_addr(&spender_sk);
-    let spender_addr: PrincipalData = spender_stacks_addr.into();
+    let spender_addr: PrincipalData = spender_stacks_addr.clone().into();
 
     let (mut conf, _) = neon_integration_test_conf();
 
@@ -7533,7 +7540,7 @@ fn use_latest_tip_integration_test() {
     // This should fail because the anchored tip would be unaware of this contract.
     let err_opt = get_contract_src(
         &http_origin,
-        spender_stacks_addr,
+        spender_stacks_addr.clone(),
         "caller".to_string(),
         false,
     );
@@ -7555,7 +7562,7 @@ fn use_latest_tip_integration_test() {
     // This should succeeed.
     assert!(get_contract_src(
         &http_origin,
-        spender_stacks_addr,
+        spender_stacks_addr.clone(),
         "caller".to_string(),
         true,
     )
@@ -9157,7 +9164,7 @@ fn min_txs() {
 
     let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
-    let spender_princ: PrincipalData = spender_addr.into();
+    let spender_princ: PrincipalData = spender_addr.clone().into();
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
@@ -9260,7 +9267,7 @@ fn filter_txs_by_type() {
 
     let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
-    let spender_princ: PrincipalData = spender_addr.into();
+    let spender_princ: PrincipalData = spender_addr.clone().into();
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
@@ -9373,7 +9380,7 @@ fn filter_txs_by_origin() {
 
     let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
-    let spender_princ: PrincipalData = spender_addr.into();
+    let spender_princ: PrincipalData = spender_addr.clone().into();
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
