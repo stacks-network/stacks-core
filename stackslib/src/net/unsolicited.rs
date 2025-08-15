@@ -827,7 +827,7 @@ impl PeerNetwork {
 
         if let Err(e) = nakamoto_block.header.verify_signer_signatures(
             reward_set,
-            self.get_local_peer().network_id != CHAIN_ID_MAINNET,
+            self.get_local_peer().network_id == CHAIN_ID_MAINNET,
         ) {
             info!(
                 "{:?}: signature verification failure for Nakamoto block {}/{} in reward cycle {}: {:?}", self.get_local_peer(), &nakamoto_block.header.consensus_hash, &nakamoto_block.header.block_hash(), reward_cycle, &e
