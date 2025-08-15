@@ -1113,7 +1113,7 @@ pub fn make_token_transfer(
     let mut tx_stx_transfer = StacksTransaction::new(
         TransactionVersion::Testnet,
         miner.as_transaction_auth().unwrap(),
-        TransactionPayload::TokenTransfer((*recipient).clone().into(), amount, (*memo).clone()),
+        TransactionPayload::TokenTransfer((*recipient).clone().into(), amount, *memo),
     );
 
     tx_stx_transfer.chain_id = miner.chain_id;

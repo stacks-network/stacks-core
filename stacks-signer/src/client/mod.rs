@@ -387,20 +387,20 @@ pub(crate) mod tests {
 
         for signer_id in 0..num_signers {
             let private_key = if signer_id == 0 {
-                config.stacks_private_key
+                config.stacks_private_key.clone()
             } else {
                 StacksPrivateKey::random()
             };
             let public_key = StacksPublicKey::from_private(&private_key);
 
-            signer_id_to_pk.insert(signer_id, public_key);
-            signer_pk_to_id.insert(public_key, signer_id);
+            signer_id_to_pk.insert(signer_id, public_key.clone());
+            signer_pk_to_id.insert(public_key.clone(), signer_id);
             let address = StacksAddress::p2pkh(false, &public_key);
-            signer_addr_to_id.insert(address, signer_id);
+            signer_addr_to_id.insert(address.clone(), signer_id);
             signer_pks.push(public_key);
             signer_slot_ids.push(SignerSlotID(signer_id));
-            signer_id_to_addr.insert(signer_id, address);
-            signer_addr_to_weight.insert(address, weight_per_signer + remaining_weight);
+            signer_id_to_addr.insert(signer_id, address.clone());
+            signer_addr_to_weight.insert(address.clone(), weight_per_signer + remaining_weight);
             signer_addresses.push(address);
             remaining_weight = 0; // The first signer gets the extra weight if there is any. All other signers only get the weight_per_signer
         }
@@ -420,7 +420,7 @@ pub(crate) mod tests {
                 signer_addresses,
             },
             signer_slot_ids,
-            stacks_private_key: config.stacks_private_key,
+            stacks_private_key: config.stacks_private_key.clone(),
             node_host: config.node_host.to_string(),
             mainnet: config.network.is_mainnet(),
             db_path: config.db_path.clone(),

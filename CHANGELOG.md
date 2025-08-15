@@ -12,6 +12,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Clarity errors pertaining to syntax binding errors have been made more
   expressive (#6337)
 
+## [3.2.0.0.1]
+
+### Added
+
+- Adds node-config-docsgen to automatically create config documentation (#6227)
+
 ### Fixed
 
 - Fixed a typo in the metrics_identifier route from `/v2/stackedb/:principal/:contract_name/replicas` to `/v2/stackerdb/:principal/:contract_name/replicas`. Note: This may be a breaking change for systems relying on the incorrect route. Please update any metrics tools accordingly.

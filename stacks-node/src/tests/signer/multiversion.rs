@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::sync::mpsc::TryRecvError;
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use libsigner::v0::messages::{SignerMessage, StateMachineUpdate};
 use libsigner::v0::signer_state::{MinerState, ReplayTransactionSet, SignerStateMachine};
@@ -285,7 +285,10 @@ fn with_new_miners<S: SpawnedSignerTrait>(supported_signer_protocol_version: u64
 
     let localhost = "127.0.0.1";
     let num_transfer_txs = 20;
-    let initial_balances = vec![(sender_addr, (send_amt + send_fee) * num_transfer_txs)];
+    let initial_balances = vec![(
+        sender_addr.clone(),
+        (send_amt + send_fee) * num_transfer_txs,
+    )];
     let miner_1_sk = Secp256k1PrivateKey::from_seed(&[1]);
 
     let num_signers = 5;
@@ -311,7 +314,7 @@ fn with_new_miners<S: SpawnedSignerTrait>(supported_signer_protocol_version: u64
             config.burnchain.local_mining_public_key = Some(btc_miner_1_pk.to_hex());
             config.miner.mining_key = Some(miner_1_sk.clone());
         },
-        Some(vec![btc_miner_1_pk]),
+        Some(vec![btc_miner_1_pk.clone()]),
         None,
     );
 

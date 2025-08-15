@@ -560,7 +560,7 @@ impl Node {
         let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
         let mut op_signer = self.keychain.generate_op_signer();
         let key_txid = burnchain_controller
-            .submit_operation(cur_epoch.epoch_id, key_reg_op, &mut op_signer, 1)
+            .submit_operation(cur_epoch.epoch_id, key_reg_op, &mut op_signer)
             .expect("FATAL: failed to submit leader key register operation");
 
         self.leader_key_registers.insert(key_txid);
@@ -768,7 +768,7 @@ impl Node {
 
             let mut op_signer = self.keychain.generate_op_signer();
             let txid = burnchain_controller
-                .submit_operation(cur_epoch.epoch_id, op, &mut op_signer, 1)
+                .submit_operation(cur_epoch.epoch_id, op, &mut op_signer)
                 .expect("FATAL: failed to submit block-commit");
 
             self.block_commits.insert(txid);

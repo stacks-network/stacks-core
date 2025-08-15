@@ -563,12 +563,24 @@ fn test_reconfigure_stackerdb() {
     let new_pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let reconfigured_pks = vec![
         // first five slots are unchanged
-        pks[0], pks[1], pks[2], pks[3], pks[4],
+        pks[0].clone(),
+        pks[1].clone(),
+        pks[2].clone(),
+        pks[3].clone(),
+        pks[4].clone(),
         // next five slots are different, so their contents will be dropped and versions and write
         // timestamps reset
-        new_pks[0], new_pks[1], new_pks[2], new_pks[3], new_pks[4],
+        new_pks[0].clone(),
+        new_pks[1].clone(),
+        new_pks[2].clone(),
+        new_pks[3].clone(),
+        new_pks[4].clone(),
         // next five slots are now, so they'll be uninitialized
-        new_pks[5], new_pks[6], new_pks[7], new_pks[8], new_pks[9],
+        new_pks[5].clone(),
+        new_pks[6].clone(),
+        new_pks[7].clone(),
+        new_pks[8].clone(),
+        new_pks[9].clone(),
     ];
     let reconfigured_addrs: Vec<_> = reconfigured_pks
         .iter()
@@ -644,11 +656,18 @@ fn test_reconfigure_stackerdb() {
     let new_pks: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let reconfigured_pks = vec![
         // first five slots are unchanged
-        pks[0], pks[1], pks[2], pks[3], pks[4],
+        pks[0].clone(),
+        pks[1].clone(),
+        pks[2].clone(),
+        pks[3].clone(),
+        pks[4].clone(),
         // next five slots are different, so their contents will be dropped and versions and write
         // timestamps reset
-        new_pks[0], new_pks[1], new_pks[2], new_pks[3],
-        new_pks[4],
+        new_pks[0].clone(),
+        new_pks[1].clone(),
+        new_pks[2].clone(),
+        new_pks[3].clone(),
+        new_pks[4].clone(),
         // slots 10-15 will disappear
     ];
     let reconfigured_addrs: Vec<_> = reconfigured_pks

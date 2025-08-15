@@ -1385,10 +1385,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     let steph_key = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph_key);
     let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr_val = make_pox_addr(
-        AddressHashMode::SerializeP2PKH,
-        steph_address.bytes().clone(),
-    );
+    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
     let steph_pox_addr = pox_addr_from(&steph_key);
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -1776,10 +1773,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     let steph_key = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph_key);
     let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr_val = make_pox_addr(
-        AddressHashMode::SerializeP2PKH,
-        steph_address.bytes().clone(),
-    );
+    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
     let steph_pox_addr = pox_addr_from(&steph_key);
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -2422,10 +2416,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     let steph_key = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph_key);
     let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr_val = make_pox_addr(
-        AddressHashMode::SerializeP2PKH,
-        steph_address.bytes().clone(),
-    );
+    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
     let steph_pox_addr = pox_addr_from(&steph_key);
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -2545,10 +2536,7 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
     let steph_key = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph_key);
     let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr_val = make_pox_addr(
-        AddressHashMode::SerializeP2PKH,
-        steph_address.bytes().clone(),
-    );
+    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
     let steph_pox_addr = pox_addr_from(&steph_key);
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -2779,10 +2767,7 @@ fn pox_4_revoke_delegate_stx_events() {
     let steph = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph);
     let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr = make_pox_addr(
-        AddressHashMode::SerializeP2PKH,
-        steph_address.bytes().clone(),
-    );
+    let steph_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
 
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -4201,7 +4186,7 @@ impl StackerSignerInfo {
         let public_key = StacksPublicKey::from_private(&private_key);
         let address = key_to_stacks_addr(&private_key);
         let pox_address =
-            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, address.bytes().clone());
+            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, *address.bytes());
         let principal = PrincipalData::from(address.clone());
         let nonce = 0;
         Self {
@@ -6326,7 +6311,7 @@ fn stack_increase(use_nakamoto: bool) {
     let signing_sk = StacksPrivateKey::from_seed(&[1]);
     let signing_pk = StacksPublicKey::from_private(&signing_sk);
     let signing_bytes = signing_pk.to_bytes_compressed();
-    let alice_balance = get_balance(&mut peer, &alice_address.into());
+    let alice_balance = get_balance(&mut peer, &alice_address.clone().into());
 
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
     let pox_addr = PoxAddress::from_legacy(
@@ -6395,7 +6380,7 @@ fn stack_increase(use_nakamoto: bool) {
     // Next tx arr includes a stack_increase pox_4 helper found in mod.rs
     let txs = vec![stack_increase];
     let latest_block = tenure_with_txs(&mut peer, &txs, &mut coinbase_nonce, &mut test_signers);
-    let stacker_transactions = get_last_block_sender_transactions(&observer, alice_address);
+    let stacker_transactions = get_last_block_sender_transactions(&observer, alice_address.clone());
 
     let actual_result = stacker_transactions.first().cloned().unwrap().result;
 
@@ -7143,7 +7128,7 @@ fn test_scenario_one(use_nakamoto: bool) {
 
     // Also vote for aggregate key with default test signer if in Nakamoto:
     if let Some(test_signers) = test_signers.clone() {
-        let tester_key = test_signers.signer_keys[0];
+        let tester_key = test_signers.signer_keys[0].clone();
         let tester_addr = key_to_stacks_addr(&tester_key);
         let tester_index = get_signer_index(
             &mut peer,
@@ -8626,7 +8611,7 @@ fn test_scenario_four(use_nakamoto: bool) {
 
     // Also vote for aggregate key with default test signer if in Nakamoto:
     if let Some(test_signers) = test_signers.clone() {
-        let tester_key = test_signers.signer_keys[0];
+        let tester_key = test_signers.signer_keys[0].clone();
         let tester_addr = key_to_stacks_addr(&tester_key);
         let tester_index = get_signer_index(
             &mut peer,
