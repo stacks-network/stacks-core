@@ -18462,3 +18462,87 @@ fn signer_loads_stackerdb_updates_on_startup() {
     info!("------------------------- Shutdown -------------------------");
     miners.shutdown();
 }
+
+#[test]
+#[ignore]
+#[serial_test::serial]
+/// This test verifies that a a signer will send update messages to stackerdb when it updates its internal state
+///
+/// For a new bitcoin block arrival, the signers send a local state update message with this updated block and miner
+/// For an inactive miner, the signer sends a local state update message indicating it is reverting to the prior miner
+fn custom_signer_approval_threshold_testnet() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    std::env::set_var("SIGNER_APPROVAL_THRESHOLD", "60");
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 3; // Let's only set 3 signers to that we can ensure if only 2 approve, we still hit global acceptance
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    signer_test.boot_to_epoch_3();
+
+    let rejecting_signer =
+        StacksPublicKey::from_private(&signer_test.signer_stacks_private_keys[0]);
+    info!("------------------------- Make Signer {rejecting_signer:?} Reject all Proposals (33% reject)-------------------------");
+    let rejecting_signers = vec![rejecting_signer.clone()];
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(rejecting_signers.clone());
+
+    test_observer::clear();
+
+    info!("------------------------- Ensure Chain Does Not Halt Even with 1 Rejection -------------------------");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+
+    let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
+    wait_for_block_rejections_from_signers(
+        30,
+        &mined_block.signer_signature_hash,
+        &rejecting_signers,
+    )
+    .expect("Expected signer to reject block proposal");
+
+    let second_rejecting_signer =
+        StacksPublicKey::from_private(&signer_test.signer_stacks_private_keys[1]);
+    info!("------------------------- Make Signer {second_rejecting_signer:?} Reject all Proposals (66% reject) -------------------------");
+    let rejecting_signers = vec![rejecting_signer.clone(), second_rejecting_signer.clone()];
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(rejecting_signers.clone());
+
+    let peer_info = signer_test.get_peer_info();
+    let stacks_miner_pk = StacksPublicKey::from_private(
+        &signer_test
+            .running_nodes
+            .conf
+            .miner
+            .mining_key
+            .clone()
+            .unwrap(),
+    );
+    signer_test.mine_bitcoin_block();
+    let rejected_block =
+        wait_for_block_proposal(30, peer_info.stacks_tip_height + 1, &stacks_miner_pk)
+            .expect("Failed to get block proposal");
+
+    wait_for_block_rejections_from_signers(
+        30,
+        &rejected_block.header.signer_signature_hash(),
+        &rejecting_signers,
+    )
+    .expect("Expected signer to reject block proposal");
+
+    info!("------------------------- Verify Chain Halts -------------------------");
+    assert!(
+        wait_for(15, || {
+            Ok(signer_test.get_peer_info().stacks_tip_height > peer_info.stacks_tip_height)
+        })
+        .is_err(),
+        "Expected the chain to halt"
+    );
+
+    info!("------------------------- Shutdown -------------------------");
+    signer_test.shutdown();
+}
