@@ -131,7 +131,8 @@ fn test_bad_tuple_construction() {
 fn test_tuple_expects_pairs() {
     let snippet = "(tuple (key 1) (key-with-missing-value))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("invalid syntax binding: Tuple constructor item #2 is not a two-element list: ( key-with-missing-value )."));
+    assert!(format!("{}", err.diagnostic)
+        .contains("invalid syntax binding: Tuple constructor item #2 is not a two-element list."));
 }
 
 #[test]

@@ -26,7 +26,6 @@ use lazy_static::lazy_static;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::{runtime_cost, CostOverflowingMath};
-use crate::vm::diagnostic::DiagnosableError;
 use crate::vm::errors::{CheckErrors, SyntaxBindingError, SyntaxBindingErrorType};
 use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
@@ -1933,34 +1932,26 @@ pub fn parse_name_type_pairs<A: CostTracker>(
     use crate::vm::representations::SymbolicExpressionType::List;
 
     // step 1: parse it into a vec of symbolicexpression pairs.
-    let as_pairs: std::result::Result<Vec<_>, _> = name_type_pairs
+    let as_pairs: std::result::Result<Vec<_>, CheckErrors> = name_type_pairs
         .iter()
         .enumerate()
         .map(|(i, key_type_pair)| {
             if let List(ref as_vec) = key_type_pair.expr {
                 if as_vec.len() != 2 {
                     Err(CheckErrors::BadSyntaxBinding(
-                        SyntaxBindingError::InvalidLength(
-                            binding_error_type,
-                            i,
-                            key_type_pair.clone(),
-                        ),
+                        SyntaxBindingError::InvalidLength(binding_error_type, i),
                     ))
                 } else {
                     Ok((&as_vec[0], &as_vec[1]))
                 }
             } else {
-                Err(CheckErrors::BadSyntaxBinding(SyntaxBindingError::NotList(
-                    binding_error_type,
-                    i,
-                    key_type_pair.clone(),
-                )))
+                Err(SyntaxBindingError::NotList(binding_error_type, i).into())
             }
         })
         .collect();
 
     // step 2: turn into a vec of (name, typesignature) pairs.
-    let key_types: std::result::Result<Vec<_>, _> = (as_pairs?)
+    let key_types: std::result::Result<Vec<_>, CheckErrors> = (as_pairs?)
         .iter()
         .enumerate()
         .map(|(i, (name_symbol, type_symbol))| {
@@ -1970,35 +1961,10 @@ pub fn parse_name_type_pairs<A: CostTracker>(
                     CheckErrors::BadSyntaxBinding(SyntaxBindingError::NotAtom(
                         binding_error_type,
                         i,
-                        (*name_symbol).clone(),
                     ))
                 })?
                 .clone();
-            let type_info = TypeSignature::parse_type_repr(epoch, type_symbol, accounting)
-                .map_err(|e| {
-                    CheckErrors::BadSyntaxBinding(SyntaxBindingError::BadTypeSignature(
-                        i,
-                        (*type_symbol).clone(),
-                        // if the inner error is itself a BadTypeSignature error, and it's
-                        // `message` came from a BadSyntaxBinding, then just use its
-                        // message directly so we don't get a tower of nested BadTypeSignature
-                        // messages.  We only want one level of nesting, so something like
-                        // `(string-ascii -19)` gets reported instead of `-19` (so the caller gets
-                        // some context, but not an unreasonably large amount)
-                        if let CheckErrors::BadSyntaxBinding(
-                            SyntaxBindingError::BadTypeSignature(_, _, message),
-                        ) = &e
-                        {
-                            if CheckErrors::has_nested_bad_syntax_binding_message(message) {
-                                message.clone()
-                            } else {
-                                e.message()
-                            }
-                        } else {
-                            e.message()
-                        },
-                    ))
-                })?;
+            let type_info = TypeSignature::parse_type_repr(epoch, type_symbol, accounting)?;
             Ok((name, type_info))
         })
         .collect();

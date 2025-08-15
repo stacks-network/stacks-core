@@ -29,7 +29,6 @@ pub enum SyntaxBindingErrorType {
     Let,
     Eval,
     TupleCons,
-    TypeDefinition,
 }
 
 impl fmt::Display for SyntaxBindingErrorType {
@@ -44,7 +43,6 @@ impl DiagnosableError for SyntaxBindingErrorType {
             Self::Let => "Let-binding".to_string(),
             Self::Eval => "Function argument definition".to_string(),
             Self::TupleCons => "Tuple constructor".to_string(),
-            Self::TypeDefinition => "Type definition".to_string(),
         }
     }
 
@@ -57,16 +55,11 @@ impl DiagnosableError for SyntaxBindingErrorType {
 #[derive(Debug, PartialEq)]
 pub enum SyntaxBindingError {
     /// binding list item is not a list
-    NotList(SyntaxBindingErrorType, usize, SymbolicExpression),
+    NotList(SyntaxBindingErrorType, usize),
     /// binding list item has an invalid length (e.g. not 2)
-    InvalidLength(SyntaxBindingErrorType, usize, SymbolicExpression),
+    InvalidLength(SyntaxBindingErrorType, usize),
     /// binding name is not an atom
-    NotAtom(SyntaxBindingErrorType, usize, SymbolicExpression),
-    /// second binding item is a type signature, and the type signature itself is bad.
-    /// NOTE: type signature parsing returns CheckErrors, so we cannot include a CheckErrors here
-    /// directly without creating a recursive type. Instead, we just report the `Display`
-    /// representation of the error here as the third item.
-    BadTypeSignature(usize, SymbolicExpression, String),
+    NotAtom(SyntaxBindingErrorType, usize),
 }
 
 impl fmt::Display for SyntaxBindingError {
@@ -78,30 +71,17 @@ impl fmt::Display for SyntaxBindingError {
 impl DiagnosableError for SyntaxBindingError {
     fn message(&self) -> String {
         match &self {
-            Self::NotList(err_type, item_index, item) => {
+            Self::NotList(err_type, item_index) => {
                 let item_no = item_index + 1;
-                format!(
-                    "{err_type} item #{item_no} is not a list: {}",
-                    item.as_error_string()
-                )
+                format!("{err_type} item #{item_no} is not a list",)
             }
-            Self::InvalidLength(err_type, item_index, item) => {
+            Self::InvalidLength(err_type, item_index) => {
                 let item_no = item_index + 1;
-                format!(
-                    "{err_type} item #{item_no} is not a two-element list: {}",
-                    item.as_error_string()
-                )
+                format!("{err_type} item #{item_no} is not a two-element list",)
             }
-            Self::NotAtom(err_type, item_index, item) => {
+            Self::NotAtom(err_type, item_index) => {
                 let item_no = item_index + 1;
-                format!(
-                    "{err_type} item #{item_no}'s name is not an atom: {}",
-                    item.as_error_string()
-                )
-            }
-            Self::BadTypeSignature(item_index, item, error_message) => {
-                let item_no = item_index + 1;
-                format!("Type definition item #{item_no} has an invalid type signature: {} (reason: {error_message})", item.as_error_string())
+                format!("{err_type} item #{item_no}'s name is not an atom",)
             }
         }
     }
@@ -112,49 +92,55 @@ impl DiagnosableError for SyntaxBindingError {
 }
 
 impl SyntaxBindingError {
-    /// Helper constructor for NotList(SyntaxBindingErrorType::Let, item_no, item)
-    pub fn let_binding_not_list(item_no: usize, item: SymbolicExpression) -> Self {
-        Self::NotList(SyntaxBindingErrorType::Let, item_no, item)
+    /// Helper constructor for NotList(SyntaxBindingErrorType::Let, item_no)
+    pub fn let_binding_not_list(item_no: usize) -> Self {
+        Self::NotList(SyntaxBindingErrorType::Let, item_no)
     }
 
-    /// Helper constructor for InvalidLength(SyntaxBindingErrorType::Let, item_no, item)
-    pub fn let_binding_invalid_length(item_no: usize, item: SymbolicExpression) -> Self {
-        Self::InvalidLength(SyntaxBindingErrorType::Let, item_no, item)
+    /// Helper constructor for InvalidLength(SyntaxBindingErrorType::Let, item_no)
+    pub fn let_binding_invalid_length(item_no: usize) -> Self {
+        Self::InvalidLength(SyntaxBindingErrorType::Let, item_no)
     }
 
-    /// Helper constructor for NotAtom(SyntaxBindingErrorType::Let, item_no, item)
-    pub fn let_binding_not_atom(item_no: usize, item: SymbolicExpression) -> Self {
-        Self::NotAtom(SyntaxBindingErrorType::Let, item_no, item)
+    /// Helper constructor for NotAtom(SyntaxBindingErrorType::Let, item_no)
+    pub fn let_binding_not_atom(item_no: usize) -> Self {
+        Self::NotAtom(SyntaxBindingErrorType::Let, item_no)
     }
 
-    /// Helper constructor for NotList(SyntaxBindingErrorType::Eval, item_no, item)
-    pub fn eval_binding_not_list(item_no: usize, item: SymbolicExpression) -> Self {
-        Self::NotList(SyntaxBindingErrorType::Eval, item_no, item)
+    /// Helper constructor for NotList(SyntaxBindingErrorType::Eval, item_no)
+    pub fn eval_binding_not_list(item_no: usize) -> Self {
+        Self::NotList(SyntaxBindingErrorType::Eval, item_no)
     }
 
-    /// Helper constructor for InvalidLength(SyntaxBindingErrorType::Eval, item_no, item)
-    pub fn eval_binding_invalid_length(item_no: usize, item: SymbolicExpression) -> Self {
-        Self::InvalidLength(SyntaxBindingErrorType::Eval, item_no, item)
+    /// Helper constructor for InvalidLength(SyntaxBindingErrorType::Eval, item_no)
+    pub fn eval_binding_invalid_length(item_no: usize) -> Self {
+        Self::InvalidLength(SyntaxBindingErrorType::Eval, item_no)
     }
 
-    /// Helper constructor for NotAtom(SyntaxBindingErrorType::Eval, item_no, item)
-    pub fn eval_binding_not_atom(item_no: usize, item: SymbolicExpression) -> Self {
-        Self::NotAtom(SyntaxBindingErrorType::Eval, item_no, item)
+    /// Helper constructor for NotAtom(SyntaxBindingErrorType::Eval, item_no)
+    pub fn eval_binding_not_atom(item_no: usize) -> Self {
+        Self::NotAtom(SyntaxBindingErrorType::Eval, item_no)
     }
 
-    /// Helper constructor for NotList(SyntaxBindingErrorType::TupleCons, item_no, item)
-    pub fn tuple_cons_not_list(item_no: usize, item: SymbolicExpression) -> Self {
-        Self::NotList(SyntaxBindingErrorType::TupleCons, item_no, item)
+    /// Helper constructor for NotList(SyntaxBindingErrorType::TupleCons, item_no)
+    pub fn tuple_cons_not_list(item_no: usize) -> Self {
+        Self::NotList(SyntaxBindingErrorType::TupleCons, item_no)
     }
 
-    /// Helper constructor for InvalidLength(SyntaxBindingErrorType::TupleCons, item_no, item)
-    pub fn tuple_cons_invalid_length(item_no: usize, item: SymbolicExpression) -> Self {
-        Self::InvalidLength(SyntaxBindingErrorType::TupleCons, item_no, item)
+    /// Helper constructor for InvalidLength(SyntaxBindingErrorType::TupleCons, item_no)
+    pub fn tuple_cons_invalid_length(item_no: usize) -> Self {
+        Self::InvalidLength(SyntaxBindingErrorType::TupleCons, item_no)
     }
 
-    /// Helper constructor for NotAtom(SyntaxBindingErrorType::TupleCons, item_no, item)
-    pub fn tuple_cons_not_atom(item_no: usize, item: SymbolicExpression) -> Self {
-        Self::NotAtom(SyntaxBindingErrorType::TupleCons, item_no, item)
+    /// Helper constructor for NotAtom(SyntaxBindingErrorType::TupleCons, item_no)
+    pub fn tuple_cons_not_atom(item_no: usize) -> Self {
+        Self::NotAtom(SyntaxBindingErrorType::TupleCons, item_no)
+    }
+}
+
+impl From<SyntaxBindingError> for CheckErrors {
+    fn from(e: SyntaxBindingError) -> Self {
+        Self::BadSyntaxBinding(e)
     }
 }
 
@@ -348,11 +334,6 @@ impl CheckErrors {
             CheckErrors::SupertypeTooLarge | CheckErrors::Expects(_)
         )
     }
-
-    /// Is the given error message due to a BadSyntaxBinding?
-    pub fn has_nested_bad_syntax_binding_message(msg: &str) -> bool {
-        msg.contains("invalid syntax binding: ")
-    }
 }
 
 impl CheckError {
@@ -377,6 +358,18 @@ impl CheckError {
     pub fn set_expressions(&mut self, exprs: &[SymbolicExpression]) {
         self.diagnostic.spans = exprs.iter().map(|e| e.span().clone()).collect();
         self.expressions.replace(exprs.to_vec());
+    }
+
+    pub fn with_expression(err: CheckErrors, expr: &SymbolicExpression) -> Self {
+        let mut r = Self::new(err);
+        r.set_expression(expr);
+        r
+    }
+}
+
+impl From<(SyntaxBindingError, &SymbolicExpression)> for CheckError {
+    fn from(e: (SyntaxBindingError, &SymbolicExpression)) -> Self {
+        Self::with_expression(CheckErrors::BadSyntaxBinding(e.0), e.1)
     }
 }
 

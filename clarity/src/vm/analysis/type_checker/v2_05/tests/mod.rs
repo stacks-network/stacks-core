@@ -21,14 +21,13 @@ use crate::vm::analysis::mem_type_check;
 use crate::vm::analysis::type_checker::v2_05::TypeResult;
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::ParseErrors;
-use crate::vm::diagnostic::DiagnosableError;
 use crate::vm::types::SequenceSubtype::*;
 use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, UIntType};
 use crate::vm::types::{
     FixedFunction, FunctionType, QualifiedContractIdentifier, TypeSignature, BUFF_32, BUFF_64,
 };
-use crate::vm::{ClarityVersion, SymbolicExpression, Value};
+use crate::vm::ClarityVersion;
 mod assets;
 mod contracts;
 
@@ -647,16 +646,8 @@ fn test_simple_lets() {
     ];
 
     let bad_expected = [
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_invalid_length(
-            0,
-            SymbolicExpression::list(vec![
-                SymbolicExpression::literal_value(Value::Int(1)).with_id(5)
-            ]),
-        )),
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_not_atom(
-            0,
-            SymbolicExpression::literal_value(Value::Int(1)).with_id(5),
-        )),
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_invalid_length(0)),
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_not_atom(0)),
         CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
     ];
 
@@ -1245,12 +1236,7 @@ fn test_empty_tuple_should_fail() {
         )
         .unwrap_err()
         .err,
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::BadTypeSignature(
-            0,
-            SymbolicExpression::list(vec![SymbolicExpression::atom("tuple".into()).with_id(8)])
-                .with_id(7),
-            CheckErrors::EmptyTuplesNotAllowed.message()
-        ))
+        CheckErrors::EmptyTuplesNotAllowed
     );
 }
 
@@ -2480,18 +2466,7 @@ fn test_buff_negative_len() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert_eq!(
-        res.err,
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::BadTypeSignature(
-            0,
-            SymbolicExpression::list(vec![
-                SymbolicExpression::atom("buff".into()).with_id(8),
-                SymbolicExpression::literal_value(Value::Int(-12)).with_id(9),
-            ])
-            .with_id(7),
-            CheckErrors::ValueOutOfBounds.message()
-        ))
-    );
+    assert_eq!(res.err, CheckErrors::ValueOutOfBounds);
 }
 
 #[test]
@@ -2505,18 +2480,7 @@ fn test_string_ascii_negative_len() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert_eq!(
-        res.err,
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::BadTypeSignature(
-            0,
-            SymbolicExpression::list(vec![
-                SymbolicExpression::atom("string-ascii".into()).with_id(8),
-                SymbolicExpression::literal_value(Value::Int(-12)).with_id(9),
-            ])
-            .with_id(7),
-            CheckErrors::ValueOutOfBounds.message()
-        ))
-    );
+    assert_eq!(res.err, CheckErrors::ValueOutOfBounds);
 }
 
 #[test]
@@ -2530,16 +2494,5 @@ fn test_string_utf8_negative_len() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert_eq!(
-        res.err,
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::BadTypeSignature(
-            0,
-            SymbolicExpression::list(vec![
-                SymbolicExpression::atom("string-utf8".into()).with_id(8),
-                SymbolicExpression::literal_value(Value::Int(-12)).with_id(9),
-            ])
-            .with_id(7),
-            CheckErrors::ValueOutOfBounds.message()
-        ))
-    );
+    assert_eq!(res.err, CheckErrors::ValueOutOfBounds);
 }

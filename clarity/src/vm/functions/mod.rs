@@ -673,28 +673,19 @@ where
 {
     for (i, binding) in bindings.iter().enumerate() {
         let binding_expression = binding.match_list().ok_or_else(|| {
-            CheckErrors::BadSyntaxBinding(SyntaxBindingError::NotList(
-                binding_error_type,
-                i,
-                binding.clone(),
-            ))
+            CheckErrors::BadSyntaxBinding(SyntaxBindingError::NotList(binding_error_type, i))
         })?;
         if binding_expression.len() != 2 {
             return Err(
                 CheckErrors::BadSyntaxBinding(SyntaxBindingError::InvalidLength(
                     binding_error_type,
                     i,
-                    SymbolicExpression::list(binding_expression.to_vec()),
                 ))
                 .into(),
             );
         }
         let var_name = binding_expression[0].match_atom().ok_or_else(|| {
-            CheckErrors::BadSyntaxBinding(SyntaxBindingError::NotAtom(
-                binding_error_type,
-                i,
-                binding_expression[0].clone(),
-            ))
+            CheckErrors::BadSyntaxBinding(SyntaxBindingError::NotAtom(binding_error_type, i))
         })?;
         let var_sexp = &binding_expression[1];
 

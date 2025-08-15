@@ -327,19 +327,16 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
 
                 for (i, pair) in binding_list.iter().enumerate() {
                     let pair_expression = pair.match_list().ok_or_else(|| {
-                        CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_not_list(
-                            i,
-                            pair.clone(),
-                        ))
+                        CheckError::with_expression(
+                            SyntaxBindingError::let_binding_not_list(i).into(),
+                            pair,
+                        )
                     })?;
                     if pair_expression.len() != 2 {
-                        return Err(CheckErrors::BadSyntaxBinding(
-                            SyntaxBindingError::let_binding_invalid_length(
-                                i,
-                                SymbolicExpression::list(pair_expression.to_vec()),
-                            ),
-                        )
-                        .into());
+                        return Err(CheckError::with_expression(
+                            SyntaxBindingError::let_binding_invalid_length(i).into(),
+                            &SymbolicExpression::list(pair_expression.to_vec()),
+                        ));
                     }
 
                     if !self.check_read_only(&pair_expression[1])? {
@@ -378,19 +375,16 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             TupleCons => {
                 for (i, pair) in args.iter().enumerate() {
                     let pair_expression = pair.match_list().ok_or_else(|| {
-                        CheckErrors::BadSyntaxBinding(SyntaxBindingError::tuple_cons_not_list(
-                            i,
-                            pair.clone(),
-                        ))
+                        CheckError::with_expression(
+                            SyntaxBindingError::tuple_cons_not_list(i).into(),
+                            pair,
+                        )
                     })?;
                     if pair_expression.len() != 2 {
-                        return Err(CheckErrors::BadSyntaxBinding(
-                            SyntaxBindingError::tuple_cons_invalid_length(
-                                i,
-                                SymbolicExpression::list(pair_expression.to_vec()),
-                            ),
-                        )
-                        .into());
+                        return Err(CheckError::with_expression(
+                            SyntaxBindingError::tuple_cons_invalid_length(i).into(),
+                            &SymbolicExpression::list(pair_expression.to_vec()),
+                        ));
                     }
 
                     if !self.check_read_only(&pair_expression[1])? {
