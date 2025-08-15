@@ -4,8 +4,11 @@ use proptest::{prelude::*, string::string_regex};
 #[cfg(test)]
 use crate::vm::{
     errors::RuntimeErrorType,
-    representations::{CLARITY_NAME_REGEX_STRING, MAX_STRING_LEN},
-    ClarityName,
+    representations::{
+        CLARITY_NAME_REGEX_STRING, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
+        CONTRACT_NAME_REGEX_STRING, MAX_STRING_LEN,
+    },
+    ClarityName, ContractName,
 };
 
 #[cfg(test)]
@@ -152,5 +155,54 @@ fn prop_clarity_name_invalid_patterns() {
             result.unwrap_err(),
             RuntimeErrorType::BadNameValue(_, _)
         ), "Expected BadNameValue error for invalid name '{}'", name);
+    });
+}
+
+#[cfg(test)]
+/// Generates a proptest strategy for valid contract names.
+///
+/// This function creates a strategy based on the `CONTRACT_NAME_REGEX_STRING` pattern
+/// and includes the special `"__transient"` contract name.
+///
+/// The strategy generates:
+/// - 90% regular contract names (letter followed by letters, digits, hyphens, or underscores)
+/// - 10% the special `"__transient"` contract name
+fn any_valid_contract_name() -> impl Strategy<Value = String> {
+    // Ensure the regex branches match the actual validator.
+    let expected_regex = format!(
+        r#"([a-zA-Z](([a-zA-Z0-9]|[-_])){{{},{}}})"#,
+        CONTRACT_MIN_NAME_LENGTH - 1,
+        MAX_STRING_LEN - 1
+    );
+    assert_eq!(
+        CONTRACT_NAME_REGEX_STRING.as_str(),
+        &expected_regex,
+        "CONTRACT_NAME_REGEX_STRING has changed"
+    );
+
+    let regular_names = string_regex(&format!(
+        "[a-zA-Z][a-zA-Z0-9_-]{{0,{}}}",
+        CONTRACT_MAX_NAME_LENGTH
+            .saturating_sub(1)
+            .min((MAX_STRING_LEN as usize).saturating_sub(1))
+    ))
+    .unwrap();
+
+    // 90% regular names, 10% the special "__transient" contract name.
+    prop_oneof![
+        9 => regular_names,
+        1 => Just("__transient".to_string()),
+    ]
+}
+
+#[test]
+fn prop_contract_name_valid_patterns() {
+    proptest!(|(name in any_valid_contract_name())| {
+        prop_assume!(!name.is_empty());
+        prop_assume!(name.len() <= MAX_STRING_LEN as usize);
+
+        let contract_name = ContractName::try_from(name.clone())
+            .unwrap_or_else(|_| panic!("Should parse valid contract name: {}", name));
+        prop_assert_eq!(contract_name.as_str(), name);
     });
 }
