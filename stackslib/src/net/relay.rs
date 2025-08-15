@@ -3253,7 +3253,7 @@ impl PeerNetwork {
                             None => {
                                 network.advertize_to_peer(
                                     recipient,
-                                    &[((*ch).clone(), (*bhh).clone())],
+                                    &[(*ch, *bhh)],
                                     StacksMessageType::BlocksAvailable,
                                 );
                             }
@@ -3295,7 +3295,7 @@ impl PeerNetwork {
                             None => {
                                 network.advertize_to_peer(
                                     recipient,
-                                    &[((*ch).clone(), (*bhh).clone())],
+                                    &[(*ch, *bhh)],
                                     StacksMessageType::MicroblocksAvailable,
                                 );
                             }
@@ -3320,7 +3320,7 @@ impl PeerNetwork {
     {
         let mut wanted: Vec<(ConsensusHash, BurnchainHeaderHash)> = vec![];
         for (burn_header_hash, (_, consensus_hash)) in available.iter() {
-            wanted.push(((*consensus_hash).clone(), (*burn_header_hash).clone()));
+            wanted.push((*consensus_hash, (*burn_header_hash)));
         }
 
         self.advertize_to_peer(recipient, &wanted, msg_builder);

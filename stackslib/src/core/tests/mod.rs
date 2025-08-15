@@ -584,7 +584,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
 
         let origin_address = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_address = tx.sponsor_address().unwrap_or(origin_address);
+        let sponsor_address = tx.sponsor_address().unwrap_or(origin_address.clone());
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
 
         tx.set_tx_fee(100);
@@ -775,7 +775,7 @@ fn test_iterate_candidates_skipped_transaction() {
 
         let origin_address = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_address = tx.sponsor_address().unwrap_or(origin_address);
+        let sponsor_address = tx.sponsor_address().unwrap_or(origin_address.clone());
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
 
         tx.set_tx_fee(100);
@@ -887,7 +887,7 @@ fn test_iterate_candidates_processing_error_transaction() {
 
         let origin_address = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_address = tx.sponsor_address().unwrap_or(origin_address);
+        let sponsor_address = tx.sponsor_address().unwrap_or(origin_address.clone());
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
 
         tx.set_tx_fee(100);
@@ -1001,7 +1001,7 @@ fn test_iterate_candidates_problematic_transaction() {
 
         let origin_address = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_address = tx.sponsor_address().unwrap_or(origin_address);
+        let sponsor_address = tx.sponsor_address().unwrap_or(origin_address.clone());
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
 
         tx.set_tx_fee(100);
@@ -1117,7 +1117,7 @@ fn test_iterate_candidates_concurrent_write_lock() {
 
         let origin_address = tx.origin_address();
         let origin_nonce = tx.get_origin_nonce();
-        let sponsor_address = tx.sponsor_address().unwrap_or(origin_address);
+        let sponsor_address = tx.sponsor_address().unwrap_or(origin_address.clone());
         let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
 
         if let Some(nonce) = expected_addr_nonces.get_mut(&origin_address) {
@@ -1623,7 +1623,7 @@ fn mempool_db_test_rbf() {
     let stx_address = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
     let payload = TransactionPayload::TokenTransfer(
         PrincipalData::from(QualifiedContractIdentifier {
-            issuer: stx_address.into(),
+            issuer: stx_address.clone().into(),
             name: "hello-contract-name".into(),
         }),
         123,

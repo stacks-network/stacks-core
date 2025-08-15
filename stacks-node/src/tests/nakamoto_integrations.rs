@@ -1566,13 +1566,16 @@ fn simple_neon_integration() {
     let send_amt = 1000;
     let send_fee = 100;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt * 2 + send_fee,
     );
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -1597,7 +1600,7 @@ fn simple_neon_integration() {
     boot_to_epoch_3(
         &naka_conf,
         &node_counters.blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -1789,13 +1792,16 @@ fn restarting_miner() {
     let send_amt = 1000;
     let send_fee = 100;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt * 2 + send_fee,
     );
     let sender_signer_sk = Secp256k1PrivateKey::from_seed(&[3, 2, 3, 2, 3, 2]);
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
@@ -1831,7 +1837,7 @@ fn restarting_miner() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -2010,13 +2016,16 @@ fn flash_blocks_on_epoch_3_FLAKY() {
     let send_amt = 1000;
     let send_fee = 100;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt * 2 + send_fee,
     );
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -2046,7 +2055,7 @@ fn flash_blocks_on_epoch_3_FLAKY() {
     boot_to_pre_epoch_3_boundary(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -2257,10 +2266,13 @@ fn mine_multiple_per_tenure_integration() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -2290,11 +2302,11 @@ fn mine_multiple_per_tenure_integration() {
         .spawn(move || run_loop.start(None, 0))
         .unwrap();
     wait_for_runloop(&blocks_processed);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -2441,10 +2453,13 @@ fn multiple_miners() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -2534,11 +2549,11 @@ fn multiple_miners() {
         .unwrap();
     wait_for_runloop(&blocks_processed);
 
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -2698,9 +2713,12 @@ fn correct_burn_outs() {
     let stacker_accounts = accounts[0..3].to_vec();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
 
-    let signers = TestSigners::new(vec![sender_signer_sk]);
+    let signers = TestSigners::new(vec![sender_signer_sk.clone()]);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
@@ -3037,12 +3055,12 @@ fn block_proposal_api_endpoint() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -3375,16 +3393,19 @@ fn miner_writes_proposed_block_to_stackerdb() {
     let send_amt = 1000;
     let send_fee = 100;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt + send_fee,
     );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
 
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
 
     test_observer::spawn();
     test_observer::register(
@@ -3415,7 +3436,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -3488,9 +3509,9 @@ fn vote_for_aggregate_key_burn_op() {
     let signer_sk = Secp256k1PrivateKey::random();
     let signer_addr = tests::to_addr(&signer_sk);
 
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
 
-    naka_conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
@@ -3522,8 +3543,8 @@ fn vote_for_aggregate_key_burn_op() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -3549,7 +3570,7 @@ fn vote_for_aggregate_key_burn_op() {
     let mut miner_signer = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
     info!("Submitting pre-stx op");
     let pre_stx_op = PreStxOp {
-        output: signer_addr,
+        output: signer_addr.clone(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -3703,7 +3724,7 @@ fn follower_bootup_simple() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -3712,10 +3733,13 @@ fn follower_bootup_simple() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -3747,7 +3771,7 @@ fn follower_bootup_simple() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -4022,7 +4046,7 @@ fn follower_bootup_across_multiple_cycles() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -4031,10 +4055,13 @@ fn follower_bootup_across_multiple_cycles() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
@@ -4065,7 +4092,7 @@ fn follower_bootup_across_multiple_cycles() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -4245,7 +4272,7 @@ fn follower_bootup_custom_chain_id() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -4254,10 +4281,13 @@ fn follower_bootup_custom_chain_id() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -4289,7 +4319,7 @@ fn follower_bootup_custom_chain_id() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -4591,14 +4621,23 @@ fn burn_ops_integration_test() {
     let sender_addr = tests::to_addr(&sender_sk);
     let mut sender_nonce = 0;
 
-    let mut signers = TestSigners::new(vec![signer_sk_1]);
+    let mut signers = TestSigners::new(vec![signer_sk_1.clone()]);
 
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     // Add the initial balances to the other accounts
-    naka_conf.add_initial_balance(PrincipalData::from(stacker_addr_1).to_string(), 1000000);
-    naka_conf.add_initial_balance(PrincipalData::from(stacker_addr_2).to_string(), 1000000);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), 100_000_000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(stacker_addr_1.clone()).to_string(),
+        1000000,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(stacker_addr_2.clone()).to_string(),
+        1000000,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        100_000_000,
+    );
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
@@ -4631,8 +4670,8 @@ fn burn_ops_integration_test() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk_1],
+        &[stacker_sk.clone()],
+        &[signer_sk_1.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -4651,7 +4690,7 @@ fn burn_ops_integration_test() {
 
     info!("Submitting first pre-stx op");
     let pre_stx_op = PreStxOp {
-        output: signer_addr_1,
+        output: signer_addr_1.clone(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -4675,7 +4714,7 @@ fn burn_ops_integration_test() {
     let mut miner_signer_2 = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
     info!("Submitting second pre-stx op");
     let pre_stx_op_2 = PreStxOp {
-        output: signer_addr_2,
+        output: signer_addr_2.clone(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -4696,7 +4735,7 @@ fn burn_ops_integration_test() {
     let mut miner_signer_3 = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
     info!("Submitting third pre-stx op");
     let pre_stx_op_3 = PreStxOp {
-        output: stacker_addr_1,
+        output: stacker_addr_1.clone(),
         txid: Txid([0u8; 32]),
         vtxindex: 0,
         block_height: 0,
@@ -4716,7 +4755,7 @@ fn burn_ops_integration_test() {
     info!("Submitting fourth pre-stx op");
     let mut miner_signer_4 = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
     let pre_stx_op_4 = PreStxOp {
-        output: stacker_addr_2,
+        output: stacker_addr_2.clone(),
         txid: Txid([0u8; 32]),
         vtxindex: 0,
         block_height: 0,
@@ -4753,7 +4792,8 @@ fn burn_ops_integration_test() {
     let lock_period: u8 = 6;
     let topic = Pox4SignatureTopic::StackStx;
     let auth_id: u32 = 1;
-    let pox_addr = PoxAddress::Standard(signer_addr_1, Some(AddressHashMode::SerializeP2PKH));
+    let pox_addr =
+        PoxAddress::Standard(signer_addr_1.clone(), Some(AddressHashMode::SerializeP2PKH));
 
     info!(
         "Submitting set-signer-key-authorization";
@@ -4838,13 +4878,13 @@ fn burn_ops_integration_test() {
             .total_available(),
     );
 
-    info!("Signer 1 addr: {}", signer_addr_1.to_b58());
-    info!("Signer 2 addr: {}", signer_addr_2.to_b58());
+    info!("Signer 1 addr: {}", signer_addr_1.clone().to_b58());
+    info!("Signer 2 addr: {}", signer_addr_2.clone().to_b58());
 
     info!("Submitting transfer STX op");
     let transfer_stx_op = TransferStxOp {
-        sender: stacker_addr_1,
-        recipient: stacker_addr_2,
+        sender: stacker_addr_1.clone(),
+        recipient: stacker_addr_2.clone(),
         transfered_ustx: 10000,
         memo: vec![],
         txid: Txid([0u8; 32]),
@@ -4865,8 +4905,8 @@ fn burn_ops_integration_test() {
 
     info!("Submitting delegate STX op");
     let del_stx_op = DelegateStxOp {
-        sender: stacker_addr_2,
-        delegate_to: stacker_addr_1,
+        sender: stacker_addr_2.clone(),
+        delegate_to: stacker_addr_1.clone(),
         reward_addr: None,
         delegated_ustx: 100_000,
         // to be filled in
@@ -4892,7 +4932,7 @@ fn burn_ops_integration_test() {
     let min_stx = pox_info.next_cycle.min_threshold_ustx;
 
     let stack_stx_op_with_some_signer_key = StackStxOp {
-        sender: signer_addr_1,
+        sender: signer_addr_1.clone(),
         reward_addr: pox_addr,
         stacked_ustx: min_stx.into(),
         num_cycles: lock_period,
@@ -4918,7 +4958,7 @@ fn burn_ops_integration_test() {
     );
 
     let stack_stx_op_with_no_signer_key = StackStxOp {
-        sender: signer_addr_2,
+        sender: signer_addr_2.clone(),
         reward_addr: PoxAddress::Standard(signer_addr_2, None),
         stacked_ustx: 100000,
         num_cycles: 6,
@@ -4961,7 +5001,7 @@ fn burn_ops_integration_test() {
                 sender_nonce,
                 200,
                 naka_conf.burnchain.chain_id,
-                &stacker_addr_1.into(),
+                &stacker_addr_1.clone().into(),
                 10000,
             );
             sender_nonce += 1;
@@ -5166,14 +5206,17 @@ fn forked_tenure_is_ignored() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt + send_fee,
     );
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
@@ -5183,7 +5226,7 @@ fn forked_tenure_is_ignored() {
         &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
     );
 
-    let miner_sk = naka_conf.miner.mining_key.unwrap();
+    let miner_sk = naka_conf.miner.mining_key.clone().unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
@@ -5211,7 +5254,7 @@ fn forked_tenure_is_ignored() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -5530,10 +5573,13 @@ fn check_block_heights() {
     let send_fee = 180;
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         3 * deploy_fee + (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
@@ -5582,7 +5628,7 @@ fn check_block_heights() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -5946,7 +5992,10 @@ fn nakamoto_attempt_time() {
 
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), 1_000_000_000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        1_000_000_000,
+    );
 
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -6003,7 +6052,7 @@ fn nakamoto_attempt_time() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -6271,10 +6320,13 @@ fn clarity_burn_state() {
     let tx_fee = 1000;
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         deploy_fee + tx_fee * tenure_count + tx_fee * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -6307,7 +6359,7 @@ fn clarity_burn_state() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -6537,12 +6589,15 @@ fn signer_chainstate() {
     let send_amt = 1000;
     let send_fee = 200;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * 20,
     );
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -6573,7 +6628,7 @@ fn signer_chainstate() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -6618,7 +6673,7 @@ fn signer_chainstate() {
     blind_signer(&naka_conf, &signers, &counters);
 
     let signer_client = stacks_signer::client::StacksClient::new(
-        StacksPrivateKey::from_seed(&[0, 1, 2, 3]),
+        &StacksPrivateKey::from_seed(&[0, 1, 2, 3]),
         naka_conf.node.rpc_bind.clone(),
         naka_conf
             .connection_options
@@ -7068,12 +7123,15 @@ fn continue_tenure_extend() {
     let send_amt = 1000;
     let send_fee = 200;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * 20,
     );
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
     let mut transfer_nonce = 0;
@@ -7104,7 +7162,7 @@ fn continue_tenure_extend() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -7515,10 +7573,13 @@ fn check_block_times() {
     let send_fee = 180;
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         3 * deploy_fee + (send_amt + send_fee) * 12,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -7570,7 +7631,7 @@ fn check_block_times() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -7903,10 +7964,13 @@ fn check_block_info() {
     let send_fee = 180;
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         3 * deploy_fee + (send_amt + send_fee) * 2,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
     let contract3_name = "test-contract-3";
@@ -8026,7 +8090,7 @@ fn check_block_info() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -8534,10 +8598,13 @@ fn check_block_info_rewards() {
     let send_fee = 180;
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         3 * deploy_fee + (send_amt + send_fee) * 2,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -8611,7 +8678,7 @@ fn check_block_info_rewards() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -8854,7 +8921,7 @@ fn mock_mining() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     let tenure_count = 3;
     let inter_blocks_per_tenure = 3;
     // setup sender + recipient for some test stx transfers
@@ -8876,10 +8943,13 @@ fn mock_mining() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -8912,7 +8982,7 @@ fn mock_mining() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -9238,10 +9308,10 @@ fn v3_signer_api_endpoint() {
     let send_amt = 100;
     let send_fee = 180;
     conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt + send_fee,
     );
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
 
     // only subscribe to the block proposal events
@@ -9265,13 +9335,13 @@ fn v3_signer_api_endpoint() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -9402,10 +9472,10 @@ fn v3_blockbyheight_api_endpoint() {
     let send_amt = 100;
     let send_fee = 180;
     conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt + send_fee,
     );
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
 
     // only subscribe to the block proposal events
     test_observer::spawn();
@@ -9429,13 +9499,13 @@ fn v3_blockbyheight_api_endpoint() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -9520,10 +9590,10 @@ fn nakamoto_lockup_events() {
     let send_amt = 100;
     let send_fee = 180;
     conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * 100,
     );
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
 
     // only subscribe to the block proposal events
@@ -9546,13 +9616,13 @@ fn nakamoto_lockup_events() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -9687,14 +9757,20 @@ fn skip_mining_long_tx() {
     let send_amt = 1000;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_1_addr).to_string(),
+        PrincipalData::from(sender_1_addr.clone()).to_string(),
         send_amt * 15 + send_fee * 15,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_2_addr).to_string(), 10000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_2_addr.clone()).to_string(),
+        10000,
+    );
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
@@ -9726,7 +9802,7 @@ fn skip_mining_long_tx() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -10043,7 +10119,7 @@ fn sip029_coinbase_change() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -10052,10 +10128,13 @@ fn sip029_coinbase_change() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
@@ -10087,7 +10166,7 @@ fn sip029_coinbase_change() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -10244,8 +10323,8 @@ fn clarity_cost_spend_down() {
         .collect();
     let sender_signer_addrs: Vec<_> = sender_signer_sks.iter().map(tests::to_addr).collect();
     let sender_addrs: Vec<_> = sender_sks.iter().map(tests::to_addr).collect();
-    let deployer_sk = sender_sks[0];
-    let deployer_addr = sender_addrs[0];
+    let deployer_sk = sender_sks[0].clone();
+    let deployer_addr = sender_addrs[0].clone();
     let mut sender_nonces: HashMap<String, u64> = HashMap::new();
 
     let get_and_increment_nonce =
@@ -10266,7 +10345,7 @@ fn clarity_cost_spend_down() {
     let amount =
         (large_deploy_fee + small_deploy_fee) + tx_fee * nmb_txs_per_signer + 100 * tenure_count;
     for sender_addr in sender_addrs {
-        naka_conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), amount);
+        naka_conf.add_initial_balance(PrincipalData::from(sender_addr.clone()).to_string(), amount);
     }
     for sender_signer_addr in sender_signer_addrs {
         naka_conf.add_initial_balance(
@@ -10534,10 +10613,10 @@ fn consensus_hash_event_dispatcher() {
     let send_amt = 100;
     let send_fee = 180;
     conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt + send_fee,
     );
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
 
     // only subscribe to the block proposal events
     test_observer::spawn();
@@ -10562,13 +10641,13 @@ fn consensus_hash_event_dispatcher() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -10975,8 +11054,11 @@ fn mine_invalid_principal_from_consensus_buff() {
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
-    conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), 1000000);
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        1000000,
+    );
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
 
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
@@ -11001,13 +11083,13 @@ fn mine_invalid_principal_from_consensus_buff() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -11091,8 +11173,11 @@ fn reload_miner_config() {
     let sender_addr = tests::to_addr(&sender_sk);
     let old_burn_fee_cap: u64 = 100000;
     conf.burnchain.burn_fee_cap = old_burn_fee_cap;
-    conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), 1000000);
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        1000000,
+    );
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
 
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
@@ -11137,13 +11222,13 @@ fn reload_miner_config() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -11234,8 +11319,11 @@ fn rbf_on_config_change() {
     let sender_addr = tests::to_addr(&sender_sk);
     let old_burn_fee_cap: u64 = 100000;
     conf.burnchain.burn_fee_cap = old_burn_fee_cap;
-    conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), 1000000);
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        1000000,
+    );
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
 
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
@@ -11280,13 +11368,13 @@ fn rbf_on_config_change() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -11365,8 +11453,11 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
 
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
@@ -11397,7 +11488,10 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
     //   (1305150 + 180) * 25 + 1305150 = 33_938_400 uSTX.
     let initial_balance = 33_938_400;
     for addr in initial_sender_addrs.iter() {
-        naka_conf.add_initial_balance(PrincipalData::from(*addr).to_string(), initial_balance);
+        naka_conf.add_initial_balance(
+            PrincipalData::from(addr.clone()).to_string(),
+            initial_balance,
+        );
     }
     // This will hold tuples for all of our senders, with the sender pk and
     // the nonce
@@ -11438,7 +11532,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -11703,8 +11797,11 @@ fn larger_mempool() {
 
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
@@ -11732,7 +11829,10 @@ fn larger_mempool() {
     // (13011180 + 180) * 26 = 338_295_360 uSTX.
     let initial_balance = 338_295_360;
     for addr in initial_sender_addrs.iter() {
-        naka_conf.add_initial_balance(PrincipalData::from(*addr).to_string(), initial_balance);
+        naka_conf.add_initial_balance(
+            PrincipalData::from(addr.clone()).to_string(),
+            initial_balance,
+        );
     }
     // This will hold tuples for all of our senders, with the sender pk and
     // the nonce
@@ -11775,7 +11875,7 @@ fn larger_mempool() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -12014,10 +12114,10 @@ fn v3_transaction_api_endpoint() {
     let send_amt = 100;
     let send_fee = 180;
     conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt + send_fee,
     );
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
 
     // only subscribe to the block proposal events
     test_observer::spawn();
@@ -12042,13 +12142,13 @@ fn v3_transaction_api_endpoint() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -12168,20 +12268,23 @@ fn handle_considered_txs_foreign_key_failure() {
     let bad_sender_sk = Secp256k1PrivateKey::from_seed(&[30]);
     let bad_sender_addr = tests::to_addr(&bad_sender_sk);
     naka_conf.add_initial_balance(
-        PrincipalData::from(bad_sender_addr).to_string(),
+        PrincipalData::from(bad_sender_addr.clone()).to_string(),
         send_amt + send_fee,
     );
     let good_sender_sk = Secp256k1PrivateKey::from_seed(&[31]);
     let good_sender_addr = tests::to_addr(&good_sender_sk);
     naka_conf.add_initial_balance(
-        PrincipalData::from(good_sender_addr).to_string(),
+        PrincipalData::from(good_sender_addr.clone()).to_string(),
         (send_amt + send_fee) * 2,
     );
 
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
@@ -12212,7 +12315,7 @@ fn handle_considered_txs_foreign_key_failure() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -12322,10 +12425,10 @@ fn empty_mempool_sleep_ms() {
     let send_amt = 100;
     let send_fee = 180;
     conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt + send_fee,
     );
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
 
     // Set the empty mempool sleep time to something long enough that we can
     // see the effect in the test.
@@ -12352,13 +12455,13 @@ fn empty_mempool_sleep_ms() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -12450,9 +12553,9 @@ fn miner_constructs_replay_block() {
     let signer_sk = Secp256k1PrivateKey::random();
     let signer_addr = tests::to_addr(&signer_sk);
     let stacker_sk = setup_stacker(&mut naka_conf);
-    naka_conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
 
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
 
     test_observer::spawn();
     test_observer::register(
@@ -12483,8 +12586,8 @@ fn miner_constructs_replay_block() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -12704,7 +12807,7 @@ fn test_sip_031_activation() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -12713,10 +12816,13 @@ fn test_sip_031_activation() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
@@ -12748,7 +12854,7 @@ fn test_sip_031_activation() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -13008,7 +13114,7 @@ fn test_sip_031_last_phase() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     // let's assume funds for 200 tenures
     let tenure_count = 200;
     let inter_blocks_per_tenure = 9;
@@ -13018,10 +13124,13 @@ fn test_sip_031_last_phase() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     let epoch32_start_height =
@@ -13075,7 +13184,7 @@ fn test_sip_031_last_phase() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -13168,6 +13277,7 @@ fn test_sip_031_last_phase() {
 
     let mut sender_nonce = 0;
     // 50 more tenures (each one with 3 stacks blocks)
+    let principal = PrincipalData::from(sender_signer_addr);
     for _ in 0..50 {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_blocks(
@@ -13181,7 +13291,7 @@ fn test_sip_031_last_phase() {
                     sender_nonce,
                     send_fee,
                     naka_conf.burnchain.chain_id,
-                    &PrincipalData::from(sender_signer_addr),
+                    &principal,
                     send_amt,
                 );
                 submit_tx(&http_origin, &transfer_tx);
@@ -13328,7 +13438,7 @@ fn test_sip_031_last_phase_out_of_epoch() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     // let's assume funds for 200 tenures
     let tenure_count = 200;
     let inter_blocks_per_tenure = 9;
@@ -13338,10 +13448,13 @@ fn test_sip_031_last_phase_out_of_epoch() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     let epoch32_start_height =
@@ -13395,7 +13508,7 @@ fn test_sip_031_last_phase_out_of_epoch() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -13538,7 +13651,7 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     // let's assume funds for 200 tenures
     let tenure_count = 200;
     let inter_blocks_per_tenure = 9;
@@ -13548,10 +13661,13 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     let epoch32_start_height =
@@ -13591,7 +13707,7 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -13757,7 +13873,7 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
                 sender_nonce,
                 send_fee,
                 naka_conf.burnchain.chain_id,
-                &PrincipalData::from(sender_signer_addr),
+                &PrincipalData::from(sender_signer_addr.clone()),
                 send_amt,
             );
             submit_tx(&http_origin, &transfer_tx);

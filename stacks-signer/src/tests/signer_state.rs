@@ -54,7 +54,7 @@ fn check_capitulate_miner_view() {
     } = MockServerClient::new();
 
     let mut address_weights = HashMap::new();
-    address_weights.insert(*client.get_signer_address(), 10);
+    address_weights.insert(client.get_signer_address().clone(), 10);
     for _ in 1..10 {
         let stacks_address = StacksAddress::p2pkh(false, &StacksPublicKey::new());
         address_weights.insert(stacks_address, 10);
@@ -93,13 +93,13 @@ fn check_capitulate_miner_view() {
 
     let mut address_updates = HashMap::new();
     for address in address_weights.keys() {
-        address_updates.insert(*address, old_update.clone());
+        address_updates.insert(address.clone(), old_update.clone());
     }
     let mut global_eval = GlobalStateEvaluator::new(address_updates, address_weights, false);
 
     let addresses: Vec<_> = global_eval.address_weights.keys().cloned().collect();
     // Let's say we are the very first signer in the list
-    let local_address = addresses[0];
+    let local_address = addresses[0].clone();
     let local_update = global_eval
         .address_updates
         .get(&local_address)
@@ -373,8 +373,8 @@ fn check_miner_inactivity_timeout() {
     };
 
     let mut address_weights = HashMap::new();
-    let address = *stacks_client.get_signer_address();
-    address_weights.insert(address, 10_u32);
+    let address = stacks_client.get_signer_address();
+    address_weights.insert(address.clone(), 10_u32);
 
     let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights, false);
     // This local state machine should not change as an uninitialized local state cannot be modified

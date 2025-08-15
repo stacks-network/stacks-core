@@ -624,7 +624,11 @@ pub fn test_load_store_update_nakamoto_blocks() {
     let mut stx_transfer_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        TransactionPayload::TokenTransfer(recipient_addr.into(), 123, TokenTransferMemo([0u8; 34])),
+        TransactionPayload::TokenTransfer(
+            recipient_addr.clone().into(),
+            123,
+            TokenTransferMemo([0u8; 34]),
+        ),
     );
     stx_transfer_tx.chain_id = 0x80000000;
     stx_transfer_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -632,7 +636,11 @@ pub fn test_load_store_update_nakamoto_blocks() {
     let mut stx_transfer_tx_3 = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        TransactionPayload::TokenTransfer(recipient_addr.into(), 124, TokenTransferMemo([0u8; 34])),
+        TransactionPayload::TokenTransfer(
+            recipient_addr.clone().into(),
+            124,
+            TokenTransferMemo([0u8; 34]),
+        ),
     );
     stx_transfer_tx_3.chain_id = 0x80000000;
     stx_transfer_tx_3.anchor_mode = TransactionAnchorMode::OnChainOnly;

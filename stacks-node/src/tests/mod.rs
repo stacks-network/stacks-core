@@ -45,6 +45,7 @@ use crate::BitcoinRegtestController;
 
 mod atlas;
 pub mod bitcoin_regtest;
+mod bitcoin_rpc_integrations;
 mod epoch_205;
 mod epoch_21;
 mod epoch_22;
