@@ -307,3 +307,19 @@ fn prop_contract_name_invalid_patterns() {
         ), "Expected BadNameValue error for invalid contract name '{}'", name);
     });
 }
+
+#[test]
+fn prop_contract_name_roundtrip() {
+    proptest!(|(s in any_valid_contract_name())| {
+        let name = ContractName::try_from(s.clone()).unwrap();
+        prop_assert_eq!(name.as_str(), s);
+
+        let mut buf = Vec::with_capacity((name.len() + 1) as usize);
+        name.consensus_serialize(&mut buf).unwrap();
+        prop_assert_eq!(buf.first().copied(), Some(name.len()));
+        prop_assert_eq!(&buf[1..], name.as_bytes());
+
+        let back = ContractName::consensus_deserialize(&mut buf.as_slice()).unwrap();
+        prop_assert_eq!(back, name);
+    });
+}
