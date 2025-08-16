@@ -66,12 +66,13 @@ use stacks::net::api::postblock_proposal::{
     BlockValidateResponse, ValidateRejectCode, TEST_VALIDATE_DELAY_DURATION_SECS,
     TEST_VALIDATE_STALL,
 };
+use stacks::net::api::poststackerdbchunk::StackerDBErrorCodes;
 use stacks::net::relay::fault_injection::{clear_ignore_block, set_ignore_block};
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksPrivateKey,
     StacksPublicKey,
 };
-use stacks::types::PublicKey;
+use stacks::types::{PrivateKey, PublicKey};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{hex_bytes, Hash160, MerkleHashFunc, Sha512Trunc256Sum};
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
@@ -18473,6 +18474,189 @@ fn signers_do_not_commit_unless_threshold_precommitted() {
         .is_err(),
         "Should not have found a single block accept for the block hash {hash}"
     );
+
+    info!("------------------------- Shutdown -------------------------");
+    signer_test.shutdown();
+}
+
+// Test to ensure a signer operating a two phase commit signer will treat
+// signatures from other signers as pre-commits if it has yet to see their pre-commits
+// for that block. This enables upgraded pre-commit signers to operate as they should
+// with unupgraded signers or if the pre-commit message was somehow dropped.
+#[test]
+#[ignore]
+fn signers_treat_signatures_as_precommits() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 3;
+
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
+    let miner_pk = StacksPublicKey::from_private(&miner_sk);
+    let all_signers = signer_test.signer_test_pks();
+
+    signer_test.boot_to_epoch_3();
+
+    let operating_signer = all_signers[0].clone();
+    let disabled_signers = all_signers[1..].to_vec();
+
+    // Disable a majority of signers so that we can inject our own custom signatures to simulate an un-upgraded signer.
+
+    info!(
+        "------------------------- Disabling {} Signers -------------------------",
+        disabled_signers.len()
+    );
+
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(disabled_signers.clone());
+    let peer_info = signer_test.get_peer_info();
+
+    info!(
+        "------------------------- Trigger Tenure Change Block Proposal -------------------------"
+    );
+    signer_test.mine_bitcoin_block();
+
+    let block_proposal = wait_for_block_proposal(30, peer_info.stacks_tip_height + 1, &miner_pk)
+        .expect("Failed to propose a new tenure block");
+
+    info!(
+        "------------------------- Verify Only Operating Signer Issues Pre-Commit -------------------------"
+    );
+
+    let signer_signature_hash = block_proposal.header.signer_signature_hash();
+    wait_for_block_pre_commits_from_signers(
+        30,
+        &signer_signature_hash,
+        &[operating_signer.clone()],
+    )
+    .expect("Operating signer did not send a pre-commit");
+    assert!(
+        wait_for_block_pre_commits_from_signers(10, &signer_signature_hash, &disabled_signers)
+            .is_err(),
+        "Disabled signers should not have issued any pre-commits"
+    );
+
+    test_observer::clear();
+
+    let reward_cycle = signer_test.get_current_reward_cycle();
+    // Do not send a signature for the operating signer. Just for the disabled. The operating signer should then issue as signature only after the other 2 signers send their signature
+    // Only the operating signer should send a block pre commit.
+    for (i, signer_private_key) in signer_test
+        .signer_stacks_private_keys
+        .iter()
+        .enumerate()
+        .skip(1)
+    {
+        let signature = signer_private_key
+            .sign(signer_signature_hash.bits())
+            .expect("Failed to sign block");
+        let accepted = BlockResponse::accepted(
+            block_proposal.header.signer_signature_hash(),
+            signature,
+            get_epoch_time_secs().wrapping_add(u64::MAX),
+        );
+
+        let signers_contract_id =
+            MessageSlotID::BlockResponse.stacker_db_contract(false, reward_cycle);
+        let mut session = StackerDBSession::new(
+            &signer_test.running_nodes.conf.node.rpc_bind,
+            signers_contract_id,
+        );
+        let message = SignerMessage::BlockResponse(accepted);
+
+        // Manually submit signature
+        let mut accepted = false;
+        let mut version = 0;
+        let start = Instant::now();
+        info!(
+            "------------------------- Manually Submitting Signer {i} Block Approval ------------------------",
+        );
+        // Don't know which slot corresponds to which signer, so just try all of them :)
+        let mut slot_id = 0;
+        while !accepted {
+            let mut chunk = StackerDBChunkData::new(slot_id, version, message.serialize_to_vec());
+            chunk
+                .sign(&signer_private_key)
+                .expect("Failed to sign message chunk");
+            debug!("Produced a signature: {:?}", chunk.sig);
+            let result = session.put_chunk(&chunk).expect("Failed to put chunk");
+            accepted = result.accepted;
+            if !accepted && result.code.unwrap() == StackerDBErrorCodes::BadSigner as u32 {
+                slot_id += 1;
+                assert!(
+                    slot_id < num_signers as u32,
+                    "Failed to find a matching slot id"
+                );
+                continue;
+            }
+            version += 1;
+            debug!("Test Put Chunk ACK: {result:?}");
+            assert!(
+                start.elapsed() < Duration::from_secs(30),
+                "Timed out waiting for signer signature to be accepted"
+            );
+        }
+        if i == 1 {
+            // Signer will not have seen enough signatures (fake pre-commits) to reach threshold
+            info!("------------------------- Verifying Operating Signer Does NOT Issue a Signature ------------------------");
+        } else {
+            // Signer will have seen enough signatures (fake pre-commits) to reach threshold
+            info!("------------------------- Verifying Operating Signer Issues a Signature ------------------------");
+        }
+        let result = wait_for(20, || {
+            for chunk in test_observer::get_stackerdb_chunks()
+                .into_iter()
+                .flat_map(|chunk| chunk.modified_slots)
+            {
+                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage");
+                let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message
+                else {
+                    continue;
+                };
+                assert_eq!(
+                    accepted.signer_signature_hash, signer_signature_hash,
+                    "Got an acceptance message for an unknown proposal"
+                );
+                let signed_by_operating_signer = operating_signer
+                    .verify(signer_signature_hash.bits(), &accepted.signature)
+                    .unwrap();
+                if i == 1 {
+                    assert!(!signed_by_operating_signer, "The operating signer should only issue a signature once it sees BOTH signatures from the other signers");
+                } else if signed_by_operating_signer {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        });
+        // If this is the first iteration of the loop (which starts from 1 since we skipped), the operating signer should do nothing (has yet to reach the threshold)
+        if i == 1 {
+            assert!(
+                result.is_err(),
+                "We saw a signature from the operating signer before our other two signers issued their signatures!"
+            );
+        } else {
+            assert!(
+                result.is_ok(),
+                "We never saw our operating signer issue a signature!"
+            );
+        }
+    }
+
+    info!("------------------------- Ensure Chain Advances -------------------------");
+
+    wait_for(30, || {
+        Ok(signer_test.get_peer_info().stacks_tip_height > peer_info.stacks_tip_height)
+    })
+    .expect("We failed to mine the tenure change block");
 
     info!("------------------------- Shutdown -------------------------");
     signer_test.shutdown();
