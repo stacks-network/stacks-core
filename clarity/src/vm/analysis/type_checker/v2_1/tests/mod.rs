@@ -3659,7 +3659,7 @@ fn test_principal_admits() {
 /// Only concerns itself with simple errors (no nesting).
 #[test]
 fn test_simple_bad_syntax_bindings() {
-    let bad = vec![
+    let bad = [
         // bad let-binding -- binding item is not a list
         "(let (oops (bar u1)) (ok true))",
         // bad let-binding -- binding item is not a 2-element list
@@ -3683,7 +3683,7 @@ fn test_simple_bad_syntax_bindings() {
         // bad type signature (no longer a bad syntax binding error)
         "(from-consensus-buff? (tuple (a (string-ascii -12))) 0x00)",
     ];
-    let expected = vec![
+    let expected = [
         CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_not_list(0)),
         CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_invalid_length(0)),
         CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_not_atom(0)),
@@ -3708,7 +3708,7 @@ fn test_simple_bad_syntax_bindings() {
 /// type-check error.
 #[test]
 fn test_nested_bad_type_signature_syntax_bindings() {
-    let bad = vec![
+    let bad = [
         // bad tuple type signature within a tower of tuples
         "(define-public (foo (bar { a: { b: { c: (string-ascii -19) } } })) (ok true))",
         // bad type signature within a tower of lists
@@ -3717,7 +3717,7 @@ fn test_nested_bad_type_signature_syntax_bindings() {
         "(from-consensus-buff? { a : { b: { c: (string-ascii -19) } } } 0x00)",
     ];
 
-    let expected = vec![
+    let expected = [
         CheckErrors::ValueOutOfBounds,
         CheckErrors::InvalidTypeDescription,
         CheckErrors::ValueOutOfBounds,
