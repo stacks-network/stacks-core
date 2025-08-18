@@ -47,7 +47,7 @@ impl SignerStateTest {
     fn new(num_signers: u32) -> Self {
         let global_eval = generate_global_state_evaluator(num_signers);
         let addresses: Vec<_> = global_eval.address_weights.keys().cloned().collect();
-        let local_address = addresses[0];
+        let local_address = addresses[0].clone();
 
         let burn_block = ConsensusHash([20u8; 20]);
         let burn_block_height = 100;
@@ -75,7 +75,7 @@ impl SignerStateTest {
             post_condition_mode: TransactionPostConditionMode::Allow,
             post_conditions: vec![],
             payload: TransactionPayload::TokenTransfer(
-                local_address.into(),
+                local_address.clone().into(),
                 100,
                 TokenTransferMemo([1u8; 34]),
             ),
@@ -89,7 +89,7 @@ impl SignerStateTest {
             post_condition_mode: TransactionPostConditionMode::Allow,
             post_conditions: vec![],
             payload: TransactionPayload::TokenTransfer(
-                local_address.into(),
+                local_address.clone().into(),
                 200,
                 TokenTransferMemo([2u8; 34]),
             ),
@@ -103,7 +103,7 @@ impl SignerStateTest {
             post_condition_mode: TransactionPostConditionMode::Allow,
             post_conditions: vec![],
             payload: TransactionPayload::TokenTransfer(
-                local_address.into(),
+                local_address.clone().into(),
                 300,
                 TokenTransferMemo([3u8; 34]),
             ),
@@ -146,7 +146,7 @@ impl SignerStateTest {
         let update = self.create_replay_update(transactions);
         for &index in signer_indices {
             self.global_eval
-                .insert_update(self.addresses[index], update.clone());
+                .insert_update(self.addresses[index].clone(), update.clone());
         }
     }
 
