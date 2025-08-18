@@ -2915,15 +2915,15 @@ pub mod test {
         let alice = StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap();
         let bob = StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap();
         peer_config.initial_lockups = vec![
-            ChainstateAccountLockup::new(alice, 1000, 1),
-            ChainstateAccountLockup::new(bob, 1000, 1),
-            ChainstateAccountLockup::new(alice, 1000, 2),
-            ChainstateAccountLockup::new(bob, 1000, 3),
-            ChainstateAccountLockup::new(alice, 1000, 4),
-            ChainstateAccountLockup::new(bob, 1000, 4),
-            ChainstateAccountLockup::new(bob, 1000, 5),
-            ChainstateAccountLockup::new(alice, 1000, 6),
-            ChainstateAccountLockup::new(alice, 1000, 7),
+            ChainstateAccountLockup::new(alice.clone(), 1000, 1),
+            ChainstateAccountLockup::new(bob.clone(), 1000, 1),
+            ChainstateAccountLockup::new(alice.clone(), 1000, 2),
+            ChainstateAccountLockup::new(bob.clone(), 1000, 3),
+            ChainstateAccountLockup::new(alice.clone(), 1000, 4),
+            ChainstateAccountLockup::new(bob.clone(), 1000, 4),
+            ChainstateAccountLockup::new(bob.clone(), 1000, 5),
+            ChainstateAccountLockup::new(alice.clone(), 1000, 6),
+            ChainstateAccountLockup::new(alice.clone(), 1000, 7),
         ];
         let mut peer = TestPeer::new(peer_config);
 
@@ -2931,8 +2931,8 @@ pub mod test {
         let mut missed_initial_blocks = 0;
 
         for tenure_id in 0..num_blocks {
-            let alice_balance = get_balance(&mut peer, &alice.to_account_principal());
-            let bob_balance = get_balance(&mut peer, &bob.to_account_principal());
+            let alice_balance = get_balance(&mut peer, &alice.clone().to_account_principal());
+            let bob_balance = get_balance(&mut peer, &bob.clone().to_account_principal());
             match tenure_id {
                 0 => {
                     assert_eq!(alice_balance, 0);

@@ -495,6 +495,7 @@ impl SignerTest<SpawnedSigner> {
             .conf
             .miner
             .mining_key
+            .clone()
             .expect("No mining key");
         assert_eq!(signed_by, Secp256k1PublicKey::from_private(&miner_sk),
                    "signer tests should only propose blocks that have been signed by the signer test miner. Otherwise, signers won't even consider them via this channel.");
@@ -668,7 +669,7 @@ impl MultipleMinerTest {
                 });
                 node_1_config_modifier(config);
             },
-            Some(vec![btc_miner_1_pk, btc_miner_2_pk]),
+            Some(vec![btc_miner_1_pk.clone(), btc_miner_2_pk.clone()]),
             None,
         );
         let conf = signer_test.running_nodes.conf.clone();
@@ -757,8 +758,9 @@ impl MultipleMinerTest {
                 .conf
                 .miner
                 .mining_key
+                .clone()
                 .unwrap(),
-            self.conf_node_2.miner.mining_key.unwrap(),
+            self.conf_node_2.miner.mining_key.clone().unwrap(),
         )
     }
 
@@ -1829,7 +1831,13 @@ fn miner_gather_signatures() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     let miner_pkh = Hash160::from_node_public_key(&miner_pk);
 
@@ -1973,7 +1981,7 @@ fn revalidate_unknown_parent() {
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(
-            sender_addr,
+            sender_addr.clone(),
             (send_amt + send_fee) * max_nakamoto_tenures * inter_blocks_per_tenure,
         )],
         |signer_config| {
@@ -2011,7 +2019,7 @@ fn revalidate_unknown_parent() {
                 panic!("Expected epochs to be set");
             }
         },
-        Some(vec![btc_miner_1_pk, btc_miner_2_pk]),
+        Some(vec![btc_miner_1_pk.clone(), btc_miner_2_pk.clone()]),
         None,
     );
 
@@ -2039,8 +2047,8 @@ fn revalidate_unknown_parent() {
         conf.burnchain.peer_version,
     );
 
-    let mining_pk_1 = StacksPublicKey::from_private(&conf.miner.mining_key.unwrap());
-    let mining_pk_2 = StacksPublicKey::from_private(&conf_node_2.miner.mining_key.unwrap());
+    let mining_pk_1 = StacksPublicKey::from_private(&conf.miner.mining_key.clone().unwrap());
+    let mining_pk_2 = StacksPublicKey::from_private(&conf_node_2.miner.mining_key.clone().unwrap());
     let mining_pkh_1 = Hash160::from_node_public_key(&mining_pk_1);
     let mining_pkh_2 = Hash160::from_node_public_key(&mining_pk_2);
     debug!("The mining key for miner 1 is {mining_pkh_1}");
@@ -2642,7 +2650,7 @@ fn forked_tenure_testing(
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, send_amt + send_fee)],
+        vec![(sender_addr.clone(), send_amt + send_fee)],
         |config| {
             // make the duration long enough that the reorg attempt will definitely be accepted
             config.first_proposal_burn_block_timing = odd_proposal_limit
@@ -2677,7 +2685,7 @@ fn forked_tenure_testing(
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
     let naka_conf = signer_test.running_nodes.conf.clone();
-    let miner_sk = naka_conf.miner.mining_key.unwrap();
+    let miner_sk = naka_conf.miner.mining_key.clone().unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
@@ -3268,7 +3276,7 @@ fn tx_replay_forking_test() {
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(
-            sender_addr,
+            sender_addr.clone(),
             (send_amt + send_fee) * 10 + deploy_fee + call_fee,
         )],
         |c| {
@@ -3283,7 +3291,7 @@ fn tx_replay_forking_test() {
     );
     let conf = &signer_test.running_nodes.conf;
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let stacks_miner_pk = StacksPublicKey::from_private(&conf.miner.mining_key.unwrap());
+    let stacks_miner_pk = StacksPublicKey::from_private(&conf.miner.mining_key.clone().unwrap());
 
     let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
 
@@ -3534,7 +3542,7 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![
-            (sender_addr, send_amt + send_fee),
+            (sender_addr.clone(), send_amt + send_fee),
             (sender_addr2, send_amt + send_fee),
         ],
         |c| {
@@ -3551,7 +3559,7 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
 
-    let stacks_miner_pk = StacksPublicKey::from_private(&conf.miner.mining_key.unwrap());
+    let stacks_miner_pk = StacksPublicKey::from_private(&conf.miner.mining_key.clone().unwrap());
 
     signer_test.boot_to_epoch_3();
     info!("------------------------- Reached Epoch 3.0 -------------------------");
@@ -3745,7 +3753,7 @@ fn tx_replay_btc_on_stx_invalidation() {
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
-            vec![(sender_addr, (send_amt + send_fee) * 10)],
+            vec![(sender_addr.clone(), (send_amt + send_fee) * 10)],
             |c| {
                 c.validate_with_replay_tx = true;
             },
@@ -3791,7 +3799,7 @@ fn tx_replay_btc_on_stx_invalidation() {
 
     info!("Submitting first pre-stx op");
     let pre_stx_op = PreStxOp {
-        output: sender_addr,
+        output: sender_addr.clone(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -3805,7 +3813,6 @@ fn tx_replay_btc_on_stx_invalidation() {
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::PreStx(pre_stx_op),
                 &mut miner_keychain,
-                1
             )
             .is_ok(),
         "Pre-stx operation should submit successfully"
@@ -3821,7 +3828,7 @@ fn tx_replay_btc_on_stx_invalidation() {
     let recipient_balance = send_amt + send_fee;
     let transfer_stx_op = TransferStxOp {
         sender: sender_addr,
-        recipient: recipient_addr,
+        recipient: recipient_addr.clone(),
         transfered_ustx: recipient_balance.into(),
         memo: vec![],
         txid: Txid([0u8; 32]),
@@ -3834,8 +3841,7 @@ fn tx_replay_btc_on_stx_invalidation() {
             .submit_operation(
                 StacksEpochId::Epoch30,
                 BlockstackOperationType::TransferStx(transfer_stx_op),
-                &mut sender_burnop_signer,
-                1
+                &mut sender_burnop_signer
             )
             .is_ok(),
         "Transfer STX operation should submit successfully"
@@ -4123,7 +4129,7 @@ fn tx_replay_solved_by_mempool_txs() {
     let num_txs = 2;
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender1_addr, (send_amt + send_fee) * num_txs)],
+        vec![(sender1_addr.clone(), (send_amt + send_fee) * num_txs)],
         |c| {
             c.validate_with_replay_tx = true;
         },
@@ -4251,7 +4257,7 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
     let num_txs = 1;
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * num_txs)],
+        vec![(sender_addr.clone(), (send_amt + send_fee) * num_txs)],
         |_| {},
         |node_config| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
@@ -4383,7 +4389,7 @@ fn tx_replay_with_fork_occured_before_starting_replaying_txs() {
     let num_txs = 1;
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender1_addr, (send_amt + send_fee) * num_txs)],
+        vec![(sender1_addr.clone(), (send_amt + send_fee) * num_txs)],
         |c| {
             c.validate_with_replay_tx = true;
         },
@@ -4540,7 +4546,7 @@ fn tx_replay_with_fork_after_empty_tenures_before_starting_replaying_txs() {
     let num_txs = 1;
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender1_addr, (send_amt + send_fee) * num_txs)],
+        vec![(sender1_addr.clone(), (send_amt + send_fee) * num_txs)],
         |c| {
             c.validate_with_replay_tx = true;
         },
@@ -4723,7 +4729,7 @@ fn tx_replay_with_fork_causing_replay_set_to_be_updated() {
     let num_txs = 2;
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender1_addr, (send_amt + send_fee) * num_txs)],
+        vec![(sender1_addr.clone(), (send_amt + send_fee) * num_txs)],
         |c| {
             c.validate_with_replay_tx = true;
         },
@@ -4895,7 +4901,7 @@ fn tx_replay_with_fork_causing_replay_to_be_cleared_due_to_cycle() {
     let num_txs = 2;
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender1_addr, (send_amt + send_fee) * num_txs)],
+        vec![(sender1_addr.clone(), (send_amt + send_fee) * num_txs)],
         |c| {
             c.validate_with_replay_tx = true;
         },
@@ -5048,7 +5054,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
     let call_num = 2;
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, deploy_fee + call_fee * call_num)],
+        vec![(sender_addr.clone(), deploy_fee + call_fee * call_num)],
         |c| {
             c.validate_with_replay_tx = true;
             c.tenure_idle_timeout = Duration::from_secs(10);
@@ -5064,7 +5070,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
     let counters = &signer_test.running_nodes.counters;
-    let stacks_miner_pk = StacksPublicKey::from_private(&conf.miner.mining_key.unwrap());
+    let stacks_miner_pk = StacksPublicKey::from_private(&conf.miner.mining_key.clone().unwrap());
 
     signer_test.boot_to_epoch_3();
     info!("------------------------- Reached Epoch 3.0 -------------------------");
@@ -5279,10 +5285,10 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
         num_signers,
         vec![
             (
-                sender1_addr,
+                sender1_addr.clone(),
                 send1_deploy_fee + send1_call_fee * send1_call_num,
             ),
-            (sender2_addr, (send2_amt + send2_fee) * send2_txs),
+            (sender2_addr.clone(), (send2_amt + send2_fee) * send2_txs),
         ],
         |c| {
             c.validate_with_replay_tx = true;
@@ -5299,7 +5305,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
     let counters = &signer_test.running_nodes.counters;
-    let stacks_miner_pk = StacksPublicKey::from_private(&conf.miner.mining_key.unwrap());
+    let stacks_miner_pk = StacksPublicKey::from_private(&conf.miner.mining_key.clone().unwrap());
 
     signer_test.boot_to_epoch_3();
     info!("------------------------- Reached Epoch 3.0 -------------------------");
@@ -5707,7 +5713,7 @@ fn miner_forking() {
 
     info!("------------------------- RL1 Wins Sortition -------------------------");
     info!("Pausing stacks block proposal to force an empty tenure commit from RL2");
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![mining_pk_1, mining_pk_2]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![mining_pk_1.clone(), mining_pk_2.clone()]);
 
     info!("Pausing commits from RL1");
     skip_commit_op_rl1.set(true);
@@ -5803,7 +5809,7 @@ fn miner_forking() {
 
     info!("------------------------- RL1 RBFs its Own Commit -------------------------");
     info!("Pausing stacks block proposal to test RBF capability");
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![mining_pk_1, mining_pk_2]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![mining_pk_1.clone(), mining_pk_2.clone()]);
     miners.submit_commit_miner_1(&sortdb);
 
     info!("Mine RL1 Tenure");
@@ -6306,7 +6312,13 @@ fn tenure_extend_with_other_transactions() {
         None,
         None,
     );
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
@@ -6403,7 +6415,7 @@ fn snapshot_test() {
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
-            vec![(sender_addr, (send_amt + send_fee) * 1000)],
+            vec![(sender_addr.clone(), (send_amt + send_fee) * 1000)],
             |config| {
                 config.tenure_idle_timeout = idle_timeout;
             },
@@ -6551,7 +6563,13 @@ fn tenure_extend_succeeds_after_rejected_attempt() {
         None,
     );
     let _http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
 
     signer_test.boot_to_epoch_3();
@@ -6747,7 +6765,7 @@ fn idle_tenure_extend_active_mining() {
     let idle_timeout = Duration::from_secs(30);
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, amount), (deployer_addr, amount)],
+        vec![(sender_addr, amount), (deployer_addr.clone(), amount)],
         |config| {
             config.tenure_idle_timeout = idle_timeout;
         },
@@ -7030,7 +7048,13 @@ fn empty_tenure_delayed() {
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
     let short_timeout = Duration::from_secs(20);
 
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     signer_test.boot_to_epoch_3();
 
@@ -7729,7 +7753,7 @@ fn signer_set_rollover() {
 
     let mut initial_balances = new_signer_addresses
         .iter()
-        .map(|addr| (*addr, POX_4_DEFAULT_STACKER_BALANCE))
+        .map(|addr| (addr.clone(), POX_4_DEFAULT_STACKER_BALANCE))
         .collect::<Vec<_>>();
 
     initial_balances.push((sender_addr, (send_amt + send_fee) * 4));
@@ -8148,7 +8172,7 @@ fn duplicate_signers() {
         .collect::<Vec<_>>();
 
     // First two signers have same private key
-    signer_stacks_private_keys[1] = signer_stacks_private_keys[0];
+    signer_stacks_private_keys[1] = signer_stacks_private_keys[0].clone();
     let unique_signers = num_signers - 1;
     let duplicate_pubkey = Secp256k1PublicKey::from_private(&signer_stacks_private_keys[0]);
     let duplicate_pubkey_from_copy =
@@ -8244,7 +8268,7 @@ fn signer_multinode_rollover() {
     let new_signer_addrs: Vec<_> = new_signer_sks.iter().map(tests::to_addr).collect();
     let additional_initial_balances: Vec<_> = new_signer_addrs
         .iter()
-        .map(|addr| (*addr, POX_4_DEFAULT_STACKER_BALANCE))
+        .map(|addr| (addr.clone(), POX_4_DEFAULT_STACKER_BALANCE))
         .collect();
     let new_signers_port_start = 3000 + num_signers;
 
@@ -8660,7 +8684,7 @@ fn partial_tenure_fork() {
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(
-            sender_addr,
+            sender_addr.clone(),
             (send_amt + send_fee) * max_nakamoto_tenures * inter_blocks_per_tenure,
         )],
         |signer_config| {
@@ -8696,7 +8720,7 @@ fn partial_tenure_fork() {
                 panic!("Expected epochs to be set");
             }
         },
-        Some(vec![btc_miner_1_pk, btc_miner_2_pk]),
+        Some(vec![btc_miner_1_pk.clone(), btc_miner_2_pk.clone()]),
         None,
     );
 
@@ -8724,8 +8748,8 @@ fn partial_tenure_fork() {
         conf.burnchain.peer_version,
     );
 
-    let mining_pk_1 = StacksPublicKey::from_private(&conf.miner.mining_key.unwrap());
-    let mining_pk_2 = StacksPublicKey::from_private(&conf_node_2.miner.mining_key.unwrap());
+    let mining_pk_1 = StacksPublicKey::from_private(&conf.miner.mining_key.clone().unwrap());
+    let mining_pk_2 = StacksPublicKey::from_private(&conf_node_2.miner.mining_key.clone().unwrap());
     let mining_pkh_1 = Hash160::from_node_public_key(&mining_pk_1);
     let mining_pkh_2 = Hash160::from_node_public_key(&mining_pk_2);
     debug!("The mining key for miner 1 is {mining_pkh_1}");
@@ -8998,7 +9022,13 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     let all_signers = signer_test.signer_test_pks();
 
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     signer_test.boot_to_epoch_3();
 
@@ -9141,7 +9171,13 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
         .map(StacksPublicKey::from_private)
         .collect();
 
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
 
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
@@ -9294,7 +9330,13 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     let all_signers = signer_test.signer_test_pks();
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
 
     signer_test.boot_to_epoch_3();
@@ -9503,7 +9545,13 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
     let all_signers = signer_test.signer_test_pks();
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
 
     signer_test.boot_to_epoch_3();
@@ -9654,7 +9702,13 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         None,
     );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
 
     signer_test.boot_to_epoch_3();
@@ -10140,7 +10194,13 @@ fn continue_after_tenure_extend() {
     let timeout = Duration::from_secs(200);
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
 
     let burnchain = signer_test.running_nodes.conf.get_burnchain();
@@ -10752,7 +10812,13 @@ fn block_validation_check_rejection_timeout_heuristic() {
         None,
         None,
     );
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     let all_signers = signer_test.signer_test_pks();
 
@@ -11022,7 +11088,13 @@ fn new_tenure_while_validating_previous_scenario() {
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
     signer_test.boot_to_epoch_3();
 
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
 
     info!("----- Starting test -----";
@@ -11730,7 +11802,13 @@ fn global_acceptance_depends_on_block_announcement() {
     );
 
     let all_signers = signer_test.signer_test_pks();
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     let miner_pkh = Hash160::from_node_public_key(&miner_pk);
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
@@ -12507,7 +12585,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
         .collect();
     let new_signer_private_key = StacksPrivateKey::random();
     let mut new_signer_private_keys = signer_private_keys.clone();
-    new_signer_private_keys.push(new_signer_private_key);
+    new_signer_private_keys.push(new_signer_private_key.clone());
 
     let new_signer_public_keys: Vec<_> = new_signer_private_keys
         .iter()
@@ -12522,7 +12600,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
 
     let mut initial_balances = new_signer_addresses
         .iter()
-        .map(|addr| (*addr, POX_4_DEFAULT_STACKER_BALANCE))
+        .map(|addr| (addr.clone(), POX_4_DEFAULT_STACKER_BALANCE))
         .collect::<Vec<_>>();
 
     initial_balances.push((sender_addr, (send_amt + send_fee) * 4));
@@ -12534,7 +12612,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
 
     // Setup the new signers that will take over
     let new_signer_config = build_signer_config_tomls(
-        &[new_signer_private_key],
+        &[new_signer_private_key.clone()],
         &rpc_bind,
         Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
         &Network::Testnet,
@@ -12918,7 +12996,13 @@ fn reorg_attempts_count_towards_miner_validity() {
 
     signer_test.boot_to_epoch_3();
 
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
 
     info!("------------------------- Test Mine Block N -------------------------");
@@ -13097,7 +13181,13 @@ fn reorg_attempts_activity_timeout_exceeded() {
     );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     signer_test.boot_to_epoch_3();
 
@@ -13124,7 +13214,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
             .expect("Failed to propose block N");
     let chain_after = get_chain_info(&signer_test.running_nodes.conf);
     assert_eq!(chain_after, chain_start);
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk.clone()]);
 
     info!("------------------------- Start Tenure B  -------------------------");
     test_observer::clear();
@@ -13157,7 +13247,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
         wait_for_block_proposal(30, chain_start.stacks_tip_height + 1, &miner_pk)
             .expect("Failed to get block proposal N'");
     // Make sure that no subsequent proposal arrives before the block_proposal_timeout is exceeded
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk.clone()]);
     info!("------------------------- Wait for block N' to arrive late  -------------------------");
     // Allow block N validation to finish.
     TEST_VALIDATE_STALL.set(false);
@@ -13238,7 +13328,7 @@ fn fast_sortition() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
         num_signers,
-        vec![(sender_addr, num_transfers * (send_amt + send_fee))],
+        vec![(sender_addr.clone(), num_transfers * (send_amt + send_fee))],
     );
 
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
@@ -13573,14 +13663,20 @@ fn block_proposal_timeout() {
         None,
     );
 
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     let miner_pkh = Hash160::from_node_public_key(&miner_pk);
 
     signer_test.boot_to_epoch_3();
 
     // Pause the miner's block proposals
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk.clone()]);
 
     info!("------------------------- Start Tenure A -------------------------");
     let commits_before = signer_test
@@ -13726,7 +13822,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     miners.submit_commit_miner_2(&sortdb);
 
     info!("------------------------- Pause Miner 2's Block Proposals -------------------------");
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2.clone()]);
 
     info!("------------------------- Mine Tenure -------------------------");
     miners
@@ -13741,7 +13837,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
 
     info!("------------------------- Miner 2 Mines Block N+1 -------------------------");
     test_observer::clear();
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1.clone()]);
     let miner_2_block_n_1 = wait_for_block_pushed_by_miner_key(30, block_n_height + 1, &miner_pk_2)
         .expect("Failed to get block N+1");
 
@@ -14043,7 +14139,7 @@ fn tenure_extend_cost_threshold() {
     let idle_timeout = Duration::from_secs(10);
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(deployer_addr, deploy_fee + tx_fee * num_txs)],
+        vec![(deployer_addr.clone(), deploy_fee + tx_fee * num_txs)],
         |config| {
             config.tenure_idle_timeout = idle_timeout;
         },
@@ -14260,7 +14356,7 @@ fn interrupt_miner_on_new_stacks_tip() {
 
     info!("------------------------- Block N is Announced -------------------------");
 
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1, miner_pk_2]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1.clone(), miner_pk_2.clone()]);
     TEST_P2P_BROADCAST_STALL.set(false);
 
     // Wait for RL2's tip to advance to the last block
@@ -14487,7 +14583,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
 
     // Pause the block proposal broadcast so that miner 2 will be unable to broadcast its
     // tenure change proposal BEFORE the block_proposal_timeout and will be marked invalid.
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2.clone()]);
 
     info!("------------------------- Miner 2 Mines an Empty Tenure B -------------------------");
     test_observer::clear();
@@ -14667,7 +14763,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
 
     // Pause the block proposal broadcast so that miner 2 will be unable to broadcast its
     // tenure change proposal BEFORE miner 1 attempts to extend.
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2.clone()]);
 
     info!("------------------------- Miner 2 Wins Tenure B -------------------------";
         "burn_height_before" => burn_height_before,
@@ -15028,7 +15124,7 @@ fn non_blocking_minority_configured_to_favour_incoming_miner() {
     let burn_height_before = get_burn_height();
     // Pause the block proposal broadcast so that miner 2 AND miner 1 are unable to propose
     // a block BEFORE block_proposal_timeout
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2, miner_pk_1]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2.clone(), miner_pk_1.clone()]);
 
     info!("------------------------- Miner 2 Wins Tenure B -------------------------";
         "burn_height_before" => burn_height_before,
@@ -15049,7 +15145,7 @@ fn non_blocking_minority_configured_to_favour_incoming_miner() {
     std::thread::sleep(tenure_extend_wait_timeout.add(Duration::from_secs(1)));
 
     // Allow miner 2 to attempt to start their tenure.
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1.clone()]);
 
     info!("------------------------- Wait for Miner 2's Block N+1' to be Proposed ------------------------";
         "stacks_height_before" => %stacks_height_before);
@@ -15256,7 +15352,7 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
     miners.submit_commit_miner_2(&sortdb);
     // Pause the block proposal broadcast so that miner 2 will be unable to broadcast its
     // tenure change proposal BEFORE miner 1 attempts to extend.
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2.clone()]);
 
     let stacks_height_before = miners.get_peer_stacks_tip_height();
     info!("------------------------- Miner 2 Wins Tenure B -------------------------";
@@ -15423,7 +15519,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
     );
     let all_signers = miners.signer_test.signer_test_pks();
     // Pin all the signers to version 1;
-    let pinned_signers = all_signers.iter().map(|key| (*key, 1)).collect();
+    let pinned_signers = all_signers.iter().map(|key| (key.clone(), 1)).collect();
     TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(pinned_signers);
     let mut approving_signers = vec![];
     let mut rejecting_signers = vec![];
@@ -15530,7 +15626,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
     let block_n_1_prime = wait_for_block_proposal(30, block_n_height + 1, &miner_pk_1)
         .expect("Failed to get block proposal N+1'");
     // Stall the miner from proposing again until we're ready
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1.clone()]);
     miners
         .signer_test
         .check_signer_states_reorg(&approving_signers, &rejecting_signers);
@@ -15619,7 +15715,7 @@ fn repeated_rejection() {
     // make signer[0] reject all proposals and to repeat the rejection
     let rejecting_signer =
         StacksPublicKey::from_private(&signer_test.signer_stacks_private_keys[0]);
-    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![rejecting_signer]);
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![rejecting_signer.clone()]);
     TEST_REPEAT_PROPOSAL_RESPONSE.set(vec![rejecting_signer]);
 
     // make signer[1] ignore all proposals
@@ -15859,7 +15955,13 @@ fn signer_can_accept_rejected_block() {
         None,
     );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
 
     signer_test.boot_to_epoch_3();
@@ -16842,7 +16944,7 @@ fn signers_send_state_message_updates() {
     // Pause the block proposal broadcast so that miner 2 will be unable to broadcast its
     // tenure change proposal BEFORE the block_proposal_timeout and will be marked invalid.
     // Also pause miner 1's blocks so we don't go extending that tenure either
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1, miner_pk_2]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1.clone(), miner_pk_2.clone()]);
 
     info!("------------------------- Miner 2 Mines an Empty Tenure B -------------------------");
     miners
@@ -16926,10 +17028,18 @@ fn verify_mempool_caches() {
     let send_amt = 100;
     let send_fee = 180;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let signer_test: SignerTest<SpawnedSigner> =
-        SignerTest::new(num_signers, vec![(sender_addr, (send_amt + send_fee) * 3)]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr.clone(), (send_amt + send_fee) * 3)],
+    );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
-    let miner_sk = signer_test.running_nodes.conf.miner.mining_key.unwrap();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
 
     signer_test.boot_to_epoch_3();
@@ -17088,7 +17198,7 @@ fn burn_block_height_behavior() {
         num_signers,
         vec![
             (sender_addr, send_amt + send_fee),
-            (deployer_addr, deploy_fee + tx_fee * 3),
+            (deployer_addr.clone(), deploy_fee + tx_fee * 3),
         ],
         |config| {
             // make the duration long enough that the miner will be marked as malicious
@@ -17330,7 +17440,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
         .signer_addresses_versions()
         .iter()
         .enumerate()
-        .filter_map(|(i, key)| if i % 2 == 0 { None } else { Some(*key) })
+        .filter_map(|(i, key)| if i % 2 == 0 { None } else { Some(key.clone()) })
         .collect();
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
 
@@ -17370,7 +17480,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
 
     info!("------------------------- Pause Block Proposals -------------------------");
     // For the next tenure, submit the commit op but do not allow any stacks blocks to be broadcasted
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1.clone()]);
     TEST_BLOCK_ANNOUNCE_STALL.set(true);
 
     miners.submit_commit_miner_1(&sortdb);
@@ -17445,7 +17555,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     let info = get_chain_info(&conf_1);
     info!("--------------- Miner 2 Wins Tenure C With Old Block Commit ----------------");
     info!("Prevent Miner 1 from extending at first");
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1.clone()]);
 
     test_observer::clear();
     miners
@@ -17555,7 +17665,7 @@ fn rollover_signer_protocol_version() {
         .collect();
     let pinned_signers_versions: HashMap<StacksPublicKey, u64> = pinned_signers
         .iter()
-        .map(|signer| (*signer, downgraded_version))
+        .map(|signer| (signer.clone(), downgraded_version))
         .collect();
     TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(pinned_signers_versions);
 
@@ -17584,7 +17694,7 @@ fn rollover_signer_protocol_version() {
         .collect();
     let pinned_signers_versions: HashMap<StacksPublicKey, u64> = pinned_signers
         .iter()
-        .map(|signer| (*signer, downgraded_version))
+        .map(|signer| (signer.clone(), downgraded_version))
         .collect();
     TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(pinned_signers_versions);
 

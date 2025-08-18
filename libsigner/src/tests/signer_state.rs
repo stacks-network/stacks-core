@@ -184,7 +184,7 @@ fn generate_global_state_evaluator(num_addresses: u32) -> GlobalStateEvaluator {
 
     let mut address_updates = HashMap::new();
     for address in address_weights.keys() {
-        address_updates.insert(*address, update.clone());
+        address_updates.insert(address.clone(), update.clone());
     }
     GlobalStateEvaluator::new(address_updates, address_weights)
 }
@@ -203,7 +203,7 @@ fn determine_latest_supported_signer_protocol_versions() {
     let mut global_eval = generate_global_state_evaluator(5);
 
     let addresses: Vec<_> = global_eval.address_weights.keys().cloned().collect();
-    let local_address = addresses[0];
+    let local_address = addresses[0].clone();
 
     let local_update = global_eval
         .address_updates
@@ -283,7 +283,7 @@ fn determine_global_burn_views() {
     let mut global_eval = generate_global_state_evaluator(5);
 
     let addresses: Vec<_> = global_eval.address_weights.keys().cloned().collect();
-    let local_address = addresses[0];
+    let local_address = addresses[0].clone();
     let local_update = global_eval
         .address_updates
         .get(&local_address)
@@ -342,7 +342,7 @@ fn determine_global_states() {
     let mut global_eval = generate_global_state_evaluator(5);
 
     let addresses: Vec<_> = global_eval.address_weights.keys().cloned().collect();
-    let local_address = addresses[0];
+    let local_address = addresses[0].clone();
     let local_update = global_eval
         .address_updates
         .get(&local_address)
@@ -371,7 +371,7 @@ fn determine_global_states() {
         tx_replay_set: ReplayTransactionSet::none(),
     };
 
-    global_eval.insert_update(local_address, local_update);
+    global_eval.insert_update(local_address.clone(), local_update);
     assert_eq!(global_eval.determine_global_state().unwrap(), state_machine);
     let new_miner = StateMachineUpdateMinerState::ActiveMiner {
         current_miner_pkh: Hash160([0x00; 20]),
@@ -420,7 +420,7 @@ fn determine_global_states_with_tx_replay_set() {
     let mut global_eval = generate_global_state_evaluator(5);
 
     let addresses: Vec<_> = global_eval.address_weights.keys().cloned().collect();
-    let local_address = addresses[0];
+    let local_address = addresses[0].clone();
     let local_update = global_eval
         .address_updates
         .get(&local_address)
@@ -468,7 +468,7 @@ fn determine_global_states_with_tx_replay_set() {
 
     // Let's update 3 signers to some new tx_replay_set but one that has no txs in it
     for address in addresses.iter().skip(1).take(3) {
-        global_eval.insert_update(*address, no_tx_replay_set_update.clone());
+        global_eval.insert_update(address.clone(), no_tx_replay_set_update.clone());
     }
 
     // we have disagreement about the burn block height
@@ -477,7 +477,7 @@ fn determine_global_states_with_tx_replay_set() {
         "We should have disagreement about the burn view"
     );
 
-    global_eval.insert_update(local_address, no_tx_replay_set_update.clone());
+    global_eval.insert_update(local_address.clone(), no_tx_replay_set_update.clone());
 
     let new_burn_view_state_machine = SignerStateMachine {
         burn_block,
@@ -488,7 +488,7 @@ fn determine_global_states_with_tx_replay_set() {
     };
 
     // Let's tip the scales over to the correct burn view
-    global_eval.insert_update(local_address, no_tx_replay_set_update);
+    global_eval.insert_update(local_address.clone(), no_tx_replay_set_update);
     assert_eq!(
         global_eval.determine_global_state().unwrap(),
         new_burn_view_state_machine
@@ -503,7 +503,7 @@ fn determine_global_states_with_tx_replay_set() {
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
         payload: TransactionPayload::TokenTransfer(
-            local_address.into(),
+            local_address.clone().into(),
             123,
             TokenTransferMemo([0u8; 34]),
         ),

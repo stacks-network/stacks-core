@@ -2396,33 +2396,34 @@ mod test {
         tx_auth_check_all_epochs(auth_p2wpkh, None);
         tx_auth_check_all_epochs(auth_sponsored_p2wpkh, None);
 
-        let auth_p2sh = TransactionAuth::from_p2sh(&[privk_1, privk_2], 2).unwrap();
+        let privks = [privk_1.clone(), privk_2.clone()];
+        let auth_p2sh = TransactionAuth::from_p2sh(&privks, 2).unwrap();
         let auth_sponsored_p2sh = auth_p2sh.clone().into_sponsored(
-            TransactionAuth::from_p2sh(&[privk_1, privk_2], 2).unwrap()
+            TransactionAuth::from_p2sh(&privks, 2).unwrap()
         ).unwrap();
 
         tx_auth_check_all_epochs(auth_p2sh, None);
         tx_auth_check_all_epochs(auth_sponsored_p2sh, None);
 
-        let auth_p2wsh = TransactionAuth::from_p2wsh(&[privk_1, privk_2], 2).unwrap();
+        let auth_p2wsh = TransactionAuth::from_p2wsh(&privks, 2).unwrap();
         let auth_sponsored_p2wsh = auth_p2wsh.clone().into_sponsored(
-            TransactionAuth::from_p2wsh(&[privk_1, privk_2], 2).unwrap()
+            TransactionAuth::from_p2wsh(&privks, 2).unwrap()
         ).unwrap();
 
         tx_auth_check_all_epochs(auth_p2wsh, None);
         tx_auth_check_all_epochs(auth_sponsored_p2wsh, None);
 
-        let auth_order_independent_p2sh = TransactionAuth::from_order_independent_p2sh(&[privk_1, privk_2], 2).unwrap();
+        let auth_order_independent_p2sh = TransactionAuth::from_order_independent_p2sh(&privks, 2).unwrap();
         let auth_sponsored_order_independent_p2sh = auth_order_independent_p2sh.clone().into_sponsored(
-            TransactionAuth::from_order_independent_p2sh(&[privk_1, privk_2], 2).unwrap()
+            TransactionAuth::from_order_independent_p2sh(&privks, 2).unwrap()
         ).unwrap();
 
         tx_auth_check_all_epochs(auth_order_independent_p2sh, Some(StacksEpochId::Epoch30));
         tx_auth_check_all_epochs(auth_sponsored_order_independent_p2sh, Some(StacksEpochId::Epoch30));
 
-        let auth_order_independent_p2wsh = TransactionAuth::from_order_independent_p2wsh(&[privk_1, privk_2], 2).unwrap();
+        let auth_order_independent_p2wsh = TransactionAuth::from_order_independent_p2wsh(&privks, 2).unwrap();
         let auth_sponsored_order_independent_p2wsh = auth_order_independent_p2wsh.clone().into_sponsored(
-            TransactionAuth::from_order_independent_p2wsh(&[privk_1, privk_2], 2).unwrap()
+            TransactionAuth::from_order_independent_p2wsh(&privks, 2).unwrap()
         ).unwrap();
 
         tx_auth_check_all_epochs(auth_order_independent_p2wsh, Some(StacksEpochId::Epoch30));
