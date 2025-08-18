@@ -41,6 +41,7 @@ struct SignerStateTest {
     tx_a: StacksTransaction,
     tx_b: StacksTransaction,
     tx_c: StacksTransaction,
+    tx_d: StacksTransaction,
 }
 
 impl SignerStateTest {
@@ -66,48 +67,26 @@ impl SignerStateTest {
         let pk1 = StacksPrivateKey::random();
         let pk2 = StacksPrivateKey::random();
         let pk3 = StacksPrivateKey::random();
+        let pk4 = StacksPrivateKey::random();
 
-        let tx_a = StacksTransaction {
+        let make_tx = |pk: &StacksPrivateKey, memo: [u8; 34]| StacksTransaction {
             version: TransactionVersion::Testnet,
             chain_id: 0x80000000,
-            auth: TransactionAuth::from_p2pkh(&pk1).unwrap(),
+            auth: TransactionAuth::from_p2pkh(pk).unwrap(),
             anchor_mode: TransactionAnchorMode::Any,
             post_condition_mode: TransactionPostConditionMode::Allow,
             post_conditions: vec![],
             payload: TransactionPayload::TokenTransfer(
                 local_address.clone().into(),
                 100,
-                TokenTransferMemo([1u8; 34]),
+                TokenTransferMemo(memo),
             ),
         };
 
-        let tx_b = StacksTransaction {
-            version: TransactionVersion::Testnet,
-            chain_id: 0x80000000,
-            auth: TransactionAuth::from_p2pkh(&pk2).unwrap(),
-            anchor_mode: TransactionAnchorMode::Any,
-            post_condition_mode: TransactionPostConditionMode::Allow,
-            post_conditions: vec![],
-            payload: TransactionPayload::TokenTransfer(
-                local_address.clone().into(),
-                200,
-                TokenTransferMemo([2u8; 34]),
-            ),
-        };
-
-        let tx_c = StacksTransaction {
-            version: TransactionVersion::Testnet,
-            chain_id: 0x80000000,
-            auth: TransactionAuth::from_p2pkh(&pk3).unwrap(),
-            anchor_mode: TransactionAnchorMode::Any,
-            post_condition_mode: TransactionPostConditionMode::Allow,
-            post_conditions: vec![],
-            payload: TransactionPayload::TokenTransfer(
-                local_address.clone().into(),
-                300,
-                TokenTransferMemo([3u8; 34]),
-            ),
-        };
+        let tx_a = make_tx(&pk1, [1u8; 34]);
+        let tx_b = make_tx(&pk2, [2u8; 34]);
+        let tx_c = make_tx(&pk3, [3u8; 34]);
+        let tx_d = make_tx(&pk4, [4u8; 34]);
 
         Self {
             global_eval,
@@ -120,6 +99,7 @@ impl SignerStateTest {
             tx_a,
             tx_b,
             tx_c,
+            tx_d,
         }
     }
 
@@ -551,35 +531,6 @@ fn determine_global_states_with_tx_replay_set() {
 
 #[test]
 /// Case: One signer has [A,B,C], another has [A,B] - should find common prefix [A,B]
-fn test_replay_set_common_prefix_coalescing_demo() {
-    let mut state_test = SignerStateTest::new(5);
-
-    // Signers 0, 1: [A,B,C] (40% weight)
-    state_test.update_signers(
-        &[0, 1],
-        vec![
-            state_test.tx_a.clone(),
-            state_test.tx_b.clone(),
-            state_test.tx_c.clone(),
-        ],
-    );
-
-    // Signers 2, 3, 4: [A,B] (60% weight - should win)
-    state_test.update_signers(
-        &[2, 3, 4],
-        vec![state_test.tx_a.clone(), state_test.tx_b.clone()],
-    );
-
-    let transactions = state_test.get_global_replay_set();
-
-    // Should find common prefix [A,B] since it's the longest prefix with majority support
-    assert_eq!(transactions.len(), 2);
-    assert_eq!(transactions[0], state_test.tx_a); // Order matters!
-    assert_eq!(transactions[1], state_test.tx_b);
-    assert!(!transactions.contains(&state_test.tx_c));
-}
-
-#[test]
 fn test_replay_set_common_prefix_coalescing() {
     let mut state_test = SignerStateTest::new(5);
 
@@ -698,11 +649,11 @@ fn test_replay_set_order_matters_no_common_prefix() {
 #[test]
 /// Case: [A,B,C] vs [A,B,D] should find common prefix [A,B]
 fn test_replay_set_partial_prefix_match() {
-    let mut state_test = SignerStateTest::new(4);
+    let mut state_test = SignerStateTest::new(5);
 
-    // Signer 0: [A,B,C] (25% weight - not enough alone)
+    // Signer 0, 1: [A,B,C] (40% weight)
     state_test.update_signers(
-        &[0],
+        &[0, 1],
         vec![
             state_test.tx_a.clone(),
             state_test.tx_b.clone(),
@@ -710,10 +661,14 @@ fn test_replay_set_partial_prefix_match() {
         ],
     );
 
-    // Signers 1, 2, 3: [A,B] only (75% weight - above threshold)
+    // Signers 2, 3, 4: [A,B,D] (60% weight)
     state_test.update_signers(
-        &[1, 2, 3],
-        vec![state_test.tx_a.clone(), state_test.tx_b.clone()],
+        &[2, 3, 4],
+        vec![
+            state_test.tx_a.clone(),
+            state_test.tx_b.clone(),
+            state_test.tx_d.clone(),
+        ],
     );
 
     let transactions = state_test.get_global_replay_set();
