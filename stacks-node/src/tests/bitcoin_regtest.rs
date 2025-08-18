@@ -1,3 +1,24 @@
+// Copyright (C) 2025 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+//! Bitcoin Core module
+//!
+//! This module provides convenient APIs for managing a `bitcoind` process,
+//! including utilities to quickly start and stop instances for testing or
+//! development purposes.
+
 use std::env;
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
@@ -20,27 +41,31 @@ use crate::Config;
 // Value usable as `BurnchainConfig::peer_port` to avoid bitcoind peer port binding
 pub const BURNCHAIN_CONFIG_PEER_PORT_DISABLED: u16 = 0;
 
+/// Errors that can occur when managing a `bitcoind` process.
 #[derive(Debug, thiserror::Error)]
 pub enum BitcoinCoreError {
+    /// Returned when the `bitcoind` process fails to start.
     #[error("bitcoind spawn failed: {0}")]
     SpawnFailed(String),
+    /// Returned when an attempt to stop the `bitcoind` process fails.
     #[error("bitcoind stop failed: {0}")]
     StopFailed(String),
+    /// Returned when an attempt to forcibly kill the `bitcoind` process fails.
     #[error("bitcoind kill failed: {0}")]
     KillFailed(String),
 }
 
 type BitcoinResult<T> = Result<T, BitcoinCoreError>;
 
-/// Represent a bitcoind process instance
+/// Represents a managed `bitcoind` process instance.
 pub struct BitcoinCoreController {
-    /// Process child reference
+    /// Handle to the spawned `bitcoind` process.
     bitcoind_process: Option<Child>,
-    /// Arguments used to start the process
+    /// Command-line arguments used to launch the process.
     args: Vec<String>,
-    /// The data-dir path used by bitcoind
+    /// Path to the data directory used by `bitcoind`.
     data_path: String,
-    /// An rpc client to call bitcoind rpc api
+    /// RPC client for communicating with the `bitcoind` instance.
     rpc_client: BitcoinRpcClient,
 }
 
@@ -239,8 +264,8 @@ mod tests {
         assert!(data_path.exists(), "data path should exists after start!");
 
         bitcoind.kill_bitcoind().expect("should kill!");
-        assert!(!bitcoind.is_running(), "should not be running after stop!");
-        assert!(data_path.exists(), "data path should exists after stop!");
+        assert!(!bitcoind.is_running(), "should not be running after kill!");
+        assert!(data_path.exists(), "data path should exists after kill!");
     }
 }
 
