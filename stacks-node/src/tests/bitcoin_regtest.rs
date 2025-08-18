@@ -12,7 +12,7 @@ use stacks::core::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
 
 use super::PUBLISH_CONTRACT;
-use crate::burnchains::bitcoin_regtest_controller::BitcoinRPCRequest;
+use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
 use crate::helium::RunLoop;
 use crate::tests::to_addr;
 use crate::Config;
@@ -35,6 +35,7 @@ pub struct BitcoinCoreController {
     args: Vec<String>,
     data_path: String,
     config: Config,
+    rpc_client: BitcoinRpcClient,
 }
 
 impl BitcoinCoreController {
@@ -45,6 +46,7 @@ impl BitcoinCoreController {
             args: vec![],
             data_path: config.get_burnchain_path_str(),
             config: config.clone(),
+            rpc_client: BitcoinRpcClient::from_stx_config(config).expect("rpc client creation failed!"),
         };
 
         result.add_arg("-regtest");
@@ -94,7 +96,7 @@ impl BitcoinCoreController {
 
         command.args(self.args.clone());
 
-        eprintln!("bitcoind spawn: {command:?}");
+        info!("bitcoind spawn: {command:?}");
 
         let mut process = match command.spawn() {
             Ok(child) => child,
@@ -115,7 +117,7 @@ impl BitcoinCoreController {
             }
         }
 
-        eprintln!("bitcoind startup finished");
+        info!("bitcoind startup finished");
 
         self.bitcoind_process = Some(process);
 
@@ -124,22 +126,11 @@ impl BitcoinCoreController {
 
     pub fn stop_bitcoind(&mut self) -> Result<(), BitcoinCoreError> {
         if let Some(mut bitcoind_process) = self.bitcoind_process.take() {
-            let res = BitcoinRPCRequest::stop_bitcoind(&self.config)
+            let res = self.rpc_client.stop()
                 .map_err(|e| BitcoinCoreError::StopFailed(format!("{e:?}")))?;
-
-            if let Some(err) = res.get("error") {
-                if !err.is_null() {
-                    return Err(BitcoinCoreError::StopFailed(format!("{err}")));
-                }
-            } else if let Some(_result) = res.get("result") {
-                // Expected, continue
-            } else {
-                return Err(BitcoinCoreError::StopFailed(format!(
-                    "Invalid response: {res:?}"
-                )));
-            }
-
-            bitcoind_process.wait().unwrap();
+            info!("bitcoind stop message: '{res}'");
+            bitcoind_process.wait().map_err(|e| BitcoinCoreError::StopFailed(format!("{e:?}")))?;
+            info!("bitcoind stopped!");
         }
         Ok(())
     }
@@ -149,6 +140,10 @@ impl BitcoinCoreController {
             bitcoind_process.kill().unwrap();
         }
     }
+
+    pub fn is_running(&self) -> bool {
+        self.bitcoind_process.is_some()
+    }
 }
 
 impl Drop for BitcoinCoreController {
@@ -156,6 +151,80 @@ impl Drop for BitcoinCoreController {
         self.kill_bitcoind();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+    mod utils {
+        use std::net::TcpListener;
+        use stacks::util::get_epoch_time_nanos;
+
+        use super::*;
+
+        pub fn create_config() -> Config {
+            let mut config = Config::default();
+            config.burnchain.magic_bytes = "T3".as_bytes().into();
+            config.burnchain.username = Some(String::from("user"));
+            config.burnchain.password = Some(String::from("12345"));
+            // overriding default "0.0.0.0" because doesn't play nicely on Windows.
+            config.burnchain.peer_host = String::from("127.0.0.1");
+            // avoiding peer port biding to reduce the number of ports to bind to.
+            config.burnchain.peer_port = BURNCHAIN_CONFIG_PEER_PORT_DISABLED;
+
+            //Ask the OS for a free port. Not guaranteed to stay free,
+            //after TcpListner is dropped, but good enough for testing
+            //and starting bitcoind right after config is created
+            let tmp_listener =
+                TcpListener::bind("127.0.0.1:0").expect("Failed to bind to get a free port");
+            let port = tmp_listener.local_addr().unwrap().port();
+
+            config.burnchain.rpc_port = port;
+
+            let now = get_epoch_time_nanos();
+            let dir = format!("/tmp/regtest-ctrl-{port}-{now}");
+            config.node.working_dir = dir;
+
+            config
+        }
+    }
+
+    #[test]
+    fn test_bitcoind_start_and_stop() {
+        let config = utils::create_config();
+        let data_path_str = config.get_burnchain_path_str();
+        let data_path = Path::new(data_path_str.as_str());
+
+        let mut bitcoind = BitcoinCoreController::from_stx_config(&config);
+        
+        bitcoind.start_bitcoind().expect("should start!");
+        assert!(bitcoind.is_running(), "should be running after start!");
+        assert!(data_path.exists(), "data path should exists after start!");
+
+        bitcoind.stop_bitcoind().expect("should stop!");
+        assert!(!bitcoind.is_running(), "should be not running after stop!");
+        assert!(data_path.exists(), "data path should exists after stop!");
+    }
+
+    #[test]
+    fn test_bitcoind_start_and_kill() {
+        let config = utils::create_config();
+        let data_path_str = config.get_burnchain_path_str();
+        let data_path = Path::new(data_path_str.as_str());
+
+        let mut bitcoind = BitcoinCoreController::from_stx_config(&config);
+        
+        bitcoind.start_bitcoind().expect("should start!");
+        assert!(bitcoind.is_running(), "should be running after start!");
+        assert!(data_path.exists(), "data path should exists after start!");
+
+        bitcoind.kill_bitcoind();//.expect("should stop!");
+        assert!(!bitcoind.is_running(), "should be not running after stop!");
+        assert!(data_path.exists(), "data path should exists after stop!");
+    }
+}
+
 
 const BITCOIND_INT_TEST_COMMITS: u64 = 11000;
 
