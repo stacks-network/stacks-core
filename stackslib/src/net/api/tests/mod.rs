@@ -1425,25 +1425,28 @@ fn prefixed_hex_serialization() {
     }
 }
 
-#[test]
-fn test_successfull_resposes_preambles_have_canonical_stacks_tip_height() {
+/// Test that the `X-Canonical-Stacks-Tip-Height` header always matches the node's
+/// `network.stacks_tip.height` value.
+///
+/// This doesn't aim to test each possible endpoint, but rather to test that the
+/// header is set to the correct value for successful responses.
+#[rstest]
+#[case::getinfo(|addr| StacksHttpRequest::new_getinfo(addr, None))]
+#[case::getneighbors(StacksHttpRequest::new_getneighbors)]
+#[case::getpoxinfo(|addr| StacksHttpRequest::new_getpoxinfo(
+    addr,
+    TipRequest::UseLatestUnconfirmedTip,
+))]
+fn test_successfull_responses_have_correct_canonical_stacks_tip_height(
+    #[case] request_builder: impl Fn(PeerHost) -> StacksHttpRequest,
+) {
     let addr: PeerHost = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 33333).into();
     let test_observer = TestEventObserver::new();
     let rpc_test = TestRPC::setup(function_name!());
 
     let expected_height = rpc_test.peer_2.network.stacks_tip.height;
-
-    // Just a few different types of requests.
-    let requests = vec![
-        StacksHttpRequest::new_getinfo(addr.clone(), None),
-        StacksHttpRequest::new_getheaders(
-            addr.clone(),
-            2100,
-            TipRequest::SpecificTip(StacksBlockId([0x80; 32])),
-        ),
-        StacksHttpRequest::new_getpoxinfo(addr.clone(), TipRequest::UseLatestUnconfirmedTip),
-    ];
-    let mut responses = rpc_test.run(requests);
+    let request = request_builder(addr);
+    let mut responses = rpc_test.run(vec![request]);
 
     let response = responses.remove(0);
     let preamble = response.preamble();
