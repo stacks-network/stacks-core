@@ -175,7 +175,7 @@ fn fix_to_pox_contract() {
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -803,7 +803,7 @@ fn verify_auto_unlock_behavior() {
         .unwrap()
         + 1;
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())

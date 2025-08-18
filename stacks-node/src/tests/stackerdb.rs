@@ -163,7 +163,7 @@ fn test_stackerdb_load_store() {
 
     test_observer::spawn();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -300,7 +300,7 @@ fn test_stackerdb_event_observer() {
 
     test_observer::spawn();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())

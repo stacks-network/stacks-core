@@ -1650,7 +1650,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     node_config_modifier(&mut naka_conf);
 
     info!("Make new BitcoinCoreController");
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())

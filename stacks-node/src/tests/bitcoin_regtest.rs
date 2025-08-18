@@ -32,17 +32,19 @@ type BitcoinResult<T> = Result<T, BitcoinCoreError>;
 
 pub struct BitcoinCoreController {
     bitcoind_process: Option<Child>,
-    config: Config,
     args: Vec<String>,
+    data_path: String,
+    config: Config,
 }
 
 impl BitcoinCoreController {
     /// Create a [`BitcoinCoreController`] from Stacks Configuration, mainly using [`stacks::config::BurnchainConfig`]
-    pub fn from_stx_config(config: Config) -> Self {
+    pub fn from_stx_config(config: &Config) -> Self {
         let mut result = BitcoinCoreController {
             bitcoind_process: None,
-            config: config.clone(), //TODO: clone can be removed once
             args: vec![],
+            data_path: config.get_burnchain_path_str(),
+            config: config.clone(),
         };
 
         result.add_arg("-regtest");
@@ -55,14 +57,14 @@ impl BitcoinCoreController {
         result.add_arg("-server=1");
         result.add_arg("-listenonion=0");
         result.add_arg("-rpcbind=127.0.0.1");
-        result.add_arg(format!("-datadir={}", config.get_burnchain_path_str()));
+        result.add_arg(format!("-datadir={}", result.data_path));
 
         let peer_port = config.burnchain.peer_port;
         if peer_port == BURNCHAIN_CONFIG_PEER_PORT_DISABLED {
             info!("Peer Port is disabled. So `-listen=0` flag will be used");
             result.add_arg("-listen=0");
         } else {
-            result.add_arg(format!("-port={}", peer_port));
+            result.add_arg(format!("-port={peer_port}"));
         }
 
         result.add_arg(format!("-rpcport={}", config.burnchain.rpc_port));
@@ -85,7 +87,7 @@ impl BitcoinCoreController {
 
     /// Start Bitcoind process
     pub fn start_bitcoind(&mut self) -> BitcoinResult<()> {
-        std::fs::create_dir_all(self.config.get_burnchain_path_str()).unwrap();
+        std::fs::create_dir_all(&self.data_path).unwrap();
 
         let mut command = Command::new("bitcoind");
         command.stdout(Stdio::piped());
@@ -212,7 +214,7 @@ fn bitcoind_integration(segwit_flag: bool) {
     });
 
     // Setup up a bitcoind controller
-    let mut controller = BitcoinCoreController::from_stx_config(conf.clone());
+    let mut controller = BitcoinCoreController::from_stx_config(&conf);
     // Start bitcoind
     let _res = controller.start_bitcoind();
 
