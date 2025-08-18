@@ -153,7 +153,7 @@ fn disable_pox() {
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(conf.clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -677,7 +677,7 @@ fn pox_2_unlock_all() {
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(conf.clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -1375,7 +1375,7 @@ fn test_pox_reorg_one_flap() {
         burnchain_configs.push(burnchain_config);
     }
 
-    let mut btcd_controller = BitcoinCoreController::new(confs[0].clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(confs[0].clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())

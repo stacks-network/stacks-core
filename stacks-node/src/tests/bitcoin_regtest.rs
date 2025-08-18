@@ -37,15 +37,6 @@ pub struct BitcoinCoreController {
 }
 
 impl BitcoinCoreController {
-    /// TODO: to be removed in favor of [`Self::from_stx_config`]
-    pub fn new(config: Config) -> BitcoinCoreController {
-        BitcoinCoreController {
-            bitcoind_process: None,
-            config,
-            args: vec![],
-        }
-    }
-
     /// Create a [`BitcoinCoreController`] from Stacks Configuration, mainly using [`stacks::config::BurnchainConfig`]
     pub fn from_stx_config(config: Config) -> Self {
         let mut result = BitcoinCoreController {
@@ -92,84 +83,14 @@ impl BitcoinCoreController {
         self
     }
 
-    ///  Start Bitcoind process
-    pub fn start_bitcoind_v2(&mut self) -> BitcoinResult<()> {
+    /// Start Bitcoind process
+    pub fn start_bitcoind(&mut self) -> BitcoinResult<()> {
         std::fs::create_dir_all(self.config.get_burnchain_path_str()).unwrap();
 
         let mut command = Command::new("bitcoind");
         command.stdout(Stdio::piped());
 
         command.args(self.args.clone());
-
-        eprintln!("bitcoind spawn: {command:?}");
-
-        let mut process = match command.spawn() {
-            Ok(child) => child,
-            Err(e) => return Err(BitcoinCoreError::SpawnFailed(format!("{e:?}"))),
-        };
-
-        let mut out_reader = BufReader::new(process.stdout.take().unwrap());
-
-        let mut line = String::new();
-        while let Ok(bytes_read) = out_reader.read_line(&mut line) {
-            if bytes_read == 0 {
-                return Err(BitcoinCoreError::SpawnFailed(
-                    "Bitcoind closed before spawning network".into(),
-                ));
-            }
-            if line.contains("Done loading") {
-                break;
-            }
-        }
-
-        eprintln!("bitcoind startup finished");
-
-        self.bitcoind_process = Some(process);
-
-        Ok(())
-    }
-
-    fn add_rpc_cli_args(&self, command: &mut Command) {
-        command.arg(format!("-rpcport={}", self.config.burnchain.rpc_port));
-
-        if let (Some(username), Some(password)) = (
-            &self.config.burnchain.username,
-            &self.config.burnchain.password,
-        ) {
-            command
-                .arg(format!("-rpcuser={username}"))
-                .arg(format!("-rpcpassword={password}"));
-        }
-    }
-
-    /// TODO: to be removed in favor of [`Self::start_bitcoind_v2`]
-    pub fn start_bitcoind(&mut self) -> BitcoinResult<()> {
-        std::fs::create_dir_all(self.config.get_burnchain_path_str()).unwrap();
-
-        let mut command = Command::new("bitcoind");
-        command
-            .stdout(Stdio::piped())
-            .arg("-regtest")
-            .arg("-nodebug")
-            .arg("-nodebuglogfile")
-            .arg("-rest")
-            .arg("-persistmempool=1")
-            .arg("-dbcache=100")
-            .arg("-txindex=1")
-            .arg("-server=1")
-            .arg("-listenonion=0")
-            .arg("-rpcbind=127.0.0.1")
-            .arg(format!("-datadir={}", self.config.get_burnchain_path_str()));
-
-        let peer_port = self.config.burnchain.peer_port;
-        if peer_port == BURNCHAIN_CONFIG_PEER_PORT_DISABLED {
-            info!("Peer Port is disabled. So `-listen=0` flag will be used");
-            command.arg("-listen=0");
-        } else {
-            command.arg(format!("-port={}", peer_port));
-        }
-
-        self.add_rpc_cli_args(&mut command);
 
         eprintln!("bitcoind spawn: {command:?}");
 
@@ -291,7 +212,7 @@ fn bitcoind_integration(segwit_flag: bool) {
     });
 
     // Setup up a bitcoind controller
-    let mut controller = BitcoinCoreController::new(conf.clone());
+    let mut controller = BitcoinCoreController::from_stx_config(conf.clone());
     // Start bitcoind
     let _res = controller.start_bitcoind();
 

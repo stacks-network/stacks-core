@@ -134,7 +134,7 @@ fn trait_invocation_behavior() {
     );
     burnchain_config.pox_constants = pox_constants;
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(conf.clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())

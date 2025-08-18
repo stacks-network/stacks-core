@@ -103,7 +103,7 @@ fn advance_to_2_1(
     ));
     burnchain_config.pox_constants = pox_constants;
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(conf.clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -602,7 +602,7 @@ fn transition_fixes_bitcoin_rigidity() {
     );
     burnchain_config.pox_constants = pox_constants;
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(conf.clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -1480,7 +1480,7 @@ fn transition_removes_pox_sunset() {
 
     conf.burnchain.epochs = Some(epochs);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(conf.clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -1766,7 +1766,7 @@ fn transition_empty_blocks() {
     );
     burnchain_config.pox_constants = pox_constants;
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(conf.clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -2120,7 +2120,7 @@ fn test_pox_reorgs_three_flaps() {
         burnchain_configs.push(burnchain_config);
     }
 
-    let mut btcd_controller = BitcoinCoreController::new(confs[0].clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(confs[0].clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -2638,7 +2638,7 @@ fn test_pox_reorg_one_flap() {
         burnchain_configs.push(burnchain_config);
     }
 
-    let mut btcd_controller = BitcoinCoreController::new(confs[0].clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(confs[0].clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -3045,7 +3045,7 @@ fn test_pox_reorg_flap_duel() {
         burnchain_configs.push(burnchain_config);
     }
 
-    let mut btcd_controller = BitcoinCoreController::new(confs[0].clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(confs[0].clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -3461,7 +3461,7 @@ fn test_pox_reorg_flap_reward_cycles() {
         burnchain_configs.push(burnchain_config);
     }
 
-    let mut btcd_controller = BitcoinCoreController::new(confs[0].clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(confs[0].clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -3871,7 +3871,7 @@ fn test_pox_missing_five_anchor_blocks() {
         burnchain_configs.push(burnchain_config);
     }
 
-    let mut btcd_controller = BitcoinCoreController::new(confs[0].clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(confs[0].clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -4253,7 +4253,7 @@ fn test_sortition_divergence_pre_21() {
         burnchain_configs.push(burnchain_config);
     }
 
-    let mut btcd_controller = BitcoinCoreController::new(confs[0].clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(confs[0].clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -4601,7 +4601,7 @@ fn trait_invocation_cross_epoch() {
     );
     burnchain_config.pox_constants = pox_constants;
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(conf.clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -4864,7 +4864,7 @@ fn test_v1_unlock_height_with_current_stackers() {
     );
     burnchain_config.pox_constants = pox_constants;
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(conf.clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -5117,7 +5117,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     );
     burnchain_config.pox_constants = pox_constants;
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(conf.clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
