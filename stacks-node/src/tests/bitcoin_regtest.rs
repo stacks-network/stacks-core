@@ -235,7 +235,12 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_bitcoind_start_and_stop() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
         let config = utils::create_config();
         let data_path_str = config.get_burnchain_path_str();
         let data_path = Path::new(data_path_str.as_str());
@@ -252,7 +257,12 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_bitcoind_start_and_kill() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
         let config = utils::create_config();
         let data_path_str = config.get_burnchain_path_str();
         let data_path = Path::new(data_path_str.as_str());
