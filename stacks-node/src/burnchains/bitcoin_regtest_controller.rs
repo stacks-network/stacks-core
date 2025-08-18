@@ -2804,17 +2804,6 @@ impl BitcoinRPCRequest {
         BitcoinRPCRequest::send(config, payload)
     }
 
-    pub fn get_chain_tips(config: &Config) -> RPCResult<serde_json::Value> {
-        let payload = BitcoinRPCRequest {
-            method: "getchaintips".to_string(),
-            params: vec![],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-
-        BitcoinRPCRequest::send(config, payload)
-    }
-
     pub fn send(config: &Config, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {
         let request = BitcoinRPCRequest::build_rpc_request(config, &payload);
         let timeout = Duration::from_secs(u64::from(config.burnchain.timeout));
