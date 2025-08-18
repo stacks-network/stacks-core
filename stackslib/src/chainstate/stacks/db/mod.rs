@@ -1268,9 +1268,9 @@ impl StacksChainState {
 
         let boot_code_address = boot_code_addr(mainnet);
 
-        let boot_code_auth = boot_code_tx_auth(boot_code_address);
+        let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
-        let mut boot_code_account = boot_code_acc(boot_code_address, 0);
+        let mut boot_code_account = boot_code_acc(boot_code_address.clone(), 0);
 
         let mut initial_liquid_ustx = 0u128;
         let mut receipts = vec![];

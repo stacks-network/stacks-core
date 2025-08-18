@@ -1,5 +1,6 @@
 pub mod bitcoin_regtest_controller;
 pub mod mocknet_controller;
+pub mod rpc;
 
 use std::time::Instant;
 
@@ -60,7 +61,6 @@ pub trait BurnchainController {
         epoch_id: StacksEpochId,
         operation: BlockstackOperationType,
         op_signer: &mut BurnchainOpSigner,
-        attempt: u64,
     ) -> Result<Txid, Error>;
     fn sync(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error>;
     fn sortdb_ref(&self) -> &SortitionDB;

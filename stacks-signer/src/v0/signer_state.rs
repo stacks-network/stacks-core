@@ -744,7 +744,10 @@ impl LocalStateMachine {
 
         let old_protocol_version = local_update.active_signer_protocol_version;
         // First check if we should update our active protocol version
-        eval.insert_update(*stacks_client.get_signer_address(), local_update.clone());
+        eval.insert_update(
+            stacks_client.get_signer_address().clone(),
+            local_update.clone(),
+        );
         let active_signer_protocol_version = eval
             .determine_latest_supported_signer_protocol_version()
             .unwrap_or(old_protocol_version);
@@ -877,7 +880,10 @@ impl LocalStateMachine {
         tenure_last_block_proposal_timeout: Duration,
     ) -> Option<StateMachineUpdateMinerState> {
         // First always make sure we consider our own viewpoint
-        eval.insert_update(*stacks_client.get_signer_address(), local_update.clone());
+        eval.insert_update(
+            stacks_client.get_signer_address().clone(),
+            local_update.clone(),
+        );
 
         // Determine the current burn block from the local update
         let (current_burn_block, current_burn_block_height) =

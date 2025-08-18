@@ -2745,7 +2745,7 @@ impl BlockMinerThread {
             ..
         } = self.config.get_node_config(false);
 
-        let res = bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer, attempt);
+        let res = bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer);
         match res {
             Ok(_) => {
                 self.failed_to_submit_last_attempt = false;
@@ -3613,7 +3613,7 @@ impl RelayerThread {
         let mut one_off_signer = self.keychain.generate_op_signer();
         if let Ok(txid) =
             self.bitcoin_controller
-                .submit_operation(cur_epoch, op, &mut one_off_signer, 1)
+                .submit_operation(cur_epoch, op, &mut one_off_signer)
         {
             // advance key registration state
             self.last_vrf_key_burn_height = burn_block.block_height;
