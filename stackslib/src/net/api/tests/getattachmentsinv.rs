@@ -23,7 +23,7 @@ use super::TestRPC;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
-    HttpPreambleExtensions as _, RPCRequestHandler, StacksHttp, StacksHttpRequest,
+    RPCRequestHandler, StacksHttp, StacksHttpRequest,
 };
 use crate::net::{Attachment, ProtocolFamily};
 
