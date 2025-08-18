@@ -26,15 +26,21 @@ pub enum BitcoinCoreError {
     SpawnFailed(String),
     #[error("bitcoind stop failed: {0}")]
     StopFailed(String),
+    #[error("bitcoind kill failed: {0}")]
+    KillFailed(String),
 }
 
 type BitcoinResult<T> = Result<T, BitcoinCoreError>;
 
+/// Represent a bitcoind process instance
 pub struct BitcoinCoreController {
+    /// Process child reference
     bitcoind_process: Option<Child>,
+    /// Arguments used to start the process
     args: Vec<String>,
+    /// The data-dir path used by bitcoind
     data_path: String,
-    config: Config,
+    /// An rpc client to call bitcoind rpc api
     rpc_client: BitcoinRpcClient,
 }
 
@@ -45,8 +51,8 @@ impl BitcoinCoreController {
             bitcoind_process: None,
             args: vec![],
             data_path: config.get_burnchain_path_str(),
-            config: config.clone(),
-            rpc_client: BitcoinRpcClient::from_stx_config(config).expect("rpc client creation failed!"),
+            rpc_client: BitcoinRpcClient::from_stx_config(config)
+                .expect("rpc client creation failed!"),
         };
 
         result.add_arg("-regtest");
@@ -124,23 +130,35 @@ impl BitcoinCoreController {
         Ok(())
     }
 
-    pub fn stop_bitcoind(&mut self) -> Result<(), BitcoinCoreError> {
+    /// Gracefully stop bitcoind process
+    pub fn stop_bitcoind(&mut self) -> BitcoinResult<()> {
         if let Some(mut bitcoind_process) = self.bitcoind_process.take() {
-            let res = self.rpc_client.stop()
+            let res = self
+                .rpc_client
+                .stop()
                 .map_err(|e| BitcoinCoreError::StopFailed(format!("{e:?}")))?;
-            info!("bitcoind stop message: '{res}'");
-            bitcoind_process.wait().map_err(|e| BitcoinCoreError::StopFailed(format!("{e:?}")))?;
-            info!("bitcoind stopped!");
+            info!("bitcoind stop started with message: '{res}'");
+            bitcoind_process
+                .wait()
+                .map_err(|e| BitcoinCoreError::StopFailed(format!("{e:?}")))?;
+            info!("bitcoind stop finished");
         }
         Ok(())
     }
 
-    pub fn kill_bitcoind(&mut self) {
+    /// Kill bitcoind process
+    pub fn kill_bitcoind(&mut self) -> BitcoinResult<()> {
         if let Some(mut bitcoind_process) = self.bitcoind_process.take() {
-            bitcoind_process.kill().unwrap();
+            info!("bitcoind kill started");
+            bitcoind_process
+                .kill()
+                .map_err(|e| BitcoinCoreError::KillFailed(format!("{e:?}")))?;
+            info!("bitcoind kill finished");
         }
+        Ok(())
     }
 
+    /// Check if bitcoind process is running
     pub fn is_running(&self) -> bool {
         self.bitcoind_process.is_some()
     }
@@ -148,7 +166,7 @@ impl BitcoinCoreController {
 
 impl Drop for BitcoinCoreController {
     fn drop(&mut self) {
-        self.kill_bitcoind();
+        self.kill_bitcoind().unwrap();
     }
 }
 
@@ -159,6 +177,7 @@ mod tests {
     use super::*;
     mod utils {
         use std::net::TcpListener;
+
         use stacks::util::get_epoch_time_nanos;
 
         use super::*;
@@ -197,13 +216,13 @@ mod tests {
         let data_path = Path::new(data_path_str.as_str());
 
         let mut bitcoind = BitcoinCoreController::from_stx_config(&config);
-        
+
         bitcoind.start_bitcoind().expect("should start!");
         assert!(bitcoind.is_running(), "should be running after start!");
         assert!(data_path.exists(), "data path should exists after start!");
 
         bitcoind.stop_bitcoind().expect("should stop!");
-        assert!(!bitcoind.is_running(), "should be not running after stop!");
+        assert!(!bitcoind.is_running(), "should not be running after stop!");
         assert!(data_path.exists(), "data path should exists after stop!");
     }
 
@@ -214,17 +233,16 @@ mod tests {
         let data_path = Path::new(data_path_str.as_str());
 
         let mut bitcoind = BitcoinCoreController::from_stx_config(&config);
-        
+
         bitcoind.start_bitcoind().expect("should start!");
         assert!(bitcoind.is_running(), "should be running after start!");
         assert!(data_path.exists(), "data path should exists after start!");
 
-        bitcoind.kill_bitcoind();//.expect("should stop!");
-        assert!(!bitcoind.is_running(), "should be not running after stop!");
+        bitcoind.kill_bitcoind().expect("should kill!");
+        assert!(!bitcoind.is_running(), "should not be running after stop!");
         assert!(data_path.exists(), "data path should exists after stop!");
     }
 }
-
 
 const BITCOIND_INT_TEST_COMMITS: u64 = 11000;
 
@@ -638,6 +656,4 @@ fn bitcoind_integration(segwit_flag: bool) {
         },
     );
     run_loop.start(num_rounds).unwrap();
-
-    controller.kill_bitcoind();
 }
