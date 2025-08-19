@@ -18,6 +18,8 @@
 use rstest::rstest;
 #[cfg(test)]
 use stacks_common::types::{chainstate::BlockHeaderHash, StacksEpochId};
+#[cfg(test)]
+use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::vm::contexts::Environment;
 use crate::vm::tests::{test_clarity_versions, test_epochs};
@@ -30,8 +32,8 @@ use crate::vm::{
         env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
         tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
     },
-    types::{OptionalData, ResponseData, TypeSignature, GET_BODY_OF_MAX_SIZE},
-    SymbolicExpression, {execute as vm_execute, ClarityVersion, ContractContext},
+    types::{OptionalData, ResponseData, TypeSignature},
+    {execute as vm_execute, ClarityVersion, ContractContext},
 };
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
@@ -1178,147 +1180,255 @@ fn test_eval_with_non_existing_contract(
     assert!(owned_env.destruct().is_some());
 }
 
-#[test]
-fn test_code_body_of() {
-    let hello_body = r#"
-(define-public (hello) (ok "Hello, world!"))
-"#;
-    let empty_body = "";
-    let almost_too_large_body = ";".repeat(GET_BODY_OF_MAX_SIZE);
-    let too_large_body = ";".repeat(GET_BODY_OF_MAX_SIZE + 1);
-    let get_body_body = r#"
-(define-public (get-body (contract-id principal))
-  (code-body-of? contract-id)
-)
-"#;
+#[apply(test_clarity_versions)]
+fn test_contract_hash_success(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    // contract-hash? is not available before Clarity 4
+    if version < ClarityVersion::Clarity4 {
+        return;
+    }
 
-    let mut env_factory = env_factory();
-    let mut owned_env = env_factory.get_env(StacksEpochId::latest());
-    let placeholder_context = ContractContext::new(
-        QualifiedContractIdentifier::transient(),
-        ClarityVersion::Clarity4,
-    );
+    let mut owned_env = env_factory.get_env(epoch);
+    let placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
     let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
 
-    let hello_identifier = QualifiedContractIdentifier::local("hello").unwrap();
-    env.initialize_contract(hello_identifier.clone(), hello_body, ASTRules::PrecheckSize)
-        .unwrap();
+    // Deploy a contract to hash
+    let other_contract = QualifiedContractIdentifier::local("other-contract").unwrap();
+    let contract_content = "(define-constant test-var 1)";
+    let expected_hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
 
-    let empty_identifier = QualifiedContractIdentifier::local("empty").unwrap();
-    env.initialize_contract(empty_identifier.clone(), empty_body, ASTRules::PrecheckSize)
-        .unwrap();
-
-    let almost_too_large_identifier =
-        QualifiedContractIdentifier::local("almost-too-large").unwrap();
     env.initialize_contract(
-        almost_too_large_identifier.clone(),
-        &almost_too_large_body,
+        other_contract.clone(),
+        contract_content,
         ASTRules::PrecheckSize,
     )
     .unwrap();
 
-    let too_large_identifier = QualifiedContractIdentifier::local("too-large").unwrap();
+    // Test successful contract hash retrieval
+    let test_contract = QualifiedContractIdentifier::local("test-contract").unwrap();
+    let test_program =
+        "(define-read-only (get-hash (contract principal)) (contract-hash? contract))";
+
+    env.initialize_contract(test_contract.clone(), test_program, ASTRules::PrecheckSize)
+        .unwrap();
+
+    // Attempt to get the hash of the other contract and expect it to be
+    // successful and for the returned hash to match the expected hash.
+    let standard_principal = QualifiedContractIdentifier::local("standard-principal").unwrap();
+    let result = env
+        .execute_contract(
+            &test_contract,
+            "get-hash",
+            &symbols_from_values(vec![Value::Principal(PrincipalData::Contract(
+                other_contract.clone(),
+            ))]),
+            true,
+        )
+        .unwrap();
+
+    let hash = result
+        .expect_result_ok()
+        .expect("expected ok")
+        .expect_buff(32)
+        .expect("expected 32-byte hash");
+    assert_eq!(&hash, expected_hash.as_bytes(), "hash mismatch");
+}
+
+#[apply(test_clarity_versions)]
+fn test_contract_hash_nonexistent_contract(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    // contract-hash? is not available before Clarity 4
+    if version < ClarityVersion::Clarity4 {
+        return;
+    }
+
+    let mut owned_env = env_factory.get_env(epoch);
+    let placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
+    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+
+    // Deploy a contract to hash
+    let other_contract = QualifiedContractIdentifier::local("other-contract").unwrap();
+    let contract_content = "(define-constant test-var 1)";
+    let expected_hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
+
     env.initialize_contract(
-        too_large_identifier.clone(),
-        &too_large_body,
+        other_contract.clone(),
+        contract_content,
         ASTRules::PrecheckSize,
     )
     .unwrap();
 
-    let get_body_identifier = QualifiedContractIdentifier::local("get-body").unwrap();
-    env.initialize_contract(get_body_identifier, get_body_body, ASTRules::PrecheckSize)
+    // Test successful contract hash retrieval
+    let test_contract = QualifiedContractIdentifier::local("test-contract").unwrap();
+    let test_program =
+        "(define-read-only (get-hash (contract principal)) (contract-hash? contract))";
+
+    env.initialize_contract(test_contract.clone(), test_program, ASTRules::PrecheckSize)
         .unwrap();
 
-    let res = env
+    // Attempt to get the hash of a non-existent contract, expecting an `(err u2)`
+    let non_existent_contract = QualifiedContractIdentifier::local("nonexistent-contract").unwrap();
+    let result = env
         .execute_contract(
-            &QualifiedContractIdentifier::local("get-body").unwrap(),
-            "get-body",
-            &[SymbolicExpression::atom_value(Value::Principal(
-                PrincipalData::Contract(hello_identifier),
-            ))],
-            false,
+            &test_contract,
+            "get-hash",
+            &symbols_from_values(vec![Value::Principal(PrincipalData::Contract(
+                non_existent_contract.clone(),
+            ))]),
+            true,
         )
         .unwrap();
+
+    assert_eq!(result, Value::err_uint(2));
+}
+
+#[apply(test_clarity_versions)]
+fn test_contract_hash_standard_principal(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    // contract-hash? is not available before Clarity 4
+    if version < ClarityVersion::Clarity4 {
+        return;
+    }
+
+    let mut owned_env = env_factory.get_env(epoch);
+    let placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
+    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+
+    // Deploy a contract to hash
+    let other_contract = QualifiedContractIdentifier::local("other-contract").unwrap();
+    let contract_content = "(define-constant test-var 1)";
+    let expected_hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
+
+    env.initialize_contract(
+        other_contract.clone(),
+        contract_content,
+        ASTRules::PrecheckSize,
+    )
+    .unwrap();
+
+    // Test successful contract hash retrieval
+    let test_contract = QualifiedContractIdentifier::local("test-contract").unwrap();
+    let test_program =
+        "(define-read-only (get-hash (contract principal)) (contract-hash? contract))";
+
+    env.initialize_contract(test_contract.clone(), test_program, ASTRules::PrecheckSize)
+        .unwrap();
+
+    // Attempt to get the hash of a standard principal, expecting an `(err u1)`
+    let result = env
+        .execute_contract(
+            &test_contract,
+            "get-hash",
+            &symbols_from_values(vec![Value::Principal(PrincipalData::Standard(
+                StandardPrincipalData::transient(),
+            ))]),
+            true,
+        )
+        .unwrap();
+
+    assert_eq!(result, Value::err_uint(1));
+}
+
+#[apply(test_clarity_versions)]
+fn test_contract_hash_type_check(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    // contract-hash? is not available before Clarity 4
+    if version < ClarityVersion::Clarity4 {
+        return;
+    }
+
+    let mut owned_env = env_factory.get_env(epoch);
+    let placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
+    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+
+    // Deploy a contract with a type-check error in the `contract-hash?` expression
+    // Note that this would usually fail in analysis, but we've skipped it here.
+    let test_contract = QualifiedContractIdentifier::local("test-contract").unwrap();
+    let test_program = "(define-read-only (get-hash) (contract-hash? u123))";
+
+    env.initialize_contract(test_contract.clone(), test_program, ASTRules::PrecheckSize)
+        .unwrap();
+
+    // Attempt to execute the contract, expecting a type-check error
+    let err = env
+        .execute_contract(&test_contract, "get-hash", &[], true)
+        .unwrap_err();
     assert_eq!(
-        res,
-        Value::okay(
-            Value::string_ascii_from_validated_ascii_string(hello_body.to_string()).unwrap()
-        )
-        .expect("failed to create okay response")
+        err,
+        Error::Unchecked(CheckErrors::ExpectedContractPrincipalValue(Value::UInt(
+            123
+        )))
     );
+}
 
-    let res = env
-        .execute_contract(
-            &QualifiedContractIdentifier::local("get-body").unwrap(),
-            "get-body",
-            &[SymbolicExpression::atom_value(Value::Principal(
-                PrincipalData::Contract(empty_identifier),
-            ))],
-            false,
-        )
+#[apply(test_clarity_versions)]
+fn test_contract_hash_pre_clarity4(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    // contract-hash? is available in Clarity 4
+    if version >= ClarityVersion::Clarity4 {
+        return;
+    }
+
+    let mut owned_env = env_factory.get_env(epoch);
+    let placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
+    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+
+    // Deploy a contract to hash
+    let other_contract = QualifiedContractIdentifier::local("other-contract").unwrap();
+    let contract_content = "(define-constant test-var 1)";
+    let expected_hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
+
+    env.initialize_contract(
+        other_contract.clone(),
+        contract_content,
+        ASTRules::PrecheckSize,
+    )
+    .unwrap();
+
+    // Test successful contract hash retrieval
+    let test_contract = QualifiedContractIdentifier::local("test-contract").unwrap();
+    let test_program =
+        "(define-read-only (get-hash (contract principal)) (contract-hash? contract))";
+
+    env.initialize_contract(test_contract.clone(), test_program, ASTRules::PrecheckSize)
         .unwrap();
+
+    // Attempt to get the hash of the other contract and expect it to be
+    // successful and for the returned hash to match the expected hash.
+    let standard_principal = QualifiedContractIdentifier::local("standard-principal").unwrap();
+    let err = env
+        .execute_contract(
+            &test_contract,
+            "get-hash",
+            &symbols_from_values(vec![Value::Principal(PrincipalData::Contract(
+                other_contract.clone(),
+            ))]),
+            true,
+        )
+        .unwrap_err();
+
     assert_eq!(
-        res,
-        Value::okay(
-            Value::string_ascii_from_validated_ascii_string(empty_body.to_string()).unwrap()
-        )
-        .expect("failed to create okay response")
+        err,
+        Error::Unchecked(CheckErrors::UndefinedFunction("contract-hash?".to_string()))
     );
-
-    let res = env
-        .execute_contract(
-            &QualifiedContractIdentifier::local("get-body").unwrap(),
-            "get-body",
-            &[SymbolicExpression::atom_value(Value::Principal(
-                PrincipalData::Contract(almost_too_large_identifier),
-            ))],
-            false,
-        )
-        .unwrap();
-    assert_eq!(
-        res,
-        Value::okay(
-            Value::string_ascii_from_validated_ascii_string(almost_too_large_body.to_string())
-                .unwrap()
-        )
-        .expect("failed to create okay response")
-    );
-
-    let res = env
-        .execute_contract(
-            &QualifiedContractIdentifier::local("get-body").unwrap(),
-            "get-body",
-            &[SymbolicExpression::atom_value(Value::Principal(
-                PrincipalData::Standard(StandardPrincipalData::null_principal()),
-            ))],
-            false,
-        )
-        .unwrap();
-    assert_eq!(res, Value::err_uint(0));
-
-    let res = env
-        .execute_contract(
-            &QualifiedContractIdentifier::local("get-body").unwrap(),
-            "get-body",
-            &[SymbolicExpression::atom_value(Value::Principal(
-                PrincipalData::Contract(
-                    QualifiedContractIdentifier::local("non-existing").unwrap(),
-                ),
-            ))],
-            false,
-        )
-        .unwrap();
-    assert_eq!(res, Value::err_uint(1));
-
-    let res = env
-        .execute_contract(
-            &QualifiedContractIdentifier::local("get-body").unwrap(),
-            "get-body",
-            &[SymbolicExpression::atom_value(Value::Principal(
-                PrincipalData::Contract(too_large_identifier),
-            ))],
-            false,
-        )
-        .unwrap();
-    assert_eq!(res, Value::err_uint(2));
 }

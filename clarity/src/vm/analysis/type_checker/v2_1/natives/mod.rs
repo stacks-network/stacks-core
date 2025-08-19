@@ -30,9 +30,9 @@ use crate::vm::types::signatures::{
 };
 use crate::vm::types::{
     BlockInfoProperty, BufferLength, BurnBlockInfoProperty, FixedFunction, FunctionArg,
-    FunctionSignature, FunctionType, PrincipalData, StacksBlockInfoProperty, StringSubtype,
-    TenureInfoProperty, TupleTypeSignature, TypeSignature, Value, BUFF_1, BUFF_20, BUFF_32,
-    BUFF_33, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
+    FunctionSignature, FunctionType, PrincipalData, StacksBlockInfoProperty, TenureInfoProperty,
+    TupleTypeSignature, TypeSignature, Value, BUFF_1, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
+    MAX_VALUE_SIZE,
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
 
@@ -487,7 +487,7 @@ fn check_contract_call(
                     _ => {
                         return Err(
                             CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into(),
-                        )
+                        );
                     }
                 };
 
@@ -565,7 +565,7 @@ fn check_contract_call(
                                 return Err(CheckErrors::TraitReferenceUnknown(
                                     trait_instance.to_string(),
                                 )
-                                .into())
+                                .into());
                             }
                         };
 
@@ -1160,7 +1160,7 @@ impl TypedNativeFunction {
             FromConsensusBuff => Special(SpecialNativeFunction(
                 &conversions::check_special_from_consensus_buff,
             )),
-            CodeBodyOf => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+            ContractHash => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
                     ClarityName::try_from("contract".to_owned()).map_err(|_| {
@@ -1169,17 +1169,8 @@ impl TypedNativeFunction {
                         )
                     })?,
                 )],
-                returns: TypeSignature::new_response(
-                    TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
-                        BufferLength::try_from(MAX_VALUE_SIZE - 5).map_err(|_| {
-                            CheckErrors::Expects(
-                    "FAIL: Max Clarity Value Size - 5 is no longer realizable in ASCII Type".into(),
-                )
-                        })?,
-                    ))),
-                    TypeSignature::UIntType,
-                )
-                .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
+                returns: TypeSignature::new_response(BUFF_32.clone(), TypeSignature::UIntType)
+                    .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
             }))),
         };
 

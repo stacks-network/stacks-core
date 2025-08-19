@@ -29,7 +29,6 @@ use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
     BlockInfoProperty, BuffData, BurnBlockInfoProperty, PrincipalData, SequenceData,
     StacksBlockInfoProperty, TenureInfoProperty, TupleData, TypeSignature, Value, BUFF_32,
-    GET_BODY_OF_MAX_SIZE,
 };
 use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
 
@@ -1151,8 +1150,8 @@ pub fn special_get_tenure_info(
     Value::some(result)
 }
 
-/// Handles the function `code-body-of?`
-pub fn special_code_body_of(
+/// Handles the function `contract-hash?`
+pub fn special_contract_hash(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -1164,8 +1163,8 @@ pub fn special_code_body_of(
     let contract_value = eval(contract_expr, env, context)?;
     let contract_identifier = match contract_value {
         Value::Principal(PrincipalData::Standard(_)) => {
-            // If the value is a standard principal, we return `(err u0)`.
-            return Ok(Value::err_uint(0));
+            // If the value is a standard principal, we return `(err u1)`.
+            return Ok(Value::err_uint(1));
         }
         Value::Principal(PrincipalData::Contract(contract_identifier)) => contract_identifier,
         _ => {
@@ -1174,29 +1173,16 @@ pub fn special_code_body_of(
         }
     };
 
-    let contract_size = env
+    runtime_cost(ClarityCostFunction::ContractHash, env, 0)?;
+
+    let Some(contract_hash) = env
         .global_context
         .database
-        .get_contract_size(&contract_identifier)?;
-    runtime_cost(ClarityCostFunction::LoadContract, env, contract_size)?;
-
-    env.global_context.add_memory(contract_size)?;
-
-    let Some(contract_body) = env
-        .global_context
-        .database
-        .get_contract_src(&contract_identifier)
+        .get_contract_hash(&contract_identifier)?
     else {
-        // If the contract does not exist, we return `(err u1)`.
-        return Ok(Value::err_uint(1));
+        // If the contract does not exist, we return `(err u2)`.
+        return Ok(Value::err_uint(2));
     };
 
-    // If the contract body is too large, we return `(err u2)`.
-    if contract_body.len() > GET_BODY_OF_MAX_SIZE {
-        return Ok(Value::err_uint(2));
-    }
-
-    Value::okay(Value::string_ascii_from_validated_ascii_string(
-        contract_body,
-    )?)
+    Value::okay(Value::buff_from(contract_hash.as_bytes().to_vec())?)
 }

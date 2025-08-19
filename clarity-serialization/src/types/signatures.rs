@@ -455,7 +455,8 @@ impl TypeSignature {
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32 => self.admits_type_v2_1(other),
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33 => self.admits_type_v2_1(other),
             StacksEpochId::Epoch10 => Err(CodecError::Expect("epoch 1.0 not supported".into())),
         }
     }
@@ -664,7 +665,8 @@ impl TypeSignature {
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32 => self.canonicalize_v2_1(),
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33 => self.canonicalize_v2_1(),
         }
     }
 
@@ -953,7 +955,8 @@ impl TypeSignature {
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32 => Self::least_supertype_v2_1(a, b),
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33 => Self::least_supertype_v2_1(a, b),
             StacksEpochId::Epoch10 => Err(CodecError::Expect("epoch 1.0 not supported".into())),
         }
     }

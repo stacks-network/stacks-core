@@ -29,7 +29,6 @@ pub mod ast;
 pub mod contexts;
 pub mod database;
 pub mod representations;
-pub mod mast;
 
 pub mod callables;
 pub mod functions;

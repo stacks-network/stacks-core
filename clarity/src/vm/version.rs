@@ -45,7 +45,7 @@ impl ClarityVersion {
             StacksEpochId::Epoch30 => ClarityVersion::Clarity3,
             StacksEpochId::Epoch31 => ClarityVersion::Clarity3,
             StacksEpochId::Epoch32 => ClarityVersion::Clarity3,
-            // TODO: add epoch and default to Clarity 4
+            StacksEpochId::Epoch33 => ClarityVersion::Clarity4,
         }
     }
 }

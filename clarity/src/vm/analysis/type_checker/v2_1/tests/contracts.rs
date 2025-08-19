@@ -32,8 +32,11 @@ use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::signatures::CallableSubtype;
-use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
-use crate::vm::{ClarityVersion, SymbolicExpression};
+use crate::vm::types::{
+    BufferLength, ListTypeData, QualifiedContractIdentifier, SequenceSubtype, StringSubtype,
+    StringUTF8Length, TypeSignature,
+};
+use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression};
 
 fn mem_type_check_v1(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
     mem_run_analysis(snippet, ClarityVersion::Clarity1, StacksEpochId::latest())
@@ -3539,4 +3542,122 @@ fn clarity_trait_experiments_cross_epochs(
         Ok(_) => (),
         res => panic!("expected success, got {res:?}"),
     };
+}
+
+/// Pass various types to `contract-hash?`
+#[apply(test_clarity_versions)]
+fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    let sources = [
+        "(contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.foo)",
+        "(contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM)",
+        "(contract-hash? 123)",
+        "(contract-hash? u123)",
+        "(contract-hash? true)",
+        "(contract-hash? 0x1234)",
+        "(contract-hash? \"60 percent of the time, it works every time\")",
+        "(contract-hash? u\"I am serious, and don't call me Shirley.\")",
+        "(contract-hash? (list 1 2 3))",
+        "(contract-hash? { a: 1, b: u2 })",
+        "(contract-hash? (some u789))",
+        "(contract-hash? (ok true))",
+    ];
+    let results = if version >= ClarityVersion::Clarity4 {
+        [
+            Ok(Some(
+                TypeSignature::new_response(
+                    TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                        BufferLength::try_from(32u32).unwrap(),
+                    )),
+                    TypeSignature::UIntType,
+                )
+                .unwrap(),
+            )),
+            Ok(Some(
+                TypeSignature::new_response(
+                    TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                        BufferLength::try_from(32u32).unwrap(),
+                    )),
+                    TypeSignature::UIntType,
+                )
+                .unwrap(),
+            )),
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::IntType,
+            )),
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::UIntType,
+            )),
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::BoolType,
+            )),
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                    BufferLength::try_from(2u32).unwrap(),
+                )),
+            )),
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+                    BufferLength::try_from(43u32).unwrap(),
+                ))),
+            )),
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+                    StringUTF8Length::try_from(40u32).unwrap(),
+                ))),
+            )),
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::SequenceType(SequenceSubtype::ListType(
+                    ListTypeData::new_list(TypeSignature::IntType, 3).unwrap(),
+                )),
+            )),
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::TupleType(
+                    vec![
+                        (ClarityName::from("a"), TypeSignature::IntType),
+                        (ClarityName::from("b"), TypeSignature::UIntType),
+                    ]
+                    .try_into()
+                    .unwrap(),
+                ),
+            )),
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::new_option(TypeSignature::UIntType).unwrap(),
+            )),
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::NoType)
+                    .unwrap(),
+            )),
+        ]
+    } else {
+        [
+            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
+            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
+            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
+            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
+            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
+            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
+            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
+            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
+            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
+            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
+            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
+            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
+        ]
+    };
+
+    for (source, expected) in sources.iter().zip(results.iter()) {
+        let result = mem_run_analysis(source, version, epoch);
+        let actual = result.map(|(type_sig, _)| type_sig).map_err(|e| e.err);
+        assert_eq!(actual, *expected);
+    }
 }

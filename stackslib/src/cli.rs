@@ -21,9 +21,7 @@ use std::time::Instant;
 use std::{fs, process};
 
 use clarity::types::chainstate::SortitionId;
-use clarity::vm::ast::{build_ast_with_rules, ASTRules};
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::ClarityVersion;
+use clarity::util::hash::{to_hex, Sha512Trunc256Sum};
 use db::blocks::DummyEventDispatcher;
 use db::ChainstateTx;
 use regex::Regex;
@@ -568,20 +566,9 @@ pub fn command_contract_hash(argv: &[String], _conf: Option<&Config>) {
     let contract_source = fs::read_to_string(contract_path)
         .unwrap_or_else(|e| panic!("Failed to read contract file {contract_path:?}: {e}"));
 
-    let ast = build_ast_with_rules(
-        &QualifiedContractIdentifier::transient(),
-        &contract_source,
-        &mut (),
-        ClarityVersion::latest(),
-        StacksEpochId::latest(),
-        ASTRules::PrecheckSize,
-    )
-    .unwrap_or_else(|e| panic!("Failed to build AST: {e}"));
-
-    let mast_bytes = ast.to_mast_hash();
-    let hex_string: String = mast_bytes.iter().map(|b| format!("{:02x}", b)).collect();
-
-    println!("MAST hash for {contract_path}:\n{hex_string}");
+    let hash = Sha512Trunc256Sum::from_data(contract_source.as_bytes());
+    let hex_string = to_hex(hash.as_bytes());
+    println!("Contract hash for {contract_path}:\n{hex_string}");
 }
 
 /// Fetch and process a `StagingBlock` from database and call `replay_block()` to validate

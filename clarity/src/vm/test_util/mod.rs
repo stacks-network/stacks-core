@@ -54,7 +54,8 @@ pub fn generate_test_burn_state_db(epoch_id: StacksEpochId) -> UnitTestBurnState
         | StacksEpochId::Epoch25
         | StacksEpochId::Epoch30
         | StacksEpochId::Epoch31
-        | StacksEpochId::Epoch32 => UnitTestBurnStateDB {
+        | StacksEpochId::Epoch32
+        | StacksEpochId::Epoch33 => UnitTestBurnStateDB {
             epoch_id,
             ast_rules: ASTRules::PrecheckSize,
         },
