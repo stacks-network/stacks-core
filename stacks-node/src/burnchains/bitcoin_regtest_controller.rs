@@ -2007,6 +2007,7 @@ impl BitcoinRegtestController {
         }
     }
 
+    /// Invalidate a block given its hash as a [`BurnchainHeaderHash`].
     #[cfg(test)]
     pub fn invalidate_block(&self, block: &BurnchainHeaderHash) {
         info!("Invalidating block {block}");
@@ -2016,6 +2017,7 @@ impl BitcoinRegtestController {
         }
     }
 
+    /// Retrieve the hash (as a [`BurnchainHeaderHash`]) of the block at the given height.
     #[cfg(test)]
     pub fn get_block_hash(&self, height: u64) -> BurnchainHeaderHash {
         match self.rpc_client.get_block_hash(height) {
