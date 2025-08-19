@@ -798,9 +798,14 @@ fn parse_process_transaction_error(
                     };
                     TransactionResult::error(tx, Error::TransactionTooBigError(measured_cost))
                 } else if cost_so_far_percentage < contract_limit_percentage.into() {
-                    warn!("Transaction {} would exceed the tenure budget, but only {cost_so_far_percentage}% of total budget ({total_budget}) currently consumed. Skipping tx for this block.", tx.txid());
+                    warn!(
+                        "Transaction {} would exceed the tenure budget, but only {cost_so_far_percentage}% of total budget currently consumed. Skipping tx for this block.", tx.txid();
+                        "contract_limit_percentage" => contract_limit_percentage,
+                        "total_budget" => %total_budget
+                    );
                     TransactionResult::skipped(tx, "Tx exceeds contract call block limit".into())
                 } else {
+                    debug!("HERE COST SO FAR : {cost_so_far_percentage}");
                     warn!(
                         "Transaction {} reached block cost {cost_after}; budget was {total_budget}",
                         tx.txid(),
