@@ -564,6 +564,11 @@ pub struct MemPoolWalkSettings {
     /// What percentage of the remaining cost limit should we consume before stopping the walk
     /// None means we consume the entire cost limit ASAP
     pub tenure_cost_limit_per_block_percentage: Option<u8>,
+    /// The percentage of the block’s execution cost at which, if the next non-boot
+    /// contract call would cause a `BlockTooBigError`, the miner will stop including
+    /// further non-boot contract calls and instead consider only boot contract calls
+    /// and STX transfers.
+    pub contract_cost_limit_percentage: Option<u8>,
 }
 
 impl Default for MemPoolWalkSettings {
@@ -577,6 +582,7 @@ impl Default for MemPoolWalkSettings {
             txs_to_consider: MemPoolWalkTxTypes::all(),
             filter_origins: HashSet::new(),
             tenure_cost_limit_per_block_percentage: None,
+            contract_cost_limit_percentage: None,
         }
     }
 }
@@ -591,6 +597,7 @@ impl MemPoolWalkSettings {
             txs_to_consider: MemPoolWalkTxTypes::all(),
             filter_origins: HashSet::new(),
             tenure_cost_limit_per_block_percentage: None,
+            contract_cost_limit_percentage: None,
         }
     }
 }

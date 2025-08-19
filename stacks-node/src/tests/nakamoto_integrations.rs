@@ -3144,6 +3144,7 @@ fn block_proposal_api_endpoint() {
             coinbase,
             1,
             None,
+            None,
         )
         .expect("Failed to build Nakamoto block");
 

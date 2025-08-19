@@ -557,6 +557,7 @@ impl NakamotoBlockProposal {
             coinbase,
             self.block.header.pox_treatment.len(),
             None,
+            None,
         )?;
 
         let mut miner_tenure_info =
@@ -702,6 +703,7 @@ impl NakamotoBlockProposal {
             tenure_change,
             coinbase,
             self.block.header.pox_treatment.len(),
+            None,
             None,
         )?;
         let (mut replay_chainstate, _) =

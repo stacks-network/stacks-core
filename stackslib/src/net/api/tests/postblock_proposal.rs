@@ -271,6 +271,7 @@ fn test_try_make_response() {
             None,
             8,
             None,
+            None,
         )
         .unwrap();
 
@@ -521,6 +522,7 @@ fn replay_validation_test(
             None,
             None,
             8,
+            None,
             None,
         )
         .unwrap();
