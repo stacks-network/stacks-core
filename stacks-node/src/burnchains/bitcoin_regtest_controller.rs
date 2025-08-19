@@ -2024,18 +2024,10 @@ impl BitcoinRegtestController {
 
     #[cfg(test)]
     pub fn get_block_hash(&self, height: u64) -> BurnchainHeaderHash {
-        let request = BitcoinRPCRequest {
-            method: "getblockhash".into(),
-            params: vec![json!(height)],
-            id: "stacks-forker".into(),
-            jsonrpc: "2.0".into(),
-        };
-        match BitcoinRPCRequest::send(&self.config, request) {
-            Ok(v) => {
-                BurnchainHeaderHash::from_hex(v.get("result").unwrap().as_str().unwrap()).unwrap()
-            }
+        match self.rpc_client.get_block_hash(height) {
+            Ok(bhh) => bhh,
             Err(e) => {
-                error!("Bitcoin RPC failure: error invalidating block {e:?}");
+                error!("Bitcoin RPC failure: error retrieving block {e:?}");
                 panic!();
             }
         }
