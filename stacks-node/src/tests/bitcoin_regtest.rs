@@ -70,14 +70,21 @@ pub struct BitcoinCoreController {
 }
 
 impl BitcoinCoreController {
-    /// Create a [`BitcoinCoreController`] from Stacks Configuration, mainly using [`stacks::config::BurnchainConfig`]
+    /// Create a [`BitcoinCoreController`] from Stacks Configuration
     pub fn from_stx_config(config: &Config) -> Self {
+        let client =
+            BitcoinRpcClient::from_stx_config(config).expect("rpc client creation failed!");
+        Self::from_stx_config_and_client(config, client)
+    }
+
+    /// Create a [`BitcoinCoreController`] from Stacks Configuration (mainly using [`stacks::config::BurnchainConfig`])
+    /// and an rpc client [`BitcoinRpcClient`]
+    pub fn from_stx_config_and_client(config: &Config, client: BitcoinRpcClient) -> Self {
         let mut result = BitcoinCoreController {
             bitcoind_process: None,
             args: vec![],
             data_path: config.get_burnchain_path_str(),
-            rpc_client: BitcoinRpcClient::from_stx_config(config)
-                .expect("rpc client creation failed!"),
+            rpc_client: client,
         };
 
         result.add_arg("-regtest");

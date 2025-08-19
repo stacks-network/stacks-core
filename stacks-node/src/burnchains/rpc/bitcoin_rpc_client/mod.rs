@@ -334,7 +334,7 @@ impl<'de> Deserialize<'de> for BurnchainHeaderHashWrapperResponse {
 }
 
 /// Client for interacting with a Bitcoin RPC service.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BitcoinRpcClient {
     /// The client ID to identify the source of the requests.
     client_id: String,

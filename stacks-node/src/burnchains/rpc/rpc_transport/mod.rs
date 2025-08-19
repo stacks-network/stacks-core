@@ -127,7 +127,7 @@ pub enum RpcAuth {
 ///
 /// This struct encapsulates the target URL, optional authentication,
 /// and an internal HTTP client.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RpcTransport {
     /// Host and port of the target JSON-RPC server.
     peer: PeerHost,

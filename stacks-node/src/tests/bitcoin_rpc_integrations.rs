@@ -64,12 +64,12 @@ mod utils {
         config
     }
 
-    pub fn create_client_no_auth_from_stx_config(config: Config) -> BitcoinRpcClient {
+    pub fn create_client_no_auth_from_stx_config(config: &Config) -> BitcoinRpcClient {
         BitcoinRpcClient::new(
-            config.burnchain.peer_host,
+            config.burnchain.peer_host.clone(),
             config.burnchain.rpc_port,
             RpcAuth::None,
-            config.burnchain.wallet_name,
+            config.burnchain.wallet_name.clone(),
             config.burnchain.timeout,
             "stacks".to_string(),
         )
@@ -91,7 +91,7 @@ fn test_rpc_call_fails_when_bitcond_with_auth_but_rpc_no_auth() {
         .start_bitcoind()
         .expect("bitcoind should be started!");
 
-    let client = utils::create_client_no_auth_from_stx_config(config_with_auth);
+    let client = utils::create_client_no_auth_from_stx_config(&config_with_auth);
 
     let err = client.get_blockchain_info().expect_err("Should fail!");
 
@@ -112,12 +112,13 @@ fn test_rpc_call_fails_when_bitcond_no_auth_and_rpc_no_auth() {
     config_no_auth.burnchain.username = None;
     config_no_auth.burnchain.password = None;
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config_no_auth);
+    let client = utils::create_client_no_auth_from_stx_config(&config_no_auth);
+
+    let mut btcd_controller =
+        BitcoinCoreController::from_stx_config_and_client(&config_no_auth, client.clone());
     btcd_controller
         .start_bitcoind()
         .expect("bitcoind should be started!");
-
-    let client = utils::create_client_no_auth_from_stx_config(config_no_auth);
 
     let err = client.get_blockchain_info().expect_err("Should fail!");
 
