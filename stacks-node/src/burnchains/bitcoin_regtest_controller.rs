@@ -77,6 +77,8 @@ use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
 use url::Url;
 
+use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
+
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
@@ -101,6 +103,7 @@ pub struct BitcoinRegtestController {
     burnchain_config: Option<Burnchain>,
     ongoing_block_commit: Option<OngoingBlockCommit>,
     should_keep_running: Option<Arc<AtomicBool>>,
+    rpc_client: BitcoinRpcClient,
 }
 
 #[derive(Clone)]
@@ -345,6 +348,8 @@ impl BitcoinRegtestController {
             runtime: indexer_runtime,
             should_keep_running: should_keep_running.clone(),
         };
+        
+        let rpc_client = BitcoinRpcClient::from_stx_config(&config).expect("unable to instantiate the RPC client!");
 
         Self {
             use_coordinator: coordinator_channel,
@@ -356,6 +361,7 @@ impl BitcoinRegtestController {
             burnchain_config: burnchain,
             ongoing_block_commit: None,
             should_keep_running,
+            rpc_client,
         }
     }
 
@@ -391,6 +397,8 @@ impl BitcoinRegtestController {
             should_keep_running: None,
         };
 
+        let rpc_client = BitcoinRpcClient::from_stx_config(&config).expect("unable to instantiate the RPC client!");
+
         Self {
             use_coordinator: None,
             config,
@@ -401,6 +409,7 @@ impl BitcoinRegtestController {
             burnchain_config: None,
             ongoing_block_commit: None,
             should_keep_running: None,
+            rpc_client,
         }
     }
 
