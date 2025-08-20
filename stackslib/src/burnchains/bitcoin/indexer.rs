@@ -109,7 +109,7 @@ pub struct BitcoinIndexerConfig {
     pub rpc_ssl: bool,
     pub username: Option<String>,
     pub password: Option<String>,
-    pub timeout: u32,
+    pub timeout: u64,
     pub spv_headers_path: String,
     pub first_block: u64,
     pub magic_bytes: MagicBytes,
@@ -187,7 +187,7 @@ impl BitcoinIndexerConfig {
 }
 
 impl BitcoinIndexerRuntime {
-    pub fn new(network_id: BitcoinNetworkType) -> BitcoinIndexerRuntime {
+    pub fn new(network_id: BitcoinNetworkType, timeout: u64) -> BitcoinIndexerRuntime {
         let mut rng = thread_rng();
         BitcoinIndexerRuntime {
             sock: None,
@@ -198,7 +198,7 @@ impl BitcoinIndexerRuntime {
             block_height: 0,
             last_getdata_send_time: 0,
             last_getheaders_send_time: 0,
-            timeout: 300,
+            timeout,
         }
     }
 }
@@ -237,11 +237,12 @@ impl BitcoinIndexer {
         )
         .unwrap_or_else(|_| panic!("Failed to open {working_dir_path:?}"));
 
+        let config =
+            BitcoinIndexerConfig::default_regtest(working_dir_path.to_str().unwrap().to_string());
+        let timeout = config.timeout;
         BitcoinIndexer {
-            config: BitcoinIndexerConfig::default_regtest(
-                working_dir_path.to_str().unwrap().to_string(),
-            ),
-            runtime: BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
+            config,
+            runtime: BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest, timeout),
             should_keep_running: None,
         }
     }
@@ -249,7 +250,10 @@ impl BitcoinIndexer {
     pub fn dup(&self) -> BitcoinIndexer {
         BitcoinIndexer {
             config: self.config.clone(),
-            runtime: BitcoinIndexerRuntime::new(self.runtime.network_id),
+            runtime: BitcoinIndexerRuntime::new(
+                self.runtime.network_id,
+                self.config.timeout.into(),
+            ),
             should_keep_running: self.should_keep_running.clone(),
         }
     }
@@ -1334,9 +1338,11 @@ mod test {
 
         assert_eq!(spv_client_reorg.read_block_headers(2, 10).unwrap().len(), 2);
 
+        let config = BitcoinIndexerConfig::test_default(path_1.to_string());
+        let timeout = config.timeout;
         let mut indexer = BitcoinIndexer::new(
-            BitcoinIndexerConfig::test_default(path_1.to_string()),
-            BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
+            config,
+            BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest, timeout),
             None,
         );
         let common_ancestor_height = indexer
@@ -1507,9 +1513,11 @@ mod test {
 
         assert_eq!(spv_client_reorg.read_block_headers(2, 10).unwrap().len(), 2);
 
+        let config = BitcoinIndexerConfig::test_default(path_1.to_string());
+        let timeout = config.timeout;
         let mut indexer = BitcoinIndexer::new(
-            BitcoinIndexerConfig::test_default(path_1.to_string()),
-            BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
+            config,
+            BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest, timeout),
             None,
         );
         let common_ancestor_height = indexer
@@ -1594,7 +1602,12 @@ mod test {
             fs::remove_file(&indexer_conf.spv_headers_path).unwrap();
         }
 
-        let mut indexer = BitcoinIndexer::new(indexer_conf, BitcoinIndexerRuntime::new(mode), None);
+        let timeout = indexer_conf.timeout;
+        let mut indexer = BitcoinIndexer::new(
+            indexer_conf,
+            BitcoinIndexerRuntime::new(mode, timeout),
+            None,
+        );
         let last_block = indexer.sync_headers(0, None).unwrap();
         eprintln!("sync'ed to block {}", last_block);
 
@@ -3162,9 +3175,11 @@ mod test {
             },
         ];
 
+        let config = BitcoinIndexerConfig::test_default(db_path.to_string());
+        let timeout = config.timeout;
         let mut indexer = BitcoinIndexer::new(
-            BitcoinIndexerConfig::test_default(db_path.to_string()),
-            BitcoinIndexerRuntime::new(BitcoinNetworkType::Mainnet),
+            config,
+            BitcoinIndexerRuntime::new(BitcoinNetworkType::Mainnet, timeout),
             None,
         );
 
@@ -3323,9 +3338,11 @@ mod test {
         let total_work_before_idempotent = spv_client.update_chain_work().unwrap();
         assert_eq!(total_work_before, total_work_before_idempotent);
 
+        let config = BitcoinIndexerConfig::test_default(db_path.to_string());
+        let timeout = config.timeout;
         let mut indexer = BitcoinIndexer::new(
-            BitcoinIndexerConfig::test_default(db_path.to_string()),
-            BitcoinIndexerRuntime::new(BitcoinNetworkType::Mainnet),
+            config,
+            BitcoinIndexerRuntime::new(BitcoinNetworkType::Mainnet, timeout),
             None,
         );
 
@@ -3462,9 +3479,11 @@ mod test {
         spv_client.test_write_block_headers(0, headers).unwrap();
         assert_eq!(spv_client.get_highest_header_height().unwrap(), 2);
 
+        let config = BitcoinIndexerConfig::test_default(db_path.to_string());
+        let timeout = config.timeout;
         let mut indexer = BitcoinIndexer::new(
-            BitcoinIndexerConfig::test_default(db_path.to_string()),
-            BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
+            config,
+            BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest, timeout),
             None,
         );
 
@@ -3489,9 +3508,11 @@ mod test {
         }
 
         let should_keep_running = Arc::new(AtomicBool::new(true));
+        let config = BitcoinIndexerConfig::test_default(db_path);
+        let timeout = config.timeout;
         let mut indexer = BitcoinIndexer::new(
-            BitcoinIndexerConfig::test_default(db_path),
-            BitcoinIndexerRuntime::new(BitcoinNetworkType::Mainnet),
+            config,
+            BitcoinIndexerRuntime::new(BitcoinNetworkType::Mainnet, timeout),
             Some(should_keep_running.clone()),
         );
 
