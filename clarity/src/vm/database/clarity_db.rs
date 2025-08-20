@@ -668,8 +668,7 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Option<Sha512Trunc256Sum>> {
-        self.store
-            .get_contract_hash(contract_identifier)
+        self.store.get_contract_hash(contract_identifier)
     }
 
     pub fn set_metadata(
