@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
@@ -80,6 +82,7 @@ impl<M: MessageSlotID + 'static> From<&SignerConfig> for StackerDB<M> {
             config.reward_cycle,
             signer_db,
             mode,
+            config.stackerdb_timeout,
         )
     }
 }
@@ -94,6 +97,7 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
         reward_cycle: u64,
         signer_slot_id: SignerSlotID,
         signer_db: SignerDb,
+        socket_timeout: Duration,
     ) -> Self {
         Self::new(
             host,
@@ -102,6 +106,7 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
             reward_cycle,
             signer_db,
             StackerDBMode::Normal { signer_slot_id },
+            socket_timeout,
         )
     }
 
@@ -113,11 +118,15 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
         reward_cycle: u64,
         signer_db: SignerDb,
         signer_mode: StackerDBMode,
+        socket_timeout: Duration,
     ) -> Self {
         let mut signers_message_stackerdb_sessions = HashMap::new();
         for msg_id in M::all() {
-            let session =
-                StackerDBSession::new(host, msg_id.stacker_db_contract(is_mainnet, reward_cycle));
+            let session = StackerDBSession::new(
+                host,
+                msg_id.stacker_db_contract(is_mainnet, reward_cycle),
+                socket_timeout,
+            );
             signers_message_stackerdb_sessions.insert(*msg_id, session);
         }
 

@@ -126,6 +126,8 @@ const DEFAULT_TENURE_EXTEND_COST_THRESHOLD: u64 = 50;
 /// Default number of milliseconds that the miner should sleep between mining
 /// attempts when the mempool is empty.
 const DEFAULT_EMPTY_MEMPOOL_SLEEP_MS: u64 = 2_500;
+/// Default number of seconds that aminer should wait before timing out an HTTP request to StackerDB.
+const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 60;
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
@@ -3182,6 +3184,11 @@ pub struct MinerConfig {
     /// TODO: remove this option when its no longer a testing feature and it becomes default behaviour
     /// The miner will attempt to replay transactions that a threshold number of signers are expecting in the next block
     pub replay_transactions: bool,
+    /// Defines the socket timeout (in seconds) for stackerdb communcation.
+    /// ---
+    /// @default: [`DEFAULT_STACKERDB_TIMEOUT_SECS`]
+    /// @units: seconds.
+    pub stackerdb_timeout: Duration,
 }
 
 impl Default for MinerConfig {
@@ -3235,6 +3242,7 @@ impl Default for MinerConfig {
             },
             max_execution_time_secs: None,
             replay_transactions: false,
+            stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
         }
     }
 }
@@ -4177,6 +4185,7 @@ pub struct MinerConfigFile {
     pub max_execution_time_secs: Option<u64>,
     /// TODO: remove this config option once its no longer a testing feature
     pub replay_transactions: Option<bool>,
+    pub stackerdb_timeout_secs: Option<u64>,
 }
 
 impl MinerConfigFile {
@@ -4353,6 +4362,7 @@ impl MinerConfigFile {
 
             max_execution_time_secs: self.max_execution_time_secs,
             replay_transactions: self.replay_transactions.unwrap_or_default(),
+            stackerdb_timeout: self.stackerdb_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.stackerdb_timeout),
         })
     }
 }

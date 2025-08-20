@@ -1106,7 +1106,11 @@ impl BlockMinerThread {
             NakamotoNodeError::MinerConfigurationFailed("Failed to get RPC loopback socket")
         })?;
         let miners_contract_id = boot_code_id(MINERS_NAME, chain_state.mainnet);
-        let mut miners_session = StackerDBSession::new(&rpc_socket.to_string(), miners_contract_id);
+        let mut miners_session = StackerDBSession::new(
+            &rpc_socket.to_string(),
+            miners_contract_id,
+            self.config.miner.stackerdb_timeout,
+        );
 
         if Self::fault_injection_skip_block_push() {
             warn!(
