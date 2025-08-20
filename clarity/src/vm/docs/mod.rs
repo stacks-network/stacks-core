@@ -2519,12 +2519,13 @@ const CONTRACT_HASH: SimpleFunctionAPI = SimpleFunctionAPI {
     description: "Returns the hash of the specified contract, or an error if the principal
 is not a contract or the specified contract does not exist. Returns:
 * `(ok 0x<hash>)` on success, where `<hash>` is the SHA-512/256 hash of the code body
-* `(err u0)` if the principal is not a contract principal.
-* `(err u1)` if the specified contract does not exist.",
+* `(err u1)` if the principal is not a contract principal.
+* `(err u2)` if the specified contract does not exist.",
     example: r#"
-(contract-hash? 'SP2QEZ06AGJ3RKJPBV14SY1V5BBFNAW33D96YPGZF.BNS-V2) ;; Returns (ok 0x9f8104ff869aba1205cd5e15f6404dd05675f4c3fe0817c623c425588d981c2f)
-(contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM) ;; Returns (err u0)
-(contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.does-not-exist) ;; Returns (err u1) if contract does not exist
+;; instantiate the sample/contracts/tokens.clar contract first!
+(contract-hash? .tokens) ;; Returns (ok 0x90b4a559286ba8ec3801fe8ef49d5e646043861f29376771918d1afb8ff68af7)
+(contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM) ;; Returns (err u1)
+(contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.does-not-exist) ;; Returns (err u2)
 "#,
 };
 
