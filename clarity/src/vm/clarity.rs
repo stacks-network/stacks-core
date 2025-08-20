@@ -139,7 +139,6 @@ pub trait ClarityConnection {
         &mut self,
         mainnet: bool,
         chain_id: u32,
-        clarity_version: ClarityVersion,
         sender: PrincipalData,
         sponsor: Option<PrincipalData>,
         cost_track: LimitedCostTracker,
@@ -149,6 +148,7 @@ pub trait ClarityConnection {
         F: FnOnce(&mut Environment) -> Result<R, InterpreterError>,
     {
         let epoch_id = self.get_epoch();
+        let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
         self.with_clarity_db_readonly_owned(|clarity_db| {
             let initial_context =
                 ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);

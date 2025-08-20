@@ -1994,7 +1994,6 @@ impl StacksChainState {
         let result = conn.with_readonly_clarity_env(
             self.mainnet,
             self.chain_id,
-            ClarityVersion::latest(),
             contract.clone().into(),
             None,
             LimitedCostTracker::Free,

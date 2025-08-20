@@ -13601,7 +13601,6 @@ fn test_sip_031_last_phase_out_of_epoch() {
                 conn.with_readonly_clarity_env(
                     naka_conf.is_mainnet(),
                     naka_conf.burnchain.chain_id,
-                    ClarityVersion::Clarity3,
                     PrincipalData::Standard(StandardPrincipalData::transient()),
                     None,
                     LimitedCostTracker::new_free(),

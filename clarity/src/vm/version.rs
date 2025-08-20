@@ -26,9 +26,9 @@ impl fmt::Display for ClarityVersion {
 
 impl ClarityVersion {
     pub fn latest() -> ClarityVersion {
-        // TODO: update to Clarity 4 once it is activated
-        ClarityVersion::Clarity3
+        ClarityVersion::Clarity4
     }
+
     pub fn default_for_epoch(epoch_id: StacksEpochId) -> ClarityVersion {
         match epoch_id {
             StacksEpochId::Epoch10 => {

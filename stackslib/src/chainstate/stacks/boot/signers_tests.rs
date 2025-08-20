@@ -469,7 +469,6 @@ pub fn readonly_call_with_sortdb(
                     .with_readonly_clarity_env(
                         false,
                         0x80000000,
-                        ClarityVersion::Clarity2,
                         PrincipalData::from(boot_code_addr(false)),
                         None,
                         LimitedCostTracker::new_free(),

@@ -387,7 +387,6 @@ impl StacksChainState {
                 is_mainnet,
                 // chain id doesn't matter since it won't be used
                 CHAIN_ID_MAINNET,
-                ClarityVersion::Clarity2,
                 sender_addr,
                 None,
                 LimitedCostTracker::new_free(),
@@ -437,7 +436,6 @@ impl StacksChainState {
                 is_mainnet,
                 // chain id doesn't matter since it won't be used
                 CHAIN_ID_MAINNET,
-                ClarityVersion::Clarity2,
                 sender_addr,
                 None,
                 LimitedCostTracker::new_free(),
@@ -698,7 +696,6 @@ impl StacksChainState {
                     clarity_tx.with_readonly_clarity_env(
                         mainnet,
                         chain_id,
-                        ClarityVersion::Clarity1,
                         sender,
                         None,
                         cost_track,

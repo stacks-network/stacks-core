@@ -3859,7 +3859,6 @@ fn test_get_pox_addrs() {
                                 .with_readonly_clarity_env(
                                     false,
                                     0x80000000,
-                                    ClarityVersion::Clarity2,
                                     PrincipalData::Standard(StandardPrincipalData::transient()),
                                     None,
                                     LimitedCostTracker::new_free(),
@@ -4157,7 +4156,6 @@ fn test_stack_with_segwit() {
                                 .with_readonly_clarity_env(
                                     false,
                                     0x80000000,
-                                    ClarityVersion::Clarity2,
                                     PrincipalData::Standard(StandardPrincipalData::transient()),
                                     None,
                                     LimitedCostTracker::new_free(),

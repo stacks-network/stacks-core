@@ -192,7 +192,6 @@ impl RPCPoxInfoData {
                     clarity_tx.with_readonly_clarity_env(
                         mainnet,
                         chain_id,
-                        ClarityVersion::Clarity2,
                         sender,
                         None,
                         cost_track,

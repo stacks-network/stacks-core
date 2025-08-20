@@ -195,7 +195,6 @@ pub mod pox4 {
                 let result = conn.with_readonly_clarity_env(
                     false,
                     CHAIN_ID_TESTNET,
-                    ClarityVersion::Clarity2,
                     sender.clone(),
                     None,
                     LimitedCostTracker::new_free(),
