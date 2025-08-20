@@ -511,6 +511,15 @@ impl Signer {
                 );
                 // try and gather signatures
                 for (signer_public_key, message) in messages {
+                    let signer_address = StacksAddress::p2pkh(self.mainnet, signer_public_key);
+                    if !self.is_valid_signer(&signer_address) {
+                        debug!("{self}: Received a message from an unknown signer. Ignoring...";
+                            "signer_public_key" => ?signer_public_key,
+                            "signer_address" => %signer_address,
+                            "message" => ?message,
+                        );
+                        return;
+                    }
                     match message {
                         SignerMessage::BlockResponse(block_response) => self.handle_block_response(
                             stacks_client,
@@ -519,15 +528,12 @@ impl Signer {
                         ),
                         SignerMessage::StateMachineUpdate(update) => self
                             .handle_state_machine_update(signer_public_key, update, received_time),
-                        SignerMessage::BlockPreCommit(signer_signature_hash) => {
-                            let stacker_address =
-                                StacksAddress::p2pkh(self.mainnet, signer_public_key);
-                            self.handle_block_pre_commit(
+                        SignerMessage::BlockPreCommit(signer_signature_hash) => self
+                            .handle_block_pre_commit(
                                 stacks_client,
-                                &stacker_address,
+                                &signer_address,
                                 signer_signature_hash,
-                            )
-                        }
+                            ),
                         _ => {}
                     }
                 }
@@ -1004,16 +1010,6 @@ impl Signer {
             );
             return;
         };
-        // Make sure the sender is part of our signing set
-        let is_valid_sender = self.signer_addresses.iter().any(|addr| {
-            // it only matters that the address hash bytes match
-            stacker_address.bytes() == addr.bytes()
-        });
-
-        if !is_valid_sender {
-            debug!("{self}: Received pre-commit message from an unknown sender {stacker_address:?}. Will not store.");
-            return;
-        }
 
         if self.signer_db.has_committed(block_hash, stacker_address).inspect_err(|e| warn!("Failed to check if pre-commit message already considered for {stacker_address:?} for {block_hash}: {e}")).unwrap_or(false) {
             debug!("{self}: Already considered pre-commit message from {stacker_address:?} for {block_hash}. Ignoring...");
@@ -1643,16 +1639,12 @@ impl Signer {
             return;
         };
 
-        let signer_address = StacksAddress::p2pkh(self.mainnet, &public_key);
-
         // authenticate the signature -- it must be signed by one of the stacking set
-        let is_valid_sig = self.signer_addresses.iter().any(|addr| {
-            // it only matters that the address hash bytes match
-            signer_address.bytes() == addr.bytes()
-        });
-
-        if !is_valid_sig {
-            debug!("{self}: Receive block rejection with an invalid signature. Will not store.";
+        let signer_address = StacksAddress::p2pkh(self.mainnet, &public_key);
+        if !self.is_valid_signer(&signer_address) {
+            debug!("{self}: Received block rejection with an invalid signature. Will not store.";
+                "signer_public_key" => ?public_key,
+                "signer_address" => %signer_address,
                 "signer_signature_hash" => %block_hash,
                 "signature" => %signature
             );
@@ -1785,19 +1777,16 @@ impl Signer {
         };
 
         // authenticate the signature -- it must be signed by one of the stacking set
-        let is_valid_sig = self.signer_addresses.iter().any(|addr| {
-            let stacker_address = StacksAddress::p2pkh(self.mainnet, &public_key);
-
-            // it only matters that the address hash bytes match
-            stacker_address.bytes() == addr.bytes()
-        });
-
-        if !is_valid_sig {
-            debug!("{self}: Receive invalid signature {signature}. Will not store.");
+        let signer_address = StacksAddress::p2pkh(self.mainnet, &public_key);
+        if !self.is_valid_signer(&signer_address) {
+            debug!("{self}: Received block acceptance with an invalid signature. Will not store.";
+                "signer_public_key" => ?public_key,
+                "signer_address" => %signer_address,
+                "signer_signature_hash" => %block_hash,
+                "signature" => %signature
+            );
             return;
         }
-
-        let signer_address = StacksAddress::p2pkh(self.mainnet, &public_key);
 
         // signature is valid! store it.
         // if this returns false, it means the signature already exists in the DB, so just return.
@@ -2034,6 +2023,14 @@ impl Signer {
         } else {
             None
         }
+    }
+
+    /// Check if the signer identified by the StacksAddress is part of the signer's list of signer addresses
+    pub fn is_valid_signer(&self, address: &StacksAddress) -> bool {
+        self.signer_addresses.iter().any(|addr| {
+            // it only matters that the address hash bytes match
+            address.bytes() == addr.bytes()
+        })
     }
 
     #[cfg(not(any(test, feature = "testing")))]

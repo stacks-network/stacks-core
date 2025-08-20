@@ -685,11 +685,6 @@ CREATE TABLE IF NOT EXISTS block_pre_commits (
     PRIMARY KEY (signer_signature_hash, signer_addr)
 ) STRICT;"#;
 
-/// Used by get_block_pre_committers
-static CREATE_BLOCK_PRE_COMMITS_BY_SIGHASH_INDEX: &str = r#"
-CREATE INDEX idx_block_pre_commits_by_sighash ON block_pre_commits(signer_signature_hash);
-"#;
-
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
     CREATE_DB_CONFIG,
@@ -805,7 +800,6 @@ static SCHEMA_16: &[&str] = &[
 
 static SCHEMA_17: &[&str] = &[
     CREATE_BLOCK_PRE_COMMITS_TABLE,
-    CREATE_BLOCK_PRE_COMMITS_BY_SIGHASH_INDEX,
     "INSERT INTO db_config (version) VALUES (17);",
 ];
 
