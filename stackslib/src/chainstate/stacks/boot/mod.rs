@@ -30,7 +30,7 @@ use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData, Value,
 };
-use clarity::vm::{ClarityVersion, Environment, SymbolicExpression};
+use clarity::vm::{Environment, SymbolicExpression};
 use lazy_static::lazy_static;
 use serde::Deserialize;
 use stacks_common::codec::StacksMessageCodec;
