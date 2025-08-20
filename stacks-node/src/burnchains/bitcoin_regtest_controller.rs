@@ -289,6 +289,7 @@ impl LeaderBlockCommitFees {
 
 /// Extension methods for working with [`BitcoinRpcClient`] result
 /// that log failures and panic.
+#[cfg(test)]
 trait BitcoinRpcClientResultExt<T> {
     /// Unwraps the result, returning the value if `Ok`.
     ///
@@ -297,6 +298,7 @@ trait BitcoinRpcClientResultExt<T> {
     fn unwrap_or_log_panic(self, context: &str) -> T;
 }
 
+#[cfg(test)]
 impl<T> BitcoinRpcClientResultExt<T> for Result<T, BitcoinRpcClientError> {
     fn unwrap_or_log_panic(self, context: &str) -> T {
         match self {
