@@ -25,8 +25,8 @@ pub use clarity::vm::clarity::{ClarityConnection, Error};
 use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
-    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, RollbackWrapper,
-    RollbackWrapperPersistedLog, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    BurnStateDB, ClarityBackingStore, ClarityBackingStoreTransaction, ClarityDatabase, HeadersDB,
+    RollbackWrapper, RollbackWrapperPersistedLog, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::events::{STXEventType, STXMintEventData};
@@ -53,7 +53,7 @@ use crate::chainstate::stacks::{
     Error as ChainstateError, StacksMicroblockHeader, StacksTransaction, TransactionPayload,
     TransactionSmartContract, TransactionVersion,
 };
-use crate::clarity_vm::database::marf::{MarfedKV, ReadOnlyMarfStore, WritableMarfStore};
+use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::{StacksEpoch, StacksEpochId, FIRST_STACKS_BLOCK_ID, GENESIS_EPOCH};
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::Error as DatabaseError;
@@ -101,7 +101,7 @@ pub struct ClarityInstance {
 /// issuring event dispatches, before the Clarity database commits.
 ///
 pub struct PreCommitClarityBlock<'a> {
-    datastore: WritableMarfStore<'a>,
+    datastore: Box<dyn ClarityBackingStoreTransaction + 'a>,
     commit_to: StacksBlockId,
 }
 
@@ -109,7 +109,7 @@ pub struct PreCommitClarityBlock<'a> {
 /// A high-level interface for Clarity VM interactions within a single block.
 ///
 pub struct ClarityBlockConnection<'a, 'b> {
-    datastore: WritableMarfStore<'a>,
+    datastore: Box<dyn ClarityBackingStoreTransaction + 'a>,
     header_db: &'b dyn HeadersDB,
     burn_state_db: &'b dyn BurnStateDB,
     cost_track: Option<LimitedCostTracker>,
@@ -160,7 +160,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
 }
 
 pub struct ClarityReadOnlyConnection<'a> {
-    datastore: ReadOnlyMarfStore<'a>,
+    datastore: Box<dyn ClarityBackingStore + 'a>,
     header_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
     epoch: StacksEpochId,
@@ -196,13 +196,13 @@ macro_rules! using {
 impl ClarityBlockConnection<'_, '_> {
     #[cfg(test)]
     pub fn new_test_conn<'a, 'b>(
-        datastore: WritableMarfStore<'a>,
+        datastore: super::database::marf::WritableMarfStore<'a>,
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
         epoch: StacksEpochId,
     ) -> ClarityBlockConnection<'a, 'b> {
         ClarityBlockConnection {
-            datastore,
+            datastore: Box::new(datastore),
             header_db,
             burn_state_db,
             cost_track: Some(LimitedCostTracker::new_free()),
@@ -251,7 +251,7 @@ impl ClarityBlockConnection<'_, '_> {
         &mut self,
         burn_state_db: &dyn BurnStateDB,
     ) -> Result<StacksEpochId, Error> {
-        let mut db = self.datastore.as_clarity_db(self.header_db, burn_state_db);
+        let mut db = ClarityDatabase::new(self.datastore.as_mut(), self.header_db, burn_state_db);
         // NOTE: the begin/roll_back shouldn't be necessary with how this gets used in practice,
         // but is put here defensively.
         db.begin();
@@ -328,7 +328,7 @@ impl ClarityInstance {
         };
 
         ClarityBlockConnection {
-            datastore,
+            datastore: Box::new(datastore),
             header_db,
             burn_state_db,
             cost_track,
@@ -352,7 +352,7 @@ impl ClarityInstance {
         let cost_track = Some(LimitedCostTracker::new_free());
 
         ClarityBlockConnection {
-            datastore,
+            datastore: Box::new(datastore),
             header_db,
             burn_state_db,
             cost_track,
@@ -378,7 +378,7 @@ impl ClarityInstance {
         let cost_track = Some(LimitedCostTracker::new_free());
 
         let mut conn = ClarityBlockConnection {
-            datastore: writable,
+            datastore: Box::new(writable),
             header_db,
             burn_state_db,
             cost_track,
@@ -477,7 +477,7 @@ impl ClarityInstance {
         let cost_track = Some(LimitedCostTracker::new_free());
 
         let mut conn = ClarityBlockConnection {
-            datastore: writable,
+            datastore: Box::new(writable),
             header_db,
             burn_state_db,
             cost_track,
@@ -559,6 +559,7 @@ impl ClarityInstance {
 
     pub fn drop_unconfirmed_state(&mut self, block: &StacksBlockId) -> Result<(), Error> {
         let datastore = self.datastore.begin_unconfirmed(block);
+        let datastore: Box<dyn ClarityBackingStoreTransaction> = Box::new(datastore);
         datastore.rollback_unconfirmed()?;
         Ok(())
     }
@@ -588,7 +589,7 @@ impl ClarityInstance {
         };
 
         ClarityBlockConnection {
-            datastore,
+            datastore: Box::new(datastore),
             header_db,
             burn_state_db,
             cost_track,
@@ -628,7 +629,7 @@ impl ClarityInstance {
         }?;
 
         Ok(ClarityReadOnlyConnection {
-            datastore,
+            datastore: Box::new(datastore),
             header_db,
             burn_state_db,
             epoch,
@@ -677,7 +678,8 @@ impl ClarityConnection for ClarityBlockConnection<'_, '_> {
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
     {
-        let mut db = ClarityDatabase::new(&mut self.datastore, self.header_db, self.burn_state_db);
+        let mut db =
+            ClarityDatabase::new(self.datastore.as_mut(), self.header_db, self.burn_state_db);
         db.begin();
         let (result, mut db) = to_do(db);
         db.roll_back()
@@ -689,7 +691,7 @@ impl ClarityConnection for ClarityBlockConnection<'_, '_> {
     where
         F: FnOnce(&mut AnalysisDatabase) -> R,
     {
-        let mut db = AnalysisDatabase::new(&mut self.datastore);
+        let mut db = AnalysisDatabase::new(self.datastore.as_mut());
         db.begin();
         let result = to_do(&mut db);
         db.roll_back()
@@ -708,9 +710,8 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
     {
-        let mut db = self
-            .datastore
-            .as_clarity_db(self.header_db, self.burn_state_db);
+        let mut db =
+            ClarityDatabase::new(self.datastore.as_mut(), self.header_db, self.burn_state_db);
         db.begin();
         let (result, mut db) = to_do(db);
         db.roll_back()
@@ -722,7 +723,7 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
     where
         F: FnOnce(&mut AnalysisDatabase) -> R,
     {
-        let mut db = self.datastore.as_analysis_db();
+        let mut db = AnalysisDatabase::new(self.datastore.as_mut());
         db.begin();
         let result = to_do(&mut db);
         db.roll_back()
@@ -773,7 +774,8 @@ impl<'a> ClarityBlockConnection<'a, '_> {
     #[cfg(test)]
     pub fn commit_block(self) -> LimitedCostTracker {
         debug!("Commit Clarity datastore");
-        self.datastore.test_commit();
+        let bhh = self.datastore.get_block_hash();
+        self.datastore.commit_to(&bhh).unwrap();
 
         self.cost_track.unwrap()
     }
@@ -1709,7 +1711,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
 
     pub fn start_transaction_processing(&mut self) -> ClarityTransactionConnection<'_, '_> {
         ClarityTransactionConnection::new(
-            &mut self.datastore,
+            self.datastore.as_mut(),
             self.header_db,
             self.burn_state_db,
             &mut self.cost_track,
@@ -1761,7 +1763,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
         self.datastore.seal()
     }
 
-    pub fn destruct(self) -> WritableMarfStore<'a> {
+    pub fn destruct(self) -> Box<dyn ClarityBackingStoreTransaction + 'a> {
         self.datastore
     }
 

@@ -8,8 +8,8 @@ use clarity::vm::database::sqlite::{
     sqlite_insert_metadata,
 };
 use clarity::vm::database::{
-    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SpecialCaseHandler,
-    SqliteConnection,
+    BurnStateDB, ClarityBackingStore, ClarityBackingStoreTransaction, ClarityDatabase, HeadersDB,
+    SpecialCaseHandler, SqliteConnection,
 };
 use clarity::vm::errors::{
     IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
@@ -300,6 +300,10 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
         Some(&handle_contract_call_special_cases)
     }
 
+    fn get_block_hash(&self) -> StacksBlockId {
+        self.chain_tip.clone()
+    }
+
     /// Sets the chain tip at which queries will happen.  Used for `(at-block ..)`
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
         self.marf
@@ -549,73 +553,19 @@ impl WritableMarfStore<'_> {
         AnalysisDatabase::new(self)
     }
 
-    pub fn rollback_block(self) {
-        self.marf.drop_current();
-    }
-
-    pub fn rollback_unconfirmed(self) -> InterpreterResult<()> {
-        debug!("Drop unconfirmed MARF trie {}", &self.chain_tip);
-        SqliteConnection::drop_metadata(self.marf.sqlite_tx(), &self.chain_tip)?;
-        self.marf.drop_unconfirmed();
-        Ok(())
-    }
-
-    pub fn commit_to(self, final_bhh: &StacksBlockId) -> InterpreterResult<()> {
-        debug!("commit_to({})", final_bhh);
-        SqliteConnection::commit_metadata_to(self.marf.sqlite_tx(), &self.chain_tip, final_bhh)?;
-
-        let _ = self.marf.commit_to(final_bhh).map_err(|e| {
-            error!("Failed to commit to MARF block {}: {:?}", &final_bhh, &e);
-            InterpreterError::Expect("Failed to commit to MARF block".into())
-        })?;
-        Ok(())
-    }
-
     #[cfg(test)]
     pub fn test_commit(self) {
         let bhh = self.chain_tip.clone();
-        self.commit_to(&bhh).unwrap();
-    }
-
-    pub fn commit_unconfirmed(self) {
-        debug!("commit_unconfirmed()");
-        // NOTE: Can omit commit_metadata_to, since the block header hash won't change
-        // commit_metadata_to(&self.chain_tip, final_bhh);
-        self.marf
-            .commit()
-            .expect("ERROR: Failed to commit MARF block");
-    }
-
-    // This is used by miners
-    //   so that the block validation and processing logic doesn't
-    //   reprocess the same data as if it were already loaded
-    pub fn commit_mined_block(self, will_move_to: &StacksBlockId) -> InterpreterResult<()> {
-        debug!(
-            "commit_mined_block: ({}->{})",
-            &self.chain_tip, will_move_to
-        );
-        // rollback the side_store
-        //    the side_store shouldn't commit data for blocks that won't be
-        //    included in the processed chainstate (like a block constructed during mining)
-        //    _if_ for some reason, we do want to be able to access that mined chain state in the future,
-        //    we should probably commit the data to a different table which does not have uniqueness constraints.
-        SqliteConnection::drop_metadata(self.marf.sqlite_tx(), &self.chain_tip)?;
-        let _ = self.marf.commit_mined(will_move_to).map_err(|e| {
-            error!(
-                "Failed to commit to mined MARF block {}: {:?}",
-                &will_move_to, &e
-            );
-            InterpreterError::Expect("Failed to commit to MARF block".into())
-        })?;
-        Ok(())
-    }
-
-    pub fn seal(&mut self) -> TrieHash {
-        self.marf.seal().expect("FATAL: failed to .seal() MARF")
+        let store: Box<dyn ClarityBackingStoreTransaction> = Box::new(self);
+        store.commit_to(&bhh).unwrap();
     }
 }
 
 impl ClarityBackingStore for WritableMarfStore<'_> {
+    fn get_block_hash(&self) -> StacksBlockId {
+        self.chain_tip.clone()
+    }
+
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
         self.marf
             .check_ancestor_block_hash(&bhh)
@@ -862,5 +812,66 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
         key: &str,
     ) -> InterpreterResult<Option<String>> {
         sqlite_get_metadata_manual(self, at_height, contract, key)
+    }
+}
+
+impl ClarityBackingStoreTransaction for WritableMarfStore<'_> {
+    fn rollback_block(self: Box<Self>) {
+        self.marf.drop_current();
+    }
+
+    fn rollback_unconfirmed(self: Box<Self>) -> InterpreterResult<()> {
+        debug!("Drop unconfirmed MARF trie {}", &self.chain_tip);
+        SqliteConnection::drop_metadata(self.marf.sqlite_tx(), &self.chain_tip)?;
+        self.marf.drop_unconfirmed();
+        Ok(())
+    }
+
+    fn commit_to(self: Box<Self>, final_bhh: &StacksBlockId) -> InterpreterResult<()> {
+        debug!("commit_to({})", final_bhh);
+        SqliteConnection::commit_metadata_to(self.marf.sqlite_tx(), &self.chain_tip, final_bhh)?;
+
+        let _ = self.marf.commit_to(final_bhh).map_err(|e| {
+            error!("Failed to commit to MARF block {}: {:?}", &final_bhh, &e);
+            InterpreterError::Expect("Failed to commit to MARF block".into())
+        })?;
+        Ok(())
+    }
+
+    fn commit_unconfirmed(self: Box<Self>) {
+        debug!("commit_unconfirmed()");
+        // NOTE: Can omit commit_metadata_to, since the block header hash won't change
+        // commit_metadata_to(&self.chain_tip, final_bhh);
+        self.marf
+            .commit()
+            .expect("ERROR: Failed to commit MARF block");
+    }
+
+    // This is used by miners
+    //   so that the block validation and processing logic doesn't
+    //   reprocess the same data as if it were already loaded
+    fn commit_mined_block(self: Box<Self>, will_move_to: &StacksBlockId) -> InterpreterResult<()> {
+        debug!(
+            "commit_mined_block: ({}->{})",
+            &self.chain_tip, will_move_to
+        );
+        // rollback the side_store
+        //    the side_store shouldn't commit data for blocks that won't be
+        //    included in the processed chainstate (like a block constructed during mining)
+        //    _if_ for some reason, we do want to be able to access that mined chain state in the future,
+        //    we should probably commit the data to a different table which does not have uniqueness constraints.
+        SqliteConnection::drop_metadata(self.marf.sqlite_tx(), &self.chain_tip)?;
+        let _ = self.marf.commit_mined(will_move_to).map_err(|e| {
+            error!(
+                "Failed to commit to mined MARF block {}: {:?}",
+                &will_move_to, &e
+            );
+            InterpreterError::Expect("Failed to commit to MARF block".into())
+        })?;
+        Ok(())
+    }
+
+    fn seal(&mut self) -> TrieHash {
+        self.marf.seal().expect("FATAL: failed to .seal() MARF")
     }
 }

@@ -316,6 +316,10 @@ impl ClarityBackingStore for MemoryBackingStore {
         Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
+    fn get_block_hash(&self) -> StacksBlockId {
+        panic!("MemoryBackingStore can't get block hash")
+    }
+
     fn get_data(&mut self, key: &str) -> Result<Option<String>> {
         SqliteConnection::get(self.get_side_store(), key)
     }
