@@ -66,8 +66,6 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
 use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
-#[cfg(test)]
-use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
 use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
@@ -2100,11 +2098,12 @@ impl BitcoinRegtestController {
         transaction.map(SerializedTx::new)
     }
 
+    /// Retrieves a raw [`Transaction`] by its [`Txid`]
     #[cfg(test)]
     pub fn get_raw_transaction(&self, txid: &Txid) -> Transaction {
-        let txstr = BitcoinRPCRequest::get_raw_transaction(&self.config, txid).unwrap();
-        let tx: Transaction = btc_deserialize(&hex_bytes(&txstr).unwrap()).unwrap();
-        tx
+        self.rpc_client
+            .get_raw_transaction(txid)
+            .unwrap_or_log_panic("retrieve raw tx")
     }
 
     /// Produce `num_blocks` regtest bitcoin blocks, sending the bitcoin coinbase rewards
