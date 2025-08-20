@@ -25,7 +25,7 @@ use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::{ClarityVersion, Value};
+use clarity::vm::Value;
 use lazy_static::lazy_static;
 use rusqlite::Connection;
 use stacks_common::address;

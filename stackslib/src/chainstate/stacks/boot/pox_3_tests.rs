@@ -3328,7 +3328,6 @@ fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
                         .with_readonly_clarity_env(
                             false,
                             0x80000000,
-                            ClarityVersion::Clarity2,
                             PrincipalData::Standard(StandardPrincipalData::transient()),
                             None,
                             LimitedCostTracker::new_free(),
