@@ -2302,8 +2302,11 @@ impl BlockMinerThread {
     /// Only used in mock signing to determine if the peer info view was already signed across
     fn mock_block_exists(&self, peer_info: &PeerInfo) -> bool {
         let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
-        let mut miners_stackerdb =
-            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
+        let mut miners_stackerdb = StackerDBSession::new(
+            &self.config.node.rpc_bind,
+            miner_contract_id,
+            self.config.miner.stackerdb_timeout,
+        );
         let miner_slot_ids: Vec<_> = (0..MINER_SLOT_COUNT * 2).collect();
         if let Ok(messages) = miners_stackerdb.get_latest_chunks(&miner_slot_ids) {
             for message in messages.into_iter().flatten() {
@@ -2379,8 +2382,11 @@ impl BlockMinerThread {
         let stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), false)
             .map_err(|e| e.to_string())?;
         let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
-        let mut miners_stackerdb =
-            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
+        let mut miners_stackerdb = StackerDBSession::new(
+            &self.config.node.rpc_bind,
+            miner_contract_id,
+            self.config.miner.stackerdb_timeout,
+        );
         let miner_db = MinerDB::open_with_config(&self.config).map_err(|e| e.to_string())?;
 
         SignerCoordinator::send_miners_message(
