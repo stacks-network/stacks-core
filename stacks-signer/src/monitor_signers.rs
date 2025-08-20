@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use clarity::codec::read_next;
 use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
@@ -233,7 +234,8 @@ impl SignerMonitor {
             "Monitoring signers stackerdb. Polling interval: {} secs, Max message age: {} secs, Reward cycle: {reward_cycle}, StackerDB contract: {contract}",
             self.args.interval, self.args.max_age
         );
-        let mut session = stackerdb_session(&self.args.host, contract);
+        let stackerdb_timeout = Duration::from_secs(self.args.stackerdb_timeout_secs);
+        let mut session = stackerdb_session(&self.args.host, contract, stackerdb_timeout);
         info!("Confirming messages for {nmb_signers} registered signers";
             "signer_addresses" => self.cycle_state.signers_addresses.values().map(|addr| format!("{addr}")).collect::<Vec<_>>().join(", ")
         );
@@ -255,7 +257,7 @@ impl SignerMonitor {
                 info!(
                     "Reward cycle has changed to {reward_cycle}. Updating stacker db session to StackerDB contract {contract}.",
                 );
-                session = stackerdb_session(&self.args.host, contract);
+                session = stackerdb_session(&self.args.host, contract, stackerdb_timeout);
                 // Clear the last messages and signer last update times.
                 last_messages.clear();
                 last_updates.clear();

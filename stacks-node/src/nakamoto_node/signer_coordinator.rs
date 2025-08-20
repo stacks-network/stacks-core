@@ -107,7 +107,11 @@ impl SignerCoordinator {
             .get_rpc_loopback()
             .ok_or_else(|| ChainstateError::MinerAborted)?;
         let miners_contract_id = boot_code_id(MINERS_NAME, is_mainnet);
-        let miners_session = StackerDBSession::new(&rpc_socket.to_string(), miners_contract_id);
+        let miners_session = StackerDBSession::new(
+            &rpc_socket.to_string(),
+            miners_contract_id,
+            config.miner.stackerdb_timeout,
+        );
 
         // build a BTreeMap of the various timeout steps
         let mut block_rejection_timeout_steps = BTreeMap::<u32, Duration>::new();
