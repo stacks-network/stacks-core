@@ -889,11 +889,12 @@ impl<'a> ClarityDatabase<'a> {
 
     /// Returns the _current_ total liquid ustx
     pub fn get_total_liquid_ustx(&mut self) -> Result<u128> {
+        let epoch = self.get_clarity_epoch_version()?;
         Ok(self
             .get_value(
                 ClarityDatabase::ustx_liquid_supply_key(),
                 &TypeSignature::UIntType,
-                &StacksEpochId::latest(),
+                &epoch,
             )
             .map_err(|_| {
                 InterpreterError::Expect(
@@ -1501,13 +1502,14 @@ impl ClarityDatabase<'_> {
         variable_name: &str,
         value: Value,
     ) -> Result<Value> {
+        let epoch = self.get_clarity_epoch_version()?;
         let descriptor = self.load_variable(contract_identifier, variable_name)?;
         self.set_variable(
             contract_identifier,
             variable_name,
             value,
             &descriptor,
-            &StacksEpochId::latest(),
+            &epoch,
         )
         .map(|data| data.value)
     }

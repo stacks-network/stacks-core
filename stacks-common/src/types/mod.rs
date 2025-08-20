@@ -432,7 +432,7 @@ impl SIP031EmissionInterval {
 
 impl StacksEpochId {
     pub fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch32
+        StacksEpochId::Epoch33
     }
 
     /// In this epoch, how should the mempool perform garbage collection?

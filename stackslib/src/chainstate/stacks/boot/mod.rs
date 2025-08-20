@@ -56,6 +56,7 @@ pub const BOOT_CODE_LOCKUP: &str = std::include_str!("lockup.clar");
 pub const BOOT_CODE_COSTS: &str = std::include_str!("costs.clar");
 pub const BOOT_CODE_COSTS_2: &str = std::include_str!("costs-2.clar");
 pub const BOOT_CODE_COSTS_3: &str = std::include_str!("costs-3.clar");
+pub const BOOT_CODE_COSTS_4: &str = std::include_str!("costs-4.clar");
 pub const BOOT_CODE_COSTS_2_TESTNET: &str = std::include_str!("costs-2-testnet.clar");
 pub const BOOT_CODE_COST_VOTING_MAINNET: &str = std::include_str!("cost-voting.clar");
 pub const BOOT_CODE_BNS: &str = std::include_str!("bns.clar");
@@ -87,6 +88,7 @@ const SIP_031_BODY: &str = std::include_str!("sip-031.clar");
 pub const COSTS_1_NAME: &str = "costs";
 pub const COSTS_2_NAME: &str = "costs-2";
 pub const COSTS_3_NAME: &str = "costs-3";
+pub const COSTS_4_NAME: &str = "costs-4";
 /// This contract name is used in testnet **only** to lookup an initial
 ///  setting for the pox-4 aggregate key. This contract should contain a `define-read-only`
 ///  function called `aggregate-key` with zero arguments which returns a (buff 33)

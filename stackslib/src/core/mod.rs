@@ -560,6 +560,35 @@ pub static STACKS_EPOCH_3_2_MARKER: u8 = 0x0e;
 /// *or greater*.
 pub static STACKS_EPOCH_3_3_MARKER: u8 = 0x0f;
 
+/// Latest Stacks epoch marker. Should always be the marker for the highest supported epoch.
+/// This must be updated when a new epoch is added (checked in test below).
+pub static STACKS_EPOCH_LATEST_MARKER: u8 = STACKS_EPOCH_3_3_MARKER;
+
+pub fn marker_for_epoch(epoch_id: StacksEpochId) -> Option<u8> {
+    match epoch_id {
+        StacksEpochId::Epoch10 => None,
+        StacksEpochId::Epoch20 => None,
+        StacksEpochId::Epoch2_05 => Some(STACKS_EPOCH_2_05_MARKER),
+        StacksEpochId::Epoch21 => Some(STACKS_EPOCH_2_1_MARKER),
+        StacksEpochId::Epoch22 => Some(STACKS_EPOCH_2_2_MARKER),
+        StacksEpochId::Epoch23 => Some(STACKS_EPOCH_2_3_MARKER),
+        StacksEpochId::Epoch24 => Some(STACKS_EPOCH_2_4_MARKER),
+        StacksEpochId::Epoch25 => Some(STACKS_EPOCH_2_5_MARKER),
+        StacksEpochId::Epoch30 => Some(STACKS_EPOCH_3_0_MARKER),
+        StacksEpochId::Epoch31 => Some(STACKS_EPOCH_3_1_MARKER),
+        StacksEpochId::Epoch32 => Some(STACKS_EPOCH_3_2_MARKER),
+        StacksEpochId::Epoch33 => Some(STACKS_EPOCH_3_3_MARKER),
+    }
+}
+
+#[test]
+fn test_latest_epoch_marker() {
+    assert_eq!(
+        marker_for_epoch(StacksEpochId::latest()),
+        Some(STACKS_EPOCH_LATEST_MARKER)
+    );
+}
+
 #[test]
 fn test_ord_for_stacks_epoch() {
     let epochs = &*STACKS_EPOCHS_MAINNET;
@@ -816,6 +845,7 @@ fn test_ord_for_stacks_epoch_id() {
         Ordering::Greater
     );
 }
+
 pub trait StacksEpochExtension {
     #[cfg(test)]
     fn unit_test(stacks_epoch_id: StacksEpochId, epoch_2_0_block_height: u64) -> EpochList;
@@ -841,6 +871,8 @@ pub trait StacksEpochExtension {
     fn unit_test_3_1(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
     fn unit_test_3_2(epoch_2_0_block_height: u64) -> EpochList;
+    #[cfg(test)]
+    fn unit_test_3_3(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
     fn unit_test_2_1_only(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
@@ -1753,9 +1785,9 @@ impl StacksEpochExtension for StacksEpoch {
     }
 
     #[cfg(test)]
-    fn unit_test_3_2(first_burnchain_height: u64) -> EpochList {
+    fn unit_test_3_3(first_burnchain_height: u64) -> EpochList {
         info!(
-            "StacksEpoch unit_test_3_2 first_burn_height = {}",
+            "StacksEpoch unit_test_3_3 first_burn_height = {}",
             first_burnchain_height
         );
 
