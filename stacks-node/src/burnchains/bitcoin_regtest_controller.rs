@@ -128,10 +128,14 @@ struct LeaderBlockCommitFees {
 #[cfg(test)]
 pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
     if let BitcoinAddress::Segwit(segwit_addr) = btc_addr {
+        error!("CANARY: Re-encoding {segwit_addr}");
+        panic!("CANARY: Some test use SEGWIT");
+        /*
         // regtest segwit addresses use a different hrp
         let s = segwit_addr.to_bech32_hrp("bcrt");
         warn!("Re-encoding {segwit_addr} to {s}");
         s
+        */
     } else {
         format!("{btc_addr}")
     }
