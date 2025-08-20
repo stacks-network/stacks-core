@@ -1158,7 +1158,7 @@ pub fn special_contract_hash(
 ) -> Result<Value> {
     check_argument_count(1, args)?;
     let contract_expr = args
-        .get(0)
+        .first()
         .ok_or(CheckErrors::IncorrectArgumentCount(1, 0))?;
     let contract_value = eval(contract_expr, env, context)?;
     let contract_identifier = match contract_value {

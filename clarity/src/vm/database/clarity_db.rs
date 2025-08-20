@@ -670,7 +670,6 @@ impl<'a> ClarityDatabase<'a> {
     ) -> Result<Option<Sha512Trunc256Sum>> {
         self.store
             .get_contract_hash(contract_identifier)
-            .map_err(|e| e.into())
     }
 
     pub fn set_metadata(
