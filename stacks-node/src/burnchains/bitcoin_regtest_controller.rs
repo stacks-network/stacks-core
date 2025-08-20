@@ -77,11 +77,10 @@ use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
 use url::Url;
 
-use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
-
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
+use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -348,8 +347,9 @@ impl BitcoinRegtestController {
             runtime: indexer_runtime,
             should_keep_running: should_keep_running.clone(),
         };
-        
-        let rpc_client = BitcoinRpcClient::from_stx_config(&config).expect("unable to instantiate the RPC client!");
+
+        let rpc_client = BitcoinRpcClient::from_stx_config(&config)
+            .expect("unable to instantiate the RPC client!");
 
         Self {
             use_coordinator: coordinator_channel,
@@ -397,7 +397,8 @@ impl BitcoinRegtestController {
             should_keep_running: None,
         };
 
-        let rpc_client = BitcoinRpcClient::from_stx_config(&config).expect("unable to instantiate the RPC client!");
+        let rpc_client = BitcoinRpcClient::from_stx_config(&config)
+            .expect("unable to instantiate the RPC client!");
 
         Self {
             use_coordinator: None,
@@ -3135,8 +3136,7 @@ mod tests {
         ];
 
         // test serialize_tx()
-        let mut config = Config::default();
-        config.burnchain.magic_bytes = "T3".as_bytes().into();
+        let config = utils::create_config();
 
         let mut btc_controller = BitcoinRegtestController::new(config, None);
         let mut utxo_set = UTXOSet {
