@@ -2516,32 +2516,6 @@ impl BitcoinRPCRequest {
         Ok(res.get("result").unwrap().as_str().unwrap().to_string())
     }
 
-    /// Was a given transaction ID confirmed by the burnchain?
-    pub fn check_transaction_confirmed(config: &Config, txid: &Txid) -> RPCResult<bool> {
-        let payload = BitcoinRPCRequest {
-            method: "gettransaction".to_string(),
-            params: vec![format!("{txid}").into()],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-        let res = BitcoinRPCRequest::send(config, payload)?;
-        let confirmations = res
-            .get("result")
-            .ok_or_else(|| RPCError::Parsing("No 'result' field in bitcoind RPC response".into()))?
-            .get("confirmations")
-            .ok_or_else(|| {
-                RPCError::Parsing("No 'confirmations' field in bitcoind RPC response".into())
-            })?
-            .as_i64()
-            .ok_or_else(|| {
-                RPCError::Parsing(
-                    "Expected 'confirmations' field to be numeric in bitcoind RPC response".into(),
-                )
-            })?;
-
-        Ok(confirmations >= 1)
-    }
-
     pub fn generate_to_address(config: &Config, num_blocks: u64, address: String) -> RPCResult<()> {
         debug!("Generate {num_blocks} blocks to {address}");
         let payload = BitcoinRPCRequest {
