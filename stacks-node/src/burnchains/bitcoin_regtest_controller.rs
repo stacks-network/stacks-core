@@ -80,7 +80,7 @@ use url::Url;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
-use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
+use crate::burnchains::rpc::bitcoin_rpc_client::{BitcoinRpcClient, BitcoinRpcClientError};
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -284,6 +284,28 @@ impl LeaderBlockCommitFees {
             self.spent_in_attempts += new_size;
         }
         self.final_size = new_size;
+    }
+}
+
+/// Extension methods for working with [`BitcoinRpcClient`] result
+/// that log failures and panic.
+trait BitcoinRpcClientResultExt<T> {
+    /// Unwraps the result, returning the value if `Ok`.
+    ///
+    /// If the result is an `Err`, it logs the error with the given context
+    /// using the [`error!`] macro and then panics.
+    fn unwrap_or_log_panic(self, context: &str) -> T;
+}
+
+impl<T> BitcoinRpcClientResultExt<T> for Result<T, BitcoinRpcClientError> {
+    fn unwrap_or_log_panic(self, context: &str) -> T {
+        match self {
+            Ok(val) => val,
+            Err(e) => {
+                error!("Bitcoin RPC failure: {context} {e:?}");
+                panic!();
+            }
+        }
     }
 }
 
@@ -2011,22 +2033,17 @@ impl BitcoinRegtestController {
     #[cfg(test)]
     pub fn invalidate_block(&self, block: &BurnchainHeaderHash) {
         info!("Invalidating block {block}");
-        if let Err(e) = self.rpc_client.invalidate_block(block) {
-            error!("Bitcoin RPC failure: error invalidating block {e:?}");
-            panic!();
-        }
+        self.rpc_client
+            .invalidate_block(block)
+            .unwrap_or_log_panic("invalidate block")
     }
 
     /// Retrieve the hash (as a [`BurnchainHeaderHash`]) of the block at the given height.
     #[cfg(test)]
     pub fn get_block_hash(&self, height: u64) -> BurnchainHeaderHash {
-        match self.rpc_client.get_block_hash(height) {
-            Ok(bhh) => bhh,
-            Err(e) => {
-                error!("Bitcoin RPC failure: error retrieving block {e:?}");
-                panic!();
-            }
-        }
+        self.rpc_client
+            .get_block_hash(height)
+            .unwrap_or_log_panic("retrieve block")
     }
 
     #[cfg(test)]
