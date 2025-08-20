@@ -78,7 +78,9 @@ use url::Url;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
-use crate::burnchains::rpc::bitcoin_rpc_client::{BitcoinRpcClient, BitcoinRpcClientError};
+use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
+#[cfg(test)]
+use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClientError;
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -2493,20 +2495,6 @@ impl BitcoinRPCRequest {
             request.add_header("Authorization".into(), auth_token);
         }
         request
-    }
-
-    #[cfg(test)]
-    pub fn get_raw_transaction(config: &Config, txid: &Txid) -> RPCResult<String> {
-        debug!("Get raw transaction {txid}");
-        let payload = BitcoinRPCRequest {
-            method: "getrawtransaction".to_string(),
-            params: vec![format!("{txid}").into()],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-        let res = BitcoinRPCRequest::send(config, payload)?;
-        debug!("Got raw transaction {txid}: {res:?}");
-        Ok(res.get("result").unwrap().as_str().unwrap().to_string())
     }
 
     /// Was a given transaction ID confirmed by the burnchain?
