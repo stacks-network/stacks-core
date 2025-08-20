@@ -272,3 +272,41 @@ impl SignerSession for StackerDBSession {
         Ok(ack)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+    use std::net::TcpListener;
+    use std::thread;
+
+    use super::*;
+
+    #[test]
+    fn socket_timeout_works_as_expected() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind failed");
+        let addr = listener.local_addr().unwrap();
+
+        let short_timeout = Duration::from_millis(200);
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                // Sleep long enough so the client should hit its timeout
+                std::thread::sleep(short_timeout * 2);
+                let _ = stream.write_all(b"HTTP/1.1 200 OK\r\n\r\n");
+            }
+        });
+
+        let contract_id = QualifiedContractIdentifier::transient();
+        let mut session = StackerDBSession::new(&addr.to_string(), contract_id, short_timeout);
+
+        session.connect_or_reconnect().expect("connect failed");
+
+        // This should fail due to the timeout
+        let result = session.rpc_request("GET", "/", None, &[]);
+        match result {
+            Err(RPCError::IO(e)) => {
+                assert_eq!(e.kind(), std::io::ErrorKind::WouldBlock);
+            }
+            other => panic!("expected timeout error, got {other:?}"),
+        }
+    }
+}
