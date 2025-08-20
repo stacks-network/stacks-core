@@ -12673,7 +12673,7 @@ fn write_signer_update(
 
     // Submit the update to the signers slot
     let mut version = 0;
-    wait_for(timeout, || {
+    wait_for(timeout.as_secs(), || {
         let mut chunk =
             StackerDBChunkData::new(signer_slot_id, version, message.serialize_to_vec());
         chunk
