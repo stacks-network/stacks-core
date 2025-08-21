@@ -221,220 +221,220 @@ fn test_names_tokens_contracts_interface() {
     let test_contract_json: serde_json::Value =
         serde_json::from_str(&test_contract_json_str).unwrap();
 
-    let test_contract_json_expected: serde_json::Value = serde_json::from_str(r#"{
+    let test_contract_json_expected: serde_json::Value = serde_json::from_str(&format!(r#"{{
         "functions": [
-            { "name": "f00",
+            {{ "name": "f00",
                 "access": "private",
-                "args": [{ "name": "a1", "type": "int128" }],
-                "outputs": { "type": "bool" }
-            },
-            { "name": "f01",
+                "args": [{{ "name": "a1", "type": "int128" }}],
+                "outputs": {{ "type": "bool" }}
+            }},
+            {{ "name": "f01",
                 "access": "private",
-                "args": [{ "name": "a1", "type": "bool" }],
-                "outputs": { "type": "bool" }
-            },
-            { "name": "f02",
+                "args": [{{ "name": "a1", "type": "bool" }}],
+                "outputs": {{ "type": "bool" }}
+            }},
+            {{ "name": "f02",
                 "access": "private",
-                "args": [{ "name": "a1", "type": "principal" }],
-                "outputs": { "type": "bool" }
-            },
-            { "name": "f03",
+                "args": [{{ "name": "a1", "type": "principal" }}],
+                "outputs": {{ "type": "bool" }}
+            }},
+            {{ "name": "f03",
                 "access": "private",
-                "args": [{ "name": "a1", "type": { "buffer": { "length": 54 } } }],
-                "outputs": { "type": "bool" }
-            },
-            { "name": "f04",
+                "args": [{{ "name": "a1", "type": {{ "buffer": {{ "length": 54 }} }} }}],
+                "outputs": {{ "type": "bool" }}
+            }},
+            {{ "name": "f04",
                 "access": "private",
-                "args": [{ "name": "a1", "type": { "tuple": [
-                    { "name": "t-name1", "type": "bool" },
-                    { "name": "t-name2", "type": "int128" }
-                ] } }],
-                "outputs": { "type": "bool" }
-            },
-            { "name": "f05",
+                "args": [{{ "name": "a1", "type": {{ "tuple": [
+                    {{ "name": "t-name1", "type": "bool" }},
+                    {{ "name": "t-name2", "type": "int128" }}
+                ] }} }}],
+                "outputs": {{ "type": "bool" }}
+            }},
+            {{ "name": "f05",
                 "access": "private",
-                "args": [{ "name": "a1", "type": { "list": { "type": { "list": { "type": "int128", "length": 3 } }, "length": 7 } } }],
-                "outputs": { "type": "bool" }
-            },
-            { "name": "f06",
-                "access": "private",
-                "args": [],
-                "outputs": { "type": "int128" }
-            },
-            { "name": "f07",
+                "args": [{{ "name": "a1", "type": {{ "list": {{ "type": {{ "list": {{ "type": "int128", "length": 3 }} }}, "length": 7 }} }} }}],
+                "outputs": {{ "type": "bool" }}
+            }},
+            {{ "name": "f06",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": "bool" }
-            },
-            { "name": "f08",
+                "outputs": {{ "type": "int128" }}
+            }},
+            {{ "name": "f07",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": "principal" }
-            },
-            { "name": "f09",
+                "outputs": {{ "type": "bool" }}
+            }},
+            {{ "name": "f08",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "buffer": { "length": 4 } } }
-            },
-            { "name": "f10",
+                "outputs": {{ "type": "principal" }}
+            }},
+            {{ "name": "f09",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "tuple": [
-                    { "name": "tn1", "type": "bool" },
-                    { "name": "tn2", "type": "int128" },
-                    { "name": "tn3", "type": { "buffer": { "length": 1 } }}
-                ] } } 
-            },
-            { "name": "f11",
+                "outputs": {{ "type": {{ "buffer": {{ "length": 4 }} }} }}
+            }},
+            {{ "name": "f10",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "optional": { "tuple": [ {
+                "outputs": {{ "type": {{ "tuple": [
+                    {{ "name": "tn1", "type": "bool" }},
+                    {{ "name": "tn2", "type": "int128" }},
+                    {{ "name": "tn3", "type": {{ "buffer": {{ "length": 1 }} }}}}
+                ] }} }} 
+            }},
+            {{ "name": "f11",
+                "access": "private",
+                "args": [],
+                "outputs": {{ "type": {{ "optional": {{ "tuple": [ {{
                     "name": "owner",
                     "type": "principal"
-                 } ] } } }
-            },
-            { "name": "f12",
+                 }} ] }} }} }}
+            }},
+            {{ "name": "f12",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "response": { "ok": "int128", "error": "none" } } }
-            },
-            { "name": "f13",
+                "outputs": {{ "type": {{ "response": {{ "ok": "int128", "error": "none" }} }} }}
+            }},
+            {{ "name": "f13",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "response": { "ok": "none", "error": "int128" } } }
-            },
-            { "name": "f14",
+                "outputs": {{ "type": {{ "response": {{ "ok": "none", "error": "int128" }} }} }}
+            }},
+            {{ "name": "f14",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "response": { "ok": "int128", "error": "int128" } } }
-            },
-            { "name": "f15",
+                "outputs": {{ "type": {{ "response": {{ "ok": "int128", "error": "int128" }} }} }}
+            }},
+            {{ "name": "f15",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "list": { "type": "int128", "length": 3 } } }
-            },
-            { "name": "f16",
+                "outputs": {{ "type": {{ "list": {{ "type": "int128", "length": 3 }} }} }}
+            }},
+            {{ "name": "f16",
                 "access": "private",
                 "args": [],
-                "outputs": {
-                  "type": { "list": {
-                      "type": { "list": {
-                            "type": { "list": { "type": "int128", "length": 1 } },
-                            "length": 1 }
-                              },
-                      "length": 2 }
-                          }
-                }
-            },
-            { "name": "pub-f01",
+                "outputs": {{
+                  "type": {{ "list": {{
+                      "type": {{ "list": {{
+                            "type": {{ "list": {{ "type": "int128", "length": 1 }} }},
+                            "length": 1 }}
+                              }},
+                      "length": 2 }}
+                          }}
+                }}
+            }},
+            {{ "name": "pub-f01",
                 "access": "public",
                 "args": [],
-                "outputs": { "type": { "response": { "ok": "int128", "error": "none" } } }
-            },
-            { "name": "pub-f02",
+                "outputs": {{ "type": {{ "response": {{ "ok": "int128", "error": "none" }} }} }}
+            }},
+            {{ "name": "pub-f02",
                 "access": "public",
                 "args": [],
-                "outputs": { "type": { "response": { "ok": "bool", "error": "none" } } }
-            },
-            { "name": "pub-f03",
+                "outputs": {{ "type": {{ "response": {{ "ok": "bool", "error": "none" }} }} }}
+            }},
+            {{ "name": "pub-f03",
                 "access": "public",
                 "args": [],
-                "outputs": { "type": { "response": { "ok": "none", "error": "bool" } } }
-            },
-            { "name": "pub-f04",
+                "outputs": {{ "type": {{ "response": {{ "ok": "none", "error": "bool" }} }} }}
+            }},
+            {{ "name": "pub-f04",
                 "access": "public",
                 "args": [],
-                "outputs": { "type": { "response": { "ok": "int128", "error": "int128" } } }
-            },
-            { "name": "pub-f05",
+                "outputs": {{ "type": {{ "response": {{ "ok": "int128", "error": "int128" }} }} }}
+            }},
+            {{ "name": "pub-f05",
                 "access": "public",
-                "args": [{ "name": "a1", "type": "int128" }],
-                "outputs": { "type": { "response": { "ok": "bool", "error": "none" } } }
-            },
-            { "name": "ro-f01",
+                "args": [{{ "name": "a1", "type": "int128" }}],
+                "outputs": {{ "type": {{ "response": {{ "ok": "bool", "error": "none" }} }} }}
+            }},
+            {{ "name": "ro-f01",
                 "access": "read_only",
                 "args": [],
-                "outputs": { "type": "int128" }
-            },
-            { "name": "ro-f02",
+                "outputs": {{ "type": "int128" }}
+            }},
+            {{ "name": "ro-f02",
                 "access": "read_only",
-                "args": [{ "name": "a1", "type": "int128" }],
-                "outputs": { "type": "int128" }
-            }
+                "args": [{{ "name": "a1", "type": "int128" }}],
+                "outputs": {{ "type": "int128" }}
+            }}
         ],
         "maps": [
-            {
+            {{
                 "name": "map1",
-                "key": {
-                    "tuple": [{
+                "key": {{
+                    "tuple": [{{
                         "name": "name",
                         "type": "int128"
-                    }]
-                },
-                "value": {
-                    "tuple": [{
+                    }}]
+                }},
+                "value": {{
+                    "tuple": [{{
                         "name": "owner",
                         "type": "principal"
-                    }]
-                }
-            },
-            {
+                    }}]
+                }}
+            }},
+            {{
                 "name": "map2",
-                "key": {
-                    "tuple": [{
+                "key": {{
+                    "tuple": [{{
                         "name": "k-name-1",
                         "type": "bool"
-                    }]
-                },
-                "value": {
-                    "tuple": [{
+                    }}]
+                }},
+                "value": {{
+                    "tuple": [{{
                         "name": "v-name-1",
-                        "type": {
-                            "buffer": { "length": 33 }
-                        }
-                    }]
-                }
-            },
-            {
+                        "type": {{
+                            "buffer": {{ "length": 33 }}
+                        }}
+                    }}]
+                }}
+            }},
+            {{
                 "name": "map3",
-                "key": {
-                    "tuple": [{
+                "key": {{
+                    "tuple": [{{
                         "name": "k-name-2",
                         "type": "bool"
-                    }]
-                },
-                "value": {
-                    "tuple": [{
+                    }}]
+                }},
+                "value": {{
+                    "tuple": [{{
                         "name": "v-name-2",
-                        "type": {
+                        "type": {{
                             "tuple": [
-                                {
+                                {{
                                     "name": "n1",
                                     "type": "int128"
-                                },
-                                {
+                                }},
+                                {{
                                     "name": "n2",
                                     "type": "bool"
-                                }
+                                }}
                             ] 
-                        }
-                    }]
-                }
-            }
+                        }}
+                    }}]
+                }}
+            }}
         ],
         "variables": [
-            { "name": "var1", "access": "constant", "type": "principal" },
-            { "name": "var2", "access": "constant", "type": "bool" },
-            { "name": "var3", "access": "constant", "type": "int128" },
-            { "name": "d-var1", "access": "variable", "type": "bool" },
-            { "name": "d-var2", "access": "variable", "type": "int128" },
-            { "name": "d-var3", "access": "variable", "type": { "buffer": { "length": 5 } } }
+            {{ "name": "var1", "access": "constant", "type": "principal" }},
+            {{ "name": "var2", "access": "constant", "type": "bool" }},
+            {{ "name": "var3", "access": "constant", "type": "int128" }},
+            {{ "name": "d-var1", "access": "variable", "type": "bool" }},
+            {{ "name": "d-var2", "access": "variable", "type": "int128" }},
+            {{ "name": "d-var3", "access": "variable", "type": {{ "buffer": {{ "length": 5 }} }} }}
         ],
         "fungible_tokens": [],
         "non_fungible_tokens": [],
-        "epoch": "Epoch21",
-        "clarity_version": "Clarity3"
-    }"#).unwrap();
+        "epoch": "{:?}",
+        "clarity_version": "{:?}"
+}}"#, StacksEpochId::latest(), ClarityVersion::latest())).unwrap();
 
     eprintln!("{test_contract_json_str}");
 
