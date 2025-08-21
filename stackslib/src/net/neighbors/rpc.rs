@@ -126,33 +126,43 @@ impl NeighborRPC {
         let mut dead = vec![];
         let mut ret = vec![];
         for (naddr, (event_id, mut request_opt)) in self.state.drain() {
-            let response = match NeighborRPC::poll_next_reply(network, event_id, &mut request_opt) {
-                Ok(Some(response)) => response,
-                Ok(None) => {
-                    // keep trying
-                    debug!("Still waiting for next reply from {}", &naddr);
-                    inflight.insert(naddr, (event_id, request_opt));
-                    continue;
-                }
-                Err(NetError::WaitingForDNS) => {
-                    // keep trying
-                    debug!(
-                        "Could not yet poll next reply from {}: waiting for DNS",
-                        &naddr
-                    );
-                    inflight.insert(naddr, (event_id, request_opt));
-                    continue;
-                }
-                Err(e) => {
-                    // declare this neighbor as dead by default
-                    debug!("Failed to poll next reply from {}: {:?}", &naddr, &e);
-                    dead.push((
-                        naddr,
-                        DropReason::DeadConnection(format!("Failed to poll next reply: {e}")),
-                    ));
-                    continue;
-                }
-            };
+            let response =
+                match NeighborRPC::poll_next_reply(network, &naddr, event_id, &mut request_opt) {
+                    Ok(Some(response)) => response,
+                    Ok(None) => {
+                        // keep trying
+                        debug!("Still waiting for next reply from {}", &naddr);
+                        inflight.insert(naddr, (event_id, request_opt));
+                        continue;
+                    }
+                    Err(NetError::WaitingForDNS) => {
+                        // keep trying
+                        debug!(
+                            "Could not yet poll next reply from {}: waiting for DNS",
+                            &naddr
+                        );
+                        inflight.insert(naddr, (event_id, request_opt));
+                        continue;
+                    }
+                    Err(NetError::InProgress) => {
+                        // keep trying
+                        debug!(
+                            "Could not yet poll next reply from {}: request already in progress",
+                            &naddr
+                        );
+                        inflight.insert(naddr, (event_id, request_opt));
+                        continue;
+                    }
+                    Err(e) => {
+                        // declare this neighbor as dead by default
+                        debug!("Failed to poll next reply from {}: {:?}", &naddr, &e);
+                        dead.push((
+                            naddr,
+                            DropReason::DeadConnection(format!("Failed to poll next reply: {e}")),
+                        ));
+                        continue;
+                    }
+                };
 
             ret.push((naddr, response));
         }
@@ -194,7 +204,10 @@ impl NeighborRPC {
         let nk = naddr.to_neighbor_key(network);
         let convo = network
             .get_neighbor_convo(&nk)
-            .ok_or(NetError::PeerNotConnected)?;
+            .ok_or(NetError::PeerNotConnected(format!(
+                "No authenticated conversation open to {:?} -- cannot perform HTTP request",
+                &nk
+            )))?;
         let data_url = convo.data_url.clone();
         let data_addr = if let Some(ip) = convo.data_ip {
             ip.clone()
@@ -213,7 +226,10 @@ impl NeighborRPC {
                 &convo,
                 &data_url
             );
-            return Err(NetError::PeerNotConnected);
+            return Err(NetError::PeerNotConnected(format!(
+                "Have not resolved {:?} data URL {} yet, and not waiting for DNS",
+                &nk, &data_url
+            )));
         };
 
         let event_id =
@@ -248,6 +264,7 @@ impl NeighborRPC {
     /// Returns Err(..) if we fail to connect, or if we are unable to receive a reply.
     fn poll_next_reply(
         network: &mut PeerNetwork,
+        naddr: &NeighborAddress,
         event_id: usize,
         request_opt: &mut Option<StacksHttpRequest>,
     ) -> Result<Option<StacksHttpResponse>, NetError> {
@@ -265,7 +282,7 @@ impl NeighborRPC {
                 } else {
                     // conversation died
                     debug!("{:?}: HTTP event {} hung up", &network.local_peer, event_id);
-                    return Err(NetError::PeerNotConnected);
+                    return Err(NetError::PeerNotConnected(format!("HTTP connection to {:?} (event {}) hung up -- no connection established and not connecting", naddr, event_id)));
                 }
             };
 
