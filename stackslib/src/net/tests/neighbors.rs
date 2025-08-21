@@ -14,8 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 
@@ -26,9 +25,9 @@ use crate::core::{
     EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     STACKS_EPOCH_MAX,
 };
-use crate::net::neighbors::rpc::NeighborRPC;
 
 use crate::net::db::*;
+use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::neighbors::*;
 use crate::net::test::*;
 use crate::net::*;
