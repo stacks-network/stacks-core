@@ -1251,7 +1251,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let function_name = function_name
             .match_atom()
             .ok_or(CheckErrors::BadFunctionName)?;
-        let args = parse_name_type_pairs::<()>(
+        let args = parse_name_type_pairs::<(), CheckError>(
             StacksEpochId::Epoch21,
             args,
             SyntaxBindingErrorType::Eval,

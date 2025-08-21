@@ -373,6 +373,20 @@ impl From<(SyntaxBindingError, &SymbolicExpression)> for CheckError {
     }
 }
 
+impl From<(CheckErrors, &SymbolicExpression)> for CheckError {
+    fn from(e: (CheckErrors, &SymbolicExpression)) -> Self {
+        let mut ce = Self::new(e.0);
+        ce.set_expression(e.1);
+        ce
+    }
+}
+
+impl From<(CheckErrors, &SymbolicExpression)> for CheckErrors {
+    fn from(e: (CheckErrors, &SymbolicExpression)) -> Self {
+        e.0
+    }
+}
+
 impl fmt::Display for CheckErrors {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")

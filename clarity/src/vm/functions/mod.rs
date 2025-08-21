@@ -669,23 +669,27 @@ pub fn handle_binding_list<F, E>(
 ) -> std::result::Result<(), E>
 where
     F: FnMut(&ClarityName, &SymbolicExpression) -> std::result::Result<(), E>,
-    E: From<CheckErrors>,
+    E: for<'a> From<(CheckErrors, &'a SymbolicExpression)>,
 {
     for (i, binding) in bindings.iter().enumerate() {
         let binding_expression = binding.match_list().ok_or_else(|| {
-            CheckErrors::BadSyntaxBinding(SyntaxBindingError::NotList(binding_error_type, i))
+            (
+                SyntaxBindingError::NotList(binding_error_type, i).into(),
+                binding,
+            )
         })?;
         if binding_expression.len() != 2 {
-            return Err(
-                CheckErrors::BadSyntaxBinding(SyntaxBindingError::InvalidLength(
-                    binding_error_type,
-                    i,
-                ))
-                .into(),
-            );
+            return Err((
+                SyntaxBindingError::InvalidLength(binding_error_type, i).into(),
+                binding,
+            )
+                .into());
         }
         let var_name = binding_expression[0].match_atom().ok_or_else(|| {
-            CheckErrors::BadSyntaxBinding(SyntaxBindingError::NotAtom(binding_error_type, i))
+            (
+                SyntaxBindingError::NotAtom(binding_error_type, i).into(),
+                &binding_expression[0],
+            )
         })?;
         let var_sexp = &binding_expression[1];
 

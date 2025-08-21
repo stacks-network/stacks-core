@@ -1494,7 +1494,7 @@ impl TypeSignature {
         type_args: &[SymbolicExpression],
         accounting: &mut A,
     ) -> Result<TypeSignature> {
-        let mapped_key_types = parse_name_type_pairs(
+        let mapped_key_types = parse_name_type_pairs::<_, CheckErrors>(
             epoch,
             type_args,
             SyntaxBindingErrorType::TupleCons,
@@ -1919,12 +1919,15 @@ use crate::vm::ClarityVersion;
 /// Try to parse a list of (name_i, type_i) pairs into Vec<(ClarityName, TypeSignature)>.
 /// On failure, return both the type-check error as well as the index of the symbolic expression which caused
 /// the problem (for purposes of reporting the error).
-pub fn parse_name_type_pairs<A: CostTracker>(
+pub fn parse_name_type_pairs<A: CostTracker, E>(
     epoch: StacksEpochId,
     name_type_pairs: &[SymbolicExpression],
     binding_error_type: SyntaxBindingErrorType,
     accounting: &mut A,
-) -> std::result::Result<Vec<(ClarityName, TypeSignature)>, CheckErrors> {
+) -> std::result::Result<Vec<(ClarityName, TypeSignature)>, E>
+where
+    E: for<'a> From<(CheckErrors, &'a SymbolicExpression)>,
+{
     // this is a pretty deep nesting here, but what we're trying to do is pick out the values of
     // the form:
     // ((name1 type1) (name2 type2) (name3 type3) ...)
@@ -1932,44 +1935,55 @@ pub fn parse_name_type_pairs<A: CostTracker>(
     use crate::vm::representations::SymbolicExpressionType::List;
 
     // step 1: parse it into a vec of symbolicexpression pairs.
-    let as_pairs: std::result::Result<Vec<_>, CheckErrors> = name_type_pairs
+    let as_pairs: std::result::Result<Vec<_>, (CheckErrors, &SymbolicExpression)> = name_type_pairs
         .iter()
         .enumerate()
         .map(|(i, key_type_pair)| {
             if let List(ref as_vec) = key_type_pair.expr {
                 if as_vec.len() != 2 {
-                    Err(CheckErrors::BadSyntaxBinding(
-                        SyntaxBindingError::InvalidLength(binding_error_type, i),
+                    Err((
+                        CheckErrors::BadSyntaxBinding(SyntaxBindingError::InvalidLength(
+                            binding_error_type,
+                            i,
+                        )),
+                        key_type_pair,
                     ))
                 } else {
                     Ok((&as_vec[0], &as_vec[1]))
                 }
             } else {
-                Err(SyntaxBindingError::NotList(binding_error_type, i).into())
+                Err((
+                    SyntaxBindingError::NotList(binding_error_type, i).into(),
+                    key_type_pair,
+                ))
             }
         })
         .collect();
 
     // step 2: turn into a vec of (name, typesignature) pairs.
-    let key_types: std::result::Result<Vec<_>, CheckErrors> = (as_pairs?)
+    let key_types: std::result::Result<Vec<_>, (CheckErrors, &SymbolicExpression)> = (as_pairs?)
         .iter()
         .enumerate()
         .map(|(i, (name_symbol, type_symbol))| {
             let name = name_symbol
                 .match_atom()
                 .ok_or_else(|| {
-                    CheckErrors::BadSyntaxBinding(SyntaxBindingError::NotAtom(
-                        binding_error_type,
-                        i,
-                    ))
+                    (
+                        CheckErrors::BadSyntaxBinding(SyntaxBindingError::NotAtom(
+                            binding_error_type,
+                            i,
+                        )),
+                        *name_symbol,
+                    )
                 })?
                 .clone();
-            let type_info = TypeSignature::parse_type_repr(epoch, type_symbol, accounting)?;
+            let type_info = TypeSignature::parse_type_repr(epoch, type_symbol, accounting)
+                .map_err(|e| (e, *type_symbol))?;
             Ok((name, type_info))
         })
         .collect();
 
-    key_types
+    Ok(key_types?)
 }
 
 impl fmt::Display for TupleTypeSignature {

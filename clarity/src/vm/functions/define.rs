@@ -142,8 +142,12 @@ fn handle_define_function(
 
     check_legal_define(function_name, env.contract_context)?;
 
-    let arguments =
-        parse_name_type_pairs(*env.epoch(), arg_symbols, SyntaxBindingErrorType::Eval, env)?;
+    let arguments = parse_name_type_pairs::<_, CheckErrors>(
+        *env.epoch(),
+        arg_symbols,
+        SyntaxBindingErrorType::Eval,
+        env,
+    )?;
 
     for (argument, _) in arguments.iter() {
         check_legal_define(argument, env.contract_context)?;

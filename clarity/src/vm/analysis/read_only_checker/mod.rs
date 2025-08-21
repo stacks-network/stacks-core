@@ -335,7 +335,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     if pair_expression.len() != 2 {
                         return Err(CheckError::with_expression(
                             SyntaxBindingError::let_binding_invalid_length(i).into(),
-                            &SymbolicExpression::list(pair_expression.to_vec()),
+                            pair,
                         ));
                     }
 
@@ -383,7 +383,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     if pair_expression.len() != 2 {
                         return Err(CheckError::with_expression(
                             SyntaxBindingError::tuple_cons_invalid_length(i).into(),
-                            &SymbolicExpression::list(pair_expression.to_vec()),
+                            pair,
                         ));
                     }
 
