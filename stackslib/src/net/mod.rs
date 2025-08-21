@@ -185,7 +185,7 @@ pub enum Error {
     /// server is not bound to a socket
     NotConnected,
     /// Remote peer is not connected
-    PeerNotConnected,
+    PeerNotConnected(String),
     /// Too many peers
     TooManyPeers,
     /// Peer already connected
@@ -335,7 +335,9 @@ impl fmt::Display for Error {
             Error::RegisterError => write!(f, "Failed to register socket with poller"),
             Error::SocketError => write!(f, "Socket error"),
             Error::NotConnected => write!(f, "Not connected to peer network"),
-            Error::PeerNotConnected => write!(f, "Remote peer is not connected to us"),
+            Error::PeerNotConnected(ref msg) => {
+                write!(f, "Remote peer is not connected to us: {}", msg)
+            }
             Error::TooManyPeers => write!(f, "Too many peer connections open"),
             Error::AlreadyConnected(ref _id, ref _nk) => write!(f, "Peer already connected"),
             Error::InProgress => write!(f, "Message already in progress"),
@@ -445,7 +447,7 @@ impl error::Error for Error {
             Error::RegisterError => None,
             Error::SocketError => None,
             Error::NotConnected => None,
-            Error::PeerNotConnected => None,
+            Error::PeerNotConnected(..) => None,
             Error::TooManyPeers => None,
             Error::AlreadyConnected(ref _id, ref _nk) => None,
             Error::InProgress => None,
